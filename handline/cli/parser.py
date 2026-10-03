@@ -32,11 +32,11 @@ from .team import cmd_team, cmd_team_init, cmd_team_seal
 def build_parser() -> argparse.ArgumentParser:
     from .. import __version__
 
-    ap = argparse.ArgumentParser(prog="ocp", description="orcapipe - multi-account agent pipeline")
-    ap.add_argument("--version", action="version", version=f"ocp {__version__}")
+    ap = argparse.ArgumentParser(prog="hl", description="Handline - multi-account agent pipeline. With no command, opens the screen the team is run from.")
+    ap.add_argument("--version", action="version", version=f"hl {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="create ~/.orcapipe and install shared settings").set_defaults(fn=cmd_init)
+    sub.add_parser("init", help="create ~/.handline and install shared settings").set_defaults(fn=cmd_init)
 
     p = sub.add_parser("login", help="log an account in (interactive), or list who is")
     p.add_argument("account", nargs="?")
@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = acc.add_parser("add", help="register an account and log it in")
     p.add_argument("name")
     p.add_argument("--no-login", action="store_true",
-                   help="register only; log in later with `ocp login <name>`")
+                   help="register only; log in later with `hl login <name>`")
     p.add_argument("--vendor", default=None,
                    help="the tool this account is for (default: claude)")
     p.set_defaults(fn=cmd_account_add)
@@ -155,9 +155,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settle-leftovers", action="store_true",
                    help="close, quietly, the task deliveries still queued on a task that has ended")
     p.add_argument("--drop-dead-columns", action="store_true",
-                   help="drop the request columns nothing uses any more - only after the bridge and every "
+                   help="drop the request columns nothing uses any more - only after the screen and every "
                         "long-lived session have been restarted on current code, and with a backup from the "
-                        "last 5 minutes (`ocp backup`)")
+                        "last 5 minutes (`hl backup`)")
     p.add_argument("--dry-run", action="store_true",
                    help="with --drop-dead-columns: print what would be dropped and the newest backup, change "
                         "nothing; exit 1 if the real run would be refused")
@@ -234,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
     q = hrsub.add_parser("approve", help="the founder approves a proposal; it is applied now")
     q.add_argument("id")
     q.add_argument("--subject", default="",
-                   help="the digest of the proposal as read (`ocp hr list --json`); without it the "
+                   help="the digest of the proposal as read (`hl hr list --json`); without it the "
                         "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
@@ -275,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = tm.add_parser("seal", help="founder only: accept team.yaml and every agent.yaml as they are now")
     p.set_defaults(fn=cmd_team_seal)
     p = sub.add_parser("say", help="a message that needs no answer and starts no work (T293), typed at "
-                                   "once - work is `ocp task new`")
+                                   "once - work is `hl task new`")
     p.add_argument("target", nargs="?")
     p.add_argument("body", nargs="?", default=None)
     p.add_argument("--file", default=None, metavar="PATH",
@@ -471,9 +471,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--textual", action="store_true",
                    help="accepted and does nothing: Textual is the only screen")
     p.add_argument("--pid", action="store_true",
-                   help="print the pid of the running bridge (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
+                   help="print the pid of the running screen (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
     p.add_argument("--dev-mode", action="store_true",
-                   help="turn dev mode on first (as `ocp dev-mode on`); without it dev mode is left as it is")
+                   help="turn dev mode on first (as `hl dev-mode on`); without it dev mode is left as it is")
     p.set_defaults(fn=cmd_bridge)
 
     ms = sub.add_parser("memory", help="per-agent memory against its budget").add_subparsers(
@@ -659,6 +659,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv or argv[0] in ("--once", "--textual", "--pid", "--dev-mode"):
+        argv = ["bridge", *argv]            # `hl` alone is the screen; "bridge" is only its code name
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)

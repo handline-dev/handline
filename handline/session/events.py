@@ -109,7 +109,7 @@ def at_limit(con, agent: str) -> dict | None:
 
 
 def record_from_stdin(argv: list[str] | None = None) -> int:
-    """Entry point for `ocp hook <event>`. Always exits 0.
+    """Entry point for `hl hook <event>`. Always exits 0.
 
     A hook that fails must never take the agent down with it, so every error
     path here is swallowed after the fact is recorded.
@@ -239,7 +239,7 @@ COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Po
 # context reclaim look like the agent waking up. That cleared the park it had
 # just set, the usage trigger fired again on the unchanged number, and the
 # agent handed off in a loop - 42 folds in seven minutes before it was caught.
-# The hook events that only mark the edges of a turn. `ocp bridge` counts these
+# The hook events that only mark the edges of a turn. `hl` counts these
 # rather than drawing them: the agent's own state column says which side of a
 # turn it is on, and they crowd out the rows that say what was decided. What is
 # NOT in here is deliberate - PermissionRequest and TeammateIdle are the two

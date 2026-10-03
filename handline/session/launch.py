@@ -1,4 +1,4 @@
-"""ocp launch - the execution layer (follows from Phase 0 verdict J4).
+"""hl launch - the execution layer (follows from Phase 0 verdict J4).
 
 The design intended to inject CLAUDE_CONFIG_DIR through a worktree .envrc via
 direnv. Phase 0 changed that premise:
@@ -12,7 +12,7 @@ direnv. Phase 0 changed that premise:
 So we use a launcher wrapper instead. Orca preserves the launch command across
 hibernation and restore, which makes this recover better than .envrc would.
 
-    orca terminal create --worktree path:<wt> --command "ocp launch backend"
+    orca terminal create --worktree path:<wt> --command "hl launch backend"
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from . import events, triggers
 # `build` and `fingerprint` must name the same tools, or a change to one
 # reads as a launch that never drifted to the other.
 #
-# Work for another agent goes through `ocp task new`, where the bridge can see
+# Work for another agent goes through `hl task new`, where the bridge can see
 # it. Agent spawns a subagent that dies with the session, unseen; SendMessage
 # reaches another agent's own session directly, bypassing the bridge the
 # same way - a manager used exactly that tonight to resume two subordinates
@@ -139,7 +139,7 @@ def no_room(agent: str) -> str:
     """Why no account can take this agent, naming the one that frees up first."""
     named = paths.list_accounts()
     if not any(accounts.may_start(a) for a in named):
-        return ("no account is registered - `ocp account add <name>` first" if not named else
+        return ("no account is registered - `hl account add <name>` first" if not named else
                 "no account is logged in. A human has to do this once (ocp never "
                 f"touches credentials):\n\n  {accounts.login_command(named[0])}\n")
     w = frees_first(agent)
@@ -234,7 +234,7 @@ def mcp_config_arg() -> tuple[list[str], str | None]:
     missing file changes nothing - the founder has not filled it in, or an
     agent needs none. An invalid one must not stop the launch (a typo in a
     shared file would otherwise wall off every agent), so the caller only
-    warns; `ocp doctor` has the same check for when nobody is watching a
+    warns; `hl doctor` has the same check for when nobody is watching a
     launch's stderr.
     """
     p = paths.mcp_config()
@@ -283,7 +283,7 @@ def trusted_environment(worktree: Path | None) -> list[str]:
     prose it reads: the state folder, this worktree and its repository, and the
     GitHub repos its remotes name. Anything else stays outside the boundary."""
     lines = [f"The team's state folder {paths.home()} and everything under it is the team's own: "
-             f"reading and writing it, and running `ocp`, is routine."]
+             f"reading and writing it, and running `hl`, is routine."]
     if worktree is None:
         return lines
     lines.append(f"This agent's own git worktree is {worktree}: `cd`, editing files, `sed -i`, "
@@ -356,7 +356,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
             # A wanted event added after the shared settings were last installed
             # (T247's PreToolUse guard did this) would otherwise sit uninstalled
             # forever, silently: every launch is where install() gets the chance
-            # to catch up, not just the one-off `ocp init`/`ocp install-hooks`.
+            # to catch up, not just the one-off `hl init`/`hl install-hooks`.
             # Only reached once ensure_shared has confirmed the file is a
             # readable JSON object - install() does not check that itself.
             wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
@@ -364,17 +364,17 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                 try:
                     hooks.install(paths.ocp_exe(), wanted)
                 except OSError as e:
-                    # `ocp doctor` is the backstop for whoever is not watching
+                    # `hl doctor` is the backstop for whoever is not watching
                     # stderr here - an agent's own sandbox denies this write by
                     # design, so it cannot disable its own gate hooks.
                     print(f"warning: ocp's own hooks are behind and could not be installed "
-                          f"({e}) - run `ocp install-hooks` from outside an agent's sandbox",
+                          f"({e}) - run `hl install-hooks` from outside an agent's sandbox",
                           file=sys.stderr)
             try:
-                hooks.allow_home_socket()  # a home initialised before `ocp init` added it
+                hooks.allow_home_socket()  # a home initialised before `hl init` added it
             except OSError as e:
                 print(f"warning: agents' sandbox cannot reach ocp's socket and it could not be "
-                      f"allowed ({e}) - run `ocp init` from outside an agent's sandbox",
+                      f"allowed ({e}) - run `hl init` from outside an agent's sandbox",
                       file=sys.stderr)
     if not accounts.may_start(acct):
         raise SystemExit(
@@ -462,7 +462,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            **({} if sandbox_on(agent, cfg) else {"sandbox": False}))
     if cfg.get("sandbox") is False and not agents.sandbox_lease(agent):
         print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
-              f"turned it off (`ocp agent set {agent} sandbox=off`, from a terminal) - ignoring it",
+              f"turned it off (`hl agent set {agent} sandbox=off`, from a terminal) - ignoring it",
               file=sys.stderr)
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
@@ -470,7 +470,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         argv += mode
     if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
         print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
-              f"founder never turned it on (`ocp agent register {agent} --skip-permissions on`, "
+              f"founder never turned it on (`hl agent register {agent} --skip-permissions on`, "
               f"from a terminal) - ignoring it", file=sys.stderr)
     elif agents.skip_permissions(cfg):
         flags = drv.skip_permissions_argv()
@@ -491,14 +491,14 @@ def _static_preamble(agent: str) -> str:
     this agent is parked; `fingerprint` hashes only this part.
     """
     d = paths.agent_dir(agent)
-    parts = [f"You are `{agent}`, one agent in an orcapipe team. "
+    parts = [f"You are `{agent}`, one agent in a Handline team. "
              f"Your name is also in $OCP_AGENT.",
              "Stay inside your own worktree. To read another branch's version of "
              "a file, use `git show <ref>:<path>` - it needs nothing outside the "
              "worktree. Copying a file out to /tmp to read it stops you on a "
              "permission prompt only a human can answer, and you will sit there "
              "until one does.",
-             "On a long request, keep `ocp progress \"done: ... left: ...\"` current: "
+             "On a long request, keep `hl progress \"done: ... left: ...\"` current: "
              "your handoff carries it to the session that takes over."]
     team_line = _your_team(agent)
     if team_line:
@@ -556,35 +556,35 @@ def _your_team(agent: str) -> str:
     boss = actions.supervisor_of(t, agent) or actions.HUMAN
     reports = [n for n in paths.list_agents()
                if n != agent and actions.supervisor_of(t, n) == agent]
-    report = (f"You report to `{boss}`. A task you were handed ends with `ocp task done T<n> "
-              f"\"<evidence>\"` or `ocp task handoff T<n> <agent> \"<note>\"` - that is your "
+    report = (f"You report to `{boss}`. A task you were handed ends with `hl task done T<n> "
+              f"\"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your "
               f"report, even a deferral: the next task arrives only then, and an answer typed "
               f"in chat reaches no one.")
     if boss != actions.HUMAN:
         # A decision for the human is a task of theirs, so it is named once,
         # below, for the decisions that are theirs.
-        report += (f" `ocp say {boss} \"...\"` is a message that needs no answer. Being "
+        report += (f" `hl say {boss} \"...\"` is a message that needs no answer. Being "
                    f"blocked, a decision only they can make, or work nobody handed you is a task "
-                   f"for them: `ocp task new --owner {boss} -t <time> \"<title>\" \"<body>\"`.")
+                   f"for them: `hl task new --owner {boss} -t <time> \"<title>\" \"<body>\"`.")
     lines = ["# Your team", report,
              "Talk to people only through ocp; what you write in your terminal reaches no one. "
              "Keep it short. Reply when a message asks you something or you owe a result; a "
              "message that only informs needs no reply, except the founder's."]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
-                     "You do not implement - give one work with `ocp task new --owner <name> "
+                     "You do not implement - give one work with `hl task new --owner <name> "
                      "-t <time> \"<title>\" \"<what to do, and what done looks like>\"`, and read "
-                     "what it sends back. A message to a report is `ocp say <name> ... --task "
+                     "what it sends back. A message to a report is `hl say <name> ... --task "
                      "T<n>` (a memo on that task). "
-                     "One task at a time; correct one with `ocp task memo T<n> add \"...\"`, not a "
-                     "message behind it, and throw a stale one away with `ocp task discard T<n> "
+                     "One task at a time; correct one with `hl task memo T<n> add \"...\"`, not a "
+                     "message behind it, and throw a stale one away with `hl task discard T<n> "
                      "\"<why>\"`. Record a wait as `--blocked-by T<n>` on the task, not in "
                      "prose. Check main before you assign, so nobody rebuilds what landed. Quote "
                      "the founder's own words in the task you open for their request, and answer "
-                     "the founder through `ocp`, never in chat.")
-    lines.append("`ocp team` shows who you may reach and what each is doing now. "
+                     "the founder through `hl`, never in chat.")
+    lines.append("`hl team` shows who you may reach and what each is doing now. "
                  "A decision or a block only the founder can clear is a task of theirs: "
-                 "`ocp task new --owner human -t <time> \"<title>\" \"<body>\"`.")
+                 "`hl task new --owner human -t <time> \"<title>\" \"<body>\"`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "
@@ -753,7 +753,7 @@ def _keep_what_it_starts_with(agent: str, extra: list[str], prompt: str | None, 
         finally:
             con.close()
     except Exception as e:  # noqa: BLE001 - never block a launch on bookkeeping
-        print(f"ocp launch: could not keep how {agent} was started: {e}", file=sys.stderr)
+        print(f"hl launch: could not keep how {agent} was started: {e}", file=sys.stderr)
 
 
 def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
@@ -776,7 +776,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
         finally:
             con.close()
     sessiontoken.record(agent)             # the proof this session is the agent's, for the daemon's land verbs
-    sessiontoken.mint_key(agent)           # what its hook alone can name, to vouch for its own `ocp land`
+    sessiontoken.mint_key(agent)           # what its hook alone can name, to vouch for its own `hl land`
     env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
@@ -820,8 +820,8 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
         try:
             if handle:
                 db.set_terminal(con, agent, handle, wt)
-                # However this terminal was made - by `ocp spawn`, or by a
-                # human running `ocp launch` in one they opened - the agent
+                # However this terminal was made - by `hl spawn`, or by a
+                # human running `hl launch` in one they opened - the agent
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
@@ -833,7 +833,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     except Exception as e:  # noqa: BLE001 - never block a launch on bookkeeping
         # Not silent: with no fingerprint on record the daemon relaunches this
         # session at every wake, and nothing else would say why.
-        print(f"ocp launch: could not record this launch for {agent}: {e}",
+        print(f"hl launch: could not record this launch for {agent}: {e}",
               file=sys.stderr)
 
 
@@ -841,7 +841,7 @@ def command_for(agent: str, account: str | None = None, why: str | None = None,
                 by: str | None = None) -> str:
     """The --command string to hand to Orca; `account` fixes where a move lands, `why` is what the
     session's start is recorded as (`db.session_starts`)."""
-    exe = names.getenv("OCP_BIN") or shutil.which("handline") or shutil.which("ocp") or "ocp"
+    exe = names.getenv("OCP_BIN") or next(filter(None, map(shutil.which, names.COMMANDS)), None) or "hl"
     return (f"{exe} launch {agent}" + (f" --account {shlex.quote(account)}" if account else "")
             + (f" --why {shlex.quote(why)}" if why else "")
             + (f" --by {shlex.quote(by)}" if by else ""))

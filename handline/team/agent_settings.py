@@ -1,5 +1,5 @@
 """What an agent's settings are and how they are written: the one place the chat
-page's Settings tab, the HR tab and `ocp agent set` all read and write them."""
+page's Settings tab, the HR tab and `hl agent set` all read and write them."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -103,7 +103,7 @@ def settings_changes(current: dict, form: dict) -> list[tuple[str, str, str]]:
 
 
 def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool, str]:
-    """Write `changes` to the agent's file through the same call `ocp agent
+    """Write `changes` to the agent's file through the same call `hl agent
     register` uses, which keeps every other field as it is. A running session
     is not restarted."""
     new = {k: v for k, _, v in changes}
@@ -210,5 +210,5 @@ def set_by_agent(agent: str, values: dict[str, str], speaker: str | None) -> tup
         return False, f"{speaker or 'someone'} may not change {agent}'s settings; an agent changes its own"
     held = sorted(k for k in values if privileged(k))
     if held:
-        return False, f"{', '.join(held)} needs the founder's approval: propose it with `ocp agent set`"
+        return False, f"{', '.join(held)} needs the founder's approval: propose it with `hl agent set`"
     return set_values(agent, values)

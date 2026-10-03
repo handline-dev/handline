@@ -61,7 +61,7 @@ def parse_task_ref(text) -> int:
     if text.isdigit():
         raise ValueError(
             f"'{text}' could be task {text} or request {text}: a task is written "
-            f"{task_ref(text)}, a request is the bare number (`ocp read {text}` reads "
+            f"{task_ref(text)}, a request is the bare number (`hl read {text}` reads "
             f"request {text}). Write {task_ref(text)} for the task.")
     raise ValueError(f"'{text}' is not a task - write it T<number>, like {task_ref(79)}")
 
@@ -421,7 +421,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     # T292 (#1655 section 4): a sha task can't close on a reason unless the
     # opener or the founder does it; verdict/decision/report are just labels.
     if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
-        return False, (f"task T{tid} expects a sha - `ocp task done T{tid} <sha>`, "
+        return False, (f"task T{tid} expects a sha - `hl task done T{tid} <sha>`, "
                        f"or its opener ({row['opened_by']}) or the founder may close it "
                        "another way")
     kids = db.open_child_tasks(con, tid)
@@ -471,7 +471,7 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     if row["discarded_by"]:
         return False, f"task T{tid} is already discarded ({row['discarded_by']})"
     if row["done_evidence"]:
-        return False, f"task T{tid} is done - `ocp task reopen T{tid}` if the result was wrong"
+        return False, f"task T{tid} is done - `hl task reopen T{tid}` if the result was wrong"
     asker = task_asker(con, row)
     if by not in (asker, HUMAN):
         return False, f"task T{tid} can only be discarded by {asker} - whoever asked for it - or the founder"
@@ -504,7 +504,7 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
     elif live:
         ids = ", ".join(f"#{r['id']} (with {r['target']})" for r in live)
         return False, (f"task T{tid} still has a request open: {ids} - withdraw or cancel it "
-                       "first (the founder's `ocp cancel <id>`), or its target keeps working "
+                       "first (the founder's `hl cancel <id>`), or its target keeps working "
                        "on thrown-away work")
     con.execute("BEGIN IMMEDIATE")
     try:
@@ -1155,7 +1155,7 @@ def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | No
     db.add_event(con, me, "task_begin", {"task_id": tid, "chat_request": chat, "why": said})
     return True, (f"task T{tid} begun from founder message #{chat}" +
                   (f" and is now your current task" if held is None else
-                   f"; T{held} is still current - `ocp task start T{tid}` when you switch")), tid
+                   f"; T{held} is still current - `hl task start T{tid}` when you switch")), tid
 
 
 def task_start(con, me: str, tid: int) -> tuple[bool, str]:
@@ -1183,7 +1183,7 @@ def task_start(con, me: str, tid: int) -> tuple[bool, str]:
     if held is not None and held != tid:
         prev = db.get_task(con, held)
         if prev is not None and not db.task_ended(prev):
-            back = f"; T{held} goes back to queued (your `ocp progress` note is kept)"
+            back = f"; T{held} goes back to queued (your `hl progress` note is kept)"
     memos = memo_summary(con, tid)
     return True, f"T{tid} is now {me}'s current task{back}" + (f"\n{memos}" if memos else "")
 
@@ -1257,7 +1257,7 @@ def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
     if not text.strip():
         return False, "nothing sent: no question typed"
     body = (f"Question on T{tid} from the founder (the task keeps its holder): {text.strip()}\n\n"
-            "Answer by replying to this message: ocp say human --parent <this message's #id> '<answer>'")
+            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'")
     ok, msg, rid = askmod.say(to, body, requester=HUMAN)
     if ok and rid is not None:
         db.link_request(con, tid, rid)
@@ -1352,7 +1352,7 @@ def parse_priority(text) -> int:
     raise ValueError(f"'{text}' is not a priority - write P1 (high), P2 (default) or P3 (low)")
 
 
-# T286: `ocp task new` requires -t/--timeout; `ocp task edit --timeout`
+# T286: `hl task new` requires -t/--timeout; `hl task edit --timeout`
 # extends it. Both refuse anything longer than this.
 MAX_TASK_TIMEOUT_S = 4 * 3600
 # What a task opened inside ocp (a finding, a hold, `task begin`) gets when it
@@ -1772,7 +1772,7 @@ def merge_tasks(con, keep: int, others: list[int], by: str) -> tuple[bool, str]:
 def task_rows(con, owner: str | None = None, state: str | list[str] | None = None,
               include_ended: bool = False, owners: set[str] | None = None) -> list[dict]:
     """The board as data (T68): one dict per task, ordered by priority then by
-    number. What a screen or `ocp task list` draws from, so both say the same.
+    number. What a screen or `hl task list` draws from, so both say the same.
 
     `ref` is T79, `priority` 1 to 3, `state` as `task_state`, `closer` who may
     reopen or discard it (`task_asker`), `blocked_by` the open tasks it waits on, and
@@ -2062,7 +2062,7 @@ def reason_gaps(con, window_days: int = 30) -> dict:
     predate `--reason` existing rather than current practice.
 
     Closures are reported as their own counts, not folded into a "gap":
-    `ocp task done` requires exactly one of a sha, a request, or a reason, so
+    `hl task done` requires exactly one of a sha, a request, or a reason, so
     a done task is never blank, and counting a sha as a missing reason (the
     previous shape here) pointed a reader at the wrong thing to fix. Which
     one a row was is read from `done_via`, set when the evidence was given

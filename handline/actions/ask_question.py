@@ -1,4 +1,4 @@
-"""An agent's AskUserQuestion as the bridge shows it, instead of the raw JSON its tool call shows there
+"""An agent's AskUserQuestion as the screen shows it, instead of the raw JSON its tool call shows there
 (T304/T322): `_as_dict`, the plain dict `prompt_blocks` builds a question block from (T603: the
 separate pending/answer path this module once held is gone; a question is answered through its block).
 

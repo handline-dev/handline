@@ -1,7 +1,7 @@
-"""`ocp idle-timeout` / `ocp ignore-cache-expiry` (T52): config.yaml's global
+"""`hl idle-timeout` / `hl ignore-cache-expiry` (T52): config.yaml's global
 default for how long an idle agent may sit before the daemon closes it, and
 whether a resume may ignore its prompt cache's expiry - plus, with --agent,
-one agent's own override of either. `ocp auto-accept` (T64): whether dialogs
+one agent's own override of either. `hl auto-accept` (T64): whether dialogs
 are answered for a working agent."""
 from __future__ import annotations
 

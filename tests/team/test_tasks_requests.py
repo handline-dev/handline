@@ -180,7 +180,7 @@ def test_one_request_at_a_time(home: Path) -> None:
               db.head_of_queue(con, "reviewer")["id"])
         # Delivery itself - the daemon actually typing this into a terminal -
         # is exercised in daemon tests; here the head is marked delivered
-        # directly, the way `deliver_queued` or a self-view of `ocp inbox`
+        # directly, the way `deliver_queued` or a self-view of `hl inbox`
         # would, to set up what withdraw/replace are gated on.
         db.mark_delivered(con, first)
 
@@ -1071,7 +1071,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         check("nudge: names the request and how long it has been idle",
               f"#{head}" in text and "idle" in text, text)
         check("nudge: says what to do, and how many are behind it",
-              "ocp say" in text and "--parent" in text and "ocp resolve" not in text
+              "hl say" in text and "--parent" in text and "ocp resolve" not in text
               and "2 more waiting" in text, text)
         check("nudge: does not resolve it for the agent",
               db.get_request(con, head)["state"] == "queued")
@@ -1620,7 +1620,7 @@ def test_a_withdraw_landing_before_the_send_stops_the_send(home: Path) -> None:
 
 def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) -> None:
     """T401 item 20: `ocp ask` is the wrong verb to suggest now - a reply
-    goes as a message, and a task-kind request also names `ocp task release`."""
+    goes as a message, and a task-kind request also names `hl task release`."""
     _board_world(home)
     con = db.connect()
     try:
@@ -1629,7 +1629,7 @@ def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) ->
         db.mark_delivered(con, rid)
         ok, msg = askmod.withdraw(rid, requester="manager")
         check("a plain message: no task release is offered",
-              not ok and "ocp say worker" in msg and "task release" not in msg, msg)
+              not ok and "hl say worker" in msg and "task release" not in msg, msg)
 
         tid = db.new_task(con, "do the thing", "worker", "manager")
         trid = db.add_request(con, "manager", "worker", f"T{tid} handed to you by manager: do the thing",
@@ -1637,8 +1637,8 @@ def test_withdraw_too_late_points_at_a_message_and_a_task_release(home: Path) ->
         db.link_request(con, tid, trid)
         db.mark_delivered(con, trid)
         ok, msg = askmod.withdraw(trid, requester="manager")
-        check("a task handoff: named with ocp say and ocp task release, not ocp ask",
-              not ok and "ocp say worker" in msg and f"ocp task release T{tid}" in msg
+        check("a task handoff: named with hl say and hl task release, not ocp ask",
+              not ok and "hl say worker" in msg and f"hl task release T{tid}" in msg
               and "ocp ask" not in msg, msg)
     finally:
         con.close()
@@ -1656,7 +1656,7 @@ def test_a_request_is_answered_by_a_reply_that_names_it(home: Path) -> None:
                              "peer", "async", None, 0, None)
         dmn_delivery._tell(con, "backend", db.head_of_queue(con, "backend"), 1, "term_x", lambda _m: None)
         check("report notice: any other request is answered by a reply that names it",
-              f"`ocp say reviewer --parent {rid} " in sent[-1] and "ocp resolve" not in sent[-1]
+              f"`hl say reviewer --parent {rid} " in sent[-1] and "ocp resolve" not in sent[-1]
               and "ocp dismiss" not in sent[-1], sent[-1])
     finally:
         orcamod.send = real
@@ -1798,13 +1798,13 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
         # instruction to go and read it whole is ceremony typed at an agent
         # that was in the middle of something.
         check("answered: a short answer is said and nothing else",
-              "ocp read" not in sent[-1], sent[-1][:160])
+              "hl read" not in sent[-1], sent[-1][:160])
         askmod.resolve(db.add_request(con, "backend", "reviewer", "and this?", None,
                                       "peer", "async", None, 0, None),
                        "a verdict long enough to be cut: " + "x" * 200)
         dmn_delivery.deliver_answers(con, "backend", lambda _m: None)
         check("answered: one that was cut says where the rest is",
-              "ocp read" in sent[-1], sent[-1][-80:])
+              "hl read" in sent[-1], sent[-1][-80:])
 
         sent.clear()
         check("answered: and it is not told twice",
@@ -1870,7 +1870,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
 
 
 def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
-    """T80: the delivery notice and `ocp read` name the parent of a request
+    """T80: the delivery notice and `hl read` name the parent of a request
     that has one - first line only, cut at ASKED_SHOWN - and say nothing extra
     for one without."""
     _daemon_home(home, 20)
@@ -1888,7 +1888,7 @@ def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
               f"#{reply} from human (in reply to #{parent}: which port?), waiting for you" in sent[-1],
               sent[-1])
         out = _capture(lambda: climod.main(["read", str(reply)]))
-        check("ocp read: shows what it is in reply to, as its own line",
+        check("hl read: shows what it is in reply to, as its own line",
               f"\nin reply to #{parent}: which port?\n" in out, out)
 
         con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (reply,))
@@ -2019,7 +2019,7 @@ def test_an_answer_wakes_the_agent_that_was_waiting_for_it(home: Path) -> None:
 
 
 def test_a_request_can_be_read_whole(home: Path) -> None:
-    """`ocp inbox` shows a line each, cut to fit, and the rest was only
+    """`hl inbox` shows a line each, cut to fit, and the rest was only
     reachable by knowing where the raw JSON lives - which an agent found out by
     trial. An agent that cannot read the whole of what it was asked answers the
     half it could see."""
@@ -2121,14 +2121,14 @@ edges:
     finally:
         con.close()
     rc, out = _cli(["events"], as_agent="dohyun")
-    check("T39: plain `ocp events` as a peer shows only its own rows",
+    check("T39: plain `hl events` as a peer shows only its own rows",
           rc == 0 and "note of dohyun" in out and "note of marina" not in out
           and "note of manager" not in out, out)
     rc, out = _cli(["events"], as_agent="manager")
-    check("T39: plain `ocp events` as a supervisor adds its reports",
+    check("T39: plain `hl events` as a supervisor adds its reports",
           "note of marina" in out and "note of dohyun" in out and "note of manager" in out, out)
     rc, out = _cli(["events"], as_agent=askmod.HUMAN)
-    check("T39: plain `ocp events` as the human shows everyone",
+    check("T39: plain `hl events` as the human shows everyone",
           "note of marina" in out and "note of dohyun" in out, out)
     rc, out = _cli(["inbox", "marina"], as_agent="marina")
     check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
@@ -2149,12 +2149,12 @@ edges:
     finally:
         con.close()
     rc, out = _cli(["read", str(first)], as_agent="dohyun")
-    check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
+    check("T39: `hl read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
 
 
 def test_inbox_and_withdraw_cli(home: Path) -> None:
-    """`ocp inbox` shows the head and a count, not the whole queue (request
-    #189); `ocp withdraw` takes back an undelivered request of your own."""
+    """`hl inbox` shows the head and a count, not the whole queue (request
+    #189); `hl withdraw` takes back an undelivered request of your own."""
     _daemon_home(home, 20)
     agents.register("reviewer")
     con = db.connect()
@@ -2211,7 +2211,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
     """A wake holds an agent's terminal for as long as a session takes to
     appear - up to fifteen seconds - and the daemon ticks every two. Seven
     ticks fit in that window, so the daemon and a human pressing `w` both typed
-    `ocp launch` into the same terminal: the second lands beside the session
+    `hl launch` into the same terminal: the second lands beside the session
     the first started, or inside its input box, unsent.
 
     Everything else in this system is settled by writing to the database. The
@@ -2310,7 +2310,7 @@ edges:
               ok and "dohyun" not in paths.list_agents(), said)
         card = next((c for c in hr.pending() if c["id"] == pid), None)
         check("hr: and it is in front of the founder, with the words to decide it with",
-              card and f"ocp hr approve {pid}" in card["text"], said)
+              card and f"hl hr approve {pid}" in card["text"], said)
 
         # Not yet decided: nothing applies it.
         ok, said = hr.apply(pid)
@@ -2543,7 +2543,7 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         rc, out = refused(argv, "worker")
         check(f"bare number: {label} refuses it, naming both readings",
               rc != 0 and f"task {n} or request {n}" in out and f"T{n}" in out
-              and f"ocp read {n}" in out, out)
+              and f"hl read {n}" in out, out)
     con = db.connect()
     try:
         check("bare number: and none of those changed anything",
@@ -2574,7 +2574,7 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
     listing = " ".join(ap.format_help().split())
     detail = ap._subparsers._group_actions[0].choices["close"].format_help()
     check("help: close is for an agent's session - it names no task, and a bare number is no agent",
-          "ocp close 7" not in listing and "T<n>" not in detail and "agent" in detail,
+          "hl close 7" not in listing and "T<n>" not in detail and "agent" in detail,
           listing[:300] + detail)
     rc, out = _cli(["close", "worker"], as_agent="manager")
     check("agent: a name is still an agent, not a task", "not a task" not in out
@@ -2827,12 +2827,12 @@ def test_a_wait_does_not_outlive_the_prompt_that_raised_it(home: Path) -> None:
         _fire_hook("PermissionRequest", tool_name="Bash", tool_input={"command": "rm -rf /y"})
         check("outlive: raised a third time", waiting_now())
 
-        # The agent goes on working past the denial: it runs an `ocp` verb,
+        # The agent goes on working past the denial: it runs an `hl` verb,
         # which can only happen once the tool call that ran it has itself
         # returned - unlike the two siblings above, nothing else could have
         # produced this event.
         db.add_event(con, "backend", "commit", {})
-        check("outlive: an `ocp` verb the agent ran itself clears it",
+        check("outlive: an `hl` verb the agent ran itself clears it",
               not waiting_now())
 
         # A wait that really is still pending must not read as stale merely
@@ -3455,7 +3455,7 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
         os.environ.pop("OCP_AGENT", None)
-        check("mailbox: `ocp inbox` shows the answer too", f"#{rid2}" in out, out[:200])
+        check("mailbox: `hl inbox` shows the answer too", f"#{rid2}" in out, out[:200])
 
         actions.dismiss(con, rid2)
         check("mailbox: a dismiss clears it from both",
@@ -3551,7 +3551,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         check("cancel: an undelivered request of the founder's is planned as a withdraw",
               ok and why.startswith("withdraw") and "nobody is told" in why, why)
         actions.cancel(con, undelivered)
-        check("cancel: it is withdrawn, exactly as `ocp withdraw` does",
+        check("cancel: it is withdrawn, exactly as `hl withdraw` does",
               db.get_request(con, undelivered)["state"] == "withdrawn")
         check("cancel: and nothing is typed anywhere", not sent, str(sent))
 
@@ -3595,7 +3595,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
             out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
         finally:
             del os.environ["OCP_AGENT"]
-        check("cancel: `ocp cancel` refuses an agent", "founder's" in out
+        check("cancel: `hl cancel` refuses an agent", "founder's" in out
               and db.get_request(con, again)["state"] == "queued", out)
         askmod.asking_agent = lambda: askmod.HUMAN
         out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
@@ -3891,7 +3891,7 @@ def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
 
 
 def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
-    """`ocp read` labels a verdict with who answered. On a denied row the
+    """`hl read` labels a verdict with who answered. On a denied row the
     verdict is this system's refusal, and the row reached no one."""
     _two_agents_one_slot(home)
     for i in range(3):
@@ -3914,7 +3914,7 @@ def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
 def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Path) -> None:
     """The same mislabel as the refused case, for the other two states in
     db.NEVER_REACHED_TARGET: #1348 gave a withdrawn row's verdict its own
-    label ('withdrawn: <reason>'), but `ocp read` still printed '--- answered
+    label ('withdrawn: <reason>'), but `hl read` still printed '--- answered
     by <target> ---' above it - a row the target never received, read back
     as though it had answered (auditor's #1565, the residual left open at
     #1348)."""
@@ -4357,7 +4357,7 @@ limits:
           rc == 1 and "expects a sha" in out, out)
     import re
     from handline.cli import parser as cli_parser
-    said = re.search(r"`ocp (task done [^`]+)`", out)
+    said = re.search(r"`hl (task done [^`]+)`", out)
     try:
         cli_parser.build_parser().parse_args(said.group(1).replace("<sha>", "abc1234").split())
         parses = True
@@ -4501,7 +4501,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
 
 
 def test_a_say_to_the_founder_asks_for_no_reply(home: Path) -> None:
-    """Step 5 (auditor #5355): the status report the guidance now teaches, `ocp say
+    """Step 5 (auditor #5355): the status report the guidance now teaches, `hl say
     human`, is a message that needs no answer - it is not pinned, not a gate, and
     folds like the fyi report it replaces."""
     _board_world(home)
@@ -5291,7 +5291,7 @@ def test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_
 
 
 def test_task_memo_verbs(home: Path) -> None:
-    """T493: `ocp task memo T<n> list|add|edit|delete` as the founder and as an agent."""
+    """T493: `hl task memo T<n> list|add|edit|delete` as the founder and as an agent."""
     _board_world(home)
     con = db.connect()
     tid = db.new_task(con, "with memos", "worker", "manager", timeout_s=5400)
@@ -5391,10 +5391,10 @@ def test_one_doing_migration(home: Path) -> None:
 
 
 def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
-    """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
+    """T286: `hl task new` requires -t/--timeout (at most 4h; missing or over
     is refused). Its clock only counts while the task is doing (founder
     #1627's revision) - a new task is never doing, so timeout_at stays NULL
-    until a request is linked; `ocp task edit --timeout` sets a new length
+    until a request is linked; `hl task edit --timeout` sets a new length
     always, but only starts (or resumes) the deadline itself while doing."""
     _board_world(home)
     # An over-long duration is refused by the argparse `type` itself
@@ -5518,9 +5518,9 @@ def test_reopening_a_timed_task_resumes_its_clock_only_if_still_doing(home: Path
 
 def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
     """T286, founder #1627's revision, auditor FAIL #1670 point 2 fixed:
-    `ocp task release` is the other answer to a timeout notice besides
+    `hl task release` is the other answer to a timeout notice besides
     continuing. It ends the task's own open request(s) through the retire
-    path `ocp cancel`/`withdraw` use - closed, its target told, the next in
+    path `hl cancel`/`withdraw` use - closed, its target told, the next in
     that target's queue freed to go - and pauses the clock; task_state's
     "doing" reads a request's own state, so a retired one reads not-doing
     under every task it is linked to, and the link itself stays (the task's
@@ -5761,8 +5761,8 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
 
 
 def test_a_done_task_leaves_the_open_lists_and_shows_with_all(home: Path) -> None:
-    """T568: done is final, so there is no 'waiting for check' group - `ocp task
-    list` and `ocp task board` show open tasks only, and `list --all` shows
+    """T568: done is final, so there is no 'waiting for check' group - `hl task
+    list` and `hl task board` show open tasks only, and `list --all` shows
     what finished, with its evidence."""
     _board_world(home)
     con = db.connect()
@@ -5788,7 +5788,7 @@ def test_a_done_task_leaves_the_open_lists_and_shows_with_all(home: Path) -> Non
 
 def test_the_owner_records_what_its_task_waits_on_and_task_show_reads_it_whole(home: Path) -> None:
     """A task's owner may add and clear its blockers, not only its opener; anyone else is
-    still refused. `ocp task show` prints the brief, memos, blockers and children in one call."""
+    still refused. `hl task show` prints the brief, memos, blockers and children in one call."""
     _board_world(home)
     con = db.connect()
     try:
@@ -6760,7 +6760,7 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
 
 
 def test_ocp_close_ends_a_session_and_never_a_task(home: Path) -> None:
-    """T568: a task has no close - done is final. `ocp close T<n>` says so and
+    """T568: a task has no close - done is final. `hl close T<n>` says so and
     points at `task done` and `task reopen`, and writes nothing."""
     _board_world(home)
     con = db.connect()
@@ -6785,7 +6785,7 @@ def test_ocp_close_ends_a_session_and_never_a_task(home: Path) -> None:
 
 
 def test_done_refuses_without_an_identity_and_does_not_move_a_clock(home: Path) -> None:
-    """#1565 SF3, carried over to #71's split. `ocp task done` does not fall
+    """#1565 SF3, carried over to #71's split. `hl task done` does not fall
     back to the task's owner when no identity is given - cli refuses outright
     before the call, and mark_task_done/reopen_task are kept out of
     AGENT_ACTIVITY_KINDS as a second line of defense for any future caller that
@@ -6945,7 +6945,7 @@ def test_replace_withdraw_and_dismiss_store_the_reason_typed(home: Path) -> None
     finally:
         con.close()
     # #1348 should-fix: pin how a withdrawn row READS, not only what it
-    # stores - `ocp read` draws it under "answered by <target>" the same as
+    # stores - `hl read` draws it under "answered by <target>" the same as
     # any other verdict, so a bare typed reason there would look like the
     # target's own words rather than a record that it never received it.
     rc, out = _cli(["read", str(e)])
@@ -7007,7 +7007,7 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
 
         for rid, label in ((new, "new"), (old, "old")):
             rc, out = _cli(["read", str(rid)])
-            check(f"dismissed ({label}): ocp read shows a state, not an answer",
+            check(f"dismissed ({label}): hl read shows a state, not an answer",
                   rc == 0 and "--- dismissed" in out and "answered by" not in out
                   and "read - no reply" not in out, out)
         rc, out = _cli(["inbox", "--all"], as_agent=askmod.HUMAN)
@@ -7257,26 +7257,26 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
 
 
 def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
-    """handline/cli/ and handline/infra/service.py both describe the installed `ocp` as a
+    """handline/cli/ and handline/infra/service.py both describe the installed `hl` as a
     symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
     the one path every real invocation runs through, and one every other
     test in this suite skips by calling bin/ocp at its real location. Auditor
     #2096 should-fix 1: an unresolved BASH_SOURCE broke exactly this, silently,
     with the rest of the suite still green."""
     home.mkdir(parents=True, exist_ok=True)
-    real_ocp = paths.repo_root() / "bin" / "ocp"
+    real_ocp = paths.repo_root() / "bin" / "hl"
 
     direct = home / "direct-link"
     direct.symlink_to(real_ocp)
     r = subprocess.run([str(direct), "--version"], capture_output=True, text=True, timeout=30)
-    check("symlink: a direct symlink to bin/ocp still finds _ocp_entry.py",
-          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
+    check("symlink: a direct symlink to bin/hl still finds _ocp_entry.py",
+          r.returncode == 0 and r.stdout.strip() == "hl 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
 
     chained = home / "chained-link"
     chained.symlink_to(Path("direct-link"))  # relative, same directory
     r = subprocess.run([str(chained), "--version"], capture_output=True, text=True, timeout=30)
     check("symlink: a link to a link resolves the same way",
-          r.returncode == 0 and r.stdout.strip() == "ocp 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
+          r.returncode == 0 and r.stdout.strip() == "hl 0.1.0", f"out={r.stdout!r} err={r.stderr!r}")
 
 
 def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
@@ -7371,7 +7371,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
 
 
 def test_merging_tasks_moves_titles_and_requests_and_discards_the_rest(home: Path) -> None:
-    """T68: `ocp task merge KEEP T...` - all or none, opener or founder."""
+    """T68: `hl task merge KEEP T...` - all or none, opener or founder."""
     _board_world(home)
     con = db.connect()
     try:
@@ -7989,7 +7989,7 @@ def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> No
 
 
 def test_moving_a_task_to_another_owner_sends_it_there(home: Path) -> None:
-    """T545: `ocp task edit --owner` moved a queued task and nothing delivered it - its request
+    """T545: `hl task edit --owner` moved a queued task and nothing delivered it - its request
     stayed queued for the old owner, and the new one saw a task already being asked."""
     from handline.daemon import lifecycle as dmn_lifecycle, taskqueue
     _board_world(home)
@@ -8472,7 +8472,7 @@ limits:
         check("ghost: and the stuck list does not carry it, however old",
               not any(f"#{ghost} " in str(i) for i in stuck_now) and any(f"#{behind} " in str(i) for i in stuck_now),
               str(stuck_now))
-        check("ghost: `ocp doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
+        check("ghost: `hl doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
         fg = db.new_task(con, "founder's, ended", "worker", actions.HUMAN)
         frid = db.add_request(con, actions.HUMAN, "worker", "from the founder", None, None, "fire_and_forget",
                               "task", 0, None)
@@ -8487,9 +8487,9 @@ limits:
         import inspect
         rep = doctormod.Report()
         doctormod._check_leftover_deliveries(rep)
-        check("doctor: warns of each leftover, and does not point at `ocp cancel`",
+        check("doctor: warns of each leftover, and does not point at `hl cancel`",
               len(rep.rows) >= 2 and all(lv == doctormod.WARN for lv, _, _ in rep.rows)
-              and not any("ocp cancel" in d for _, _, d in rep.rows), str(rep.rows))
+              and not any("hl cancel" in d for _, _, d in rep.rows), str(rep.rows))
         full = doctormod.run()
         check("doctor: the check is part of the run - `doctor.run()` reports the leftover as a WARN",
               any(lv == doctormod.WARN and f"request #{ghost} " in str(t) for lv, t, _ in full.rows), str(full.rows))
@@ -8982,8 +8982,8 @@ def test_the_founder_may_discard_close_and_finish_any_task(home: Path) -> None:
         check("founder: a task waiting on another can be discarded, and the wait ends",
               ok and not db.task_blockers(con, blocked), msg)
         ok, msg = actions.discard_task(con, live, H, "not wanted")
-        check("founder: a request still out is refused, naming ocp cancel",
-              not ok and "ocp cancel" in msg, msg)
+        check("founder: a request still out is refused, naming hl cancel",
+              not ok and "hl cancel" in msg, msg)
         ok, msg = actions.mark_task_done(con, done_one, H, reason="settled by the founder")
         check("founder: marks a task done that it does not own", ok, msg)
         ok, msg = actions.reopen_task(con, done_one, H, "one more look")

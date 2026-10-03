@@ -1,4 +1,4 @@
-"""Tests: `ocp say` (T293, auditor #1655/#1657).
+"""Tests: `hl say` (T293, auditor #1655/#1657).
 
 Run on its own: python3 tests/team/test_say.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -194,8 +194,8 @@ edges:
     con.commit()
     for r in (rid, sid):
         text = dmn_delivery.tell_text(con, db.get_request(con, r), 1)
-        check(f"tail: #{r} from the founder says to answer now with ocp say human --parent",
-              f"answer the founder now, before other work: `ocp say human --parent {r} " in text
+        check(f"tail: #{r} from the founder says to answer now with hl say human --parent",
+              f"answer the founder now, before other work: `hl say human --parent {r} " in text
               and "if it asks something" not in text
               and "needs no answer" not in text and "ocp resolve" not in text
               and "inbox" not in text and len(text.splitlines()) == 3, text)
@@ -427,7 +427,7 @@ def test_tell_text_gives_a_say_its_own_way_out_not_ocp_resolve(home: Path) -> No
         con.close()
     check("tell_text: a say is not told to `ocp resolve`", "ocp resolve" not in text, text)
     check("tell_text: it says it asks nothing instead", "asks nothing" in text
-          and "ocp say" not in text and "--needs-task" not in text, text)
+          and "hl say" not in text and "--needs-task" not in text, text)
 
 
 def test_inbox_unread_only_falls_back_to_a_marked_say_with_no_head(home: Path) -> None:
@@ -472,7 +472,7 @@ def test_inbox_unread_only_reads_the_blocked_head_through_effective_head(home: P
 
 def test_a_say_prints_no_way_out_and_needs_task_is_gone(home: Path) -> None:
     """T398 (founder: messages need no answer, work is a task): a say shows its
-    sender no reply hint, `ocp read` shows its receiver none, and `--needs-task` no
+    sender no reply hint, `hl read` shows its receiver none, and `--needs-task` no
     longer exists."""
     _say_world(home)
     rc, out = _plain_say_to_worker("can you take a look at the flaky test?")
@@ -486,7 +486,7 @@ def test_a_say_prints_no_way_out_and_needs_task_is_gone(home: Path) -> None:
     finally:
         con.close()
     rc, out = _cli(["read", str(rid)], as_agent="worker")
-    check("say: `ocp read` shows its receiver no way out either",
+    check("say: `hl read` shows its receiver no way out either",
           rc == 0 and "reply with" not in out and "needs-task" not in out, out)
     try:
         rc, out = _cli(["say", "--needs-task", str(rid)], as_agent="worker")
@@ -566,8 +566,8 @@ def test_is_lookup_bash_matches_the_allowlist_by_prefix(home: Path) -> None:
     is not, whatever its own flags."""
     for cmd in ("git log", "git log --oneline -5", "git show HEAD", "git diff --stat",
                "git status", "ls", "ls -la", "cat foo.py",
-               "head -n 20 bar.py", "ocp read 42", "ocp inbox --all", "ocp task list",
-               "ocp team", "ocp task board"):
+               "head -n 20 bar.py", "hl read 42", "hl inbox --all", "hl task list",
+               "hl team", "hl task board"):
         check(f"is_lookup_bash: {cmd!r} is a look-up", actions.is_lookup_bash(cmd))
     for cmd in ("git commit -m x", "git push", "rm -rf /", "curl http://x", "pytest",
                "npm test", "gitlog", "cats foo.py",

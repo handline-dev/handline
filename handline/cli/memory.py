@@ -1,4 +1,4 @@
-"""`ocp memory status|migrate` (docs/memory-design.md)."""
+"""`hl memory status|migrate` (docs/memory-design.md)."""
 from __future__ import annotations
 
 from ..infra import paths
@@ -31,7 +31,7 @@ def cmd_memory_migrate(args) -> int:
         print(f"{r['file'].parent.name}/{r['file'].name}: {say[r['action']]} "
               f"{r['to'] or ''}".rstrip())
     if not args.apply:
-        print("\ndry run: nothing written. `ocp memory migrate --apply` copies. "
+        print("\ndry run: nothing written. `hl memory migrate --apply` copies. "
               "shared/memory is never touched.")
         return 0
     done = memory.apply_migration(rows)

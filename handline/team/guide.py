@@ -1,4 +1,4 @@
-"""ocp guide <topic> - load detail on demand (AGENTS.md rule 3, section 10).
+"""hl guide <topic> - load detail on demand (AGENTS.md rule 3, section 10).
 
 No logic lives in SKILL.md. Agents read a short stub and pull the detail from
 here only when they actually need it, so it costs no tokens the rest of the time.
@@ -10,24 +10,24 @@ from .team import DEFAULT_LINKS
 
 TOPICS = {
     "accounts": """accounts
-  ocp account add <name>           register it and log it in (a human types the login)
-  ocp account remove <name>        log it out and move it aside; refused while an agent is on it
-  ocp account list                 usage, agents assigned and running, and whether it is assignable
+  hl account add <name>           register it and log it in (a human types the login)
+  hl account remove <name>        log it out and move it aside; refused while an agent is on it
+  hl account list                 usage, agents assigned and running, and whether it is assignable
 
 ocp never reads, writes or copies credentials. A refresh token rotates on
 single use, so two copies of one credential invalidate each other.""",
     "launch": """launching agents
-  ocp launch <agent>               exec claude as that agent's account
+  hl launch <agent>               exec claude as that agent's account
 
 From Orca:
-  orca terminal create --worktree path:<wt> --command "ocp launch backend"
+  orca terminal create --worktree path:<wt> --command "hl launch backend"
 
 direnv is not used. Orca leaves CLAUDE_CONFIG_DIR empty and --command takes an
 arbitrary shell string, so one wrapper is enough - and Orca preserves the launch
 command across hibernation and restore.""",
     "status": """usage and fail-closed
-  ocp status                       why the pick chose the account it did
-  ocp account list --json          machine-readable
+  hl status                       why the pick chose the account it did
+  hl account list --json          machine-readable
 
 A usage figure we cannot trust - no snapshot, unreadable, or too old - is not a full
 tank, it is a refusal. Reading it as 0 makes a walled account look open forever: the
@@ -41,54 +41,54 @@ past the age we will assign on - still a floor for triggers, no new work.
 Design section 4 has the five cases and why only one of them is fail-closed.
 
 No agent has an account of its own: a session starts on the best account that
-has room - not at the wall, not at its cap of agents mid-turn (`ocp account
+has room - not at the wall, not at its cap of agents mid-turn (`hl account
 cap`), not filling so fast one more agent would not last half an hour - and the
-state row records where it went, which `ocp bridge` shows. With no room the work
+state row records where it went, which `hl` shows. With no room the work
 waits, and the refusal names the account that frees up first. Nothing moves a
 live session below the wall. At the wall an agent moves only if work is waiting
 and its account resets too late to wait for, once, and a resume always goes
 back to the account its session lives on.""",
     "work": """giving an agent work, and talking to one
-  ocp team                        who you may reach, and what they are doing
-  ocp task new --owner <agent> -t <time> "<title>" "<body>"
+  hl team                        who you may reach, and what they are doing
+  hl task new --owner <agent> -t <time> "<title>" "<body>"
                                   work, or a question that needs an answer or a result: the
                                   body is the brief (what to do, what done looks like) and
                                   is required; -t is how long before you are told it is
                                   still open. A decision only the founder can make is the
                                   same with --owner human
-  ocp task show T<n>              one task whole: brief, memos, blockers, children, handoffs
-  ocp task memo T<n> add "..."    a correction to a task you gave, not a message behind it
-  ocp task discard T<n> "<why>"   throw away a task that is not done
-  ocp say <agent> "..."           a message: typed at once, needs no answer, starts no work.
+  hl task show T<n>              one task whole: brief, memos, blockers, children, handoffs
+  hl task memo T<n> add "..."    a correction to a task you gave, not a message behind it
+  hl task discard T<n> "<why>"   throw away a task that is not done
+  hl say <agent> "..."           a message: typed at once, needs no answer, starts no work.
                                   To one of your reports it carries --task T<n> (a memo on that task)
-  ocp say <agent> "..." --parent <id>   a reply, in its thread
-  ocp inbox                       the one thing currently waiting for you, and a count
-  ocp inbox --all                 the whole queue and its history
-  ocp read <id>                   one of them whole
-  ocp task done T<n> "<evidence>" finish your task (a sha, --request N, or a reason)
-  ocp task handoff T<n> <agent> "<note>"   hand it on to someone else
-  ocp cancel <id>                 the founder's: take any request out of an agent's queue
-  ocp progress "<note>"           what is done and what is left on your task in progress
+  hl say <agent> "..." --parent <id>   a reply, in its thread
+  hl inbox                       the one thing currently waiting for you, and a count
+  hl inbox --all                 the whole queue and its history
+  hl read <id>                   one of them whole
+  hl task done T<n> "<evidence>" finish your task (a sha, --request N, or a reason)
+  hl task handoff T<n> <agent> "<note>"   hand it on to someone else
+  hl cancel <id>                 the founder's: take any request out of an agent's queue
+  hl progress "<note>"           what is done and what is left on your task in progress
                                    (replaces the last note, at most 1500 characters; no note
                                    shows it). A handoff carries it, so the next session need
                                    not work it out from the transcript
 
 There is one kind of message, and one thing that is not a message. A say reaches
 its target at once and asks nothing. Everything that needs an answer or a result
-is a task, and a task ends with `ocp task done` or is handed on: the result is
+is a task, and a task ends with `hl task done` or is handed on: the result is
 what the asker reads, so nobody sends a second task repeating it. An agent is
 given one task at a time - the head of its queue - so nobody has to hold eleven
 in their head; the next arrives once it is done or handed on. An agent that goes
 idle with its task still open is reminded once after 10 minutes; if it is still
-idle 30 minutes after it last did anything, the bridge's STUCK panel shows it,
-with what is queued behind it. A wait is recorded on the task (`ocp task edit
+idle 30 minutes after it last did anything, the screen's STUCK panel shows it,
+with what is queued behind it. A wait is recorded on the task (`hl task edit
 T<n> --blocked-by T<m>`), not in prose. A task's opener can correct it with a
 note while it is open. Only the founder can clear a request that was delivered
-and never finished: `ocp cancel <id>` closes it as rejected ("withdrawn by the
+and never finished: `hl cancel <id>` closes it as rejected ("withdrawn by the
 founder"), tells the asker why and delivers what was behind it; the agent is
 told to stop if it can be reached right now.
 
-On `ocp bridge`: ↑↓ walks the whole screen and crosses into the next panel at
+On `hl`: ↑↓ walks the whole screen and crosses into the next panel at
 the end of one, ←→ jumps panel to panel, and the panel your keys act on is the
 one drawn in colour. Open a message with ↵ and reply to it with `a` (or `e` for a
 longer, multi-line one) - from the list or from inside it, whichever you are
@@ -102,7 +102,7 @@ for the founder is a card in that agent's chat: the reply typed inside the card
 is the decision, recorded on the task, and finishes it. `t` takes you to that
 agent's own terminal, starting one if it has none.
 
-An interactive shell with no OCP_AGENT belongs to a human, so `ocp say` typed at
+An interactive shell with no OCP_AGENT belongs to a human, so `hl say` typed at
 your own prompt comes from human. A process that merely lost the variable
 has no terminal, and is refused rather than handed the human's name.
 
@@ -126,17 +126,17 @@ instead: a thing it can make itself, that dies with its session and appears on
 no screen.""",
 
     "memory": """closing an idle session
-  ocp close <agent>                end the session, keep the terminal
-  ocp close --fresh <agent>        the same, and forget the session: its next wake is a new conversation
-  ocp restart <agent>              end the session and start it again at once in the same terminal,
+  hl close <agent>                end the session, keep the terminal
+  hl close --fresh <agent>        the same, and forget the session: its next wake is a new conversation
+  hl restart <agent>              end the session and start it again at once in the same terminal,
                                    resuming the conversation (it picks up new settings, model, hooks)
-  ocp restart --fresh <agent>      the same as a new conversation, from the handoff record
+  hl restart --fresh <agent>      the same as a new conversation, from the handoff record
   (the restarted agent's first prompt says who restarted it and whether it resumed)
   (restart refuses an agent mid-turn; --force closes it as a close does, once the turn has ended)
-  (a task has no close: `ocp task done T<n> <sha, --request N, or a reason>`
+  (a task has no close: `hl task done T<n> <sha, --request N, or a reason>`
    ends it, and its asker reopens it if the result was wrong. A task is
    always written T<n>; a bare number is a request)
-  ocp resume <agent>               put it back, resuming the same session
+  hl resume <agent>               put it back, resuming the same session
 
 A session that is not being used holds 250-500MB and spends no tokens at all.
 Closing it ends the agent process, and is recorded only once the process has
@@ -161,7 +161,7 @@ STALLED, or has a request waiting.
 While the cache is still warm the agent is asked once to write
 `~/.orcapipe/agents/<you>/handoff.md`: just before a close or a planned move, and, for a session
 that stays open and idle, at 90% of an hour's cache (54 minutes after its last response). Only what
-`ocp` and your memory cannot tell the next session: what you were deciding and why, what you meant
+`hl` and your memory cannot tell the next session: what you were deciding and why, what you meant
 to do next, promises or doubts on no task yet, the founder's preferences and pitfalls you learned,
 who you wait on as T/# numbers; about 30 lines. A cache whose life is five minutes gets no ask. It is
 asked once per stretch: idle time alone never earns a second ask, a delivered message or a working
@@ -171,26 +171,26 @@ note the handoff is the facts alone. `handoff_note: false` in an agent's agent.y
 for that agent, in config.yaml for all; the agents screen shows each cache's time left.""",
 
     "hooks": """Orca hooks
-  ocp hooks status                 show drift
-  ocp hooks sync                   apply once
-  ocp hooks sync --watch           watch and auto-apply
+  hl hooks status                 show drift
+  hl hooks sync                   apply once
+  hl hooks sync --watch           watch and auto-apply
 
 Orca integrates with Claude Code through hooks in ~/.claude/settings.json. If a
 per-account CLAUDE_CONFIG_DIR lacks those hooks, our agents disappear from the
 Orca dashboard.""",
     "team": """who may ask whom
-  ocp hr team <name> --member sea=<repo> --member shore --why "..."
+  hl hr team <name> --member sea=<repo> --member shore --why "..."
                                    a manager and its members as one proposal, one approval
-  ocp hr add / link / unlink       one agent or one edge, for what the defaults do not cover
+  hl hr add / link / unlink       one agent or one edge, for what the defaults do not cover
 
 The name is the structure: `harbor.sea` is under `harbor`. Every agent has these
 links without any edge written:
 """ + "\n".join(f"  - {d}" for d in DEFAULT_LINKS) + """
 
 Anything else is denied (a grandparent, a nephew, another team), and the refusal says
-so: ask your parent, or propose an edge with `ocp hr link`. A `deny` in team.yaml still beats a default link.""",
+so: ask your parent, or propose an edge with `hl hr link`. A `deny` in team.yaml still beats a default link.""",
     "doctor": """checks
-  ocp doctor                       verify the preconditions of each phase
+  hl doctor                       verify the preconditions of each phase
 
 Exits 1 if anything failed. No phase is finished without it.""",
 }

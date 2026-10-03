@@ -8,6 +8,10 @@ import os
 
 OLD, NEW = "OCP_", "HANDLINE_"
 
+# The command, main name first. `hl` is what is printed and installed; the other two stay working
+# aliases for at least a release, so a running agent or script that still types them is not cut off.
+COMMANDS = ("hl", "handline", "ocp")
+
 
 def getenv(name: str, default: str | None = None) -> str | None:
     """`name` (written in either form) read as HANDLINE_ first, then OCP_. A variable that is set

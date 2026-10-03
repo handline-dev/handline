@@ -135,9 +135,9 @@ def test_a_report_to_the_founder_is_not_a_wait(home: Path) -> None:
                   db.get_request(con, f2)["read_at"] is None)
             askmod.asking_agent = lambda: actions.HUMAN
             _capture(lambda: cliask.cmd_read(argparse.Namespace(id=f2, wait=False)))
-            check("fyi: the founder's `ocp read` marks it read",
+            check("fyi: the founder's `hl read` marks it read",
                   db.get_request(con, f2)["read_at"] is not None and db.get_request(con, f2)["state"] == "landed")
-            check("fyi: `ocp read` leaves no verdict either",
+            check("fyi: `hl read` leaves no verdict either",
                   db.shown_verdict(db.get_request(con, f2)) is None)
         finally:
             askmod.asking_agent = real_who
@@ -285,7 +285,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         check("fold: an async-routed report still folds - fyi outranks response",
               not edited["waiting"] and not edited["gate"], str(edited))
 
-        # messages() backs `ocp inbox --wait` on the human's own mailbox too
+        # messages() backs `hl inbox --wait` on the human's own mailbox too
         # (cli.ask._waiting_ids); a new report from an agent that already has a
         # folded row must still show up as a new id to wait for.
         before_ids = cliask._waiting_ids(con, actions.HUMAN)
@@ -348,7 +348,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
         os.environ["OCP_AGENT"] = actions.HUMAN
         out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
         os.environ.pop("OCP_AGENT", None)
-        check("fold: `ocp inbox` counts every message in the mailbox, not every line",
+        check("fold: `hl inbox` counts every message in the mailbox, not every line",
               int(out.splitlines()[0].split()[0]) == want, out.splitlines()[0])
     finally:
         con.close()
@@ -357,7 +357,7 @@ def test_for_you_folds_to_one_line_per_agent(home: Path) -> None:
 def test_display_agrees_with_the_daemon(home: Path) -> None:
     """Every screen draws the figure the daemon acts on, with its provenance.
 
-    `ocp triggers` once printed "-" in the 5h column beside a reason reading
+    `hl triggers` once printed "-" in the 5h column beside a reason reading
     "pct_5h 0%", which is the dashboard arguing with the daemon.
     """
     use_home(home)
@@ -377,7 +377,7 @@ def test_display_agrees_with_the_daemon(home: Path) -> None:
 
 
 def test_events_view_starts_at_the_newest(home: Path) -> None:
-    """`ocp events` answers "what just happened", and must not report the page
+    """`hl events` answers "what just happened", and must not report the page
     size as the total - it said 50 events when there were 187."""
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
@@ -556,8 +556,8 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
     """A 5h wall rolls over inside a day, so a bare clock says when. A weekly
     one can be days off - the same bare "%H:%M" in the wake column would claim
     it rolls over today. Reverting the column's own formatting alone (leaving
-    launch.describe_wake_wait's, which the daemon's log and `ocp ps`/`triggers`
-    read) must fail only this test - `ocp ps`, tested elsewhere, already
+    launch.describe_wake_wait's, which the daemon's log and `hl ps`/`triggers`
+    read) must fail only this test - `hl ps`, tested elsewhere, already
     covers the sentence."""
     _daemon_home(home, 20)
     con = db.connect()
@@ -580,7 +580,7 @@ def test_the_bridges_wake_column_dates_a_weekly_wall(home: Path) -> None:
 def test_top_shows_what_is_waiting_on_the_human(home: Path) -> None:
     """A decision addressed to the human is the one queue nothing in this
     system ever clears on its own, and it used to be visible only by running
-    `ocp inbox` with the right name. It gets its own panel, and it is not also
+    `hl inbox` with the right name. It gets its own panel, and it is not also
     drawn as traffic between agents."""
     _daemon_home(home, 20)
     con = db.connect()
@@ -768,7 +768,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               row["terminal"] is None and row["worktree"] == str(wt),
               str(dict(row)))
 
-        # `ocp launch` records what Orca hands it, which is `<repo id>::<path>`,
+        # `hl launch` records what Orca hands it, which is `<repo id>::<path>`,
         # while `spawn` records a plain path. Testing the selector as a path
         # found nothing, so an agent that still had its worktree was given a
         # second one beside it.
@@ -1068,7 +1068,7 @@ def test_one_verdict_for_the_panel_and_the_page(home: Path) -> None:
 
 
 def test_the_accounts_row_draws_a_last_seen_figure_only_inside_its_window(home: Path) -> None:
-    """The ACCOUNTS row and `ocp account list` draw the 5h figure from one
+    """The ACCOUNTS row and `hl account list` draw the 5h figure from one
     definition: last seen, marked ?, while the window is open; nothing once it
     has rolled over."""
     _daemon_home(home, 20)
@@ -1110,7 +1110,7 @@ def test_a_span_ends_in_its_unit(home: Path) -> None:
 
 
 def test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_obey(home: Path) -> None:
-    """`ocp bridge --once` (and a pipe) prints `tui.snapshot`: the header, the
+    """`hl bridge --once` (and a pipe) prints `tui.snapshot`: the header, the
     four panels in order, from the same rows the screen draws - and no escape
     code, whatever an agent wrote into what it shows."""
     _daemon_home(home, 20)
@@ -1121,7 +1121,7 @@ def test_the_snapshot_is_plain_text_of_every_panel_and_nothing_a_terminal_would_
     at = [next((i for i, ln in enumerate(lines) if ln.startswith(head)), -1)
           for head in ("ACCOUNTS", "AGENTS", "FOR YOU", "STUCK")]
     check("snapshot: the four panels are there, in order", -1 not in at and at == sorted(at), str(at))
-    check("snapshot: it opens on the daemon line", lines[0].startswith("ocp · daemon "), lines[0])
+    check("snapshot: it opens on the daemon line", lines[0].startswith("Handline · daemon "), lines[0])
     check("snapshot: an account, an agent and a message each have a row",
           any(ln.strip().startswith("alpha") for ln in lines)
           and any("reviewer" in ln and "IDLE" in ln for ln in lines[at[1]:at[2]])
@@ -1412,7 +1412,7 @@ def test_a_pasted_escape_in_a_message_being_typed_is_never_sent(home: Path) -> N
 def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path) -> None:
     _daemon_home(home, 20)
     out = _capture(lambda: climod.main(["account", "cap", "alpha", "3"]))
-    check("cap: `ocp account cap` sets it", loadmod.cap_of("alpha") == 3, out)
+    check("cap: `hl account cap` sets it", loadmod.cap_of("alpha") == 3, out)
     out = _capture(lambda: climod.main(["account", "cap", "alpha"]))
     check("cap: and shows it", "at most 3" in out, out)
     check("cap: the bridge has a key for it", ("c", "cap") in tui.ACCOUNT_KEYS)
@@ -1440,7 +1440,7 @@ def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path
 
 
 def test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(home: Path) -> None:
-    """T52: `ocp idle-timeout` / `ocp ignore-cache-expiry` show or set
+    """T52: `hl idle-timeout` / `hl ignore-cache-expiry` show or set
     config.yaml's global default, and with --agent one agent's own override;
     --clear drops the override back to following the global setting."""
     _daemon_home(home, 20)
@@ -1618,7 +1618,7 @@ edges:
         # that named its colleagues by hand kept naming them after they left.
         mgr, dev = launch.context_for("manager"), launch.context_for("marina")
         check("team: a supervisor is told who its reports are, and that it hands them work",
-              "`marina`" in mgr and "`keeper`" in mgr and "ocp task new --owner <name>" in mgr, mgr)
+              "`marina`" in mgr and "`keeper`" in mgr and "hl task new --owner <name>" in mgr, mgr)
         check("team: a supervisor is given the manager rules, a report is not",
               all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
               and "--blocked-by" not in dev, mgr)
@@ -1635,17 +1635,17 @@ edges:
         for who, ctx in (("manager", mgr), ("marina", dev), ("scout", launch.context_for("scout"))):
             line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
             check(f"team: {who}'s report-to line says a handed task ends with task done, "
-                  "and that it is the report", "`ocp task done T<n>" in line
+                  "and that it is the report", "`hl task done T<n>" in line
                   and "that is your report" in line, line)
             boss_is_human = "You report to `human`" in line
             check(f"team: and {who} is told to ask its boss for blocks and decisions, not "
                   "to finish - and the founder is not asked to clear a status report",
                   "when you finish" not in ctx
                   and ("is a message that needs no answer" in line) != boss_is_human
-                  and (not boss_is_human or "ocp task new --owner human" not in line)
-                  and "a task of theirs: `ocp task new --owner human" in ctx, line)
+                  and (not boss_is_human or "hl task new --owner human" not in line)
+                  and "a task of theirs: `hl task new --owner human" in ctx, line)
             check(f"team: and task done is said once, in that line, not again after it",
-                  ctx.count("ocp task done T<n>") == 1, ctx)
+                  ctx.count("hl task done T<n>") == 1, ctx)
 
         # The texts an agent reads name the message model - a task for what needs an
         # answer or a result, a say for the rest - and neither of the old verbs.
@@ -1656,8 +1656,8 @@ edges:
                             ("AGENTS.md", (root / "AGENTS.md").read_text()),
                             ("SKILL.md", (root / "skill" / "SKILL.md").read_text())):
             check(f"guidance: {label} names task and say, not `ocp ask` or `ocp resolve`",
-                  "ocp ask" not in text and "ocp resolve" not in text and "ocp withdraw" not in text
-                  and "ocp task" in text, text[:200])
+                  "ocp ask" not in text and "ocp resolve" not in text and "hl withdraw" not in text
+                  and "hl task" in text, text[:200])
 
         # A team is closed until it is opened: the screen is for what needs
         # you, and every report drawn in full is a list to scroll past. The
@@ -1745,7 +1745,7 @@ edges:
               sorted(n for n, _d in cyc) == sorted(paths.list_agents()), str(cyc))
 
         # And a routing table that will not parse does not take the screen down
-        # with it - `ocp doctor` is where that is a finding.
+        # with it - `hl doctor` is where that is a finding.
         hand_edit_team("teams: [this is not a map\n")
         check("tree: a broken team.yaml still draws every agent",
               sorted(n for n, _d in actions.agent_tree()) == sorted(paths.list_agents()))
@@ -1791,7 +1791,7 @@ def test_the_wake_time_is_in_the_state_cell_not_a_column(home: Path) -> None:
               not dmn_lifecycle.triggers_apply(db.get_agent_state(con, "backend")))
         db.clear_closed(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 60)
-        check("agents: ocp triggers names the parked state it is not judging",
+        check("agents: hl triggers names the parked state it is not judging",
               "parked; judged again at its wake" in next(
                   ln for ln in _capture(lambda: climod.main(["triggers"])).splitlines() if "backend" in ln))
         db.set_agent_state(con, "backend", dmn_states.THROTTLED, wake_at=int(time.time()) + 60)
@@ -2120,7 +2120,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
 
         # What the daemon did is not a question the founder's screen answers -
-        # it is `ocp events`, which shows decisions and takes --all for the
+        # it is `hl events`, which shows decisions and takes --all for the
         # turn edges that outnumber them six to one.
         for i in range(8):
             db.add_event(con, "backend", "Stop", {"i": i})
@@ -3263,7 +3263,7 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
         with contextlib.redirect_stdout(buf):
             code = clibridge.cmd_bridge(ns())
         check("bridge routing: without the package on a terminal it fails loud with the fix",
-              calls == [] and code == 1 and "ocp venv install" in buf.getvalue(),
+              calls == [] and code == 1 and "hl venv install" in buf.getvalue(),
               (calls, code, buf.getvalue()))
 
         calls.clear()

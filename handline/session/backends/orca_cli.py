@@ -264,7 +264,7 @@ class OrcaBackend(Backend):
         return _result(out, "task", "id") or _result(out, "id")
 
     def dispatch(self, task: str, handle: str, run: str) -> str | None:
-        """No `--inject`: the terminal is already running `ocp launch`, and the spec
+        """No `--inject`: the terminal is already running `hl launch`, and the spec
         is metadata for the card rather than an instruction for the agent. Orca
         injecting it too would deliver the same thing twice."""
         ok, out = _run(["orchestration", "dispatch", "--task", task, "--to", handle,

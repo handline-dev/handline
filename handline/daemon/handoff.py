@@ -653,7 +653,7 @@ def _park(con, agent: str, trigger: triggers.Trigger, hid: str | None, ok: bool,
     db.set_agent_state(con, agent, PARKED, wake_at=wake,
                        detail=f"{label}; wakes at {timefmt.stamp(wake, timefmt.CLOCK)}")
     # `close` and `wake` both leave a record of when and why; a park never did,
-    # so `ocp events --agent` had nothing to show for it even though the
+    # so `hl events --agent` had nothing to show for it even though the
     # kind was already reserved for it (kept out of db.AGENT_ACTIVITY_KINDS,
     # same as the others). The account carries its own source, so a
     # park against an assumed one is diagnosable from the event alone rather

@@ -1,5 +1,5 @@
 """Answering the dialogs a working agent meets all day (T64), behind one global
-setting, on by default: `auto_accept_dialogs` in config.yaml, `ocp auto-accept`.
+setting, on by default: `auto_accept_dialogs` in config.yaml, `hl auto-accept`.
 
 Two things are answered. A dialog the founder gave a standing answer
 (`team/dialog_rules`) is answered with that rule's option, by its number on the

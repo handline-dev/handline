@@ -1,4 +1,4 @@
-"""`ocp say` (T293): a message that needs no answer and starts no work - see
+"""`hl say` (T293): a message that needs no answer and starts no work - see
 `team.ask.say`; work is a task."""
 from __future__ import annotations
 

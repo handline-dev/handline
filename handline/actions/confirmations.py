@@ -1,4 +1,4 @@
-"""A permission prompt an agent is stopped at, as the bridge shows it (T223): `describe`, the plain dict
+"""A permission prompt an agent is stopped at, as the screen shows it (T223): `describe`, the plain dict
 `prompt_blocks` builds a confirmation block from (T603: the separate pending/answer path this module
 once held is gone; a prompt is answered through its block).
 

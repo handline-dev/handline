@@ -1,11 +1,11 @@
-"""The session's own `ocp land` command, vouched for to the daemon before it runs.
+"""The session's own `hl land` command, vouched for to the daemon before it runs.
 
 Branch code (the auditor's test run, the merger's `land.sh --check`) runs as a child of the same session
 that sends `land_pass` and `land`, so the daemon cannot tell the two apart by who is calling. What a
 branch's code cannot do is be the command the session's own PreToolUse hook sees. The hook is run by the
-harness outside the Bash sandbox, so it alone can read the per-session key `ocp launch` keeps in a folder
-the sandbox hides (`infra/sessiontoken.py`). When the tool call is exactly `ocp land --pass <sha>` or
-`ocp land <sha> <message> --tree <tree>` and nothing else, it hands the daemon the key with the verb and
+harness outside the Bash sandbox, so it alone can read the per-session key `hl launch` keeps in a folder
+the sandbox hides (`infra/sessiontoken.py`). When the tool call is exactly `hl land --pass <sha>` or
+`hl land <sha> <message> --tree <tree>` and nothing else, it hands the daemon the key with the verb and
 the sha, and the daemon accepts that one request from that session for a minute (`daemon/landauth.py`).
 A land verb that nothing vouched for, such as one sent from inside a test run, is refused.
 """
@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import shlex
 
-from ..infra import sessiontoken
+from ..infra import names, sessiontoken
 
 _OPERATORS = set(";&|<>()")
 
 
 def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
-    """(verb, sha) when this Bash call is nothing but one `ocp land` that sends a verb, else None.
+    """(verb, sha) when this Bash call is nothing but one `hl land` that sends a verb, else None.
     A command with any operator, substitution or second command in it vouches for nothing."""
     if tool_name != "Bash" or not isinstance(tool_input, dict):
         return None
@@ -33,7 +33,7 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
         words = list(lex)
     except ValueError:
         return None
-    if len(words) < 3 or words[0].rsplit("/", 1)[-1] not in ("ocp", "handline") or words[1] != "land":
+    if len(words) < 3 or words[0].rsplit("/", 1)[-1] not in names.COMMANDS or words[1] != "land":
         return None
     if any(set(w) <= _OPERATORS or w.startswith("#") for w in words):
         return None                         # an operator, or a comment the shell would drop

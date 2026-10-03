@@ -1,9 +1,9 @@
 """Five notices about work that has run long, all read from the db every tick.
 
 A task's own timeout
-(`ocp task new -t/--timeout`, T286) only counts while it is doing; past it,
+(`hl task new -t/--timeout`, T286) only counts while it is doing; past it,
 its opener is told, and again every further timeout_s stretch, until the
-task answers with one of `ocp task edit --timeout` (continue) or `ocp task
+task answers with one of `hl task edit --timeout` (continue) or `hl task
 release` (back to queued) - or is simply done. An agent that shows RUNNING -
 working, or with background work behind its prompt - while nothing is asked of
 it tells its supervisor once, so the manager can ask what it is doing
@@ -80,9 +80,9 @@ def sweep_task_timeouts(con, log, now: int) -> None:
         title = title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN].rstrip() + "…"
         # A task begun on a founder's message has no queue to go back to: release refuses it.
         stop = "" if actions._begun(con, tid) else \
-            f" Stop it: `ocp task release T{tid}` sends it back to queued."
+            f" Stop it: `hl task release T{tid}` sends it back to queued."
         text = (f"T{tid} ({title}), held by {row['owner']}, has been doing past its "
-                f"{timefmt.ago(box)} timeout. Keep it going: `ocp task edit T{tid} --timeout <duration>`."
+                f"{timefmt.ago(box)} timeout. Keep it going: `hl task edit T{tid} --timeout <duration>`."
                 f"{stop}")
         if _tell(con, row["opened_by"], text, now):
             db.advance_task_timeout(con, tid, now, actions.DEFAULT_TASK_TIMEOUT_S)
@@ -124,7 +124,7 @@ def sweep_unasked_running(con, log, now: int) -> None:
         boss = actions.supervisor_of(team, agent) or HUMAN
         text = (f"{agent} has shown RUNNING ({_state_of(con, agent)}) for "
                 f"{timefmt.ago(now - since)} with no request open. Ask it what it is doing: "
-                f"`ocp say {agent} \"...\"`.")
+                f"`hl say {agent} \"...\"`.")
         if _tell(con, boss, text, now):
             db.set_cursor(con, told_key, 1)
             db.add_event(con, agent, "unasked_running", {"told": boss, "for_s": now - since})
@@ -151,7 +151,7 @@ def sweep_stale_background(con, log, now: int) -> None:
         text = (f"{agent} has had background work for {timefmt.ago(now - (delivery.bg_since(con, agent) or now))} "
                 f"and shown nothing for {timefmt.ago(silent)}. In {timefmt.ago(delivery.STALE_BG_VETO_S)} "
                 f"its session may be closed, which stops that work, unless it shows activity or "
-                f"`ocp idle-timeout never --agent {agent}` is set.")
+                f"`hl idle-timeout never --agent {agent}` is set.")
         if _tell(con, boss, text, now):
             db.set_cursor(con, key, now)
             db.add_event(con, agent, "stale_background", {"told": boss, "silent_s": silent})
@@ -291,10 +291,10 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
         if task is not None:
             # A task begun on a founder's message has no queue to go back to: release refuses it.
             back = "" if actions._begun(con, task["id"]) else \
-                f"; take it back with `ocp task release T{task['id']}`"
-            look = f"Look at it: `ocp read {head_id}`{back}, or ask {agent} by message (`ocp say {agent} \"...\"`)."
+                f"; take it back with `hl task release T{task['id']}`"
+            look = f"Look at it: `hl read {head_id}`{back}, or ask {agent} by message (`hl say {agent} \"...\"`)."
         else:
-            look = f"Look at it: `ocp read {head_id}`, or message {agent} (`ocp say {agent} \"...\"`)."
+            look = f"Look at it: `hl read {head_id}`, or message {agent} (`hl say {agent} \"...\"`)."
         text = f"{agent} has been idle {timefmt.ago(found['idle_s'])} on {on} {after}{more}. {look}"
         if _tell(con, boss, text, now):
             db.set_cursor(con, told_key, head_id)

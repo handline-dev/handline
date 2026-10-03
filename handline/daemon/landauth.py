@@ -1,8 +1,8 @@
-"""What the session's own `ocp land` command vouched for, held for a minute and used once.
+"""What the session's own `hl land` command vouched for, held for a minute and used once.
 
 `session/landgate.py` records a grant when the session's PreToolUse hook sees the exact command; the
 daemon takes it when the matching verb arrives (`socket_server._handle_request`). The sha is the text
-typed in the command, which is also what `ocp land` sends.
+typed in the command, which is also what `hl land` sends.
 """
 from __future__ import annotations
 

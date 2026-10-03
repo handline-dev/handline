@@ -1,4 +1,4 @@
-"""Claude Code hooks: hooks sync/status, `ocp hook`, install-hooks."""
+"""Claude Code hooks: hooks sync/status, `hl hook`, install-hooks."""
 from __future__ import annotations
 
 import subprocess
@@ -9,7 +9,7 @@ from ..session import edittask, events, stopgate
 from ..infra import paths, protected
 from .. import vendors
 
-# Every gate T298 rolled out, by the name `ocp hooks gate` takes; on since T480.
+# Every gate T298 rolled out, by the name `hl hooks gate` takes; on since T480.
 GATES = {"stop-wait": stopgate, "edit-task": edittask}
 
 
@@ -54,8 +54,8 @@ def cmd_hooks_gate(args) -> int:
 
 def cmd_hook(args) -> int:
     if args.event == "install":
-        print("`ocp hook` records one event from stdin. To add ocp's hooks to the "
-              "shared settings, run `ocp install-hooks`.", file=sys.stderr)
+        print("`hl hook` records one event from stdin. To add ocp's hooks to the "
+              "shared settings, run `hl install-hooks`.", file=sys.stderr)
         return 1
     if args.event == "commit":
         agent = askmod.current_agent()

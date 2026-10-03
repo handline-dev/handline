@@ -168,7 +168,7 @@ def stuck(con) -> list[dict]:
     # about a tick that is not coming.
     if not alive:
         add("the daemon is not running", 0,
-            "nothing here moves on its own - `ocp daemon`, or `ocp service install`")
+            "nothing here moves on its own - `hl daemon`, or `hl service install`")
 
     for h in db.in_flight_handoffs(con):
         left = (h["deadline"] or now) - now

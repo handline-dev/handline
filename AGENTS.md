@@ -3,38 +3,38 @@
 True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 
 - Text typed into your own session reaches no one. Everything that has to
-  reach someone goes through `ocp`.
-- There is one kind of message, `ocp say <target> "..."`: typed at once, needs
+  reach someone goes through `hl`.
+- There is one kind of message, `hl say <target> "..."`: typed at once, needs
   no answer, starts no work. Anything that needs an answer or a result is a
-  task: `ocp task new --owner <target> -t <time> "<title>" "<body>"`. Work
+  task: `hl task new --owner <target> -t <time> "<title>" "<body>"`. Work
   reaches another agent only as a task, never a subagent: it dies with your
   session and appears on no screen.
-- You hold one task at a time. It ends with `ocp task done T<n> "<evidence>"`,
-  or you hand it on with `ocp task handoff T<n> <agent> "<note>"` - that is how
+- You hold one task at a time. It ends with `hl task done T<n> "<evidence>"`,
+  or you hand it on with `hl task handoff T<n> <agent> "<note>"` - that is how
   the result reaches whoever asked, never a second task repeating it. The next
   task arrives only then.
-- Review and merge (orcapipe's project guideline; `ocp team` names your own
+- Review and merge (orcapipe's project guideline; `hl team` names your own
   project's auditor and merger) are child tasks you wait on, not handoffs: you
-  keep your task, in doing. When code is ready, `ocp task new --owner orcapipe.auditor
+  keep your task, in doing. When code is ready, `hl task new --owner orcapipe.auditor
   --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
-  check>"`; the child blocks T<n>, and the auditor closes it with `ocp task done
+  check>"`; the child blocks T<n>, and the auditor closes it with `hl task done
   T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
   is done, with its result. On a PASS open the same for `orcapipe.merger`
   (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
   commit sha or `"not merged: <reason>"`. Then mark T<n> done with that sha
-  (`ocp task done T<n> <sha>`; it is refused while a child is open), else
-  `ocp task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
+  (`hl task done T<n> <sha>`; it is refused while a child is open), else
+  `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
   reopened by its asker. An auditor or merger never hands a review or merge task
   back: it finishes it.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
-  `ocp team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown
+  `hl team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown
   target" in the command's own output - read it, or you wait for a reply that
   never comes.
 - A manager cannot hand a report work by message: a say to a report carries
   `--task T<n>` (a memo on that task).
-- A decision only the founder can make is a task of theirs: `ocp task new
-  --owner human ...`. A status report that needs nothing is `ocp say human
+- A decision only the founder can make is a task of theirs: `hl task new
+  --owner human ...`. A status report that needs nothing is `hl say human
   "..."`.
 
 ## Hard rules
@@ -54,13 +54,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    terminal, log, db or any file ocp writes.
 2. Do not code on an assumption nobody verified. Probe it first.
 3. No logic in `SKILL.md`: it is a stub of at most 20 lines, and detail loads on
-   demand through `ocp guide <topic>`.
+   demand through `hl guide <topic>`.
 4. No model in orchestration. Triggers, account picks and resume decisions are
    deterministic and the daemon makes them. The one place a model spends tokens is
    a fold.
 5. Never dump `--json` output whole into a log or the db (a token leak path):
    take the fields with a reader, by allowlist.
-6. Do not finish a phase without `ocp doctor` checking its preconditions.
+6. Do not finish a phase without `hl doctor` checking its preconditions.
 7. Nothing the repo keeps (commit messages, code, comments, tests, docs) carries personal
    data or an id that only means something on this machine: no email, real name, home
    path (`/Users/<name>`), token or key; no task id (`T<n>`), chat message number (`#<n>`)
@@ -68,7 +68,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    repo can follow it. The task board keeps the ids; `tools/land.sh --note` records a
    landing's ids locally, outside git. A real need (a fixture that must hold one) gets
    `local-ref-ok` on its line, or its file an entry in `tools/localrefs.allow`. In a Markdown
-   file an id that is an argument of an `ocp` command is the product's own syntax and passes.
+   file an id that is an argument of an `hl` command is the product's own syntax and passes.
    A commit's author and committer email must be a noreply address too
    (`git config user.email <id>+<name>@users.noreply.github.com`).
    `tools/localrefs.py` enforces it in `tools/land.sh` and in the git hooks
@@ -91,7 +91,7 @@ Easy to get wrong:
   proposal drafts stay in `~/.orcapipe`: an agent writes those, so only the
   recorded answer counts.
 
-`ocp guide` lists the rest. Your role and standing context are injected per
+`hl guide` lists the rest. Your role and standing context are injected per
 agent (ROLE.md, base.md); this file does not repeat them.
 
 ## How we work
@@ -110,13 +110,13 @@ agent (ROLE.md, base.md); this file does not repeat them.
   finish UI work.
 - Language: agents write to each other, write tasks, code and comments in
   English. Only a reply to the founder may be in Korean.
-- Run `ocp` as its own Bash call with literal text: no `$(...)`, no `$VAR`, no
+- Run `hl` as its own Bash call with literal text: no `$(...)`, no `$VAR`, no
   `&&`, `;` or pipe. A value such as a sha comes from a separate call first.
 - Permission prompts: edit files with the Edit tool, never `sed -i`, which can
   write any file and so always prompts. Don't start a command with `cd`; use
   paths or `git -C` instead.
-- Text to `ocp say`, `ocp task new` and `ocp task handoff` goes in single quotes
+- Text to `hl say`, `hl task new` and `hl task handoff` goes in single quotes
   (a literal `'` as `'"'"'`): in double quotes the shell runs backticked words
   and they vanish from the message. Text with backticks or `$(`, or with a literal `'`
   in it, goes in a quoted heredoc on stdin as `-`, or in a file as `--file PATH`
-  (`ocp say`, `ocp task new`, `ocp task handoff`, `ocp task memo add`).
+  (`hl say`, `hl task new`, `hl task handoff`, `hl task memo add`).

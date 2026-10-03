@@ -1,7 +1,7 @@
 # How it works
 
 The daemon decides what to do with agents and accounts using fixed rules. No model is involved.
-The one command that calls a model is `ocp fold`, which summarizes recorded events into a digest.
+The one command that calls a model is `hl fold`, which summarizes recorded events into a digest.
 Nothing that moves, parks, or resumes an agent depends on it.
 
 ## Usage numbers
@@ -28,7 +28,7 @@ start. It is a bad place if:
 
 - it is at its limit,
 - it already has its maximum number of agents mid-turn (2 by default; change it with
-  `ocp account cap <name> <n>`, or `c` on the bridge), or
+  `hl account cap <name> <n>`, or `c` on the bridge), or
 - it is filling so fast that one more agent would last less than half an hour.
 
 How fast an account fills is measured, not fixed. The cost of one more agent is the median of what
@@ -74,7 +74,7 @@ your process stayed alive.
   the daemon still acts on it when it comes back.
 - **Contacts not listed in `team.yaml` are denied.** The refusal says why, so an agent does not
   try to route around it.
-- **A result goes back the way the work came.** `ocp task done` records the evidence on the task.
-  The daemon tells the agent that asked, and you see it in `ocp inbox` and on the bridge. If only
+- **A result goes back the way the work came.** `hl task done` records the evidence on the task.
+  The daemon tells the agent that asked, and you see it in `hl inbox` and on the bridge. If only
   one direction existed, agents started sending a second task to repeat what they had already
   reported.

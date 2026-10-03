@@ -50,7 +50,7 @@ as a stack, and a caller can enter at any level.
 ### Layer 1 - a terminal running a command
 
 ```
-orca terminal create --worktree path:/…   --command "ocp launch backend"
+orca terminal create --worktree path:/…   --command "hl launch backend"
 orca terminal create --worktree active    --command "codex"
 orca terminal create --worktree path:/…   --command "opencode" --focus
 ```

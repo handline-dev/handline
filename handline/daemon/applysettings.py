@@ -3,7 +3,7 @@
 What a launch reads from the settings a person edits (`launch.fingerprint_parts`: the model, effort,
 mcp config, browser, permission switches, ROLE.md, base.md, the team line and rules) is read once, at
 session start. The launch records each beside the session; this compares those with what the next
-launch would use and, when a named setting differs, restarts the agent the way `ocp restart` does
+launch would use and, when a named setting differs, restarts the agent the way `hl restart` does
 (resumed, the same conversation), never mid-turn and never over an open dialog. A level read each
 tick from the row, not an edge: a change made while the agent was busy is applied when it is not.
 """

@@ -1,4 +1,4 @@
-"""What the bridge shows (design section 11): its panels' rows, header and keys as
+"""What the screen shows (design section 11): its panels' rows, header and keys as
 data, and `snapshot`, the same as plain text. `ui/pages/home.py` draws them.
 
 A join view over the same state the daemon decides on, so the two cannot
@@ -38,7 +38,7 @@ RED, YEL, GRN, CYA = "\033[31m", "\033[33m", "\033[32m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
 
 # The screen's whole vocabulary for what an agent's row shows - drawn here and
-# by `ocp ps` (handline/cli/) through the one function below, screen_state(), so the
+# by `hl ps` (handline/cli/) through the one function below, screen_state(), so the
 # two cannot disagree about a word. Only DIALOG and FATAL are red: the two
 # states a person, not the daemon, clears.
 SCREEN_WORDS = ("RUNNING", "IDLE", "PENDING", "MOVING", "DIALOG", "FATAL")
@@ -276,7 +276,7 @@ def account_cells(name: str, st, now: float | None = None,
         return {"agents": agents_cell(counts, unplaced, at_cap), "five": f"{DIM}unmetered{R}",
                 "reset5": "", "seven": "", "reset7": "", "runway": ""}
     runway_text = status.describe_runway(status.runway(st, status.read_burn(name), now, ld))
-    # One definition of the figure and its mark, shared with `ocp account list`.
+    # One definition of the figure and its mark, shared with `hl account list`.
     # A last-seen figure is drawn at its value, dimmed and uncoloured, with its
     # "?", so it cannot be read as a live gauge at the same number and is not
     # drawn as an unknown either. Display only.
@@ -434,7 +434,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         ctxs = f"{pct(st.ctx_pct)}%"
         if st.ctx_used is not None and st.ctx_used >= ctx_limit:
             ctxs = YEL + ctxs + R
-        # Same predicate `ocp ps` and `ocp triggers` ask for this - so this
+        # Same predicate `hl ps` and `hl triggers` ask for this - so this
         # screen cannot disagree with the daemon that actually acts on it.
         w = dmn_lifecycle.would_wake(con, row) and launch.wake_wait(name, row, con)
         wall = (WallCell(w.account, launch.wait_clock(w), "?" if w.assumed else "",
@@ -570,7 +570,7 @@ def panel_keys(panel: int, agent_keys: list[tuple[str, str]] | None = None) -> l
 
 
 def snapshot() -> str:
-    """The bridge as plain text, once: what `ocp bridge --once` prints, and what
+    """The bridge as plain text, once: what `hl bridge --once` prints, and what
     a pipe or a script gets. Every panel's rows from the same data functions the
     screen draws from, their cells joined by two spaces and stripped of colour."""
     plain = lambda cell: _ANSI.sub("", cell)  # noqa: E731
@@ -584,7 +584,7 @@ def snapshot() -> str:
     finally:
         con.close()
     now = time.time()
-    out = [f"ocp · daemon {'running' if head.running else 'NOT RUNNING'} · {head.clock}"
+    out = [f"Handline · daemon {'running' if head.running else 'NOT RUNNING'} · {head.clock}"
            + (f" · {status.SOURCE_LEGEND_SHORT}" if head.legend else "")]
     if head.waits:
         out.append(f"{WAITING_ON_YOU} ({len(head.waits)})")
@@ -879,7 +879,7 @@ NEEDS_A_HUMAN = ("DIALOG", "FATAL")
 # DETAIL_CAP bounds the free text screen_state() shows beside a word - a
 # dialog's own detail, or who an IDLE reply-wait is for - to what the state
 # cell has room for; `fit()` truncates further if the column itself is
-# narrower. Long text belongs in `ocp ps`'s own DETAIL column instead.
+# narrower. Long text belongs in `hl ps`'s own DETAIL column instead.
 DETAIL_CAP = 40
 
 
@@ -952,7 +952,7 @@ def screen_state(con, row) -> tuple[str, str]:
 def _screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
-    here and read by `ocp ps` (handline/cli/) alike, through this one function, so
+    here and read by `hl ps` (handline/cli/) alike, through this one function, so
     the two screens cannot disagree about a row.
 
     No `·closed` suffix (founder #1639/#1640: information nobody needs on

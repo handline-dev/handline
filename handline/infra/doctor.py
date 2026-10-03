@@ -1,4 +1,4 @@
-"""ocp doctor - check the preconditions each phase rests on (AGENTS.md rule 6).
+"""hl doctor - check the preconditions each phase rests on (AGENTS.md rule 6).
 
 No phase is finished without it. Every check is read-only, and credentials are
 only ever checked for existence.
@@ -105,7 +105,7 @@ def _check_managed(r: Report) -> None:
 def _check_home(r: Report) -> None:
     h = paths.home()
     if not h.is_dir():
-        r.add(FAIL, f"OCP_HOME missing: {h}", "run ocp init first")
+        r.add(FAIL, f"OCP_HOME missing: {h}", "run hl init first")
         return
     r.add(OK, f"OCP_HOME {h}")
 
@@ -141,7 +141,7 @@ def _check_orca_hooks(r: Report) -> None:
         elif drift:
             r.add(WARN, "Orca hooks have drifted from shared",
                   f"{len(src)} events at source vs {len(dst)} in shared - "
-                  "run `ocp hooks sync`, or let the watcher do it")
+                  "run `hl hooks sync`, or let the watcher do it")
         else:
             r.add(OK, f"Orca hooks in sync ({len(src)} events)")
 
@@ -158,13 +158,13 @@ def _check_ocp_hooks(r: Report) -> None:
         if gap:
             r.add(WARN, "ocp's own hooks are missing events",
                   f"{', '.join(sorted(gap))} not installed in {h.target_settings()} - "
-                  "run `ocp install-hooks`")
+                  "run `hl install-hooks`")
         else:
             r.add(OK, f"ocp's own hooks installed ({len(wanted)} events)")
 
 
 def _check_home_socket(r: Report) -> None:
-    """`ocp init` used to be the only thing that added the sandbox's
+    """`hl init` used to be the only thing that added the sandbox's
     allowUnixSockets entry, so a home initialised before T369 has agents that
     cannot reach the daemon socket: doctor adds it, as launch does."""
     for h in vendors.state_hooks():
@@ -173,14 +173,14 @@ def _check_home_socket(r: Report) -> None:
         except (OSError, ValueError) as e:
             r.add(WARN, "sandboxed agents cannot reach ocp's socket",
                   f"could not add {paths.socket_file()} to {h.target_settings()} ({e}) - "
-                  "run `ocp init` from outside an agent's sandbox")
+                  "run `hl init` from outside an agent's sandbox")
         else:
             r.add(OK, f"sandboxed agents may connect to {paths.socket_file().name}"
                       + (" (added just now)" if added else ""))
 
 
 def _check_ocp_sandboxed(r: Report) -> None:
-    """The session tokens and the protected store hold only if `ocp` runs inside an agent's sandbox:
+    """The session tokens and the protected store hold only if `hl` runs inside an agent's sandbox:
     an excluded command is not under its read-deny or its write limits."""
     for h in vendors.state_hooks():
         out = h.unsandboxed_commands()
@@ -197,10 +197,19 @@ def _check_ocp_sandboxed(r: Report) -> None:
             r.add(OK, "ocp runs inside the agents' sandbox")
 
 
+def _check_hl_on_path(r: Report) -> None:
+    """Printed text and prompts say `hl`; it has to resolve on PATH the way `hl` does."""
+    if shutil.which("hl"):
+        r.add(OK, "hl is on PATH")
+    else:
+        r.add(WARN, "hl is not on PATH",
+              f'a human runs: ln -s "{paths.repo_root() / "bin" / "hl"}" ~/.local/bin/hl  (ocp and handline keep working)')
+
+
 def _check_accounts(r: Report) -> None:
     names = paths.list_accounts()
     if not names:
-        r.add(FAIL, "no accounts registered", "ocp account add <name>")
+        r.add(FAIL, "no accounts registered", "hl account add <name>")
         return
     loads = loadmod.read_all()
     for a in names:
@@ -230,7 +239,7 @@ def _check_accounts(r: Report) -> None:
             r.add(OK, f"account {a}: settings.json -> shared")
         else:
             r.add(FAIL, f"account {a}: settings.json does not point at shared",
-                  f"ocp account register --force {a}")
+                  f"hl account register --force {a}")
 
         if drv.meter() is None:
             r.add(OK, f"account {a}: unmetered ({drv.name})",
@@ -276,11 +285,11 @@ def _check_seals(r: Report) -> None:
         if st in ("changed", "unsealed"):
             said = "changed outside the founder's path" if st == "changed" else "never sealed"
             r.add(FAIL, f"{label} was {said}",
-                  "it is not trusted until the founder reviews it and runs `ocp team seal`")
+                  "it is not trusted until the founder reviews it and runs `hl team seal`")
     if legacy:
         # Before seals begin nothing is refused, so nothing else says the files are unprotected.
         r.add(WARN, f"seals have not begun: {len(legacy)} file(s) are not sealed",
-              "the first founder-side read seals them; or review them and run `ocp team seal` "
+              "the first founder-side read seals them; or review them and run `hl team seal` "
               f"({', '.join(legacy[:5])}{', ...' if len(legacy) > 5 else ''})")
 
 
@@ -288,7 +297,7 @@ def _check_agents(r: Report) -> None:
     _check_seals(r)
     names = paths.list_agents()
     if not names:
-        r.add(WARN, "no agents registered", "ocp agent register <name>")
+        r.add(WARN, "no agents registered", "hl agent register <name>")
         return
     have = {vendors.account_vendor(a) for a in paths.list_accounts()}
     for n in names:
@@ -300,21 +309,21 @@ def _check_agents(r: Report) -> None:
             continue
         if vendor not in have:
             r.add(FAIL, f"agent {n}: no {vendor} account is registered",
-                  f"its launch is refused; `ocp account add <name> --vendor {vendor}`")
+                  f"its launch is refused; `hl account add <name> --vendor {vendor}`")
         else:
             r.add(OK, f"agent {n}")
         try:
             if not agents.read(n).get("repo"):
                 r.add(WARN, f"agent {n}: no repo",
                       f"the daemon cannot start it, Orca has nowhere to make its worktree; "
-                      f"`ocp agent register {n} --repo <path>`")
+                      f"`hl agent register {n} --repo <path>`")
         except (FileNotFoundError, agents.ConfigError):
             pass  # reported above as an agent.yaml error
         try:
             if agents.skip_permissions(agents.read(n)) and not agents.skip_permissions_granted(n):
                 r.add(WARN, f"agent {n}: skip_permissions in agent.yaml was never granted",
                       "a launch ignores it; the founder turns it on with "
-                      f"`ocp agent register {n} --skip-permissions on`, and off with `off`")
+                      f"`hl agent register {n} --skip-permissions on`, and off with `off`")
         except (FileNotFoundError, agents.ConfigError):
             pass  # reported above as an agent.yaml error
         for fn, size, budget, over in agents.budget_report(n):
@@ -535,7 +544,7 @@ def _check_shared_links(r: Report) -> None:
         return
     r.add(WARN, "shared files that do not reach an account",
           ", ".join(f"{a}: {i}" for a, i in bad)
-          + " - `ocp account register --force <account>` links it: a real "
+          + " - `hl account register --force <account>` links it: a real "
           "directory's contents move into shared, a real file identical to shared's "
           "is replaced, and anything that would lose data stops it")
 
@@ -585,7 +594,7 @@ def _check_one_daemon(r: Report) -> None:
 
 
 def _check_service(r: Report) -> None:
-    """The daemon surviving overnight is the point of `ocp service` - a
+    """The daemon surviving overnight is the point of `hl service` - a
     plist on disk that launchd never loaded, or a job stuck respawning, is
     the same as no supervisor at all."""
     from ..daemon import locks as dmn_locks
@@ -599,15 +608,15 @@ def _check_service(r: Report) -> None:
             r.add(OK, "no launchd service installed", "a daemon is running by hand")
         else:
             r.add(WARN, "no launchd service installed, no daemon running",
-                  "`ocp service install` so it survives without a human")
+                  "`hl service install` so it survives without a human")
         return
     if not st["loaded"]:
         r.add(FAIL, "service plist exists but is not loaded",
-              f"{service.plist_path()} - `ocp service install` to reload it")
+              f"{service.plist_path()} - `hl service install` to reload it")
         return
     if service.crash_loop_detected():
         r.add(FAIL, "daemon is crash-looping under launchd",
-              "see `ocp service logs`")
+              "see `hl service logs`")
     else:
         r.add(OK, f"service loaded (pid {st['pid'] or '-'})")
 
@@ -644,7 +653,7 @@ def _check_leftover_deliveries(r: Report) -> None:
     try:
         for row in db.leftover_deliveries(con):
             r.add(WARN, f"request #{row['id']} to {row['target']}: its task has ended or moved on",
-                  "it is skipped by the inbox and the stuck list; `ocp doctor --settle-leftovers` closes the ended ones quietly")
+                  "it is skipped by the inbox and the stuck list; `hl doctor --settle-leftovers` closes the ended ones quietly")
     finally:
         con.close()
 
@@ -666,6 +675,7 @@ def _run() -> Report:
     _check_ocp_hooks(r)
     _check_home_socket(r)
     _check_ocp_sandboxed(r)
+    _check_hl_on_path(r)
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)

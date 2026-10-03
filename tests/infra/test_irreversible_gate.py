@@ -1,4 +1,4 @@
-"""Tests: the commands that cannot be undone (`ocp account remove`, `ocp doctor --drop-dead-columns`) each
+"""Tests: the commands that cannot be undone (`hl account remove`, `hl doctor --drop-dead-columns`) each
 have a --dry-run that prints what they would do and the newest backup, and refuse to run without a backup
 from the last five minutes. --yes skips the question and never the gate.
 
@@ -33,7 +33,7 @@ def test_a_backup_counts_for_five_minutes_whether_taken_or_checked_unchanged(hom
     use_home(home)
     now = time.time()
     check("gate: with no backup at all it refuses and names the command that makes one",
-          "there is no backup yet" in (backupmod.require_recent() or "") and "`ocp backup`" in backupmod.require_recent())
+          "there is no backup yet" in (backupmod.require_recent() or "") and "`hl backup`" in backupmod.require_recent())
     check("gate: the window is five minutes", WINDOW == 300 and "5 minutes" in backupmod.require_recent())
     fresh_backup(age_s=60)
     check("gate: a backup a minute old passes", backupmod.require_recent() is None)
@@ -42,8 +42,8 @@ def test_a_backup_counts_for_five_minutes_whether_taken_or_checked_unchanged(hom
     p = fresh_backup(age_s=WINDOW + 60)
     why = backupmod.require_recent()
     check("gate: one just outside refuses, with the snapshot's name, its age and the command",
-          why and p.name in why and "was taken 6m ago" in why and "`ocp backup`" in why, str(why))
-    # `ocp backup` that finds nothing changed records that the newest snapshot is still the state.
+          why and p.name in why and "was taken 6m ago" in why and "`hl backup`" in why, str(why))
+    # `hl backup` that finds nothing changed records that the newest snapshot is still the state.
     (backupmod.backup_dir() / backupmod.FINGERPRINT).write_text("x")
     check("gate: a snapshot checked unchanged just now still counts, however old it is",
           backupmod.require_recent() is None)
@@ -55,7 +55,7 @@ def test_a_backup_counts_for_five_minutes_whether_taken_or_checked_unchanged(hom
 
 
 def test_a_real_backup_command_that_finds_nothing_changed_keeps_the_gate_open(home: Path) -> None:
-    """The gate names `ocp backup` as the fix; where the state has not changed since the newest snapshot,
+    """The gate names `hl backup` as the fix; where the state has not changed since the newest snapshot,
     that command writes nothing, and must still leave a backup that passes."""
     use_home(home)
     (home / "team.yaml").write_text("teams: {}\n")
@@ -102,7 +102,7 @@ def test_account_remove_dry_run_says_what_it_would_do_and_changes_nothing(home: 
     fresh_backup(age_s=WINDOW + 600)
     rc, out, err = _cli("account", "remove", "beta", "--dry-run")
     check("dry run: with no recent backup it says the real run would refuse, and exits 1",
-          rc == 1 and "would refuse: no backup from the last 5 minutes" in out and "`ocp backup`" in out, out + err)
+          rc == 1 and "would refuse: no backup from the last 5 minutes" in out and "`hl backup`" in out, out + err)
     con = db.connect()
     try:
         con.execute("UPDATE agent_state SET closed_at = NULL, resume_session = NULL WHERE agent = 'backend'")
@@ -122,7 +122,7 @@ def test_account_remove_refuses_without_a_recent_backup_even_with_yes(home: Path
     fresh_backup(age_s=WINDOW + 600)
     rc, out, err = _cli("account", "remove", "beta", "--yes")
     check("remove: --yes does not skip the backup gate: refused, naming the command",
-          rc == 1 and "not removing 'beta'" in err and "`ocp backup`" in err and "beta" in paths.list_accounts(), out + err)
+          rc == 1 and "not removing 'beta'" in err and "`hl backup`" in err and "beta" in paths.list_accounts(), out + err)
     check("remove: and it asked nothing and moved nothing", not (home / "accounts" / ".retired").exists())
     asked: list[bool] = []
     ok, msg = accounts.remove_account("beta", lambda: (asked.append(True), True)[1], lambda a, e: 0)
@@ -191,8 +191,8 @@ def test_drop_dead_columns_refuses_for_a_stale_process_or_no_backup_and_keeps_th
             left = dbschema._cols(con, "requests")
         finally:
             con.close()
-        check("drop: with no backup from the last 5 minutes it refuses, names `ocp backup`, drops nothing",
-              rc == 1 and "not dropping:" in err and "`ocp backup`" in err and set(dead) <= left, err)
+        check("drop: with no backup from the last 5 minutes it refuses, names `hl backup`, drops nothing",
+              rc == 1 and "not dropping:" in err and "`hl backup`" in err and set(dead) <= left, err)
         health.stale_long_lived = lambda started_at=None: ["bridge (pid 4242)"]
         fresh_backup(age_s=5)
         rc, out, err = _doctor()

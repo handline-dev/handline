@@ -58,7 +58,7 @@ HINT = ("say what changed and why in words; task and chat ids stay on the task b
 
 # The text of a link into someone else's tracker, and any URL: a number in either is theirs, not ours.
 _EXTERNAL = re.compile(r"\[[^\]]*\]\(https?://github\.com/[^)\s]*\)|https?://[^\s)>\]]+")
-_OCP_COMMAND = re.compile(r"\bocp\s+[a-z][\w-]*")
+_OCP_COMMAND = re.compile(r"\b(?:hl|handline|ocp)\s+[a-z][\w-]*")
 
 
 def _inside(spans: list[tuple[int, int]], pos: int) -> bool:

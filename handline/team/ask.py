@@ -1,4 +1,4 @@
-"""Requests between agents (team model section 3): what `ocp task new` and `ocp say` write.
+"""Requests between agents (team model section 3): what `hl task new` and `hl say` write.
 
 The agent supplies a target and a message. Everything else is decided here:
 whether the edge is allowed, chain depth, rate limiting, and
@@ -32,13 +32,13 @@ REVIEW_PINGPONG_LIMIT = 3
 
 
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
-# because `ocp launch` sets it before exec'ing claude - so an interactive shell
+# because `hl launch` sets it before exec'ing claude - so an interactive shell
 # without it is a human at their own prompt, and that is who this is.
 HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
-    """Who is asking, or None when nothing says. Set by `ocp launch`."""
+    """Who is asking, or None when nothing says. Set by `hl launch`."""
     return names.getenv("OCP_AGENT") or None
 
 
@@ -116,7 +116,7 @@ def raise_decision(con, agent: str, text: str, reason: str, files: str | None = 
 
     `agent` is who it is about: the requester of a runaway, or an agent the
     daemon found for itself that it cannot give its work. `reason` is the short
-    form kept on the event for `ocp events`. Fire and forget, so nothing is
+    form kept on the event for `hl events`. Fire and forget, so nothing is
     typed back at `agent` when the human reads it. Once per shape: exactly the same
     text still waiting from the same agent is that decision, not a second one;
     anything different is its own card, so nothing an agent wrote is lost.
@@ -246,7 +246,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     # through it is exempt from the loop guards, because the guards exist to
     # reach a human and one is typing. An agent that could claim the name would
     # hold both: one spoofed hop turns a refused A->B->A into a legal loop.
-    # `ocp launch` sets OCP_AGENT, so a caller that has one is not the human.
+    # `hl launch` sets OCP_AGENT, so a caller that has one is not the human.
     speaker = current_agent() if speaker is _ENV else speaker
     if requester == HUMAN and speaker not in (None, HUMAN) and not on_behalf_of:
         return False, (f"{speaker} may not ask as {HUMAN}: that name is the human's, "
@@ -254,7 +254,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
     if not requester:
         return False, ("cannot tell who is asking: OCP_AGENT is unset and this is "
                        "not an interactive shell. Agents are started with "
-                       "`ocp launch <agent>`, which sets it."), None
+                       "`hl launch <agent>`, which sets it."), None
 
     t = team.Team.load()
     con = db.connect()
@@ -430,7 +430,7 @@ def push(con, target: str, rid: int | None = None) -> str:
     stays the safety net: anything this could not finish is still queued.
     """
     if target == HUMAN:
-        return "it is on the founder's screen (`ocp bridge`)"
+        return "it is on the founder's screen (`hl`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
     handed = _hand_off("push", target=target, rid=rid)
@@ -472,7 +472,7 @@ def push_answer(con, requester: str) -> str:
     loop, so they are finished the same way.
     """
     if requester == HUMAN:
-        return "  the founder reads it on `ocp bridge`"
+        return "  the founder reads it on `hl`"
     if requester not in paths.list_agents():
         return f"  {requester} is not registered with ocp - nothing to tell"
     handed = _hand_off("push_answer", requester=requester)
@@ -543,10 +543,10 @@ def withdraw(rid: int, requester: str | None = None,
         if row["state"] != "queued" and not (row["state"] == "landed" and row["delivered_at"]):
             return False, f"#{rid} is already {row['state']} - nothing to withdraw"
         linked = db.tasks_for_request(con, rid) if row["kind"] == "task" else []
-        release = f", or `ocp task release T{linked[0]['id']}`" if linked else ""
+        release = f", or `hl task release T{linked[0]['id']}`" if linked else ""
         too_late = (f"#{rid} was already delivered to {row['target']} - too late to withdraw; "
                    f"tell {row['target']} with a message "
-                   f"(`ocp say {row['target']} \"...\" --parent {rid}`){release}")
+                   f"(`hl say {row['target']} \"...\" --parent {rid}`){release}")
         if row["delivered_at"]:
             return False, too_late
         # Atomic: the write itself is the gate against a delivery landing
@@ -625,7 +625,7 @@ def cancel(rid: int) -> tuple[bool, str]:
             return False, f"request {rid} does not exist"
         if row["state"] != "queued":
             tasks = db.tasks_for_request(con, rid) if row["kind"] == "task" else []
-            stop = f" - stop its task with `ocp task discard T{tasks[0]['id']}` or hand it back" if tasks else ""
+            stop = f" - stop its task with `hl task discard T{tasks[0]['id']}` or hand it back" if tasks else ""
             return False, f"#{rid} is already {row['state']} - nothing to cancel{stop}"
         if row["requester"] == HUMAN and not row["delivered_at"]:
             return withdraw(rid, requester=HUMAN)
@@ -648,7 +648,7 @@ def cancel(rid: int) -> tuple[bool, str]:
 def retire_open(con, rid: int, verdict: str, notify: bool | None = None,
                 settle: bool = True) -> tuple[bool, str]:
     """Close a request that is still queued, out from under whoever holds it -
-    `cancel`'s write (`_close_and_tell`), reached from `ocp task release`
+    `cancel`'s write (`_close_and_tell`), reached from `hl task release`
     (T286) so it can end a task's own open requests the same way instead of
     merely unlinking them from the board. Closed as rejected with `verdict`;
     the target is told to stop if it had already been delivered, the
@@ -811,5 +811,5 @@ def _apply_answered(con, row, pid: str, verdict: str | None) -> str:
     db.append_verdict(con, row["id"], line)
     if not ok:
         report(con, row["requester"], f"{line}\nThe proposal is still open; "
-               f"`ocp trust apply {pid}` retries it.", "proposal approved, apply failed")
+               f"`hl trust apply {pid}` retries it.", "proposal approved, apply failed")
     return line

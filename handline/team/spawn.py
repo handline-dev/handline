@@ -1,4 +1,4 @@
-"""ocp spawn - give an agent its own Orca worktree and start it there.
+"""hl spawn - give an agent its own Orca worktree and start it there.
 
 The agent name is the join key across every system (design section 2): the
 worktree name, the task label and the folder name are all the same string.
@@ -28,7 +28,7 @@ from ..infra import textsafe
 SUBMIT_WAIT_S = 60
 
 # How long to wait for a launched agent to show up in the process table before
-# saying it did not. `ocp launch` execs claude, which takes a few seconds to be
+# saying it did not. `hl launch` execs claude, which takes a few seconds to be
 # visible; the daemon's own wake waits about this long for the same reason.
 STARTED_TIMEOUT_S = 20
 
@@ -38,7 +38,7 @@ def _confirm_session(agent: str) -> str | None:
     warning `start_in` and `spawn` return instead of "started" (#1976, T146
     pt.2: a terminal handle back from Orca is not a session - oh-my-zsh's own
     update prompt once ate a launch command whole and left a bare shell,
-    "started" regardless). The one check `ocp spawn`, the daemon's auto-start
+    "started" regardless). The one check `hl spawn`, the daemon's auto-start
     and `actions.control.start` each need, instead of their own copy.
     """
     from ..daemon import delivery  # late: delivery's package pulls lifecycle, which imports this module
@@ -125,7 +125,7 @@ def prompt_landed(agent: str, since_id: int, timeout_s: float = SUBMIT_WAIT_S) -
 def worktree_path(recorded: str | None) -> str | None:
     """The directory an agent works in, out of what its row holds.
 
-    `ocp launch` records what Orca handed it, which is a selector - the repo's
+    `hl launch` records what Orca handed it, which is a selector - the repo's
     id, then `::`, then the path - while `spawn` records a plain path. Testing
     the selector as a path finds nothing, so an agent that still had its
     worktree was given a second one beside it.
@@ -308,7 +308,7 @@ def ensure_run(con) -> str | None:
     if run and orca.run_exists(run):
         orca.run_use(run)
         return run
-    run = orca.run_create("orcapipe team")
+    run = orca.run_create("Handline team")
     if run:
         db.set_meta(con, RUN_KEY, run)
     return run
@@ -339,7 +339,7 @@ def register_worker(con, agent: str, handle: str) -> str | None:
     if boss:
         boss_row = db.get_agent_state(con, boss)
         parent_task = boss_row["task"] if boss_row else None
-    spec = (f"{agent}: an orcapipe agent. Work reaches it as a task (`ocp task new --owner {agent}`); "
+    spec = (f"{agent}: a Handline agent. Work reaches it as a task (`hl task new --owner {agent}`); "
             f"this task is the card it appears in.")
     task = orca.task_create(spec, title=agent, display_name=agent, run=run,
                             parent=parent_task)

@@ -1,5 +1,5 @@
 """Tests: an account on one-month subscriptions (handline/usage/cycle.py, the end date in
-status.pick_account / long_pace, handline/daemon/subscriptions.py, `ocp account cycle`).
+status.pick_account / long_pace, handline/daemon/subscriptions.py, `hl account cycle`).
 
 Run on its own: python3 tests/usage/test_cycle.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -83,7 +83,7 @@ def test_an_ended_account_is_not_picked_and_not_removed(home: Path) -> None:
     check("ended: never picked", picked != "gone", str(picked))
     check("ended: says it ended, on which day, and how to set the next",
           "subscription ended" in said["gone"] and yesterday in said["gone"]
-          and "ocp account cycle gone --end" in said["gone"], said["gone"])
+          and "hl account cycle gone --end" in said["gone"], said["gone"])
     check("ended: the account is still registered", "gone" in paths.list_accounts())
     check("ended: through its last day it is still usable", "ended" not in said["open"], said["open"])
     check("ended: with no date it is not judged ended", "ended" not in said["nodate"], said["nodate"])
@@ -174,7 +174,7 @@ def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
           con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0] == 1)
     body = con.execute("SELECT body FROM requests WHERE target = ? ORDER BY id DESC", (db.HUMAN,)).fetchone()["body"]
     check("ending: the task says what happens after, how to extend, and that it closes itself",
-          "not removed" in body and "ocp account cycle soon --end" in body and "closes by itself" in body, body)
+          "not removed" in body and "hl account cycle soon --end" in body and "closes by itself" in body, body)
     check("ending: it is the founder's own, open, as the home page counts 'for you'",
           rows[0]["owner"] == actions.HUMAN and rows[0]["state"] in actions.DELEGATED_STATES)
     first = rows[0]["id"]

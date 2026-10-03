@@ -1,9 +1,9 @@
 """Move an agent's worktree to follow its name, taking its history with it.
 
-`hr.label` (from `_rename` or `ocp hr relabel`) points Orca's label at the
+`hr.label` (from `_rename` or `hl hr relabel`) points Orca's label at the
 agent's name without moving anything - the founder's sidebar reads right
 even while the folder still carries the old one. This is the other half:
-`ocp hr rehome` actually moves the folder, once nothing still depends on it
+`hl hr rehome` actually moves the folder, once nothing still depends on it
 being where it is.
 
 The folder is the key Claude keeps the agent's transcripts under
@@ -33,7 +33,7 @@ from ..infra import paths, textsafe
 
 
 def split_recorded(recorded: str | None) -> tuple[str, str]:
-    """(prefix, path) of what agent_state.worktree holds. `ocp launch` records
+    """(prefix, path) of what agent_state.worktree holds. `hl launch` records
     an Orca selector - the repo id, `::`, the path - and `spawn` a plain path;
     the prefix is kept so a moved row reads as it did."""
     if not recorded:
@@ -72,7 +72,7 @@ def plan(con, agent: str, old: str) -> tuple[Path | None, Path | None, str]:
             return None, None, "cannot tell whether its session is running - not moving it"
         if live:
             return None, None, (f"{who} has a session running in {src}. Close it first "
-                                f"(`ocp close {agent}`); it moves only while closed.")
+                                f"(`hl close {agent}`); it moves only while closed.")
     return src, dest, ""
 
 
@@ -215,7 +215,7 @@ def move(con, agent: str, old: str) -> tuple[bool, str]:
         return False, why
     blocked = _orca_blockers(src)
     if blocked:
-        return False, f"not moving {src}: {blocked}. `ocp hr relabel {agent}` renames it in Orca without moving it."
+        return False, f"not moving {src}: {blocked}. `hl hr relabel {agent}` renames it in Orca without moving it."
     entry = _orca_entry(src)
     pairs = _project_dirs(src, dest)
     # Refused, not merged: a merge moves files one by one and cannot be undone.

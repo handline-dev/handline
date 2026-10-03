@@ -3,16 +3,16 @@
 
   OCP_TERMINAL=tmux tools/tmux_trial.py <agent> <git repo> [--keep]
 
-The agent must be registered with a logged-in account (`ocp agent register`, `ocp account add`).
-Steps: launch (a worktree, a window, `ocp launch`), idle detection on the booted TUI, one delivered
+The agent must be registered with a logged-in account (`hl agent register`, `hl account add`).
+Steps: launch (a worktree, a window, `hl launch`), idle detection on the booted TUI, one delivered
 message and the turn it starts, /clear, /exit, then the window closed. After each step it prints
 what the screen readers made of the screen, and the last rows of the screen itself, so a parser that
 needs a change for tmux shows up as a step that failed or a reading that is wrong for what is drawn.
 
 It types into a real claude and uses a little of the account's quota (one short turn). Use an agent
-made for the trial (`ocp agent register trialbot --model sonnet`), not a working one: the trial
-records its terminal on the agent's row. And stop the daemon first (`ocp service uninstall`, then
-`ocp service install` after): a daemon running on Orca reads the trial's tmux handle as a terminal
+made for the trial (`hl agent register trialbot --model sonnet`), not a working one: the trial
+records its terminal on the agent's row. And stop the daemon first (`hl service uninstall`, then
+`hl service install` after): a daemon running on Orca reads the trial's tmux handle as a terminal
 that is gone and starts the agent again over it. The trial refuses to run beside one. About five
 minutes. `--keep` leaves the window open at the end to look at; end the tmux server with
 `tmux -L ocp kill-server`.
@@ -82,7 +82,7 @@ def main() -> int:
         return 2
     pid = daemon_locks.running_elsewhere()
     if pid:
-        print(f"a daemon is running (pid {pid}); stop it first (`ocp service uninstall`), or it will "
+        print(f"a daemon is running (pid {pid}); stop it first (`hl service uninstall`), or it will "
               f"treat the trial's tmux handle as a terminal that is gone", file=sys.stderr)
         return 2
     state: dict = {}
@@ -96,7 +96,7 @@ def main() -> int:
             con.close()
         state["handle"] = row["terminal"] if row else None
         return ok and bool(state["handle"]), msg.replace("\n", " | "), state["handle"]
-    step("launch: worktree, window, ocp launch, a session in the process table", launch)
+    step("launch: worktree, window, hl launch, a session in the process table", launch)
     handle = state.get("handle")
     if not handle:
         print("no terminal, nothing more to try")

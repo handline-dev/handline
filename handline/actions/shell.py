@@ -1,4 +1,4 @@
-"""A shell command the founder types into the bridge's chat box as `!command`.
+"""A shell command the founder types into the screen's chat box as `!command`.
 
 It is not sent to the agent: zsh runs it, in the open agent's worktree (home when there is none),
 and the screen draws the command, its exit code and what it printed. Nothing here is stored.

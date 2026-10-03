@@ -241,7 +241,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         if not closed and not row["terminal"]:
             return False, f"{agent} has no terminal - there is no session to restart (t starts one)"
         if busy:
-            return False, busy_why + " - `ocp restart --force` waits for the turn to end"
+            return False, busy_why + " - `hl restart --force` waits for the turn to end"
         return True, ""
     if key == "park":
         if closed:

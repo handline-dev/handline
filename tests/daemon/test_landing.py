@@ -572,7 +572,7 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
 
 def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(home: Path) -> None:
     """T835 step 7d: a database made now has none of the legacy request columns and never grows them;
-    on an older one `ocp doctor --drop-dead-columns` first moves what a process on older code closed since
+    on an older one `hl doctor --drop-dead-columns` first moves what a process on older code closed since
     the upgrade (an answer, a reason, a dismissal, a hold) to where the readers look, then drops them
     and marks the database, so a connect neither re-adds them nor runs the migrations that read them."""
     from handline.db import schema as dbschema
@@ -700,7 +700,7 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
 
 def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(home: Path) -> None:
     """T797 branch 7 / T830: a connect never drops a column (an older process still names them, and
-    re-adds them when it connects); `ocp doctor --drop-dead-columns` does, and two of them at once,
+    re-adds them when it connects); `hl doctor --drop-dead-columns` does, and two of them at once,
     or one that read the columns a moment too early, do not crash."""
     import threading
     from handline.db import schema as dbschema
@@ -768,14 +768,14 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
     real_pid, real_daemon = stall.running_pid, dmn_locks.running_elsewhere
     stall.running_pid, dmn_locks.running_elsewhere = lambda: 4242, lambda: None
     try:
-        check("stale: a bridge that started before the newest code is named",
-              health.stale_long_lived(lambda pid, rec: code - 60) == ["bridge (pid 4242)"])
+        check("stale: a screen that started before the newest code is named",
+              health.stale_long_lived(lambda pid, rec: code - 60) == ["screen (pid 4242)"])
         check("stale: one that started after it is not", health.stale_long_lived(lambda pid, rec: code + 60) == [])
         check("stale: a live process whose start cannot be read is refused, not passed",
-              health.stale_long_lived(lambda pid, rec: None) == ["bridge (pid 4242; cannot tell when it started)"])
+              health.stale_long_lived(lambda pid, rec: None) == ["screen (pid 4242; cannot tell when it started)"])
         dmn_locks.running_elsewhere = lambda: 77
         check("stale: the daemon is named too",
-              health.stale_long_lived(lambda pid, rec: code - 60) == ["bridge (pid 4242)", "daemon (pid 77)"])
+              health.stale_long_lived(lambda pid, rec: code - 60) == ["screen (pid 4242)", "daemon (pid 77)"])
         import os, subprocess
         rec = home / "rec.pid"
         rec.write_text("1\n")
@@ -820,7 +820,7 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         finally:
             con.close()
         check("stale: the drop refuses naming the process and drops nothing",
-              rc == 1 and "bridge (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
+              rc == 1 and "screen (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
     finally:
         stall.running_pid, dmn_locks.running_elsewhere = real_pid, real_daemon
 

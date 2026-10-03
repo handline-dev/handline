@@ -252,33 +252,33 @@ def test_a_launch_line_and_its_enter_are_sent_apart(home: Path) -> None:
         orcamod.alive = lambda h: True
         orcamod.wait_idle = lambda h, timeout_ms=0: True
         orcamod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
-        ok, why = orcamod.relaunch("term_x", "ocp launch a --prompt-file /w/a.txt -- --resume s1", started=lambda: True)
+        ok, why = orcamod.relaunch("term_x", "hl launch a --prompt-file /w/a.txt -- --resume s1", started=lambda: True)
         check("launch: the line goes without an Enter, then the Enter alone",
-              ok and sent == [("ocp launch a --prompt-file /w/a.txt -- --resume s1", False), ("", True)], str(sent))
+              ok and sent == [("hl launch a --prompt-file /w/a.txt -- --resume s1", False), ("", True)], str(sent))
 
         sent.clear()
         orcamod._screen = lambda h, limit=40: support._screen_of(
-            ["", "ron@host wt % ocp launch a --prompt-file /w/a.txt -- --resume s1", ""])
-        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+            ["", "ron@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1", ""])
+        ok, why = orcamod.relaunch("term_x", "hl launch a", started=lambda: False)
         check("launch: one that starts nothing says so, that the terminal is alive, and what it shows",
               not ok and "no session started" in why
-              and "; the terminal is alive (screen: ron@host wt % ocp launch a --prompt-file /w/a.txt -- --resume s1)"
+              and "; the terminal is alive (screen: ron@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1)"
               in why, why)
 
         orcamod._screen = lambda h, limit=40: None
-        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+        ok, why = orcamod.relaunch("term_x", "hl launch a", started=lambda: False)
         check("launch: a live terminal whose screen cannot be read says that",
               not ok and why.endswith("; the terminal is alive but its screen could not be read"), why)
 
         gone = iter([True, False])           # alive when the line is typed, gone when it did not start
         orcamod.alive = lambda h: next(gone)
-        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: False)
+        ok, why = orcamod.relaunch("term_x", "hl launch a", started=lambda: False)
         check("launch: a terminal that died under it says it is gone, not what it last showed",
               not ok and why.endswith("no session started; the terminal is gone") and "screen" not in why, why)
         orcamod.alive = lambda h: True
 
         orcamod.send = lambda h, text, enter=True: (True, "") if enter is False else (False, "no such terminal")
-        ok, why = orcamod.relaunch("term_x", "ocp launch a", started=lambda: True)
+        ok, why = orcamod.relaunch("term_x", "hl launch a", started=lambda: True)
         check("launch: an Enter that could not be sent is a launch that was not sent",
               not ok and "could not send the launch command" in why, why)
     finally:
@@ -342,7 +342,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
               b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
         check("screen: it is quoted from its own banner and sessions",
               b and b.detail.startswith("Your conversation moved to the background")
-              and "Completed" in b.detail and "ocp inbox management" in b.detail
+              and "Completed" in b.detail and "hl inbox management" in b.detail
               and "❯" not in b.detail and "─" not in b.detail, str(b))
         check("screen: and says why in a sentence",
               b and blockedmod.reason(b.kind, b.detail).startswith("its conversation moved to the background"))
@@ -379,7 +379,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
               b is not None and b.kind == orcamod.BACKGROUNDED, str(b))
         check("screen: quoted from its own banner and session, not the composer",
               b and b.detail.startswith("Your conversation moved to the background")
-              and "ocp inbox management" in b.detail
+              and "hl inbox management" in b.detail
               and "❯" not in b.detail and "─" not in b.detail, str(b))
         # auditor's #1285 B1: the composer's own hint says the picker's words
         # but the banner that would confirm it is not there - a picker this
@@ -671,7 +671,7 @@ def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
     Orca's own remembered `draft` outliving a send that did not complete, with
     nothing to clear it but the exact send it was refusing to make. #1130:
     the remedy did not hold - purser stalled again an hour later with the
-    draft set to 'ocp inbox', the exact text that had just unblocked it. A
+    draft set to 'hl inbox', the exact text that had just unblocked it. A
     draft equal to the last thing ocp itself sent is the ordinary steady
     state of every agent given work, not a one-off failure, so this is not
     an edge case: it is what happens to every agent, every time, on the path
@@ -685,10 +685,10 @@ def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
     try:
         orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
         orcamod.modal_open = REAL_ORCA["modal_open"]
-        # draft = the literal text ocp last sent this agent ('ocp inbox',
+        # draft = the literal text ocp last sent this agent ('hl inbox',
         # #1130's own case) - not stale garbage, the ordinary steady state.
         orcamod._screen = lambda h: {"handle": h, "status": "running", "source": "screen",
-                                     "tail": list(COMPOSER_EMPTY), "draft": "ocp inbox"}
+                                     "tail": list(COMPOSER_EMPTY), "draft": "hl inbox"}
         now = int(time.time())
         for step in (0, blockedmod.RECHECK_S + 1, blockedmod.SHOW_AFTER_S + 1):
             blockedmod._checked.clear()
@@ -1187,7 +1187,7 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
 
 
 def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home: Path) -> None:
-    """`ocp restart`: a close and a wake in one step. It resumes the conversation by default (whatever
+    """`hl restart`: a close and a wake in one step. It resumes the conversation by default (whatever
     the prompt cache says) and types nothing at it unless something is waiting; --fresh starts a new
     one; an agent mid-turn is refused unless --force."""
     from handline.actions import control
@@ -1340,7 +1340,7 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
                     os.environ.pop("OCP_AGENT", None)
                 with contextlib.redirect_stdout(io.StringIO()):
                     cli_task.cmd_restart(argparse.Namespace(target="backend", fresh=False, force=False))
-                check(f"restart: ocp restart as {who or 'a person'} asks the daemon in the name of {want}",
+                check(f"restart: hl restart as {who or 'a person'} asks the daemon in the name of {want}",
                       payloads and payloads[0]["by"] == want and payloads[0]["verb"] == "restart", str(payloads))
         finally:
             cli_task.dmn_client.send = real_send_cli
@@ -2795,7 +2795,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         obsmod.live_sessions = lambda: dict(table)
         check("shell: a running agent is told what is waiting",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and
-              any("ocp inbox" in t2 for t2 in sent), str(sent))
+              any("hl inbox" in t2 for t2 in sent), str(sent))
 
         # One listing per tick, not one per send: the sweep already asked.
         calls = {"n": 0}
@@ -2811,7 +2811,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
         check("shell: the tick reads the process table once, and the sends reuse it",
-              calls["n"] == 1 and any("ocp inbox" in t2 for t2 in sent),
+              calls["n"] == 1 and any("hl inbox" in t2 for t2 in sent),
               f"{calls['n']} listings, sent {sent}")
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.wait_idle,
@@ -3969,7 +3969,7 @@ def test_hooks_report_activity(home: Path) -> None:
         check("hooks: the end of a turn returns it to IDLE",
               row["state"] == dmn_states.IDLE, str(dict(row)))
 
-        # The other way in. `ocp launch` records the terminal handle before
+        # The other way in. `hl launch` records the terminal handle before
         # execve, and that row used to be born RUNNING - so a new agent was out
         # of service before it had done anything, and _mark_activity then
         # declined to rewrite a state that was already RUNNING.
@@ -4147,7 +4147,7 @@ def test_a_second_done_loses_the_race(home: Path) -> None:
 
 
 def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
-    """T568: `ocp close` ends an agent's session; a task or a number is refused
+    """T568: `hl close` ends an agent's session; a task or a number is refused
     with the way to end or undo a task, and nothing is closed."""
     _board_world(home)
     rc, out = _cli(["close", "T42"])
@@ -4219,7 +4219,7 @@ def test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_
         dmn_lifecycle._end_session = lambda *a, **k: (True, "closed")
         dmn_lifecycle._close_agent(con, "backend", lambda _m: None, st)
         rec = db.get_handoff(con, "backend") or ""
-        check("note: the record carries the agent's words under the facts ocp read",
+        check("note: the record carries the agent's words under the facts hl read",
               "written by the agent just before the close:\n  doing: the cache fix, because #8642" in rec
               and "previous session: sess-1" in rec and rec.index("previous session") < rec.index("written by"),
               rec)

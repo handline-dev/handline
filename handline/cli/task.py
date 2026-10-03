@@ -1,4 +1,4 @@
-"""Tasks and closing work: progress, close, `ocp task ...`."""
+"""Tasks and closing work: progress, close, `hl task ...`."""
 from __future__ import annotations
 
 import argparse
@@ -74,12 +74,12 @@ def _timeout_arg(text: str) -> int:
 
 def cmd_close(args) -> int:
     """End an idle agent's session by its name, keeping its terminal. A task is
-    not closed: it ends when it is done (`ocp task done`), and its asker
+    not closed: it ends when it is done (`hl task done`), and its asker
     reopens it if the result was wrong."""
     raw = args.target
     if raw.isdigit() or actions.TASK_REF.fullmatch(raw):
-        print(f"'{raw}' is not an agent. A task has no close: `ocp task done {raw}` ends it, "
-              f"and `ocp task reopen {raw}` undoes a wrong result.")
+        print(f"'{raw}' is not an agent. A task has no close: `hl task done {raw}` ends it, "
+              f"and `hl task reopen {raw}` undoes a wrong result.")
         return 1
     # The daemon does it: it can read the process table and the terminal, which an agent's own
     # sandbox cannot - closed from here, a live session read as "no session process".
@@ -351,7 +351,7 @@ def cmd_task_start(args) -> int:
 
 
 def cmd_task_note(args) -> int:
-    """The old name of `ocp task memo T<n> add TEXT`, kept hidden for one release for the
+    """The old name of `hl task memo T<n> add TEXT`, kept hidden for one release for the
     prompts of agents already running; it adds the same memo."""
     me = askmod.asking_agent()
     if me is None:
@@ -367,7 +367,7 @@ def cmd_task_note(args) -> int:
 
 
 def cmd_task_memo(args) -> int:
-    """T493: `ocp task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
+    """T493: `hl task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
     adds; the author or the founder edits and deletes. A change on a doing task is told to its
     holder at once."""
     me = askmod.asking_agent()
@@ -406,7 +406,7 @@ def cmd_task_memo(args) -> int:
             try:
                 mid = int(rest[0])
             except ValueError:
-                print(f"{rest[0]!r} is not a memo id - `ocp task memo T{args.task} list` shows them")
+                print(f"{rest[0]!r} is not a memo id - `hl task memo T{args.task} list` shows them")
                 return 1
             memo = db.get_memo(con, mid)
             if memo is None or memo["task_id"] != args.task:
@@ -509,7 +509,7 @@ def cmd_task_edit(args) -> int:
 
 
 def cmd_task_merge(args) -> int:
-    """Fold tasks into one: `ocp task merge T9 T10 T11` keeps T9."""
+    """Fold tasks into one: `hl task merge T9 T10 T11` keeps T9."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("merge tasks"))

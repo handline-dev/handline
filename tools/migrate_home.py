@@ -5,20 +5,20 @@
   tools/migrate_home.py apply    the move; refuses while the daemon runs
   tools/migrate_home.py undo     put everything back as it was
 
-Run it from your own terminal with the daemon stopped (`ocp service uninstall`, or stop the job), not
+Run it from your own terminal with the daemon stopped (`hl service uninstall`, or stop the job), not
 from an agent: the protected store is not writable from a sandbox. The steps, in order:
   1. ~/.orcapipe is renamed to ~/.handline and a link is left at ~/.orcapipe, so old paths keep working.
   2. The protected store folder is renamed to match. Its name comes from the home's real path, so
      the folder for ~/.orcapipe is not the one the code looks in once the home is ~/.handline;
      without this step every decision, trust record and session token would seem lost.
   3. Links inside the home that point at the old path (each account's .claude links into shared/) are
-     re-aimed at the new one: doctor and `ocp account` compare those links as text.
+     re-aimed at the new one: doctor and `hl account` compare those links as text.
   4. The shared settings.json gets the new path beside each old one (additionalDirectories,
      sandbox allowWrite and allowUnixSockets): a sandbox matches real paths, and the real path changed.
      The original is kept as settings.json.pre-migration in the new home.
 `undo` reverses each step that is still in place, refuses while the daemon runs, and can be run more than
 once. The launchd job keeps OCP_HOME=~/.orcapipe: it works through the link and resolves to the new home.
-Afterwards restart the daemon and relaunch the agent sessions (`ocp close` on each idle one): a running session keeps the
+Afterwards restart the daemon and relaunch the agent sessions (`hl close` on each idle one): a running session keeps the
 old path in its sandbox settings.
 """
 from __future__ import annotations

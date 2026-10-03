@@ -59,7 +59,7 @@ def sweep_endings(con, log, now: int) -> None:
             f"Account {acct}'s one-month subscription ends {day} (its last usable day), in "
             f"{(end - now) // 3600} h. After that it is shown as ended and no agent is placed on it; "
             f"it is not removed. To keep it, resubscribe and run "
-            f"`ocp account cycle {acct} --end YYYY-MM-DD`; to let it end, do nothing. "
+            f"`hl account cycle {acct} --end YYYY-MM-DD`; to let it end, do nothing. "
             f"This task closes by itself once the account has ended or its end date changes.",
             "subscription ending")
         row = con.execute("SELECT task_id FROM task_requests WHERE request_id = ?", (rid,)).fetchone()

@@ -1,4 +1,4 @@
-"""`ocp bridge`, and the choice between its screen and its text snapshot."""
+"""`hl`, and the choice between its screen and its text snapshot."""
 from __future__ import annotations
 
 import sys
@@ -39,7 +39,7 @@ def cmd_bridge(args) -> int:
     if args.pid:
         from ..ui import stall      # needs neither textual nor rich
         pid = stall.running_pid()
-        print(pid if pid else "no bridge is running")
+        print(pid if pid else "the screen is not running")
         return 0 if pid else 1
     if args.dev_mode:
         try:
@@ -54,7 +54,7 @@ def cmd_bridge(args) -> int:
         return 0
     bridge_textual = _bridge_textual_module()
     if bridge_textual is None:
-        print("ocp bridge needs the `textual` package.\n"
-              "`ocp venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
+        print("hl needs the `textual` package.\n"
+              "`hl venv install` puts it in $OCP_HOME/venv (see requirements.txt).")
         return 1
     return bridge_textual.run()

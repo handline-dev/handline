@@ -4,7 +4,7 @@ Both files sit under OCP_HOME, which every agent's sandbox can write, so their
 location is no lock. Each is instead sealed: the hash of the text the founder's
 session last wrote is kept in the protected store, and a reader refuses a file
 that no longer matches. An agent can still scribble on the file, but nothing
-runs on what it wrote, and `ocp doctor` names it. Writing goes through
+runs on what it wrote, and `hl doctor` names it. Writing goes through
 `require_founder` first and `seal` after, so an agent's session never gets as far
 as a write.
 
@@ -54,7 +54,7 @@ _observing = 0
 
 @contextlib.contextmanager
 def observing():
-    """Reads inside this seal nothing, not even the first time: `ocp doctor`."""
+    """Reads inside this seal nothing, not even the first time: `hl doctor`."""
     global _observing
     _observing += 1
     try:
@@ -69,7 +69,7 @@ def _migrated() -> bool:
 
 def seal_everything() -> list[tuple[str, str]]:
     """Seal team.yaml and every agent.yaml as they are now, and mark the seals
-    as begun. The founder's act, by `ocp team seal` or the first founder-side
+    as begun. The founder's act, by `hl team seal` or the first founder-side
     read of an installation from before seals. Returns what this took on that
     was not already sealed as it is: (label, "new" | "changed"), so the founder
     sees exactly what they are trusting."""
@@ -124,5 +124,5 @@ def check(key: str, text: str, where) -> None:
     why = "was changed outside the founder's path" if st == "changed" else "was never sealed"
     raise ConfigError(
         f"{where} {why} and is not trusted. Roster and routing change only through an "
-        f"approved `ocp hr` proposal or the founder's own session; if this file is the "
-        f"founder's, run `ocp team seal`.")
+        f"approved `hl hr` proposal or the founder's own session; if this file is the "
+        f"founder's, run `hl team seal`.")

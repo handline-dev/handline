@@ -19,7 +19,7 @@ from handline.vendors import claude_hooks as hooks  # noqa: E402
 
 # ---------------------------------------------------------------- status line
 def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
-    """ocp installs no status line (D11): the slot is the human's. `ocp init`
+    """ocp installs no status line (D11): the slot is the human's. `hl init`
     removes the ones ocp used to install, and the settings entry pointing at
     them, and leaves anyone else's statusLine where it is."""
     use_home(home)
@@ -1029,7 +1029,7 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
 
 
 def test_doctor_checks_team_yaml_and_that_its_agents_are_registered(home: Path) -> None:
-    """`ocp team check` is gone: doctor says it (T713)."""
+    """`hl team check` is gone: doctor says it (T713)."""
     use_home(home)
     hand_edit_team("agents:\n  backend: {}\n  ghost: {}\nedges: []\n")
     agents.register("backend")
@@ -1119,7 +1119,7 @@ def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
 
 
 def test_spawn_survives_its_own_main_path(home: Path) -> None:
-    """`ocp spawn <agent> --prompt "..."` is the command's main path, and it
+    """`hl spawn <agent> --prompt "..."` is the command's main path, and it
     raised there - after the worktree and the terminal were already made, so it
     left a real worktree and a live terminal with no task in it. Nothing drove
     spawn() past terminal-create, so the suite walked around the crash."""
@@ -1321,7 +1321,7 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
         # spawn() confirms a session came up before it says "started" (#1976,
         # T146 pt.2) - not this test's own concern, so it is not made to wait.
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-        # The selector `ocp launch` records, not a plain path.
+        # The selector `hl launch` records, not a plain path.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}")
 
         ok, msg = spawnmod.spawn("keeper", ROOT, base="main", dry_run=True)
@@ -1349,7 +1349,7 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
-    """`ocp` is on PATH as a symlink into the repo, so one installation spells
+    """`hl` is on PATH as a symlink into the repo, so one installation spells
     itself two ways. Matching the exact string added a second entry the first
     time the spelling changed, and then every hook fired twice."""
     use_home(home)
@@ -1407,7 +1407,7 @@ def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path)
         check("launch: a wanted event missing since the last install is added",
               not hooks.missing(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
               json.loads(target.read_text()).get("hooks", {}).keys())
-        check("launch: and so is the daemon socket, for a home initialised before `ocp init` did it (T378)",
+        check("launch: and so is the daemon socket, for a home initialised before `hl init` did it (T378)",
               str(paths.socket_file()) in json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"])
 
         data = json.loads(target.read_text())
@@ -1427,7 +1427,7 @@ def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path)
         finally:
             Path.write_text = real_write
         check("launch: a write that cannot land warns and names install-hooks, not a crash",
-              "ocp install-hooks" in err.getvalue(), err.getvalue())
+              "hl install-hooks" in err.getvalue(), err.getvalue())
 
         for bad in ("{not json", '["a", "list"]'):
             target.write_text(bad)
@@ -1455,7 +1455,7 @@ def test_doctor_catches_a_wanted_event_installed_before_it_existed(home: Path) -
     target = home / "shared" / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     # PreToolUse only reached GUARDS with T247, after this machine's one and
-    # only `ocp install-hooks` - every other wanted event is installed, as it
+    # only `hl install-hooks` - every other wanted event is installed, as it
     # would be on a machine that has simply never been re-run since.
     hooks.install("/x/ocp", evmod.CAPTURED | evmod.ANSWERS)
     data = json.loads(target.read_text())
@@ -1467,7 +1467,7 @@ def test_doctor_catches_a_wanted_event_installed_before_it_existed(home: Path) -
     row = _doctor_row(r, "ocp's own hooks")
     check("doctor: the one wanted event with no entry of ours is named, and only it",
           row and row[0] == doctor.WARN and row[2].startswith("PreToolUse ")
-          and "ocp install-hooks" in row[2], row)
+          and "hl install-hooks" in row[2], row)
 
     subprocess.run([str(ROOT / "bin" / "ocp"), "install-hooks"], capture_output=True, text=True,
                    env=dict(os.environ, OCP_HOME=str(home), OCP_BIN="/x/ocp"))
@@ -1492,7 +1492,7 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
                            env=env).stdout for _ in range(2)]
     data = json.loads(target.read_text())
     fs = data["sandbox"]["filesystem"]
-    check("init: the hooks ocp install-hooks writes are there",
+    check("init: the hooks hl install-hooks writes are there",
           {ev for ev in data["hooks"]
            if any(" hook " in h.get("command", "") for g in data["hooks"][ev]
                   for h in g.get("hooks", []))} >= set(evmod.CAPTURED | evmod.ANSWERS),
@@ -1514,11 +1514,11 @@ def test_init_installs_the_hooks_and_lets_agents_write_the_home(home: Path) -> N
     r = subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "install"], capture_output=True,
                        text=True, env=env, stdin=subprocess.DEVNULL, timeout=20)
     check("hook install: points to install-hooks instead of reading stdin",
-          r.returncode != 0 and "ocp install-hooks" in r.stderr, r.stdout + r.stderr)
+          r.returncode != 0 and "hl install-hooks" in r.stderr, r.stdout + r.stderr)
 
 
 def test_doctor_warns_while_ocp_is_excluded_from_the_agents_sandbox(home: Path) -> None:
-    """An excluded `ocp` runs outside the sandbox, past the session-token folder's read-deny; the
+    """An excluded `hl` runs outside the sandbox, past the session-token folder's read-deny; the
     entries are named, the warning goes once they are gone, and other exclusions are left alone."""
     use_home(home)
     target = home / "shared" / ".claude" / "settings.json"
@@ -1625,8 +1625,8 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
         doctor._check_home_socket(r)
     finally:
         Path.write_text = real_write
-    check("T378: where it cannot write, doctor warns naming ocp init instead of crashing",
-          r.rows[0][0] == doctor.WARN and "ocp init" in r.rows[0][2], str(r.rows))
+    check("T378: where it cannot write, doctor warns naming hl init instead of crashing",
+          r.rows[0][0] == doctor.WARN and "hl init" in r.rows[0][2], str(r.rows))
     for bad in ('{"permissions": {"allow": ["Bash(git:*)"]}, "hooks": {},}', '["a", "list"]'):
         target.write_text(bad)
         rep = doctor.Report()
@@ -1644,7 +1644,7 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
 
 
 def test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(home: Path) -> None:
-    """`ocp init` lets read-only tools and ocp's reading and reporting verbs run
+    """`hl init` lets read-only tools and ocp's reading and reporting verbs run
     without asking, and never a blanket `ocp:*`; the founder's entries stay."""
     use_home(home)
     target = home / "shared" / ".claude" / "settings.json"
@@ -1654,10 +1654,10 @@ def test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(
     check("safe: every listed command is there, once", sorted(allow) == sorted(set(hooks.SAFE_COMMANDS)),
           str(allow))
     check("safe: tail and the read-only ocp verbs are allowed, merge and hr apply are not",
-          "Bash(tail:*)" in allow and "Bash(ocp inbox:*)" in allow and "Bash(ocp task new:*)" in allow
+          "Bash(tail:*)" in allow and "Bash(hl inbox:*)" in allow and "Bash(hl task new:*)" in allow
           and not any(a.startswith("Bash(git ") and a.endswith(":*)") for a in allow)
-          and not any(a in allow for a in ("Bash(ocp:*)", "Bash(ocp merge:*)", "Bash(ocp hr apply:*)",
-                                            "Bash(ocp task done:*)")), str(allow))
+          and not any(a in allow for a in ("Bash(ocp:*)", "Bash(ocp merge:*)", "Bash(hl hr apply:*)",
+                                            "Bash(hl task done:*)")), str(allow))
     before = target.read_text()
     check("safe: a second run changes nothing", not hook.allow_safe_commands() and target.read_text() == before)
 
@@ -1899,7 +1899,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     gamma_claude.write_text("gamma's own")
 
     # The file is added the way the founder actually will: dropped straight
-    # into shared/.claude, no `ocp` command run at all afterward.
+    # into shared/.claude, no `hl` command run at all afterward.
     shared_target = vendors.shared_dir("claude") / "CLAUDE.md"
     shared_target.write_text("policy text")
 
@@ -2150,7 +2150,7 @@ def test_venv(home: Path) -> None:
 
     Task #54 (founder #2069): a missing or stale venv used to make the
     wrapper refuse outright (bin/ocp-venv, since deleted). It now falls back
-    to running under PATH's python3 instead, so `ocp venv status` still runs
+    to running under PATH's python3 instead, so `hl venv status` still runs
     - and still reports the venv as not ready - rather than the command
     itself failing to start."""
     home.mkdir(parents=True, exist_ok=True)
@@ -2208,7 +2208,7 @@ def test_venv(home: Path) -> None:
     # requirements.txt (a killed run, or another process reading it mid-test,
     # both leave real damage) - it now runs against a copy of bin/ocp and an
     # isolated requirements.txt of its own instead. `_ocp_entry.py` is
-    # symlinked, not copied: it locates the real `ocp` package through its
+    # symlinked, not copied: it locates the real `hl` package through its
     # own resolved path, and a copy of it would look for one beside itself.
     iso_root = home / "iso_reqs"
     (iso_root / "bin").mkdir(parents=True, exist_ok=True)

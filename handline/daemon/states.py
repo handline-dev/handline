@@ -84,7 +84,7 @@ USAGE_POLL_S = 120
 # could have changed: a turn on it since the last reading (`db.last_account_
 # activity`), a window that has ended, or no reading at all. That makes an idle
 # fleet cost nothing instead of a request every two minutes - but only for the
-# spending we can see. `ocp fold`'s `claude -p` and anything a human runs by
+# spending we can see. `hl fold`'s `claude -p` and anything a human runs by
 # hand leave no event, so this cadence is kept whatever the events say.
 USAGE_MAX_AGE_S = 900
 

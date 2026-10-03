@@ -37,9 +37,9 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     call = {"file_path": "/repo/some/file.py"}
     why = edittask.guard("backend", "Write", call)
     check("T480: on by default - a write with no current task is refused", why is not None, why)
-    check("T480: it says why, and with no task of the agent's names `ocp task begin` and `ocp say`",
+    check("T480: it says why, and with no task of the agent's names `hl task begin` and `hl say`",
           "holds no current task" in why and "You own no open task" in why
-          and "`ocp task begin" in why and "`ocp say <them>" in why, why)
+          and "`hl task begin" in why and "`hl say <them>" in why, why)
     edittask.set_enforced(False)
     check("switched off by the founder: guard lets it through",
           edittask.guard("backend", "Write", call) is None)
@@ -58,7 +58,7 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     check("enforced: now a real refusal, naming the agent and the tool",
           why is not None and "backend" in why and "Edit" in why, why)
     check("T401 item 19: it says to ask whoever gave the work, not just to wait",
-          "ask whoever gave you the work" in why and "ocp say" in why, why)
+          "ask whoever gave you the work" in why and "hl say" in why, why)
 
     ok, msg, tid = actions.task_new("product", "backend", "do the thing", "do the thing")
     check("setup: backend now holds a current task", ok, msg)
@@ -66,8 +66,8 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
     try:
         db.set_current_task(con, "backend", None)
         why = edittask.guard("backend", "Edit", call)
-        check("T480: owning an open task, the refusal names it and the exact `ocp task start`",
-              why is not None and f"`ocp task start T{tid}`" in why and "do the thing" in why, why)
+        check("T480: owning an open task, the refusal names it and the exact `hl task start`",
+              why is not None and f"`hl task start T{tid}`" in why and "do the thing" in why, why)
         db.set_current_task(con, "backend", tid)
     finally:
         con.close()

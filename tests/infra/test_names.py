@@ -144,13 +144,14 @@ def test_a_test_reaching_either_real_home_is_caught(home: Path) -> None:
 
 
 def test_the_handline_command_runs_the_same_program_as_ocp(home: Path) -> None:
-    exe = ROOT / "bin" / "handline"
-    check("command: bin/handline is a link to bin/ocp", exe.is_symlink() and os.readlink(exe) == "ocp")
+    for old in ("handline", "ocp"):
+        exe = ROOT / "bin" / old
+        check(f"command: bin/{old} is a link to bin/hl", exe.is_symlink() and os.readlink(exe) == "hl")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
     out = {n: subprocess.run([str(ROOT / "bin" / n), "--version"], capture_output=True, text=True, env=env,
-                             timeout=60) for n in ("ocp", "handline")}
-    check("command: both answer --version the same", out["ocp"].returncode == 0
-          and out["ocp"].stdout == out["handline"].stdout, str({k: (v.returncode, v.stdout, v.stderr[-200:]) for k, v in out.items()}))
+                             timeout=60) for n in ("hl", "ocp", "handline")}
+    check("command: all three names answer --version the same", out["hl"].returncode == 0
+          and out["hl"].stdout == out["ocp"].stdout == out["handline"].stdout and out["hl"].stdout.startswith("hl "), str({k: (v.returncode, v.stdout, v.stderr[-200:]) for k, v in out.items()}))
     env["HANDLINE_HOME"] = str(home)
     r = subprocess.run([str(ROOT / "bin" / "handline"), "doctor"], capture_output=True, text=True, env=env, timeout=60)
     check("command: HANDLINE_HOME picks the home the command runs in", str(home) in (r.stdout + r.stderr),
@@ -171,6 +172,26 @@ def test_the_old_package_name_still_imports_the_same_modules() -> None:
           r.stdout + r.stderr[-300:])
 
 
+def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> None:
+    from handline.session import landgate, shellguard
+    from handline.vendors import claude_hooks
+    check("names: hl first, the two old names after it", names.COMMANDS == ("hl", "handline", "ocp"))
+    for n in names.COMMANDS:
+        check(f"names: `{n} land --pass` is read as a land verb",
+              landgate.parse("Bash", {"command": f"{n} land --pass abc1234"}) == ("land_pass", "abc1234"))
+        check(f"names: a hook entry written with {n} is ours",
+              claude_hooks._is_our_hook(f"/x/bin/{n} hook Stop", "Stop"))
+        check(f"names: a double-quoted backtick after `{n} say` is refused",
+              shellguard.guard("Bash", {"command": f'{n} say a "`x`"'}) is not None)
+    check("names: permissions allow the safe verbs under every name",
+          all(f"Bash({n} say:*)" in claude_hooks.SAFE_COMMANDS for n in names.COMMANDS))
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
+    env["HANDLINE_HOME"] = str(home)
+    r = subprocess.run([str(ROOT / "bin" / "hl")], capture_output=True, text=True, env=env, timeout=60)
+    check("command: hl alone opens the screen (its text snapshot when piped), not a usage error",
+          r.returncode == 0 and "usage:" not in r.stderr and "bridge" not in r.stdout.lower(), r.stdout[-200:] + r.stderr[-200:])
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_setting_is_read_under_both_names_new_first())
@@ -182,6 +203,7 @@ def main() -> int:
         run(lambda: test_the_session_scan_reads_either_name_of_a_process_environment())
         run(lambda: test_the_handline_command_runs_the_same_program_as_ocp(Path(td) / "cmd"))
         run(lambda: test_the_old_package_name_still_imports_the_same_modules())
+        run(lambda: test_hl_is_the_main_command_and_the_old_names_are_recognised(Path(td) / "hlmain"))
     return run_area(tests)
 
 

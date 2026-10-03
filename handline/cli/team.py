@@ -1,4 +1,4 @@
-"""`ocp team`."""
+"""`hl team`."""
 from __future__ import annotations
 
 
@@ -57,8 +57,8 @@ def cmd_team(args) -> int:
         if theirs:
             print("\nmay ask you: "
                   + ", ".join(f"{n} ({rel})" for n, rel in theirs))
-        print("\n`ocp task new --owner <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
-              "and `ocp say <name> \"...\"` sends a message. A task is the only way to give an "
+        print("\n`hl task new --owner <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
+              "and `hl say <name> \"...\"` sends a message. A task is the only way to give an "
               "agent work:\na subagent you spawn yourself dies with this session and "
               "nobody can see it.")
         return 0
@@ -88,7 +88,7 @@ def _doing(con, agent: str) -> str:
     except Exception:  # noqa: BLE001 - an unreadable agent.yaml is doctor's to report
         no_repo = False
     if no_repo and not (row and row["terminal"]):
-        return f"never started - no repo (`ocp agent register {agent} --repo <path>`)"
+        return f"never started - no repo (`hl agent register {agent} --repo <path>`)"
     if not row:
         return "never started"
     word, extra = tui.screen_state(con, row)

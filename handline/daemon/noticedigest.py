@@ -62,8 +62,8 @@ def digest_text(rows) -> str:
     shown = rows[:DIGEST_MAX_LINES]
     left = len(rows) - len(shown)
     head = f"{db.DIGEST_HEAD}{len(rows)} result{'s' if len(rows) != 1 else ''} since {time.strftime('%H:%M', time.localtime(int(rows[0]['landed_at'])))}" \
-           " - `ocp read <id>` shows one whole:"
-    return "\n".join([head, *(digest_line(r) for r in shown), *([f"(+{left} more: `ocp inbox --all`)"] if left else [])])
+           " - `hl read <id>` shows one whole:"
+    return "\n".join([head, *(digest_line(r) for r in shown), *([f"(+{left} more: `hl inbox --all`)"] if left else [])])
 
 
 def sweep_digests(con, log, now: int) -> None:

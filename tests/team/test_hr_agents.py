@@ -364,7 +364,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
 
 
 def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
-    """`hr.listing()` feeds `ocp hr list` and the bridge's waiting list. A file
+    """`hr.listing()` feeds `hl hr list` and the bridge's waiting list. A file
     that does not parse used to raise out of both, and the parser refuses more
     than it did, so the same one file would have hidden every proposal. It is
     left out and named, and a file that parses to something that is not a
@@ -612,7 +612,7 @@ def test_a_rename_refuses_when_liveness_cannot_be_confirmed(home: Path) -> None:
 def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
     """harbor #753: a rename leaves Orca's label right (`hr.label`, already
     covered by test_a_rename_names_the_agents_orca_worktree) but the folder,
-    and so Claude's per-project memory, on the old name. `ocp hr rehome` is
+    and so Claude's per-project memory, on the old name. `hl hr rehome` is
     the other half - actually moving it. Driven on a throwaway git repo with
     an uncommitted file, two accounts' memory and a transcript."""
     _daemon_home(home, 20)
@@ -638,7 +638,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
     con = db.connect()
     real_live = obsmod.live_sessions
     try:
-        # As `ocp launch` records it: an Orca selector, not a bare path.
+        # As `hl launch` records it: an Orca selector, not a bare path.
         db.set_terminal(con, "harbor.marina", "term_m", f"repo-id::{old_wt}")
         obsmod.live_sessions = lambda: {"harbor.marina": 123}
         ok, said = rehome.move(con, "harbor.marina", "marina")
@@ -811,7 +811,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
 
 
 def test_hr_rehome_cli_moves_the_folder(home: Path) -> None:
-    """The `ocp hr rehome` leaf itself, not just rehome.move()."""
+    """The `hl hr rehome` leaf itself, not just rehome.move()."""
     _daemon_home(home, 20)
     repo = home / "repo"
     repo.mkdir()
@@ -847,7 +847,7 @@ def test_hr_rehome_cli_moves_the_folder(home: Path) -> None:
 
 
 def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) -> None:
-    """`ocp hr add --model 4.5` wrote `model: 4.5`, which reads back as a float,
+    """`hl hr add --model 4.5` wrote `model: 4.5`, which reads back as a float,
     and `--model 2026-09-20` wrote a file that did not load. The file is built as
     a map and written by dump, which quotes what a reader would take for
     something else, so each value reads back as the text that was typed."""
@@ -1034,7 +1034,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 clihealth.cmd_status(argparse.Namespace(json=True))
-            check("vendor pick: ocp status does not name it next",
+            check("vendor pick: hl status does not name it next",
                   json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
             accounts.logged_in = lambda a: True
             rows = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
@@ -2370,7 +2370,7 @@ def test_the_name_gives_the_links_between_agents() -> None:
 
 
 def test_hr_links_moves_team_yaml_onto_the_name_links(home: Path) -> None:
-    """`ocp hr links` drops the edges the names now give and writes the team managers' links on
+    """`hl hr links` drops the edges the names now give and writes the team managers' links on
     purpose; comments and the other edges stay, and nothing that worked before stops."""
     _daemon_home(home, 20)
     original = """# routing - kept
@@ -2467,7 +2467,7 @@ deny:
         body = hr.card(prop)["text"]
         check("team: the founder reads every agent, every repo and the default links",
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
-              and "its parent" in body and "ocp hr approve" in body, body)
+              and "its parent" in body and "hl hr approve" in body, body)
         check("team: one proposal for the whole team, and no task or request for it",
               len(hr.pending()) == 1
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0
@@ -2577,7 +2577,7 @@ edges:
               len(cards) == 1 and cards[0]["id"] == pid and cards[0]["kind"] == "add"
               and cards[0]["agent"] == "newbie" and cards[0]["requested_by"] == "orca"
               and cards[0]["why"] == "more hands" and cards[0]["state"] == "proposed"
-              and f"ocp hr approve {pid}" in cards[0]["text"], str(cards))
+              and f"hl hr approve {pid}" in cards[0]["text"], str(cards))
         ok, said = hr.apply(pid, con)
         check("proposal: nothing applies it before the founder approves", not ok and "newbie" not in paths.list_agents(), said)
         ok, said = hr.decide(pid, "approved", "orca")
@@ -2846,7 +2846,7 @@ deny:
         prop = hr.load_proposal(pid)
         text = hr.card(prop)["text"]
         check("link: the founder is told which edge and how to decide",
-              "marina -> keeper" in text and "ocp hr approve" in text, text)
+              "marina -> keeper" in text and "hl hr approve" in text, text)
         ok, said = hr.apply(pid, con)
         check("link: apply refuses until the founder has approved", not ok, said)
         ok, said = approve_hr(pid)
@@ -2872,7 +2872,7 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     """T531 (founder #6306): Orca needs a repo to make a worktree, so hr add, hr team and
     `agent register` refuse without one, saying what to give; a manager's repo may fill in a
     team member's but is written into the member's own agent.yaml; an agent that has none
-    says so in `ocp team` and doctor."""
+    says so in `hl team` and doctor."""
     _daemon_home(home, 20)
     accounts.register("alpha")
     hand_edit_team("teams:\n  boss: [boss]\nagents:\n  boss: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
@@ -2905,10 +2905,10 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     from handline.cli import team as teamcli
     con = db.connect()
     try:
-        check("ocp team: an agent with no repo says why it never starts",
+        check("hl team: an agent with no repo says why it never starts",
               "no repo" in teamcli._doing(con, "legacy") and "--repo <path>" in teamcli._doing(con, "legacy"),
               teamcli._doing(con, "legacy"))
-        check("ocp team: one with a repo does not", "no repo" not in teamcli._doing(con, "boss"))
+        check("hl team: one with a repo does not", "no repo" not in teamcli._doing(con, "boss"))
     finally:
         con.close()
     from handline.infra import doctor
@@ -3103,7 +3103,7 @@ edges:
 
 
 def test_hr_cli_lists_cards_and_only_the_founder_decides(home: Path) -> None:
-    """`ocp hr list --json` is the cards the founder's chat shows; `approve` and `reject` are the
+    """`hl hr list --json` is the cards the founder's chat shows; `approve` and `reject` are the
     founder's, from a terminal, and an agent's session is refused."""
     _daemon_home(home, 20)
     hand_edit_team("""
@@ -3310,7 +3310,7 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
 
     action, msg = accounts.login_plan("beta")
     check("login: an account nobody registered says how to register it",
-          action == "unknown" and "ocp account add beta" in msg, msg)
+          action == "unknown" and "hl account add beta" in msg, msg)
 
     action, msg = accounts.login_plan("alpha")
     check("login: one with no credentials gets the command that makes them",
@@ -3365,7 +3365,7 @@ def test_an_account_is_added_and_removed_from_ocp(home: Path) -> None:
     check("account remove: refused while an agent's session is on it",
           rc == 1 and "backend" in out and "beta" in paths.list_accounts(), out)
     check("account remove: and the refusal names the action that frees it",
-          "close" in out and "bridge" in out, out)
+          "close" in out and "screen" in out, out)
     # A closed agent has no session to strand: it stops holding the account, and
     # once the account is removed its dead resume id goes with it.
     con = db.connect()
@@ -3562,7 +3562,7 @@ def test_team_and_agent_yaml_are_sealed_against_an_agents_hand(home: Path) -> No
 def test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(home: Path) -> None:
     """T188 audit: seals begin once. After that a folder planted for a new or a
     retired name is refused on the agent's and the founder's reads alike, and
-    `ocp doctor` names it without sealing it; a db migration that rewrites
+    `hl doctor` names it without sealing it; a db migration that rewrites
     team.yaml keeps its seal."""
     from handline.db import schema
     _daemon_home(home, 20)
@@ -3623,7 +3623,7 @@ def test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(home: Pa
 
 def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
     """T188 audit: on a home from before seals (files by hand, no marker) an
-    agent's read accepts them and begins nothing, `ocp doctor` seals nothing,
+    agent's read accepts them and begins nothing, `hl doctor` seals nothing,
     the first founder-side read seals every file and sets the marker, and a
     folder planted after that is refused."""
     from handline.infra import protected
@@ -3751,7 +3751,7 @@ def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> Non
 def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(home: Path) -> None:
     """T204: the founder allows scout -> keeper as a peer. A forged edge that only
     changes its relation passes the agent's own ask, and until the daemon has
-    checked it, `ocp inbox` in keeper's session must show nothing."""
+    checked it, `hl inbox` in keeper's session must show nothing."""
     from handline.daemon import delivery
     from handline.infra import protected
     _daemon_home(home, 20)

@@ -18,7 +18,7 @@ def cmd_agent_move(args) -> int:
     """Move an agent's live session to another account now (a human's call)."""
     if names.getenv("OCP_AGENT"):
         print("a forced move ends a session: it is the founder's, from a terminal or "
-              "the bridge, not an agent's", file=sys.stderr)
+              "the screen, not an agent's", file=sys.stderr)
         return 1
     if not args.yes:
         if not sys.stdin.isatty():
@@ -40,15 +40,15 @@ def cmd_agent_move(args) -> int:
 def cmd_agent_register(args) -> int:
     if args.skip_permissions and protected.in_agent_session():
         print("skipping permission prompts is the founder's to turn on or off, from a "
-              "terminal or the bridge, not an agent's", file=sys.stderr)
+              "terminal or the screen, not an agent's", file=sys.stderr)
         return 1
     if args.chrome and protected.in_agent_session():
         print("the browser integration is the founder's to turn on or off, from a "
-              "terminal or the bridge, not an agent's", file=sys.stderr)
+              "terminal or the screen, not an agent's", file=sys.stderr)
         return 1
     if args.mcp_config is not None and protected.in_agent_session():
         print("an agent's own MCP servers are the founder's to set, from a terminal or the "
-              "bridge, not an agent's", file=sys.stderr)
+              "screen, not an agent's", file=sys.stderr)
         return 1
     mcp_text = None
     if args.mcp_config is not None:
@@ -65,7 +65,7 @@ def cmd_agent_register(args) -> int:
     except Exception:  # noqa: BLE001 - a new agent has no agent.yaml yet
         has_repo = False
     if not args.repo and not has_repo:
-        print(f"{args.name} needs a repo: `ocp agent register {args.name} --repo <path>`. Orca "
+        print(f"{args.name} needs a repo: `hl agent register {args.name} --repo <path>`. Orca "
               f"makes its worktree there, and the daemon cannot start it without one.",
               file=sys.stderr)
         return 1

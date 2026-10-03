@@ -1,4 +1,4 @@
-"""Say: the look-up rules for `ocp say` (T293, auditor #1655/#1657). The verb itself,
+"""Say: the look-up rules for `hl say` (T293, auditor #1655/#1657). The verb itself,
 `team.ask.say`, lives with `ask`; a say needs no answer, so nothing here is worded
 for one - only the look-up test a daemon pass uses to flag a say that was work.
 """
@@ -13,7 +13,7 @@ import re
 READONLY_BASH_ALLOWLIST = (
     "git show", "git log", "git diff", "git status",
     "ls", "cat", "head",
-    "ocp read", "ocp inbox", "ocp task list", "ocp team", "ocp task board",
+    "hl read", "hl inbox", "hl task list", "hl team", "hl task board",
 )
 
 # A shell operator anywhere in the command means it is not just the listed

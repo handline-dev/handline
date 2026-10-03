@@ -175,7 +175,7 @@ def chain_members(con, chain_id: str) -> list:
 
 # T751: a delivery (kind 'task') whose task has ended, or has gone to someone else, is a leftover:
 # nothing can be done with it, so nothing that hands requests out, counts them or lists them stuck
-# reads it (`ocp doctor` lists them). The same fragment, on `requests`.
+# reads it (`hl doctor` lists them). The same fragment, on `requests`.
 LEFTOVER_DELIVERY = ("(requests.kind = 'task' AND EXISTS (SELECT 1 FROM task_requests l0 WHERE l0.request_id = requests.id) "
                      "AND NOT EXISTS (SELECT 1 FROM task_requests l JOIN tasks t ON t.id = l.task_id "
                      "WHERE l.request_id = requests.id AND t.done_evidence IS NULL AND t.discarded_by IS NULL "
@@ -183,7 +183,7 @@ LEFTOVER_DELIVERY = ("(requests.kind = 'task' AND EXISTS (SELECT 1 FROM task_req
 
 
 def leftover_deliveries(con):
-    """The queued deliveries `LEFTOVER_DELIVERY` describes, for `ocp doctor`."""
+    """The queued deliveries `LEFTOVER_DELIVERY` describes, for `hl doctor`."""
     return con.execute(f"SELECT * FROM requests WHERE state = 'queued' AND {LEFTOVER_DELIVERY} ORDER BY id").fetchall()
 
 
@@ -244,7 +244,7 @@ def head_of_queue(con, target: str, skip: int | None = None):
 
     Request #189: an agent is given one request at a time, not its whole
     queue - this is where that is decided, once, for every reader (delivery,
-    `ocp inbox`, resolve's hand-off to the next one) to agree on.
+    `hl inbox`, resolve's hand-off to the next one) to agree on.
 
     T293: a say is never this - it is delivered ahead of the queue on its
     own (`ask.say`'s `mark_send_now`), and skipping it here means one

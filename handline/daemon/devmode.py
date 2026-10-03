@@ -14,7 +14,7 @@ from ..infra import service
 # ---------------------------------------------------------------- dev mode
 # Task #64 (founder #2120, #2121): the daemon restarting itself, in place,
 # once it notices its own code changed - so a merge no longer needs a human
-# to kill and relaunch it by hand. Off by default; `ocp dev-mode on` turns it
+# to kill and relaunch it by hand. Off by default; `hl dev-mode on` turns it
 # on (config.yaml, next to `active_cap`).
 DEV_MODE_KEY = "dev_mode"
 
@@ -35,7 +35,7 @@ def _watched_files(root: Path) -> list[Path]:
     the checkout the daemon is running from rather than named once and left
     to rot as files are added."""
     files = sorted((root / "handline").rglob("*.py"))
-    files.append(root / "bin" / "ocp")
+    files.append(root / "bin" / "hl")
     files.append(root / "requirements.txt")
     return files
 

@@ -344,7 +344,7 @@ def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
 
 
 def test_a_fold_is_a_process_not_a_session(home: Path) -> None:
-    """`ocp fold` is a headless `claude -p` that inherits whatever OCP_AGENT its
+    """`hl fold` is a headless `claude -p` that inherits whatever OCP_AGENT its
     caller had. Counting it as the agent's session would tell the sweep an agent
     is alive for as long as a fold runs, and closed the moment it ends."""
     check("observe: an agent's session counts",
@@ -446,7 +446,7 @@ def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
 
 def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path) -> None:
     """T60: the agent writes what is done and what is left on the request in
-    hand (`ocp progress`); the handoff carries it, and only for that request."""
+    hand (`hl progress`); the handoff carries it, and only for that request."""
     _daemon_home(home, 50)
     con = db.connect()
     try:

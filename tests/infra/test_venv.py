@@ -1,4 +1,4 @@
-"""Tests: the messages `ocp venv install` gives.
+"""Tests: the messages `hl venv install` gives.
 
 Run on its own: python3 tests/infra/test_venv.py   (all areas: python3 tests/test_ocp.py)
 """

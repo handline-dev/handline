@@ -135,7 +135,7 @@ CURRENT_TEST: dict[str, str] = {"name": "<setup>"}
 # A stand-in `orca` at the front of PATH for this process and every child of it:
 # it records which test ran it and does nothing else, and exits 1 the way an Orca
 # that is not answering does. A test that stands in for what it calls never
-# reaches it. The four that run the real `ocp` as a child process do, and are
+# reaches it. The four that run the real `hl` as a child process do, and are
 # named below; any other test that reaches it is a test that has not stood in
 # for something, and the run ends on it.
 #
@@ -161,7 +161,7 @@ FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
 os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
 atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
 
-# Tests whose subject is a child `ocp` process (a launch, the bridge on a pty),
+# Tests whose subject is a child `hl` process (a launch, the bridge on a pty),
 # which asks Orca for its terminals and its Run. They reach the stand-in, never
 # the real one.
 ORCA_CHILD_TESTS = {"test_launch", "test_launch_refuses_stale",
@@ -372,7 +372,7 @@ _taken_prompts: dict[str, str] = {}
 
 
 def take_launched_prompt(command: str) -> str | None:
-    """What a launch command's session starts with, taken as `ocp launch`
+    """What a launch command's session starts with, taken as `hl launch`
     takes it: the file is gone afterwards, which is how the daemon knows its
     own launch started the session."""
     if "--prompt-file " not in command:
@@ -733,7 +733,7 @@ PICKER_HINT_ONLY_ENTER_TO_RETURN = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_RO
 # gives - whose hint says "enter to return", not "enter to open".
 PICKER_CURRENT_SESSION_SELECTED = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to return · space to reply · ctrl+x to delete · ? for shortcuts"]
 
@@ -745,7 +745,7 @@ PICKER_CURRENT_SESSION_SELECTED = [
 # carries both phrases.
 PICKER_HINT_ONLY_ENTER_TO_OPEN = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · ctrl+x to delete · ? for shortcuts"]
 
@@ -754,7 +754,7 @@ PICKER_HINT_ONLY_ENTER_TO_OPEN = [
 BACKGROUND_PICKER = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
     "Completed",
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
     " ∙ Harbor app manager continuation  main merged at b42550f3...",
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to delete · ? for shortcuts"]
@@ -772,7 +772,7 @@ FLEET_HINT_QUOTE = ("blocking: an idle agent whose transcript merely says "
 # fixture's exact offsets.
 BACKGROUND_PICKER_SHORT = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
 
@@ -781,7 +781,7 @@ BACKGROUND_PICKER_SHORT = [
 # the composer's own hint still says the picker's words, so this must never
 # read as a clean composer.
 PICKER_HINT_WITH_NO_BANNER = [
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
     _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
     "  ⏵⏵ auto mode · enter to open · space to reply · ctrl+x to "]
 
@@ -790,7 +790,7 @@ PICKER_HINT_WITH_NO_BANNER = [
 # the box is text somebody wrote, not the picker.
 BANNER_ABOVE_ORDINARY_COMPOSER = [
     "Your conversation moved to the background - enter opens it · esc returns to it · ctrl+c twice quits",
-    " ✻ ocp inbox management             Processed both orcapipe inbox corrections...",
+    " ✻ hl inbox management             Processed both orcapipe inbox corrections...",
 ] + COMPOSER_EMPTY
 
 # auditor's #1309 A: the banner and the picker's words both quoted in the
@@ -1841,7 +1841,7 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
 
 
 def _task_done(tid: int, owner: str, evidence: str = "done") -> tuple[int, str]:
-    """`ocp task done` as its owner: the one step that finishes a task (T568)."""
+    """`hl task done` as its owner: the one step that finishes a task (T568)."""
     return _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
 
 
@@ -2288,7 +2288,7 @@ def run_area(run_tests) -> int:
     with tempfile.TemporaryDirectory() as td:
         run_tests(td)
     # The whole run's dealings with Orca: none of its tests may have reached even
-    # the stand-in, except the four that run a child `ocp`. (A test's own
+    # the stand-in, except the four that run a child `hl`. (A test's own
     # `except Exception` can swallow the guard's error; this cannot be swallowed.)
     reached = calls_that_reached_the_stand_in_orca()
     stray = {t: c for t, c in reached.items() if t not in ORCA_CHILD_TESTS}

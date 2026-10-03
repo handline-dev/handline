@@ -182,7 +182,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
     replies inside a running thread, because that is how the founder attaches
     the next piece of work to a report. Every path that closes such a row on
     an agent's behalf goes through here (a resolve, a dismiss); the
-    founder's own hands - the bridge answer key, cancel, withdraw - are the
+    founder's own hands - the screen answer key, cancel, withdraw - are the
     person the guard exists to serve, so `me == HUMAN` passes.
     """
     for tid in tasks or []:
@@ -201,7 +201,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
                 f"{'--task T<n>' if one_task else '--task T<n> [T<n> ...]'} "
                 "names the tasks it opened (one per deliverable promised), "
                 "--no-task 'reason' says nothing needs building. "
-                "`ocp task new --owner NAME 'title' -t 2h` makes a task.")
+                "`hl task new --owner NAME 'title' -t 2h` makes a task.")
     return None
 
 
@@ -424,7 +424,7 @@ def opened_by_human(con, rid: int) -> None:
 
     No verdict is written. A report is not a question, so being read is not an
     answer - and a verdict here would be one the sending agent can read back
-    (`ocp read`, its own conversation), making it look as though the human had
+    (`hl read`, its own conversation), making it look as though the human had
     said something they never typed. An answer to the human is already closed;
     reading it only stops it being listed, as `dismiss` does for a closed row.
     """
@@ -478,14 +478,14 @@ def message_detail(con, rid: int) -> tuple[str, list[tuple[str, list[str]]]] | N
 
 
 # How much of a quoted message is shown before it is standing in the way of the
-# one being read. `ocp read` shows any of them whole.
+# one being read. `hl read` shows any of them whole.
 QUOTE_LINES = 20
 
 
 def _clip(lines: list[str], rid: int) -> list[str]:
     if len(lines) <= QUOTE_LINES:
         return lines or ["(empty)"]
-    return lines[:QUOTE_LINES] + [f"… {len(lines) - QUOTE_LINES} more lines - `ocp read {rid}`"]
+    return lines[:QUOTE_LINES] + [f"… {len(lines) - QUOTE_LINES} more lines - `hl read {rid}`"]
 
 
 # How far back the exchange with one agent is drawn. Enough to place a verdict;

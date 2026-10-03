@@ -1,4 +1,4 @@
-"""The one prompt an agent's screen shows, as a row the bridge reads and answers (T395).
+"""The one prompt an agent's screen shows, as a row the screen reads and answers (T395).
 
 The daemon's screen watch (`daemon.prompts`) judges each agent's screen once and
 keeps a `prompt_blocks` row for what it shows: a permission prompt, an
@@ -55,7 +55,7 @@ def _row_dict(row) -> dict:
 
 
 def open_blocks(con, now: float | None = None) -> list[dict]:
-    """Every prompt on an agent's screen now, oldest first, for the bridge to show: an open
+    """Every prompt on an agent's screen now, oldest first, for the screen to show: an open
     row the watch has refreshed within `STALE_S`."""
     now = time.time() if now is None else now
     return [_row_dict(r) for r in db.open_prompts(con) if now - r["last_seen"] <= STALE_S]
@@ -78,7 +78,7 @@ def headline(block: dict) -> str:
 
 
 def request_answer(block_id: int, choice: dict) -> tuple[bool, str]:
-    """Ask the daemon to answer block `block_id` (`answer` says how); the bridge sends nothing itself."""
+    """Ask the daemon to answer block `block_id` (`answer` says how); the screen sends nothing itself."""
     reply = client.send({"verb": "answer_block", "block": block_id, "choice": choice})
     if reply is None:
         return False, "the daemon is not running - nothing sent"

@@ -3,7 +3,7 @@
 The server is its own (`tmux -L ocp`), so ocp never touches a person's tmux, and a pane id
 (`%12`) is a handle that means one thing. A window starts the default shell and the agent's
 command is typed into it, as Orca does: the agent is a child of a shell that outlives it, so
-`/exit` leaves the terminal standing and a wake types `ocp launch` into it again.
+`/exit` leaves the terminal standing and a wake types `hl launch` into it again.
 
 What tmux cannot do that Orca does, and how each is covered here:
   - tell that a TUI is idle: `wait_idle` reads the screen until it has stopped changing and

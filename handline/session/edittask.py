@@ -3,7 +3,7 @@ NotebookEdit while the agent holds no current task - a say (T293) grants
 none, so it can never carry a change.
 
 On unless the founder turns it off (T298, T480), the same protected-store
-mechanism as T288's stop-wait gate (`ocp hooks gate edit-task on|off`).
+mechanism as T288's stop-wait gate (`hl hooks gate edit-task on|off`).
 """
 from __future__ import annotations
 
@@ -75,10 +75,10 @@ def _refusal(con, agent: str, tool: str) -> str:
     if mine:
         t = mine[0]
         more = f" (or another of yours: {', '.join('T%d' % m['id'] for m in mine[1:4])})" if len(mine) > 1 else ""
-        return f"{head} Run `ocp task start T{t['id']}` to make your task \"{t['title'][:60]}\" current{more}, then retry."
+        return f"{head} Run `hl task start T{t['id']}` to make your task \"{t['title'][:60]}\" current{more}, then retry."
     return (f"{head} You own no open task. If the founder just told you to do this, run "
-            f"`ocp task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: "
-            f"`ocp say <them> \"please open a task for <this work>\"`.")
+            f"`hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: "
+            f"`hl say <them> \"please open a task for <this work>\"`.")
 
 
 def guard(agent: str, tool: str | None, tool_input: object) -> str | None:

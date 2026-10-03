@@ -177,7 +177,7 @@ def test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(home: Path
     said = []
 
     def record_launch() -> None:
-        """What `ocp launch` records for the session it starts."""
+        """What `hl launch` records for the session it starts."""
         db.set_launch_fingerprint(con, "backend", launchmod.fingerprint("backend"),
                                   json.dumps(launchmod.launch_record("backend")))
         time.sleep(0.01)                     # the next launch has its own stamp

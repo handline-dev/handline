@@ -1,4 +1,4 @@
-"""`ocp daemon` and dev mode."""
+"""`hl daemon` and dev mode."""
 from __future__ import annotations
 
 import sys
@@ -28,7 +28,7 @@ def cmd_daemon(args) -> int:
 
 def cmd_dev_mode(args) -> int:
     """Off by default (task #64). A running daemon reads config.yaml once a
-    tick, right after that tick finishes, so `ocp dev-mode on` takes effect
+    tick, right after that tick finishes, so `hl dev-mode on` takes effect
     on its next tick - no restart needed to turn it on."""
     if args.state is None:
         print("on" if dmn_devmode.dev_mode_enabled() else "off")
@@ -44,7 +44,7 @@ def cmd_dev_mode(args) -> int:
 
 def _print_waits() -> None:
     """The founder's waits above everything else `ps` prints, in words: the same
-    list the bridge pins in red."""
+    list the screen pins in red."""
     con = db.connect()
     try:
         waits = actions.founder_waits(con)
@@ -70,7 +70,7 @@ def cmd_daemon_status(args) -> int:
               f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
               f"the same agent twice - end all but one.")
     elif live and not pid:
-        print(f"  (pid {live[0]} is an `ocp daemon` process that does not hold the lock)")
+        print(f"  (pid {live[0]} is an `hl daemon` process that does not hold the lock)")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)

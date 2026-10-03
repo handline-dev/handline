@@ -99,7 +99,7 @@ def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
     con, screen = _world(home, EXITED, table=False)
     delivery_sleep, orcamod.SHELL_SETTLE_S = orcamod.SHELL_SETTLE_S, 0
     try:
-        ok, why = dmn_delivery._send("term_x", "a request, waiting for you:\nsay \"hi\" and `ocp read 1`")
+        ok, why = dmn_delivery._send("term_x", "a request, waiting for you:\nsay \"hi\" and `hl read 1`")
         check("shell: text is not typed at a shell under a stale composer", not ok and screen.sent == [], f"{why} {screen.sent}")
         ok, why = orcamod.resume_with("term_x", "your handoff is in /x")
         check("shell: nor is a handoff pointer", not ok and screen.sent == [], why)
@@ -184,12 +184,12 @@ def test_a_close_is_not_recorded_while_a_session_is_still_drawn(home: Path) -> N
 def test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(home: Path) -> None:
     con, screen = _world(home, COMPOSER_EMPTY, table=False)
     try:
-        ok, why = orcamod.relaunch("term_x", "ocp launch backend")
+        ok, why = orcamod.relaunch("term_x", "hl launch backend")
         check("relaunch: refused at a drawn session, and nothing typed",
               not ok and "not typing a launch line" in why and screen.sent == [], f"{why} {screen.sent}")
         screen.rows = list(SHELL)
-        ok, _ = orcamod.relaunch("term_x", "ocp launch backend")
-        check("relaunch: typed at a shell", ok and screen.sent[0] == "ocp launch backend", str(screen.sent))
+        ok, _ = orcamod.relaunch("term_x", "hl launch backend")
+        check("relaunch: typed at a shell", ok and screen.sent[0] == "hl launch backend", str(screen.sent))
 
         # Through the wake: the closed mark is there, the table lists nothing, the screen draws a session.
         screen.sent.clear()

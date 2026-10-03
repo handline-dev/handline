@@ -72,7 +72,7 @@ class AccountPage(AccountActions, Screen):
             with Horizontal(classes="frow"):
                 yield Static("account", classes="flabel")
                 yield Static(self.account)
-            for label, key, hint in (("alias", "name", "  shown instead of the account's name on the bridge; blank shows the name"),
+            for label, key, hint in (("alias", "name", "  shown instead of the account's name on the screen; blank shows the name"),
                                      ("cap", "cap", "  most agents mid-turn on this account at once; empty is the default")):
                 with Horizontal(classes="frow"):
                     yield Static(label, classes="flabel")

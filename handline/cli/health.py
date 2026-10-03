@@ -47,7 +47,7 @@ def _started_at(pid: int, record: Path) -> float | None:
 
 
 def stale_long_lived(started_at=None) -> list[str]:
-    """What stops `--drop-dead-columns`: the bridge and the daemon that are up now and started before the
+    """What stops `--drop-dead-columns`: the screen and the daemon that are up now and started before the
     newest code file on disk (they run older code, and a connect of theirs would re-add the columns a drop
     removed), or whose start cannot be read. Each is named with its pid."""
     started_at = started_at or _started_at
@@ -56,7 +56,7 @@ def stale_long_lived(started_at=None) -> list[str]:
     from ..ui import stall
     code = max((f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists()), default=0)
     stale = []
-    for name, pid, record in (("bridge", stall.running_pid(), stall.pid_file()),
+    for name, pid, record in (("screen", stall.running_pid(), stall.pid_file()),
                               ("daemon", dmn_locks.running_elsewhere(),
                                paths.home() / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}")):
         if not pid:
@@ -242,7 +242,7 @@ def cmd_events(args) -> int:
         if not args.all:
             # The hook events that only mark the edges of a turn are what an
             # agent's state column says already, and there are six of them for
-            # every decision. `ocp bridge` used to filter them on screen; this is
+            # every decision. `hl` used to filter them on screen; this is
             # where someone asking what the daemon did actually looks.
             rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES]
         if not rows:

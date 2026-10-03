@@ -41,7 +41,7 @@ def default_home() -> Path:
 def home() -> Path:
     raw = names.getenv("OCP_HOME")
     if raw is not None and not raw.strip():
-        # Path("") is the current directory: `ocp init` would set up wherever it was run.
+        # Path("") is the current directory: `hl init` would set up wherever it was run.
         raise SystemExit("HANDLINE_HOME (or OCP_HOME) is set but empty: unset it to use the default home, or give it a folder")
     h = Path(raw or default_home()).expanduser()
     if h.is_symlink():
@@ -122,8 +122,8 @@ def repo_root() -> Path:
 
 
 def ocp_exe() -> str:
-    """The command a hook or launch line should call `ocp` with."""
-    return names.getenv("OCP_BIN") or shutil.which("handline") or shutil.which("ocp") or str(repo_root() / "bin" / "ocp")
+    """The command a hook or launch line should call `hl` with."""
+    return names.getenv("OCP_BIN") or next(filter(None, map(shutil.which, names.COMMANDS)), None) or str(repo_root() / "bin" / "hl")
 
 
 def list_accounts() -> list[str]:

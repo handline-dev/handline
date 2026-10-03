@@ -1,4 +1,4 @@
-"""Which folders `ocp` may answer claude's trust prompt for, on the
+"""Which folders `hl` may answer claude's trust prompt for, on the
 founder's own say-so - never inferred from the roster or Orca's own layout.
 
 Adding one goes through the same gate `hr.py` uses for the roster: any agent
@@ -227,7 +227,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
             return False, f"proposal {pid} has no decision to check - raise it again"
         if state == "open":
             return False, (f"the founder has not answered T{tid} yet. It is on "
-                           f"`ocp bridge`, top panel.")
+                           f"`hl`, top panel.")
         if state == "discarded":
             why = (db.get_task(con, tid)["discard_reason"] or "").strip()
             return False, (f"T{tid}, the decision on proposal {pid}, was discarded{f' ({why})' if why else ''} or handed back or closed by someone but the founder - "
