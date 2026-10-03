@@ -1,4 +1,4 @@
-"""Tests: an account on one-month subscriptions (T743; handline/usage/cycle.py, the end date in
+"""Tests: an account on one-month subscriptions (handline/usage/cycle.py, the end date in
 status.pick_account / long_pace, handline/daemon/subscriptions.py, `ocp account cycle`).
 
 Run on its own: python3 tests/usage/test_cycle.py   (all areas: python3 tests/test_ocp.py)

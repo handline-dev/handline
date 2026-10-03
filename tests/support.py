@@ -297,7 +297,7 @@ def legacy_shape(con) -> None:
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
-    closer, so it carries none of `handline/db/`'s chokepoint guard (#2024): tests
+    closer, so it carries none of `handline/db/`'s chokepoint guard: tests
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())

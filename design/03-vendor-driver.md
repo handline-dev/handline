@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Reference design (#1315). Built: §7 steps 1 and 2 (`handline/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `handline/vendors/base.py`; §3 below is the original proposal.
+Reference design. Built: §7 steps 1 and 2 (`handline/vendors/`) and, under `design/04-vendor-decoupling.md`, the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `handline/vendors/base.py`; §3 below is the original proposal.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` (local, not in the repo) §11. Everything else in ocp stays where it is.
