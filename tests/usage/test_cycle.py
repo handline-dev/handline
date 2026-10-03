@@ -641,15 +641,13 @@ def test_the_position_in_the_month_follows_the_subscription_start_and_the_settin
           p.day == 4 and p.edge == cycle.add_months(first, 8), str(p))
     check("position: the line says where and when", "renews" in p.line() and "day 4 of" in p.line(), p.line())
     mid = cycle.position("a", at(first + dt.timedelta(days=9)))
-    shown = cycle.bar(mid, 30)
-    check("bar: a marker inside brackets, as wide as asked", len(shown) == 32 and shown[0] == "[" and shown[-1] == "]"
-          and shown.count("|") == 1 and shown.strip("[]").replace("|", "").strip() == "", shown)
-    day1 = cycle.bar(cycle.position("a", at(first)), 30)
-    last = cycle.bar(cycle.position("a", at(cycle.add_months(first, 1) - dt.timedelta(days=1))), 30)
-    check("bar: day 1 is at the left edge and the cycle's last day at the right", day1 == "[|" + " " * 29 + "]"
-          and last == "[" + " " * 29 + "|]", f"{day1} {last}")
-    check("bar: a later day sits further right", shown.index("|") > day1.index("|"), shown)
-    check("bar: no day known, no bar", cycle.bar(None) == "" and cycle.bar(cycle.Position(True, None)) == "")
+    check("fraction: day 10 of the month is a little under a third through",
+          0.2 < cycle.fraction(mid) < 0.4, str(cycle.fraction(mid)))
+    check("fraction: day 1 is the start and the cycle's last day the end",
+          cycle.fraction(cycle.position("a", at(first))) == 0.0
+          and cycle.fraction(cycle.position("a", at(cycle.add_months(first, 1) - dt.timedelta(days=1)))) == 1.0)
+    check("fraction: a later day is further on", cycle.fraction(mid) > 0.0)
+    check("fraction: no day known, none", cycle.fraction(None) is None and cycle.fraction(cycle.Position(True, None)) is None)
     write_cfg("month_cycle_a: true\n")
     p = cycle.position("a", at(first + dt.timedelta(days=9)))
     check("position: ends this month, day 10 of the one cycle, ends where the default end says",
