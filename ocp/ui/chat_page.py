@@ -50,6 +50,7 @@ from .components.jobs_aware import JobsAware, dispatch_agent_verb
 from .components.ime import TextBox
 from .components.text_prompt import TextPrompt
 from .components.action_bar import ActionBar
+from .components.agent_strip import AgentStrip
 from .components.page_header import page_header
 from .components.schedules_section import SchedulesSection
 from .components.agent_settings import AgentSettings
@@ -1633,6 +1634,7 @@ class ChatPage(JobsAware, Screen):
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
                                 ("Settings", "settings")], back=True)
+        yield AgentStrip(id="agent_strip")
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
         from .components.tasks_view import TasksView    # it draws on this module
@@ -1781,8 +1783,19 @@ class ChatPage(JobsAware, Screen):
         finally:
             con.close()
 
+    def refresh_agent_strip(self) -> None:
+        strip = self.query_one(AgentStrip)
+        strip.display = not self.everyone
+        if strip.display:
+            con = db.connect()
+            try:
+                strip.show(con, self.agent)
+            finally:
+                con.close()
+
     def refresh_view(self) -> None:
         self.refresh_agent_state()
+        self.refresh_agent_strip()
         self.refresh_block()
         self.refresh_pools()
         if self.showing_settings:
@@ -2152,6 +2165,7 @@ class ChatPage(JobsAware, Screen):
         self.everyone = event.tab.id == "all"
         self.showing_tasks = event.tab.id == "tasks"
         self.showing_settings = event.tab.id == "settings"
+        self.refresh_agent_strip()
         chat = not (self.showing_tasks or self.showing_settings)
         if chat:
             self.last_chat = event.tab.id

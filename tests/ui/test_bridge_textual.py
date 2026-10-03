@@ -2964,6 +2964,44 @@ async def test_the_founder_asks_the_previous_holder_and_the_task_keeps_its_holde
         con.close()
 
 
+async def test_the_chat_strip_says_the_agents_model_account_session_context_cache_and_last_call() -> None:
+    """The line under the chat header, read from the agent's own snapshot, its latest session start and the
+    session's recorded API calls; it is not drawn in the all-chat."""
+    from ocp.ui import chat_page as cp
+    from ocp.ui.components.agent_strip import AgentStrip
+    _home("strip")
+    t.write_agent_status("backend", "alpha", ctx_pct=61, ctx_used=122000, model_id="opus-5-5", session_id="s1")
+    con = db.connect()
+    try:
+        db.note_session_start(con, "backend", "wake", False, "s1", "")
+        con.execute("UPDATE session_starts SET ts = ? WHERE agent = 'backend'", (int(time.time()) - 2 * 3600 - 14 * 60,))
+        for i in range(12):
+            # the first two calls are older than the ten the hit rate reads: all cache creation, so they would drag it down
+            cc, cr = (5000, 0) if i < 2 else (1000, 9000)
+            con.execute("INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking) "
+                        "VALUES ('alpha', 's1', ?, ?, 'opus-5-5', '', 0, 0, ?, ?, 1000, 0)", (f"r{i}", 1000 + i, cc, cr))
+        con.commit()
+    finally:
+        con.close()
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 30)) as pilot:
+        await pilot.pause(0.5)
+        chat = cp.ChatPage("backend")
+        app.push_screen(chat)
+        await pilot.pause(0.8)
+        strip = chat.query_one(AgentStrip)
+        line = str(strip.render())
+        check("strip: model, account, session age, context, cache over the last ten calls and the last call",
+              all(x in line for x in ("opus-5-5", "alpha", "session 2h14m", "61%", "122k/200k", "cache 90%", "last $"))
+              and strip.display, line)
+        chat.query_one("Tabs").active = "all"
+        await pilot.pause(0.5)
+        check("strip: the all-chat has no single agent, so no strip", not strip.display)
+        chat.query_one("Tabs").active = "mine"
+        await pilot.pause(0.5)
+        check("strip: back on the agent's own chat it is drawn again", strip.display)
+
+
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -4965,6 +5003,7 @@ async def _run_all() -> None:
     await test_every_dialog_opens_on_its_field_and_leaves_once()
     await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
     await test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page()
+    await test_the_chat_strip_says_the_agents_model_account_session_context_cache_and_last_call()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_older_messages_loaded_above_are_not_counted_as_new()
     await test_answering_a_message_shows_its_whole_body()
