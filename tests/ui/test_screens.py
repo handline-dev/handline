@@ -2476,7 +2476,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                       ["inbox", "human", "--all"]],
             "read": [["read", str(q)], ["read", str(h)], ["read", str(d)]],
             "account list": [["account", "list"], ["account", "list", "--json"]],
-            "hr list": [["hr", "list"]], "service logs": [["service", "logs"]],
+            "hr list": [["hr", "list"]], "hr links": [(["hr", "links"], {"OCP_AGENT": "human"}, "hr links")], "service logs": [["service", "logs"]],
             "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
             "backup": [["backup"]],
             "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],

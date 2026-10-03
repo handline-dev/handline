@@ -341,9 +341,8 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
                   + (f", effort {prop['effort']}" if prop.get("effort") else "")
                   + (f", vendor {prop['vendor']}"
                      if prop.get("vendor") and prop["vendor"] != agents.DEFAULT_VENDOR else "")
-                  + ". team.yaml gains the team, the agents and one edge "
-                  f"({prop['agent']} -> {prop['agent']}.*, supervisor); the default links "
-                  "then apply:"]
+                  + ". team.yaml gains the team and the agents, no edge; the default links "
+                  "apply:"]
         lines += [f"  - {d}" for d in team.DEFAULT_LINKS]
     elif prop["kind"] == "settings":
         lines += [f"{prop['agent']}'s settings would become:"]
@@ -618,16 +617,15 @@ def _add(prop: dict, con) -> tuple[bool, str]:
 
 
 def _team(prop: dict, con) -> tuple[bool, str]:
-    """A whole team in one approval: the manager and its members in team.yaml with
-    the one supervisor edge (the rest is `team.DEFAULT_LINKS`), then each one
-    registered. team.yaml is written first, as `_add` does, and once."""
+    """A whole team in one approval: the manager and its members in team.yaml (their
+    links are `team.DEFAULT_LINKS`, no edge), then each one registered. team.yaml is written first, as `_add` does, and once."""
     name, members = prop["agent"], _members_of(prop)
     everyone = [name, *members]
 
     def edit(text: str) -> str:
         for n in everyone:
             text = _add_text(text, n, name)
-        return _link_text(text, name, f"{name}.*", "async", "supervisor", pattern=True)
+        return text
 
     def verify(tm) -> None:
         for n in members:

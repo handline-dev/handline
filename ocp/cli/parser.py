@@ -222,6 +222,11 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--from", dest="old", required=True, help="the name its folder still carries")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
+    q = hrsub.add_parser("links", help="move team.yaml onto the name links: drop the edges "
+                                       "they give, link the team managers on purpose")
+    q.add_argument("--apply", action="store_true", help="write it (founder only); default shows the plan")
+    q.set_defaults(name=None, why=None, team=None, repo=None,
+                   model=None, effort=None)
     q = hrsub.add_parser("apply", help="carry out an approved proposal")
     q.add_argument("id")
     q.set_defaults(name=None, why=None, team=None, repo=None,

@@ -183,12 +183,12 @@ Orca dashboard.""",
                                    a manager and its members as one proposal, one approval
   ocp hr add / link / unlink       one agent or one edge, for what the defaults do not cover
 
-Every team has these links without any edge written (the manager is the member
-named like the team, the reviewer is `<team>.reviewer`):
+The name is the structure: `harbor.sea` is under `harbor`. Every agent has these
+links without any edge written:
 """ + "\n".join(f"  - {d}" for d in DEFAULT_LINKS) + """
 
-Anything else is denied, and the refusal says so: ask your manager, or propose an
-edge with `ocp hr link`. A `deny` in team.yaml still beats a default link.""",
+Anything else is denied (a grandparent, a nephew, another team), and the refusal says
+so: ask your parent, or propose an edge with `ocp hr link`. A `deny` in team.yaml still beats a default link.""",
     "doctor": """checks
   ocp doctor                       verify the preconditions of each phase
 

@@ -57,6 +57,7 @@ One line each. `ocp <command> --help` has the options, and `ocp guide <topic>` p
 |---|---|
 | `ocp team` | Who you may reach, and what each is doing. |
 | `ocp hr team` / `add` / `retire` / `rename` / `link` / `unlink` | Propose a roster change. |
+| `ocp hr links [--apply]` | Move team.yaml onto the name links (founder). |
 | `ocp hr list [--json]` / `approve <id>` / `reject <id> [reason]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
 | `ocp memory status` | Size of each agent's `ROLE.md` and `base.md` against its limit. |
 | `ocp schedule` | Messages the daemon types at an agent on a cron schedule. |
