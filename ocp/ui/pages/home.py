@@ -114,7 +114,7 @@ class HomePage(RowActions, JobsAware, Screen):
     HomePage #answer_buttons { height: 1; margin-top: 1; }
     HomePage #answer_buttons Button { width: auto; min-width: 0; margin-right: 2; }
     HomePage .frow { height: 1; margin-bottom: 1; }
-    HomePage .flabel { width: 16; color: $text-muted; }
+    HomePage .flabel { width: 21; color: $text-muted; }
     HomePage .fhint { color: $text-muted; }
     HomePage #default_cap, HomePage #idle_close { width: 8; }
     """
@@ -161,24 +161,23 @@ class HomePage(RowActions, JobsAware, Screen):
         yield ProposalsView(id="hr_view")
         with Vertical(id="settings_view"):
             with VerticalScroll(id="settings_pane"):
-                yield SectionHead("limits")
+                switches = {key: SwitchRow(label, hint, f"g_{key}") for key, label, hint in actions.GLOBAL_SWITCHES}
+                yield SectionHead("concurrency")
                 with Horizontal(classes="frow"):
                     yield Static("default cap", classes="flabel")
                     yield ImeInput(id="default_cap", compact=True, restrict=r"[0-9]*")
                     yield FieldNote(id="n_default_cap")
-                    yield Static("  most agents mid-turn at once on an account with no cap of its own",
-                                 classes="fhint")
+                    yield Static("  agents working at once on an account", classes="fhint")
+                yield SectionHead("closing windows")
                 with Horizontal(classes="frow"):
                     yield Static("idle close", classes="flabel")
                     yield ImeInput(id="idle_close", compact=True, restrict=r"[0-9]*")
                     yield FieldNote(id="n_idle_close")
-                    yield Static("  min idle before the window closes, 0 = never (background work gets 5 more)",
-                                 classes="fhint")
-                yield SectionHead("switches")
-                for key, label, hint in actions.GLOBAL_SWITCHES:
-                    yield SwitchRow(label, hint, f"g_{key}")
-                yield SectionHead("auto-answer", "what ocp answers by itself on an agent's terminal; "
-                                  "the modal's \"always\" adds one too")
+                    yield Static("  minutes idle before the window closes, 0 = never", classes="fhint")
+                yield switches["ignore_cache_expiry"]
+                yield SectionHead("automation")
+                yield switches["handoff_note"]
+                yield switches["auto_accept"]
                 yield DataTable(id="answers", cursor_type="row", show_header=False)
                 with Horizontal(id="answer_buttons"):
                     yield Button("Add", id="answer_add", compact=True)

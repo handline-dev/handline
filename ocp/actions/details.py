@@ -291,20 +291,18 @@ def set_idle_close(text: str, agent: str | None = None) -> tuple[bool, str]:
 # The on/off switches of the global settings: (key, label, what it does). Each reads and writes
 # the one place the daemon reads it from.
 GLOBAL_SWITCHES = (
-    ("handoff_note", "handoff note", "agents write a note for their next session before a close or a move"),
-    ("auto_accept", "auto-accept", "ocp answers a dialog on an agent's terminal that a standing answer covers"),
-    ("ignore_cache_expiry", "ignore cache expiry", "a resume reuses the session even past its prompt cache's life"),
-    ("dev_mode", "dev mode", "the daemon restarts itself when ocp's own code changes"),
+    ("handoff_note", "handoff note", "agents write a note for the next session before a close or move"),
+    ("auto_accept", "auto-accept", "answer the questions in the list below by itself"),
+    ("ignore_cache_expiry", "ignore cache expiry", "resume the old session even after its cache went cold"),
 )
 
 
 def _switch_accessors() -> dict:
-    from ..daemon import devmode, handoff_note
+    from ..daemon import handoff_note
     from ..session import autoaccept
     return {"handoff_note": (handoff_note.default_enabled, handoff_note.set_default_enabled),
             "auto_accept": (autoaccept.enabled, autoaccept.set_enabled),
-            "ignore_cache_expiry": (idle_close.default_ignore_cache_expiry, idle_close.set_ignore_cache_expiry),
-            "dev_mode": (devmode.dev_mode_enabled, devmode.set_dev_mode)}
+            "ignore_cache_expiry": (idle_close.default_ignore_cache_expiry, idle_close.set_ignore_cache_expiry)}
 
 
 def global_switches() -> dict[str, bool]:
