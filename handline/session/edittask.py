@@ -3,7 +3,7 @@ NotebookEdit while the agent holds no current task - a say (T293) grants
 none, so it can never carry a change.
 
 On unless the founder turns it off (T298, T480), the same protected-store
-mechanism as T288's stop-wait gate (`hl hooks gate edit-task on|off`).
+mechanism as T288's stop-wait gate (`ocp hooks gate edit-task on|off`).
 """
 from __future__ import annotations
 

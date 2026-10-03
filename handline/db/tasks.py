@@ -29,7 +29,7 @@ def new_task(con, title: str, owner: str, opened_by: str,
              parent_task: int | None = None, priority: int = DEFAULT_PRIORITY,
              expects: str | None = None, timeout_s: int | None = None) -> int:
     """`timeout_s` is optional here (many tests build a task without one) -
-    `hl task new` is what actually requires it, at the CLI (T286).
+    `ocp task new` is what actually requires it, at the CLI (T286).
 
     timeout_at starts NULL even when `timeout_s` is given: the clock only
     runs while the task is doing (T286's revision, founder #1627), and a

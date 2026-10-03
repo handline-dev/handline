@@ -1,4 +1,4 @@
-"""`hl schedule` (T605): the messages the daemon types at an agent on a cron schedule. Reading is open;
+"""`ocp schedule` (T605): the messages the daemon types at an agent on a cron schedule. Reading is open;
 adding, editing and removing write agent.yaml, which only the founder's terminal may."""
 from __future__ import annotations
 

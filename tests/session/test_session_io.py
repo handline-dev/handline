@@ -4147,7 +4147,7 @@ def test_a_second_done_loses_the_race(home: Path) -> None:
 
 
 def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
-    """T568: `hl close` ends an agent's session; a task or a number is refused
+    """T568: `ocp close` ends an agent's session; a task or a number is refused
     with the way to end or undo a task, and nothing is closed."""
     _board_world(home)
     rc, out = _cli(["close", "T42"])

@@ -1029,7 +1029,7 @@ def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
 
 
 def test_doctor_checks_team_yaml_and_that_its_agents_are_registered(home: Path) -> None:
-    """`hl team check` is gone: doctor says it (T713)."""
+    """`ocp team check` is gone: doctor says it (T713)."""
     use_home(home)
     hand_edit_team("agents:\n  backend: {}\n  ghost: {}\nedges: []\n")
     agents.register("backend")
@@ -1407,7 +1407,7 @@ def test_a_launch_installs_a_hook_event_added_since_the_last_install(home: Path)
         check("launch: a wanted event missing since the last install is added",
               not hooks.missing(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
               json.loads(target.read_text()).get("hooks", {}).keys())
-        check("launch: and so is the daemon socket, for a home initialised before `hl init` did it (T378)",
+        check("launch: and so is the daemon socket, for a home initialised before `ocp init` did it (T378)",
               str(paths.socket_file()) in json.loads(target.read_text())["sandbox"]["network"]["allowUnixSockets"])
 
         data = json.loads(target.read_text())
@@ -1625,8 +1625,8 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
         doctor._check_home_socket(r)
     finally:
         Path.write_text = real_write
-    check("T378: where it cannot write, doctor warns naming hl init instead of crashing",
-          r.rows[0][0] == doctor.WARN and "hl init" in r.rows[0][2], str(r.rows))
+    check("T378: where it cannot write, doctor warns naming ocp init instead of crashing",
+          r.rows[0][0] == doctor.WARN and "ocp init" in r.rows[0][2], str(r.rows))
     for bad in ('{"permissions": {"allow": ["Bash(git:*)"]}, "hooks": {},}', '["a", "list"]'):
         target.write_text(bad)
         rep = doctor.Report()

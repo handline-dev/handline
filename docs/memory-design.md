@@ -1,6 +1,6 @@
 # Agent memory (T229)
 
-Core is built (T231: `hl memory status|migrate`, the doctor check, `agents/<name>/memory`
+Core is built (T231: `ocp memory status|migrate`, the doctor check, `agents/<name>/memory`
 on register, the team-layer file, the `AGENTS.md` promotion). The daemon part
 (T230: launch setting, hooks) is not. Founder #1272-#1274: each agent keeps its
 own memory and works from it, and memory must not pile up ("too much is worse

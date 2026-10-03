@@ -1,4 +1,4 @@
-"""A dialog on an agent's terminal, answered by the founder from the screen (T187): what the
+"""A dialog on an agent's terminal, answered by the founder from the bridge (T187): what the
 screen asks and offers (`dialog_of`), the pick pressed on it (`press_choice`, T603), and the standing
 answers the founder saved with "always" - a trusted folder for the folder-trust screen, a
 `dialog_rules` rule for any other dialog."""

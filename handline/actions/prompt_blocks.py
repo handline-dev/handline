@@ -1,4 +1,4 @@
-"""The one prompt an agent's screen shows, as a row the screen reads and answers (T395).
+"""The one prompt an agent's screen shows, as a row the bridge reads and answers (T395).
 
 The daemon's screen watch (`daemon.prompts`) judges each agent's screen once and
 keeps a `prompt_blocks` row for what it shows: a permission prompt, an

@@ -30,7 +30,7 @@ hl task new --owner shop.auditor --parent T41 -t 1h "review T41 @a1b2c3d" \
 
 The child blocks T41. The auditor closes it with `PASS: ...` or `FAIL: ...`, and the builder is
 told. On a PASS the builder opens the same kind of task for the merger. The merger closes it with
-the merged commit. Then the builder closes T41 with that sha, which `hl` checks is on `main`.
+the merged commit. Then the builder closes T41 with that sha, which `ocp` checks is on `main`.
 
 What makes this work:
 

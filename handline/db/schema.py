@@ -503,7 +503,7 @@ def _cols(con, table: str) -> set[str]:
 
 # T835: the request columns the answers-to-says work retired. Nothing reads or writes them; the
 # answer is a say, a reason or a dismissal an event, the hold `queue_order`, the time `state_at`.
-# Like the unread columns (T830) they are dropped only by `hl doctor --drop-dead-columns`, never
+# Like the unread columns (T830) they are dropped only by `ocp doctor --drop-dead-columns`, never
 # at connect - a long-lived process on older code still names them - and the doctor marks the
 # database (`LEGACY_DROPPED`) so a connect neither re-adds them nor runs the old migrations
 # that read them. A database made after this has no such columns and is marked from the start.
@@ -1014,7 +1014,7 @@ def _requests_one_state(con, legacy: bool = True) -> None:
 # Request columns nothing reads or writes any more (T797 branch 7). They are NOT dropped at connect:
 # a long-lived process on older code (the bridge, an agent's own CLI) still names them in its
 # statements and re-adds them when it connects, so a drop at connect crashes it - or flaps against it
-# on every call (T830). Dropped by `hl doctor --drop-dead-columns`, once everything long-lived has
+# on every call (T830). Dropped by `ocp doctor --drop-dead-columns`, once everything long-lived has
 # been restarted; new code never names them and a fresh database never has them.
 _UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn",
                            *_LEGACY_REQUEST_COLUMNS)

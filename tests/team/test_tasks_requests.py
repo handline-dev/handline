@@ -1870,7 +1870,7 @@ def test_an_answer_reaches_the_agent_that_asked(home: Path) -> None:
 
 
 def test_t80_a_reply_says_which_request_it_answers(home: Path) -> None:
-    """T80: the delivery notice and `hl read` name the parent of a request
+    """T80: the delivery notice and `ocp read` name the parent of a request
     that has one - first line only, cut at ASKED_SHOWN - and say nothing extra
     for one without."""
     _daemon_home(home, 20)
@@ -2121,14 +2121,14 @@ edges:
     finally:
         con.close()
     rc, out = _cli(["events"], as_agent="dohyun")
-    check("T39: plain `hl events` as a peer shows only its own rows",
+    check("T39: plain `ocp events` as a peer shows only its own rows",
           rc == 0 and "note of dohyun" in out and "note of marina" not in out
           and "note of manager" not in out, out)
     rc, out = _cli(["events"], as_agent="manager")
-    check("T39: plain `hl events` as a supervisor adds its reports",
+    check("T39: plain `ocp events` as a supervisor adds its reports",
           "note of marina" in out and "note of dohyun" in out and "note of manager" in out, out)
     rc, out = _cli(["events"], as_agent=askmod.HUMAN)
-    check("T39: plain `hl events` as the human shows everyone",
+    check("T39: plain `ocp events` as the human shows everyone",
           "note of marina" in out and "note of dohyun" in out, out)
     rc, out = _cli(["inbox", "marina"], as_agent="marina")
     check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
@@ -2149,12 +2149,12 @@ edges:
     finally:
         con.close()
     rc, out = _cli(["read", str(first)], as_agent="dohyun")
-    check("T39: `hl read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
+    check("T39: `ocp read <id>` by number stays allowed", rc == 0 and "secret of marina" in out, out)
 
 
 def test_inbox_and_withdraw_cli(home: Path) -> None:
-    """`hl inbox` shows the head and a count, not the whole queue (request
-    #189); `hl withdraw` takes back an undelivered request of your own."""
+    """`ocp inbox` shows the head and a count, not the whole queue (request
+    #189); `ocp withdraw` takes back an undelivered request of your own."""
     _daemon_home(home, 20)
     agents.register("reviewer")
     con = db.connect()
@@ -4501,7 +4501,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
 
 
 def test_a_say_to_the_founder_asks_for_no_reply(home: Path) -> None:
-    """Step 5 (auditor #5355): the status report the guidance now teaches, `hl say
+    """Step 5 (auditor #5355): the status report the guidance now teaches, `ocp say
     human`, is a message that needs no answer - it is not pinned, not a gate, and
     folds like the fyi report it replaces."""
     _board_world(home)
@@ -5291,7 +5291,7 @@ def test_a_task_shows_its_memos_when_delivered_and_started_and_old_notes_became_
 
 
 def test_task_memo_verbs(home: Path) -> None:
-    """T493: `hl task memo T<n> list|add|edit|delete` as the founder and as an agent."""
+    """T493: `ocp task memo T<n> list|add|edit|delete` as the founder and as an agent."""
     _board_world(home)
     con = db.connect()
     tid = db.new_task(con, "with memos", "worker", "manager", timeout_s=5400)
@@ -5391,7 +5391,7 @@ def test_one_doing_migration(home: Path) -> None:
 
 
 def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
-    """T286: `hl task new` requires -t/--timeout (at most 4h; missing or over
+    """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
     is refused). Its clock only counts while the task is doing (founder
     #1627's revision) - a new task is never doing, so timeout_at stays NULL
     until a request is linked; `hl task edit --timeout` sets a new length
@@ -5761,8 +5761,8 @@ def test_task_board_shows_who_holds_each_open_task(home: Path) -> None:
 
 
 def test_a_done_task_leaves_the_open_lists_and_shows_with_all(home: Path) -> None:
-    """T568: done is final, so there is no 'waiting for check' group - `hl task
-    list` and `hl task board` show open tasks only, and `list --all` shows
+    """T568: done is final, so there is no 'waiting for check' group - `ocp task
+    list` and `ocp task board` show open tasks only, and `list --all` shows
     what finished, with its evidence."""
     _board_world(home)
     con = db.connect()
@@ -6760,7 +6760,7 @@ def test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_targe
 
 
 def test_ocp_close_ends_a_session_and_never_a_task(home: Path) -> None:
-    """T568: a task has no close - done is final. `hl close T<n>` says so and
+    """T568: a task has no close - done is final. `ocp close T<n>` says so and
     points at `task done` and `task reopen`, and writes nothing."""
     _board_world(home)
     con = db.connect()
@@ -6785,7 +6785,7 @@ def test_ocp_close_ends_a_session_and_never_a_task(home: Path) -> None:
 
 
 def test_done_refuses_without_an_identity_and_does_not_move_a_clock(home: Path) -> None:
-    """#1565 SF3, carried over to #71's split. `hl task done` does not fall
+    """#1565 SF3, carried over to #71's split. `ocp task done` does not fall
     back to the task's owner when no identity is given - cli refuses outright
     before the call, and mark_task_done/reopen_task are kept out of
     AGENT_ACTIVITY_KINDS as a second line of defense for any future caller that
@@ -7371,7 +7371,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
 
 
 def test_merging_tasks_moves_titles_and_requests_and_discards_the_rest(home: Path) -> None:
-    """T68: `hl task merge KEEP T...` - all or none, opener or founder."""
+    """T68: `ocp task merge KEEP T...` - all or none, opener or founder."""
     _board_world(home)
     con = db.connect()
     try:
@@ -7989,7 +7989,7 @@ def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> No
 
 
 def test_moving_a_task_to_another_owner_sends_it_there(home: Path) -> None:
-    """T545: `hl task edit --owner` moved a queued task and nothing delivered it - its request
+    """T545: `ocp task edit --owner` moved a queued task and nothing delivered it - its request
     stayed queued for the old owner, and the new one saw a task already being asked."""
     from handline.daemon import lifecycle as dmn_lifecycle, taskqueue
     _board_world(home)

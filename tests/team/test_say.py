@@ -1,4 +1,4 @@
-"""Tests: `hl say` (T293, auditor #1655/#1657).
+"""Tests: `ocp say` (T293, auditor #1655/#1657).
 
 Run on its own: python3 tests/team/test_say.py   (all areas: python3 tests/test_ocp.py)
 """

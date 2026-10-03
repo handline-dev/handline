@@ -1440,7 +1440,7 @@ def test_the_cap_is_set_from_the_command_line_and_shown_on_the_bridge(home: Path
 
 
 def test_t52_idle_timeout_and_ignore_cache_expiry_from_the_command_line(home: Path) -> None:
-    """T52: `hl idle-timeout` / `hl ignore-cache-expiry` show or set
+    """T52: `ocp idle-timeout` / `ocp ignore-cache-expiry` show or set
     config.yaml's global default, and with --agent one agent's own override;
     --clear drops the override back to following the global setting."""
     _daemon_home(home, 20)

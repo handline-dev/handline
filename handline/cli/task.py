@@ -367,7 +367,7 @@ def cmd_task_note(args) -> int:
 
 
 def cmd_task_memo(args) -> int:
-    """T493: `hl task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
+    """T493: `ocp task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
     adds; the author or the founder edits and deletes. A change on a doing task is told to its
     holder at once."""
     me = askmod.asking_agent()
@@ -509,7 +509,7 @@ def cmd_task_edit(args) -> int:
 
 
 def cmd_task_merge(args) -> int:
-    """Fold tasks into one: `hl task merge T9 T10 T11` keeps T9."""
+    """Fold tasks into one: `ocp task merge T9 T10 T11` keeps T9."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("merge tasks"))

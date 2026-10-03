@@ -1841,7 +1841,7 @@ def _link(tid: int, rid: int, state: str | None = None) -> None:
 
 
 def _task_done(tid: int, owner: str, evidence: str = "done") -> tuple[int, str]:
-    """`hl task done` as its owner: the one step that finishes a task (T568)."""
+    """`ocp task done` as its owner: the one step that finishes a task (T568)."""
     return _cli(["task", "done", f"T{tid}", evidence], as_agent=owner)
 
 

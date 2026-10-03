@@ -1,4 +1,4 @@
-"""Tests: `ocp ask` and `hl say` as socket verbs (T351 phase 2) - the row is
+"""Tests: `ocp ask` and `ocp say` as socket verbs (T351 phase 2) - the row is
 written by the daemon, the notice is typed at once even mid-turn, a task keeps
 the one-at-a-time rule, and with the daemon down nothing is sent.
 
@@ -670,7 +670,7 @@ def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) 
 
 
 def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(home: Path) -> None:
-    """T408: `hl task new`, `resolve` and the rest push in their own process, which in an agent's
+    """T408: `ocp task new`, `resolve` and the rest push in their own process, which in an agent's
     sandbox cannot start a session - the work waited for the next tick. Outside the daemon the push
     goes over its socket; the daemon (and a caller it cannot reach) does the start itself."""
     from handline.daemon import client

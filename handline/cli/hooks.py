@@ -9,7 +9,7 @@ from ..session import edittask, events, stopgate
 from ..infra import paths, protected
 from .. import vendors
 
-# Every gate T298 rolled out, by the name `hl hooks gate` takes; on since T480.
+# Every gate T298 rolled out, by the name `ocp hooks gate` takes; on since T480.
 GATES = {"stop-wait": stopgate, "edit-task": edittask}
 
 

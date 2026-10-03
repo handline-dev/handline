@@ -1,7 +1,7 @@
 """Five notices about work that has run long, all read from the db every tick.
 
 A task's own timeout
-(`hl task new -t/--timeout`, T286) only counts while it is doing; past it,
+(`ocp task new -t/--timeout`, T286) only counts while it is doing; past it,
 its opener is told, and again every further timeout_s stretch, until the
 task answers with one of `hl task edit --timeout` (continue) or `hl task
 release` (back to queued) - or is simply done. An agent that shows RUNNING -

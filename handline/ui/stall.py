@@ -1,4 +1,4 @@
-"""Why the screen froze, written down while it happens (T788). Always on, nothing drawn.
+"""Why the bridge froze, written down while it happens (T788). Always on, nothing drawn.
 
 `bridge-stall.log` in the logs folder holds three kinds of line, each stamped:
   - a watchdog thread pings the event loop; when it has not answered for `STALL_S` it writes the

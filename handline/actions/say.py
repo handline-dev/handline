@@ -1,4 +1,4 @@
-"""Say: the look-up rules for `hl say` (T293, auditor #1655/#1657). The verb itself,
+"""Say: the look-up rules for `ocp say` (T293, auditor #1655/#1657). The verb itself,
 `team.ask.say`, lives with `ask`; a say needs no answer, so nothing here is worded
 for one - only the look-up test a daemon pass uses to flag a say that was work.
 """

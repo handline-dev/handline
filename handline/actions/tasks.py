@@ -1352,7 +1352,7 @@ def parse_priority(text) -> int:
     raise ValueError(f"'{text}' is not a priority - write P1 (high), P2 (default) or P3 (low)")
 
 
-# T286: `hl task new` requires -t/--timeout; `hl task edit --timeout`
+# T286: `ocp task new` requires -t/--timeout; `ocp task edit --timeout`
 # extends it. Both refuse anything longer than this.
 MAX_TASK_TIMEOUT_S = 4 * 3600
 # What a task opened inside ocp (a finding, a hold, `task begin`) gets when it
