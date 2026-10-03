@@ -98,7 +98,7 @@ def cmd_restart(args) -> int:
         print(f"'{raw}' is not an agent.")
         return 1
     reply = dmn_client.send({"verb": "restart", "agent": raw, "fresh": bool(args.fresh),
-                             "force": bool(args.force)})
+                             "force": bool(args.force), "by": askmod.asking_agent() or db.HUMAN})
     if reply is None:
         print("daemon not running, nothing restarted")
         return 1

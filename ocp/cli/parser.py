@@ -135,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
                    "read and deleted at launch")
     p.add_argument("--why", help="what to record this start as (restart, wake, move, ...); "
                    "the daemon's launches say, a person's own is 'launch'")
+    p.add_argument("--by", help="who asked for this start (a restart's asker)")
     p.add_argument("extra", nargs="*", help="passed through to claude")
     p.set_defaults(fn=cmd_launch)
 

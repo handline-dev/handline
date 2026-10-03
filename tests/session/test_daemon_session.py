@@ -2250,6 +2250,11 @@ def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: 
               and "the record: carry on with #12" in launch.context_for("backend")
               and rows[1]["prompt"] == "an event", str([dict(r) for r in rows]))
 
+        launch._keep_what_it_starts_with("backend", [], "p", "restart", "orcapipe")
+        last = db.session_starts(con, "backend", limit=1)[0]
+        check("session starts: who asked for a restart is kept with it", last["actor"] == "orcapipe", str(dict(last)))
+        con.execute("DELETE FROM session_starts WHERE id = (SELECT MAX(id) FROM session_starts)")
+
         db.set_handoff(con, "backend", None)
         launch._keep_what_it_starts_with("backend", [], None, None)
         last = db.session_starts(con, "backend", limit=1)[0]
