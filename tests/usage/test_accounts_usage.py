@@ -2832,7 +2832,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "fold", "fold_failed",
                     "forced_move", "fresh_close", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
-                    "unstuck", "trust_confirmed", "wake", "wake_failed", "SessionStart",
+                    "unstuck", "login_expired", "trust_confirmed", "wake", "wake_failed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
                     "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
@@ -2841,8 +2841,9 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "background_prompted", "background_abandoned", "background_started", "background_checked",
                     "schedule_fired",           # T605: a scheduled message the daemon typed
                     "settle_decision_task",     # the founder's task following its request out of the queue
-                    "plan_changed",             # T743: an account's plan, asked again, is not the one recorded
-                    "login_expired"}            # T1273: an account's login found expired on an agent's screen
+                    "plan_changed"}             # T743: an account's plan, asked again, is not the one recorded
+    # login_expired is an account's login found expired on an agent's screen, recorded
+    # under the agent that showed it, not anything that agent did.
     # close_task, mark_task_done and reopen_task (#71) are here, not in
     # AGENT_ACTIVITY_KINDS, because none of the three is necessarily the
     # agent whose clock a careless future caller might attribute it to: a

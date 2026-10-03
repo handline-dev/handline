@@ -3457,7 +3457,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
 
 
 def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agents(home: Path) -> None:
-    """Founder #11470, #11473, #11480: "Login expired · Please run /login" left the agent
+    """The founder's report: "Login expired · Please run /login" left the agent
     RUNNING for good, and the bridge still showed the account as logged in, so it never
     offered a re-login. The line marks the account (reason recorded, logged out, no launch
     onto it), the agent leaves RUNNING for another account, and the account is enabled again
