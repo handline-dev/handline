@@ -402,6 +402,11 @@ class Driver(Protocol):
     def identity(self, env: dict) -> str | None:
         """Who the account in `env` is signed in as, asked of the vendor."""
 
+    def login_id(self, config_dir: Path) -> str | None:
+        """A stable id of the login behind this account, read from disk with no call to the
+        vendor: it changes when the account is logged in as someone else. A one-way
+        fingerprint, never the vendor's own identifier. None when there is none to read."""
+
     def subscription_type(self, env: dict) -> str | None:
         """The plan the account in `env` is on, asked of the vendor."""
 

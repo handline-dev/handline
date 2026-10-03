@@ -381,6 +381,35 @@ def write_profile(acct: str, oauth: dict | None = None, raw: str | None = None, 
 CANARIES = ("SECRET-TOP", "me@example.com", "sk-ant-oat01-SECRETTOKEN", "ACCT-UUID-1234", "ORG-UUID-5678")
 
 
+def test_the_login_id_is_a_fingerprint_of_the_account_id_and_never_the_id(home: Path) -> None:
+    use_home(home)
+    import contextlib
+    import io
+    drv = vendors.for_account("a")
+    cdir = vendors.config_dir("a")
+    uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    f = write_profile("a", {"accountUuid": uuid, "emailAddress": "me@example.com",
+                            "accessToken": "NOT-A-REAL-SECRETTOKEN"}, secret="SECRET-TOP")
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        first = drv.login_id(cdir)
+    check("login id: sixteen hex characters", bool(first) and len(first) == 16
+          and all(c in "0123456789abcdef" for c in first), str(first))
+    check("login id: neither the uuid, the email nor a secret is in it or in what it prints",
+          not any(c in repr(first) + out.getvalue() + err.getvalue()
+                  for c in (uuid, "me@example.com", "SECRETTOKEN", "SECRET-TOP")))
+    check("login id: the same login reads the same", drv.login_id(cdir) == first)
+    f.write_text(json.dumps({"oauthAccount": {"accountUuid": "11111111-2222-3333-4444-555555555555"}}))
+    other = drv.login_id(cdir)
+    check("login id: another login reads another, as the file changes", other and other != first, str(other))
+    for name, raw in (("not json", "{not json"), ("no account", '{"x": 1}'), ("a list", "[]"),
+                      ("an id of the wrong shape", json.dumps({"oauthAccount": {"accountUuid": "has space!"}}))):
+        f.write_text(raw)
+        check(f"login id: {name} reads as none, without raising", drv.login_id(cdir) is None)
+    f.unlink()
+    check("login id: no file is none", drv.login_id(cdir) is None)
+
+
 def test_the_profile_reader_returns_the_three_fields_and_nothing_else(home: Path) -> None:
     use_home(home)
     import contextlib
@@ -608,6 +637,7 @@ def main() -> int:
         run(lambda: test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(Path(td) / 'c9'))
         run(lambda: test_account_cycle_command(Path(td) / 'c8'))
         run(lambda: test_the_profile_reader_returns_the_three_fields_and_nothing_else(Path(td) / 'c11'))
+        run(lambda: test_the_login_id_is_a_fingerprint_of_the_account_id_and_never_the_id(Path(td) / 'c12'))
         run(lambda: test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(Path(td) / 'c12'))
         run(lambda: test_the_default_end_is_a_month_after_the_subscription_started(Path(td) / 'c13'))
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))

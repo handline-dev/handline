@@ -32,6 +32,8 @@ def keychain_service(config_dir: Path) -> str:
 # "default_claude_max_5x"); anything else in that field is not passed on.
 _TIER = re.compile(r"[a-z0-9_]{1,64}")
 _PROFILES: dict[Path, tuple[tuple[int, int], dict]] = {}
+_UUID = re.compile(r"[0-9A-Za-z-]{8,64}")
+_LOGIN_IDS: dict[Path, tuple[tuple[int, int], str | None]] = {}
 
 
 def _iso_epoch(v) -> float | None:
@@ -366,6 +368,31 @@ class Claude:
             out = {}
         _PROFILES[path] = (stamp, out)
         return dict(out)
+
+    def login_id(self, config_dir: Path) -> str | None:
+        """A fingerprint (16 hex of a sha256) of `.claude.json`'s `oauthAccount.accountUuid`,
+        which is what tells two logins apart without asking `claude auth status`, a
+        subprocess. The uuid itself is never returned, kept or logged. Read again only
+        when the file changes."""
+        path = config_dir / ".claude.json"
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        stamp = (st.st_mtime_ns, st.st_size)
+        hit = _LOGIN_IDS.get(path)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        out = None
+        try:
+            oa = json.loads(path.read_text()).get("oauthAccount")
+            uuid = oa.get("accountUuid") if isinstance(oa, dict) else None
+            if isinstance(uuid, str) and _UUID.fullmatch(uuid):
+                out = hashlib.sha256(uuid.encode()).hexdigest()[:16]
+        except (OSError, ValueError, AttributeError):
+            out = None
+        _LOGIN_IDS[path] = (stamp, out)
+        return out
 
     def memory_root(self, config_dir: Path) -> Path:
         return config_dir / "projects"

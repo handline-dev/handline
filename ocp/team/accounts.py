@@ -431,17 +431,48 @@ def identity(acct: str) -> str | None:
     return vendors.for_account(acct).identity(env_for(acct))
 
 
+def _email_file(acct: str) -> Path:
+    return paths.account_dir(acct) / "identity.json"
+
+
+def email(acct: str) -> str | None:
+    """The email this account's login shows as, from the record when the login has not changed.
+
+    Asking claude is a subprocess, so the answer is kept against `login_id`, an id of the
+    login that changes with it: a record for the same id is shown as it is, and a
+    different id (a re-login as someone else) or none stored is asked again. A vendor
+    that cannot give an id is asked every time, as before. No secret is kept: the id is
+    a fingerprint and the email is what claude prints for `identity`."""
+    try:
+        lid = vendors.for_account(acct).login_id(vendors.config_dir(acct))
+    except vendors.UnknownVendor:
+        return None
+    if lid:
+        try:
+            kept = json.loads(_email_file(acct).read_text())
+            if kept.get("id") == lid and isinstance(kept.get("email"), str) and kept["email"]:
+                return kept["email"]
+        except (OSError, ValueError, AttributeError):
+            pass
+    found = identity(acct)
+    if lid and found:
+        f = _email_file(acct)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"id": lid, "email": found}))
+    return found
+
+
 def same_login_as(acct: str) -> list[str]:
     """Other accounts logged in as the same Anthropic account as this one.
 
     Two of them are one usage limit under two names - adding the second buys
     no headroom - and two copies of one credential invalidate each other.
     """
-    mine = identity(acct)
+    mine = email(acct)
     if not mine:
         return []
     return [a for a in paths.list_accounts()
-            if a != acct and logged_in(a) and identity(a) == mine]
+            if a != acct and logged_in(a) and email(a) == mine]
 
 
 def users_of(acct: str, con=None) -> list[str]:
