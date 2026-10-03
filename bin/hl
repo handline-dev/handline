@@ -29,7 +29,7 @@ py="$venv/bin/python3"
 
 # handline/cli/ and handline/infra/service.py both describe the installed `hl` as a
 # symlink into the repo, not a copy - so BASH_SOURCE (the symlink's own
-# path) has to be resolved to where the real bin/ocp lives before script_dir
+# path) has to be resolved to where the real bin/hl lives before script_dir
 # is derived from it, or _ocp_entry.py and requirements.txt are looked for
 # beside the symlink instead of beside this file. No `readlink -f` on macOS,
 # so walk the links by hand.

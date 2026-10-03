@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import re
 
+from ..infra import names
+
 # T293/#1657: the read-only Bash commands a say may be answered from without
 # counting as work - shared with the daemon's own tool-tracking and this
 # module's tests. No "git branch": its write forms (-d/-D/-m/-c) share the
@@ -13,7 +15,7 @@ import re
 READONLY_BASH_ALLOWLIST = (
     "git show", "git log", "git diff", "git status",
     "ls", "cat", "head",
-    "hl read", "hl inbox", "hl task list", "hl team", "hl task board",
+    *(f"{n} {c}" for n in names.COMMANDS for c in ("read", "inbox", "task list", "team", "task board")),
 )
 
 # A shell operator anywhere in the command means it is not just the listed

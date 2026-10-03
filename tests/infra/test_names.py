@@ -183,6 +183,9 @@ def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> 
               claude_hooks._is_our_hook(f"/x/bin/{n} hook Stop", "Stop"))
         check(f"names: a double-quoted backtick after `{n} say` is refused",
               shellguard.guard("Bash", {"command": f'{n} say a "`x`"'}) is not None)
+    from handline.actions import say as say_rules
+    check("names: a look-up under any name is still a look-up in a reply window",
+          all(say_rules.is_lookup_bash(c) for c in ("hl read 1", "ocp read 1", "handline inbox", "ocp task list")))
     check("names: permissions allow the safe verbs under every name",
           all(f"Bash({n} say:*)" in claude_hooks.SAFE_COMMANDS for n in names.COMMANDS))
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
