@@ -1375,6 +1375,10 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
         # this column: every one of them was written by `_record_terminal` or
         # a move, both facts, before an "assumed" writer existed at all.
         con.execute("ALTER TABLE agent_state ADD COLUMN account_source TEXT")
+    if "launch_parts" not in state_cols:
+        # The settings a session was launched with, one hash each (`launch.fingerprint_parts`): what
+        # names the ones that changed. No backfill: a row without it names nothing.
+        con.execute("ALTER TABLE agent_state ADD COLUMN launch_parts TEXT")
     if "launch_fingerprint" not in state_cols:
         # No backfill: an existing row reads as drifted, which is right.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")

@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import delivery, handoff, handoff_note, landing, lands, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -531,6 +531,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
         schedules.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a message not sent is tried again, not the tick's failure
         log(f"  schedules: {type(e).__name__}: {e}")
+    try:
+        applysettings.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - settings not applied are applied on a later tick
+        log(f"  settings: {type(e).__name__}: {e}")
     try:
         waitfor.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a report that failed is not the tick's failure

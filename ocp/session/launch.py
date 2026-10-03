@@ -615,6 +615,36 @@ def fingerprint(agent: str) -> str:
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
+def fingerprint_parts(agent: str) -> dict[str, str]:
+    """What a launch reads from the settings a person edits, one short hash each, named for the person:
+    the model, the effort level, the agent's own mcp config and the shared mcp.json, whether the browser
+    is on, the permission switches (skip-permissions and the disallowed-tools list), ROLE.md, base.md and
+    the team line and rules. Recorded at launch beside `fingerprint`, and compared by the daemon to name
+    what a running session has not picked up. Not here: what `build` reads from the machine (the account,
+    the handoff, hidden transcripts, the main-ref files) and the fixed text of the preamble."""
+    cfg = agents.read(agent)
+    d = paths.agent_dir(agent)
+
+    def h(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+    def file(name: str) -> str:
+        p = d / name
+        return p.read_text().strip() if p.exists() else ""
+
+    mcp = agents.mcp_config_args(cfg)
+    return {
+        "model": h(str(cfg.get("model") or "")),
+        "effort": h(str(cfg.get("effort") or agents.DEFAULT_EFFORT)),
+        "mcp config": h(_mcp_config_material() + "\x1e" + (mcp[1] if mcp else "")),
+        "browser": h("on" if agents.chrome(cfg) else ""),
+        "permissions": h(DISALLOWED_TOOLS + ("\x1eskip-permissions" if agents.skip_permissions_in_effect(agent, cfg) else "")),
+        "ROLE.md": h(file("ROLE.md")),
+        "base.md": h(file("base.md")),
+        "team": h(_your_team(agent) + "\x1e" + "\x1e".join(_team_rules(agent))),
+    }
+
+
 def drifted(agent: str, row) -> bool:
     """Was this agent's running session launched with a different recipe than
     `build()` produces now? See `fingerprint`."""
@@ -727,7 +757,7 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
                 # joins the team's Run here, so Orca draws it under whoever it
                 # reports to instead of as one more tab.
                 spawn.register_worker(con, agent, handle)
-                db.set_launch_fingerprint(con, agent, fp)
+                db.set_launch_fingerprint(con, agent, fp, json.dumps(fingerprint_parts(agent)))
             if acct:
                 db.set_account(con, agent, acct)
         finally:

@@ -271,7 +271,8 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
 
 
 def restart_agent(con, agent: str, log, st, fresh: bool = False,
-                  force: bool = False, by: str = db.HUMAN) -> tuple[bool, str]:
+                  force: bool = False, by: str = db.HUMAN, applying: list[str] | None = None,
+                  cause: str = "restart") -> tuple[bool, str]:
     """End this agent's session and start it again at once, in the same terminal: the close and the
     wake, nothing of its own. By default it resumes the same conversation, whatever its prompt cache
     says, so it picks up what a launch reads (settings, model, hooks); `fresh` starts a new one from
@@ -292,7 +293,8 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
         ok, said = close(con, agent, log, st, keep_pane=True, force=force)
         if not ok:
             return False, said
-    ok, why = wake_agent(con, agent, log, force=True, warm=not fresh, cause="restart", restarted_by=by)
+    ok, why = wake_agent(con, agent, log, force=True, warm=not fresh, cause=cause, restarted_by=by,
+                         applying=applying)
     if not ok:
         return False, f"it was closed but not started again - {why}"
     return True, f"{agent}: restarted" + (" as a new conversation" if fresh else ", resuming its conversation")
@@ -515,10 +517,11 @@ def waiting_for(con, agent: str) -> bool:
                 or db.send_now_pending(con, agent) or db.list_pending(con, agent))
 
 
-def restart_notice(by: str, resumed: bool) -> str:
-    """The line a restarted agent opens with: who restarted it and how. A restart usually means
-    something went wrong, so it is told to retry that."""
-    return (f"Restarted by {by} ({'resumed' if resumed else 'fresh'}). "
+def restart_notice(by: str, resumed: bool, settings: list[str] | None = None) -> str:
+    """The line a restarted agent opens with: who restarted it and how, and the settings it was
+    restarted to apply. A restart usually means something went wrong, so it is told to retry that."""
+    applying = f" to apply changed settings: {', '.join(settings)}" if settings else ""
+    return (f"Restarted by {by} ({'resumed' if resumed else 'fresh'}){applying}. "
             f"If something was going wrong before this, retry it.")
 
 
@@ -663,7 +666,8 @@ def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:
 
 
 def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
-               cause: str | None = None, restarted_by: str | None = None) -> tuple[bool, str]:
+               cause: str | None = None, restarted_by: str | None = None,
+               applying: list[str] | None = None) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its account across the
@@ -684,7 +688,7 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
         # Not `_type_gate`: closed means no live process to be mid-turn in,
         # and the sub-paths below that do meet a live one probe it themselves.
         ok, said = _wake_agent(con, agent, log, force=force, warm=warm, cause=cause,
-                              restarted_by=restarted_by)
+                              restarted_by=restarted_by, applying=applying)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
@@ -692,7 +696,7 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
 
 def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 force: bool = False, warm: bool = False, cause: str | None = None,
-                restarted_by: str | None = None) -> tuple[bool, str]:
+                restarted_by: str | None = None, applying: list[str] | None = None) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -885,7 +889,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 agent, wake_prompt(agent, resume, was_closed=closed,
                                    moved_to=moved_to, con=con, cold=cold,
                                    waiting=waiting[0] if waiting else None,
-                                   restart_note=restart_notice(restarted_by, resume) if restarted_by else None))
+                                   restart_note=restart_notice(restarted_by, resume, applying) if restarted_by else None))
             cmd = f"{base} --prompt-file {shlex.quote(str(pf))}" + (
                 f" -- --resume {session}" if resume else "")
             ok, why = _launch_in_pane(
