@@ -39,10 +39,25 @@ def shown(text: str) -> bool:
     return any(r[0] in BULLETS and r[1:].strip() == LINE for r in rows)
 
 
+def _session_row(con, agent: str):
+    return con.execute("SELECT MAX(id) AS id, MAX(ts) AS ts FROM events WHERE agent = ? AND kind IN "
+                       "('SessionStart', 'moved_account')", (agent,)).fetchone()
+
+
 def _session_age_s(con, agent: str) -> float | None:
-    row = con.execute("SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind IN "
-                      "('SessionStart', 'moved_account')", (agent,)).fetchone()
-    return time.time() - int(row["t"]) if row and row["t"] else None
+    row = _session_row(con, agent)
+    return time.time() - int(row["ts"]) if row and row["ts"] else None
+
+
+def _lifted_key(agent: str) -> str:
+    return f"login_lifted:{agent}"
+
+
+def _lifted_in_this_session(con, agent: str) -> bool:
+    """A stall was lifted in the session still running. Its screen keeps the line it drew
+    before the login, and a read of it would mark the account again."""
+    return db.cursor_updated(con, _lifted_key(agent)) is not None \
+        and db.get_cursor(con, _lifted_key(agent)) == int(_session_row(con, agent)["id"] or 0)
 
 
 def _mark_from_screen(con, agent: str, row, acct: str, log) -> dict | None:
@@ -53,7 +68,7 @@ def _mark_from_screen(con, agent: str, row, acct: str, log) -> dict | None:
         return None
     _checked[agent] = now
     age = _session_age_s(con, agent)
-    if age is not None and age < FRESH_SESSION_S:
+    if age is not None and age < FRESH_SESSION_S or _lifted_in_this_session(con, agent):
         return None
     text = orca.screen_text(handle)
     if text is None or not shown(text):
@@ -95,6 +110,7 @@ def lift(con, agent: str, row, log, actions: list[str]) -> None:
     acct = agents.current_account(agent, con)
     if acct and accounts.login_expired(acct):
         return
+    db.set_cursor(con, _lifted_key(agent), int(_session_row(con, agent)["id"] or 0))
     db.set_agent_state(con, agent, IDLE, wake_at=None,
                        detail=f"{acct or 'its account'} is logged in again; the stall is lifted")
     actions.append(f"{agent}: STALLED -> IDLE ({acct} logged in again)")

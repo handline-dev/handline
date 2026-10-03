@@ -245,6 +245,7 @@ def restore_world() -> None:
     orcamod.PRESS_SETTLE_S = 0
     blockedmod._checked.clear()
     dmn_login_expired._checked.clear()
+    accounts._modified.clear()
     for n, f in REAL_OBSERVE.items():
         setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's

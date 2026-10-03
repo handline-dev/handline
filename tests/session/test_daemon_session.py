@@ -3532,12 +3532,33 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         check("still logged out: the stall stays", db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
         cred = home / "accounts" / "alpha" / ".claude" / ".credentials.json"
         os.utime(cred, (time.time() + 60, time.time() + 60))     # a login writes it anew
+        accounts._modified.clear()
         check("a login after the mark enables the account again", accounts.logged_in("alpha")
               and accounts.login_expired("alpha") is None)
         dmn_reconciler.sweep(con, logs.append, [])
         check("and the stalled agent is released",
               db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
               str(dict(db.get_agent_state(con, "backend"))))
+
+        # Its session was never restarted, so the old line is still drawn: a read after the
+        # login (the clock moved past it) must not mark the account again.
+        real_time = time.time
+        accounts.time.time = lambda: real_time() + 90
+        try:
+            dmn_login_expired._checked.clear()
+            dmn_evaluate.supervise(con, "backend", logs.append, int(real_time()) + 90, {}, [])
+            check("the line left on a lifted agent's screen does not mark the account again",
+                  accounts.login_expired("alpha") is None and accounts.logged_in("alpha")
+                  and db.get_agent_state(con, "backend")["state"] != dmn_states.STALLED,
+                  str(accounts.login_expired("alpha")))
+            db.add_event(con, "backend", "SessionStart", {})
+            con.execute("UPDATE events SET ts = ts - 300 WHERE kind = 'SessionStart'")
+            dmn_login_expired._checked.clear()
+            dmn_evaluate.supervise(con, "backend", logs.append, int(real_time()) + 90, {}, [])
+            check("a session started after the lift reads its screen again",
+                  accounts.login_expired("alpha") is not None, str(logs[-3:]))
+        finally:
+            accounts.time.time = real_time
     finally:
         (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.screen_text,
          orcamod.relaunch, orcamod.resume_with, orcamod.send, orcamod.close_session,

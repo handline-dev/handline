@@ -243,6 +243,24 @@ def _expired_file(acct: str) -> Path:
     return paths.account_dir(acct) / "login_expired.json"
 
 
+# The keychain read behind `credential_modified` is a subprocess, and every tick asks for each
+# agent on a marked account and the bridge asks again: a login is seen within this long.
+MODIFIED_TTL_S = 5
+_modified: dict[str, tuple[float, float | None]] = {}
+
+
+def _credential_modified(acct: str) -> float | None:
+    seen = _modified.get(acct)
+    if seen and time.monotonic() - seen[0] < MODIFIED_TTL_S:
+        return seen[1]
+    try:
+        changed = vendors.for_account(acct).credential_modified(vendors.config_dir(acct))
+    except vendors.UnknownVendor:
+        changed = None
+    _modified[acct] = (time.monotonic(), changed)
+    return changed
+
+
 def login_expired(acct: str) -> dict | None:
     """Why and when this account was found with an expired login ({"why", "at"}),
     until a login after that time. The credential is still there, so its
@@ -254,11 +272,7 @@ def login_expired(acct: str) -> dict | None:
         at = float(data["at"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    try:
-        drv = vendors.for_account(acct)
-        changed = drv.credential_modified(vendors.config_dir(acct))
-    except vendors.UnknownVendor:
-        changed = None
+    changed = _credential_modified(acct)
     if changed is not None and changed > at:
         clear_login_expired(acct)
         return None
