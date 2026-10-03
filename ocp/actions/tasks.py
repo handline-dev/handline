@@ -1224,19 +1224,36 @@ def recent_assignees(con, tid: int) -> list[str]:
     return [a for a in db.task_holders(con, tid) if a != HUMAN and (row is None or a != row["owner"])]
 
 
-def previous_holders(con, tid: int) -> list[str]:
-    """The agents that took part in T<tid> before its holder now, the latest first, without the founder."""
-    row = db.get_task(con, tid)
-    return [a for a in reversed(db.task_holders(con, tid)) if a != HUMAN and (row is None or a != row["owner"])]
+def recent_chatted(con, limit: int = 3) -> list[str]:
+    """The agents the founder last wrote to or heard from, the latest first."""
+    seen: list[str] = []
+    for r in con.execute("SELECT requester, target FROM requests WHERE requester = ? OR target = ? "
+                         "ORDER BY id DESC LIMIT 200", (HUMAN, HUMAN)):
+        other = r["target"] if r["requester"] == HUMAN else r["requester"]
+        if other != HUMAN and other not in seen:
+            seen.append(other)
+        if len(seen) == limit:
+            break
+    return seen
 
 
-def ask_previous_holder(con, tid: int, to: str, text: str) -> tuple[bool, str]:
-    """The founder asking `to`, who held T<tid> before, about it: a say linked to the task, whose holder
-    does not change. The agent's reply to it joins the task (`say_verb`)."""
+def question_targets(holder: str, agents: list[str], recent=()) -> tuple[list[str], list[str], list[str]]:
+    """Whom the founder can ask about a task, out of `agents`, as (recent, the holder's team, everyone
+    else): who the founder last chatted with comes first, then the rest of the holder's team in
+    team.yaml order, then the others in the order of `agents`. Each agent once, the holder included."""
+    t = routing()
+    team = t.members(t.team_of(holder)) if t is not None and holder and t.team_of(holder) else []
+    first = [a for a in dict.fromkeys(recent) if a in agents]
+    rest = [a for a in agents if a not in first]
+    mine = [a for a in team if a in rest]
+    return first, mine, [a for a in rest if a not in mine]
+
+
+def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
+    """The founder asking `to` about T<tid>: a say linked to the task, whose holder does not change.
+    The agent's reply to it joins the task (`say_verb`)."""
     if db.get_task(con, tid) is None:
         return False, f"no task T{tid}"
-    if to not in previous_holders(con, tid):
-        return False, f"{to} did not hold T{tid} before"
     if not text.strip():
         return False, "nothing sent: no question typed"
     body = (f"Question on T{tid} from the founder (the task keeps its holder): {text.strip()}\n\n"
@@ -1244,6 +1261,7 @@ def ask_previous_holder(con, tid: int, to: str, text: str) -> tuple[bool, str]:
     ok, msg, rid = askmod.say(to, body, requester=HUMAN)
     if ok and rid is not None:
         db.link_request(con, tid, rid)
+        db.add_event(con, HUMAN, "task_question", {"task": tid, "request": rid}, dedup_key=f"task_question:{rid}")
     return ok, msg
 
 
