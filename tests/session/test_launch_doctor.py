@@ -1626,7 +1626,7 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
     finally:
         Path.write_text = real_write
     check("T378: where it cannot write, doctor warns naming ocp init instead of crashing",
-          r.rows[0][0] == doctor.WARN and "ocp init" in r.rows[0][2], str(r.rows))
+          r.rows[0][0] == doctor.WARN and "hl init" in r.rows[0][2], str(r.rows))
     for bad in ('{"permissions": {"allow": ["Bash(git:*)"]}, "hooks": {},}', '["a", "list"]'):
         target.write_text(bad)
         rep = doctor.Report()

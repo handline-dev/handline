@@ -67,7 +67,7 @@ def test_no_current_task_is_a_reason_only_once_enforced(home: Path) -> None:
         db.set_current_task(con, "backend", None)
         why = edittask.guard("backend", "Edit", call)
         check("T480: owning an open task, the refusal names it and the exact `ocp task start`",
-              why is not None and f"`ocp task start T{tid}`" in why and "do the thing" in why, why)
+              why is not None and f"`hl task start T{tid}`" in why and "do the thing" in why, why)
         db.set_current_task(con, "backend", tid)
     finally:
         con.close()
