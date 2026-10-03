@@ -436,7 +436,13 @@ def weekly_outlook(con, now: int, hours: int = 24):
     from ..usage import outlook
     rows = _outlook_rows(con, now, hours)
     cfg = cycle.config()
-    ends = {a: e for a in {r["account"] for r in rows} if (e := cycle.end_of(a, cfg)) is not None}
+    ends = {}
+    for a in {r["account"] for r in rows}:
+        # An account that ends is cut at its end; one logged out is cut from when it was
+        # found so, and counted again from the login that follows.
+        cuts = [t for t in (cycle.end_of(a, cfg), accounts.gone_since(a, now)) if t is not None]
+        if cuts:
+            ends[a] = min(cuts)
     return outlook.weekly_outlook(rows, now, hours, ends)
 
 

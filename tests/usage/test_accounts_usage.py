@@ -4360,17 +4360,17 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     write_status(home, "beta", pct_5h=65, pct_7d=10, reset_5h=now + 7 * 3600)
     status.write_burn("alpha", per_s, now)
     status.write_burn("beta", per_s, now)
-    line = status.team_outlook(["alpha", "beta"], now)
+    line = status.team_outlook(["alpha", "beta"], now, gone=lambda n: False)
     check("team: at the combined pace the accounts hit the wall before the reset",
           "hit the wall around" in line and "next reset" in line and line.startswith("estimate"),
           line)
     status.write_burn("alpha", per_s / 100, now)
     status.write_burn("beta", per_s / 100, now)
     check("team: a slow pace lasts past the next reset",
-          "last past the next reset" in status.team_outlook(["alpha", "beta"], now))
+          "last past the next reset" in status.team_outlook(["alpha", "beta"], now, gone=lambda n: False))
     write_status(home, "alpha", pct_5h=55, pct_7d=10, collected_at=now - 3 * 3600)
     write_status(home, "beta", pct_5h=65, pct_7d=10, collected_at=now - 3 * 3600)
-    check("team: blank when no reading is current", status.team_outlook(["alpha", "beta"], now) == "")
+    check("team: blank when no reading is current", status.team_outlook(["alpha", "beta"], now, gone=lambda n: False) == "")
 
     # The daemon records what it measured.
     write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
@@ -5807,10 +5807,76 @@ def test_env_of_is_not_fooled_by_an_env_looking_token_in_argv(home: Path) -> Non
         obsmod.subprocess.run = real_run
 
 
+def test_a_logged_out_account_is_gone_from_the_forecasts_until_it_logs_in_again(home: Path) -> None:
+    use_home(home)
+    now = int(time.time())
+    for a in ("alpha", "beta"):
+        write_status(home, a, pct_5h=55, pct_7d=10, reset_5h=now + 6 * 3600)
+        status.write_burn(a, 1e-3, now)
+    real = accounts.login_state
+    try:
+        accounts.login_state = lambda a: True
+        both = status.team_outlook(["alpha", "beta"], now)
+        check("logged out: both logged in are counted", "2 accounts" in both, both)
+        accounts.login_state = lambda a: a != "beta"
+        check("logged out: an account with no credential is not counted",
+              "1 account " in status.team_outlook(["alpha", "beta"], now) + " ", status.team_outlook(["alpha", "beta"], now))
+        check("logged out: and a caller's own test says who is", "2 accounts" in status.team_outlook(
+            ["alpha", "beta"], now, gone=lambda n: False))
+        accounts.login_state = lambda a: None
+        check("logged out: an account whose login cannot be seen is still counted",
+              "2 accounts" in status.team_outlook(["alpha", "beta"], now))
+        accounts.login_state = lambda a: True
+        accounts.mark_login_expired("beta", "Login expired")
+        check("logged out: a marked expired login is not counted, whatever its credential says",
+              "1 account " in status.team_outlook(["alpha", "beta"], now) + " ")
+        marked = accounts.login_expired("beta")["at"]
+        check("logged out: it is gone from the moment it was found, not from now",
+              accounts.gone_since("beta", now + 999) == marked and accounts.gone_since("alpha", now) is None)
+        accounts.clear_login_expired("beta")
+        check("logged out: counted again once the mark goes (a login)",
+              "2 accounts" in status.team_outlook(["alpha", "beta"], now))
+        accounts.login_state = lambda a: a != "beta"
+        picked, ranked = status.pick_account()
+        check("logged out: the default pick leaves it out", all(n != "beta" for n, _ in ranked), str(ranked))
+    finally:
+        accounts.login_state = real
+
+
+def test_the_graph_stops_counting_a_logged_out_account_from_when_it_was_found(home: Path) -> None:
+    use_home(home)
+    now = 1_800_000_000
+    con = db.connect()
+    try:
+        for a, used in (("alpha", 20), ("beta", 60)):
+            for h in range(24, -1, -1):
+                ts = now - h * 3600
+                con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)",
+                            (a, ts, json.dumps([{"minutes": 10080, "used_percent": used,
+                                                 "resets_at": now + 3 * 86400, "observed_at": ts}])))
+        con.commit()
+        real = accounts.login_state
+        accounts.login_state = lambda a: True
+        try:
+            both = actions.weekly_outlook(con, now)
+            accounts.mark_login_expired("beta", "Login expired")
+            accounts.login_state = lambda a: a != "beta"
+            gone = actions.weekly_outlook(con, now)
+        finally:
+            accounts.login_state = real
+    finally:
+        con.close()
+    check("graph: both counted while logged in", both.future[-1][1] == 60, str(both.future[-1]))
+    check("graph: the logged-out one is left out of what is still to come (alpha 80% left alone)",
+          gone.future[-1][1] == 80, str(gone.future[-1]))
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
+        run(lambda: test_a_logged_out_account_is_gone_from_the_forecasts_until_it_logs_in_again(Path(td) / 'gone1'))
+        run(lambda: test_the_graph_stops_counting_a_logged_out_account_from_when_it_was_found(Path(td) / 'gone2'))
         run(lambda: test_pick_account_orders_by_weekly_pace(Path(td) / 'deadline'))
         run(lambda: test_pace_matches_the_worked_examples_that_were_written_backwards(Path(td) / 'foundersex'))
         run(lambda: test_a_near_wall_7d_account_is_not_specially_excluded(

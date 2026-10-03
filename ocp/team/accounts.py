@@ -322,6 +322,19 @@ def may_start(acct: str) -> bool:
     return logged_in(acct) or login_state(acct) is None
 
 
+def gone_since(acct: str, now: float) -> float | None:
+    """From when the account is counted as gone from the graphs and forecasts, None
+    while it is not. A login that is not there may be a subscription that lapsed, so
+    a logged-out account is assumed not to come back: from the moment its expired
+    login was found, or from `now` for one with no credential. A login makes it
+    count again from then (the mark goes, `login_expired`). One whose state cannot
+    be seen (a sandboxed process) is not judged gone."""
+    marked = login_expired(acct)
+    if marked:
+        return float(marked["at"])
+    return now if login_state(acct) is False else None
+
+
 def login_word(state: bool | None, short: bool = False) -> str:
     if state is None:
         return "?" if short else "unknown (sandboxed)"

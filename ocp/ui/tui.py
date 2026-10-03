@@ -337,7 +337,7 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
             # in the gutter the selection cursor uses on every other panel.
             f" {GRN}{BOLD}next{R}" if name == first else ""))
     notes = [] if rows else ["no accounts registered"]
-    outlook = status.team_outlook()
+    outlook = status.team_outlook(gone=lambda a: not _logged_in(a))
     if outlook:
         notes.append(outlook)
     return rows, notes

@@ -29,7 +29,7 @@ import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, n
 from textual import events  # noqa: E402
 from ocp.actions import dialogs as dialogs_mod  # noqa: E402
 from ocp import actions, db
-from ocp.team import agents, hr
+from ocp.team import accounts, agents, hr
 from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
 from ocp.infra import timefmt  # noqa: E402
 from ocp.daemon import states as dmn_states
@@ -119,7 +119,11 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
             _week_sample(con, "alpha", now - h * 3600, 50 - h, now + 6 * 3600)     # 1 point an hour
             _week_sample(con, "beta", now - h * 3600, 20, now + 3 * 86400)         # idle
         con.commit()
-        o = actions.weekly_outlook(con, now)
+        real, accounts.login_state = accounts.login_state, lambda a: True     # a logged-out account is left out
+        try:
+            o = actions.weekly_outlook(con, now)
+        finally:
+            accounts.login_state = real
     finally:
         con.close()
     now_left = o.past[-1][1]
@@ -2238,6 +2242,9 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
               "renews" in str(acct.query_one("#a_month").render()), str(acct.query_one("#a_month").render()))
         acct.query_one("#scope").active = "overview"
         await pilot.pause(0.5)
+        check("account page: a logged-out account says it is left out of the graphs and forecasts",
+              "left out of the graphs and forecasts" in str(acct.query_one("#a_status").render()),
+              str(acct.query_one("#a_status").render()))
         Path(os.environ.get("CYCLE_SHOT", os.devnull)).write_text(app.export_screenshot())
         acct.query_one("#scope").active = "settings"
         await pilot.pause(0.4)

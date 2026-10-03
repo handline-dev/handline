@@ -203,6 +203,8 @@ class AccountPage(AccountActions, Screen):
         live = f["cost"]
         out = Text("Status\n", style="bold")
         for key, value in (("assign", f"{'yes' if allowed else 'no'} - {why}"),
+                           *((("counted", "no - logged out; left out of the graphs and forecasts until it logs in again"),)
+                             if not f["logged_in"] else ()),
                            ("snapshot", "-" if st.age_s is None else f"{timefmt.ago(st.age_s)} old"),
                            ("session", st.session_id or "-"),
                            ("spend", "nothing running to read it from" if live is None
