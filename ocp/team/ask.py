@@ -576,7 +576,7 @@ def withdraw(rid: int, requester: str | None = None,
 CANCEL_VERDICT = "withdrawn by the founder"
 
 
-def _close_and_tell(con, rid: int, row, verdict: str, notify: bool):
+def _close_and_tell(con, rid: int, row, verdict: str, notify: bool, settle: bool = True):
     """Close a still-queued request as rejected with `verdict`, telling its
     target to stop if it was delivered and its requester through the
     ordinary answer path - the write `cancel` and `retire_open` share, so
@@ -593,7 +593,7 @@ def _close_and_tell(con, rid: int, row, verdict: str, notify: bool):
     from ..daemon import delivery as dmn_delivery
 
     target = row["target"]
-    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify):
+    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify, settle=settle):
         return None
     db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": target})
     said = []
@@ -645,7 +645,8 @@ def cancel(rid: int) -> tuple[bool, str]:
         con.close()
 
 
-def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tuple[bool, str]:
+def retire_open(con, rid: int, verdict: str, notify: bool | None = None,
+                settle: bool = True) -> tuple[bool, str]:
     """Close a request that is still queued, out from under whoever holds it -
     `cancel`'s write (`_close_and_tell`), reached from `ocp task release`
     (T286) so it can end a task's own open requests the same way instead of
@@ -657,6 +658,9 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tupl
     `notify` left out follows `cancel`: the requester is told through the
     answer path unless it is the founder, who is not sent a rejection of his
     own request for something an agent did to its task (T302).
+
+    `settle=False`: the task stays open when this request is its decision card
+    (a release takes the task back to draft; it is not discarded).
     """
     row = db.get_request(con, rid)
     if row is None:
@@ -665,7 +669,7 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None) -> tupl
         notify = row["requester"] != HUMAN
     if row["state"] != "queued":
         return False, f"#{rid} is already {row['state']} - nothing to retire"
-    closed = _close_and_tell(con, rid, row, verdict, notify)
+    closed = _close_and_tell(con, rid, row, verdict, notify, settle)
     if closed is None:
         if db.is_still_queued(con, rid):
             return False, f"#{rid} was not retired - it is still queued"

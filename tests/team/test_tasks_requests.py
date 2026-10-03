@@ -5617,10 +5617,10 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, two))
         real_retire = askmod.retire_open
 
-        def losing_retire(con, rid, verdict, notify=True):
+        def losing_retire(con, rid, verdict, notify=True, settle=True):
             if rid == first:
                 db.close_if_queued(con, rid, "done", "someone else got there first")
-            return real_retire(con, rid, verdict, notify)
+            return real_retire(con, rid, verdict, notify, settle)
 
         askmod.retire_open = losing_retire
         try:
@@ -8916,6 +8916,41 @@ def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
         con.close()
 
 
+def test_releasing_a_task_the_founder_holds_returns_it_to_draft_not_to_the_bin(home: Path) -> None:
+    """Retiring the founder's card on a release must not settle the task with it:
+    a discarded task cannot be reopened."""
+    _board_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
+  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+    ok, msg, tid = actions.task_new("worker", askmod.HUMAN, "which name?", "which name should it have?")
+    check("release: setup, a founder-held task", ok, msg)
+    con = db.connect()
+    try:
+        ok, msg = actions.release_task(con, tid, askmod.HUMAN)
+        row = db.get_task(con, tid)
+        check("release: the founder's own task goes back to draft, not discarded",
+              ok and not row["discarded_at"] and actions.task_state(con, row) == "draft", msg)
+        ok, msg = actions.set_queued(con, tid, askmod.HUMAN, True)
+        check("release: and the founder can queue it again, which puts its card back on their board",
+              ok and actions.task_state(con, db.get_task(con, tid)) == "doing"
+              and any(r["target"] == askmod.HUMAN and r["state"] == "queued" for r in db.task_requests(con, tid)), msg)
+    finally:
+        con.close()
+
+
 def test_the_founder_may_discard_close_and_finish_any_task(home: Path) -> None:
     """T259: the asker of a task an agent opened is that agent, so the founder was
     refused. The founder may act on any task, from a terminal (the CLI) and from the
@@ -9309,6 +9344,7 @@ def main() -> int:
         run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))
         run(lambda: test_a_begun_task_reads_doing_the_same_way_everywhere(Path(td) / 'begundoing'))
+        run(lambda: test_releasing_a_task_the_founder_holds_returns_it_to_draft_not_to_the_bin(Path(td) / 'relhuman'))
         run(lambda: test_the_founder_may_discard_close_and_finish_any_task(Path(td) / 'founderacts'))
         run(lambda: test_a_report_linked_to_a_task_never_changes_its_state(Path(td) / 'fyistate'))
         run(lambda: test_task_list_and_board_show_only_yours_and_your_reports(Path(td) / 'taskscope'))

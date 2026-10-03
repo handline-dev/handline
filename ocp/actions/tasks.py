@@ -593,7 +593,7 @@ def release_task(con, tid: int, by: str) -> tuple[bool, str]:
             retired.append(r["id"])
             said.append(f"#{r['id']} ended; {r['target']} told to stop")
             continue
-        ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}")
+        ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}", settle=False)
         if ok:
             retired.append(r["id"])
             said.append(msg.split("\n", 1)[0])
@@ -876,6 +876,15 @@ def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
         return False, f"task T{tid} changed under this call - read it again"
     db.add_event(con, by, "queue_task" if queued else "draft_task",
                  {"task_id": tid, "after_request": _newest_request(con)})
+    if queued and row["owner"] == HUMAN:
+        # The founder holds no current task, so nothing advances it: queuing is putting
+        # the card back on their board.
+        ok, msg, rid = askmod.ask(HUMAN, row["title"], requester=row["opened_by"], kind="task",
+                                  on_behalf_of=True)
+        if not ok:
+            return True, f"task T{tid} is queued ({by}) but its card was not raised: {msg}"
+        _link_delivery(con, tid, HUMAN, rid)
+        return True, f"task T{tid} is queued ({by}) - its card is on the founder's board"
     if queued:
         # advance_current_task's own True/False says whether the owner's
         # current task moved on at all, not whether it landed on `tid` -
