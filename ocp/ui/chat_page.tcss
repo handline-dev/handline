@@ -22,8 +22,8 @@ ChatPage { overflow: hidden; }
 
     .msg.replying { border-left: thick $warning; }
     .msg.flash { background: $warning 25%; }
-    .sessionmark { height: 1; margin: 1 0 0 0; text-align: center; color: $text-muted; }
-    .sessionmark:hover, .sessionmark:focus { text-style: underline; }
+    .sessionmark { height: 2; margin: 1 0 0 0; text-align: center; color: $text-muted; }
+    .sessionmark:focus { text-style: bold; }
     .msg.card { padding: 0; }
     .msg.them .cardhead { color: $success; }
     .msg.card .cardbox { border: round $primary; padding: 0 1; }

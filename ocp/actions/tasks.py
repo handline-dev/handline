@@ -17,6 +17,7 @@ from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError
 
 from .routing import HUMAN, routing, supervisor_of
+from .task_timeout import task_timeout, timeout_lines
 
 
 TASK_REF = re.compile(r"[Tt](\d+)")
@@ -1565,6 +1566,8 @@ def task_detail(con, tid: int) -> list[str] | None:
            f"state {state}   owner {row['owner']}   opened by {row['opened_by']}   P{row['priority']}"
            + (f"   parent T{row['parent_task']}" if row["parent_task"] else "")
            + f"   created {timefmt.stamp(row['created_at'])}"]
+    if state not in ("done", "discarded"):
+        out += timeout_lines(task_timeout(con, row, state))
     if row["done_evidence"]:
         out.append(f"done {timefmt.stamp(row['done_at'])}: {row['done_evidence']}")
     if row["discarded_by"]:
@@ -1776,6 +1779,7 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
             "closer": facts.asker(t),
             "blocked_by": facts.blockers.get(t["id"], []),
             "last_activity": facts.last_activity(t),
+            "timeout": None if st in ended else task_timeout(con, t, st),
             "row": t,
         })
     return out
@@ -1863,8 +1867,16 @@ def task_related_to(row: dict, who: str) -> bool:
     return who in (row["owner"], row["opened_by"], row["closer"])
 
 
-TASK_SORTS = ("priority", "number", "state", "title", "owner", "idle")
+TASK_SORTS = ("priority", "number", "state", "title", "owner", "idle", "timeout")
 _STATE_ORDER = {"draft": 0, "queued": 1, "doing": 2, "done": 3, "discarded": 4}
+
+
+def _time_left(r: dict) -> float:
+    """Seconds to a doing task's deadline, negative once over; a task with no clock sorts last."""
+    t = r.get("timeout")
+    if not t or t["state"] == "length":
+        return float("inf")
+    return t["left"] if t["state"] == "left" else -t["over"]
 
 
 def sort_task_rows(rows: list[dict], by: str, reverse: bool = False, now: float | None = None) -> list[dict]:
@@ -1877,7 +1889,8 @@ def sort_task_rows(rows: list[dict], by: str, reverse: bool = False, now: float 
             "state": lambda r: (_STATE_ORDER.get(r["state"], 9), r["id"]),
             "title": lambda r: (r["title"].lower(), r["id"]),
             "owner": lambda r: (r["owner"].lower(), r["id"]),
-            "idle": lambda r: (task_idle_s(r, now), r["id"])}
+            "idle": lambda r: (task_idle_s(r, now), r["id"]),
+            "timeout": lambda r: (_time_left(r), r["id"])}
     return sorted(rows, key=keys.get(by, keys["priority"]), reverse=reverse)
 
 
