@@ -472,6 +472,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="accepted and does nothing: Textual is the only screen")
     p.add_argument("--pid", action="store_true",
                    help="print the pid of the running bridge (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
+    p.add_argument("--dev-mode", action="store_true",
+                   help="turn dev mode on first (as `ocp dev-mode on`); without it dev mode is left as it is")
     p.set_defaults(fn=cmd_bridge)
 
     ms = sub.add_parser("memory", help="per-agent memory against its budget").add_subparsers(

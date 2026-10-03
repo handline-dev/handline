@@ -342,6 +342,17 @@ def test_dev_mode_config_round_trips(home: Path) -> None:
           dmn_devmode.dev_mode_enabled() is False, str(dmn_devmode.dev_mode_enabled()))
 
 
+def test_bridge_dev_mode_flag_turns_it_on_and_its_absence_leaves_it(home: Path) -> None:
+    use_home(home)
+    _capture(lambda: climod.main(["bridge", "--once"]))
+    check("bridge without --dev-mode leaves it off", dmn_devmode.dev_mode_enabled() is False, "")
+    _capture(lambda: climod.main(["bridge", "--once", "--dev-mode"]))
+    check("bridge --dev-mode turns it on", dmn_devmode.dev_mode_enabled() is True, "")
+    _capture(lambda: climod.main(["bridge", "--once"]))
+    check("bridge without --dev-mode does not turn it off", dmn_devmode.dev_mode_enabled() is True, "")
+    climod.main(["dev-mode", "off"])
+
+
 def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_again(home: Path) -> None:
     """The real `_dev_mode_should_restart`, with the tree, the import check and the switch stood in for:
     one import check per new fingerprint, `seen` set only after it passes, a decline (the caller takes
@@ -5413,6 +5424,7 @@ def main() -> int:
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
+        run(lambda: test_bridge_dev_mode_flag_turns_it_on_and_its_absence_leaves_it(Path(td) / 'bridgedev'))
         run(lambda: test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_again(
             Path(td) / 'devmodeseen'))
         run(lambda: test_dev_mode_fingerprint_and_restart_decision(
