@@ -87,7 +87,7 @@ class ProposalsView(Vertical):
 
     def on_mount(self) -> None:
         self.query_one("#hr_table", DataTable).add_columns("#", "kind", "agent", "from", "asked", "")
-        self.query_one("#hr_agents", DataTable).add_columns("agent", "model", "effort", "browser", "skip prompts")
+        self.query_one("#hr_agents", DataTable).add_columns("agent", "model", "effort", "browser", "mode", "sandbox")
         self.refresh_rows()
 
     @property
@@ -119,9 +119,9 @@ class ProposalsView(Vertical):
                 cfg = agents.read(name)
                 vendor, model, effort = agents.parts(cfg)
                 cells = (model, effort, agents.browser_mode(cfg),
-                         "on" if agents.skip_permissions_in_effect(name, cfg) else "off")
+                         agents.mode_of(name, cfg), "on" if agents.sandbox_on(name, cfg) else "off")
             except Exception:  # noqa: BLE001 - one unreadable file must not hide the rest
-                cells = ("unreadable", "", "", "")
+                cells = ("unreadable", "", "", "", "")
             rows.append((name, (Text(textsafe.oneline(name)), *(Text(c) for c in cells))))
         sync_rows(self.query_one("#hr_agents", DataTable), rows)
 

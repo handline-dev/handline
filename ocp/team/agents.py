@@ -191,6 +191,42 @@ def skip_permissions_in_effect(agent: str, cfg: dict) -> bool:
     return skip_permissions(cfg) and skip_permissions_granted(agent)
 
 
+# Claude's permission modes. "bypass" is the old skip_permissions switch: `mode: bypass` is what
+# `register` writes as `skip_permissions: true`, so one switch and one founder's grant stand behind both.
+MODES = ("default", "auto", "acceptEdits", "plan", "bypass")
+DEFAULT_MODE = "auto"
+_SANDBOX_NS = "sandbox_off"
+
+
+def mode_of(agent: str, cfg: dict) -> str:
+    """The permission mode a launch will use: bypass when skipping is configured and granted, else the
+    agent.yaml `mode` when it names one, else auto (what every launch used before there was a choice).
+    Anything else - an unknown name, a bypass the founder never granted - reads as the default, never as
+    more than was asked."""
+    if skip_permissions_in_effect(agent, cfg):
+        return "bypass"
+    v = cfg.get("mode")
+    return v if isinstance(v, str) and v in MODES and v != "bypass" else DEFAULT_MODE
+
+
+SANDBOX_PENDING, SANDBOX_ACTIVE = "granted", "active"
+
+
+def sandbox_lease(agent: str) -> str | None:
+    """The founder's leave to run this agent unsandboxed, from the protected store (an agent can write
+    its own agent.yaml, so the file alone never turns it off): `granted` until a session launched with
+    it is up, `active` while that session lasts. The daemon ends it with the session
+    (`daemon/sandboxlease.py`); it is never kept for the next one."""
+    v = protected.get(_SANDBOX_NS, agent)
+    return v if v in (SANDBOX_PENDING, SANDBOX_ACTIVE) else None
+
+
+def sandbox_on(agent: str, cfg: dict) -> bool:
+    """Whether the sandbox is on as the settings stand: off only with `sandbox: false` in agent.yaml and
+    the founder's lease. A launch asks `launch.sandbox_on`, which also knows a lease's session is over."""
+    return not (cfg.get("sandbox") is False and sandbox_lease(agent))
+
+
 def kind(cfg: dict) -> str:
     """What an agent is, for a column: the model and its effort.
 
@@ -254,7 +290,9 @@ def register(name: str, role: str = "", model: str | None = None,
              vendor: str | None = None, context_tokens: int | None = None,
              skip_permissions: bool | None = None,
              chrome: bool | None = None,
-             mcp_config: str | None = None) -> Path:
+             mcp_config: str | None = None,
+             mode: str | None = None,
+             sandbox: bool | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -271,10 +309,18 @@ def register(name: str, role: str = "", model: str | None = None,
     # the founder's alone (infra/protected.py), and the key below is only
     # what a launch reads once it is there.
     sealed.require_founder()
+    if mode is not None:
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of {', '.join(MODES)}, not {mode!r}")
+        skip_permissions = mode == "bypass"      # bypass is the old switch; any other mode turns it off
     if skip_permissions:
         protected.put(_SKIP_NS, name, "granted")
     elif skip_permissions is not None:
         protected.delete(_SKIP_NS, name)
+    if sandbox is False:
+        protected.put(_SANDBOX_NS, name, SANDBOX_PENDING)
+    elif sandbox is not None:
+        protected.delete(_SANDBOX_NS, name)
     d = paths.agent_dir(name)
     f = agent_file(name)
     text = None
@@ -287,6 +333,8 @@ def register(name: str, role: str = "", model: str | None = None,
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
                      **({"skip_permissions": True} if skip_permissions else {}),
+                     **({"mode": mode} if mode not in (None, "bypass", DEFAULT_MODE) else {}),
+                     **({"sandbox": False} if sandbox is False else {}),
                      **({"chrome": True} if chrome else {}),
                      **({"mcp_config": mcp_config_text(mcp_config)} if mcp_config else {})})
     for sub in ("inbox", "journal", "memory"):
@@ -318,6 +366,16 @@ def register(name: str, role: str = "", model: str | None = None,
                 cfg["skip_permissions"] = True
             else:
                 cfg.pop("skip_permissions", None)
+        if mode is not None:
+            if mode in ("bypass", DEFAULT_MODE):
+                cfg.pop("mode", None)
+            else:
+                cfg["mode"] = mode
+        if sandbox is not None:
+            if sandbox:
+                cfg.pop("sandbox", None)
+            else:
+                cfg["sandbox"] = False
         if chrome is not None:
             if chrome:
                 cfg["chrome"] = True

@@ -245,16 +245,21 @@ class Driver(Protocol):
                     no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
-                    chrome: bool = False) -> list[str]:
+                    chrome: bool = False, sandbox: bool = True) -> list[str]:
         """argv for one session, before any caller-supplied extras. `hide` is
         paths the session may not read; `memory_dir` is the folder the session
         keeps its own memory in (`memory_settings`); `trusted` is prose naming
         what its permission classifier should treat as inside the team's
-        boundary. `chrome` is the agent's opt-in to the browser integration."""
+        boundary. `chrome` is the agent's opt-in to the browser integration;
+        `sandbox` False starts the session with the vendor's sandbox off."""
 
     def auto_mode_argv(self) -> list[str]:
         """argv that starts the session in the vendor's classifier-approved
         permission mode, empty when it has none."""
+
+    def permission_mode_argv(self, mode: str) -> list[str]:
+        """argv that starts the session in the vendor's permission `mode` (default, acceptEdits, plan:
+        `auto` is `auto_mode_argv`, `bypass` is `skip_permissions_argv`), empty when it has no such mode."""
 
     def memory_settings(self, memory_dir: Path) -> dict:
         """The settings that point this vendor's auto-memory at `memory_dir`

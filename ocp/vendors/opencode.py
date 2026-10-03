@@ -230,7 +230,7 @@ class Opencode:
                     no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
-                    chrome: bool = False) -> list[str]:
+                    chrome: bool = False, sandbox: bool = True) -> list[str]:
         """The TUI takes the model, as `provider/model`, and nothing else ocp
         passes: it has no flag for effort (only `run --variant` does), tool
         denial, an MCP config or a system prompt. Those reach opencode through
@@ -244,6 +244,9 @@ class Opencode:
         return []
 
     def auto_mode_argv(self) -> list[str]:
+        return []
+
+    def permission_mode_argv(self, mode: str) -> list[str]:
         return []
 
     def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
