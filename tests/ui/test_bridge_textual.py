@@ -3046,6 +3046,27 @@ def test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view() -> No
           changed("f_sort", "title") == [("sort", "title"), "columns", "focus", "refresh"], str(changed("f_sort", "title")))
 
 
+def test_the_sandbox_banner_reads_the_lease_and_one_click_ends_it() -> None:
+    """What the banner draws and its button calls: `actions`, not the widget."""
+    from ocp.team import agent_settings
+    _home("sandbox_banner")
+    check("sandbox: on until the founder turns it off", not actions.sandbox_is_off("backend"))
+    check("sandbox: the form offers it with the mode, on and auto", agent_settings.settings_of("backend")["sandbox"] == "on"
+          and agent_settings.settings_of("backend")["mode"] == "auto")
+    ok, said = agent_settings.set_values("backend", {"sandbox": "off", "mode": "plan"})
+    check("sandbox: the form's save turns it off and sets the mode", ok and actions.sandbox_is_off("backend")
+          and agent_settings.settings_of("backend")["mode"] == "plan", said)
+    ok, said = actions.sandbox_back_on("backend")
+    check("sandbox: the button's call puts it back at once", ok and not actions.sandbox_is_off("backend"), said)
+    check("sandbox: asking again says it is already on", actions.sandbox_back_on("backend") == (True, "backend: the sandbox is already on"))
+    agents.register("backend", skip_permissions=True)
+    cur = agent_settings.settings_of("backend")
+    shown = {"mode": agent_settings.mode_in_form(cur, "auto")}
+    check("mode: with skip prompts on, the mode the page shows is no change and skip stays on",
+          agent_settings.changes_for("backend", shown)[0] == [] and agents.skip_permissions_in_effect("backend", agents.read("backend")))
+    check("sandbox: an unreadable agent is not shown as off", not actions.sandbox_is_off("no-such-agent"))
+
+
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
     from ocp.team import ask as askmod
     from ocp.ui import chat_page as cp
@@ -5260,6 +5281,7 @@ async def _run_all() -> None:
     await test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal()
     await test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page()
     await test_the_chat_strip_says_the_agents_model_account_session_context_cache_and_last_call()
+    test_the_sandbox_banner_reads_the_lease_and_one_click_ends_it()
     await test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest()
     await test_older_messages_loaded_above_are_not_counted_as_new()
     await test_answering_a_message_shows_its_whole_body()

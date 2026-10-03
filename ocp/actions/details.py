@@ -199,6 +199,14 @@ def save_account_settings(acct: str, label: str, cap: str,
     return True, "; ".join(said) or "nothing changed"
 
 
+def sandbox_is_off(agent: str) -> bool:
+    """Whether the founder's leave to run `agent` without its sandbox is in force."""
+    try:
+        return not agents.sandbox_on(agent, agents.read(agent))
+    except (OSError, agents.ConfigError):
+        return False
+
+
 def sandbox_back_on(agent: str) -> tuple[bool, str]:
     """End the founder's leave to run `agent` without its sandbox, at once: the key and the lease go now,
     and a session still running without it is restarted by the daemon's next idle sweep (its recipe

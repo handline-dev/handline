@@ -52,6 +52,7 @@ from .components.ime import TextBox
 from .components.text_prompt import TextPrompt
 from .components.action_bar import ActionBar
 from .components.agent_strip import AgentStrip
+from .components.sandbox_banner import SandboxBanner
 from .components.page_header import page_header
 from .components.schedules_section import SchedulesSection
 from .components.agent_settings import AgentSettings
@@ -1657,6 +1658,7 @@ class ChatPage(JobsAware, Screen):
     def compose(self) -> ComposeResult:
         yield from page_header([("My chat", "mine"), ("All chat", "all"), ("Tasks", "tasks"),
                                 ("Settings", "settings")], back=True)
+        yield SandboxBanner(self.agent, id="sandbox_banner")
         yield AgentStrip(id="agent_strip")
         with Horizontal(id="body"):
             yield VerticalScroll(id="transcript")
@@ -1807,6 +1809,7 @@ class ChatPage(JobsAware, Screen):
             con.close()
 
     def refresh_agent_strip(self) -> None:
+        self.query_one(SandboxBanner).refresh_state(self.agent, not self.everyone)
         strip = self.query_one(AgentStrip)
         strip.display = not self.everyone
         if strip.display:

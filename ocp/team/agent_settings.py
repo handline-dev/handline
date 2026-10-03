@@ -170,6 +170,12 @@ def form_with(agent: str, values: dict[str, str]) -> tuple[dict, dict]:
     return current, {**{k: current[k] for k in EDITABLE}, **{k: str(v) for k, v in values.items()}}
 
 
+def mode_in_form(current: dict, picked: str) -> str:
+    """The mode a form sends: with skip prompts on the mode is bypass and the dropdown (which has no
+    bypass, and is greyed out) means nothing, so what the file has stays."""
+    return current["mode"] if current["skip_permissions"] == "on" else picked
+
+
 NOTHING = "nothing to change"
 
 
