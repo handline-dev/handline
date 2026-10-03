@@ -1248,6 +1248,7 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
               "--resume sess-1" in launched[0] and launched_prompt(launched[0]) == "", launched[0])
         check("restart: and it is not left closed", row["closed_at"] is None and row["terminal"] == "term_x",
               str(dict(row)))
+        check("restart: its start is recorded as a restart that resumed", "--why restart" in launched[0], launched[0])
 
         support.something_waiting(con, "backend")
         ok, said, launched, row = restart()
@@ -1266,7 +1267,7 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         ok, said, launched, row = restart(fresh=True)
         check("restart: --fresh starts a new conversation, and no session is left to resume",
               ok and len(launched) == 1 and "--resume" not in launched[0] and row["resume_session"] is None
-              and row["closed_at"] is None, f"{said} {launched} {dict(row)}")
+              and "--why restart" in launched[0] and row["closed_at"] is None, f"{said} {launched} {dict(row)}")
 
         sent.clear()
         table["backend"] = 4200
@@ -1299,6 +1300,17 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         table["backend"] = 4200
         ok, said = socket_server.VERBS["restart"](con, lambda _m: None, agent="backend", fresh=False, force=False)
         check("restart: the daemon's verb does the same", ok and "restarted" in said, said)
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        table["backend"] = 4200
+        sent.clear()
+        dmn_lifecycle.close_fresh(con, "backend", lambda _m: None, status.read_for_agent("backend", "alpha"),
+                                  keep_pane=True)
+        support.something_waiting(con, "backend")
+        dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
+        launched = [t for _h, t in sent if " launch " in t]
+        check("wake: after a fresh close the start is recorded as one, and is a new conversation",
+              launched and "--why 'fresh close'" in launched[0] and "--resume" not in launched[0], str(launched))
         check("restart: no restart closed the pane, and the agent's terminal is the one it had",
               not closed_panes and db.get_terminal(con, "backend") == "term_x", f"{closed_panes}")
     finally:
@@ -1406,6 +1418,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
         check("wake: the agent is launched again", ok and launched, str(sent))
         check("wake: resuming the same session, not starting a stranger",
               "--resume sess-1" in launched[0], launched[0] if launched else "")
+        check("wake: and it is recorded as a wake", "--why wake" in launched[0], launched[0])
         row = db.get_agent_state(con, "backend")
         check("wake: the closed mark is cleared", row["closed_at"] is None)
         told = launched_prompt(launched[0])

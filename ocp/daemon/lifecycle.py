@@ -291,7 +291,7 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
         ok, said = close(con, agent, log, st, keep_pane=True, force=force)
         if not ok:
             return False, said
-    ok, why = wake_agent(con, agent, log, force=True, warm=not fresh)
+    ok, why = wake_agent(con, agent, log, force=True, warm=not fresh, cause="restart")
     if not ok:
         return False, f"it was closed but not started again - {why}"
     return True, f"{agent}: restarted" + (" as a new conversation" if fresh else ", resuming its conversation")
@@ -652,7 +652,8 @@ def _write_wake_prompt(agent: str, text: str, suffix: str = "txt") -> Path:
     return p
 
 
-def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False) -> tuple[bool, str]:
+def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
+               cause: str | None = None) -> tuple[bool, str]:
     """Hand a cleared agent back its own handoff so it can carry on.
 
     This is the other half of the cycle: the agent kept its account across the
@@ -661,7 +662,8 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False) ->
 
     `force` is a human asking for the session (the terminal key): a closed agent
     is brought back with nothing waiting for it. `warm` resumes the session whatever its prompt
-    cache says: a restart asked for that conversation.
+    cache says: a restart asked for that conversation. `cause` is what the session's start is recorded
+    as (`db.session_starts`); a wake says "wake", "fresh close" or "move" itself.
     """
     with lock.terminal(agent) as mine:
         if not mine:
@@ -670,14 +672,14 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False) ->
             return False, "someone else is typing at this agent; not waking twice"
         # Not `_type_gate`: closed means no live process to be mid-turn in,
         # and the sub-paths below that do meet a live one probe it themselves.
-        ok, said = _wake_agent(con, agent, log, force=force, warm=warm)
+        ok, said = _wake_agent(con, agent, log, force=force, warm=warm, cause=cause)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
 
 
 def _wake_agent(con, agent: str, log, moved_to: str | None = None,
-                force: bool = False, warm: bool = False) -> tuple[bool, str]:
+                force: bool = False, warm: bool = False, cause: str | None = None) -> tuple[bool, str]:
     """The body of a wake, without the lock. Callers already holding it use this.
 
     `moved_to` names the account this wake is starting the agent on when it is
@@ -779,7 +781,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
-        base = launch.command_for(agent, account=moved_to)
+        fresh_close = db.last_event_ts(con, agent, "fresh_close")
+        base = launch.command_for(
+            agent, account=moved_to,
+            why=cause or ("move" if moved_to else
+                          "fresh close" if fresh_close is not None and fresh_close >= (row["closed_at"] or 0)
+                          else "wake"))
         # Resuming the session is what makes closing cheap, so it is tried
         # first - but a resume can be the very thing that fails: an id whose
         # transcript was pruned, or a worktree moved out from under it, gives
@@ -960,14 +967,17 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     # inside <pasted_content> to be declined. It is written to a file the
     # session reads, and one line pointing at it is typed (T106). Not the
     # launch's prompt file: that one is taken and deleted by the launch.
-    record = _write_wake_prompt(
-        agent, wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con),
-        suffix="handoff.txt")
-    ok, why = orca.resume_with(
-        handle, f"You were parked; this is a fresh session and your context is empty. Your "
-                f"handoff is in {record} - read all of it. If it names a request or task, carry "
-                f"on with it; if it says none, wait - the next item is typed to you when it comes.")
+    record_text = wake_prompt(agent, False, was_closed=False, moved_to=moved_to, con=con)
+    record = _write_wake_prompt(agent, record_text, suffix="handoff.txt")
+    pointer = (f"You were parked; this is a fresh session and your context is empty. Your "
+               f"handoff is in {record} - read all of it. If it names a request or task, carry "
+               f"on with it; if it says none, wait - the next item is typed to you when it comes.")
+    ok, why = orca.resume_with(handle, pointer)
     if ok:
+        # The session stays the one the handoff's `/clear` started, so there is no launch to keep this.
+        db.note_session_start(con, agent, "handoff", False,
+                              status.read_for_agent(agent, agents.current_account(agent, con)).session_id,
+                              record_text, pointer)
         db.set_handoff(con, agent, None)
     log(f"  {agent}: {why}")
     return ok, why
