@@ -103,6 +103,8 @@ def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
         check("shell: text is not typed at a shell under a stale composer", not ok and screen.sent == [], f"{why} {screen.sent}")
         ok, why = orcamod.resume_with("term_x", "your handoff is in /x")
         check("shell: nor is a handoff pointer", not ok and screen.sent == [], why)
+        check("shell: a refusal before any typing sends no Ctrl-C and records nothing",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind = 'shell_cleared'").fetchone()[0] == 0)
         # claude is there at the check and gone by the time the text has landed
         reads = {"n": 0}
 
@@ -115,6 +117,14 @@ def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
         check("shell: text that reached a shell is reported as not delivered", not ok and "shell prompt" in why, why)
         check("shell: the line is typed once and the continuation is cleared with Ctrl-C",
               screen.sent == ["say \"hi", "\x03"], str(screen.sent))
+        import json as _json
+        evs = [e for e in con.execute("SELECT agent, payload FROM events WHERE kind = 'shell_cleared'")]
+        check("shell: the Ctrl-C is on record under the agent, with the screen rows that read as a shell",
+              len(evs) == 1 and evs[0]["agent"] == "backend"
+              and _json.loads(evs[0]["payload"])["terminal"] == "term_x"
+              and _json.loads(evs[0]["payload"])["screen"][-1].strip() == "if>"
+              and any("Resume this session with" in r for r in _json.loads(evs[0]["payload"])["screen"]),
+              str([tuple(e) for e in evs]))
         orcamod._screen = lambda h, limit=40: _screen_of(COMPOSER_EMPTY)
         screen.sent.clear()
         ok, why = dmn_delivery._send("term_x", "hello")

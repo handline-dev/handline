@@ -854,6 +854,22 @@ def forgotten_resolve(con, agent: str, row, now: int) -> dict | None:
 MAX_TYPED_LINES = 3
 
 
+def record_cleared(handle: str, rows: list[str]) -> None:
+    """Before `orca.send_to_session` sends Ctrl-C at `handle`: an event under the agent last recorded
+    there, with the screen rows that read as a shell, so a Ctrl-C that interrupted a live turn is found
+    from the record."""
+    con = db.connect()
+    try:
+        who = db.agent_of_terminal(con, handle)
+        if who:
+            db.add_event(con, who, "shell_cleared", {"terminal": handle, "screen": rows})
+    finally:
+        con.close()
+
+
+orca.on_cleared = record_cleared
+
+
 def _send(handle: str, text: str) -> tuple[bool, str]:
     """`orca.send` for text an agent is meant to act on: never more than
     `MAX_TYPED_LINES` lines. Past that the middle lines are joined into one; a

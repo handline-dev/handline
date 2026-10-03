@@ -2837,7 +2837,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
                     "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped",
-                    "landed", "retyped", "landing_lost",
+                    "landed", "retyped", "landing_lost", "shell_cleared",
                     "background_prompted", "background_abandoned", "background_started", "background_checked",
                     "schedule_fired",           # T605: a scheduled message the daemon typed
                     "settle_decision_task",     # the founder's task following its request out of the queue
