@@ -560,7 +560,7 @@ def _your_team(agent: str) -> str:
     lines = ["# Your team", report,
              "Talk to people only through ocp; what you write in your terminal reaches no one. "
              "Keep it short. Reply when a message asks you something or you owe a result; a "
-             "message that only informs needs no reply."]
+             "message that only informs needs no reply, except the founder's."]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
                      "You do not implement - give one work with `ocp task new --owner <name> "

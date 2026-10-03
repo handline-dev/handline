@@ -1033,7 +1033,9 @@ def answer_verb(con, head) -> str:
                     f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
                     f"`ocp task done T{task['id']}` if you are its last step")
     if head["requester"] == db.HUMAN:
-        return f"if it asks something: `ocp say human --parent {head['id']} \"...\"`"
+        return (f"answer the founder now, before other work: `ocp say human --parent "
+                f"{head['id']} \"...\" --task T<n>` (or `--no-task \"<why>\"`) - if it is work, "
+                f"one line on what you will do or who has it")
     if head["kind"] == "say":
         return "it asks nothing"
     return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
