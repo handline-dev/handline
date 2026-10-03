@@ -4870,6 +4870,90 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
         con.close()
 
 
+def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -> None:
+    from ocp.infra import protected
+    _home("bang")
+    check("bang: !ls is the command ls", actions.command_of("!ls -l") == "ls -l" and actions.command_of("  ! pwd ") == "pwd")
+    check("bang: a bare ! or plain text is not one", actions.command_of("!") is None and actions.command_of("hi !ls") is None)
+    with tempfile.TemporaryDirectory() as d:
+        run = actions.ShellRun("echo out; echo err >&2; pwd; exit 3", d)
+        for _ in range(100):
+            if not run.running:
+                break
+            time.sleep(0.05)
+        lines, dropped, code = run.snapshot()
+        check("bang: stdout and stderr are both kept, and the exit code", code == 3 and lines[:2] == ["out", "err"], str((lines, code)))
+        check("bang: it ran in the given directory", Path(lines[2]).resolve() == Path(d).resolve(), lines[2])
+        slow = actions.ShellRun("sleep 30", d)
+        slow.stop()
+        for _ in range(100):
+            if not slow.running:
+                break
+            time.sleep(0.05)
+        check("bang: stop ends a running command", not slow.running and slow.stopped and slow.code != 0, str(slow.code))
+        big = actions.ShellRun("seq 1 25000", d)
+        for _ in range(100):
+            if not big.running:
+                break
+            time.sleep(0.05)
+        lines, dropped, _ = big.snapshot()
+        check("bang: a long output keeps its end and counts what it let go",
+              lines[-1] == "25000" and dropped == 25000 - len(lines) > 0, f"{len(lines)} {dropped}")
+        check("bang: what goes to the agent is the command and the last lines", "seq 1 25000" in big.as_message()
+              and "25000" in big.as_message() and "earlier lines left out" in big.as_message())
+    cwd = actions.cwd_for(db.connect(), None)
+    check("bang: with no agent it runs in home", cwd == str(Path.home()), cwd)
+    os.environ["OCP_AGENT"] = "backend"
+    try:
+        actions.ShellRun("echo no", cwd)
+        refused = False
+    except protected.NotTheFounder:
+        refused = True
+    finally:
+        os.environ.pop("OCP_AGENT", None)
+    check("bang: an agent's session is refused", refused)
+
+
+async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> None:
+    from ocp.ui.components.shell_card import ShellCard
+    from textual.widgets import Button
+    _home("bangcard")
+    app = bt.BridgeApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        page = app.screen
+        check("bang card: the chat page is open", isinstance(page, ChatPage), type(page).__name__)
+        con = db.connect()
+        before = con.execute("SELECT count(*) FROM requests").fetchone()[0]
+        con.close()
+        box = page.query_one("#compose")
+        box.text = "!echo hello; exit 2"
+        await pilot.press("enter")
+        await pilot.pause(1.0)
+        cards = list(page.query(ShellCard))
+        check("bang card: one card was drawn and the box is empty", len(cards) == 1 and box.text == "", str(len(cards)))
+        text = str(cards[0]._head.render()) + str(cards[0]._out.render())
+        check("bang card: it shows the command, the exit code and the output",
+              "echo hello" in text and "exit 2" in text and "hello" in text, text)
+        con = db.connect()
+        after = con.execute("SELECT count(*) FROM requests").fetchone()[0]
+        con.close()
+        check("bang card: nothing was sent to the agent", after == before, f"{before} -> {after}")
+        check("bang card: a finished command offers Send to agent, not Stop",
+              cards[0]._send.display and not cards[0]._stop.display)
+        box.text = "!sleep 30"
+        await pilot.press("enter")
+        await pilot.pause(0.6)
+        run = page.shells[-1]
+        check("bang card: a running command is running", run.running)
+        await pilot.press("escape")
+        await pilot.pause(1.0)
+        check("bang card: Esc stops it and stays on the page", not run.running and app.screen is page, str(run.code))
+        Path(os.environ.get("BANG_SHOT", os.devnull)).write_text(app.export_screenshot())
+
+
 async def _run_all() -> None:
     test_the_stall_watchdog_writes_the_stacks_and_the_recovery()
     await test_changing_owners_on_the_task_board_does_not_hold_the_screen()
@@ -4923,6 +5007,8 @@ async def _run_all() -> None:
     test_the_browser_setting_writes_chrome_and_the_sites_through_register()
     await test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright()
     await test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal()
+    test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one()
+    await test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing()
     test_a_message_head_tells_its_kind_and_linked_tasks()
     test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task()
     await test_the_chat_page_draws_a_handoff_as_one_card()
