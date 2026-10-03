@@ -146,7 +146,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     prop["request"] = rid
     con = db.connect()
     try:
-        prop["task"] = decisions.task_of_card(con, rid)       # T785: keyed by its decision task
+        prop["task"] = decisions.task_of_card(con, rid)       # keyed by its decision task
     finally:
         con.close()
     _save_proposal(prop)

@@ -2501,7 +2501,7 @@ edges:
 
 
 def test_a_plain_decision_task_is_settled_however_its_card_closes(home: Path) -> None:
-    """Auditor #5275: the card's request leaving the queue - by a dismissal or the founder's own
+    """The card's request leaving the queue - by a dismissal or the founder's own
     marking - leaves no decision task open; a question linked to a task later is not its card."""
     _daemon_home(home, 20)
     hand_edit_team("""
