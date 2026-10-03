@@ -258,11 +258,11 @@ def test_a_launch_line_and_its_enter_are_sent_apart(home: Path) -> None:
 
         sent.clear()
         orcamod._screen = lambda h, limit=40: support._screen_of(
-            ["", "ron@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1", ""])
+            ["", "me@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1", ""])
         ok, why = orcamod.relaunch("term_x", "hl launch a", started=lambda: False)
         check("launch: one that starts nothing says so, that the terminal is alive, and what it shows",
               not ok and "no session started" in why
-              and "; the terminal is alive (screen: ron@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1)"
+              and "; the terminal is alive (screen: me@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1)"
               in why, why)
 
         orcamod._screen = lambda h, limit=40: None

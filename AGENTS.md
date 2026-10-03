@@ -15,7 +15,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   task arrives only then.
 - Review and merge (orcapipe's project guideline; `hl team` names your own
   project's auditor and merger) are child tasks you wait on, not handoffs: you
-  keep your task, in doing. When code is ready, `hl task new --owner orcapipe.auditor
+  keep your task, in doing. When code is ready, `hl task new --owner <auditor>
   --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
   check>"`; the child blocks T<n>, and the auditor closes it with `hl task done
   T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
@@ -28,7 +28,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   back: it finishes it.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
-  `hl team` (a bare `auditor` for `orcapipe.auditor`) is refused with "unknown
+  `hl team` (a bare `auditor` for `<team>.auditor`) is refused with "unknown
   target" in the command's own output - read it, or you wait for a reply that
   never comes.
 - A manager cannot hand a report work by message: a say to a report carries
