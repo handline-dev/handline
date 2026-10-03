@@ -80,8 +80,8 @@ def build_scratch(top: Path) -> Scratch:
 def probe_settings(s: Scratch) -> dict:
     """The --settings launch.py would pass for this worktree, plus what a sandbox needs to run here:
     on, and the common .git writable (the real sandbox allows the main checkout's .git the same way)."""
-    from ocp.session import launch
-    from ocp.vendors import claude
+    from handline.session import launch
+    from handline.vendors import claude
     argv = claude.Claude().launch_argv("claude", None, "low", "", [], None, no_write=launch.main_ref_files(s.wt))
     settings = json.loads(argv[argv.index("--settings") + 1])
     fs = settings["sandbox"]["filesystem"]

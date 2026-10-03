@@ -11,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from ocp import actions  # noqa: E402
-from ocp.actions import ask_question  # noqa: E402
-from ocp.vendors.claude import Claude  # noqa: E402
-from ocp.vendors.claude_ask import DOWN, ENTER, RIGHT, question_keys  # noqa: E402
-from ocp.vendors.opencode import Opencode  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.actions import ask_question  # noqa: E402
+from handline.vendors.claude import Claude  # noqa: E402
+from handline.vendors.claude_ask import DOWN, ENTER, RIGHT, question_keys  # noqa: E402
+from handline.vendors.opencode import Opencode  # noqa: E402
 
 RULE = "─" * 60
 
@@ -276,7 +276,7 @@ def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: 
 def test_a_screen_two_recognizers_accept_is_one_prompt_and_the_permission_one(home: Path) -> None:
     """T336 (founder #1977): a screen both the permission and the question recognizer accepted showed
     both modals. `orca.prompt_on_screen` reads one prompt, and a permission prompt outranks a question."""
-    from ocp.vendors.base import Confirmation
+    from handline.vendors.base import Confirmation
     _daemon_home(home, 20)
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True

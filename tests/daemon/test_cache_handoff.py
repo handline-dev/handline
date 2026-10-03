@@ -17,9 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import handoff_note  # noqa: E402
-from ocp.session import cachettl  # noqa: E402
-from ocp.session import handoff as handoffmod  # noqa: E402
+from handline.daemon import handoff_note  # noqa: E402
+from handline.session import cachettl  # noqa: E402
+from handline.session import handoff as handoffmod  # noqa: E402
 
 H1, M5 = cachettl.LONG_TTL_S, cachettl.SHORT_TTL_S
 
@@ -369,7 +369,7 @@ def test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(home: 
 
 
 def ar_cell(con, now: float) -> str:
-    from ocp.ui.components import agent_rows
+    from handline.ui.components import agent_rows
     return re.sub(r"\x1b\[[0-9;]*m", "", agent_rows.cache_cell(agent_rows.cache_left(con, "backend", int(now))))
 
 

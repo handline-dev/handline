@@ -428,7 +428,7 @@ mechanism that cannot exist on vendor two should not be load-bearing on vendor
 one.
 
 **Done.** The collector (`libexec/statusline-collect.sh`, 179 lines, half of it
-a carry rule written in jq) is deleted. `ocp/usage/collect.py` reads the same fields
+a carry rule written in jq) is deleted. `handline/usage/collect.py` reads the same fields
 out of the file the session is writing anyway. ocp installs no status line at
 all (see "The slot is left empty" below).
 
@@ -527,7 +527,7 @@ cancelled with a reason. Status checked against the code 2026-09-25.
 
 **Open.** `run_exists` still returns `ok and ...`, so a failed call reads as gone; D8 did not change it.
 
-**Trigger:** next time `ocp/session/orca.py` is opened for anything. Not worth a branch
+**Trigger:** next time `handline/session/orca.py` is opened for anything. Not worth a branch
 of its own (see D8: the org chart it would fix is drawn in a view nobody here
 opens).
 
@@ -543,7 +543,7 @@ resolved to `run_3b06fdd6d8e7`, bound and empty. This is the exact shape
 why.
 
 ```python
-# ocp/session/orca.py
+# handline/session/orca.py
 def run_exists(run: str) -> bool | None:      # None = could not ask
     ok, out = _run(["orchestration", "run-show", "--id", run, "--json"])
     if not ok:
@@ -594,7 +594,7 @@ does its other housekeeping, and let `vendors/claude_hooks.py` take its source p
 
 Drafted in `design/03-vendor-driver.md` §7. Steps 1-4 are **vendor-neutral
 refactors that need codex to exist for nothing**: move today's behaviour into
-`ocp/vendors/claude.py` unchanged; make `observe.account_of_process` read the
+`handline/vendors/claude.py` unchanged; make `observe.account_of_process` read the
 config-dir variable from the driver; reshape the window model (D2 - the 208
 lines across 16 files, writing both old and new keys for one release); and
 move the preamble to a file (D10).
@@ -800,7 +800,7 @@ session running is asked with `refresh=False`, because Claude Code is renewing
 its token anyway and two writers would race. That is Orca's own
 `deferredByLiveClaudeSession`, for the same reason.
 
-**Built:** `ocp/usage/usage_api.py` (the read path) and `ocp usage [account]`, which
+**Built:** `handline/usage/usage_api.py` (the read path) and `ocp usage [account]`, which
 prints the endpoint beside the snapshot and decides nothing. **Not wired into
 the daemon** - no placement decision reads it yet.
 

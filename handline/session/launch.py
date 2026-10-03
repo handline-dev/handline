@@ -150,7 +150,7 @@ def no_room(agent: str) -> str:
 def wake_wait(agent: str, row, con) -> WakeWait | None:
     """Is a closed agent's wake walled behind its own account's 5h or weekly wall?
 
-    This is the check ocp/daemon/ makes before it types anything into a closed
+    This is the check handline/daemon/ makes before it types anything into a closed
     agent's terminal. A resume cannot follow an account change, but the
     pinning rescue can start fresh elsewhere, so a wait is not final. It is factored out here, rather than
     inlined at the call site, so the screens that show an agent can ask the

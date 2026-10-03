@@ -39,7 +39,7 @@ BACKUP = "settings.json.pre-migration"
 
 def slug(path: str) -> str:
     """The protected store's folder name for a home: its real path with every other character a dash
-    (`ocp/infra/protected.py: root_for`; a test keeps the two equal)."""
+    (`handline/infra/protected.py: root_for`; a test keeps the two equal)."""
     return re.sub(r"[^A-Za-z0-9]", "-", path)
 
 
@@ -182,7 +182,7 @@ def _daemon_running_for(home: Path) -> Callable[[], bool]:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         os.environ["OCP_HOME"] = str(home)
         os.environ.pop("HANDLINE_HOME", None)
-        from ocp.daemon import locks
+        from handline.daemon import locks
         return locks.running_elsewhere() is not None
     return check
 

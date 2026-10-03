@@ -14,8 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.session import stopgate  # noqa: E402
-from ocp.infra import protected  # noqa: E402
+from handline.session import stopgate  # noqa: E402
+from handline.infra import protected  # noqa: E402
 
 
 def _open_task(home: Path) -> int:

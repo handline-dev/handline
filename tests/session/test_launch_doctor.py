@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.vendors import claude_hooks as hooks  # noqa: E402
+from handline.vendors import claude_hooks as hooks  # noqa: E402
 
 
 
@@ -674,7 +674,7 @@ def test_the_protected_store_is_outside_what_agents_write(home: Path) -> None:
     ~/.orcapipe, which every agent's sandbox can write; a write from an agent's
     session is refused, by ocp where the sandbox is off and by the OS where it is on."""
     use_home(home)
-    from ocp.infra import protected
+    from handline.infra import protected
     check("protected: nothing there yet", protected.get("ns", "x") is None)
     protected.put("ns", "x", "granted")
     check("protected: put then get", protected.get("ns", "x") == "granted")
@@ -784,7 +784,7 @@ def test_a_session_may_not_write_the_files_that_move_main(home: Path) -> None:
 def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None:
     """The hook key (session/landgate.py) must not be readable by a session's Bash or Read tool, and the
     folder must exist when the first launch on a machine names it."""
-    from ocp.infra import sessiontoken
+    from handline.infra import sessiontoken
     use_home(home)
     accounts.register("alpha")
     agents.register("backend")
@@ -1601,7 +1601,7 @@ def test_allow_home_socket_adds_one_path_and_keeps_the_rest(home: Path) -> None:
               data_ok and changed and got["network"]["allowUnixSockets"] == [sock]
               and got["filesystem"]["allowWrite"] == [str(home)], str(got))
 
-    from ocp.infra import doctor
+    from handline.infra import doctor
     target.write_text(json.dumps({"sandbox": {"network": {"allowUnixSockets": ["/var/run/mine.sock"]}}}))
     r = doctor.Report()
     doctor._check_home_socket(r)
@@ -1722,7 +1722,7 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     """`state_hooks()` is the one fact hooks, init, doctor and the state word
     ask: claude has them, opencode and a second vendor do not, and a vendor
     without them is one whose row state is read off its screen."""
-    from ocp.ui import tui
+    from handline.ui import tui
     use_home(home)
     check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
     check("state hooks: opencode has none - its screen is the witness",
@@ -1958,7 +1958,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
 
 
 def test_jobs_refuses_a_busy_target_and_a_full_queue(home: Path) -> None:
-    """`ocp/ui/jobs.py` (task #45): a second action on a target already running one
+    """`handline/ui/jobs.py` (task #45): a second action on a target already running one
     is refused with what is running and for how long, not queued or dropped;
     a fifth action while `MAX_JOBS` already run is refused for the same reason
     a screen has no room to show more than a few at once."""
@@ -2143,7 +2143,7 @@ def test_a_test_never_reaches_the_real_home(home: Path) -> None:
 
 
 def test_venv(home: Path) -> None:
-    """ocp/infra/venv.py's own docstring: `status` is a second copy of the sha256
+    """handline/infra/venv.py's own docstring: `status` is a second copy of the sha256
     comparison bin/ocp's bash wrapper makes, kept honest by a test that runs
     both and compares. Both sides must read the same requirements.txt - the
     real one, since neither status() nor the wrapper takes a path for it.
@@ -2346,7 +2346,7 @@ def test_venv(home: Path) -> None:
     shutil.copy(wrapper, reqshome / "bin" / "ocp")
     shutil.copy(paths.repo_root() / "bin" / "_ocp_entry.py", reqshome / "bin" / "_ocp_entry.py")
     (reqshome / "bin" / "ocp").chmod(0o755)
-    shutil.copytree(paths.repo_root() / "ocp", reqshome / "ocp",
+    shutil.copytree(paths.repo_root() / "handline", reqshome / "handline",
                      ignore=shutil.ignore_patterns("__pycache__"))
     reqs_vdir = reqshome / "home" / "venv" / "bin"
     reqs_vdir.mkdir(parents=True)
@@ -2452,7 +2452,7 @@ def test_chrome_opt_in_reads_only_a_real_true_and_changes_the_fingerprint(home: 
 
 
 def test_atomic_write_replaces_the_file_and_leaves_no_temp(home: Path) -> None:
-    from ocp.infra import atomic
+    from handline.infra import atomic
     home.mkdir(parents=True, exist_ok=True)
     f = home / "x.json"
     f.write_text("old")

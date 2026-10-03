@@ -1,4 +1,4 @@
-"""Tests: the Stats tab's data layer (ocp/usage/stats.py) and the price list, over a real db.
+"""Tests: the Stats tab's data layer (handline/usage/stats.py) and the price list, over a real db.
 
 Run on its own: python3 tests/usage/test_stats.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.usage import prices, stats  # noqa: E402
+from handline.usage import prices, stats  # noqa: E402
 
 NOW = 1_800_000_000
 H = 3600
@@ -110,7 +110,7 @@ def test_the_outlook_reads_each_sample_once_and_says_the_same(home: Path) -> Non
     """T439: the stats tab walks the same samples three ways on every refresh; what a
     sample says about its week is parsed once, the rows are read once, and the
     numbers are exactly what reading it every time gives."""
-    from ocp.usage import outlook, windows
+    from handline.usage import outlook, windows
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
@@ -223,7 +223,7 @@ def _week_row(con, account, ts, used, reset=NOW + 48 * H) -> None:
 def test_the_guess_resets_the_week_again_each_week(home: Path) -> None:
     """T162/T320: after the account's week resets the guess starts from nothing used, and it does so
     again every week - on 14d it had run on past the first reset and the refill stopped at zero."""
-    from ocp.usage import outlook
+    from handline.usage import outlook
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
@@ -251,7 +251,7 @@ def test_the_guess_resets_the_week_again_each_week(home: Path) -> None:
 def test_week_consumed_and_the_curve_start_from_the_last_sample_before_the_range(home: Path) -> None:
     """T163/T164: the rise from the last sample before the range into its first was dropped by one
     reader and not the other; both count it, and only from a sample that still says what was held."""
-    from ocp.usage import outlook
+    from handline.usage import outlook
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
@@ -283,8 +283,8 @@ def test_week_consumed_and_the_curve_start_from_the_last_sample_before_the_range
 def test_the_agents_overlay_is_its_share_of_each_account_times_what_it_used(home: Path) -> None:
     """T164: the curve under the graph for a picked agent - values, not only its length - and the
     three readers of one refresh look at the same window (T163)."""
-    from ocp import actions
-    from ocp.usage import outlook
+    from handline import actions
+    from handline.usage import outlook
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()

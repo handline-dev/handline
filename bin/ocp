@@ -11,7 +11,7 @@
 # `ocp bridge` (which prints the venv fix and exits 1) keeps working until the
 # venv is ready, and `ocp venv install` itself
 # bootstraps under that same PATH python3. Do not turn the fallback back into
-# a refusal; ocp/infra/venv.py's status() is still the one place that judges
+# a refusal; handline/infra/venv.py's status() is still the one place that judges
 # ready-ness and its reasoning must stay in sync with the check below.
 set -euo pipefail
 
@@ -27,7 +27,7 @@ fi
 venv="$home_dir/venv"
 py="$venv/bin/python3"
 
-# ocp/cli/ and ocp/infra/service.py both describe the installed `ocp` as a
+# handline/cli/ and handline/infra/service.py both describe the installed `ocp` as a
 # symlink into the repo, not a copy - so BASH_SOURCE (the symlink's own
 # path) has to be resolved to where the real bin/ocp lives before script_dir
 # is derived from it, or _ocp_entry.py and requirements.txt are looked for
@@ -47,7 +47,7 @@ stamp="$venv/.ocp_deps_sha256"
 
 ready=0
 if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
-    # ocp/infra/venv.py's `_canonical_requirements`, in bash: strip each line, drop
+    # handline/infra/venv.py's `_canonical_requirements`, in bash: strip each line, drop
     # blank ones and whole-line comments, hash what is left - a comment-only
     # edit must not read as stale (task #54, founder #2134).
     # `|| true`: grep exits 1 if nothing survives the filter (an empty or

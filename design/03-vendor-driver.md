@@ -1,6 +1,6 @@
 # 03 - The vendor driver
 
-Reference design (#1315). Built: §7 steps 1 and 2 (`ocp/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `ocp/vendors/base.py`; §3 below is the original proposal.
+Reference design (#1315). Built: §7 steps 1 and 2 (`handline/vendors/`, #1657) and, under `design/04-vendor-decoupling.md` (T57), the dialogs, headless, hooks, meter, collect and windows seams. The interface of record is `Driver` in `handline/vendors/base.py`; §3 below is the original proposal.
 
 One place that answers, per vendor, the fifteen questions enumerated in
 `docs/vendor-extension-board.md` (local, not in the repo) §11. Everything else in ocp stays where it is.
@@ -29,12 +29,12 @@ of ocp.
 ## 2. Shape
 
 ```
-ocp/vendors/
+handline/vendors/
     __init__.py     for_agent(name) -> Driver ; registry keyed by agent.yaml's `vendor`
     base.py         the Protocol below, and the shared dataclasses
     claude.py       today's behaviour, moved rather than rewritten
     codex.py        new
-    collect_claude.py   (today's ocp/usage/collect.py - a puller already, D11)
+    collect_claude.py   (today's handline/usage/collect.py - a puller already, D11)
     collect_codex.py    new - the same shape, over the rollout JSONL
 ```
 
@@ -45,10 +45,10 @@ prices by `vendor/model`.
 
 ## 3. The interface
 
-> The code differs from this proposal: `Driver` in `ocp/vendors/base.py` has `collector()`, `meter()` and `state_hooks()`, and no `install_collector`, `collector_kind`, `hook_events`, `preamble_file`, `memory_dir` or `read_dialog`. Read `base.py` for what is built.
+> The code differs from this proposal: `Driver` in `handline/vendors/base.py` has `collector()`, `meter()` and `state_hooks()`, and no `install_collector`, `collector_kind`, `hook_events`, `preamble_file`, `memory_dir` or `read_dialog`. Read `base.py` for what is built.
 
 ```python
-# ocp/vendors/base.py
+# handline/vendors/base.py
 from typing import Protocol, Literal
 
 ADDITIVE, SUBSTITUTIVE = "additive", "substitutive"
@@ -177,7 +177,7 @@ class Driver(Protocol):
 | `screen_blocker` | was `orca.claude_screen_blocker`, now `Driver.screen_blocker`; `idle_from_screen` false, Orca's tui-idle alone |
 | `read_dialog` | `orca.parse_dialog` |
 | `declining_key` | `orca.declining_key` |
-| `install_collector` | nothing to install - `ocp/usage/collect.py` reads the transcript (D11) |
+| `install_collector` | nothing to install - `handline/usage/collect.py` reads the transcript (D11) |
 | `collector_kind` | `pull` (it was `push`; the statusLine no longer collects) |
 | `probe` | `probe.py` |
 | `hook_events` | `events.CAPTURED`, identity map |
@@ -205,7 +205,7 @@ Also measured: this account's usable models are `gpt-5.6-terra`,
 `gpt-5.6-luna`, `gpt-5.5`; the configured `gpt-5.6-sol` is refused on a
 ChatGPT account, so `launch_argv` must not inherit `config.toml`'s default.
 
-### 4.3 opencode - measured on 1.18.32 (`ocp/vendors/opencode.py`)
+### 4.3 opencode - measured on 1.18.32 (`handline/vendors/opencode.py`)
 
 | method | answer | |
 |---|---|---|
@@ -283,7 +283,7 @@ driver that has none.
 
 Each step is independently shippable and leaves the tree green.
 
-1. **`ocp/vendors/` with `claude.py` only.** Pure move. The guard is that the
+1. **`handline/vendors/` with `claude.py` only.** Pure move. The guard is that the
    suite passes unchanged - no test should notice.
 2. **`config_dir_env` through `observe.account_of_process`.** Smallest real
    generalization; makes one function vendor-neutral for free. Built: the
@@ -304,7 +304,7 @@ Each step is independently shippable and leaves the tree green.
 3. **The window model (§5).** The big one: 208 lines, 16 files, five of which
    never mention `claude`. Built as a hard cut (founder #587): records are
    written as a `windows` list, and old records and `usage_samples` rows convert
-   on read (`ocp/usage/windows.py`), never rewritten.
+   on read (`handline/usage/windows.py`), never rewritten.
 4. **The preamble writer (D10).** Shared code, two-row table.
 5. **`codex.py`**, collector first (§11.14) - without context ocp cannot park.
 6. **Tool denial (§6).** Blocking for a codex agent that does real work.

@@ -100,7 +100,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 
 
 # A fold's own event delta cannot tell it which of an agent's outstanding
-# asks an "answered" event closed - that event carries only a count (ocp/daemon/
+# asks an "answered" event closed - that event carries only a count (handline/daemon/
 # deliver_answers), never the ids, because the row itself is the record and a
 # second copy in the event log would just be one more place to drift from it.
 # So a request an agent is still asking about, in the In progress/Blocked prose the
@@ -112,7 +112,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
 # reconcile_resolved's errors are one-way: build_prompt (below) forbids the
 # very next fold from ever moving a line back out of Done, so a wrong close
 # here is permanent, in the document an agent is told to read when it has no
-# handoff (ocp/daemon/'s no-handoff branch) and that the next fold itself reads
+# handoff (handline/daemon/'s no-handoff branch) and that the next fold itself reads
 # back as `previous`. That rules out guessing an id out of prose - \d+ moved
 # "step 2 of 7", "3 conflicts left" and "7d reset tracking needs founder
 # call" to Done once request ids 1-8 happened to be resolved, none of them

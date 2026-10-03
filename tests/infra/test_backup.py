@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import backup as backupmod  # noqa: E402
+from handline.infra import backup as backupmod  # noqa: E402
 
 
 def _world(home: Path) -> Path:
@@ -206,7 +206,7 @@ def test_two_snapshots_in_one_second_keep_both(home: Path) -> None:
 def test_install_boots_out_then_bootstraps_and_reports_a_refusal(home: Path) -> None:
     """The launchctl path had no test. Every call goes through
     service.run_launchctl, so replacing that name fakes the whole of it."""
-    from ocp.infra import service
+    from handline.infra import service
     use_home(home)
 
     class Res:

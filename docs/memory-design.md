@@ -149,4 +149,4 @@ until each agent has confirmed its own entries once; then the links are removed.
   confirmed its entries, by hand.
 - Contract with T230: memory dir `agents/<name>/memory/`, sidecar
   `agents/<name>/memory-use.json` = `{path relative to the memory dir: unix
-  seconds}`, budget constants and `memory.status()` in `ocp/team/memory.py`.
+  seconds}`, budget constants and `memory.status()` in `handline/team/memory.py`.

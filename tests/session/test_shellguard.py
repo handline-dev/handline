@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.session import shellguard  # noqa: E402
+from handline.session import shellguard  # noqa: E402
 
 
 def test_a_safe_ocp_command_is_let_through() -> None:

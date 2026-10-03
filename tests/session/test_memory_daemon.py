@@ -1,5 +1,5 @@
 """T230: an agent's memory is its own folder, and two hooks keep it small
-(docs/memory-design.md), against core's real `ocp.team.memory`."""
+(docs/memory-design.md), against core's real `handline.team.memory`."""
 from __future__ import annotations
 
 import contextlib
@@ -14,11 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from ocp.session import handoff as handoffmod, launch as launchmod, memoryguard  # noqa: E402
-from ocp.team import memory as memorymod  # noqa: E402
-from ocp.vendors import claude_hooks  # noqa: E402
-from ocp.vendors.claude import Claude  # noqa: E402
-from ocp.vendors.opencode import Opencode  # noqa: E402
+from handline.session import handoff as handoffmod, launch as launchmod, memoryguard  # noqa: E402
+from handline.team import memory as memorymod  # noqa: E402
+from handline.vendors import claude_hooks  # noqa: E402
+from handline.vendors.claude import Claude  # noqa: E402
+from handline.vendors.opencode import Opencode  # noqa: E402
 
 
 class _Status:

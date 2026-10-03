@@ -3,11 +3,11 @@
 Status (T57): §4 steps 1-7 are merged (collect and windows included); only step 8 (prose) is open.
 
 `design/03-vendor-driver.md` already decided the shape, and part of it is built:
-`ocp/vendors/` holds a `Driver` Protocol (`base.py`), `claude.py` and
+`handline/vendors/` holds a `Driver` Protocol (`base.py`), `claude.py` and
 `opencode.py`; accounts record a vendor; the config-dir variable, `never_touch`,
 transcript layout, launch argv, session detection and credential presence are
 driver answers. This file is the rest: the claude-specific code still living
-outside `ocp/vendors/`, what interface it needs, and the order to move it.
+outside `handline/vendors/`, what interface it needs, and the order to move it.
 
 ## 1. What is still claude's, and where
 
@@ -80,7 +80,7 @@ sees.
 
 ## 3. What moves, what stays
 
-**Moves into `ocp/vendors/claude.py` (or `claude_*.py` beside it):** the trust
+**Moves into `handline/vendors/claude.py` (or `claude_*.py` beside it):** the trust
 and dialog markers out of `orca.py`; `usage_api`'s endpoint, headers, keychain
 read and renewal; `collect.py`'s transcript parse and model table; `hooks.py`'s
 settings.json mirroring; fold's `claude -p` argv; the `.claude` directory name.
@@ -148,7 +148,7 @@ audited before it is merged, as the four file splits were.
 7. `vendor-windows` - design/03 step 3, the large one: 25 files stop reading
    window names. A hard cut (founder #587): records are written as a `windows`
    list only, and old records and `usage_samples` rows are converted on read
-   (`ocp/usage/windows.py`) and never rewritten. Needs 5 and 6 first, because
+   (`handline/usage/windows.py`) and never rewritten. Needs 5 and 6 first, because
    they are what produces the new shape.
 8. `vendor-prose` - optional sweep of user-facing "claude" strings to the
    vendor's name. Cosmetic; last, and skippable.

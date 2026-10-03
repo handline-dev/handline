@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import gitrun  # noqa: E402
+from handline.infra import gitrun  # noqa: E402
 
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
@@ -81,7 +81,7 @@ def test_commits_behind_main_counts_from_where_the_branch_forked(home: Path) -> 
 
 
 def test_exec_agent_points_origin_head_at_main_before_it_becomes_the_agent(home: Path) -> None:
-    from ocp.session import launch
+    from handline.session import launch
     _daemon_home(home, 20)
     work = _clone_whose_head_is_orcapipe(home / "g")
     here = Path.cwd()

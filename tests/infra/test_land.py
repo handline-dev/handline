@@ -116,9 +116,9 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
     """The merger tests in its own sandbox (`land.sh --check`) and records the tree it saw; the auditor
     records a PASS; both only from the process of that agent's session. The daemon merges with git alone
     and fast-forwards only to the tree that was tested."""
-    from ocp.daemon import lands, socket_server
-    from ocp import vendors
-    from ocp.infra import protected, sessiontoken
+    from handline.daemon import lands, socket_server
+    from handline import vendors
+    from handline.infra import protected, sessiontoken
     main = _repo(home / "repo")
     sent = []
     keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
@@ -155,7 +155,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         finally:
             os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
         agents.register("backend")
-        launch_src = (ROOT / "ocp" / "session" / "launch.py").read_text()
+        launch_src = (ROOT / "handline" / "session" / "launch.py").read_text()
         check("session: no secret goes into the session's environment",
               "OCP_SESSION_TOKEN" not in launch_src and not hasattr(sessiontoken, "mint"))
         check("session: an unrelated process, pid 1 and another agent's session are not the merger's session",
@@ -176,7 +176,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
               (protected.put(sessiontoken.NS, "backend.stale", f"{p_core} Thu Jan  1 00:00:00 1970"),
                not sessiontoken.verify("backend.stale", p_core))[1])
 
-        from ocp.daemon import landauth
+        from handline.daemon import landauth
 
         def ask_daemon(verb, agent, peer, vouched=True, **kw):
             if vouched:
@@ -307,7 +307,7 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
     """A branch whose diff adds an email fails the merger's `--check`, and the daemon refuses a merge
     message carrying a task id, though the branch itself is clean."""
     import shutil
-    from ocp.daemon import lands
+    from handline.daemon import lands
     main = _repo(home / "repo")
     shutil.copy(ROOT / "tools" / "localrefs.py", main / "tools" / "localrefs.py")
     _git(main, "add", "-A")
@@ -347,9 +347,9 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
 
 
 def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(home: Path) -> None:
-    from ocp.session import landgate
-    from ocp.daemon import client as dmn_client
-    from ocp.infra import sessiontoken
+    from handline.session import landgate
+    from handline.daemon import client as dmn_client
+    from handline.infra import sessiontoken
     tree, sha = "a" * 40, "abc1234"
     ok = {
         f"ocp land --pass {sha}": ("land_pass", sha),
@@ -394,7 +394,7 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
     import argparse
     import contextlib
     import io
-    from ocp.cli import land as cli_land
+    from handline.cli import land as cli_land
     sent, real_tree, real_send = [], cli_land._tested_tree, cli_land.dmn_client.send
     cli_land._tested_tree = lambda sha: "t" * 40
     cli_land.dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True, "said": "ok"})[1]
@@ -422,9 +422,9 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
 def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Path) -> None:
     import contextlib
     import io
-    from ocp.daemon import client as dmn_client
-    from ocp.infra import sessiontoken
-    from ocp.session import events
+    from handline.daemon import client as dmn_client
+    from handline.infra import sessiontoken
+    from handline.session import events
     sessiontoken.mint_key("backend")
     sent, real, was, was_in = [], dmn_client.send, os.environ.get("OCP_AGENT"), sys.stdin
     dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True})[1]

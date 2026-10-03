@@ -169,7 +169,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
         "agents:\n  backend: {}\n"
         'edges:\n  - { from: "*", to: "human", kind: task }\n')
     agents.register("backend")
-    from ocp.infra import protected
+    from handline.infra import protected
     ok, msg = trustmod.enact(str(home / "repos"), "old")
     check("roots: the founder declares one, and it is kept in the protected store",
           ok and [r["why"] for r in trustmod.list_roots()] == ["old"]
@@ -259,7 +259,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
     check("bind: a reject settles it whatever the draft says",
           trustmod.load_proposal(seventh["id"])["state"] == "rejected", msg)
 
-    from ocp.infra import backup
+    from handline.infra import backup
     snap = backup.snapshot(home, home.parent / (home.name + "-bk"))
     import tarfile
     with tarfile.open(snap) as tar:
@@ -269,7 +269,7 @@ def test_trust_roots_live_in_the_protected_store(home: Path) -> None:
 
 
 def _doctor_rows():
-    from ocp.infra import doctor
+    from handline.infra import doctor
     r = doctor.Report()
     doctor._check_protected(r)
     return r.rows
@@ -420,7 +420,7 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
     that silently comes out wrong fails closed (raise + STALLED), so a
     quiet regression here stalls every agent in a declared root (design/04
     §4.3: the parse itself is claude's driver's now, not orca's)."""
-    from ocp.vendors import claude as claudemod
+    from handline.vendors import claude as claudemod
     drv = vendors.get("claude")
     live = LIVE_TRUST_PROMPT_CAPTURE.split("\n")
     check("trust_screen: the wrapped path is joined bare, no space",
@@ -819,7 +819,7 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
 def test_dialog_rules_are_the_founders_and_match_by_label(home: Path) -> None:
     """T199: a rule is {vendor, title, label}, kept in the protected store; an
     agent's session is refused without a raise; match answers by exact label."""
-    from ocp.team import dialog_rules as dr
+    from handline.team import dialog_rules as dr
     _daemon_home(home, 20)
     check("rules: none to begin with", dr.list_rules() == [])
     ok, said = dr.add("claude", "Allow this tool?", "Yes, always")

@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import schedules  # noqa: E402
-from ocp.infra import cron  # noqa: E402
+from handline.daemon import schedules  # noqa: E402
+from handline.infra import cron  # noqa: E402
 
 
 def _at(y, mo, d, h, mi) -> int:

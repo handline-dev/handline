@@ -1,8 +1,8 @@
-"""Tests for ocp/ui/bridge_textual.py (task #45) - the port's first screen.
+"""Tests for handline/ui/bridge_textual.py (task #45) - the port's first screen.
 
 Needs `textual`, which the interpreter running `tests/test_ocp.py` may not
 have (it is only in $OCP_HOME/venv - see requirements.txt and
-ocp/infra/venv.py's own docstring on why the suite cannot assume it everywhere).
+handline/infra/venv.py's own docstring on why the suite cannot assume it everywhere).
 `tests/test_ocp.py` runs this file under the first python that can import
 textual (its own, else the venv's) and prints a SKIPPED line when none can, so
 a missing dependency is said out loud instead of the screen going unexercised.
@@ -27,19 +27,19 @@ sys.path.insert(0, str(ROOT))
 # First, so OCP_TEST_ROOT is set before any ocp module reads a path.
 import test_ocp as t  # noqa: E402 - its `_daemon_home`/`DESIGN_TEAM` fixture, not re-derived here
 from textual import events  # noqa: E402
-from ocp.actions import dialogs as dialogs_mod  # noqa: E402
-from ocp import actions, db
-from ocp.team import accounts, agents, hr
-from ocp.ui import bridge_textual as bt, jobs as jobsmod, tui
-from ocp.infra import timefmt  # noqa: E402
-from ocp.daemon import states as dmn_states
-from ocp.ui.chat_page import ChatMessage as cp_ChatMessage, ChatPage  # noqa: E402
-from ocp.ui.clipboard_app import ClipboardApp  # noqa: E402
-from ocp.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
+from handline.actions import dialogs as dialogs_mod  # noqa: E402
+from handline import actions, db
+from handline.team import accounts, agents, hr
+from handline.ui import bridge_textual as bt, jobs as jobsmod, tui
+from handline.infra import timefmt  # noqa: E402
+from handline.daemon import states as dmn_states
+from handline.ui.chat_page import ChatMessage as cp_ChatMessage, ChatPage  # noqa: E402
+from handline.ui.clipboard_app import ClipboardApp  # noqa: E402
+from handline.ui.components.confirm import Confirm, confirm_answer  # noqa: E402
 from textual import events  # noqa: E402
-from ocp.ui.components.text_prompt import TextPrompt  # noqa: E402
-from ocp.ui.pages.account import AccountPage  # noqa: E402
-from ocp.ui.pages.home import HomePage  # noqa: E402
+from handline.ui.components.text_prompt import TextPrompt  # noqa: E402
+from handline.ui.pages.account import AccountPage  # noqa: E402
+from handline.ui.pages.home import HomePage  # noqa: E402
 from textual.widgets import DataTable, Static  # noqa: E402
 
 PASS: list[str] = []
@@ -72,12 +72,12 @@ def _screen_text(screen) -> str:
 
 
 def cp_verbs():
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     return cp.CHAT_VERBS
 
 
 def test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark() -> None:
-    from ocp.ui.components.key_guide import Key, fit
+    from handline.ui.components.key_guide import Key, fit
     keys = [Key("a", "alpha", 1), Key("b", "bravo", 3), Key("c", "charlie", 2), Key("d", "delta", 1)]
     wide = fit(keys, 80).plain
     check("key guide: with room, every key in the order given, then ?",
@@ -94,7 +94,7 @@ def test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out() -> 
     """T149: a wide rank-1 key that alone still does not fit used to just be skipped, leaving
     room a rank-3 key after it would then fill - so the guide showed the least important key
     while dropping a more important one. The rank-3 key must go first regardless."""
-    from ocp.ui.components.key_guide import Key, fit
+    from handline.ui.components.key_guide import Key, fit
     keys = [Key("a", "aa", 1), Key("b", "b" * 10, 1), Key("z", "z", 3)]
     line = fit(keys, 19).plain
     check("key guide: the rank-3 key is dropped before the rank-1 one, even though that one still does not fit",
@@ -110,7 +110,7 @@ def _week_sample(con, account: str, ts: int, used: int, reset: int) -> None:
 
 
 def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
-    from ocp.usage import outlook
+    from handline.usage import outlook
     _home("outlook")
     con = db.connect()
     try:
@@ -146,8 +146,8 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
 
 
 def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up() -> None:
-    from ocp.ui.components.outlook_view import chart
-    from ocp.usage.outlook import Outlook
+    from handline.ui.components.outlook_view import chart
+    from handline.usage.outlook import Outlook
     o = Outlook(past=[(0, 50.0), (1, 50.0)], future=[(2, 50.0)], accounts=1)
     plain = chart(o, 30, 8, "24h")
     over = chart(o, 30, 8, "24h", [20.0, 20.0])
@@ -167,7 +167,7 @@ def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_share
         uses = {u.agent: u for u in actions.agent_use(con, now, 24)}
     finally:
         con.close()
-    from ocp.usage import stats as ustats
+    from handline.usage import stats as ustats
     con = db.connect()
     try:
         est = {u.agent: u.est_pct for u in ustats.agent_use(con, now - 86400, now, None, {"alpha": 10.0})}
@@ -180,7 +180,7 @@ def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_share
 
 
 def test_the_agents_table_is_a_tree_with_the_group_total_on_top() -> None:
-    from ocp.usage.stats import AgentUse, group_uses
+    from handline.usage.stats import AgentUse, group_uses
     uses = [AgentUse("orcapipe.ui", 10, 3.0, 0.3, 1.0, {"a": 0.3}), AgentUse("orcapipe", 5, 6.0, 0.6, 2.0, {"a": 0.6}),
             AgentUse("harbor", 1, 1.0, 0.1, 0.5, {"a": 0.1})]
     rows = group_uses(uses)
@@ -194,8 +194,8 @@ def test_the_agents_table_is_a_tree_with_the_group_total_on_top() -> None:
 
 
 def test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart() -> None:
-    from ocp.ui.components.outlook_view import chart
-    from ocp.usage.outlook import Outlook
+    from handline.ui.components.outlook_view import chart
+    from handline.usage.outlook import Outlook
     o = Outlook(past=[(0, 100.0), (1, 50.0)], future=[(2, 25.0), (3, 0.0)], accounts=1)
     text = chart(o, 40, 8)
     check("chart: one line per row and an axis", len(text.plain.split("\n")) == 9, text.plain)
@@ -216,7 +216,7 @@ def test_only_y_n_or_escape_answers_a_confirm() -> None:
 
 
 def test_the_menu_offers_what_the_text_could_become() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     tasks = [(84, "owns", "waiting", "keeper fix cache", "orcapipe", 300),
              (85, "owns", "doing", "clerk discard", "orcapipe", 200),
              (7, "opened", "done", "auditor pass", "orcapipe", 100)]
@@ -254,7 +254,7 @@ def test_the_menu_offers_what_the_text_could_become() -> None:
 
 
 def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     d = {"id": 1, "title": "t", "state": "doing", "owner": "o", "opened_by": "o", "created_at": 1,
          "parent": (9, "up"), "done": None, "discarded": None, "merged_into": None, "asker": "o",
          "children": [(2, "kid", "waiting")],
@@ -273,8 +273,8 @@ def test_the_task_pages_write_a_task_as_T_and_a_request_as_a_bare_number() -> No
 
 
 def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
-    from ocp.ui import chat_page as cp
-    from ocp.infra import paths
+    from handline.ui import chat_page as cp
+    from handline.infra import paths
     _home("hist")
     check("history: a repeat moves up instead of doubling", cp.remember(["a", "b", "c"], "b") == ["a", "c", "b"])
     check("history: blank is not remembered", cp.remember(["a"], "  \n") == ["a"])
@@ -312,7 +312,7 @@ def test_the_typed_history_keeps_the_newest_and_never_repeats() -> None:
 def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
     """T429: a kind=task row comes with its task's live state (the card draws it); a
     plain message linked to a task does not, so the page pays for no other task_state."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("chatstate")
     agents.register("reviewer")
     con = db.connect()
@@ -335,7 +335,7 @@ def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
 def test_background_work_alone_is_not_working() -> None:
     """Founder #5308: an agent between turns with only background work running reads idle,
     with the background note beside it - never working."""
-    from ocp.daemon import delivery, states
+    from handline.daemon import delivery, states
     _home("bgidle")
     agents.register("reviewer")
     con = db.connect()
@@ -356,8 +356,8 @@ def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
     """T421: an answer is a message of its own, so the chat gives the ask and the
     answer two numbers, draws each once, and a reply under the answer counts as
     the reply to the ask."""
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("chatanswer")
     agents.register("reviewer")
     con = db.connect()
@@ -382,8 +382,8 @@ def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
 
 
 def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("chat")
     agents.register("reviewer")
     con = db.connect()
@@ -418,13 +418,13 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
 
 
 def _page_rows(con, rid: int) -> list:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
 def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     """T438: a message is one Static, not one widget per part; this is what it says."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     m = {"who": "backend", "when": 100, "rid": 7, "mid": 7, "part": 0, "text": "the body", "kind": "task",
          "tasks": [418], "task_title": "Fix it", "task_state": "queued", "reply_to": 3, "to": "reviewer"}
     t = cp.message_text(m, True, False, "them", {"success": "#00ff00"}).plain.split("\n")
@@ -453,8 +453,8 @@ def test_a_message_is_one_text_with_its_parts_in_order() -> None:
 def test_a_reply_shows_a_link_to_what_it_answers() -> None:
     """T410 (founder #5295): messages stay in time order, unindented; a reply carries the
     number of its parent and draws a reply icon and that number, a click going to it."""
-    from ocp.ui import chat_page as cp
-    from ocp.infra import textsafe
+    from handline.ui import chat_page as cp
+    from handline.infra import textsafe
     link = cp.reply_link(12)
     check("reply: the line is the icon and the parent's number, a click shows that message",
           link.plain == "↩ #12" and link.style.meta.get("@click") == "screen.show_message(12)", str(link.style.meta))
@@ -464,8 +464,8 @@ def test_a_reply_shows_a_link_to_what_it_answers() -> None:
 
 
 def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("dismissline")
     agents.register("reviewer")
     con = db.connect()
@@ -481,8 +481,8 @@ def test_a_dismissed_request_leaves_no_dismissed_line_in_the_chat() -> None:
 
 
 def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("reply")
     agents.register("reviewer")
     con = db.connect()
@@ -518,8 +518,8 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
 
 
 def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("heldbelow")
     agents.register("reviewer")
     _, _, first = askmod.ask("reviewer", "hello", requester="backend")
@@ -547,8 +547,8 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
 def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
     """Auditor #5331: a held message the page's agent sent sits above the line and gives it no
     reason; the reason is the one of the message below the line."""
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("whyline")
     agents.register("reviewer")
     con = db.connect()
@@ -570,8 +570,8 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
 
 def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
     """Founder #5337: any message in All chat (also one from another agent) can be replied to, and a reply goes to its speaker."""
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("allpick")
     agents.register("reviewer")
     _, _, rid = askmod.ask("reviewer", "from another agent", requester="backend")
@@ -589,7 +589,7 @@ def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
 
 
 def test_a_number_in_a_message_becomes_a_link_to_it() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     from rich.text import Text
     def targets(s):
         t = cp.link_refs(Text(s))
@@ -611,8 +611,8 @@ def test_a_task_ref_in_a_message_is_found_only_when_it_stands_alone() -> None:
 
 
 async def test_clicking_a_task_ref_in_a_message_opens_that_task_and_a_missing_one_is_refused() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui.chat_page import TaskDetail
+    from handline.team import ask as askmod
+    from handline.ui.chat_page import TaskDetail
     _home("taskref")
     con = db.connect()
     try:
@@ -657,7 +657,7 @@ def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
     """~/ and absolute .md paths (non-ASCII, @, digits, hyphens) are links, the sentence's
     comma, period and bracket are not part of them, and what only looks like a path is not one."""
     from textual.actions import parse
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     from rich.text import Text
     founder = "~/notes/@work/café/Plan-2nd-draft.md"
     def found(s):
@@ -671,7 +671,7 @@ def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
           [(h.path, h.line) for h in actions.find_paths("at /tmp/f.py:42:7.")] == [("/tmp/f.py", 42)])
     check("paths: a directory under ~/ is a link", found("in ~/dir/ now") == ["~/dir/"])
     check("paths: fractions, dates, URLs, slash commands and relative paths are not",
-          found("1/2 2026/10/01 and/or https://x.com/a/b.md /loop ocp/a.py ./a.md") == [])
+          found("1/2 2026/10/01 and/or https://x.com/a/b.md /loop handline/a.py ./a.md") == [])
     with tempfile.TemporaryDirectory() as d:
         Path(d, "docs").mkdir()
         Path(d, "docs", "x.md").write_text("x")
@@ -711,7 +711,7 @@ def test_a_file_path_in_a_message_becomes_a_link_that_opens_it() -> None:
 
 def test_the_task_title_is_cut_to_the_room_beside_the_other_columns() -> None:
     """Founder #5337: the title column takes what is left of the table, so every row shows."""
-    from ocp.ui.components import tasks_view as tv
+    from handline.ui.components import tasks_view as tv
     check("clip: a short title is left alone", tv.clip("short", 10) == "short")
     check("clip: a long one ends in … within the room", tv.clip("a very long task title", 10) == "a very lo…"
           and len(tv.clip("a very long task title", 10)) == 10, tv.clip("a very long task title", 10))
@@ -725,8 +725,8 @@ def test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process() -> 
     """Founder #5401: dismissing was slow because every verb started an interpreter. A verb
     with nothing to wait for (dismiss) runs in this process and is collected the same way."""
     import time
-    from ocp.team import ask as askmod
-    from ocp.ui import jobs as jobsmod
+    from handline.team import ask as askmod
+    from handline.ui import jobs as jobsmod
     _home("inlinejob")
     agents.register("reviewer")
     _, _, rid = askmod.ask("human", "a question?", requester="reviewer")
@@ -751,7 +751,7 @@ def test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process() -> 
 
 
 def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("tasks")
     agents.register("reviewer")
     con = db.connect()
@@ -780,15 +780,15 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
 
 
 def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
-    from ocp.ui.components.tasks_view import result_notes
+    from handline.ui.components.tasks_view import result_notes
     got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "has a child")], "discard")
     check("results: successes in one toast, the refusals in another with the reason",
           got == [("discarded 2: T14 T15", "information"), ("T16: has a child", "error")], got)
 
 
 def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("discardable")
     agents.register("reviewer")
     con = db.connect()
@@ -866,7 +866,7 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
 
 
 def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     home = _home("settings")
     cfg = cp.settings_of("backend")
     check("settings: the agent file is read", cfg["effort"] in agents.VALID_EFFORT
@@ -917,7 +917,7 @@ def test_the_settings_form_checks_and_saves_only_what_changed() -> None:
 
 
 def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("browser-setting")
     cfg = cp.settings_of("backend")
     form = {k: cfg[k] for k in cp.EDITABLE}
@@ -991,7 +991,7 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
     ok, said = cp.save_settings("backend", [("browser", "off", "playwright"), ("browser_sites", "", "https://z.org")])
     check("browser: picking Playwright is what replaces it",
           ok and agents.browser_origins(agents.read("backend")) == ["https://z.org"], said)
-    from ocp.infra import protected
+    from handline.infra import protected
     import os
     old = os.environ.get("OCP_AGENT")
     os.environ["OCP_AGENT"] = "backend"
@@ -1009,8 +1009,8 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
 async def test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposal() -> None:
     import html
     from textual.widgets import DataTable, Input, Select
-    from ocp.ui.components import proposals as pr
-    from ocp.ui.components.agent_settings_screen import AgentSettingsScreen
+    from handline.ui.components import proposals as pr
+    from handline.ui.components.agent_settings_screen import AgentSettingsScreen
     _home("hr-edit")
     ok, said = hr.propose("settings", "backend", requester="backend", why="it reads the docs",
                           sets={"browser": "playwright", "browser_sites": "https://docs.example.org"})
@@ -1044,9 +1044,9 @@ async def test_the_hr_tab_edits_any_agents_settings_and_shows_a_settings_proposa
 
 async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_for_playwright() -> None:
     import html
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     from textual.widgets import Button, Input, Select, Static
-    from ocp.ui.components.sites_list import SitesList, SiteEdit
+    from handline.ui.components.sites_list import SitesList, SiteEdit
     _home("browser-page")
     app = bt.BridgeApp()
     async with app.run_test(size=(110, 50)) as pilot:
@@ -1112,7 +1112,7 @@ async def test_the_settings_page_shows_the_browser_mode_and_enables_sites_only_f
 
 
 def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     def row(i, ts, delivered, requester=actions.HUMAN):
         return {"id": i, "ts": ts, "resolved_at": None, "requester": requester, "target": "reviewer",
                 "state": "queued", "body": f"m{i}", "answer": None, "dismisser": None,
@@ -1139,7 +1139,7 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
 
 def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
     """T418: a request typed at an agent is delivered only once its transcript shows it."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     now = int(time.time())
     def row(typed, landed, tries=None):
         return {"id": 1, "ts": 100, "resolved_at": None, "requester": actions.HUMAN, "target": "reviewer",
@@ -1167,7 +1167,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
 
 
 def test_a_delivery_changes_the_chat_signature() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("sigdeliver")
     con = db.connect()
     try:
@@ -1187,8 +1187,8 @@ def test_a_delivery_changes_the_chat_signature() -> None:
 
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components.jobs_aware import Toasts
+    from handline.ui import chat_page as cp
+    from handline.ui.components.jobs_aware import Toasts
 
     class Stub:
         is_attached = True
@@ -1211,7 +1211,7 @@ def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
 
 def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
     """Founder #1193: the "queued as #n" toast after a send is gone."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
 
     class Box:
         text = ""
@@ -1235,7 +1235,7 @@ def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
 
 
 def test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
 
     class Stub:
         replying, agent, sending, _frame = None, "x", 0, 0
@@ -1249,7 +1249,7 @@ def test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on() -> N
 
 
 def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _home("qwhy")
     con = db.connect()
     try:
@@ -1270,7 +1270,7 @@ def test_a_queued_message_says_why_it_has_not_reached_the_agent() -> None:
               "not sent" in actions.send_now(con, first))
         con.execute("UPDATE requests SET delivered_at = 1 WHERE id = ?", (second,))
         check("chat: and one already delivered", "not sent" in actions.send_now(con, second))
-        from ocp.ui import chat_page as cp
+        from handline.ui import chat_page as cp
         def buttons(delivered):
             m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "text": "x", "waiting": False,
                  "replyable": False, "answered": False, "queued": True, "delivered": delivered}
@@ -1297,7 +1297,7 @@ def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() ->
     blocked, it would read 'behind #<effective head>', backward from
     queue_order (the true head sits first), and the real reason (blocked)
     was never said."""
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _home("qblocked")
     con = db.connect()
     try:
@@ -1322,7 +1322,7 @@ def test_a_blocked_heads_queue_reason_names_the_block_not_a_reversed_behind() ->
 
 
 def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("ctxset")
     check("settings: the share of a window is worked out", actions.context_share("200", "claude-opus-5") == "20% of the 1000k window"
           and actions.context_share("900", "claude-opus-5") == "held to 60% of the 1000k window"
@@ -1335,7 +1335,7 @@ def test_the_context_setting_is_in_thousands_and_shows_its_share_of_the_window()
 
 
 def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     m = {"who": "a → b", "when": 1, "part": 0, "text": "x", "kind": "task", "tasks": [418]}
     check("head: a row shows its kind and T number",
           cp.message_parts({**m, "kind": "ask"})[0].plain.endswith("ask  T418"))
@@ -1362,8 +1362,8 @@ def test_a_message_head_tells_its_kind_and_linked_tasks() -> None:
 
 
 def test_what_an_agent_wrote_is_drawn_inert_on_every_part_of_the_page() -> None:
-    from ocp.ui import chat_page as cp
-    from ocp.infra import textsafe
+    from handline.ui import chat_page as cp
+    from handline.infra import textsafe
     evil = "x\x9b31m y\x1b]8;;http://evil.example\x07link\x1b]8;;\x07 [red]not markup[/red] \x00\x1b[2J\ttab"
     m = {"who": evil, "when": 1, "rid": 1, "part": 0, "side": "agent", "text": evil, "waiting": False,
          "replyable": True, "answered": True, "queued": False, "delivered": True, "cancelled": True}
@@ -1395,8 +1395,8 @@ def _plain(s: str) -> str:
 
 def test_gauge_elapsed_fraction_bar_and_usage_cells() -> None:
     from types import SimpleNamespace
-    from ocp.usage import status
-    from ocp.ui.components import gauge
+    from handline.usage import status
+    from handline.ui.components import gauge
     ef = gauge.elapsed_fraction
     check("gauge: a reset that is unknown or already passed has no fraction",
           ef(None, 3600, now=1000) is None and ef(0, 3600, now=1000) is None
@@ -1447,7 +1447,7 @@ def test_gauge_elapsed_fraction_bar_and_usage_cells() -> None:
 
 
 def test_agent_rows_short_model_cache_and_founder_block() -> None:
-    from ocp.ui.components import agent_rows as ar
+    from handline.ui.components import agent_rows as ar
     check("agent_rows: the model loses its provider prefix",
           ar.kind_short({"vendor": "zai", "model": "zai-coding-plan/glm-5.3-flash", "effort": "high"})
           == "glm-5.3-flash high")
@@ -1489,7 +1489,7 @@ def test_agent_rows_short_model_cache_and_founder_block() -> None:
 
 
 def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
-    from ocp.ui.components import agent_rows as ar
+    from handline.ui.components import agent_rows as ar
     _home("collectcfg")
     agents.register("opusy", model="claude-opus-5-5", effort="high")
     con = db.connect()
@@ -1498,7 +1498,7 @@ def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
         extra = ar.collect(con, [row])["opusy"]
         check("agent_rows: collect shows the agent's own model and effort, not the defaults",
               extra[0] == ar.kind_short(agents.read("opusy")) and "opus" in extra[0], str(extra))
-        from ocp.session import idle_close
+        from handline.session import idle_close
         check("agent_rows: collect flags cache expiry as ignored only for the agent whose switch is on",
               extra.cache_ignored is False)
         idle_close.set_agent_ignore_cache_expiry("opusy", True)
@@ -1509,8 +1509,8 @@ def test_agent_rows_collect_carries_the_agents_own_model_and_effort() -> None:
 
 
 def test_fold_urgency_ranks_what_a_fold_hides() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui.components import agent_rows as ar
+    from handline.team import ask as askmod
+    from handline.ui.components import agent_rows as ar
     _home("foldurg")
     for n in ("w1", "w2", "w3", "w4"):
         agents.register(n)
@@ -1538,8 +1538,8 @@ def test_fold_urgency_ranks_what_a_fold_hides() -> None:
 
 
 def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui.components import agent_rows as ar
+    from handline.team import ask as askmod
+    from handline.ui.components import agent_rows as ar
     _home("collect")
     agents.register("reviewer")
     askmod.ask("human", "please look", requester="reviewer")
@@ -1559,7 +1559,7 @@ def test_agent_rows_collect_says_why_a_row_needs_the_founder() -> None:
 
 
 def test_agent_rows_collect_keeps_a_stuck_reason_whole() -> None:
-    from ocp.ui.components import agent_rows as ar
+    from handline.ui.components import agent_rows as ar
     _home("collectlong")
     agents.register("w9")
     long = "the daemon gave up after the third failed launch and will not try again " * 2
@@ -1574,8 +1574,8 @@ def test_agent_rows_collect_keeps_a_stuck_reason_whole() -> None:
 
 
 def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
-    from ocp.team import ask as askmod, decisions
-    from ocp.ui.components import proposals as pr
+    from handline.team import ask as askmod, decisions
+    from handline.ui.components import proposals as pr
     home = _home("openprops")
     agents.register("hr")
     con = db.connect()
@@ -1617,7 +1617,7 @@ def test_open_proposals_lists_only_what_is_the_founders_move() -> None:
 
 
 class _FakeRules:
-    """Stands in for `ocp.team.dialog_rules`, whose store is the founder-only protected dir."""
+    """Stands in for `handline.team.dialog_rules`, whose store is the founder-only protected dir."""
 
     def __init__(self) -> None:
         self.rules: list[dict] = []
@@ -1642,7 +1642,7 @@ def _block(con, agent: str, kind: str, detail: dict, title: str = "t", wait_id=N
 def test_the_permission_modal_shows_the_whole_panel_without_the_tip() -> None:
     """T411: a multi-line command never matches the hook's one-line summary, so the panel's own
     lines are what the founder judges by, warning line included, minus the auto-mode tip."""
-    from ocp.ui.components.permission_modal import panel_text
+    from handline.ui.components.permission_modal import panel_text
     d = {"command": "Bash command", "lines": ("Bash command", "git commit -F - <<'EOF'", "msg", "EOF",
                                               "Tip: auto mode handles these prompts", "Contains simple_expansion")}
     text = panel_text(d)
@@ -1653,7 +1653,7 @@ def test_the_permission_modal_shows_the_whole_panel_without_the_tip() -> None:
 
 
 def test_summary_line() -> None:
-    from ocp.ui.components import summary as sm
+    from handline.ui.components import summary as sm
     text = lambda running, s: sm.summary_text(running, "12:00:00", s).plain
     check("summary: the daemon word comes first, and a quiet team says only that",
           text(True, sm.Summary(0, 0)) == "daemon running · 12:00:00")
@@ -1679,7 +1679,7 @@ def test_summary_line() -> None:
 
 
 def test_key_token_translates_textual_keys() -> None:
-    from ocp.ui.keys import key_token
+    from handline.ui.keys import key_token
     ev = lambda key, ch=None: events.Key(key, ch)
     check("keys: a named key is its byte token",
           key_token(ev("up")) == "\033[A" and key_token(ev("enter")) == "\r"
@@ -1691,7 +1691,7 @@ def test_key_token_translates_textual_keys() -> None:
 
 def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
     from types import SimpleNamespace
-    from ocp.ui.components.agent_rows import Extra
+    from handline.ui.components.agent_rows import Extra
     row = lambda **kw: SimpleNamespace(**{"twig": "", "shown": "boss", "under": 0, "state": "IDLE",
                                           "until": "", "fire": "", "ready": False, **kw})
     extra = lambda **kw: Extra(**{"kind_short": "m", "cache_left": None, "block": "", "stuck": "",
@@ -1737,8 +1737,8 @@ def test_the_agent_row_names_the_fold_alarm_and_why_it_is_stuck() -> None:
 
 
 def test_account_settings_alias_and_default_cap() -> None:
-    from ocp.usage import load as loadmod
-    from ocp.session import triggers
+    from handline.usage import load as loadmod
+    from handline.session import triggers
     _home("settings")
     ok, _ = actions.save_account_settings("alpha", "x" * 41, "3")
     check("settings: an alias over 40 characters is refused", not ok and loadmod.label_of("alpha") == "alpha")
@@ -1884,7 +1884,7 @@ def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
     with nothing a terminal would obey in it)."""
     _home("msgdata")
     agents.register("reviewer")
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     askmod.ask("human", "\n\033[2Jplease \033]8;;http://evil.example\033\\review\033]8;;\033\\ this",
                requester="reviewer")
     con = db.connect()
@@ -1909,9 +1909,9 @@ def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
 def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     import sys
     from unittest import mock
-    from ocp.session import orca as orcamod
-    from ocp.team import trust
-    from ocp.ui.components.dialog_modal import DialogModal
+    from handline.session import orca as orcamod
+    from handline.team import trust
+    from handline.ui.components.dialog_modal import DialogModal
     home = _home("dialogmodal")
     agents.register("reviewer")
     rules = _FakeRules()
@@ -1927,13 +1927,13 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
         pressed.append((handle, number))
         screen["dialog"] = None
         return orcamod.CLEARED, dialog.title, ""
-    with mock.patch.dict(sys.modules, {"ocp.team.dialog_rules": rules}), \
+    with mock.patch.dict(sys.modules, {"handline.team.dialog_rules": rules}), \
             mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
             mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
             mock.patch.object(orcamod, "trust_prompt_showing", lambda h: screen.get("trust_unreadable", False)), \
             mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
             mock.patch.object(orcamod, "press_option", press):
-        import ocp.team as teampkg
+        import handline.team as teampkg
         teampkg.dialog_rules = rules
         con = db.connect()
         try:
@@ -1976,7 +1976,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     del teampkg.dialog_rules
 
 def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
-    from ocp.session import idle_close
+    from handline.session import idle_close
     _home("idle_close_form")
     check("idle close: minutes become seconds, blank is none", (actions.parse_idle_close("10"), actions.parse_idle_close(" ")) == (600, None))
     ok, _ = actions.set_idle_close("20")
@@ -1985,7 +1985,7 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
     check("idle close: an agent's own wins, and blank drops it",
           actions.set_idle_close("5", "backend")[0] and idle_close.close_timeout_s("backend") == 300
           and actions.set_idle_close("", "backend")[0] and idle_close.close_timeout_s("backend") == 1200)
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     cfg = cp.settings_of("backend")
     form = {k: cfg[k] for k in cp.EDITABLE}
     ok, said = cp.save_settings("backend", cp.settings_changes(cfg, {**form, "idle_close": "0"}))
@@ -2002,12 +2002,12 @@ def test_idle_close_is_set_globally_and_per_agent_in_minutes() -> None:
 
 async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_value() -> None:
     from textual.widgets import Input, OptionList, Select, Switch
-    from ocp.ui.components.agent_settings_screen import AgentSettingsScreen
-    from ocp.ui.components.confirm import Confirm
-    from ocp.ui.components.pick_or_type import PickOrType
-    from ocp.session import idle_close
-    from ocp.usage import load as loadmod
-    from ocp.ui import chat_page as cp
+    from handline.ui.components.agent_settings_screen import AgentSettingsScreen
+    from handline.ui.components.confirm import Confirm
+    from handline.ui.components.pick_or_type import PickOrType
+    from handline.session import idle_close
+    from handline.usage import load as loadmod
+    from handline.ui import chat_page as cp
     _home("save_at_once")
     app = bt.BridgeApp()
     async with app.run_test(size=(130, 50)) as pilot:
@@ -2149,8 +2149,8 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
               order.index("g_ignore_cache_expiry") < order.index("g_handoff_note") < order.index("g_auto_accept")
               < order.index("answers") and "g_dev_mode" not in order, str(order))
         Path(os.environ.get("SETTINGS_SHOT", os.devnull)).write_text(app.export_screenshot())
-        from ocp.daemon import handoff_note
-        from ocp.session import autoaccept
+        from handline.daemon import handoff_note
+        from handline.session import autoaccept
         shown = {k: page.query_one(f"#g_{k}", Switch).value for k in actions.global_switches()}
         check("global switches: each shows the value that is saved", shown == actions.global_switches(), str(shown))
         for key in shown:
@@ -2172,7 +2172,7 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
                   or f"follow the global switch ({'on' if on else 'off'})" in _screen_text(app.screen))
             await pilot.press("escape")
             await pilot.pause(0.4)
-        from ocp.ui.pages.account import AccountPage
+        from handline.ui.pages.account import AccountPage
         app.push_screen(AccountPage("alpha"))
         await pilot.pause(0.6)
         acct = app.screen
@@ -2206,8 +2206,8 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.press("y")
         await pilot.pause(0.4)
         check("account page: Yes leaves", not isinstance(app.screen, (Confirm, AccountPage)))
-        from ocp.usage import cycle as cyclemod
-        from ocp import vendors as vendormod
+        from handline.usage import cycle as cyclemod
+        from handline import vendors as vendormod
         cdir = vendormod.config_dir("alpha")
         cdir.mkdir(parents=True, exist_ok=True)
         (cdir / ".claude.json").write_text('{"oauthAccount": {"subscriptionCreatedAt": "2026-09-21T12:00:00Z"}}')
@@ -2270,8 +2270,8 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
 
 async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None:
     from textual.widgets import DataTable, Tabs
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("task_timeout")
     now = int(time.time())
     con = db.connect()
@@ -2330,8 +2330,8 @@ async def test_a_tasks_timeout_is_shown_on_the_board_and_the_task_page() -> None
 
 
 def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
-    from ocp.daemon import handoff_note
-    from ocp.session import autoaccept, idle_close
+    from handline.daemon import handoff_note
+    from handline.session import autoaccept, idle_close
     _home("global_switches")
     check("switches: they start where the fixture left them (the note is off there)",
           actions.global_switches() == {"handoff_note": False, "auto_accept": True,
@@ -2347,7 +2347,7 @@ def test_global_switches_read_and_write_the_keys_the_daemon_reads() -> None:
 
 
 def test_home_settings_removal_and_the_delegated_view() -> None:
-    from ocp.ui.components.tasks_view import LISTED, TasksView
+    from handline.ui.components.tasks_view import LISTED, TasksView
     _home("home_marks")
     for title in ("Run A?", "Run B?"):
         actions.add_answer(vendor="claude", title=title, label="Yes")
@@ -2367,13 +2367,13 @@ def test_home_settings_removal_and_the_delegated_view() -> None:
           (view.owner, view.states, view.closer) == (None, set(LISTED), None))
     check("task list: it opens on the open states, and done is not one",
           set(LISTED) == {"draft", "queued", "doing"} == set(actions.OPEN_STATES))
-    from ocp.ui.chat_page import TaskBody, TaskPane
+    from handline.ui.chat_page import TaskBody, TaskPane
     check("task list: the side view is the task page's component, adding no call of its own",
           issubclass(TaskPane, TaskBody) and not [n for n in vars(TaskPane) if n.startswith(("action_", "memo_"))])
 
 
 def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     page = cp.ChatPage.__new__(cp.ChatPage)
     page._blocks_done, page._block_pressing, sent, said = set(), True, [], []
     page.send_block = lambda bid, kind, choice: sent.append((bid, kind, choice))
@@ -2392,7 +2392,7 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
     """T309: `_sync_cursor` runs every tick; a cursor already on the selected row is left alone,
     so the table's scroll is not dragged back each time."""
     from types import SimpleNamespace
-    from ocp.ui.pages.home import HomePage
+    from handline.ui.pages.home import HomePage
     moves, classes = [], []
     table = SimpleNamespace(show_cursor=False, cursor_row=1, move_cursor=lambda row: moves.append(row))
     page = SimpleNamespace(panel=0, sel={0: "b"},
@@ -2414,7 +2414,7 @@ async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> N
     """Founder #9423: assigning from the board froze it. `batch_task` is a handoff per task (~80 ms
     each), and it ran on the event loop; it runs on its own thread now, and the loop keeps turning."""
     import threading
-    from ocp.ui.components.tasks_view import TasksView
+    from handline.ui.components.tasks_view import TasksView
     _home("boardassign")
     agents.register("reviewer")
     ids = [actions.task_new("product", "backend", f"Task {i}", "the work and its done")[2] for i in range(3)]
@@ -2501,7 +2501,7 @@ async def test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
     """Founder: the bridge froze for seconds after an assign. The board's redraw and the task page's
     reload both read the database; neither does it on the event loop."""
     import threading
-    from ocp.ui.chat_page import TaskDetail
+    from handline.ui.chat_page import TaskDetail
     _home("boardread")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
     app = bt.BridgeApp()
@@ -2551,7 +2551,7 @@ async def test_the_task_board_and_a_task_page_read_on_a_worker_after_an_action()
 async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> None:
     """The page shows one task. After show(B) and before B is read, an action finds no task: it never
     runs on B with A's text."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("switchtask")
     ok, _, a = actions.task_new("product", "backend", "A", "brief of A and its done")
     ok, _, b = actions.task_new("product", "backend", "B", "brief of B and its done")
@@ -2585,7 +2585,7 @@ async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> No
 async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
     import threading
-    from ocp.ui.chat_page import TaskDetail
+    from handline.ui.chat_page import TaskDetail
     _home("pageassign")
     agents.register("reviewer")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
@@ -2634,7 +2634,7 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
 async def test_a_second_assign_answered_before_the_first_worker_starts_is_refused() -> None:
     """The guard is taken where the assign is decided: two answers with no event-loop turn between
     them start one handoff, not two."""
-    from ocp.ui.chat_page import TaskDetail
+    from handline.ui.chat_page import TaskDetail
     _home("assignrace")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
     app = bt.BridgeApp()
@@ -2670,7 +2670,7 @@ async def test_the_schedules_are_reachable_on_the_agents_settings_page() -> None
     """The Schedules section sits at the end of the agent's settings pane; its list hugs
     its rows (no blank stretch below the title) and scrolling the pane to the end brings Add and each
     row's edit and remove into the pane."""
-    from ocp.ui.components.schedules_section import SchedulesSection
+    from handline.ui.components.schedules_section import SchedulesSection
     _home("schedules_reach")
     actions.schedule_add("backend", "0 9 * * *", "first one")
     app = bt.BridgeApp()
@@ -2693,9 +2693,9 @@ async def test_the_schedules_are_reachable_on_the_agents_settings_page() -> None
 
 
 async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
-    from ocp.daemon import devmode
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components.confirm import Confirm
+    from handline.daemon import devmode
+    from handline.ui import chat_page as cp
+    from handline.ui.components.confirm import Confirm
     _home("coderestart")
     real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S)
     bt.CODE_CHECK_S = 0.05
@@ -2767,7 +2767,7 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
     import os as _os
-    from ocp.infra import service
+    from handline.infra import service
     execs, real_exec, real_app, real_argv = [], _os.execv, bt.BridgeApp, sys.argv
     real_tty = sys.stdout.isatty
     owed = {"now": True}
@@ -2789,14 +2789,14 @@ def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
         owed["now"] = False
         bt.run()
         check("run: none owed, no exec", execs == [])
-        from ocp.ui import stall
+        from handline.ui import stall
         _home("run_race")
         stall.log_file().parent.mkdir(parents=True, exist_ok=True)
         if stall._pid_fd is not None:       # the runs above took the lock in this process
             _os.close(stall._pid_fd)
             stall._pid_fd = None
         child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
-                                  "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); "
+                                  "from handline.ui import stall; stall._claim_pid_file(__import__('os').getpid()); "
                                   "print('up', flush=True); time.sleep(60)", str(ROOT)], stdout=subprocess.PIPE, text=True)
         built, real_one = [], bt._one_bridge
         bt.BridgeApp = lambda: built.append(1) or FakeApp()
@@ -2826,8 +2826,8 @@ def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
 
 async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> None:
     """T355: a press that raises (db, orca) must not leave the modal disabled with esc blocked."""
-    from ocp.ui.bridge_textual import BridgeApp
-    from ocp.ui.components.question_modal import QuestionModal
+    from handline.ui.bridge_textual import BridgeApp
+    from handline.ui.components.question_modal import QuestionModal
     _home("questionraises")
     found = {"agent": "reviewer", "header": "h", "question": "which?", "multi_select": False, "other_number": None,
              "other_text": None, "options": [{"label": "a"}, {"label": "b"}]}
@@ -2851,9 +2851,9 @@ async def test_a_question_whose_press_raises_still_closes_with_the_reason() -> N
 async def test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons() -> None:
     import html, re
     from textual.app import App
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("timeline_ui")
-    from ocp.ui.components.task_assign import TaskAssign
+    from handline.ui.components.task_assign import TaskAssign
     ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
     con = db.connect()
     try:
@@ -2892,7 +2892,7 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
     import html, re
     from textual.app import App
     from textual.containers import VerticalScroll
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("timeline_scroll")
     ok, _, tid = actions.task_new("product", "backend", "Show it", "the work and its done")
     con = db.connect()
@@ -2929,9 +2929,9 @@ async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it
     holder's team; the question is not drawn in the chat, its answer is."""
     from textual.app import App
     from textual.widgets import Select
-    from ocp.daemon import sends
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.daemon import sends
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("ask_holder")
     for a in ("backend", "archivist", "zed"):
         agents.register(a)
@@ -2999,8 +2999,8 @@ async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it
 async def test_the_chat_strip_says_the_agents_model_account_session_context_cache_and_last_call() -> None:
     """The line under the chat header, read from the agent's own snapshot, its latest session start and the
     session's recorded API calls; it is not drawn in the all-chat."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components.agent_strip import AgentStrip
+    from handline.ui import chat_page as cp
+    from handline.ui.components.agent_strip import AgentStrip
     _home("strip")
     t.write_agent_status("backend", "alpha", ctx_pct=61, ctx_used=122000, model_id="opus-5-5", session_id="s1")
     con = db.connect()
@@ -3038,7 +3038,7 @@ def test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view() -> No
     """A Select from the pane beside the list (the memo recipient) reaches the list's handler as it bubbles:
     only the sort dropdown may change the sort and rebuild the columns."""
     from types import SimpleNamespace
-    from ocp.ui.components.tasks_view import TasksView
+    from handline.ui.components.tasks_view import TasksView
     calls: list = []
     me = SimpleNamespace(by="id", as_tree=False, owner=None, table=SimpleNamespace(focus=lambda: calls.append("focus")),
                          refresh_rows=lambda: calls.append("refresh"),
@@ -3056,7 +3056,7 @@ def test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view() -> No
 
 def test_the_sandbox_banner_reads_the_lease_and_one_click_ends_it() -> None:
     """What the banner draws and its button calls: `actions`, not the widget."""
-    from ocp.team import agent_settings
+    from handline.team import agent_settings
     _home("sandbox_banner")
     check("sandbox: on until the founder turns it off", not actions.sandbox_is_off("backend"))
     check("sandbox: the form offers it with the mode, on and auto", agent_settings.settings_of("backend")["sandbox"] == "on"
@@ -3076,8 +3076,8 @@ def test_the_sandbox_banner_reads_the_lease_and_one_click_ends_it() -> None:
 
 
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("newbar")
     agents.register("reviewer")
     for i in range(15):
@@ -3137,8 +3137,8 @@ async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_n
 
 
 async def test_older_messages_loaded_above_are_not_counted_as_new() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("newbar-older")
     agents.register("reviewer")
     for i in range(18):
@@ -3235,7 +3235,7 @@ async def test_the_answer_box_fits_a_short_terminal_and_pages_the_message() -> N
 
 async def test_a_and_e_on_a_home_message_open_the_answer_with_its_whole_body() -> None:
     from textual.widgets import DataTable
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _home("answerrow")
     agents.register("reviewer")
     body = "\n".join(f"line {i} " + "word " * 30 for i in range(1, 25)) + "\nTHE LAST LINE"
@@ -3259,8 +3259,8 @@ async def test_a_and_e_on_a_home_message_open_the_answer_with_its_whole_body() -
 
 
 async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a_modal() -> None:
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("sessionmark")
     agents.register("reviewer")
     askmod.ask("reviewer", "before the restart", requester=actions.HUMAN)
@@ -3337,8 +3337,8 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
 async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page() -> None:
     from textual.app import App
     from textual.widgets import Button, DataTable, Input
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components import hr_card
+    from handline.ui import chat_page as cp
+    from handline.ui.components import hr_card
     _home("hr-card")
     base = {"id": "p1", "kind": "add", "agent": "scout", "requested_by": "hr", "why": "a second pair of eyes",
             "text": "vendor claude\nmodel opus", "ts": int(time.time()) - 90, "subject": "s", "error": None}
@@ -3449,7 +3449,7 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
     failed = hr_card.pending()
     check("hr card: an approve that could not be carried out keeps its card, approved with its error, and can be retried",
           [c["state"] for c in failed] == ["approved"] and "locked" in str(failed[0]["error"]), str(failed))
-    from ocp.ui.components.hr_card import body, head
+    from handline.ui.components.hr_card import body, head
     check("hr card: it says so and shows why", "apply failed" in head(failed[0]).plain
           and "locked" in body(failed[0]).plain)
     check("hr card: and the retry asks nothing new",
@@ -3476,12 +3476,12 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
     """T767: the boxes over a page share `Dialog`: focus lands on the box's own field, Escape
     closes it, a second answer is dropped, and the page under it has focus back after."""
-    from ocp.ui.bridge_textual import BridgeApp
-    from ocp.ui.components.answer_add import AnswerAdd
-    from ocp.ui.components.confirm import Confirm
-    from ocp.ui.components.schedule_add import ScheduleAdd
-    from ocp.ui.components.task_assign import TaskAssign
-    from ocp.ui.components.text_prompt import TextPrompt
+    from handline.ui.bridge_textual import BridgeApp
+    from handline.ui.components.answer_add import AnswerAdd
+    from handline.ui.components.confirm import Confirm
+    from handline.ui.components.schedule_add import ScheduleAdd
+    from handline.ui.components.task_assign import TaskAssign
+    from handline.ui.components.text_prompt import TextPrompt
     _home("dialogs")
     made = {"assign": lambda: TaskAssign("T1", "backend", ["analytics", "frontend"]),
             "prompt": lambda: TextPrompt("what?", multi=True), "line": lambda: TextPrompt("what?"),
@@ -3513,8 +3513,8 @@ async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:
 
 async def test_assign_enter_sends_the_note_whole() -> None:
     """T767: the assign box is a `TextBox` like the other prompts: Enter sends, shift+enter is a new line."""
-    from ocp.ui.bridge_textual import BridgeApp
-    from ocp.ui.components.task_assign import TaskAssign
+    from handline.ui.bridge_textual import BridgeApp
+    from handline.ui.components.task_assign import TaskAssign
     _home("assign_enter")
     got: list = []
     app = BridgeApp()
@@ -3532,7 +3532,7 @@ async def test_a_changed_timeline_entry_remounts_only_itself() -> None:
     """T767: an agent's one new memo on a 100-row timeline leaves the other rows as they were;
     an edited memo replaces its own row in place, a deleted one just goes."""
     from textual.app import App
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("timeline_rows")
     ok, _, tid = actions.task_new("product", "backend", "Long", "the work and its done")
     con = db.connect()
@@ -3587,8 +3587,8 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
     """T703: the page's edit-text button rewrites the brief its opener sent, the change is on the
     timeline, and a refusal (nothing changed, nothing written) is shown, not swallowed."""
     from textual.widgets import Button
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("editbrief")
     agents.register("reviewer")
     con = db.connect()
@@ -3646,8 +3646,8 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
 async def test_the_task_page_queues_a_draft_and_drafts_a_queued_task() -> None:
     """One button, Queue on a draft and Draft on a queued task, through actions.set_queued; a done task has none."""
     from textual.widgets import Button
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("queuebtn")
     agents.register("reviewer")
     con = db.connect()
@@ -3696,8 +3696,8 @@ async def test_the_task_page_queues_a_draft_and_drafts_a_queued_task() -> None:
 
 async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() -> None:
     """T525: a memo or a handoff made while the page is open appears on the next poll."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("livetimeline")
     agents.register("reviewer")
     con = db.connect()
@@ -3753,7 +3753,7 @@ def test_the_bridge_stylesheet_parses() -> None:
     """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
     from textual.app import App
     from textual.css.stylesheet import Stylesheet
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui.bridge_textual import BridgeApp
     sheet = Stylesheet(variables=App().get_css_variables())
     sheet.read(BridgeApp.CSS_PATH)
     try:
@@ -3806,7 +3806,7 @@ def test_agents_data_scans_the_open_tasks_once_for_all_agents() -> None:
 
 def test_assign_offers_recent_targets_then_the_holders_team() -> None:
     _home("assign_team")
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     everyone = ["analytics", "backend", "frontend", "marketing", "reviewer"]
     check("assign to: the holder's own team, then the rest, without the holder",
           actions.assign_targets("backend", everyone) == ([], ["frontend"], ["analytics", "marketing", "reviewer"]))
@@ -3847,7 +3847,7 @@ def test_assign_offers_recent_targets_then_the_holders_team() -> None:
 
 
 def test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     entry = {"ts": 1_700_000_000, "who": "reviewer", "kind": "memo", "text": "short", "memo": 1, "edited_at": None}
     one = cp.timeline_text(entry).plain
     many = cp.timeline_text({**entry, "text": "first line\nsecond line\n  third\n"}).plain
@@ -3857,7 +3857,7 @@ def test_a_timeline_entry_that_fits_stays_one_line_and_a_longer_one_shows_whole(
 
 
 def test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colour_of_its_own() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     base = {"ts": 1_700_000_000, "who": "reviewer", "memo": None, "edited_at": None}
     memo = cp.timeline_text({**base, "kind": "memo", "text": "a memo"})
     req = cp.timeline_text({**base, "kind": "request", "text": "#7  queued  ask it", "ref": "#7", "state": "queued",
@@ -3973,7 +3973,7 @@ def test_a_task_timeline_holds_memos_and_handoffs_in_time_order() -> None:
 
 
 def test_a_slash_line_is_a_bridge_command_and_never_a_message() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     sa = cp.slash_action
     check("slash: plain text is not a command", sa("hello /exit") is None and sa("") is None)
     check("slash: /exit and /help are commands", sa("/exit") == ("run", "exit") and sa(" /help ") == ("run", "help"))
@@ -3989,8 +3989,8 @@ def test_a_slash_line_is_a_bridge_command_and_never_a_message() -> None:
 
 
 async def test_restart_is_a_chat_command_with_a_fresh_form() -> None:
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components import jobs_aware
+    from handline.ui import chat_page as cp
+    from handline.ui.components import jobs_aware
     sa = cp.slash_action
     check("restart: /restart and /restart fresh are verbs; anything else after it is an error",
           sa("/restart") == ("verb", "restart", "") and sa("/restart fresh") == ("verb", "restart", "fresh")
@@ -4059,8 +4059,8 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
     """T534: the transcript is torn down only when its rows change; RUNNING/IDLE and the wait
     text update the spare row and the send-now buttons in place, so the chat does not flash."""
     from textual.app import App
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("noflash")
     agents.register("reviewer")
     askmod.ask("reviewer", "hello", requester=actions.HUMAN)
@@ -4108,7 +4108,7 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
 async def test_neither_tasks_tab_scrolls_sideways() -> None:
     """T376: the Tasks tab of the home page and of a chat page draw the same table, cut to the room."""
     from textual.widgets import DataTable, Tabs
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("tabsnoscroll")
     agents.register("reviewer")
     con = db.connect()
@@ -4120,7 +4120,7 @@ async def test_neither_tasks_tab_scrolls_sideways() -> None:
     finally:
         con.close()
 
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui.bridge_textual import BridgeApp
     app = BridgeApp()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause()
@@ -4156,7 +4156,7 @@ async def test_neither_tasks_tab_scrolls_sideways() -> None:
 def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
     """Founder #6869: a task in the chat is one line, and each change of state sits between the messages
     at the moment it happened."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("taskchanges")
     agents.register("reviewer")
     con = db.connect()
@@ -4196,7 +4196,7 @@ def _edit_owner(con, tid: int, old: str, new: str):
 def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
     """Founder #7364: above the card, who changed it; inside, what happened - each written by
     the real action, not a hand-made event."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("changewho")
     agents.register("reviewer")
     agents.register("backend")
@@ -4232,7 +4232,7 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
 
 def test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task() -> None:
     """Founder #8922: the founder handed T to orcapipe; the chat drew CHANGED TASK and NEW TASK."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("handoffone")
     agents.register("reviewer")
     agents.register("backend")
@@ -4258,8 +4258,8 @@ def test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task() -> None:
 
 async def test_the_chat_page_draws_a_handoff_as_one_card() -> None:
     """T838 through the page: one CHANGED TASK card with its text, no NEW TASK, no change row beside it."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("handoffpage")
     agents.register("reviewer")
     agents.register("backend")
@@ -4287,7 +4287,7 @@ async def test_the_chat_page_draws_a_handoff_as_one_card() -> None:
 
 def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> None:
     """T601: `task new`, a handoff and the queue sweep log no start; the delivery's landing says when."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("landeddoing")
     agents.register("reviewer")
     con = db.connect()
@@ -4310,8 +4310,8 @@ def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> 
 
 async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
     from textual.color import Color
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("changecard")
     agents.register("reviewer")
     con = db.connect()
@@ -4348,8 +4348,8 @@ async def test_the_chat_page_draws_a_changed_task_as_a_one_line_card() -> None:
 
 async def test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys() -> None:
     """The Back button with a draft asks first; after y the chat is gone and Home takes keys (it hung)."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("leave_draft")
     agents.register("reviewer")
     app = BridgeApp()
@@ -4377,7 +4377,7 @@ async def test_going_home_from_a_chat_with_a_draft_leaves_home_answering_keys() 
 
 async def test_confirm_ask_runs_its_action_only_on_yes_and_from_the_app() -> None:
     """Confirm.ask: y runs the action, n and Escape do not, and the action is the app's to run."""
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui.bridge_textual import BridgeApp
     _home("confirm_ask")
     app = BridgeApp()
     ran: list[str] = []
@@ -4396,8 +4396,8 @@ async def test_confirm_ask_runs_its_action_only_on_yes_and_from_the_app() -> Non
 async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() -> None:
     """T665: what the chat draws leaves FOR YOU, and only that; a message older than one page is
     paged back to and drawn."""
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("foryou_chat")
     agents.register("reviewer")
     con = db.connect()
@@ -4445,10 +4445,10 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
     import html, re
     from textual.app import App
     from textual.widgets import Select
-    from ocp.ui import chat_page as cp
-    from ocp.ui.components.ime import ImeInput
-    from ocp.ui.components.schedule_add import ScheduleAdd
-    from ocp.ui.components.schedules_section import SchedulesSection
+    from handline.ui import chat_page as cp
+    from handline.ui.components.ime import ImeInput
+    from handline.ui.components.schedule_add import ScheduleAdd
+    from handline.ui.components.schedules_section import SchedulesSection
     _home("schedules_ui")
     actions.schedule_add("backend", "0 9 * * *", "first one")
     actions.schedule_add("backend", "30 18 * * 1-5", "second one")
@@ -4539,9 +4539,9 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
     import html, re
-    from ocp.ui import tui
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import tui
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("blockedline")
     agents.register("reviewer")
     con = db.connect()
@@ -4589,7 +4589,7 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
 
 def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
     """T600 (founder #6977): the title is the first line; the rest of what the task was given is its brief."""
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("multiline")
     agents.register("reviewer")
     body = "the title\n  cd somewhere && run it\n\nA. second part\n 1. check this"
@@ -4610,8 +4610,8 @@ def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
 async def test_the_shared_task_view_draws_the_brief() -> None:
     """T600: TaskBody, the one view of a task, draws the brief under the badge."""
     import html, re
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("briefview")
     agents.register("reviewer")
     con = db.connect()
@@ -4647,8 +4647,8 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
     """T623 (founder #7145/#7151): the founder's reply to an agent's say names the message it answers.
     A say to him is born landed (T781), so the reply is a say of its own to the agent, with the
     message as its parent - not the verdict of a queued row."""
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("replylink")
     agents.register("reviewer")
     ok, _, said = askmod.say(actions.HUMAN, "anything for me?", requester="reviewer")
@@ -4671,8 +4671,8 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
 
 def test_the_founders_reply_to_a_report_draws_its_link() -> None:
     """T623 (founder #7738): a reply to an --fyi say, which asked nothing, names it too."""
-    from ocp.team import ask as askmod
-    from ocp.ui import chat_page as cp
+    from handline.team import ask as askmod
+    from handline.ui import chat_page as cp
     _home("replyreport")
     agents.register("reviewer")
     ok, _, said = askmod.say(actions.HUMAN, "done, FYI", requester="reviewer")
@@ -4692,7 +4692,7 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
 
 async def test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it():
     from textual.screen import Screen
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     m = {"who": "you", "when": 1, "rid": 9, "part": 0, "side": "you", "waiting": False, "replyable": True,
          "answered": False, "queued": False, "delivered": True,
          "text": "hello world again and again until the line wraps on this narrow screen"}
@@ -4750,7 +4750,7 @@ async def test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_ap
 
 
 def test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("draftdone")
     con = db.connect()
     try:
@@ -4781,8 +4781,8 @@ def test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_i
 
 async def test_the_task_page_sends_a_draft_straight_to_done_from_its_button_and_its_key() -> None:
     from textual.widgets import Button
-    from ocp.ui import chat_page as cp
-    from ocp.ui.bridge_textual import BridgeApp
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
     _home("draftdonebtn")
     for how in ("click", "x"):
         con = db.connect()
@@ -4819,7 +4819,7 @@ async def test_the_task_page_sends_a_draft_straight_to_done_from_its_button_and_
 
 
 def test_every_timeline_kind_the_task_page_can_get_is_drawn() -> None:
-    from ocp.ui import chat_page as cp
+    from handline.ui import chat_page as cp
     _home("timelinekinds")
     con = db.connect()
     try:
@@ -4840,7 +4840,7 @@ def test_the_stall_watchdog_writes_the_stacks_and_the_recovery() -> None:
     """T788: a loop silent past STALL_S is logged with every thread's stack, again each second it
     stays blocked, and once when it answers; `timed` and `crumb` leave a line; `--pid` finds no bridge."""
     import asyncio
-    from ocp.ui import stall
+    from handline.ui import stall
     home = _home("stall")
     loop = asyncio.new_event_loop()
     dog = stall.Watchdog(loop)
@@ -4867,10 +4867,10 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
     the bridge holds a lock on the file, so a file left behind (even by kill -9) or one naming a
     reused pid names no bridge (T800)."""
     import signal
-    from ocp.ui import stall
-    from ocp.ui.bridge_textual import BridgeApp
-    from ocp.ui.components.task_assign import TaskAssign
-    from ocp.cli import bridge as clibridge
+    from handline.ui import stall
+    from handline.ui.bridge_textual import BridgeApp
+    from handline.ui.components.task_assign import TaskAssign
+    from handline.cli import bridge as clibridge
     import argparse
     _home("stall_ui")
     app = BridgeApp()
@@ -4900,7 +4900,7 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
     stall._pid_fd = None
     check("stall: once the bridge's lock is gone, the file names no bridge", stall.running_pid() is None)
     child = subprocess.Popen([sys.executable, "-c", "import sys, time; sys.path.insert(0, sys.argv[1]); "
-                              "from ocp.ui import stall; stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)",
+                              "from handline.ui import stall; stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)",
                               str(ROOT)], stdout=subprocess.PIPE, text=True)
     try:
         child.stdout.readline()
@@ -4922,9 +4922,9 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
 
 def test_a_second_bridge_says_so_and_offers_to_take_over() -> None:
     _home("second_bridge")
-    from ocp.ui import stall
+    from handline.ui import stall
     stall.log_file().parent.mkdir(parents=True, exist_ok=True)
-    code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ocp.ui import stall; "
+    code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from handline.ui import stall; "
             "stall._claim_pid_file(__import__('os').getpid()); print('up', flush=True); time.sleep(60)")
 
     def old_bridge() -> subprocess.Popen:
@@ -4971,8 +4971,8 @@ def _capture_out(fn) -> "tuple[int, str]":
 def test_a_late_answer_still_counts_as_new_everywhere() -> None:
     """T835 step 4a: the answering say can land long after the request entered its state (the line was
     delivered, the answer came later). Everything that asks "what changed" reads the say's own time too."""
-    from ocp.ui import chat_page as cp
-    from ocp.team import ask as askmod
+    from handline.ui import chat_page as cp
+    from handline.team import ask as askmod
     home = _home("lateans")
     agents.register("reviewer")
     con = db.connect()
@@ -5006,7 +5006,7 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
 
 
 def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -> None:
-    from ocp.infra import protected
+    from handline.infra import protected
     _home("bang")
     check("bang: !ls is the command ls", actions.command_of("!ls -l") == "ls -l" and actions.command_of("  ! pwd ") == "pwd")
     check("bang: a bare ! or plain text is not one", actions.command_of("!") is None and actions.command_of("hi !ls") is None)
@@ -5050,7 +5050,7 @@ def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -
 
 
 async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> None:
-    from ocp.ui.components.shell_card import ShellCard
+    from handline.ui.components.shell_card import ShellCard
     from textual.widgets import Button
     _home("bangcard")
     app = bt.BridgeApp()
@@ -5090,7 +5090,7 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
 
 
 def test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays() -> None:
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _home("foryouread")
     agents.register("reviewer")
     agents.register("backend")
@@ -5120,7 +5120,7 @@ def test_for_you_is_read_away_a_line_or_all_but_what_is_owed_an_answer_stays() -
 
 
 async def test_m_and_M_on_the_for_you_panel_read_a_line_and_all() -> None:
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _home("foryoukeys")
     agents.register("reviewer")
     agents.register("backend")
@@ -5151,7 +5151,7 @@ async def test_m_and_M_on_the_for_you_panel_read_a_line_and_all() -> None:
 
 
 def test_an_agents_note_on_its_own_row_does_not_repeat_its_name() -> None:
-    from ocp.ui.components.agent_rows import agent_note
+    from handline.ui.components.agent_rows import agent_note
     check("note: a terminal that is gone says just that",
           agent_note("legacy.clearlogo", "legacy.clearlogo's terminal is gone - Orca no longer has it") == "terminal is gone")
     check("note: a name inside the sentence becomes it, and only a whole name",

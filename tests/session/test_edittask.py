@@ -12,10 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.session import edittask, stopgate  # noqa: E402
-from ocp.team import memory as memorymod  # noqa: E402
-from ocp.infra import protected  # noqa: E402
-from ocp.daemon import handoff_note as dmn_handoff_note  # noqa: E402
+from handline.session import edittask, stopgate  # noqa: E402
+from handline.team import memory as memorymod  # noqa: E402
+from handline.infra import protected  # noqa: E402
+from handline.daemon import handoff_note as dmn_handoff_note  # noqa: E402
 
 
 def _hook(event: str, agent: str = "backend", **fields) -> str:

@@ -2,7 +2,7 @@
 
 bin/ocp used to run under whichever python3 was on PATH - macOS ships one
 with PyYAML, Homebrew's has none, and the system one is externally managed,
-which is the whole reason ocp/infra/yamlcompat.py exists. This is the other side of
+which is the whole reason handline/infra/yamlcompat.py exists. This is the other side of
 that: a venv at $OCP_HOME/venv, one per machine, that every account's bin/ocp
 invocation runs under instead.
 

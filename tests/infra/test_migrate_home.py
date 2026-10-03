@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import protected  # noqa: E402
+from handline.infra import protected  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("migrate_home", ROOT / "tools" / "migrate_home.py")
 mh = importlib.util.module_from_spec(_spec)

@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from ocp.session import launch as launchmod  # noqa: E402
-from ocp.vendors.claude import Claude  # noqa: E402
-from ocp.vendors.opencode import Opencode  # noqa: E402
+from handline.session import launch as launchmod  # noqa: E402
+from handline.vendors.claude import Claude  # noqa: E402
+from handline.vendors.opencode import Opencode  # noqa: E402
 
 
 def _settings(argv: list[str]) -> list[dict]:
@@ -170,8 +170,8 @@ def test_the_sandbox_is_off_only_where_the_founder_turned_it_off(home: Path) -> 
 
 
 def test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(home: Path) -> None:
-    from ocp.daemon import sandboxlease
-    from ocp import actions
+    from handline.daemon import sandboxlease
+    from handline import actions
     _launch_world(home)
     con = db.connect()
     said = []

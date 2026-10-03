@@ -14,9 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp import actions  # noqa: E402
-from ocp.actions import conversation  # noqa: E402
-from ocp.daemon import landing  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.actions import conversation  # noqa: E402
+from handline.daemon import landing  # noqa: E402
 
 SESSION = "sess-1"
 
@@ -575,7 +575,7 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
     on an older one `ocp doctor --drop-dead-columns` first moves what a process on older code closed since
     the upgrade (an answer, a reason, a dismissal, a hold) to where the readers look, then drops them
     and marks the database, so a connect neither re-adds them nor runs the migrations that read them."""
-    from ocp.db import schema as dbschema
+    from handline.db import schema as dbschema
     _daemon_home(home, 20)
     legacy = set(dbschema._LEGACY_REQUEST_COLUMNS)
 
@@ -625,7 +625,7 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
 def test_a_database_dropped_of_the_legacy_columns_without_the_mark_still_connects(home: Path) -> None:
     """A database whose legacy request columns are gone but which was never marked (dropped by a
     doctor from before the mark) runs none of the migrations that read them, and is marked at connect."""
-    from ocp.db import schema as dbschema
+    from handline.db import schema as dbschema
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -703,7 +703,7 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
     re-adds them when it connects); `ocp doctor --drop-dead-columns` does, and two of them at once,
     or one that read the columns a moment too early, do not crash."""
     import threading
-    from ocp.db import schema as dbschema
+    from handline.db import schema as dbschema
     _daemon_home(home, 20)
     dead = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn")
 
@@ -759,10 +759,10 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
 
 def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Path) -> None:
     import argparse, io, contextlib
-    from ocp.cli import health
-    from ocp.db import schema as dbschema
-    from ocp.daemon import devmode, locks as dmn_locks
-    from ocp.ui import stall
+    from handline.cli import health
+    from handline.db import schema as dbschema
+    from handline.daemon import devmode, locks as dmn_locks
+    from handline.ui import stall
     _daemon_home(home, 20)
     code = max(f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists())
     real_pid, real_daemon = stall.running_pid, dmn_locks.running_elsewhere
@@ -827,7 +827,7 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
 
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
     _daemon_home(home, 20)
-    from ocp.team import trust as trustmod
+    from handline.team import trust as trustmod
     ok, msg = trustmod.propose(str(home / "repos" / "moot"), "needs it", requester="backend")
     pid = trustmod.listing()[0]["id"]
     ok, msg = trustmod.enact(str(home / "repos"), "the founder declares the parent")

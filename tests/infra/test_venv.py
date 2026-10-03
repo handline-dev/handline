@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import venv  # noqa: E402
+from handline.infra import venv  # noqa: E402
 
 
 def test_a_failed_pip_run_names_its_error_not_its_retries():

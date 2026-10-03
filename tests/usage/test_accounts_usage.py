@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import subscriptions  # noqa: E402
+from handline.daemon import subscriptions  # noqa: E402
 
 
 
@@ -461,7 +461,7 @@ def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: P
     percentages. The transcripts' usage is recorded one row per API call, a
     call streamed over several lines counts once, and nothing else in the
     account directory is read."""
-    from ocp.usage import tokenlog
+    from handline.usage import tokenlog
     _daemon_home(home, 20)
     now = int(time.time())
     proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
@@ -501,7 +501,7 @@ def test_each_calls_tokens_are_recorded_per_account_from_the_transcripts(home: P
               str(tot))
         con.execute("DELETE FROM token_calls")
         db.set_meta(con, "tokenoffsets:alpha", None)
-        from ocp.daemon import evaluate as dmn_evaluate
+        from handline.daemon import evaluate as dmn_evaluate
         dmn_evaluate.observe_burn(con, lambda _m: None)
         check("tokens: the daemon tick records them beside the samples",
               con.execute("SELECT COUNT(*) FROM token_calls").fetchone()[0] == 4)
@@ -1062,7 +1062,7 @@ def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home:
     """A sandboxed agent's `security` lookup answers "not found" for an item
     that exists. That is unknown, not "not logged in": only outside the
     sandbox is an absent item a refusal (T213)."""
-    from ocp.vendors import claude as claude_mod
+    from handline.vendors import claude as claude_mod
     drv = vendors.get("claude")
     cdir = home / "no-credentials"
     real_run, real_env, real_platform = claude_mod.subprocess.run, dict(os.environ), sys.platform
@@ -1082,7 +1082,7 @@ def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home:
         check("an unknown login does not refuse a launch", accounts.may_start("alpha"))
         check("but it is not reported as a login", not accounts.logged_in("alpha")
               and accounts.login_state("alpha") is None)
-        from ocp.infra import doctor as doctormod
+        from handline.infra import doctor as doctormod
         check("the listing says unknown, not yes or no",
               accounts.login_word(None) == "unknown (sandboxed)"
               and accounts.login_word(None, short=True) == "?")
@@ -5362,7 +5362,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
     marks, the roster in the bridge's own words, no record of earlier turns.
     `status` is why the pick chose what it chose, and it carries the price of
     an agent that pick rests on."""
-    from ocp.daemon import states as dmn_states
+    from handline.daemon import states as dmn_states
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     agents.register("frontend", model="opus", effort="high")

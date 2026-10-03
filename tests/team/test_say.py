@@ -205,7 +205,7 @@ edges:
     check("tail: another sender's say keeps the conditional line",
           "answer the founder" not in dmn_delivery.tell_text(con, db.get_request(con, other), 1))
     con.close()
-    from ocp.session import launch
+    from handline.session import launch
     team_text = launch._your_team("worker")
     check("your team: every agent is told, in one line, to talk to people only through ocp",
           "Talk to people only through ocp; what you write in your terminal reaches no one." in team_text

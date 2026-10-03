@@ -538,7 +538,7 @@ def test_the_bridge_says_what_an_agent_is_where_there_is_room(home: Path) -> Non
     separates two rows doing the same work at different prices. It is still
     configuration, so it gives way to what is happening now on a narrow screen.
     """
-    from ocp.team import agents as agentsmod
+    from handline.team import agents as agentsmod
     _daemon_home(home, 20)
     check("kind: model and effort, effort short enough for a column",
           agentsmod.kind({"model": "opus", "effort": "medium"}) == "opus mid")
@@ -1493,8 +1493,8 @@ def test_the_accounts_panel_says_how_many_agents_are_assigned_and_running(home: 
     """The figure is `load.roster`'s: agents living on the account (where the
     AGENTS panel's acct column puts them) and how many of those are running,
     drawn "3 ▶1". None on an account is a dim 0, a roster not read is "?"."""
-    from ocp.usage import load as loadmod
-    from ocp.daemon import states as dmn_states
+    from handline.usage import load as loadmod
+    from handline.daemon import states as dmn_states
     _daemon_home(home, 20)
     accounts.register("beta")
     accounts.register("gamma")
@@ -1649,7 +1649,7 @@ edges:
 
         # The texts an agent reads name the message model - a task for what needs an
         # answer or a result, a say for the rest - and neither of the old verbs.
-        from ocp.team import guide as guidemod
+        from handline.team import guide as guidemod
         root = Path(launch.__file__).resolve().parent.parent.parent
         for label, text in (("the manager's prompt", mgr), ("a report's prompt", dev),
                             ("the guide's work topic", guidemod.TOPICS["work"]),
@@ -2413,8 +2413,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     reading of the same text (a stray-only check would pass what the screen's
     once did). The ones that do not show it are listed, so a command that never
     displays a field cannot be mistaken for one that displays it safely."""
-    from ocp.session import fold as foldmod
-    from ocp.infra import service
+    from handline.session import fold as foldmod
+    from handline.infra import service
     poison = "\033]0;PWNED\007\033[31mMARKED\033[0m\x9b1m\033[2m"
 
     def scene(where: Path, hostile: bool) -> dict[str, str]:
@@ -2671,11 +2671,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
           "\tsecond" in dirty["read 1"] and "\tsecond" in dirty["inbox reviewer"], repr(dirty["read 1"])[:200])
     dumped = dirty["status --json"]
     seen = subprocess.run([sys.executable, "-c",
-                           f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.infra.textsafe; "
-                           "print(sorted(m for m in sys.modules if m.startswith('ocp.')))"],
+                           f"import sys; sys.path.insert(0, {str(ROOT)!r}); import handline.infra.textsafe; "
+                           "print(sorted(m for m in sys.modules if m.startswith('handline.')))"],
                           capture_output=True, text=True).stdout
     check("cli: the rule about what a terminal would obey imports no front end - only itself",
-          seen.strip() == "['ocp.infra', 'ocp.infra.textsafe']", seen.strip())
+          seen.strip() == "['handline.infra', 'handline.infra.textsafe']", seen.strip())
     check("cli: a command's json still parses, and holds no DEL or C1 byte",
           isinstance(json.loads(dumped), dict) and not re.search(r"[\x7f-\x9f]", dumped), dumped[:200])
     odd = {"k": "a\x9b31m\x7f\x85b \u2028 \u00e9 한"}
@@ -2714,13 +2714,13 @@ def test_a_module_that_returns_subprocess_text_as_a_message_imports_textsafe(hom
                       "anything an agent chose, and the least reachable of these",
     }
     named, clean = [], []
-    for f in sorted((ROOT / "ocp").rglob("*.py")):
+    for f in sorted((ROOT / "handline").rglob("*.py")):
         if f.name == "textsafe.py":
             continue
         tree = ast.parse(f.read_text())
         if not (_touches_subprocess_text(tree) and _builds_a_returned_message(tree)):
             continue
-        (clean if _imports_textsafe(tree) else named).append(str(f.relative_to(ROOT / "ocp")))
+        (clean if _imports_textsafe(tree) else named).append(str(f.relative_to(ROOT / "handline")))
     check("boundary: every module returning subprocess text as a message imports "
           "textsafe, or is exempt with a reason",
           not (set(named) - set(exempt)), str(sorted(set(named) - set(exempt))))
@@ -2980,8 +2980,8 @@ def test_every_state_the_daemon_can_write_has_a_waker() -> None:
     about. Scans the real source, not a hand-kept list of call sites, so a
     new writer added later without a WAKER entry fails this the moment it is
     added, not the moment someone remembers to update a list here too."""
-    import ocp
-    pkg_dir = Path(ocp.__file__).parent
+    import handline
+    pkg_dir = Path(handline.__file__).parent
     written: set[str] = set()
     for path in pkg_dir.rglob("*.py"):
         written |= _states_written_in(path)
@@ -3219,12 +3219,12 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
     import argparse
     import types
     calls: list[tuple] = []
-    fake = types.ModuleType("ocp.ui.bridge_textual")
+    fake = types.ModuleType("handline.ui.bridge_textual")
     fake.run = lambda once=False: calls.append("textual") or 0
     real_snapshot = tui.snapshot
     tui.snapshot = lambda: calls.append("snapshot") or "SNAP"
-    real_module = sys.modules.get("ocp.ui.bridge_textual")
-    had_module = "ocp.ui.bridge_textual" in sys.modules
+    real_module = sys.modules.get("handline.ui.bridge_textual")
+    had_module = "handline.ui.bridge_textual" in sys.modules
     had_textual = "textual" in sys.modules
     real_textual = sys.modules.get("textual")
     real_isatty = sys.stdout.isatty
@@ -3235,7 +3235,7 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
         return argparse.Namespace(**base)
 
     try:
-        sys.modules["ocp.ui.bridge_textual"] = fake
+        sys.modules["handline.ui.bridge_textual"] = fake
         sys.stdout.isatty = lambda: True
         code = clibridge.cmd_bridge(ns())
         check("bridge routing: on a terminal the default is the Textual app",
@@ -3254,7 +3254,7 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
 
         calls.clear()
         sys.stdout.isatty = lambda: True
-        del sys.modules["ocp.ui.bridge_textual"]
+        del sys.modules["handline.ui.bridge_textual"]
         sys.modules["textual"] = None
         class _Tty(io.StringIO):
             def isatty(self) -> bool:
@@ -3275,9 +3275,9 @@ def test_bridge_routing_is_textual_on_a_tty_and_text_otherwise() -> None:
         tui.snapshot = real_snapshot
         sys.stdout.isatty = real_isatty
         if had_module:
-            sys.modules["ocp.ui.bridge_textual"] = real_module
+            sys.modules["handline.ui.bridge_textual"] = real_module
         else:
-            sys.modules.pop("ocp.ui.bridge_textual", None)
+            sys.modules.pop("handline.ui.bridge_textual", None)
         if had_textual:
             sys.modules["textual"] = real_textual
         else:
@@ -3296,14 +3296,14 @@ def test_bridge_textual_missing_package_classification() -> None:
     check("missing-package: `rich` is the other one bridge_textual needs",
           clibridge._missing_bridge_package(ModuleNotFoundError(name="rich")))
     check("missing-package: an unrelated missing module is not",
-          not clibridge._missing_bridge_package(ModuleNotFoundError(name="ocp.no_such_module")))
+          not clibridge._missing_bridge_package(ModuleNotFoundError(name="handline.no_such_module")))
     check("missing-package: no name at all is not",
           not clibridge._missing_bridge_package(ModuleNotFoundError()))
 
     real_import = clibridge._import_bridge_textual
     try:
         clibridge._import_bridge_textual = lambda: (_ for _ in ()).throw(
-            ModuleNotFoundError("cannot import name 'no_such_name' from 'ocp.ui.tui'", name="ocp.ui.tui"))
+            ModuleNotFoundError("cannot import name 'no_such_name' from 'handline.ui.tui'", name="handline.ui.tui"))
         raised = False
         try:
             clibridge._bridge_textual_module()
@@ -3324,7 +3324,7 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     """`cmd_inbox`'s human route to the screen shares `_bridge_textual_module`
     with `cmd_bridge`: a terminal with no --all/--wait opens the Textual app,
     and without the package it lists the mailbox as text instead. "Missing" goes
-    through `_import_bridge_textual` (not deleting `ocp.ui.bridge_textual` from
+    through `_import_bridge_textual` (not deleting `handline.ui.bridge_textual` from
     `sys.modules`) so this passes the same way on an interpreter that
     genuinely has `textual` - deleting only the cached module there would just
     re-import the real one and actually start it, waiting on a real terminal
@@ -3332,7 +3332,7 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
     import argparse
     import types
     calls: list[tuple] = []
-    fake = types.ModuleType("ocp.ui.bridge_textual")
+    fake = types.ModuleType("handline.ui.bridge_textual")
     fake.run = lambda once=False: calls.append(("textual",)) or 0
     real_isatty, real_in_isatty = sys.stdout.isatty, sys.stdin.isatty
     sys.stdout.isatty = lambda: True

@@ -302,8 +302,8 @@ def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_th
     session and resumes it when work arrives. `ocp close --fresh` ends a live session, or forgets a
     closed one's id, so the wake starts a new conversation. And `ocp close` is the daemon's to do,
     since an agent's own sandbox cannot read the process table and called a live session "no session"."""
-    from ocp.cli import task as cli_task
-    from ocp.session import launch as launchmod
+    from handline.cli import task as cli_task
+    from handline.session import launch as launchmod
     _daemon_home(home, 20)
     con = db.connect()
     real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
@@ -374,7 +374,7 @@ def _hold_terminal_lock_elsewhere(agent: str) -> subprocess.Popen:
     holder = subprocess.Popen(
         [sys.executable, "-c",
          "import sys, time; sys.path.insert(0, %r);"
-         "from ocp.infra import lock;"
+         "from handline.infra import lock;"
          "ctx = lock.terminal(%r); print(ctx.__enter__(), flush=True);"
          "time.sleep(30)" % (str(ROOT), agent)],
         stdout=subprocess.PIPE, text=True, env=dict(os.environ))
@@ -447,8 +447,8 @@ def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home
 def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     """The daemon takes the peer pid from the kernel and accepts `land_pass` only from the process tree
     of the session recorded for the auditor."""
-    from ocp.daemon import lands
-    from ocp.infra import sessiontoken
+    from handline.daemon import lands
+    from handline.infra import sessiontoken
     _daemon_home(home, 20)
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     try:

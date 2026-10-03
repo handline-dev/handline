@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import timebox  # noqa: E402
-from ocp.session import bgjobs  # noqa: E402
+from handline.daemon import timebox  # noqa: E402
+from handline.session import bgjobs  # noqa: E402
 
 TEAM = """
 teams:
@@ -417,7 +417,7 @@ def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: P
               and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_prompted'").fetchone()[0] == 1)
         timebox.sweep(con, lambda _m: None, now + 5)
         check("forgotten: told once while the stretch goes on", len(sent) == 1, str(sent))
-        from ocp.ui import tui
+        from handline.ui import tui
         check("forgotten: the screen says it was told, so a stop is not a surprise",
               "told to finish or stop it" in tui._background_detail(con, "marina"),
               tui._background_detail(con, "marina"))

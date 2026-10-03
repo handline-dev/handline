@@ -1,4 +1,4 @@
-"""One bridge action, run in a process of its own: `python -m ocp.ui.actrun`.
+"""One bridge action, run in a process of its own: `python -m handline.ui.actrun`.
 
 The request is one JSON object on stdin - {"verb": ..., "args": [...],
 "kwargs": {...}} - and the answer is one JSON line on stdout, {"ok": bool,

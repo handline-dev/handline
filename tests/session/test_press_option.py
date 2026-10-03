@@ -10,8 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.actions import confirmations, dialogs  # noqa: E402
-from ocp.team import dialog_rules  # noqa: E402
+from handline.actions import confirmations, dialogs  # noqa: E402
+from handline.team import dialog_rules  # noqa: E402
 
 DIALOG = ["  earlier output", "▔" * 60, "   Do you want to proceed?", "   ❯ 1. Yes",
           "     2. Yes, and don't ask again", "     3. No", "   Esc to cancel"]

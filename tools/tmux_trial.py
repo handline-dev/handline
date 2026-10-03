@@ -29,10 +29,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("OCP_TERMINAL", "tmux")
 
-from ocp import db  # noqa: E402
-from ocp.daemon import locks as daemon_locks  # noqa: E402
-from ocp.session import backends, orca  # noqa: E402
-from ocp.team import spawn  # noqa: E402
+from handline import db  # noqa: E402
+from handline.daemon import locks as daemon_locks  # noqa: E402
+from handline.session import backends, orca  # noqa: E402
+from handline.team import spawn  # noqa: E402
 
 RESULTS: list[tuple[str, bool, str]] = []
 
