@@ -178,6 +178,16 @@ class Position:
         return f"{where} - {tail}" if where else tail
 
 
+def bar(pos: "Position | None", width: int = 30) -> str:
+    """Where in its month the account is, as `[      |       ]`: the marker is today within the
+    cycle, day 1 at the left edge and the last day at the right. Empty where the day is not known."""
+    if pos is None or not pos.day or not pos.length:
+        return ""
+    span = max(pos.length - 1, 1)
+    at = ((min(pos.day, pos.length) - 1) * (width - 1) + span // 2) // span
+    return "[" + " " * at + "|" + " " * (width - 1 - at) + "]"
+
+
 def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
     """Where the account is in its monthly cycle on `now`, or None when that is
     unknown: a renewing account counts months from the subscription start, so one

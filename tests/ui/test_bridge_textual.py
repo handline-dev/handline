@@ -2239,7 +2239,8 @@ async def test_settings_save_at_once_and_going_back_asks_only_about_an_unsaved_v
         await pilot.pause(0.5)
         check("account cycle: the switch saves when flipped", not cyclemod.enabled("alpha"))
         check("account cycle: off reads as renewing in the overview, from the subscription start",
-              "renews" in str(acct.query_one("#a_month").render()), str(acct.query_one("#a_month").render()))
+              "renews" in str(acct.query_one("#a_month").render())
+              and re.search(r"\[ *\| *\]", str(acct.query_one("#a_month").render())), str(acct.query_one("#a_month").render()))
         acct.query_one("#scope").active = "overview"
         await pilot.pause(0.5)
         check("account page: a logged-out account says it is left out of the graphs and forecasts",
