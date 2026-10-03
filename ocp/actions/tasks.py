@@ -645,6 +645,15 @@ def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: in
     return rid, owner, text
 
 
+# A task that ends saying one of these needs whoever waits on it now, not in a digest.
+_URGENT_RESULT = re.compile(r"^(fail(ed|ure)?|blocked|fatal)\b", re.I)
+
+
+def urgent_result(result: str | None) -> bool:
+    """Whether a task's closing words say it failed or is blocked."""
+    return bool(result and _URGENT_RESULT.match(result.strip()))
+
+
 def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str] | None:
     """T443: when a child `tid` of `dep_row`'s task ends, the task's owner is told how, whether or
     not other blockers remain - the "unblocked" notice is for the last one going, and says nothing
@@ -667,7 +676,7 @@ def _child_result_notice(con, dep_row, by: str, tid: int) -> tuple[int, str, str
     text = text.rstrip(": ")
     rid = db.add_request(con, _UNBLOCK_REQUESTER, dep_row["owner"], text, None, None,
                          "fire_and_forget", "say", 0, None,
-                         notice=True)
+                         notice=not urgent_result(child["done_evidence"]))
     db.link_request(con, dep_row["id"], rid)
     db.add_event(con, by, "child_result_told", {"task_id": dep_row["id"], "child": tid, "request_id": rid})
     return rid, dep_row["owner"], text
@@ -1045,7 +1054,7 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
         if to in skip or to not in known:
             continue
         rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
-                             notice=True)
+                             notice=not urgent_result(done_text))
         db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
         told.append((rid, to, text))
     return told

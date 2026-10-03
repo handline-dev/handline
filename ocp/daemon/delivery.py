@@ -1094,6 +1094,8 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
         # A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
         whole = head["parent_id"] is not None
+        # The task board's own lines are short but for a digest of results, which is one line each.
+        whole = whole or head["requester"] == db.NOTICE_REQUESTER and head["kind"] == "say"
         shown = body if whole or len(body) <= 400 else body[:400] + "…"
     if head["kind"] == "task":
         from ..actions import tasks as taskmod      # actions -> daemon

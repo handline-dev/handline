@@ -89,6 +89,24 @@ def cmd_idle_background(args) -> int:
     return 0
 
 
+def cmd_notice_digest(args) -> int:
+    """How long after its first waiting result an agent is woken once with a digest of them."""
+    if args.clear and not args.agent:
+        print("--clear only applies with --agent", file=sys.stderr)
+        return 1
+    try:
+        if args.clear or args.span is not None:
+            idle_close.set_notice_digest_s(None if args.clear else args.span, args.agent)
+    except Exception as e:  # noqa: BLE001
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    seconds = (idle_close.notice_digest_s(args.agent) if args.agent
+               else idle_close.config_seconds("notice_digest_s", idle_close.NOTICE_DIGEST_S))
+    print(f"{args.agent or 'default'}: results of work it opened are told in one digest "
+          f"{timefmt.ago(seconds)} after the first (sooner with any message); a failure, block or FATAL at once")
+    return 0
+
+
 def cmd_auto_accept(args) -> int:
     if args.state is not None:
         try:

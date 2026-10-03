@@ -2599,6 +2599,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "idle-background": "writes the global or a per-agent background notice and grace time; prints them - "
                            "driven in test_t424_idle_background_sets_the_notice_and_the_grace_globally_and_per_agent, "
                            "not this scene",
+        "notice-digest": "writes the global or a per-agent digest wait; prints it - driven in "
+                         "test_ocp_notice_digest_shows_and_sets_the_wait, not this scene",
         "schedule": "list is read-only, add and remove write agent.yaml (the founder's) - driven in "
                     "test_the_schedules_setting_is_validated_and_set_from_the_command_line "
                     "(tests/daemon/test_schedules.py), not this scene",

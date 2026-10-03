@@ -82,7 +82,7 @@ BG_GRACE_S = 300
 BG_CHECK_S = 600
 
 
-def _seconds_setting(agent: str, key: str, default: int) -> int:
+def seconds_setting(agent: str, key: str, default: int) -> int:
     """A positive number of seconds: the agent's own `key` in agent.yaml wins, then
     config.yaml's, then `default` - the shape `close_timeout_s` reads its own in."""
     for v in (_agent_cfg(agent).get(key), _config().get(key)):
@@ -94,24 +94,22 @@ def _seconds_setting(agent: str, key: str, default: int) -> int:
 def bg_notice_s(agent: str) -> int:
     """How long an agent with background work may show nothing before it is told to finish
     or stop it: its idle-close window unless `bg_notice_s` says otherwise."""
-    return _seconds_setting(agent, "bg_notice_s", close_timeout_s(agent))
+    return seconds_setting(agent, "bg_notice_s", close_timeout_s(agent))
 
 
 def bg_grace_s(agent: str) -> int:
     """How long after that notice its work is stopped if it still shows nothing."""
-    return _seconds_setting(agent, "bg_grace_s", BG_GRACE_S)
+    return seconds_setting(agent, "bg_grace_s", BG_GRACE_S)
 
 
 def bg_check_s(agent: str) -> int:
     """How often, while it has background work, an agent is asked which of it to stop."""
-    return _seconds_setting(agent, "bg_check_s", BG_CHECK_S)
+    return seconds_setting(agent, "bg_check_s", BG_CHECK_S)
 
 
-def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> None:
-    """One of the background times, keeping every other setting: the global one, or
-    with `agent` that agent's own (None drops it, back to the global one)."""
-    if key not in ("bg_notice_s", "bg_grace_s", "bg_check_s") or (seconds is not None and seconds <= 0):
-        raise ValueError("a background time is a positive number of seconds")
+def _set_seconds(key: str, seconds: int | None, agent: str | None) -> None:
+    """One time setting, keeping every other: the global one, or with `agent` that agent's own
+    (None drops it, back to the global one)."""
     if agent:
         cfg = agents.read(agent)
         if seconds is None:
@@ -125,6 +123,29 @@ def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> N
     cfg = load.config_for_write()
     cfg[key] = seconds
     load.write_config(cfg)
+
+
+def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> None:
+    """One of the background times, keeping every other setting."""
+    if key not in ("bg_notice_s", "bg_grace_s", "bg_check_s") or (seconds is not None and seconds <= 0):
+        raise ValueError("a background time is a positive number of seconds")
+    _set_seconds(key, seconds, agent)
+
+
+# Results told to an agent that opened work are held this long after the first, then
+# typed once as a digest; any other message to it before then carries them.
+NOTICE_DIGEST_S = 900
+
+
+def notice_digest_s(agent: str) -> int:
+    """How long after its first waiting result notice `agent` is woken once with a digest."""
+    return seconds_setting(agent, "notice_digest_s", NOTICE_DIGEST_S)
+
+
+def set_notice_digest_s(seconds: int | None, agent: str | None = None) -> None:
+    if seconds is not None and seconds <= 0:
+        raise ValueError("the digest wait is a positive number of seconds")
+    _set_seconds("notice_digest_s", seconds, agent)
 
 
 def set_close_timeout(seconds: int) -> None:

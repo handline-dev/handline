@@ -20,7 +20,7 @@ from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status,
 from .hr import cmd_hr, cmd_trust
 from .land import cmd_land
 from .schedule import cmd_schedule
-from .idle import cmd_auto_accept, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
+from .idle import cmd_auto_accept, cmd_notice_digest, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
@@ -390,6 +390,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its overrides and follow the global settings again")
     p.set_defaults(fn=cmd_idle_background)
+
+    p = sub.add_parser("notice-digest", help="show or set how long after its first waiting result an agent "
+                       "that opened work is woken once with a digest of them")
+    p.add_argument("span", type=span_arg, nargs="?", default=None, metavar="SPAN",
+                   help="a wait like 15m; omit to show the current value")
+    p.add_argument("--agent", default=None,
+                   help="set only this agent's own override, instead of the global default")
+    p.add_argument("--clear", action="store_true",
+                   help="with --agent, drop its override and follow the global setting again")
+    p.set_defaults(fn=cmd_notice_digest)
 
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "
                        "a session past its prompt cache's expiry instead of starting fresh (T52)")
