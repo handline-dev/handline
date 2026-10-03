@@ -172,6 +172,9 @@ def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
     return why
 
 
+DIALOG_STALL = "cannot get past a dialog"
+
+
 def _stalled_on_dialog(con, agent: str, why: str, log) -> bool:
     """A dialog ocp cannot get past, standing as long as a block takes to be
     raised with the founder, stops the agent: it is reported with the reason
@@ -179,8 +182,8 @@ def _stalled_on_dialog(con, agent: str, why: str, log) -> bool:
     since = db.get_cursor(con, f"dialog_since:{agent}")
     if not since or int(time.time()) - since < blocked.DECISION_AFTER_S:
         return False
-    db.set_agent_state(con, agent, STALLED, detail=f"cannot get past a dialog: {why}")
-    log(f"  {agent}: STALLED - cannot get past a dialog: {why}")
+    db.set_agent_state(con, agent, STALLED, detail=f"{DIALOG_STALL}: {why}")
+    log(f"  {agent}: STALLED - {DIALOG_STALL}: {why}")
     return True
 
 
@@ -1094,8 +1097,7 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
         body = textsafe.oneline(head["body"] or "").strip() or "(empty)"
         # A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
         whole = head["parent_id"] is not None
-        # The task board's own lines are short but for a digest of results, which is one line each.
-        whole = whole or head["requester"] == db.NOTICE_REQUESTER and head["kind"] == "say"
+        whole = whole or head["requester"] == db.NOTICE_REQUESTER and body.startswith(db.DIGEST_HEAD)
         shown = body if whole or len(body) <= 400 else body[:400] + "…"
     if head["kind"] == "task":
         from ..actions import tasks as taskmod      # actions -> daemon

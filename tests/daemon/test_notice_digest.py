@@ -79,6 +79,52 @@ def test_results_wait_then_arrive_in_one_digest(home: Path) -> None:
         con.close()
 
 
+def test_a_tell_that_raises_does_not_build_a_second_digest(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        _finish(con, "PASS one")
+        first = int(_notices(con)[0]["landed_at"])
+        real = noticedigest.messaging.tell_now
+
+        def boom(*a, **k):
+            raise RuntimeError("wake failed")
+        noticedigest.messaging.tell_now = boom
+        try:
+            try:
+                noticedigest.sweep(con, lambda _m: None, first + idle_close.NOTICE_DIGEST_S)
+            except RuntimeError:
+                pass
+        finally:
+            noticedigest.messaging.tell_now = real
+        noticedigest.sweep(con, lambda _m: None, first + idle_close.NOTICE_DIGEST_S + 5)
+        digests = con.execute("SELECT * FROM requests WHERE requester = 'task-board' AND notice IS NULL "
+                              "AND body LIKE ?", (db.DIGEST_HEAD + "%",)).fetchall()
+        check("digest: the tell raised, the digest stays queued once and the results are marked, not re-sent",
+              len(digests) == 1 and not db.pending_notices(con, "backend"), str([dict(r)["id"] for r in digests]))
+        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
+        check("digest: and the tick types the queued one", len(sent) == 1 and "PASS one" in sent[0][1], str(sent))
+    finally:
+        con.close()
+
+
+def test_only_a_digest_is_shown_whole_when_typed(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        long = "x" * 700
+        rid = db.add_request(con, db.NOTICE_REQUESTER, "backend", f"T9 done by worker: FAIL {long}", None, None,
+                             "fire_and_forget", "say", 0, None)
+        cut = dmn_delivery.tell_text(con, db.get_request(con, rid), 1)
+        check("whole: a task-board line that is not a digest is cut as before", long not in cut and "…" in cut, cut)
+        rid = db.add_request(con, db.NOTICE_REQUESTER, "backend", f"{db.DIGEST_HEAD}1 result: {long}", None, None,
+                             "fire_and_forget", "say", 0, None)
+        whole = dmn_delivery.tell_text(con, db.get_request(con, rid), 1)
+        check("whole: a digest is shown whole", long in whole, whole[:200])
+    finally:
+        con.close()
+
+
 def test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothing_left(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -126,6 +172,12 @@ def test_an_agent_going_fatal_is_told_once_to_whoever_waits_on_it(home: Path) ->
         db.set_agent_state(con, "worker", dmn_states.STALLED, detail="again")
         noticedigest.sweep(con, lambda _m: None, int(time.time()))
         check("fatal: a new spell is told again", len(sent) == 2 and "again" in sent[1][1], str(sent))
+        db.set_agent_state(con, "worker", dmn_states.IDLE)
+        noticedigest.sweep(con, lambda _m: None, int(time.time()))
+        db.set_agent_state(con, "worker", dmn_states.STALLED, detail=f"{dmn_delivery.DIALOG_STALL}: a prompt")
+        noticedigest.sweep(con, lambda _m: None, int(time.time()))
+        check("fatal: a stall on a dialog is called stalled, not FATAL",
+              len(sent) == 3 and "worker is stalled: cannot get past a dialog" in sent[2][1], str(sent))
     finally:
         con.close()
 
@@ -187,6 +239,8 @@ def test_ocp_notice_digest_shows_and_sets_the_wait(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_results_wait_then_arrive_in_one_digest(Path(td) / 'n0'))
+        run(lambda: test_a_tell_that_raises_does_not_build_a_second_digest(Path(td) / 'n7'))
+        run(lambda: test_only_a_digest_is_shown_whole_when_typed(Path(td) / 'n8'))
         run(lambda: test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothing_left(Path(td) / 'n1'))
         run(lambda: test_a_failure_or_a_block_is_told_at_once_not_held(Path(td) / 'n2'))
         run(lambda: test_an_agent_going_fatal_is_told_once_to_whoever_waits_on_it(Path(td) / 'n3'))

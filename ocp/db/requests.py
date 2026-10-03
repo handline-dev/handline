@@ -12,6 +12,8 @@ from .schema import EVENT_REQUEST
 HUMAN = "human"
 # The requester of a notice from the task board ("T<n> done by X", a child's result): see `add_request`.
 NOTICE_REQUESTER = "task-board"
+# What a digest of results opens with: the one task-board say that is shown whole when typed.
+DIGEST_HEAD = "Result digest - "
 
 
 # What a request closed with, as text: the say that answered it (its `settles` row), else the reason
