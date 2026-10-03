@@ -3606,6 +3606,45 @@ def test_account_add_login_preflight_names_the_actual_blocker(home: Path) -> Non
         sys.stdin = real_stdin
 
 
+def test_an_accounts_email_is_asked_once_per_login(home: Path) -> None:
+    """The email is not looked up live each time. It is kept against the
+    login's id, shown from the record, and asked again only for a login the record has
+    not seen."""
+    use_home(home)
+    accounts.register("alpha")
+    cdir = vendors.config_dir("alpha")
+    cdir.mkdir(parents=True, exist_ok=True)
+    cj = cdir / ".claude.json"
+    cj.write_text(json.dumps({"oauthAccount": {"accountUuid": "0f8fad5b-d9cb-469f-a165-70867728950e"}}))
+    asked: list[str] = []
+    who = {"now": "user@example.com"}
+    orig = accounts.identity
+    try:
+        accounts.identity = lambda a: (asked.append(a), who["now"])[1]
+        check("email: the first display asks", accounts.email("alpha") == "user@example.com" and asked == ["alpha"], str(asked))
+        check("email: the second shows the record and asks nothing",
+              accounts.email("alpha") == "user@example.com" and asked == ["alpha"], str(asked))
+        kept = (paths.account_dir("alpha") / "identity.json").read_text()
+        check("email: the record holds the fingerprint and the email, not the account id",
+              "0f8fad5b" not in kept and "user@example.com" in kept, kept)
+        who["now"] = "other@example.com"
+        cj.write_text(json.dumps({"oauthAccount": {"accountUuid": "11111111-2222-3333-4444-555555555555"}}))
+        check("email: a login with another id is asked again and shown",
+              accounts.email("alpha") == "other@example.com" and asked == ["alpha", "alpha"], str(asked))
+        check("email: and then kept for that one", accounts.email("alpha") == "other@example.com" and len(asked) == 2)
+        cj.unlink()
+        check("email: an account with no id to key it is asked every time, as before",
+              accounts.email("alpha") == "other@example.com" and len(asked) == 3
+              and accounts.email("alpha") and len(asked) == 4, str(asked))
+        accounts.identity = lambda a: None
+        cj.write_text(json.dumps({"oauthAccount": {"accountUuid": "99999999-2222-3333-4444-555555555555"}}))
+        check("email: an answer claude cannot give is not recorded as one",
+              accounts.email("alpha") is None
+              and "9999" not in (paths.account_dir("alpha") / "identity.json").read_text())
+    finally:
+        accounts.identity = orig
+
+
 def test_a_second_name_for_one_login_is_caught(home: Path) -> None:
     """Two accounts on one Anthropic login are one usage limit under two
     names, and their two copies of the credential invalidate each other."""
@@ -4079,6 +4118,7 @@ def main() -> int:
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))
+        run(lambda: test_an_accounts_email_is_asked_once_per_login(Path(td) / 'acctemail'))
         run(lambda: test_a_second_name_for_one_login_is_caught(Path(td) / 'acctsame'))
     return run_area(tests)
 

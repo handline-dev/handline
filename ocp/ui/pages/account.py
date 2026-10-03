@@ -50,7 +50,7 @@ class AccountPage(AccountActions, Screen):
     def __init__(self, name: str) -> None:
         super().__init__(classes="chat_page")     # the task page's styles (chat_page.tcss)
         self.account = name
-        self.email: str | None = None       # asked of the vendor once: it is a subprocess
+        self.email: str | None = None       # the stored one, asked of the vendor when none is kept
         self.facts: dict | None = None
         self._recover_shown = True          # what it last drew from the config
         self._cycle_shown = False
@@ -105,7 +105,7 @@ class AccountPage(AccountActions, Screen):
         self.run_worker(self._ask_email, thread=True, exclusive=True, group="email")
 
     def _ask_email(self) -> None:
-        self.email = accounts.identity(self.account) or "unknown"
+        self.email = accounts.email(self.account) or "unknown"
         self.app.call_from_thread(self._load)
 
     # ------------------------------------------------------------------ drawing
