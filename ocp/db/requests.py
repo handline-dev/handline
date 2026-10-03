@@ -322,6 +322,20 @@ def pending_notices(con, target: str):
         "AND delivered_at IS NULL ORDER BY id", (target,)).fetchall()
 
 
+def agents_with_notices(con) -> list[tuple[str, int]]:
+    """(target, when its oldest unshown notice landed) for every agent that has one waiting."""
+    return [(r[0], int(r[1])) for r in con.execute(
+        "SELECT target, MIN(landed_at) FROM requests WHERE notice = 1 AND state = 'landed' "
+        "AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", (HUMAN,))]
+
+
+def mark_notices_digested(con, ids: list[int]) -> None:
+    """These notices went out in one digest message, not each on its own."""
+    now = int(time.time())
+    con.executemany("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) "
+                    "WHERE id = ? AND notice = 1 AND state = 'landed'", [(now, int(i)) for i in ids])
+
+
 def mark_notices_shown(con, ids: list[int], session: str | None) -> None:
     """These notices went out inside a typed delivery to `session`."""
     now = int(time.time())

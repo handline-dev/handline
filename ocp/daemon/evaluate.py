@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -525,6 +525,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
         taskholds.sweep(con, log, now)
     except Exception as e:  # noqa: BLE001 - a reason not recorded is recorded on the next tick
         log(f"  task holds: {type(e).__name__}: {e}")
+    try:
+        noticedigest.sweep(con, log, now)
+    except Exception as e:  # noqa: BLE001 - a digest not sent is sent on a later tick
+        log(f"  notice digest: {type(e).__name__}: {e}")
     try:
         lands.sweep(con, log)
     except Exception as e:  # noqa: BLE001 - a land not started is tried again, not the tick's failure
