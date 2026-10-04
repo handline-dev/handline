@@ -169,88 +169,63 @@ def test_the_sandbox_is_off_only_where_the_founder_turned_it_off(home: Path) -> 
           Opencode().launch_argv("/x/o", None, "high", "A", [], None, sandbox=False) == ["/x/o"])
 
 
-def test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(home: Path) -> None:
-    from handline.daemon import sandboxlease
+def test_the_sandbox_stays_off_across_sessions_until_turned_on(home: Path) -> None:
+    import importlib.util
     from handline import actions
+    from handline.infra import protected
+    from handline.team import agent_settings
     _launch_world(home)
     con = db.connect()
-    said = []
 
     def record_launch() -> None:
         """What `hl launch` records for the session it starts."""
         db.set_launch_fingerprint(con, "backend", launchmod.fingerprint("backend"),
                                   json.dumps(launchmod.launch_record("backend")))
-        time.sleep(0.01)                     # the next launch has its own stamp
         if db.get_agent_state(con, "backend")["closed_at"]:
             db.clear_closed(con, "backend")
 
-    def off() -> bool:
-        return not launchmod.sandbox_on("backend", agents.read("backend"), con)
+    def unsandboxed() -> bool:
+        return any(x.get("sandbox", {}).get("enabled") is False for x in _settings(launchmod.build("backend")[0]))
     try:
-        record_launch()                      # a session running with the sandbox on
+        check("off: nothing in the daemon ends it with a session any more",
+              importlib.util.find_spec("handline.daemon.sandboxlease") is None)
         agents.register("backend", sandbox=False)
-        sandboxlease.sweep(con, said.append)
-        check("lease: given while a session runs sandboxed it waits for the session that takes it",
-              agents.sandbox_lease("backend") == "granted" and off(), str(said))
-        record_launch()                      # the restart that applies it: launched with it off
-        sandboxlease.sweep(con, said.append)
-        check("lease: once a session is up with it off, the lease is active",
-              agents.sandbox_lease("backend") == "active" and off() and said, str(said))
-        sandboxlease.sweep(con, said.append)
-        check("lease: it stays for the whole session", agents.sandbox_lease("backend") == "active"
-              and agents.read("backend").get("sandbox") is False)
+        record_launch()
+        check("off: a session launched with it is without the sandbox", unsandboxed()
+              and launchmod.fingerprint_parts("backend")["sandbox"] == launchmod.SANDBOX_OFF_PART)
         db.set_closed(con, "backend", "sess-1")
-        check("lease: the moment the session is closed a launch is sandboxed again, before any sweep",
-              not off() and all("enabled" not in x.get("sandbox", {}) for x in _settings(launchmod.build("backend")[0])))
-        sandboxlease.sweep(con, said.append)
-        check("lease: and the sweep ends it: no key, no lease",
-              agents.sandbox_lease("backend") is None and "sandbox" not in agents.read("backend"))
-        # The order that let a lease outlive its session: active, closed, woken, and only then the sweep.
-        agents.register("backend", sandbox=True)
-        agents.register("backend", sandbox=False)
-        db.clear_closed(con, "backend")
-        record_launch()
-        sandboxlease.sweep(con, said.append)
-        check("lease: a second lease is active on its own launch", agents.sandbox_lease("backend") == "active")
+        check("off: the session ends and the next launch is still without it",
+              unsandboxed() and agents.read("backend")["sandbox"] is False and agents.sandbox_off_granted("backend"))
+        record_launch()                      # the wake
         db.set_closed(con, "backend", "sess-2")
-        argv = launchmod.build("backend")[0]        # the wake: launched while the close is recorded
-        check("lease: the wake is sandboxed", all("enabled" not in x.get("sandbox", {}) for x in _settings(argv)))
-        record_launch()                              # ...its launch is recorded, and the close cleared
-        before = launchmod.fingerprint_parts("backend")["sandbox"]
-        sandboxlease.sweep(con, said.append)
-        check("lease: the sweep that comes after the wake still ends it",
-              agents.sandbox_lease("backend") is None and "sandbox" not in agents.read("backend"), str(said[-2:]))
-        check("lease: and the new session's recipe is the sandboxed one, so nothing restarts it",
-              launchmod.fingerprint_parts("backend")["sandbox"] == before != launchmod.SANDBOX_OFF_PART
-              and json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"] == before)
-        agents.register("backend", sandbox=False)
-        sandboxlease.sweep(con, said.append)
-        check("lease: and the next launch asked for off starts from a fresh grant",
-              agents.sandbox_lease("backend") == "granted")
-        agents.register("backend", sandbox=True)
-        # Given while the agent is closed, it waits for the session that comes next.
-        agents.register("backend", sandbox=False)
-        sandboxlease.sweep(con, said.append)
-        check("lease: given to a closed agent it is kept for its next session",
-              agents.sandbox_lease("backend") == "granted" and off())
-        check("lease: and that launch is the one without a sandbox",
-              any(x.get("sandbox", {}).get("enabled") is False for x in _settings(launchmod.build("backend")[0])))
-        record_launch()
-        sandboxlease.sweep(con, said.append)
+        db.clear_closed(con, "backend")
+        check("off: and so is every one after, with the same recipe",
+              unsandboxed() and launchmod.fingerprint_parts("backend")["sandbox"] == launchmod.SANDBOX_OFF_PART
+              and json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"] == launchmod.SANDBOX_OFF_PART)
+        protected.put("sandbox_off", "backend", "active:1700000000.0")    # a store written by the one-session lease
+        check("off: a grant from the one-session lease keeps it off", not agents.sandbox_on("backend", agents.read("backend")))
         ok, msg = actions.sandbox_back_on("backend")
-        check("lease: turning it back on is at once: key and lease gone",
-              ok and agents.sandbox_lease("backend") is None and "sandbox" not in agents.read("backend"), msg)
+        check("on: the button's call turns it on at once: key and grant gone",
+              ok and not agents.sandbox_off_granted("backend") and "sandbox" not in agents.read("backend")
+              and not unsandboxed(), msg)
         ok, msg = actions.sandbox_back_on("backend")
-        check("lease: and asking again says it is already on", ok and "already on" in msg, msg)
-        check("lease: the running session's recipe now differs, so an idle sweep restarts it sandboxed",
+        check("on: and asking again says it is already on", ok and "already on" in msg, msg)
+        check("on: the running session's recipe now differs, so an idle sweep restarts it sandboxed",
               launchmod.fingerprint_parts("backend")["sandbox"] != launchmod.SANDBOX_OFF_PART)
+        agents.register("backend", sandbox=False)
+        ok, msg = agent_settings.set_values("backend", {"sandbox": "on"})
+        check("on: the agent settings switch turns it on too", ok and agents.sandbox_on("backend", agents.read("backend"))
+              and not agents.sandbox_off_granted("backend"), msg)
+        agents.register("backend", sandbox=False)
+        db.set_closed(con, "backend", "sess-3")
+        check("off: given to a closed agent it is off for the launch that wakes it", unsandboxed())
     finally:
         con.close()
 
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_the_sandbox_leave_lasts_one_session_and_can_be_ended_at_once(Path(td) / 'a5'))
+        run(lambda: test_the_sandbox_stays_off_across_sessions_until_turned_on(Path(td) / 'a5'))
         run(lambda: test_an_agent_starts_in_the_mode_it_is_set_to(Path(td) / 'a3'))
         run(lambda: test_the_sandbox_is_off_only_where_the_founder_turned_it_off(Path(td) / 'a4'))
         run(lambda: test_the_claude_driver_asks_for_auto_mode_and_names_what_is_trusted(Path(td) / 'a0'))

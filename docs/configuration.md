@@ -71,8 +71,8 @@ agent is on is not in this file. The daemon records it, and `hl agent move` chan
 Two more are the founder's to change, with `hl agent set <agent> mode=<m>` or `sandbox=off|on`
 (an agent that asks goes through HR). `mode` is Claude's permission mode: `default`, `auto` (the
 default), `acceptEdits`, `plan`, or `bypass`, which is `skip_permissions`. `sandbox: off` starts
-the agent's next session without Claude's sandbox and lasts only that session: it goes back on when
-the session ends, or at once with `hl agent set <agent> sandbox=on`.
+the agent's next session without Claude's sandbox, and every session after it, until
+`hl agent set <agent> sandbox=on`.
 
 ## ROLE.md and base.md
 
