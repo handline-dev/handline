@@ -157,6 +157,7 @@ def cost_chart(days: list[str], stacked: dict[str, dict[str, float]], labels: li
 class OutlookView(Vertical):
     can_focus = True
     BINDINGS = [Binding("r", "range", "range"), Binding("v", "view", "view"),
+                Binding("backspace", "cost_back", "teams", show=False),
                 Binding("question_mark", "key_help", "keys")]
     DEFAULT_CSS = """
     OutlookView { height: 1fr; padding: 0 1; }
@@ -179,10 +180,12 @@ class OutlookView(Vertical):
         self.days = "14d"
         self.per_day: dict[str, dict[str, float]] = {}
         self.cost_pick: str | None = None
+        self.cost_team: str | None = None      # the team the bars are drilled into, None for the team level
         self._now = int(time.time())
 
     def _keys(self) -> list[Key]:
         return [Key("v", "view", 1, "switch between the session left and the cost per day"),
+                Key("backspace", "teams", 2, "cost view: back from a team's agents to the teams"),
                 Key("r", "range", 1, "step through the date range: 12h, 24h, 3d, 7d, 14d (cost view: 7d, 14d, 30d)"),
                 *([Key("esc", "back", 1, "back")] if self.back else [])]
 
@@ -259,36 +262,60 @@ class OutlookView(Vertical):
             table.move_cursor(row=min(keep, len(self.uses) - 1), scroll=False)
         self._draw()
 
+    def _series(self) -> dict[str, dict[str, float]]:
+        """The days' cost by what the bars stack: the teams, or the agents of the team drilled into."""
+        return stats.by_team(self.per_day, self.cost_team)
+
+    def _colour(self, key: str) -> str | None:
+        """The colour a table row shows: a team's at the team level, an agent's inside its drilled team,
+        and a leaf's own at the team level is its team's."""
+        top = colours_of(stats.stack_agents(self._series())[0])
+        if key.startswith("grp:"):
+            return None if self.cost_team == key[4:] else top.get(key[4:], OTHER_COLOUR)
+        team = stats.team_of(key)
+        if self.cost_team is not None:
+            return top.get(key, OTHER_COLOUR) if team == self.cost_team else None
+        return top.get(team, OTHER_COLOUR)
+
     def _apply_cost(self, per_day: dict, now: int) -> None:
         self.per_day = per_day
         self._now = now
-        totals: dict[str, float] = {}
-        for per in per_day.values():
-            for agent, c in per.items():
-                totals[agent] = totals.get(agent, 0.0) + c
-        everyone = sum(totals.values())
-        labels, _ = stats.stack_agents(per_day)
-        colours = colours_of(labels)
+        tree = stats.cost_tree(per_day)
+        everyone = sum(c for key, _, depth, c in tree if depth == 0)
+        if self.cost_team not in {k[4:] for k, *_ in tree if k.startswith("grp:")}:
+            self.cost_team = None
         table = self.query_one("#cost_table", DataTable)
         keep = table.cursor_row
         rows = []
-        for agent in sorted(totals, key=lambda a: (-totals[a], a)):
-            swatch = Text("■ ", style=colours.get(agent, OTHER_COLOUR))
-            swatch.append(textsafe.oneline(agent))
-            rows.append((agent, (swatch, Text(f"${totals[agent]:.2f}", justify="right"),
-                                 Text(f"{totals[agent] / everyone * 100:.0f}%" if everyone else "-", justify="right"))))
-        if self.cost_pick not in totals:
+        for key, label, depth, cost in tree:
+            colour = self._colour(key)
+            name = Text("  └ " if depth else "", style="dim")
+            if colour:
+                name.append("■ ", style=colour)
+            name.append(textsafe.oneline(label), style="" if depth else "bold")
+            rows.append((key, (name, Text(f"${cost:.2f}", justify="right"),
+                               Text(f"{cost / everyone * 100:.0f}%" if everyone else "-", justify="right"))))
+        if self.cost_pick not in {k for k, *_ in tree}:
             self.cost_pick = None
         if sync_rows(table, rows) and rows:
             table.move_cursor(row=min(keep, len(rows) - 1), scroll=False)
         self._draw()
 
+    def action_cost_back(self) -> None:
+        if self.mode == "cost" and (self.cost_team or self.cost_pick):
+            self.cost_team = self.cost_pick = None
+            self._apply_cost(self.per_day, self._now)
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
         if event.row_key.value is not None and event.data_table.id == "cost_table":
-            agent = str(event.row_key.value)
-            self.cost_pick = None if self.cost_pick == agent else agent
-            self._draw()
+            key = str(event.row_key.value)
+            if key.startswith("grp:"):       # a team: its agents become the bars; again, back to the teams
+                self.cost_team = None if self.cost_team == key[4:] else key[4:]
+                self.cost_pick = None
+            else:
+                self.cost_pick = None if self.cost_pick == key else key
+            self._apply_cost(self.per_day, self._now)
         elif event.row_key.value is not None:
             agent = str(event.row_key.value)
             self.picked = None if self.picked == agent else agent
@@ -302,17 +329,23 @@ class OutlookView(Vertical):
     def _draw_cost(self) -> None:
         width = self.size.width - 2
         height = max(4, min(HEIGHT, (self.size.height - 11) // 2))
-        labels, stacked = stats.stack_agents(self.per_day)
+        series = self._series()
+        labels, stacked = stats.stack_agents(series)
         colours = colours_of(labels)
         days = self._days()
-        total = sum(sum(v.values()) for v in self.per_day.values())
+        total = sum(sum(v.values()) for v in series.values())
         title = Text.assemble(("COST PER DAY  ", "bold"), (f"${total:.2f} at list price over {self.days}", "dim"))
+        if self.cost_team:
+            title.append_text(Text.assemble(("   ", ""), (textsafe.oneline(self.cost_team), "bold"),
+                                            (" - its agents (backspace: the teams)", "dim")))
         if self.cost_pick:
-            mine = {d: {self.cost_pick: per.get(self.cost_pick, 0.0)} for d, per in self.per_day.items()}
-            stacked, labels = mine, [self.cost_pick]
-            colours = {self.cost_pick: colours_of(stats.stack_agents(self.per_day)[0]).get(self.cost_pick, OTHER_COLOUR)}
-            title.append_text(Text.assemble(("   ", ""), (textsafe.oneline(self.cost_pick), colours[self.cost_pick] + " bold"),
-                                            (f" ${sum(m[self.cost_pick] for m in mine.values()):.2f}", "dim")))
+            own = self.cost_pick
+            shown = stats.team_of(own) if self.cost_team is None else own
+            mine = {d: {own: per.get(own, 0.0)} for d, per in self.per_day.items()}
+            colour = colours.get(shown, OTHER_COLOUR)
+            stacked, labels, colours = mine, [own], {own: colour}
+            title.append_text(Text.assemble(("   ", ""), (textsafe.oneline(own), colour + " bold"),
+                                            (f" ${sum(m[own] for m in mine.values()):.2f}", "dim")))
         legend = Text()
         for l in labels:
             legend.append("■ ", style=colours[l])
@@ -322,8 +355,8 @@ class OutlookView(Vertical):
             cost_chart(days, stacked, labels, colours, width, height) if width > 0 else Text(""))
         self.query_one("#outlook_legend", Static).update(legend)
         self.query_one("#outlook_note", Static).update(
-            "one bar per day, each agent its colour (the top seven, the rest grey 'other') · Enter on an agent: its days · "
-            "cost is the list price of the token log, not what the plan charged")
+            "one bar per day, one colour per team (the top seven, the rest grey 'other') · Enter on a team: its agents, "
+            "on an agent: its days · cost is the list price of the token log, not what the plan charged")
 
     def _draw(self) -> None:
         if self.mode == "cost":
