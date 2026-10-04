@@ -145,6 +145,34 @@ def test_the_weekly_outlook_averages_accounts_and_restores_at_reset() -> None:
     check("outlook: no samples, no points", not flat.past and not flat.future and flat.accounts == 0)
 
 
+def test_an_account_that_ends_steps_the_forecast_down_by_its_share() -> None:
+    from handline.usage import outlook
+    _home("outlook-ends")
+    con = db.connect()
+    try:
+        now = 1_800_000_000
+        for h in range(24, -1, -1):
+            _week_sample(con, "alpha", now - h * 3600, 50, now + 3 * 86400)
+            _week_sample(con, "beta", now - h * 3600, 50, now + 3 * 86400)
+        con.commit()
+        rows = db.usage_samples(con)
+    finally:
+        con.close()
+    end = now + 6 * 3600
+    o = outlook.weekly_outlook(rows, now, 24, {"alpha": end})
+    future = dict(o.future)
+    before = [v for t, v in o.future if t < end]
+    after = [v for t, v in o.future if t > end]
+    check("outlook ends: before the end both accounts count, 50% left", before and all(v == 50 for v in before), str(before[:3]))
+    check("outlook ends: after it the line is 25, the ended account's share gone, not the other's 50",
+          after and all(v == 25 for v in after), str(after[:3]))
+    check("outlook ends: looking back, nothing changes", o.past[-1][1] == 50)
+    renewing = outlook.weekly_outlook(rows, now, 24, {})
+    check("outlook ends: with no end it stays at 50", all(v == 50 for _, v in renewing.future))
+    gone = outlook.weekly_outlook(rows, now, 24, {"alpha": now - 3600})
+    check("outlook ends: one that ended already is not in the average at all", all(v == 50 for _, v in gone.future if v is not None))
+
+
 def test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up() -> None:
     from handline.ui.components.outlook_view import chart
     from handline.usage.outlook import Outlook
@@ -5244,6 +5272,7 @@ async def _run_all() -> None:
     test_key_guide_keeps_the_high_ranks_on_one_line_and_ends_with_a_question_mark()
     test_key_guide_never_keeps_a_lower_rank_while_a_higher_one_is_left_out()
     test_the_weekly_outlook_averages_accounts_and_restores_at_reset()
+    test_an_account_that_ends_steps_the_forecast_down_by_its_share()
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
     test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()

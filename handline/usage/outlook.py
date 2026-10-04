@@ -136,7 +136,9 @@ def weekly_outlook(rows, now: int, hours: int = 24, ends: dict[str, float] | Non
     """`rows` are `usage_samples` rows (any accounts, oldest first). The value is the
     headroom left of the week, in percent, averaged over the accounts that have a reading.
     `ends` is when an account that ends this month stops (`cycle.end_of`): its last week
-    is cut there and it is not counted after it; the weeks of one that renews go on."""
+    is cut there. Looking back it is not counted once it has ended; looking ahead it stays
+    in the average with nothing left after its end, so the line steps down by its share.
+    The weeks of one that renews go on."""
     by: dict[str, list] = {}
     for r in rows:
         w = _week(r)
@@ -148,10 +150,14 @@ def weekly_outlook(rows, now: int, hours: int = 24, ends: dict[str, float] | Non
     step = max(900, hours * 3600 * 2 // POINTS)
     grid = range(now - hours * 3600, now + hours * 3600 + 1, step)
     paces = {a: _pace(s) for a, s in by.items()}
+    ends = ends or {}
+    ahead = [a for a, s in by.items() if now - s[-1][0] <= MAX_AGE_S and not (a in ends and now >= ends[a])]
     for t in grid:
         left = []
         for a, series in by.items():
-            if a in (ends or {}) and t >= ends[a]:
+            if a in ends and t >= ends[a]:
+                if t > now and a in ahead:
+                    left.append(0.0)        # a capacity that is gone, not an account that is
                 continue
             if t <= now:
                 s = _at(series, t)
@@ -168,5 +174,5 @@ def weekly_outlook(rows, now: int, hours: int = 24, ends: dict[str, float] | Non
                     used = used + paces[a] * (t - now)
                 left.append(100 - min(100.0, used))
         (out.past if t <= now else out.future).append(
-            (t, sum(left) / len(left) if left else None))
+            (t, sum(left) / (len(ahead) if t > now else len(left)) if left else None))
     return out

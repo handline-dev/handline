@@ -40,7 +40,7 @@ def test_the_cycle_settings_read_and_default_to_off(home: Path) -> None:
     check("cycle: the end date reads", cycle.end_date("a") == dt.date(2026, 10, 22)
           and cycle.end_date("d") == dt.date(2026, 11, 5))
     check("cycle: on with no date has no end", cycle.end_date("b") is None and cycle.end_of("b") is None)
-    check("cycle: a date without the switch is ignored", cycle.end_date("c") is None)
+    check("cycle: a date counts where the switch was never written", cycle.end_date("c") == dt.date(2026, 10, 22))
     check("cycle: the account is usable through its last day, and out from the next midnight",
           cycle.end_of("a") == local_midnight_after("2026-10-22"))
     write_cfg("month_cycle_a: true\nsub_end_a: not-a-date\n")
@@ -556,6 +556,17 @@ def test_turning_the_cycle_on_fixes_its_end_at_the_anniversary_ahead(home: Path)
         cycle.time = real
 
 
+def test_a_typed_end_counts_without_the_switch_unless_it_was_turned_off(home: Path) -> None:
+    use_home(home)
+    write_profile("a", {"subscriptionCreatedAt": "2026-03-30T06:00:00Z"})
+    write_cfg('sub_end_a: "2026-12-24"\n')
+    check("typed end: with no switch written the end counts", cycle.end_date("a") == dt.date(2026, 12, 24))
+    write_cfg('month_cycle_a: false\nsub_end_a: "2026-12-24"\n')
+    check("typed end: turned off it is kept but is not an end", cycle.end_date("a") is None)
+    write_cfg("")
+    check("typed end: no switch and no end is no end, whatever the profile says", cycle.end_date("a") is None)
+
+
 def test_two_writers_never_share_a_temp_file(home: Path) -> None:
     use_home(home)
     f = home / "x.txt"
@@ -738,8 +749,8 @@ def test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_r
     t_before = max(t for t, _ in both.future if t < cut)
     t_after = min(t for t, _ in both.future if t >= cut)
     check("outlook: before its end the account is counted as it was", at(ends, t_before) == at(both, t_before))
-    check("outlook: from its end it is not counted (only the renewing one is left, 80% headroom)",
-          at(ends, t_after) == 80 and at(both, t_after) == 60, (at(ends, t_after), at(both, t_after)))
+    check("outlook: from its end it adds nothing and is still in the count (80% and 0 of two is 40)",
+          at(ends, t_after) == 40 and at(both, t_after) == 60, (at(ends, t_after), at(both, t_after)))
     check("outlook: a renewing account (no end) is counted to the end of the range",
           dict(outlook.weekly_outlook(rows, now, 24, {}).future)[max(t for t, _ in both.future)] == 60)
 
@@ -763,6 +774,7 @@ def main() -> int:
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
         run(lambda: test_the_default_end_is_the_next_monthly_anniversary_of_the_start(Path(td) / 'c15b'))
         run(lambda: test_turning_the_cycle_on_fixes_its_end_at_the_anniversary_ahead(Path(td) / 'c15c'))
+        run(lambda: test_a_typed_end_counts_without_the_switch_unless_it_was_turned_off(Path(td) / 'c15d'))
         run(lambda: test_two_writers_never_share_a_temp_file(Path(td) / 'c16'))
         run(lambda: test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(Path(td) / 'c17'))
         run(lambda: test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(Path(td) / 'c18'))

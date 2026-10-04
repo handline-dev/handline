@@ -838,13 +838,27 @@ def describe_runway(r: Runway | None) -> str:
     return "outlasts reset" if r.past_reset else f"~{timefmt.span(r.eta_s)} to wall"
 
 
+def _wall_with_ends(now: float, room: float, pace: float, ending: list[tuple[float, float, float]]) -> float:
+    """When the pooled headroom `room` runs out at `pace` per second, with accounts that end on the way:
+    `ending` is (end, its headroom now, its burn). At each end its burn leaves the pace, and what
+    it had not spent by then leaves the pool."""
+    t = now
+    for end, left, burn in sorted(ending):
+        if pace > 0 and room / pace <= end - t:
+            break
+        room -= pace * (end - t) + max(0.0, left - burn * (end - now))
+        t, pace = end, pace - burn
+    return t + room / pace if pace > 0 else math.inf
+
+
 def team_outlook(names: list[str] | None = None, now: float | None = None,
                  gone=None) -> str:
     """One line on whether the team's combined headroom lasts to the next
     reset at the pace it is burning now. Only accounts with a current reading
     count; blank when none has one. A logged-out account is not counted: it is
     assumed not to come back (`accounts.gone_since`); `gone` is the caller's own
-    test of that, for one that keeps its login checks cached."""
+    test of that, for one that keeps its login checks cached. An account on a month cycle
+    stops counting at its end (`cycle.end_of`): what it has not spent by then is lost."""
     now = now or time.time()
     gone = gone or (lambda n: accounts.gone_since(n, now) is not None)
     counted = []
@@ -855,18 +869,18 @@ def team_outlook(names: list[str] | None = None, now: float | None = None,
         burn = read_burn(n, now)
         r = runway(st, burn, now)
         if r is not None:
-            counted.append((st, r, burn or 0.0))
+            counted.append((st, r, burn or 0.0, cycle.end_of(n)))
     if not counted:
         return ""
-    room = sum(r.left_short for _, r, _ in counted)
-    pace = sum(b for _, _, b in counted)
-    resets = [st.short.reset for st, _, _ in counted if st.short.reset and st.short.reset > now]
+    room = sum(r.left_short for _, r, _, _ in counted)
+    pace = sum(b for _, _, b, _ in counted)
+    resets = [st.short.reset for st, _, _, _ in counted if st.short.reset and st.short.reset > now]
     nxt = min(resets) if resets else None
     clock = lambda t: timefmt.stamp(t, timefmt.CLOCK)  # noqa: E731
     n = f"{len(counted)} account{'s' if len(counted) != 1 else ''}"
     if pace <= 0:
         return f"estimate: {room} points of headroom across {n}, no recent burn"
-    stops = now + room / pace
+    stops = _wall_with_ends(now, room, pace, [(e, r.left_short, b) for _, r, b, e in counted if e and e < (nxt or e + 1)])
     if nxt and stops >= nxt:
         return f"estimate: at this pace {n} last past the next reset ({clock(nxt)})"
     tail = f"; next reset {clock(nxt)}" if nxt else ""
