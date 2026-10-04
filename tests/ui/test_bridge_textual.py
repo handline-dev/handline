@@ -445,6 +445,66 @@ def test_an_hr_card_is_drawn_only_in_the_chats_it_concerns() -> None:
           cp.hr_concerns({"kind": "settings", "agent": "x", "requested_by": None}) == {"x"})
 
 
+def test_a_message_number_finds_its_chat_and_its_page() -> None:
+    from handline.ui import chat_page as cp
+    _home("locate")
+    for n in ("backend", "frontend", "reviewer"):
+        agents.register(n)
+    human = actions.HUMAN
+    con = db.connect()
+
+    def add(to: str, body: str, requester: str) -> int:
+        cur = con.execute("INSERT INTO requests(ts, requester, target, body, state) VALUES(?,?,?,?,'queued')",
+                          (int(time.time()), requester, to, body))
+        return cur.lastrowid
+    try:
+        ids = {}
+        ids["mine"] = add("backend", "to backend", human)
+        ids["b_f"] = add("frontend", "backend asks frontend", "backend")
+        ids["f_r"] = add("reviewer", "frontend asks reviewer", "frontend")
+        ids["r_human"] = add(human, "reviewer tells you", "reviewer")
+        ids["old"] = add("backend", "the oldest", human)
+        for i in range(7):
+            add("backend", f"filler {i}", human)
+        con.commit()
+        at = lambda mid, agent, everyone: cp.locate_message(con, mid, agent, everyone)
+        check("locate: a message between the founder and this agent is here, on its own chat",
+              at(ids["mine"], "backend", False) == cp.Located("here", ids["mine"], "backend", "mine"))
+        check("locate: one between this agent and another is here but in the all-chat, which flips the tab",
+              at(ids["b_f"], "backend", False) == cp.Located("here", ids["b_f"], "backend", "all"))
+        check("locate: from the all-chat the founder's message stays there",
+              at(ids["mine"], "backend", True).tab == "all" and at(ids["mine"], "backend", True).kind == "here")
+        check("locate: a message of two other agents is in the all-chat of the one that sent it",
+              at(ids["f_r"], "backend", False) == cp.Located("chat", ids["f_r"], "frontend", "all"))
+        check("locate: one between the founder and another agent is that agent's own chat",
+              at(ids["r_human"], "backend", False) == cp.Located("chat", ids["r_human"], "reviewer", "mine"))
+        check("locate: no such number is alone", at(999999, "backend", False).kind == "alone")
+        cur = con.execute("INSERT INTO requests(ts, requester, target, body, state, settles) VALUES(?,?,?,?,'queued',?)",
+                          (int(time.time()), "frontend", "backend", "the answer", ids["b_f"]))
+        answer = cur.lastrowid
+        check("locate: the number of an answer is the request it settles, found where that request is",
+              at(answer, "backend", False) == cp.Located("here", ids["b_f"], "backend", "all")
+              and at(answer, "reviewer", False) == cp.Located("chat", ids["b_f"], "backend", "all"))
+        orphan = con.execute("INSERT INTO requests(ts, requester, target, body, state, settles) VALUES(?,?,?,?,'queued',?)",
+                             (int(time.time()), "frontend", "backend", "an answer to nothing", 999998)).lastrowid
+        check("locate: an answer whose request is gone is alone", at(orphan, "backend", False).kind == "alone")
+        check("locate: its text is there to show alone",
+              cp.message_alone(con, ids["f_r"]) == (f"#{ids['f_r']}  frontend \u2192 reviewer", "frontend asks reviewer")
+              and cp.message_alone(con, 999999) is None)
+        con.execute("UPDATE requests SET state = 'withdrawn' WHERE id = ?", (ids["f_r"],))
+        check("locate: one that never reached anyone, no chat draws, is alone",
+              at(ids["f_r"], "backend", False).kind == "alone")
+        rows, more = cp.page_back_to(con, "backend", False, None, limit=3)
+        check("page: with no message asked for it is the newest page",
+              len(rows) == 3 and more and ids["old"] not in {r["id"] for r in rows})
+        rows, more = cp.page_back_to(con, "backend", False, ids["old"], limit=3)
+        got = [r["id"] for r in rows]
+        check("page: asked for an old one it reads pages back until that one is in, oldest first, and stops there",
+              ids["old"] in got and got == sorted(got) and got[0] <= ids["old"] and len(got) > 3, str(got))
+    finally:
+        con.close()
+
+
 def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     """T438: a message is one Static, not one widget per part; this is what it says."""
     from handline.ui import chat_page as cp
@@ -5271,6 +5331,7 @@ async def _run_all() -> None:
     test_the_founders_reply_to_a_report_draws_its_link()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
+    test_a_message_number_finds_its_chat_and_its_page()
     test_an_hr_card_is_drawn_only_in_the_chats_it_concerns()
     test_task_changes_are_set_among_the_messages_at_their_time()
     test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colour_of_its_own()

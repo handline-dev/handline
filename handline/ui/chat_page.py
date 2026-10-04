@@ -12,6 +12,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from rich.style import Style
 from rich.text import Text
@@ -120,6 +121,60 @@ def requests_page(con, agent: str, everyone: bool, before: int | None = None,
         params = (*params, before)
     rows = con.execute(sql + " ORDER BY id DESC LIMIT ?", (*params, limit + 1)).fetchall()
     return _with_task_state(con, rows[:limit][::-1]), len(rows) > limit
+
+
+class Located(NamedTuple):
+    """Where a message number lives: `here` (this chat, `tab` says which of its two), in the `chat`
+    of `agent` on `tab`, or `alone` (no chat shows it). `request` is the request it is part of."""
+    kind: str
+    request: int = 0
+    agent: str = ""
+    tab: str = "mine"
+
+
+def locate_message(con, mid: int, agent: str, everyone: bool) -> Located:
+    """The chat `mid` (a request's number, or the number of the answer that settles one) is drawn in:
+    this one when its two ends are the founder and `agent` (or, in the all-chat, `agent` and anyone),
+    else the all-chat of this agent when it is one end, else the chat of an agent at either end - the
+    founder's own chat with it when the other end is the founder. One no chat draws (a withdrawn or
+    never-reached request) is `alone`."""
+    row = con.execute("SELECT id, requester, target, state, settles FROM requests WHERE id = ?", (mid,)).fetchone()
+    if row is None:
+        return Located("alone")
+    req = row["settles"] or row["id"]
+    if row["settles"]:
+        row = con.execute("SELECT id, requester, target, state FROM requests WHERE id = ?", (req,)).fetchone()
+        if row is None:
+            return Located("alone")
+    if row["state"] in db.NEVER_REACHED_TARGET:
+        return Located("alone", req)
+    ends = (row["requester"], row["target"])
+    human = actions.HUMAN
+    founders = human in ends
+    if agent in ends:      # the all-chat holds the founder's messages too, so it is not left for them
+        return Located("here", req, agent, "all" if everyone or not founders else "mine")
+    elsewhere = [n for n in ends if n != human]
+    if not elsewhere:
+        return Located("alone", req)
+    return Located("chat", req, elsewhere[0], "mine" if founders else "all")
+
+
+def message_alone(con, mid: int) -> tuple[str, str] | None:
+    """A message by its number alone, when no chat shows it: (who to whom, its text), None when there is no such request."""
+    row = con.execute("SELECT requester, target, body FROM requests WHERE id = ?", (mid,)).fetchone()
+    if row is None:
+        return None
+    return f"#{mid}  {row['requester']} \u2192 {row['target']}", row["body"] or ""
+
+
+def page_back_to(con, agent: str, everyone: bool, want: int | None, limit: int = PAGE) -> tuple[list, bool]:
+    """The newest page of a chat and, while `want` (a request number) is older than what it holds,
+    the pages before it: the rows to draw with that request among them, and whether older ones remain."""
+    rows, more = requests_page(con, agent, everyone, limit=limit)
+    while want and more and rows and rows[0]["id"] > want:
+        older, more = requests_page(con, agent, everyone, before=rows[0]["id"], limit=limit)
+        rows = older + rows
+    return rows, more
 
 
 def _with_task_state(con, rows) -> list[dict]:
@@ -1623,10 +1678,13 @@ class ChatPage(JobsAware, Screen):
     BINDINGS = [("escape", "back", "back"), ("ctrl+r", "history", "history"),
                 Binding("end", "jump_bottom", "newest", show=False, priority=True)]
 
-    def __init__(self, agent: str, focus: tuple[int, int] | None = None) -> None:
+    def __init__(self, agent: str, focus: tuple[int, int] | None = None,
+                 reveal: tuple[int, int] | None = None, tab: str | None = None) -> None:
         super().__init__(classes="chat_page")
         self.agent = agent
         self._focus = focus      # (request id, part) to pick as the reply target once it is drawn
+        self._reveal = reveal    # (message number, its request) to page back to, scroll to and light
+        self._reveal_tries = 0
         self._fill_waits = 0
         self._tabbed = False     # the opening tab has been activated (that clears any reply target)
         self.replying: ChatMessage | None = None
@@ -1651,7 +1709,7 @@ class ChatPage(JobsAware, Screen):
         self._spinning, self._frame = False, 0
         self._send_lock = threading.Lock()  # one send at a time, in the order typed
         self.last_chat = "mine"     # the chat tab Esc returns to from Tasks
-        self._scope_wait: str | None = load_scope()   # the remembered tab, until it has been shown
+        self._scope_wait: str | None = tab or load_scope()   # the remembered tab, until it has been shown
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
@@ -1706,6 +1764,8 @@ class ChatPage(JobsAware, Screen):
             self.query_one("#scope", Tabs).active = "all"
         self.refresh_view()
         self.set_interval(2, self.refresh_view)
+        if self._reveal:
+            self.set_timer(0.2, self._reveal_step)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "leave":
@@ -1856,11 +1916,9 @@ class ChatPage(JobsAware, Screen):
                 return
             self._sig = sig
             if self.oldest is None:
-                rows, self.more = requests_page(con, self.agent, self.everyone)
                 # Opened on a message: page back until it is on screen.
-                while self._focus and self.more and rows and rows[0]["id"] > self._focus[0]:
-                    older, self.more = requests_page(con, self.agent, self.everyone, before=rows[0]["id"])
-                    rows = older + rows
+                want = self._reveal[1] if self._reveal else self._focus[0] if self._focus else None
+                rows, self.more = page_back_to(con, self.agent, self.everyone, want)
             else:
                 rows, _ = requests_page(con, self.agent, self.everyone, since=self.oldest)
         finally:
@@ -2251,14 +2309,65 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#s_schedules", SchedulesSection).load()
 
     def action_show_message(self, rid: int) -> None:
-        """Scroll to message `rid` and light it for a moment."""
-        target = next((w for w in self.query(ChatMessage) if rid in (w.m["rid"], w.m.get("mid"))), None)
-        if target is None:
-            self.notify(f"#{rid} is not on this page - scroll up for older messages", timeout=6)
+        """Take the reader to message `rid`: scrolled to and lit for a moment here, paging back for it
+        when it is older; in another agent's chat, pushed over this one; shown alone when no chat has it."""
+        if self._light(rid):
             return
+        con = db.connect()
+        try:
+            at = locate_message(con, rid, self.agent, self.everyone)
+        finally:
+            con.close()
+        if at.kind == "chat":
+            self.app.push_screen(ChatPage(at.agent, reveal=(rid, at.request), tab=at.tab))
+        elif at.kind == "here":
+            self._reveal, self._reveal_tries = (rid, at.request), 0
+            if at.tab == "all" and not self.everyone:
+                self._scope_wait = "all"     # the tab is followed for this message, not remembered as a pick
+                self.query_one("#scope", Tabs).active = "all"
+            else:
+                self.oldest, self._sig, self._transcript_key = None, None, None
+                self.refresh_conversation(force=True)
+            self.set_timer(0.2, self._reveal_step)
+        else:
+            self._show_alone(rid)
+
+    def _light(self, mid: int) -> bool:
+        """Scroll to the message drawn for number `mid` and light it for a moment; False when none is."""
+        target = next((w for w in self.query(ChatMessage) if mid in (w.m["rid"], w.m.get("mid"))), None)
+        if target is None:
+            return False
         target.scroll_visible(animate=False)
         target.add_class("flash")
         self.set_timer(1.5, lambda: target.remove_class("flash"))
+        return True
+
+    def _reveal_step(self) -> None:
+        """The message a click asked for, once the page is drawn with it: the widgets mount a moment after
+        the read, so this looks again a few times before it gives the message up as one no chat draws."""
+        if not self._reveal:
+            return
+        mid = self._reveal[0]
+        if self._light(mid):
+            self._reveal = None
+            return
+        self._reveal_tries += 1
+        if self._reveal_tries > 25:
+            self._reveal = None
+            self._show_alone(mid)
+            return
+        self.set_timer(0.2, self._reveal_step)
+
+    def _show_alone(self, mid: int) -> None:
+        con = db.connect()
+        try:
+            alone = message_alone(con, mid)
+        finally:
+            con.close()
+        if alone is None:
+            self.notify(f"#{mid}: there is no such message", severity="warning")
+            return
+        self.app.push_screen(HandoffModal(*alone))
 
     def action_open_task(self, tid: int) -> None:
         open_task_page(self.app, tid)
