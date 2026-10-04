@@ -215,7 +215,7 @@ def _note_abandoned(con, agent: str, now: int) -> None:
 
 
 def close_agent(con, agent: str, log, st, keep_pane: bool = False,
-                force: bool = False) -> tuple[bool, str]:
+                force: bool = False, discard: bool = False) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
     This is not a handoff: no context is reclaimed, because there is nothing
@@ -228,7 +228,9 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
     place where the difference means closing with no way back.
 
     `keep_pane` and `force` are a restart's: it starts a session in the same pane at once, and
-    `force` lets a working agent be closed - the close still waits for the turn to end.
+    `force` lets a working agent be closed - the close still waits for the turn to end. `discard` is
+    a fresh start's: the conversation is given up on purpose, so a session with no id on record is
+    still closed.
     """
     with lock.terminal(agent) as mine:
         if not mine:
@@ -241,7 +243,7 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
                          require_idle=False, require_settled=True)
         if why:
             return False, why
-        ok, said = _close_agent(con, agent, log, st, keep_pane=keep_pane, force=force)
+        ok, said = _close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=discard)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
@@ -257,7 +259,7 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
     if not row:
         return False, f"{agent} has never been started"
     if not row["closed_at"]:
-        ok, said = close_agent(con, agent, log, st, keep_pane=keep_pane, force=force)
+        ok, said = close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=True)
         if not ok:
             return False, said
     elif row["resume_session"] and not db.get_handoff(con, agent):
@@ -301,7 +303,7 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
 
 
 def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
-                 force: bool = False) -> tuple[bool, str]:
+                 force: bool = False, discard: bool = False) -> tuple[bool, str]:
     row = db.get_agent_state(con, agent)
     if row and row["state"] in (RUNNING, HANDOFF) and not (force and row["state"] == RUNNING):
         # `should_close` refuses these, and every path that closes on a
@@ -321,10 +323,12 @@ def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
         handle = db.get_terminal(con, agent)
         if not handle or not orca.wait_idle(handle):
             return False, "it is still mid-turn after waiting for it to finish; not closing"
-    if not st.session_id:
+    if not st.session_id and not discard:
         # Closing is only cheap because waking resumes the same session. With
-        # no id to come back to, closing is just throwing the context away.
-        return False, "no session to resume; not closing"
+        # no id to come back to, closing is just throwing the context away -
+        # which `--fresh` asks for, and is the one way out of a live session
+        # whose id was never recorded.
+        return False, "no session id on record; not closing (`hl restart --fresh` starts a new conversation from its handoff)"
     # A record already waiting is the park's, and names the session from before
     # its /clear: this close must neither replace it nor, if it fails, delete it.
     # One it takes itself is kept only whole - a wake that moves elsewhere drops
