@@ -2739,7 +2739,7 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await after_checks(pilot)
             check("code restart: a newer update asks again", isinstance(app.screen, Confirm))
             await pilot.press("y")
-            await after_checks(pilot)
+            await pilot.pause(0.3)       # the app stops: no more checks run to wait on
             check("code restart: y exits with a restart owed", app.restart_on_exit and not app.is_running)
 
         code["fp"] = "w1"
@@ -2778,6 +2778,21 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             check("code restart: and y restarts", app.restart_on_exit and not app.is_running)
     finally:
         devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S = real
+
+
+def test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version() -> None:
+    """The worker's verdict reaches the UI thread after "Not now" was pressed: it names the version just
+    declined, so it asks nothing; a newer version still asks."""
+    app = bt.BridgeApp()
+    asked = []
+    app._restart_if_idle = lambda: asked.append(1)
+    app._code_state.update(fp="v1", seen="v2b")
+    app._decline_update()
+    app._code_checked(True, "v2b")           # the stale result of a check begun before the decline
+    check("code restart: a stale verdict for the declined version asks nothing",
+          not asked and not app.restart_owed, str(asked))
+    app._code_checked(True, "v3")
+    check("code restart: a newer version asks again", asked == [1] and app.restart_owed, str(asked))
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
@@ -5173,6 +5188,7 @@ async def _run_all() -> None:
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
+    test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
