@@ -242,3 +242,8 @@ ESC_CLEAR_WINDOW_S = 2.0
 def esc_pressed_twice(armed_at: float | None, now: float, window: float = ESC_CLEAR_WINDOW_S) -> bool:
     """Whether an Esc at `now` follows the first one (`armed_at`) closely enough to clear the box."""
     return armed_at is not None and 0 <= now - armed_at <= window
+
+
+def needs_older(more: bool, content_h: int, view_h: int) -> bool:
+    """Whether the transcript, `content_h` tall in a view `view_h` tall, should load an older page."""
+    return more and 0 < view_h and content_h < view_h

@@ -3443,6 +3443,14 @@ def test_a_bridge_whose_working_directory_was_removed_moves_to_the_repo_before_i
         os.chdir(here)
 
 
+def test_a_short_transcript_loads_older_messages_until_the_view_is_full() -> None:
+    from handline.actions import needs_older
+    assert needs_older(True, 5, 20), "short content with older pages left loads one"
+    assert not needs_older(False, 5, 20), "nothing older to load"
+    assert not needs_older(True, 20, 20) and not needs_older(True, 40, 20), "a full view does not"
+    assert not needs_older(True, 0, 0), "a view with no height (the tab is not shown) does not"
+
+
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
     def row(i, blocked=(), parent=None):
         return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
@@ -3535,6 +3543,7 @@ def main() -> int:
         run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
+        run(lambda: test_a_short_transcript_loads_older_messages_until_the_view_is_full())
         run(lambda: test_a_bridge_whose_working_directory_was_removed_moves_to_the_repo_before_it_starts_anything(Path(td) / 'cwd'))
         run(lambda: test_a_second_esc_right_after_the_first_clears_the_chat_box())
         run(lambda: test_the_chat_strip_counts_the_cache_down_and_says_when_it_has_expired())

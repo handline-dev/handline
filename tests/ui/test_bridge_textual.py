@@ -3027,7 +3027,7 @@ async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it
 
 
 async def test_the_chat_strip_says_the_agents_model_account_context_and_cache_time_left() -> None:
-    """The line under the chat header, read from the agent's own snapshot; it is not drawn in the all-chat."""
+    """The line under the chat header, read from the agent's own snapshot; it stays in the all-chat tab too."""
     from handline.ui import chat_page as cp
     from handline.ui.components.agent_strip import AgentStrip
     _home("strip")
@@ -3045,10 +3045,10 @@ async def test_the_chat_strip_says_the_agents_model_account_context_and_cache_ti
               and not any(x in line for x in ("session", "last $")) and strip.display, line)
         chat.query_one("Tabs").active = "all"
         await pilot.pause(0.5)
-        check("strip: the all-chat has no single agent, so no strip", not strip.display)
+        check("strip: the all-chat is this agent's page too, so the strip stays pinned there", strip.display)
         chat.query_one("Tabs").active = "mine"
         await pilot.pause(0.5)
-        check("strip: back on the agent's own chat it is drawn again", strip.display)
+        check("strip: and on the agent's own chat", strip.display)
 
 
 def test_the_task_list_takes_only_its_own_dropdowns_for_a_sort_or_a_view() -> None:
