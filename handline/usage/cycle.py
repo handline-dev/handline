@@ -229,10 +229,15 @@ def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
 
 def set_cycle(acct: str, on: bool, end: dt.date | None = None) -> None:
     """Write the switch and, where given, the end date, keeping every other
-    setting. Turning it off leaves the date, so turning it on again finds it."""
+    setting. Turning it off leaves the date, so turning it on again finds it. Turned
+    on with no end given or kept, the monthly anniversary still ahead is written as
+    the end, so a subscription that does not renew ends there instead of the default
+    rolling on a month at a time."""
     from . import load
     cfg = load.config_for_write()
     cfg[f"month_cycle_{acct}"] = on
+    if on and end is None and cfg.get(f"sub_end_{acct}") is None and (start := started(acct)):
+        end = _anniversary(start, time.time()).date()
     if end is not None:
         cfg[f"sub_end_{acct}"] = end.isoformat()
     load.write_config(cfg)
