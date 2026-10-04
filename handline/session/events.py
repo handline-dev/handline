@@ -151,6 +151,10 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             pass
+        try:
+            _note_tool_use(agent)
+        except Exception:  # noqa: BLE001 - same
+            pass
         if event == "PostToolUse":
             try:
                 memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
@@ -288,6 +292,24 @@ def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> 
     elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
         db.set_agent_state(con, agent, "IDLE", wake_at=None,
                            detail="finished its turn")
+
+
+def _note_tool_use(agent: str) -> None:
+    """A tool just ran, so the agent is mid-turn. A prompt the daemon typed while it was busy is
+    queued by the session and run inside the same turn: no UserPromptSubmit fires for it and no Stop
+    until the whole turn ends, so the row stayed QUEUED (drawn PENDING) or IDLE for as long as that
+    turn lasted - an hour for an agent that kept finding more work. Only a row the daemon is not
+    steering (QUEUED not moving, IDLE, session not closed) is moved; the turn's Stop sets IDLE again."""
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, agent)
+        if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
+            return
+        if (row["detail"] or "").startswith("moving"):
+            return
+        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
+    finally:
+        con.close()
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

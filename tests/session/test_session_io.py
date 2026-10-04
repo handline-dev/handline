@@ -1408,6 +1408,40 @@ def test_two_connects_migrating_one_old_database_both_succeed(home: Path) -> Non
         schema._cols = real
 
 
+def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
+    """A prompt typed at a busy session is run inside its turn with no UserPromptSubmit, so the row
+    stayed QUEUED (PENDING) until the turn ended; a tool call is the sign it is working."""
+    use_home(home)
+    agents.register("toolish")
+    env = dict(os.environ, OCP_AGENT="toolish", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
+    payload = json.dumps({"hook_event_name": "PostToolUse", "session_id": "s", "tool_name": "Bash",
+                          "tool_input": {"command": "ls"}})
+
+    def after(state, detail="", closed=False):
+        con = db.connect()
+        try:
+            db.set_agent_state(con, "toolish", state, detail=detail)
+            if closed:
+                con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = ?", (int(time.time()), "toolish"))
+                con.commit()
+        finally:
+            con.close()
+        subprocess.run([str(ROOT / "bin" / "hl"), "hook", "PostToolUse"], input=payload,
+                       capture_output=True, text=True, env=env)
+        con = db.connect()
+        try:
+            return db.get_agent_state(con, "toolish")["state"]
+        finally:
+            con.close()
+
+    check("tool use: a QUEUED agent that runs a tool is RUNNING", after(dmn_states.QUEUED) == "RUNNING")
+    check("tool use: so is an IDLE one", after(dmn_states.IDLE) == "RUNNING")
+    check("tool use: a move in progress is the daemon's, left QUEUED",
+          after(dmn_states.QUEUED, detail="moving to beta") == "QUEUED")
+    check("tool use: a parked agent stays parked", after(dmn_states.PARKED) == "PARKED")
+    check("tool use: a closed session is not revived", after(dmn_states.IDLE, closed=True) == "IDLE")
+
+
 def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -4511,6 +4545,7 @@ def main() -> int:
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_two_connects_migrating_one_old_database_both_succeed(Path(td) / 'migrace'))
+        run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
         run(lambda: test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(Path(td) / 'applyset'))
         run(lambda: test_a_launch_records_the_settings_it_read(Path(td) / 'recparts'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
