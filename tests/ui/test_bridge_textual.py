@@ -5070,6 +5070,13 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
     from handline.ui.components.shell_card import ShellCard
     from textual.widgets import Button
     _home("bangcard")
+
+    async def until(pilot, cond, seconds: float = 15.0) -> None:
+        """Wait for `cond` itself, polling, instead of a sleep a loaded machine can overrun."""
+        for _ in range(int(seconds / 0.05)):
+            if cond():
+                return
+            await pilot.pause(0.05)
     app = bt.BridgeApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -5083,8 +5090,9 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
         box = page.query_one("#compose")
         box.text = "!echo hello; exit 2"
         await pilot.press("enter")
-        await pilot.pause(1.0)
+        await until(pilot, lambda: len(list(page.query(ShellCard))) == 1)
         cards = list(page.query(ShellCard))
+        await until(pilot, lambda: cards[0]._send.display and not cards[0]._stop.display)   # its own redraw
         check("bang card: one card was drawn and the box is empty", len(cards) == 1 and box.text == "", str(len(cards)))
         text = str(cards[0]._head.render()) + str(cards[0]._out.render())
         check("bang card: it shows the command, the exit code and the output",
@@ -5097,11 +5105,12 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
               cards[0]._send.display and not cards[0]._stop.display)
         box.text = "!sleep 30"
         await pilot.press("enter")
-        await pilot.pause(0.6)
+        await until(pilot, lambda: len(page.shells) == 2)
         run = page.shells[-1]
         check("bang card: a running command is running", run.running)
         await pilot.press("escape")
-        await pilot.pause(1.0)
+        await until(pilot, lambda: not run.running)
+        await pilot.pause(0.2)
         check("bang card: Esc stops it and stays on the page", not run.running and app.screen is page, str(run.code))
         Path(os.environ.get("BANG_SHOT", os.devnull)).write_text(app.export_screenshot())
 
