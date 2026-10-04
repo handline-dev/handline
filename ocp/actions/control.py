@@ -179,7 +179,7 @@ _SESSION_ENV = ("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID", "CLAUDE_TMPDIR", "CL
 def tail_of_typescript(raw: str, lines: int = 2) -> str:
     """The last few lines a terminal session printed, escapes and blanks removed: what
     claude said before it exited, for a toast."""
-    text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|[\x00-\x08\x0b-\x1f]", "", raw)
+    text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|[\x00-\x08\x0b\x0c\x0e-\x1f]", "", raw)
     kept = [ln.strip() for ln in text.replace("\r", "\n").split("\n") if ln.strip()]
     return " | ".join(kept[-lines:])
 

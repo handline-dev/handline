@@ -3381,6 +3381,8 @@ def test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_fa
     assert not [k for k in env if k.startswith(("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID"))], env
     raw = "\x1b[2J\x1b[1mWelcome\x1b[0m\r\n\r\nError: keychain is locked\r\n\x1b[?25h"
     assert actions.tail_of_typescript(raw) == "Welcome | Error: keychain is locked", actions.tail_of_typescript(raw)
+    bare = actions.tail_of_typescript("Loading 10%\rLoading 99%\rError: no network\r\n", lines=3)
+    assert bare == "Loading 10% | Loading 99% | Error: no network", bare
 
 
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
