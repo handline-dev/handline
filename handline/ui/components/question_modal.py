@@ -17,6 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Static
 
 from ...infra import textsafe
+from .close_bar import CloseBar
 from .text_prompt import TextPrompt
 
 
@@ -43,6 +44,12 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     QuestionModal #hint { color: $text-muted; }
     """
 
+    def close(self) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.close()
+
     def __init__(self, found: dict, press, on_start=lambda: None) -> None:
         super().__init__()
         self.found = found
@@ -55,6 +62,7 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     def compose(self) -> ComposeResult:
         d = self.found
         with Vertical(id="dialog"):
+            yield CloseBar()
             yield Static(Text(f"{textsafe.oneline(d['agent'])} is asking - {textsafe.oneline(d['header'])}",
                               style="dim"), id="header")
             yield Static(Text(textsafe.oneline(d["question"])), id="question")

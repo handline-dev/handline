@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from ...infra import textsafe
 from .agent_settings import AgentSettings
@@ -21,8 +21,14 @@ class AgentSettingsScreen(Screen):
         self.agent = agent
 
     def compose(self) -> ComposeResult:
-        yield Static(f"settings of {textsafe.oneline(self.agent)}   ·   esc to go back", id="as_title", markup=False)
+        yield Button("‹ Back  esc", id="as_back", compact=True)
+        yield Static(f"settings of {textsafe.oneline(self.agent)}", id="as_title", markup=False)
         yield AgentSettings(self.agent, id="settings_form")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "as_back":
+            event.stop()
+            self.action_back()
 
     def action_back(self) -> None:
         leave_or_ask(self.app, self.query_one("#settings_form", AgentSettings).settle())

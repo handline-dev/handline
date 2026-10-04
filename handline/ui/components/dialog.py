@@ -5,6 +5,7 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 
 from .. import stall
+from .close_bar import CloseBar
 
 
 class Dialog(ModalScreen):
@@ -14,7 +15,8 @@ class Dialog(ModalScreen):
     itself when the box goes."""
 
     FOCUS: str | None = None
-    BINDINGS = [Binding("escape", "finish(None)", "cancel")]
+    CLOSE_RESULT = None     # what the close button and Escape answer
+    BINDINGS = [Binding("escape", "close", "cancel")]
     DEFAULT_CSS = """
     Dialog { align: center middle; background: $background 60%; }
     Dialog #dialog { width: 72; max-width: 90%; height: auto; padding: 1 2;
@@ -24,6 +26,8 @@ class Dialog(ModalScreen):
     _finished = False
 
     def on_mount(self) -> None:
+        box = self.query_one("#dialog")
+        box.mount(CloseBar(), before=0)
         if self.FOCUS:
             self.query_one(self.FOCUS).focus()
 
@@ -34,6 +38,12 @@ class Dialog(ModalScreen):
         if not self._finished:
             self._finished = True
             self.dismiss(result)
+
+    def close(self) -> None:
+        self.finish(self.CLOSE_RESULT)
+
+    def action_close(self) -> None:
+        self.close()
 
     def action_finish(self, result=None) -> None:
         self.finish(result)

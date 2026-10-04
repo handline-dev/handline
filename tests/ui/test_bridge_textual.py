@@ -2795,6 +2795,45 @@ def test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_
     check("code restart: a newer version asks again", asked == [1] and app.restart_owed, str(asked))
 
 
+def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> None:
+    """The wiring, not the looks: each ModalScreen under handline.ui is a Dialog (which mounts the
+    shared CloseBar and binds Escape to `close`) or draws a CloseBar itself and closes on Escape; a
+    Confirm's close is "no"; a settings screen has its Back button."""
+    import importlib
+    import inspect
+    import pkgutil
+    import handline.ui as ui
+    from textual.screen import ModalScreen
+    from handline.ui.components import agent_settings_screen
+    from handline.ui.components.close_bar import CloseBar
+    from handline.ui.components.confirm import Confirm
+    from handline.ui.components.dialog import Dialog
+    for m in pkgutil.walk_packages(ui.__path__, "handline.ui."):
+        importlib.import_module(m.name)
+
+    def modals(base):
+        for c in base.__subclasses__():
+            yield c
+            yield from modals(c)
+    found = {c for c in modals(ModalScreen) if c.__module__.startswith("handline.ui") and c is not Dialog}
+    bad = []
+    for c in sorted(found, key=lambda c: c.__name__):
+        escape = [b for k in c.__mro__ for b in vars(k).get("BINDINGS", [])
+                  if getattr(b, "key", b[0] if isinstance(b, tuple) else None) == "escape"]
+        own_bar = "CloseBar" in inspect.getsource(c.compose) if "compose" in vars(c) else False
+        if not escape or not (issubclass(c, Dialog) or own_bar) or not hasattr(c, "close") or not hasattr(c, "action_close"):
+            bad.append(c.__name__)
+    check("close: every modal has Escape, the shared close bar, close() and its action", not bad and len(found) >= 12, str(bad))
+    got = []
+    c = Confirm("q?")
+    c.dismiss = got.append
+    c.close()
+    check("close: closing a Confirm without answering says no", got == [False], str(got))
+    check("close: the settings screen has a Back button besides Escape",
+          "as_back" in inspect.getsource(agent_settings_screen.AgentSettingsScreen.compose))
+    check("close: the close bar is the one shared component", CloseBar.__module__.endswith("close_bar"))
+
+
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
     import os as _os
     from handline.infra import service
@@ -5188,6 +5227,7 @@ async def _run_all() -> None:
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
+    test_every_box_over_the_page_has_a_close_button_and_escape_closes_it()
     test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
