@@ -523,6 +523,39 @@ def test_the_default_end_is_the_next_monthly_anniversary_of_the_start(home: Path
         cycle.time = real
 
 
+def test_turning_the_cycle_on_fixes_its_end_at_the_anniversary_ahead(home: Path) -> None:
+    use_home(home)
+    write_cfg("")
+    write_profile("a", {"subscriptionCreatedAt": "2026-03-30T06:00:00Z"})
+    real = cycle.time
+    now = dt.datetime(2026, 10, 4, 12, 0)
+    cycle.time = types.SimpleNamespace(time=lambda: now.timestamp())
+    try:
+        cycle.set_cycle("a", True)
+        written = cycle.own_end("a")
+        check("fixed end: turning it on writes the anniversary ahead as the end, once",
+              written == "2026-10-30" and not cycle.end_is_default("a"), written)
+        cycle.time = types.SimpleNamespace(time=lambda: dt.datetime(2026, 10, 20, 12, 0).timestamp())
+        cycle.set_cycle("a", False)
+        cycle.set_cycle("a", True)
+        check("fixed end: off and on again finds it, not a later one", cycle.own_end("a") == written)
+        cycle.set_cycle("a", True)
+        check("fixed end: on again changes nothing", cycle.own_end("a") == written)
+        cycle.time = types.SimpleNamespace(time=lambda: dt.datetime(2026, 10, 29, 12, 0).timestamp())
+        check("fixed end: before it the account is not ended", cycle.ended_why("a", cycle.time.time()) is None)
+        cycle.time = types.SimpleNamespace(time=lambda: dt.datetime(2026, 11, 2, 12, 0).timestamp())
+        check("fixed end: past it the account is ended, the end does not roll on",
+              cycle.end_date("a") == dt.date(2026, 10, 30) and cycle.ended_why("a", cycle.time.time()) is not None)
+        cycle.set_cycle("a", True, dt.date(2026, 12, 1))
+        check("fixed end: a given end wins", cycle.own_end("a") == "2026-12-01")
+        write_cfg("")
+        write_profile("a", raw="not json")
+        cycle.set_cycle("a", True)
+        check("fixed end: with no start to read none is written", cycle.own_end("a") == "" and cycle.enabled("a"))
+    finally:
+        cycle.time = real
+
+
 def test_two_writers_never_share_a_temp_file(home: Path) -> None:
     use_home(home)
     f = home / "x.txt"
@@ -729,6 +762,7 @@ def main() -> int:
         run(lambda: test_the_default_end_is_the_first_anniversary_of_the_start_still_ahead(Path(td) / 'c13'))
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
         run(lambda: test_the_default_end_is_the_next_monthly_anniversary_of_the_start(Path(td) / 'c15b'))
+        run(lambda: test_turning_the_cycle_on_fixes_its_end_at_the_anniversary_ahead(Path(td) / 'c15c'))
         run(lambda: test_two_writers_never_share_a_temp_file(Path(td) / 'c16'))
         run(lambda: test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(Path(td) / 'c17'))
         run(lambda: test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(Path(td) / 'c18'))
