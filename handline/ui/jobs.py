@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import actions
+from ..infra import paths
 
 ACT_COMMAND = [sys.executable, "-m", "handline.ui.actrun"]
 GRACE_S = 2            # SIGTERM -> SIGKILL, once a job is past its own `longest`
@@ -130,6 +131,7 @@ class Jobs:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(Path(__file__).resolve().parents[2])] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
         try:
+            paths.ensure_cwd()
             proc = subprocess.Popen(
                 ACT_COMMAND, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)

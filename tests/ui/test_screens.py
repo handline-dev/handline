@@ -3413,6 +3413,36 @@ def test_the_chat_strip_counts_the_cache_down_and_says_when_it_has_expired() -> 
     assert cache_text(None) == "cache ?"
 
 
+def test_a_bridge_whose_working_directory_was_removed_moves_to_the_repo_before_it_starts_anything(tmp: Path) -> None:
+    """Orca, claude and a shell fail with getcwd errors when the folder the bridge started in is gone;
+    every child inherits that cwd, so ensure_cwd moves the process to the home first."""
+    from handline.infra import paths
+    here = os.getcwd()
+    gone = tmp / "gone"
+    gone.mkdir(parents=True)
+    try:
+        os.chdir(gone)
+        gone.rmdir()
+        try:
+            os.getcwd()
+            raise AssertionError("the removed directory still resolves")
+        except OSError:
+            pass
+        paths.ensure_cwd()
+        assert os.path.realpath(os.getcwd()) == os.path.realpath(str(paths.repo_root())), os.getcwd()
+        paths.ensure_cwd()      # a live cwd is left where it is
+        assert os.path.realpath(os.getcwd()) == os.path.realpath(str(paths.repo_root()))
+        gone2 = tmp / "gone2"
+        gone2.mkdir()
+        os.chdir(gone2)
+        gone2.rmdir()
+        from handline.session.backends import orca_cli
+        code, out, _err = orca_cli._exec(["pwd"])    # a process started from the removed folder would fail
+        assert code == 0 and os.path.realpath(out) == os.path.realpath(str(paths.repo_root())), (code, out)
+    finally:
+        os.chdir(here)
+
+
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
     def row(i, blocked=(), parent=None):
         return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
@@ -3505,6 +3535,7 @@ def main() -> int:
         run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
+        run(lambda: test_a_bridge_whose_working_directory_was_removed_moves_to_the_repo_before_it_starts_anything(Path(td) / 'cwd'))
         run(lambda: test_a_second_esc_right_after_the_first_clears_the_chat_box())
         run(lambda: test_the_chat_strip_counts_the_cache_down_and_says_when_it_has_expired())
         run(lambda: test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(Path(td) / 'login'))
