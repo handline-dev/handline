@@ -987,6 +987,9 @@ def _screen_state(con, row) -> tuple[str, str]:
     state, detail = row["state"], row["detail"] or ""
     if state == dmn_states.STALLED:
         return "FATAL", oneline(detail)[:DETAIL_CAP]
+    down = dmn_lifecycle.restart_retry_note(con, row["agent"], row)
+    if down:
+        return "PENDING", oneline(down)[:DETAIL_CAP]
     if state in (dmn_states.RUNNING, dmn_states.HANDOFF):
         # An opencode row's word is its pane's screen (see _opencode_working).
         # HANDOFF stays RUNNING - it is the daemon's protected mid-move, and

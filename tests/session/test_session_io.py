@@ -1442,6 +1442,146 @@ def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
     check("tool use: a closed session is not revived", after(dmn_states.IDLE, closed=True) == "IDLE")
 
 
+def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(home: Path) -> None:
+    """A restart closes the session and wakes it; a wake that fails (here the process table cannot be read)
+    left a bare shell that nothing retried and no screen named. The debt is read from the record by
+    every tick: tried again (with a pause after a launch that started nothing), FATAL with the reason
+    after three, shown as PENDING meanwhile."""
+    from handline.actions import control
+    from handline.ui import tui
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+            orcamod.close_terminal, dmn_lifecycle.TABLE_RETRY_PAUSES_S)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        orcamod.close_terminal = lambda h, tab=True: (True, "closed")
+        launch.find_room = lambda agent: "alpha"
+        dmn_lifecycle.TABLE_RETRY_PAUSES_S = (0, 0)
+        real_relaunch = orcamod.relaunch
+        table = sessions_are("backend")
+        reads = {"misses": 0}
+        real_table = obsmod.live_sessions
+
+        def send(handle: str, text: str, enter: bool = True):
+            sent.append(text)
+            if text == "/exit":
+                table.pop("backend", None)
+            elif " launch " in text:
+                take_launched_prompt(text)
+                table["backend"] = 4242
+            return True, ""
+        orcamod.send = send
+
+        def flaky():
+            if reads["misses"] and reads.get("armed"):
+                reads["misses"] -= 1
+                return None
+            return real_table()
+        obsmod.live_sessions = flaky
+        real_settled = dmn_lifecycle._live_sessions_settled
+
+        def settled():
+            """Only the wake's own look at the table misses: the close read it fine, as in the field."""
+            reads["armed"] = True
+            try:
+                return real_settled()
+            finally:
+                reads["armed"] = False
+        dmn_lifecycle._live_sessions_settled = settled
+        db.set_terminal(con, "backend", "term_x", "wt")
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
+        log = lambda _m: None   # noqa: E731
+
+        def age_the_failures() -> None:
+            con.execute("UPDATE events SET ts = ts - 1000 WHERE agent = 'backend' AND kind = 'wake_failed'")
+
+        reads["misses"] = 2
+        ok, said = control.restart_result(con, "backend")
+        check("verify: a process-table reading that misses twice is read again, and the restart goes through",
+              ok and any(" launch " in t for t in sent) and not dmn_lifecycle.restart_owed(con, "backend", db.get_agent_state(con, "backend")),
+              f"{said} {sent}")
+
+        sent.clear()
+        table["backend"] = 4200
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        reads["misses"] = 99
+        ok, said = control.restart_result(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        check("retry: a restart whose wake could not read the table leaves it closed with the restart owed, nothing typed after /exit",
+              not ok and row["closed_at"] and dmn_lifecycle.restart_owed(con, "backend", row)
+              and not any(" launch " in t for t in sent), f"{said} {sent}")
+        check("retry: and nothing waiting is no reason to leave it: the tick's cause is the restart",
+              dmn_lifecycle.closed_wake_cause(con, "backend", row)[0] == "restart"
+              and dmn_lifecycle.start_or_wake_needed(con, "backend", row) == ("wake", "a restart that has not started it again"))
+        word, detail = tui.screen_state(con, row)
+        check("shown: it reads PENDING and says it is down and why", word == "PENDING"
+              and detail.startswith("down: the process table"), f"{word} {detail}")
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        check("retry: the tick tries again at once (a missed reading counts for nothing) and fails the same way",
+              not ok and "could not be confirmed" in said and db.get_agent_state(con, "backend")["wake_failures"] == 0, said)
+        reads["misses"] = 0
+        sent.clear()
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        launched = [t for t in sent if " launch " in t]
+        check("retry: once the table reads, the owed restart finishes as asked: the same conversation, from the same requester",
+              ok and launched and "--resume sess-1" in launched[0] and "--why restart" in launched[0]
+              and launched_prompt(launched[0]).startswith("Restarted by human (resumed)."), f"{said} {sent}")
+        row = db.get_agent_state(con, "backend")
+        check("retry: and it is no longer owed", not dmn_lifecycle.restart_owed(con, "backend", row)
+              and dmn_lifecycle.restart_retry_note(con, "backend", row) is None)
+
+        # A launch that starts nothing is counted, paused between tries, and stalls the agent with its reason.
+        orcamod.relaunch = lambda h, cmd, started=None: (False, "claude did not start")
+        sent.clear()
+        table["backend"] = 4200
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        ok, said = control.restart_result(con, "backend")
+        row = db.get_agent_state(con, "backend")
+        word, detail = tui.screen_state(con, row)
+        check("retry: a launch that started nothing leaves the restart owed, counted once",
+              not ok and dmn_lifecycle.restart_owed(con, "backend", row) and row["wake_failures"] == 1, f"{said} {dict(row)}")
+        check("shown: it says it is down, why, and which try is next",
+              word == "PENDING" and detail == "down, retry 2/3: claude did not start", f"{word} {detail}")
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        check("retry: the next try waits out the pause and counts nothing",
+              not ok and "shortly" in said and db.get_agent_state(con, "backend")["wake_failures"] == 1, said)
+        age_the_failures()
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        check("retry: after the pause it tries again, and that failure is counted",
+              not ok and db.get_agent_state(con, "backend")["wake_failures"] == 2, said)
+        age_the_failures()
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        row = db.get_agent_state(con, "backend")
+        word, detail = tui.screen_state(con, row)
+        check("retry: the third failure stalls it with the reason, never silently idle",
+              row["state"] == dmn_states.STALLED and "claude did not start" in row["detail"]
+              and word == "FATAL" and "no session: claude" in detail, f"{dict(row)} {word} {detail}")
+        orcamod.relaunch = real_relaunch
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.reset_counter(con, "backend", "wake_failures")
+        sent.clear()
+        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
+        check("retry: unstalled, the owed restart still finishes", ok and any(" launch " in t for t in sent), f"{said} {sent}")
+
+        db.set_closed(con, "backend", "sess-1")
+        check("retry: a later close is its own matter, the finished restart does not come back",
+              dmn_lifecycle.closed_wake_cause(con, "backend", db.get_agent_state(con, "backend")) is None)
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+         orcamod.close_terminal, dmn_lifecycle.TABLE_RETRY_PAUSES_S) = real
+        obsmod.live_sessions = real_table
+        dmn_lifecycle._live_sessions_settled = real_settled
+        orcamod.relaunch = real_relaunch
+        con.close()
+
+
 def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -4543,6 +4683,7 @@ def main() -> int:
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
+        run(lambda: test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(Path(td) / 'restartretry'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_two_connects_migrating_one_old_database_both_succeed(Path(td) / 'migrace'))
         run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
