@@ -34,6 +34,7 @@ class Confirm(Dialog):
     click) answers; every other key leaves the question open, so a wheel notch
     or a stray arrow never answers it. Dismisses with True or False."""
 
+    CLOSE_RESULT = False        # closing without answering is "no"
     DEFAULT_CSS = """
     Confirm #dialog { width: 64; }
     Confirm #dialog.danger { border: thick $error; }

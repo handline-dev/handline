@@ -65,8 +65,8 @@ class TextPrompt(Dialog):
         dialog.styles.padding = (gap, 2)
         self.query_one("#prompt").styles.margin = (0, 0, gap, 0)
         self.query_one("#hint").styles.margin = (gap, 0, 0, 0)
-        # frame 2, padding 2*gap, prompt 1+gap, hint as drawn (it wraps) +gap
-        chrome = 2 + 2 * gap + 1 + gap + max(1, self.query_one("#hint").size.height) + gap
+        # frame 2, close bar 1, padding 2*gap, prompt 1+gap, hint as drawn (it wraps) +gap
+        chrome = 2 + 1 + 2 * gap + 1 + gap + max(1, self.query_one("#hint").size.height) + gap
         if not self.context:
             box.styles.max_height = max(3, min(12, height - chrome))
             return

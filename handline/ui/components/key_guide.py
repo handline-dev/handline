@@ -14,6 +14,8 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
+from .close_bar import CloseBar
+
 SEP = " · "
 HELP_KEY = "?"
 HELP_LABEL = "keys"
@@ -78,6 +80,12 @@ class KeyHelp(ModalScreen[None]):
     KeyHelp #hint { margin-top: 1; color: $text-muted; }
     """
 
+    def close(self) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.close()
+
     def __init__(self, title: str, keys: list[Key]) -> None:
         super().__init__()
         self.title_text, self.keys = title, keys
@@ -89,6 +97,7 @@ class KeyHelp(ModalScreen[None]):
             body.append(k.key.ljust(width + 2), "bold")
             body.append((k.help or k.label) + "\n")
         with Vertical(id="dialog"):
+            yield CloseBar()
             yield Static(Text(self.title_text, style="bold"))
             yield Static(body, id="keys")
             yield Static("esc or ? closes", id="hint")
