@@ -20,7 +20,8 @@ def _refused_listing(target: str | None) -> bool:
     """Print why and return True when the caller may not list `target`."""
     caller = askmod.asking_agent()
     if caller is None:
-        print("cannot tell who is asking: OCP_AGENT is unset and this is not an "
+        print(_who_refusal("list") + ", so nothing is listed" if names.getenv("OCP_AGENT") else
+              "cannot tell who is asking: OCP_AGENT is unset and this is not an "
               "interactive shell, so nothing is listed.")
         return True
     if not target:
@@ -155,7 +156,8 @@ def _wait_for(check, timeout: int, what: str) -> bool:
 def cmd_inbox(args) -> int:
     agent = args.agent or askmod.asking_agent()
     if not agent:
-        print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
+        print(_who_refusal("read the inbox") if names.getenv("OCP_AGENT") else
+              "cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
     if _refused_listing(agent):

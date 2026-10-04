@@ -51,15 +51,26 @@ def current_agent() -> str | None:
 def _note_nested(agent: str) -> None:
     """Record, once per process, that a command refused as an inherited name came from a nested Claude Code,
     with the chain of programs above it, so an unexplained command can be traced later."""
+    note_chain(agent, "nested_claude_refused", sys.argv[1:4])
+
+
+def note_chain(agent: str, kind: str, argv: list[str]) -> None:
+    """One event for this process under `agent`: what it was run as and the programs above it. Written
+    for every state-changing command (`hl` main) and for each refusal, so a command whose caller the
+    ancestry check could not tell apart - a claude run through node, a session with its hooks stripped -
+    can still be traced to the chain that issued it."""
     try:
         con = db.connect()
         try:
-            db.add_event(con, agent, "nested_claude_refused",
-                         {"argv": sys.argv[1:4], "chain": [f"{p} {n}" for p, n in sessiontoken.chain()][:12]},
-                         dedup_key=f"nested:{os.getpid()}")
+            what = {"argv": [a[:40] for a in argv[:3]],
+                    "chain": " > ".join(f"{n}:{p}" for p, n in sessiontoken.chain()[:8])}
+            if kind == "verb_chain":
+                db.add_event(con, agent, "verb_chain", what, dedup_key=f"{kind}:{os.getpid()}")
+            else:
+                db.add_event(con, agent, "nested_claude_refused", what, dedup_key=f"{kind}:{os.getpid()}")
         finally:
             con.close()
-    except Exception:  # noqa: BLE001 - a record that cannot be written must not change the refusal
+    except Exception:  # noqa: BLE001 - a record that cannot be written must not change what the command does
         pass
 
 

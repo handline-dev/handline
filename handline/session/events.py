@@ -254,7 +254,7 @@ COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Po
 # NOT in here is deliberate - PermissionRequest and TeammateIdle are the two
 # events that mean a human is wanted, which is the one thing that panel exists
 # to show.
-TURN_BOUNDARIES = {"SessionStart", "SessionEnd", "Stop", "StopFailure",
+TURN_BOUNDARIES = {"verb_chain", "SessionStart", "SessionEnd", "Stop", "StopFailure",
                    "SubagentStop", "PostCompact", "UserPromptSubmit"}
 
 ACTIVE_EVENTS = {"UserPromptSubmit"}

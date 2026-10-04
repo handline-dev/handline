@@ -85,13 +85,13 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
         "    events.record_from_stdin(['UserPromptSubmit'])\n"
         "else:\n"
         "    from handline.cli import parser\n"
-        "    parser.main(['task', 'done', 'T9', 'evidence'])\n")
+        "    parser.main(sys.argv[2:])\n")
     env = dict(os.environ, OCP_AGENT="scout", HANDLINE_AGENT="scout", OCP_ACCOUNT="alpha", OCP_HOME=str(home),
                HANDLINE_HOME=str(home))
     hook = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "x"})
 
-    def under(depth: int, mode: str) -> subprocess.CompletedProcess:
-        cmd = f"{shlex_quote(sys.executable)} {shlex_quote(str(probe))} {mode}; :"
+    def under(depth: int, mode: str, *rest: str) -> subprocess.CompletedProcess:
+        cmd = f"{shlex_quote(sys.executable)} {shlex_quote(str(probe))} {mode} {' '.join(map(shlex_quote, rest))}; :"
         for _ in range(depth):
             cmd = f"{shlex_quote(str(exe))} -c {shlex_quote(cmd + '; :')}"
         return subprocess.run(["/bin/sh", "-c", cmd], capture_output=True, text=True, env=env, timeout=60,
@@ -117,15 +117,26 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
     under(1, "hook")
     check("nested: the agent's own hook is recorded", hooks() == 1, str(hooks()))
 
-    own = under(1, "done")
-    nested = under(2, "done")
+    own = under(1, "done", "task", "done", "T9", "evidence")
+    nested = under(2, "done", "task", "done", "T9", "evidence")
     check("nested: the agent's own `hl task done` is taken as the agent's (it gets as far as looking for the task)",
           "no task T9" in own.stdout, own.stdout + own.stderr[-200:])
     check("nested: the same command from a nested claude is refused as an inherited name, and says so",
           "second Claude Code" in nested.stdout and "no task" not in nested.stdout, nested.stdout + nested.stderr[-200:])
+    said = under(2, "say", "say", "orcapipe", "as scout")
+    con = db.connect()
+    sent = con.execute("SELECT count(*) FROM requests WHERE requester = 'scout'").fetchone()[0]
+    con.close()
+    check("nested: a say from a nested claude is refused as an inherited name and sends nothing as the agent",
+          sent == 0 and "second Claude Code" in said.stdout, said.stdout + said.stderr[-200:])
     con = db.connect()
     rec = con.execute("SELECT payload FROM events WHERE agent = 'scout' AND kind = 'nested_claude_refused'").fetchall()
     con.close()
+    con = db.connect()
+    chains = con.execute("SELECT payload FROM events WHERE agent = 'scout' AND kind = 'verb_chain'").fetchall()
+    con.close()
+    check("nested: every state-changing command is recorded with its chain, the agent's own and the nested one's",
+          len(chains) >= 2 and any("9.9.9" in c["payload"] for c in chains), str([c["payload"] for c in chains])[:300])
     check("nested: the refusal is recorded with the chain of programs above the command",
           len(rec) >= 1 and "9.9.9" in rec[0]["payload"], str([r["payload"] for r in rec])[:300])
 
