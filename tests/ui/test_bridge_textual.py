@@ -422,6 +422,29 @@ def _page_rows(con, rid: int) -> list:
     return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
 
 
+def test_an_hr_card_is_drawn_only_in_the_chats_it_concerns() -> None:
+    from handline.ui import chat_page as cp
+    add = {"id": "a1", "kind": "add", "agent": "boss.scout", "requested_by": "boss", "team": "boss"}
+    check("hr scope: the proposer, the agent added and the team's manager see an add",
+          all(cp.hr_concerns(add) >= {n} for n in ("boss", "boss.scout")))
+    check("hr scope: another agent does not", "legacy" not in cp.hr_concerns(add))
+    from handline.ui.components import hr_card
+    real = hr_card.pending
+    hr_card.pending = lambda since=0: [{**add, "ts": 5, "state": "applied"}]
+    try:
+        check("hr scope: the card is drawn for boss and not for legacy",
+              len(cp.hr_cards("boss", [])) == 1 and cp.hr_cards("legacy", []) == [])
+    finally:
+        hr_card.pending = real
+    rename = {"kind": "rename", "agent": "old", "requested_by": "boss", "to": "new", "team": "mgr"}
+    check("hr scope: a rename concerns the old name, the new one, the proposer and the manager",
+          cp.hr_concerns(rename) == {"old", "new", "boss", "mgr"}, str(cp.hr_concerns(rename)))
+    team = {"kind": "team", "agent": "mgr", "requested_by": "mgr", "members": "mgr.a,mgr.b"}
+    check("hr scope: a new team concerns its manager and members", cp.hr_concerns(team) == {"mgr", "mgr.a", "mgr.b"})
+    check("hr scope: a request with nothing optional is its proposer and its agent",
+          cp.hr_concerns({"kind": "settings", "agent": "x", "requested_by": None}) == {"x"})
+
+
 def test_a_message_is_one_text_with_its_parts_in_order() -> None:
     """T438: a message is one Static, not one widget per part; this is what it says."""
     from handline.ui import chat_page as cp
@@ -3421,7 +3444,7 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
     agents.register("backend")
     ok, said = hr.enact("settings", "backend", "by hand", sets={"effort": "high"})
     check("hr card: a change the founder made directly is no request card, in an empty chat either",
-          ok and cp.hr_cards("backend", False, []) == [] and cp.hr_cards("backend", True, []) == [], said)
+          ok and cp.hr_cards("backend", []) == [], said)
 
     _home("hr-card-failed")
     agents.register("backend")
@@ -5177,6 +5200,7 @@ async def _run_all() -> None:
     test_the_founders_reply_to_a_report_draws_its_link()
     test_a_reply_closes_a_waiting_question_or_starts_a_new_request()
     test_a_message_is_one_text_with_its_parts_in_order()
+    test_an_hr_card_is_drawn_only_in_the_chats_it_concerns()
     test_task_changes_are_set_among_the_messages_at_their_time()
     test_a_timeline_entry_shows_its_kind_after_the_time_with_an_icon_and_a_colour_of_its_own()
     test_a_change_names_who_made_it_and_an_assignment_says_to_whom()
