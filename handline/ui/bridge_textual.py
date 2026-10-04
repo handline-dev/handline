@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from ..daemon import devmode
-from ..infra import service
+from ..infra import paths, service
 
 from textual.app import App
 from textual.screen import ModalScreen
@@ -160,6 +160,7 @@ def run(once: bool = False) -> int:
     if once or not sys.stdout.isatty():
         print(tui.snapshot())
         return 0
+    paths.ensure_cwd()
     if not _one_bridge():
         return 1
     try:                    # the lock is taken before the app starts: a bridge that lost the race says so

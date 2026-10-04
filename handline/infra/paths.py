@@ -38,6 +38,17 @@ def default_home() -> Path:
     return user_home() / ".orcapipe"
 
 
+def ensure_cwd() -> None:
+    """Move to the repo when this process's working directory is gone (the folder it started in was
+    removed): every child inherits it, and `orca`, `claude` and a shell all fail on it. The repo, not
+    the home, since `start` with no repo and `task done <sha>` read the cwd and want a checkout."""
+    try:
+        os.getcwd()
+    except OSError:
+        os.chdir("/")      # resolving a path needs a live cwd
+        os.chdir(repo_root())
+
+
 def home() -> Path:
     raw = names.getenv("OCP_HOME")
     if raw is not None and not raw.strip():

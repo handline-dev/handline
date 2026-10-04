@@ -8,7 +8,7 @@ import shlex
 import shutil
 import subprocess
 
-from ...infra import textsafe
+from ...infra import paths, textsafe
 from .base import Backend, not_a_repo_root
 
 # `--tab` waits for Orca to persist the layout; a wedged Orca must not hold the tick.
@@ -20,6 +20,7 @@ def _exec(argv: list[str], timeout: int = 120) -> tuple[int, str, str]:
     embeds either in a message need not sanitise it. The one place an `orca` process starts.
     It does not cover a caller that `json.loads` the text: a control byte sent escaped comes
     back real from the parse, so such a caller reads the value through `_parsed`."""
+    paths.ensure_cwd()
     r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     return (r.returncode, textsafe.oneline(r.stdout.strip()), textsafe.oneline(r.stderr.strip()))
 

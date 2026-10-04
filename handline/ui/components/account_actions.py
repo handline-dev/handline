@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 
+from ...infra import paths
 from ...team import accounts
 from ... import actions, db
 from ...usage import load as loadmod
@@ -22,6 +23,7 @@ class AccountActions(Toasts):
         screen), then take it back."""
         # `script` keeps a copy of the screen, so a failed exit can say what claude
         # printed; without it the run is plain and says only the exit code.
+        paths.ensure_cwd()
         script = shutil.which("script")
         log = tempfile.NamedTemporaryFile(prefix="ocp-login-", delete=False) if script else None
         if log:
