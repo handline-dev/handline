@@ -254,8 +254,12 @@ COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Po
 # NOT in here is deliberate - PermissionRequest and TeammateIdle are the two
 # events that mean a human is wanted, which is the one thing that panel exists
 # to show.
-TURN_BOUNDARIES = {"verb_chain", "SessionStart", "SessionEnd", "Stop", "StopFailure",
+TURN_BOUNDARIES = {"SessionStart", "SessionEnd", "Stop", "StopFailure",
                    "SubagentStop", "PostCompact", "UserPromptSubmit"}
+
+# Records kept for audit, not anything an agent did or a turn's edge: hidden from `hl events` unless
+# --all, and left out of what a fold tells.
+AUDIT_KINDS = {"verb_chain"}
 
 ACTIVE_EVENTS = {"UserPromptSubmit"}
 

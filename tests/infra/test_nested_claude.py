@@ -141,6 +141,27 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
           len(rec) >= 1 and "9.9.9" in rec[0]["payload"], str([r["payload"] for r in rec])[:300])
 
 
+def test_two_records_from_one_process_id_are_both_kept(home: Path) -> None:
+    """Process ids are reused; a record keyed on one would silently drop every later command that got it."""
+    use_home(home)
+    from handline.team import ask
+    real = os.getpid
+    os.getpid = lambda: 4242
+    try:
+        ask.note_verb_chain("scout", ["task", "done"])
+        ask.note_verb_chain("scout", ["say", ""])
+        ask._note_nested("scout")
+        ask._note_nested("scout")
+    finally:
+        os.getpid = real
+    con = db.connect()
+    kinds = [r["kind"] for r in con.execute("SELECT kind FROM events WHERE agent = 'scout' AND kind IN "
+                                            "('verb_chain', 'nested_claude_refused') ORDER BY id")]
+    con.close()
+    check("records: commands that share a process id are each recorded, refusals too",
+          kinds == ["verb_chain", "verb_chain", "nested_claude_refused", "nested_claude_refused"], str(kinds))
+
+
 def shlex_quote(s: str) -> str:
     import shlex
     return shlex.quote(s)
@@ -151,6 +172,7 @@ def main() -> int:
         run(lambda: test_a_program_path_is_claude_code_only_when_it_names_it())
         run(lambda: test_the_count_of_claude_code_above_a_process_follows_its_ancestry())
         run(lambda: test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(Path(td) / "n1"))
+        run(lambda: test_two_records_from_one_process_id_are_both_kept(Path(td) / "n2"))
     return run_area(tests)
 
 

@@ -683,7 +683,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     agent = names.getenv("OCP_AGENT")
     if agent and _mutates(args):
-        askmod.note_chain(agent, "verb_chain", [args.cmd, getattr(args, "sub", None) or ""])
+        askmod.note_verb_chain(agent, [args.cmd, getattr(args, "sub", None) or ""])
     try:
         return args.fn(args)
     except SystemExit:

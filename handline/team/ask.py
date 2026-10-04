@@ -48,26 +48,34 @@ def current_agent() -> str | None:
     return agent
 
 
+def _chain_payload(argv: list[str]) -> dict:
+    """What a record of who issued a command holds: the command's first words and the programs above it."""
+    return {"argv": [a[:40] for a in argv[:3]],
+            "chain": " > ".join(f"{n}:{p}" for p, n in sessiontoken.chain()[:8])}
+
+
 def _note_nested(agent: str) -> None:
-    """Record, once per process, that a command refused as an inherited name came from a nested Claude Code,
-    with the chain of programs above it, so an unexplained command can be traced later."""
-    note_chain(agent, "nested_claude_refused", sys.argv[1:4])
-
-
-def note_chain(agent: str, kind: str, argv: list[str]) -> None:
-    """One event for this process under `agent`: what it was run as and the programs above it. Written
-    for every state-changing command (`hl` main) and for each refusal, so a command whose caller the
-    ancestry check could not tell apart - a claude run through node, a session with its hooks stripped -
-    can still be traced to the chain that issued it."""
+    """Record that a command refused as an inherited name came from a nested Claude Code, with the chain of
+    programs above it, so an unexplained command can be traced later."""
     try:
         con = db.connect()
         try:
-            what = {"argv": [a[:40] for a in argv[:3]],
-                    "chain": " > ".join(f"{n}:{p}" for p, n in sessiontoken.chain()[:8])}
-            if kind == "verb_chain":
-                db.add_event(con, agent, "verb_chain", what, dedup_key=f"{kind}:{os.getpid()}")
-            else:
-                db.add_event(con, agent, "nested_claude_refused", what, dedup_key=f"{kind}:{os.getpid()}")
+            db.add_event(con, agent, "nested_claude_refused", _chain_payload(sys.argv[1:4]))
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - a record that cannot be written must not change the refusal
+        pass
+
+
+def note_verb_chain(agent: str, argv: list[str]) -> None:
+    """One event per state-changing command: what it was run as and the programs above it, so a command
+    whose caller the ancestry check could not tell apart - a claude run through node, a session with its
+    hooks stripped - can still be traced to the chain that issued it. No dedup key: process ids are
+    reused and the key would be kept for good."""
+    try:
+        con = db.connect()
+        try:
+            db.add_event(con, agent, "verb_chain", _chain_payload(argv))
         finally:
             con.close()
     except Exception:  # noqa: BLE001 - a record that cannot be written must not change what the command does
