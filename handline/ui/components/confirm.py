@@ -35,6 +35,7 @@ class Confirm(Dialog):
     or a stray arrow never answers it. Dismisses with True or False."""
 
     CLOSE_RESULT = False        # closing without answering is "no"
+    CLOSE_CORNER = False        # Esc is the No button's own key
     DEFAULT_CSS = """
     Confirm #dialog { width: 64; }
     Confirm #dialog.danger { border: thick $error; }
@@ -62,7 +63,7 @@ class Confirm(Dialog):
             if self.detail:
                 yield Static(Text("\n".join(textsafe.drawable(self.detail))), id="detail")
             with Horizontal(id="buttons"):
-                yield Button(f"{self.no}  n", id="no", compact=True)
+                yield Button(f"{self.no}  n · esc", id="no", compact=True)
                 yield Button(f"{self.yes}  y", id="yes", compact=True,
                              variant="error" if self.danger else "warning")
 

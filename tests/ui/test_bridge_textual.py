@@ -2848,7 +2848,7 @@ def test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_
 
 def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> None:
     """The wiring, not the looks: each ModalScreen under handline.ui is a Dialog (which mounts the
-    shared CloseBar and binds Escape to `close`) or draws a CloseBar itself and closes on Escape; a
+    shared CloseCorner and binds Escape to `close`) or takes the CloseCorner mixin itself; a
     Confirm's close is "no"; a settings screen has its Back button."""
     import importlib
     import inspect
@@ -2856,7 +2856,7 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     import handline.ui as ui
     from textual.screen import ModalScreen
     from handline.ui.components import agent_settings_screen
-    from handline.ui.components.close_bar import CloseBar
+    from handline.ui.components.close_bar import CloseCorner, in_close_corner
     from handline.ui.components.confirm import Confirm
     from handline.ui.components.dialog import Dialog
     for m in pkgutil.walk_packages(ui.__path__, "handline.ui."):
@@ -2871,10 +2871,9 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     for c in sorted(found, key=lambda c: c.__name__):
         escape = [b for k in c.__mro__ for b in vars(k).get("BINDINGS", [])
                   if getattr(b, "key", b[0] if isinstance(b, tuple) else None) == "escape"]
-        own_bar = "CloseBar" in inspect.getsource(c.compose) if "compose" in vars(c) else False
-        if not escape or not (issubclass(c, Dialog) or own_bar) or not hasattr(c, "close") or not hasattr(c, "action_close"):
+        if not escape or not issubclass(c, CloseCorner) or not hasattr(c, "close") or not hasattr(c, "action_close"):
             bad.append(c.__name__)
-    check("close: every modal has Escape, the shared close bar, close() and its action", not bad and len(found) >= 12, str(bad))
+    check("close: every modal has Escape, the shared close corner, close() and its action", not bad and len(found) >= 12, str(bad))
     got = []
     c = Confirm("q?")
     c.dismiss = got.append
@@ -2882,7 +2881,11 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     check("close: closing a Confirm without answering says no", got == [False], str(got))
     check("close: the settings screen has a Back button besides Escape",
           "as_back" in inspect.getsource(agent_settings_screen.AgentSettingsScreen.compose))
-    check("close: the close bar is the one shared component", CloseBar.__module__.endswith("close_bar"))
+    check("close: a Confirm leaves the corner off - Esc is its No button's key", Confirm.CLOSE_CORNER is False
+          and all(c.CLOSE_CORNER for c in found if c is not Confirm))
+    check("close: only the last cells of the top border are the corner",
+          in_close_corner(10, 4, 60, 68, 4) and not in_close_corner(10, 4, 60, 60, 4)
+          and not in_close_corner(10, 4, 60, 68, 5) and not in_close_corner(10, 4, 60, 70, 4))
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
