@@ -23,7 +23,7 @@ class SandboxBanner(Horizontal):
         self.display = False
 
     def compose(self) -> ComposeResult:
-        yield Static("Sandbox is off for this agent, until its session ends", id="sandbox_text")
+        yield Static("Sandbox is off for this agent, until you turn it on", id="sandbox_text")
         yield Button("Turn it on", id="sandbox_on", compact=True)
 
     def refresh_state(self, agent: str, show: bool) -> None:

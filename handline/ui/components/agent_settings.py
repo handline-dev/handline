@@ -107,7 +107,7 @@ class AgentSettings(Vertical):
                 yield Static("from the next launch; skip prompts overrides it", classes="unit")
                 yield FieldNote(id="n_s_mode")
             yield SwitchRow("skip prompts", "claude --dangerously-skip-permissions, from the next launch", "s_skip")
-            yield SwitchRow("sandbox", "off lasts until the agent's session ends", "s_sandbox")
+            yield SwitchRow("sandbox", "off stays off until turned on again", "s_sandbox")
             yield SectionHead("browser")
             with Horizontal(classes="frow"):
                 yield Static("browser", classes="flabel")

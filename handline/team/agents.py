@@ -210,29 +210,20 @@ def mode_of(agent: str, cfg: dict) -> str:
     return v if isinstance(v, str) and v in MODES and v != "bypass" else DEFAULT_MODE
 
 
-SANDBOX_PENDING, SANDBOX_ACTIVE = "granted", "active"
+SANDBOX_OFF_GRANT = "granted"
 
 
-def sandbox_lease(agent: str) -> str | None:
-    """The founder's leave to run this agent unsandboxed, from the protected store (an agent can write
-    its own agent.yaml, so the file alone never turns it off): `granted` until a session launched with
-    it is up, then `active` for that one session, written `active:<its launch stamp>`. The daemon ends it
-    with the session (`daemon/sandboxlease.py`); it is never kept for the next one."""
-    v = protected.get(_SANDBOX_NS, agent)
-    state = (v or "").partition(":")[0]
-    return state if state in (SANDBOX_PENDING, SANDBOX_ACTIVE) else None
-
-
-def sandbox_lease_launch(agent: str) -> str | None:
-    """The launch stamp of the session an active lease belongs to."""
-    v = protected.get(_SANDBOX_NS, agent) or ""
-    return v.partition(":")[2] or None
+def sandbox_off_granted(agent: str) -> bool:
+    """Whether the founder turned this agent's sandbox off, from the protected store (an agent can write
+    its own agent.yaml, so the file alone never turns it off). It stays until someone turns it back on:
+    a session ending or a restart does not end it. (Stores written while it was a one-session lease hold
+    `active:<launch stamp>`; any value is the grant.)"""
+    return bool(protected.get(_SANDBOX_NS, agent))
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:
-    """Whether the sandbox is on as the settings stand: off only with `sandbox: false` in agent.yaml and
-    the founder's lease. A launch asks `launch.sandbox_on`, which also knows a lease's session is over."""
-    return not (cfg.get("sandbox") is False and sandbox_lease(agent))
+    """Whether the sandbox is on: off only with `sandbox: false` in agent.yaml and the founder's grant."""
+    return not (cfg.get("sandbox") is False and sandbox_off_granted(agent))
 
 
 def kind(cfg: dict) -> str:
@@ -326,7 +317,7 @@ def register(name: str, role: str = "", model: str | None = None,
     elif skip_permissions is not None:
         protected.delete(_SKIP_NS, name)
     if sandbox is False:
-        protected.put(_SANDBOX_NS, name, SANDBOX_PENDING)
+        protected.put(_SANDBOX_NS, name, SANDBOX_OFF_GRANT)
     elif sandbox is not None:
         protected.delete(_SANDBOX_NS, name)
     d = paths.agent_dir(name)

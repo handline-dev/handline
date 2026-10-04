@@ -459,8 +459,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
-                           **({} if sandbox_on(agent, cfg) else {"sandbox": False}))
-    if cfg.get("sandbox") is False and not agents.sandbox_lease(agent):
+                           **({} if agents.sandbox_on(agent, cfg) else {"sandbox": False}))
+    if cfg.get("sandbox") is False and not agents.sandbox_off_granted(agent):
         print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
               f"turned it off (`hl agent set {agent} sandbox=off`, from a terminal) - ignoring it",
               file=sys.stderr)
@@ -619,7 +619,7 @@ def fingerprint(agent: str) -> str:
         material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
     if agents.mode_of(agent, cfg) not in ("bypass", agents.DEFAULT_MODE):
         material += "\x1emode:" + agents.mode_of(agent, cfg)    # only when not the default, like chrome
-    if not sandbox_on(agent, cfg):
+    if not agents.sandbox_on(agent, cfg):
         material += "\x1esandbox-off"
     if agents.mcp_config_args(cfg):
         material += "\x1emcp:" + agents.mcp_config_args(cfg)[1]   # only when set, like chrome
@@ -655,31 +655,6 @@ def launched_at(row) -> str | None:
     return None if v is None else str(v)
 
 
-def launched_sandbox_off(row) -> bool:
-    """Was the session this agent_state row records launched with the sandbox off?"""
-    return _parts(row).get("sandbox") == SANDBOX_OFF_PART
-
-
-def sandbox_on(agent: str, cfg: dict, con=None) -> bool:
-    """Whether a launch (or the recipe of the session now running) has the sandbox on. Off needs
-    agent.yaml's `sandbox: false` and the founder's lease. A lease belongs to one session: once the agent
-    is recorded closed, or its recorded launch is not the one that took the lease, it is over and a
-    session started after it is on - whichever of the wake and the daemon's sweep comes first."""
-    if agents.sandbox_on(agent, cfg):
-        return True
-    if agents.sandbox_lease(agent) == agents.SANDBOX_PENDING:
-        return False
-    own = con is None
-    con = con or db.connect()
-    try:
-        row = db.get_agent_state(con, agent)
-    finally:
-        if own:
-            con.close()
-    taken = agents.sandbox_lease_launch(agent)
-    return not row or bool(row["closed_at"]) or taken is None or launched_at(row) != taken
-
-
 def fingerprint_parts(agent: str) -> dict[str, str]:
     """What a launch reads from the settings a person edits, one short hash each, named for the person:
     the model, the effort level, the agent's own mcp config and the shared mcp.json, whether the browser
@@ -706,7 +681,7 @@ def fingerprint_parts(agent: str) -> dict[str, str]:
         "permissions": h(DISALLOWED_TOOLS + ("\x1eskip-permissions" if agents.skip_permissions_in_effect(agent, cfg) else "")
                          + ("" if agents.mode_of(agent, cfg) in ("bypass", agents.DEFAULT_MODE)
                             else "\x1emode:" + agents.mode_of(agent, cfg))),
-        "sandbox": SANDBOX_OFF_PART if not sandbox_on(agent, cfg) else h(""),
+        "sandbox": SANDBOX_OFF_PART if not agents.sandbox_on(agent, cfg) else h(""),
         "ROLE.md": h(file("ROLE.md")),
         "base.md": h(file("base.md")),
         "team": h(_your_team(agent) + "\x1e" + "\x1e".join(_team_rules(agent))),
