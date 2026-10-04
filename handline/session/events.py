@@ -14,7 +14,7 @@ import sys
 
 from ..usage import collect
 from .. import db
-from ..infra import names
+from ..infra import names, sessiontoken
 from . import bgjobs, memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
@@ -130,6 +130,11 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     event = raw.get("hook_event_name") or event
     agent = names.getenv("OCP_AGENT")
     account = names.getenv("OCP_ACCOUNT")
+    if agent and sessiontoken.nested():
+        # A Claude Code another process started inside the agent's session inherited its name and its
+        # hooks, but it is not the agent: its turns and tool calls are not the agent's to record or guard.
+        print("{}")
+        return 0
     if agent and event in GUARDS:
         try:
             why = (memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))

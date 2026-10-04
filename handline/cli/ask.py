@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from .. import actions
-from ..infra import timefmt
+from ..infra import names, timefmt
 from ..team import ask as askmod
 from .. import db
 from ..infra import textsafe
@@ -283,6 +283,10 @@ def _who_refusal(verb: str) -> str:
     that dropped OCP_AGENT does not, and promoting one to the other is how an
     agent ends up clearing the founder's mailbox.
     """
+    if names.getenv("OCP_AGENT"):
+        return (f"refused: this runs under a second Claude Code started inside an agent's session, which "
+                f"inherited the name {names.getenv('OCP_AGENT')} without being that agent; only the agent's "
+                f"own session can {verb} as it")
     return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
             f"an interactive shell. Agents are started with `hl launch <agent>`, "
             f"which sets it.")

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import atomic, names, paths, textsafe
+from ..infra import atomic, names, paths, sessiontoken, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
@@ -38,8 +38,11 @@ HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
-    """Who is asking, or None when nothing says. Set by `hl launch`."""
-    return names.getenv("OCP_AGENT") or None
+    """Who is asking, or None when nothing says. Set by `hl launch`. A process under a Claude Code that
+    itself runs under another has inherited the name without being that agent (a session an agent's
+    own script started), so it is nobody."""
+    agent = names.getenv("OCP_AGENT") or None
+    return None if agent and sessiontoken.nested() else agent
 
 
 def asking_agent() -> str | None:
@@ -52,6 +55,8 @@ def asking_agent() -> str | None:
     is a fail-open. A human has a terminal; a script that dropped its
     environment does not, and it gets the refusal it used to get.
     """
+    if names.getenv("OCP_AGENT") and current_agent() is None:
+        return None             # an inherited name nobody vouches for is not "a human at their prompt" either
     return current_agent() or (HUMAN if sys.stdin.isatty() else None)
 
 
