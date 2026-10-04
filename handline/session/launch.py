@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from ..team import accounts, agents
+from ..team import accounts, agents, trust
 from .. import db, vendors
 from ..infra import gitrun, names, paths, sessiontoken, textsafe
 from ..usage import status
@@ -300,6 +300,18 @@ def trusted_environment(worktree: Path | None) -> list[str]:
     return lines
 
 
+def project_mcp_servers(worktree: Path) -> list[str]:
+    """The servers `worktree`'s .mcp.json names, when the folder is under a declared trust root, else none:
+    the vendor asks about them at start and the session waits for a person. An unreadable file names none."""
+    if not trust.is_declared(worktree):
+        return []
+    try:
+        servers = json.loads((worktree / ".mcp.json").read_text()).get("mcpServers")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return sorted(k for k in servers if isinstance(k, str)) if isinstance(servers, dict) else []
+
+
 def hidden_transcripts(agent: str, drv) -> list[str]:
     """The transcript folders `agent` may not read (T40): every other agent's
     except its own and its reports', in every account of this vendor, since
@@ -452,6 +464,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     if chosen not in ("bypass", agents.DEFAULT_MODE) and not mode:
         print(f"warning: agent '{agent}' has mode {chosen}, but {drv.name} has no such mode - "
               f"starting it as usual", file=sys.stderr)
+    approved = project_mcp_servers(Path.cwd())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
@@ -459,7 +472,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
-                           **({} if agents.sandbox_on(agent, cfg) else {"sandbox": False}))
+                           **({} if agents.sandbox_on(agent, cfg) else {"sandbox": False}),
+                           **({"mcp_approved": approved} if approved else {}))
     if cfg.get("sandbox") is False and not agents.sandbox_off_granted(agent):
         print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
               f"turned it off (`hl agent set {agent} sandbox=off`, from a terminal) - ignoring it",

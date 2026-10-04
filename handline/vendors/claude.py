@@ -126,7 +126,8 @@ class Claude:
                     no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
-                    chrome: bool = False, sandbox: bool = True) -> list[str]:
+                    chrome: bool = False, sandbox: bool = True,
+                    mcp_approved: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -166,6 +167,9 @@ class Claude:
             # The classifier reads autoMode from --settings, not from the
             # project's settings; "$defaults" keeps the built-in entries.
             settings["autoMode"] = {"environment": ["$defaults", *trusted]}
+        if mcp_approved:
+            # The project's .mcp.json servers are asked about at start, and the session waits for a person.
+            settings["enabledMcpjsonServers"] = mcp_approved
         if settings:
             argv += ["--settings", json.dumps(settings)]
         return argv

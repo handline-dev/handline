@@ -476,6 +476,25 @@ def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> No
               "agent orphan: no opencode account is registered" in names, str(names))
 
 
+def test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(home: Path) -> None:
+    from handline.infra import protected
+    use_home(home)
+    for name in ("trusted", "untrusted", "plain"):
+        (home / name).mkdir()
+    for name in ("trusted", "untrusted"):
+        (home / name / ".mcp.json").write_text("{}")
+    protected.put("trust", "roots.json", json.dumps([{"root": str(home / "trusted")}]))
+    for name in ("trusted", "untrusted", "plain"):
+        agents.register(f"a-{name}", repo=str(home / name))
+    r = doctor.Report()
+    doctor._check_agents(r)
+    names = [n for _lv, n, _d in r.rows]
+    check("doctor: the repo with an unsettled .mcp.json is named",
+          f"repo {home / 'untrusted'}: its .mcp.json is not settled" in names, str(names))
+    check("doctor: and only that one: not the declared repo, not the one with no .mcp.json",
+          sum("is not settled" in n for n in names) == 1, str(names))
+
+
 def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> None:
     """T170: off by default; on adds the driver's flag once at the next launch;
     only a real true counts; a vendor with no such switch is told, not broken."""
@@ -2480,6 +2499,7 @@ def main() -> int:
         run(lambda: test_a_session_may_not_write_the_files_that_move_main(Path(td) / 'mainrefs'))
         run(lambda: test_launch_hides_the_hook_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
+        run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
         run(lambda: test_the_protected_store_is_outside_what_agents_write(Path(td) / 'protstore'))

@@ -300,6 +300,7 @@ def _check_agents(r: Report) -> None:
         r.add(WARN, "no agents registered", "hl agent register <name>")
         return
     have = {vendors.account_vendor(a) for a in paths.list_accounts()}
+    unsettled: set[str] = set()
     for n in names:
         try:
             vendor = vendors.agent_vendor(n)
@@ -317,6 +318,16 @@ def _check_agents(r: Report) -> None:
                 r.add(WARN, f"agent {n}: no repo",
                       f"the daemon cannot start it, Orca has nowhere to make its worktree; "
                       f"`hl agent register {n} --repo <path>`")
+        except (FileNotFoundError, agents.ConfigError):
+            pass  # reported above as an agent.yaml error
+        try:
+            repo = agents.read(n).get("repo")
+            if repo and repo not in unsettled and (Path(repo).expanduser() / ".mcp.json").is_file() \
+                    and not trust.is_declared(repo):
+                unsettled.add(repo)
+                r.add(WARN, f"repo {repo}: its .mcp.json is not settled",
+                      f"agent {n} will stop at claude's 'new MCP servers found' screen; "
+                      f"declare the folder with `hl trust add {repo}` so a launch approves its servers")
         except (FileNotFoundError, agents.ConfigError):
             pass  # reported above as an agent.yaml error
         try:

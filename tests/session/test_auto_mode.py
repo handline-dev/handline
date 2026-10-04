@@ -223,8 +223,41 @@ def test_the_sandbox_stays_off_across_sessions_until_turned_on(home: Path) -> No
         con.close()
 
 
+def test_a_declared_folders_mcp_servers_are_approved_at_launch_and_no_others(home: Path) -> None:
+    import os
+    from handline.infra import protected
+    from handline.team import trust
+    _launch_world(home)
+    declared, other = home / "proj", home / "elsewhere"
+    for d in (declared, other):
+        d.mkdir()
+        (d / ".mcp.json").write_text(json.dumps({"mcpServers": {"supabase": {}, "gsc": {}}}))
+    check("mcp: a driver given servers names them in --settings",
+          _settings(Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=["b", "a"]))
+          == [{"enabledMcpjsonServers": ["b", "a"]}])
+    check("mcp: and given none passes no settings for it",
+          "--settings" not in Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=[]))
+    protected.put("trust", "roots.json", json.dumps([{"root": str(declared)}]))
+    check("mcp: a folder under a declared root names its servers",
+          launchmod.project_mcp_servers(declared) == ["gsc", "supabase"])
+    check("mcp: a folder outside every root names none, so claude still asks",
+          launchmod.project_mcp_servers(other) == [])
+    (declared / ".mcp.json").write_text("{not json")
+    check("mcp: an unreadable file names none", launchmod.project_mcp_servers(declared) == [])
+    (declared / ".mcp.json").write_text(json.dumps({"mcpServers": {"gsc": {}}}))
+    here = os.getcwd()
+    try:
+        for folder, want in ((declared, ["gsc"]), (other, None)):
+            os.chdir(folder)
+            got = [x.get("enabledMcpjsonServers") for x in _settings(launchmod.build("backend")[0])]
+            check(f"mcp: a launch in {folder.name} carries {want}", [g for g in got if g] == ([want] if want else []), str(got))
+    finally:
+        os.chdir(here)
+
+
 def main() -> int:
     def tests(td):
+        run(lambda: test_a_declared_folders_mcp_servers_are_approved_at_launch_and_no_others(Path(td) / 'a6'))
         run(lambda: test_the_sandbox_stays_off_across_sessions_until_turned_on(Path(td) / 'a5'))
         run(lambda: test_an_agent_starts_in_the_mode_it_is_set_to(Path(td) / 'a3'))
         run(lambda: test_the_sandbox_is_off_only_where_the_founder_turned_it_off(Path(td) / 'a4'))
