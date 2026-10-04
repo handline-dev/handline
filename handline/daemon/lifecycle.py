@@ -217,7 +217,7 @@ def _note_abandoned(con, agent: str, now: int) -> None:
 
 
 def close_agent(con, agent: str, log, st, keep_pane: bool = False,
-                force: bool = False, discard: bool = False) -> tuple[bool, str]:
+                force: bool = False, discard: bool = False, pane_may_close: bool = False) -> tuple[bool, str]:
     """Give the machine back an idle agent's memory, keeping its terminal.
 
     This is not a handoff: no context is reclaimed, because there is nothing
@@ -229,7 +229,7 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
     let the predicate check one value and the act store another, in the one
     place where the difference means closing with no way back.
 
-    `keep_pane` and `force` are a restart's: it starts a session in the same pane at once, and
+    `pane_may_close` is a restart's too: see `_end_session`. `keep_pane` and `force` are a restart's: it starts a session in the same pane at once, and
     `force` lets a working agent be closed - the close still waits for the turn to end. `discard` is
     a fresh start's: the conversation is given up on purpose, so a session with no id on record is
     still closed.
@@ -245,14 +245,15 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
                          require_idle=False, require_settled=True)
         if why:
             return False, why
-        ok, said = _close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=discard)
+        ok, said = _close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=discard,
+                                pane_may_close=pane_may_close)
         if ok:
             delivery._mark_typed(con, agent)
         return ok, said
 
 
 def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
-                force: bool = False) -> tuple[bool, str]:
+                force: bool = False, pane_may_close: bool = False) -> tuple[bool, str]:
     """End this agent's session, if one runs, and forget the one it would resume: its next wake is a
     new conversation that starts from the handoff record. For an agent that came back as the same
     conversation after a human closed it (the daemon records a closed session and resumes it when
@@ -261,7 +262,8 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
     if not row:
         return False, f"{agent} has never been started"
     if not row["closed_at"]:
-        ok, said = close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=True)
+        ok, said = close_agent(con, agent, log, st, keep_pane=keep_pane, force=force, discard=True,
+                               pane_may_close=pane_may_close)
         if not ok:
             return False, said
     elif row["resume_session"] and not db.get_handoff(con, agent):
@@ -340,21 +342,28 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
         return False, "it is mid-handoff"
     if live and row["state"] == RUNNING and not force:
         return False, "it is mid-turn (--force waits for the turn to end first)"
+    pane_closed_before = db.last_event_id(con, agent, "terminal_closed")
     if live or fresh:
         close = close_fresh if fresh else close_agent
-        ok, said = close(con, agent, log, st, keep_pane=True, force=force)
+        # A restart asked for by name is not left standing at a screen that cannot be read: past every
+        # other guard of the close, its terminal is closed with the session in it (`_end_session`).
+        ok, said = close(con, agent, log, st, keep_pane=True, force=force, pane_may_close=True)
         if not ok:
             return False, said
+        by_pane = db.last_event_id(con, agent, "terminal_closed") != pane_closed_before
     db.add_event(con, agent, "restart_owed", {"by": by, "fresh": fresh, "cause": cause})
     ok, why = wake_agent(con, agent, log, force=True, warm=not fresh, cause=cause, restarted_by=by,
                          applying=applying)
     if not ok:
         return False, f"it was closed but not started again - {why}"
-    return True, f"{agent}: restarted" + (" as a new conversation" if fresh else ", resuming its conversation")
+    note = ""
+    if by_pane:
+        note = "; its screen could not be read, so its terminal was closed with it"
+    return True, f"{agent}: restarted" + (" as a new conversation" if fresh else ", resuming its conversation") + note
 
 
 def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
-                 force: bool = False, discard: bool = False) -> tuple[bool, str]:
+                 force: bool = False, discard: bool = False, pane_may_close: bool = False) -> tuple[bool, str]:
     row = db.get_agent_state(con, agent)
     if row and row["state"] in (RUNNING, HANDOFF) and not (force and row["state"] == RUNNING):
         # `should_close` refuses these, and every path that closes on a
@@ -390,7 +399,8 @@ def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
         if not missing:
             db.set_handoff(con, agent, text)
             wrote = True
-    ok, why = _end_session(con, agent, log, st, resume=st.session_id, keep_pane=keep_pane)
+    ok, why = _end_session(con, agent, log, st, resume=st.session_id, keep_pane=keep_pane,
+                           pane_may_close=pane_may_close)
     if not ok and wrote:
         db.set_handoff(con, agent, None)
     if ok:
@@ -422,14 +432,20 @@ def _answer_exit_dialog(con, agent: str, log, stop: bool = False) -> bool:
     return False
 
 
+PANE_MARK = "its terminal was closed with it"
+
+
 def _end_session(con, agent: str, log, st, resume: str | None,
-                 keep_pane: bool = False) -> tuple[bool, str]:
+                 keep_pane: bool = False, pane_may_close: bool = False) -> tuple[bool, str]:
     """Type `/exit` at this agent, and record what may bring it back.
 
     Once the session is gone its pane is closed and the handle dropped (T407):
     the wake opens a new terminal in the same worktree, so an idle agent holds
     no window. `keep_pane` is for the callers that start a session in it again
     at once, and an agent that never closes (`idle_close.NEVER`) keeps its pane.
+
+    `pane_may_close` lets a screen that cannot be read be answered by closing the terminal with the
+    session in it, once every guard above has passed: `/exit` is never typed at a screen nobody can read.
 
     `resume` is the session id to come back to, or None when nothing may: a
     session id exists only under its own account's config directory, so a close
@@ -462,6 +478,19 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     # meets again; when it cannot be, the refusal says why.
     stuck = delivery._past_dialog(con, agent, log)
     ok, why = orca.close_session(handle)
+    pane_gone = False
+    if not ok and pane_may_close:
+        seen = orca.screen_blocker(handle)
+        if seen is not None and seen.kind == orca.UNREADABLE:
+            ok, why = orca.close_terminal(handle)
+            pane_gone = ok
+            if ok:
+                # The handle points at nothing now, whether or not the session ends with it.
+                row = db.get_agent_state(con, agent)
+                db.set_terminal(con, agent, None, row["worktree"] if row else None)
+                db.add_event(con, agent, "terminal_closed", {"handle": handle})
+            if not ok:
+                why = f"its screen could not be read and its terminal would not close: {why}"
     if not ok and stuck:
         why = f"{why} ({stuck})"
     if not ok:
@@ -474,7 +503,7 @@ def _end_session(con, agent: str, log, st, resume: str | None,
         return False, why
     # A dialog that offers to stop background work only appears now; declining
     # it is the answer, so this is a refusal and not a failed close.
-    if _answer_exit_dialog(con, agent, log, stop=stale):
+    if not pane_gone and _answer_exit_dialog(con, agent, log, stop=stale):
         why = "background work is running; the exit dialog was declined, session kept"
         db.add_event(con, agent, "close_failed", {"why": why, "pid": None})
         return False, why
@@ -485,10 +514,11 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     # ate the first) nor killed (that skips its own shutdown); the sweep
     # records the close if it does end later.
     gone = delivery._wait_session_gone(agent)
-    on_screen = gone and delivery.session_still_drawn(handle)
+    on_screen = gone and not pane_gone and delivery.session_still_drawn(handle)
     if not gone or on_screen:
         pid = (obs.live_sessions() or {}).get(agent)
-        why = (f"/exit was typed but the session is still running"
+        typed = "its terminal was closed" if pane_gone else "/exit was typed"
+        why = (f"{typed} but the session is still running"
                f"{f' (pid {pid})' if pid else ''} after {delivery.END_WAIT_S}s; not marked closed"
                if not gone else
                "/exit was typed and the process table lists no session, but one is still drawn on the "
@@ -507,6 +537,9 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     db.add_event(con, agent, "close", {"session": st.session_id,
                                        "ctx_pct": st.ctx_pct})
     log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
+    if pane_gone:
+        log(f"  {agent}: its screen could not be read; terminal closed with the session")
+        return True, f"{agent}: session ended, {PANE_MARK}"
     if keep_pane or idle_close.close_timeout_s(agent) == idle_close.NEVER:
         return True, f"{agent}: session closed, terminal kept"
     return True, f"{agent}: session closed, {_close_pane(con, agent, handle, log)}"

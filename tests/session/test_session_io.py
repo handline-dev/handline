@@ -1582,6 +1582,130 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
         con.close()
 
 
+def test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(home: Path) -> None:
+    """`/exit` is never typed at a screen that cannot be read, and the restart used to stop there. A
+    restart asked for by name now closes the terminal with the session in it and starts again in a new
+    one in the same worktree."""
+    from handline.actions import control
+    from handline.team import spawn as spawnmod
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    closed_panes: list[str] = []
+    real = (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+            orcamod.close_terminal, orcamod.screen_blocker, spawnmod.start_in, handoffmod.capture)
+    try:
+        orca_seen()
+        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        launch.find_room = lambda agent: "alpha"
+        handoffmod.capture = lambda *a, **k: ("RECORD", [])
+        table = sessions_are("backend")
+        started: list[str] = []
+
+        def close_terminal(handle, tab=True):
+            closed_panes.append(handle)
+            table.pop("backend", None)           # the session dies with its terminal
+            return True, "closed"
+        orcamod.close_terminal = close_terminal
+        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNREADABLE)
+
+        def start_in(agent, wt, cmd=None):
+            started.append(cmd)
+            take_launched_prompt(cmd)
+            table[agent] = 4300
+            db.set_terminal(con, agent, "term_new", wt)
+            return True, "started"
+        spawnmod.start_in = start_in
+        db.set_terminal(con, "backend", "term_x", str(home))
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
+
+        for fresh in (False, True):
+            sent.clear(); started.clear(); closed_panes.clear()
+            table["backend"] = 4200
+            db.set_agent_state(con, "backend", dmn_states.IDLE)
+            db.clear_cursor(con, "typed_at:backend")
+            db.set_terminal(con, "backend", "term_x", str(home))
+            ok, said = control.restart_result(con, "backend", fresh=fresh)
+            row = db.get_agent_state(con, "backend")
+            word = "fresh" if fresh else "resumed"
+            check(f"restart ({word}): an unreadable screen is not typed at, and the terminal is closed instead",
+                  ok and "/exit" not in sent and closed_panes == ["term_x"], f"{said} {sent} {closed_panes}")
+            check(f"restart ({word}): the reply says the terminal was closed with the session",
+                  "its screen could not be read, so its terminal was closed with it" in said, said)
+            check(f"restart ({word}): and it starts again in a new terminal in the same worktree",
+                  len(started) == 1 and row["terminal"] == "term_new" and row["closed_at"] is None,
+                  f"{started} {dict(row)}")
+            check(f"restart ({word}): {'a new conversation' if fresh else 'the same conversation'}",
+                  ("--resume" not in started[0]) if fresh else ("--resume sess-1" in started[0]), started[0])
+
+        orcamod.close_terminal = lambda h, tab=True: (False, "orca would not")
+        table["backend"] = 4200
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        db.set_terminal(con, "backend", "term_x", str(home))
+        ok, said = control.restart_result(con, "backend")
+        check("restart: a terminal that will not close is named, and the agent is left as it was",
+              not ok and "would not close" in said and not db.get_agent_state(con, "backend")["closed_at"], said)
+
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "Do you trust")
+        orcamod.close_terminal = close_terminal
+        table["backend"] = 4200
+        closed_panes.clear()
+        ok, said = control.restart_result(con, "backend")
+        check("restart: a dialog on a screen that can be read is not closed over", not closed_panes, said)
+
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.UNREADABLE)
+        ok, said = control.restart_result(con, "backend")
+        check("restart: a working agent is not closed this way without --force", not ok and not closed_panes, said)
+        ok, said = control.restart_result(con, "backend", force=True)
+        check("restart: with --force it is, after the turn has ended, and the reply says the terminal was closed",
+              ok and closed_panes and "terminal was closed with it" in said and "cut" not in said, said)
+
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        orcamod.close_terminal = lambda h, tab=True: (closed_panes.append(h), (True, "closed"))[1]
+        table["backend"] = 4200                  # the session outlives its closed terminal
+        ok, said = control.restart_result(con, "backend")
+        check("restart: a terminal closed over a session that stays says so, not that /exit was typed",
+              not ok and "terminal was closed but the session is still running" in said
+              and "/exit was typed" not in said, said)
+        check("restart: and the closed terminal's handle is dropped, not left pointing at it",
+              not db.get_terminal(con, "backend"), db.get_terminal(con, "backend"))
+        orcamod.close_terminal = close_terminal
+
+        # Every other guard of the close still holds on an unreadable screen.
+        from handline.infra import lock
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "pct_5h": 20, "ctx_pct": 8,
+            "transcript_path": "/tmp/sess-1.jsonl"})
+        closed_panes.clear()
+        table["backend"] = 4200
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+        db.set_terminal(con, "backend", "term_x", str(home))
+        ok, said = control.restart_result(con, "backend")
+        check("restart: no session id on record is refused with the --fresh hint, the terminal untouched",
+              not ok and "--fresh" in said and not closed_panes and not db.get_agent_state(con, "backend")["closed_at"], said)
+        write_status_json(home / "agents" / "backend", {
+            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
+            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
+        with lock.terminal("backend") as mine:
+            ok, said = control.restart_result(con, "backend")
+            check("restart: someone else typing at the agent is respected: the terminal is not closed",
+                  mine and not ok and "typing" in said and not closed_panes, said)
+        db.add_event(con, "backend", "UserPromptSubmit", {})
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.clear_cursor(con, "typed_at:backend")
+    finally:
+        (orcamod.alive, orcamod.wait_idle, orcamod.send, orcamod.available, launch.find_room,
+         orcamod.close_terminal, orcamod.screen_blocker, spawnmod.start_in, handoffmod.capture) = real
+        con.close()
+
+
 def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -4684,6 +4808,7 @@ def main() -> int:
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(Path(td) / 'restartretry'))
+        run(lambda: test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(Path(td) / 'restartpane'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_two_connects_migrating_one_old_database_both_succeed(Path(td) / 'migrace'))
         run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
