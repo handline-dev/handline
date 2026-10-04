@@ -16,6 +16,8 @@ class SiteEdit(Dialog):
     """One site to add or change. Dismisses with the origin, or None. A site that is not
     an origin, or that the list already has, is refused with the reason."""
 
+    CLOSE_CORNER = False        # Esc is the Cancel button's key
+
     FOCUS = "#se_site"
     DEFAULT_CSS = """
     SiteEdit #title { margin-bottom: 1; }

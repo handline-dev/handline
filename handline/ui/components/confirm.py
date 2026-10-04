@@ -63,7 +63,7 @@ class Confirm(Dialog):
             if self.detail:
                 yield Static(Text("\n".join(textsafe.drawable(self.detail))), id="detail")
             with Horizontal(id="buttons"):
-                yield Button(f"{self.no}  n · esc", id="no", compact=True)
+                yield Button(f"{self.no}  n", id="no", compact=True)
                 yield Button(f"{self.yes}  y", id="yes", compact=True,
                              variant="error" if self.danger else "warning")
 

@@ -2881,8 +2881,9 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     check("close: closing a Confirm without answering says no", got == [False], str(got))
     check("close: the settings screen has a Back button besides Escape",
           "as_back" in inspect.getsource(agent_settings_screen.AgentSettingsScreen.compose))
-    check("close: a Confirm leaves the corner off - Esc is its No button's key", Confirm.CLOSE_CORNER is False
-          and all(c.CLOSE_CORNER for c in found if c is not Confirm))
+    off = {c.__name__ for c in found if not c.CLOSE_CORNER}
+    check("close: a modal whose choice already closes (No, Cancel) leaves the corner off, the rest keep it",
+          off == {"Confirm", "TaskAssign", "ScheduleAdd", "AnswerAdd", "SiteEdit"}, str(off))
     check("close: only the last cells of the top border are the corner",
           in_close_corner(10, 4, 60, 68, 4) and not in_close_corner(10, 4, 60, 60, 4)
           and not in_close_corner(10, 4, 60, 68, 5) and not in_close_corner(10, 4, 60, 70, 4))
