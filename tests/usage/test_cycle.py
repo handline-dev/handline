@@ -487,30 +487,40 @@ def test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(home: Path)
     check("plan_key: and back", accounts.plan_key("a") == "max_5x")
 
 
-def test_turning_on_a_cycle_whose_default_end_is_past_says_so(home: Path) -> None:
+def test_the_default_end_is_the_next_monthly_anniversary_of_the_start(home: Path) -> None:
     use_home(home)
-    import contextlib
-    import io
     write_status(home, "a", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + DAY)
-
-    def cli(state=None, end=None) -> str:
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            cliaccount.cmd_account_cycle(argparse.Namespace(name="a", state=state, end=end))
-        return buf.getvalue()
-
-    write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
-    out = cli("on")
-    check("cycle cli: a past default end is said plainly, with the way out",
-          "default end 2024-09-30 is past - this account will not be picked" in out
-          and "--end YYYY-MM-DD" in out, out)
-    check("cycle cli: asking again says it again", "is past" in cli())
-    out = cli(end=str(dt.date.today() + dt.timedelta(days=9)))
-    check("cycle cli: a typed end clears the warning", "is past" not in out and "last day" in out, out)
-    write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()})
     write_cfg("month_cycle_a: true\n")
-    out = cli()
-    check("cycle cli: a default end still ahead is not warned about", "is past" not in out and "a month after" in out, out)
+    real = cycle.time
+
+    def end_at(started: str, now: dt.datetime) -> tuple[dt.date, bool]:
+        write_profile("a", {"subscriptionCreatedAt": started})
+        cycle.time = types.SimpleNamespace(time=lambda: now.timestamp())
+        d = cycle.end_date("a")
+        return d, cycle.end_of("a") > now.timestamp()
+
+    try:
+        got, ahead = end_at("2026-03-30T06:00:00Z", dt.datetime(2026, 10, 4, 12, 0))
+        check("anniversary: a start months back gives the next one, never the month after the first",
+              got == dt.date(2026, 10, 30) and ahead, str(got))
+        local = cycle.started("a")
+        before = dt.datetime.combine(dt.date(2026, 9, 30), local.time()) - dt.timedelta(hours=1)
+        got, ahead = end_at("2026-03-30T06:00:00Z", before)
+        check("anniversary: one that falls later today is today's", got == dt.date(2026, 9, 30) and ahead, str(got))
+        got, ahead = end_at("2026-03-30T06:00:00Z", before + dt.timedelta(hours=2))
+        check("anniversary: once its time of day has passed it is next month's",
+              got == dt.date(2026, 10, 30) and ahead, str(got))
+        got, _ = end_at("2026-01-31T06:00:00Z", dt.datetime(2026, 2, 10, 12, 0))
+        check("anniversary: the 31st is clamped into a short month", got == dt.date(2026, 2, 28), str(got))
+        got, _ = end_at("2026-01-31T06:00:00Z", dt.datetime(2026, 3, 1, 12, 0))
+        check("anniversary: and is the 31st again in a long one", got == dt.date(2026, 3, 31), str(got))
+        got, _ = end_at((dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat(), dt.datetime.now())
+        check("anniversary: a start of this month still ends a month on", (got - dt.date.today()).days in range(25, 29), str(got))
+        check("anniversary: so a default end is never one that has passed", cycle.ended_why("a", time.time()) is None)
+        write_cfg("month_cycle_a: true\nsub_end_a: \"2026-11-02\"\n")
+        check("anniversary: a typed end is kept", cycle.end_date("a") == dt.date(2026, 11, 2))
+    finally:
+        cycle.time = real
 
 
 def test_two_writers_never_share_a_temp_file(home: Path) -> None:
@@ -565,7 +575,7 @@ def test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(home: 
               load.config_or_none().get("active_cap") in (4, 2), str(load.config_or_none()))
 
 
-def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -> None:
+def test_the_default_end_is_the_first_anniversary_of_the_start_still_ahead(home: Path) -> None:
     use_home(home)
     check("add_month: the day is kept", cycle.add_month(dt.date(2026, 9, 21)) == dt.date(2026, 10, 21))
     check("add_month: the year turns", cycle.add_month(dt.date(2026, 12, 15)) == dt.date(2027, 1, 15))
@@ -586,14 +596,14 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     write_cfg("month_cycle_a: true\n")
     check("default end: a profile that cannot be read is no end", cycle.end_date("a") is None)
     write_profile("a", {"subscriptionCreatedAt": "2024-08-31T06:00:00Z"})
-    check("default end: an old start is an ended account until the start changes or an end is typed",
-          cycle.end_date("a") == dt.date(2024, 9, 30) and cycle.ended_why("a", time.time()) is not None)
-    write_profile("a", {"subscriptionCreatedAt": (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=40)).isoformat()})
-    check("default end: a month gone for ten days is the same", cycle.ended_why("a", time.time()) is not None)
+    check("default end: an old start gives the anniversary still ahead, never an ended account",
+          cycle.end_date("a") > dt.date.today() - dt.timedelta(days=1) and cycle.ended_why("a", time.time()) is None)
     write_status(home, "a", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + 3 * DAY)
+    check("default end: so it is picked", status.pick_account(["a"])[0] == "a")
+    write_cfg('month_cycle_a: true\nsub_end_a: "%s"\n' % (dt.date.today() - dt.timedelta(days=2)))
     write_status(home, "b", pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + 3 * DAY)
     picked, reasons = status.pick_account(["a", "b"])
-    check("default end: still not picked long after the lapse, and says why",
+    check("default end: a typed end that has passed is not picked, and says why",
           picked == "b" and "subscription ended" in dict(reasons)["a"], str(reasons))
     check("default end: with nothing else the pick refuses rather than use it", status.pick_account(["a"])[0] is None)
     cycle.set_cycle("a", True, dt.date.today() + dt.timedelta(days=9))
@@ -612,14 +622,13 @@ def test_the_default_end_is_a_month_after_the_subscription_started(home: Path) -
     write_cfg('month_cycle_a: true\nsub_end_a: "' + str(want.date()) + '"\n')
     check("default end: a typed day is usable through all of it",
           cycle.end_of("a") == cycle.day_end(want.date()) and cycle.end_of("a") > want.timestamp())
-    target = dt.datetime.now().replace(microsecond=0) - dt.timedelta(hours=2)                  # lapsed two hours ago
+    target = dt.datetime.now().replace(microsecond=0) - dt.timedelta(hours=2)                  # anniversary passed two hours ago
     lapsed = next(target - dt.timedelta(days=n) for n in range(27, 33)
                   if cycle.add_month((target - dt.timedelta(days=n)).date()) == target.date())
     write_profile("a", {"subscriptionCreatedAt": lapsed.astimezone(dt.timezone.utc).isoformat()})
     write_cfg("month_cycle_a: true\n")
-    check("default end: lapsed a few hours ago it is an ended account that is not picked",
-          cycle.end_of("a") is not None and cycle.end_of("a") < time.time()
-          and cycle.ended_why("a", time.time()) is not None, str(cycle.end_of("a")))
+    check("default end: an anniversary that has just passed rolls to the next, not an ended account",
+          cycle.end_of("a") > time.time() and cycle.ended_why("a", time.time()) is None, str(cycle.end_of("a")))
     write_cfg("")
     check("default end: and not before it is turned on", cycle.ended_why("a", time.time()) is None)
 
@@ -651,16 +660,20 @@ def test_the_position_in_the_month_follows_the_subscription_start_and_the_settin
     write_cfg("month_cycle_a: true\n")
     p = cycle.position("a", at(first + dt.timedelta(days=9)))
     check("position: ends this month, day 10 of the one cycle, ends where the default end says",
-          p.ends and p.day == 10 and p.edge == cycle.end_date("a") and not p.over and "one-off" in p.line(), str(p))
-    last = cycle.end_date("a")
+          p.ends and p.day == 10 and p.edge == cycle.end_date("a", None, at(first + dt.timedelta(days=9))) and not p.over and "one-off" in p.line(), str(p))
+    last = cycle.end_date("a", None, at(first + dt.timedelta(days=9)))
     p = cycle.position("a", at(last))
     check("position: the default end's last usable day reads day N of N", p.day == p.length, p.line())
     write_cfg('month_cycle_a: true\nsub_end_a: "%s"\n' % (first + dt.timedelta(days=30)))
     p = cycle.position("a", at(first + dt.timedelta(days=30)))
     check("position: a typed end's last usable day reads day N of N", p.day == p.length == 31, p.line())
+    write_cfg('month_cycle_a: true\nsub_end_a: "%s"\n' % (first + dt.timedelta(days=30)))
+    p = cycle.position("a", at(first + dt.timedelta(days=60)))
+    check("position: past its typed end it says ended", p.over and "ended" in p.line(), p.line())
     write_cfg("month_cycle_a: true\n")
     p = cycle.position("a", at(first + dt.timedelta(days=60)))
-    check("position: past its end it says ended", p.over and "ended" in p.line(), p.line())
+    check("position: a default end is the month it is in, day 30 of 31 or so, never ended",
+          not p.over and p.length <= 31 and p.day <= p.length, p.line())
     write_cfg('month_cycle_a: true\nsub_end_a: "2031-04-05"\n')
     check("position: a typed end is the edge", cycle.position("a", at(first)).edge == dt.date(2031, 4, 5))
     write_cfg("")
@@ -713,9 +726,9 @@ def main() -> int:
         run(lambda: test_the_profile_reader_returns_the_three_fields_and_nothing_else(Path(td) / 'c11'))
         run(lambda: test_the_login_id_is_a_fingerprint_of_the_account_id_and_never_the_id(Path(td) / 'c12'))
         run(lambda: test_the_plan_pools_by_tier_and_an_unknown_tier_is_never_guessed(Path(td) / 'c12'))
-        run(lambda: test_the_default_end_is_a_month_after_the_subscription_started(Path(td) / 'c13'))
+        run(lambda: test_the_default_end_is_the_first_anniversary_of_the_start_still_ahead(Path(td) / 'c13'))
         run(lambda: test_config_is_written_in_one_step_and_an_unreadable_one_is_not_empty(Path(td) / 'c14'))
-        run(lambda: test_turning_on_a_cycle_whose_default_end_is_past_says_so(Path(td) / 'c15'))
+        run(lambda: test_the_default_end_is_the_next_monthly_anniversary_of_the_start(Path(td) / 'c15b'))
         run(lambda: test_two_writers_never_share_a_temp_file(Path(td) / 'c16'))
         run(lambda: test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(Path(td) / 'c17'))
         run(lambda: test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(Path(td) / 'c18'))

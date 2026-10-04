@@ -3320,6 +3320,14 @@ def test_bridge_textual_missing_package_classification() -> None:
         clibridge._import_bridge_textual = real_import
 
 
+def test_a_logged_out_account_says_so_beside_its_cross() -> None:
+    plain = lambda x: tui._ANSI.sub("", x)
+    assert plain(tui.account_note(False, False)) == " not logged in"
+    assert plain(tui.account_note(False, True)) == " not logged in"
+    assert plain(tui.account_note(True, True)) == " next"
+    assert tui.account_note(True, False) == ""
+
+
 def test_human_inbox_routing_matches_cmd_bridge() -> None:
     """`cmd_inbox`'s human route to the screen shares `_bridge_textual_module`
     with `cmd_bridge`: a terminal with no --all/--wait opens the Textual app,
@@ -3489,6 +3497,7 @@ def main() -> int:
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
         run(lambda: test_a_second_esc_right_after_the_first_clears_the_chat_box())
         run(lambda: test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(Path(td) / 'login'))
+        run(lambda: test_a_logged_out_account_says_so_beside_its_cross())
     return run_area(tests)
 
 

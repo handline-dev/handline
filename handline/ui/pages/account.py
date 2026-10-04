@@ -30,6 +30,7 @@ from ..components.switch_row import SwitchRow
 from ..components.table_sync import sync_rows
 
 BAR_W = 30
+EMAIL_RETRY_S = 20.0
 _TABS = {"overview": "#detail_pane", "agents": "#a_agents", "settings": "#a_settings"}
 _INPUTS = {"name": "#a_name", "cap": "#a_cap", "end": "#a_end"}
 
@@ -51,6 +52,7 @@ class AccountPage(AccountActions, Screen):
         super().__init__(classes="chat_page")     # the task page's styles (chat_page.tcss)
         self.account = name
         self.email: str | None = None       # the stored one, asked of the vendor when none is kept
+        self._email_asked = 0.0
         self.facts: dict | None = None
         self._recover_shown = True          # what it last drew from the config
         self._cycle_shown = False
@@ -86,7 +88,7 @@ class AccountPage(AccountActions, Screen):
             with Horizontal(classes="frow"):
                 yield Static("last day", classes="flabel")
                 yield ImeInput(id="a_end", compact=True, max_length=10, placeholder="YYYY-MM-DD")
-                yield Static("  usable through it; blank = a month after the subscription started", classes="fhint")
+                yield Static("  usable through it; blank = the next monthly anniversary of the subscription start", classes="fhint")
                 yield FieldNote(id="n_a_end")
             for label, key in (("vendor", "vendor"), ("config dir", "config")):
                 with Horizontal(classes="frow"):
@@ -103,6 +105,10 @@ class AccountPage(AccountActions, Screen):
         self.query_one("#scope", Tabs).focus()
         self._load()
         self.set_interval(2.0, self._load)
+        self._ask_email_later()
+
+    def _ask_email_later(self) -> None:
+        self._email_asked = time.monotonic()
         self.run_worker(self._ask_email, thread=True, exclusive=True, group="email")
 
     def _ask_email(self) -> None:
@@ -134,6 +140,8 @@ class AccountPage(AccountActions, Screen):
                                     for name, state, detail in f["agents"]])
         if rebuilt and f["agents"]:
             table.move_cursor(row=min(keep, len(f["agents"]) - 1), scroll=False)
+        if self.email == "unknown" and f["logged_in"] and time.monotonic() - self._email_asked > EMAIL_RETRY_S:
+            self._ask_email_later()     # a failed ask is not kept, so a login claude was slow to answer for is asked again
         self.query_one("#a_vendor", Static).update(f["vendor"])
         self.query_one("#a_config", Static).update(textsafe.oneline(f["config"]))
         label = loadmod.label_of(self.account)

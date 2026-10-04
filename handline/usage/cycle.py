@@ -11,19 +11,22 @@ account, over one default each:
 
     month_cycle_<account>: true        the account is on one-month subscriptions
     sub_end_<account>: "2026-10-22"    the last day it can be used (YYYY-MM-DD),
-                                       default: a month after the subscription started
+                                       default: the next monthly anniversary of the subscription start
     cycle_last_week_first: true        spend an ending account first (default true)
     cycle_warn_days: 3                 the founder is told this many days ahead
 
 An account with no `month_cycle_<account>` is untouched by all of it. With the
-switch and no `sub_end_<account>` the end is a month after the subscription
-started, at the subscription's own time of day, read from the local profile; where
-that cannot be read there is no end known and the account is not judged ended: a
-missing date must not shut an account that may well be live.
+switch and no `sub_end_<account>` the end is the next monthly anniversary of the
+subscription start, at the subscription's own time of day, read from the local
+profile (the start is the first subscription's and does not move at a renewal, so
+the anniversary still ahead is the end of the month it is in); where the start
+cannot be read there is no end known and the account is not judged ended: a missing
+date must not shut an account that may well be live.
 """
 from __future__ import annotations
 
 import datetime as dt
+import time
 from dataclasses import dataclass
 
 DEFAULT_WARN_DAYS = 3
@@ -74,15 +77,16 @@ def started(acct: str) -> dt.datetime | None:
     return dt.datetime.fromtimestamp(at) if at else None
 
 
-def _end(acct: str, cfg: dict | None) -> tuple[dt.date, float] | None:
+def _end(acct: str, cfg: dict | None, now: float | None = None) -> tuple[dt.date, float] | None:
     """(the last day, the moment the account stops being usable), or None when the
     account is not on a cycle or no end is known.
 
     `sub_end_<account>` is a day the founder typed: usable through all of it, so
-    the moment is the start of the next day. Without one the end is a month after
-    the subscription started, at the subscription's own time of day, because that
-    is when it lapses; one already past is an ended account, until the profile's
-    start changes (a renewal) or an end is typed. The date is quoted in config.yaml (the reader refuses an
+    the moment is the start of the next day. Without one the end is the next monthly
+    anniversary of the subscription start, at its time of day, because that is when
+    the month lapses. The profile's start is the first subscription's and does not
+    move at a renewal, so the anniversary still ahead is taken: a default end is
+    never already past. The date is quoted in config.yaml (the reader refuses an
     unquoted one as ambiguous); one that does not parse is no end, not the
     default: a typo must not end an account."""
     cfg = _cfg(cfg)
@@ -98,19 +102,29 @@ def _end(acct: str, cfg: dict | None) -> tuple[dt.date, float] | None:
     start = started(acct)
     if not start:
         return None
-    lapse = dt.datetime.combine(add_month(start.date()), start.time())
+    lapse = _anniversary(start, time.time() if now is None else now)
     return lapse.date(), lapse.timestamp()
 
 
-def end_date(acct: str, cfg: dict | None = None) -> dt.date | None:
+def _anniversary(start: dt.datetime, now: float, back: int = 0) -> dt.datetime:
+    """The first monthly anniversary of `start` after `now`, at its time of day; `back`
+    months before it. Counted from the start, so a 31st clamps into a short month and
+    is the 31st again after it."""
+    n = 1
+    while dt.datetime.combine(add_months(start.date(), n), start.time()).timestamp() <= now:
+        n += 1
+    return dt.datetime.combine(add_months(start.date(), n - back), start.time())
+
+
+def end_date(acct: str, cfg: dict | None = None, now: float | None = None) -> dt.date | None:
     """The last day the account can be used, or None (see `_end`)."""
-    end = _end(acct, cfg)
+    end = _end(acct, cfg, now)
     return end[0] if end else None
 
 
-def end_of(acct: str, cfg: dict | None = None) -> float | None:
+def end_of(acct: str, cfg: dict | None = None, now: float | None = None) -> float | None:
     """When the account stops being usable, as a timestamp, or None (see `_end`)."""
-    end = _end(acct, cfg)
+    end = _end(acct, cfg, now)
     return end[1] if end else None
 
 
@@ -121,7 +135,7 @@ def own_end(acct: str, cfg: dict | None = None) -> str:
 
 
 def clear_end(acct: str) -> None:
-    """Forget the typed end, so it is a month after the subscription started again."""
+    """Forget the typed end, so it is the next monthly anniversary of the subscription start again."""
     from . import load
     cfg = load.config_for_write()
     cfg.pop(f"sub_end_{acct}", None)
@@ -195,11 +209,11 @@ def position(acct: str, now: float, cfg: dict | None = None) -> Position | None:
     start = started(acct)
     today = dt.datetime.fromtimestamp(now).date()
     if ends:
-        edge, at = end_date(acct, cfg), end_of(acct, cfg)
+        edge, at = end_date(acct, cfg, now), end_of(acct, cfg, now)
         over = at is not None and now >= at
         if start is None or edge is None:
             return Position(True, edge, over=over)
-        first = start.date()
+        first = start.date() if not end_is_default(acct, cfg) else _anniversary(start, now, 1).date()
         return Position(True, edge, (today - first).days + 1, (edge - first).days + 1, over)   # the last day is a day of it
     if start is None:
         return None
