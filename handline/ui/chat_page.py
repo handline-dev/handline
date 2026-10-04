@@ -1621,6 +1621,7 @@ class ChatPage(JobsAware, Screen):
         self._focus = focus      # (request id, part) to pick as the reply target once it is drawn
         self._tabbed = False     # the opening tab has been activated (that clears any reply target)
         self.replying: ChatMessage | None = None
+        self._esc_at: float | None = None     # when the first Esc over typed text was pressed
         self.everyone = False
         self.showing_tasks = False
         self.showing_settings = False
@@ -2268,6 +2269,15 @@ class ChatPage(JobsAware, Screen):
             menu.display = False
         elif self.replying is not None:
             self.reply_to(None)
+        elif self.query_one("#compose", ChatBox).text.strip():
+            box = self.query_one("#compose", ChatBox)
+            now = time.monotonic()
+            if actions.esc_pressed_twice(self._esc_at, now):
+                self._esc_at = None
+                box.clear()
+            else:
+                self._esc_at = now
+                self.notify("press Esc again to clear what you typed", timeout=actions.ESC_CLEAR_WINDOW_S)
         elif not self.query_one("#compose", ChatBox).text.strip():
             running = [r for r in self.shells if r.running]
             if running:         # Esc stops what is running before it leaves the page
