@@ -8,6 +8,7 @@ gate.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -70,6 +71,65 @@ def is_declared(path) -> bool:
         if target_p == root_p or root_p in target_p.parents:
             return True
     return False
+
+
+_MCP = "mcp_servers.json"
+
+
+def _entry_hash(entry) -> str:
+    return hashlib.sha256(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+
+
+def mcp_servers(folder) -> dict[str, str]:
+    """The servers `folder`'s .mcp.json names, as {name: hash of its whole entry (the command, args and
+    environment included)}; empty when there is no readable file."""
+    try:
+        servers = json.loads((Path(folder).expanduser() / ".mcp.json").read_text()).get("mcpServers")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {k: _entry_hash(v) for k, v in servers.items() if isinstance(k, str)} if isinstance(servers, dict) else {}
+
+
+def _approved_mcp() -> set[str]:
+    raw = protected.get(_NS, _MCP)
+    try:
+        data = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        return set()
+    return {x for x in data if isinstance(x, str)} if isinstance(data, list) else set()
+
+
+def mcp_approved(folder) -> list[str]:
+    """The servers in `folder`'s .mcp.json a launch may enable without the vendor asking: the folder is
+    under a declared root and the founder approved that server's entry as it is now (`approve_mcp`). An
+    agent can write the file in its own worktree, so a name alone is never enough: a server added, or one
+    whose command changed, is not approved and is asked about as before."""
+    if not is_declared(folder):
+        return []
+    done = _approved_mcp()
+    return sorted(n for n, h in mcp_servers(folder).items() if f"{n}:{h}" in done)
+
+
+def mcp_unapproved(folder) -> list[str]:
+    """The servers in `folder`'s .mcp.json `mcp_approved` leaves to the vendor's own question."""
+    return sorted(set(mcp_servers(folder)) - set(mcp_approved(folder))) if is_declared(folder) \
+        else sorted(mcp_servers(folder))
+
+
+def approve_mcp(folder) -> tuple[bool, str]:
+    """The founder approving every server in `folder`'s .mcp.json as it reads now - by content, so the
+    same name with another command is a new question. The folder must be under a declared root, or a
+    launch would never use it."""
+    if not is_declared(folder):
+        return False, f"{folder} is not inside a declared root; `hl trust add` it first"
+    servers = mcp_servers(folder)
+    if not servers:
+        return False, f"{folder} has no readable .mcp.json with servers"
+    try:
+        protected.put(_NS, _MCP, json.dumps(sorted(_approved_mcp() | {f"{n}:{h}" for n, h in servers.items()})))
+    except PermissionError as e:
+        return False, str(e)
+    return True, "approved: " + ", ".join(sorted(servers))
 
 
 def _proposal_dir() -> Path:

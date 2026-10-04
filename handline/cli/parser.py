@@ -258,6 +258,10 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("root")
     q = trsub.add_parser("list", help="every declared root")
     q.set_defaults(root=None, why=None)
+    q = trsub.add_parser("mcp", help="the founder approves the servers in a declared folder's .mcp.json as they read "
+                                     "now, so a launch there enables them without claude asking")
+    q.add_argument("root")
+    q.set_defaults(why=None)
     q = trsub.add_parser("proposals", help="proposals and what became of them")
     q.set_defaults(root=None, why=None)
     q = trsub.add_parser("apply", help="carry out an approved proposal")
