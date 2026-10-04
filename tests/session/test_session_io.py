@@ -1377,6 +1377,37 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         con.close()
 
 
+def test_two_connects_migrating_one_old_database_both_succeed(home: Path) -> None:
+    """The column check and the ALTER are two statements, so a second connect can add a column between
+    them: the first then fails with "duplicate column name". Here a nested connect does exactly that."""
+    from handline.db import schema
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    db.connect().close()
+    con = db.connect()
+    con.execute("ALTER TABLE session_starts DROP COLUMN actor")
+    con.close()
+    real, state = schema._cols, {"nested": False}
+
+    def racing(c, table):
+        seen = real(c, table)
+        if table == "session_starts" and "actor" not in seen and not state["nested"]:
+            state["nested"] = True
+            schema.connect().close()        # the other process: migrates to the end before this one alters
+        return seen
+    schema._cols = racing
+    label = "migration: a connect that loses the race for a column goes on, and the column is there"
+    try:
+        con = db.connect()
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(session_starts)")}
+        con.close()
+        check(label, state["nested"] and "actor" in cols, str(cols))
+    except Exception as e:  # noqa: BLE001
+        check(label, False, f"{type(e).__name__}: {e}")
+    finally:
+        schema._cols = real
+
+
 def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -4479,6 +4510,7 @@ def main() -> int:
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
         run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
+        run(lambda: test_two_connects_migrating_one_old_database_both_succeed(Path(td) / 'migrace'))
         run(lambda: test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(Path(td) / 'applyset'))
         run(lambda: test_a_launch_records_the_settings_it_read(Path(td) / 'recparts'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
