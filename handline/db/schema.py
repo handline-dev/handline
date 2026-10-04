@@ -447,6 +447,21 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
+    # Two processes opening one older database at once both see a column missing and both add it: the
+    # second fails with "duplicate column name". Every step looks at the columns it needs again, so
+    # running the migration again finds that column there and goes on.
+    for attempt in range(4):
+        try:
+            _migrate(con)
+            break
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e) or attempt == 3:
+                raise
+    return con
+
+
+def _migrate(con) -> None:
+    """Bring the database up to the current schema; safe to run again."""
     # The legacy request columns (`_LEGACY_REQUEST_COLUMNS`): a database that was dropped of them by
     # the doctor, or made without them, never grows them back and runs no migration that names them.
     fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'requests'").fetchone() is None
@@ -494,7 +509,6 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     _hr_proposals_leave_tasks(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
-    return con
 
 
 def _cols(con, table: str) -> set[str]:
