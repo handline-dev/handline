@@ -43,6 +43,18 @@ def cache_left(con, agent: str, now: int | None = None) -> int | None:
     return None if left is None else int(left)
 
 
+def cache_text(left: int | None) -> str:
+    """`cache 3:20` counting down (`1:05:00` while an hour's life is over its first hour), `cache expired`
+    once it has run out, `cache ?` with nothing to measure from."""
+    if left is None:
+        return "cache ?"
+    if left <= 0:
+        return "cache expired"
+    h, rest = divmod(left, 3600)
+    m, sec = divmod(rest, 60)
+    return f"cache {h}:{m:02d}:{sec:02d}" if h else f"cache {m}:{sec:02d}"
+
+
 def cache_cell(left: int | None, ignored: bool = False) -> str:
     """ANSI: `58m`, then `m:ss` in the last ten minutes, yellow from there; `-` once
     the cache has lapsed or with nothing to measure from; `ignored` when the agent

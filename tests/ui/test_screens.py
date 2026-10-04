@@ -3403,6 +3403,16 @@ def test_a_second_esc_right_after_the_first_clears_the_chat_box() -> None:
     assert not actions.esc_pressed_twice(100.0, 100.0 + w + 0.1)
 
 
+def test_the_chat_strip_counts_the_cache_down_and_says_when_it_has_expired() -> None:
+    """`cache m:ss` while the prompt cache lives, hours only when an hour's life is over its first, `expired` at zero."""
+    from handline.ui.components.agent_rows import cache_text
+    assert cache_text(200) == "cache 3:20", cache_text(200)
+    assert cache_text(61) == "cache 1:01" and cache_text(1) == "cache 0:01"
+    assert cache_text(3600 + 5 * 60) == "cache 1:05:00", cache_text(3900)
+    assert cache_text(0) == "cache expired" and cache_text(-30) == "cache expired"
+    assert cache_text(None) == "cache ?"
+
+
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
     def row(i, blocked=(), parent=None):
         return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
@@ -3496,6 +3506,7 @@ def main() -> int:
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
         run(lambda: test_a_second_esc_right_after_the_first_clears_the_chat_box())
+        run(lambda: test_the_chat_strip_counts_the_cache_down_and_says_when_it_has_expired())
         run(lambda: test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(Path(td) / 'login'))
         run(lambda: test_a_logged_out_account_says_so_beside_its_cross())
     return run_area(tests)
