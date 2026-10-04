@@ -127,7 +127,7 @@ class TmuxBackend(Backend):
         bottom of `tail` is the bottom of what is on screen, as the readers above expect. A `limit`
         taller than the pane reaches into its scrollback (`-S`), which is how a reader widens its read
         when a dialog's top border has scrolled out of the frame."""
-        if not _PANE.match(handle):
+        if not isinstance(handle, str) or not _PANE.match(handle):
             return None
         code, out, _err = _tmux(["capture-pane", "-p", "-t", handle, "-S", f"-{max(limit, 1)}"], timeout=30)
         if code != 0:
