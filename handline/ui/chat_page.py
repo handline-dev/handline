@@ -257,12 +257,20 @@ def with_task_changes(msgs: list[dict], changes: list[dict]) -> list[dict]:
     return out + later + waiting
 
 
-def hr_cards(agent: str, everyone: bool, msgs: list[dict]) -> list[dict]:
-    """The HR requests of `agent` (asked by it or about it; all of them in the all-chat) as entries for
-    the chat: {hr: the request, when}. A request waiting stays; a decided one stays from the first message drawn."""
+def hr_concerns(p: dict) -> set[str]:
+    """The agents an HR request concerns: whoever proposed it, the agent it adds, retires,
+    renames, links or changes (with the name it takes or points to), the manager of the team it
+    is for, and a new team's members."""
+    named = (p["agent"], p.get("requested_by"), p.get("team"), p.get("to"), *(p.get("members") or "").split(","))
+    return {n for n in named if n}
+
+
+def hr_cards(agent: str, msgs: list[dict]) -> list[dict]:
+    """The HR requests that concern `agent` (`hr_concerns`), in its chat and in its all-chat alike,
+    as entries for the chat: {hr: the request, when}. A request waiting stays; a decided one stays
+    from the first message drawn."""
     since = min((m["when"] for m in msgs if m["when"]), default=0)
-    return [{"hr": p, "when": p["ts"]} for p in hr_card.pending(since)
-            if everyone or agent in (p["agent"], p.get("requested_by"))]
+    return [{"hr": p, "when": p["ts"]} for p in hr_card.pending(since) if agent in hr_concerns(p)]
 
 
 def signature(con, agent: str, everyone: bool) -> tuple:
@@ -1866,7 +1874,7 @@ class ChatPage(JobsAware, Screen):
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
             fold_handoffs(con, msgs)
             changes = (task_changes(con, msgs, self.agent) + session_marks(con, self.agent, msgs)
-                       + hr_cards(self.agent, self.everyone, msgs))
+                       + hr_cards(self.agent, msgs))
         finally:
             con.close()
         state, detail = self.agent_state
