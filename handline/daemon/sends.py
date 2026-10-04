@@ -59,7 +59,7 @@ def _who(kw) -> tuple[str | None, str | None]:
 
 
 _NO_WHO = ("cannot tell who is asking: the request named nobody. Agents are started with "
-           "`ocp launch <agent>`, which sets OCP_AGENT.")
+           "`hl launch <agent>`, which sets OCP_AGENT.")
 
 
 def _is_report_of(me: str, target: str) -> bool:
@@ -71,7 +71,7 @@ def _is_report_of(me: str, target: str) -> bool:
 
 
 def say_verb(con, log, **kw) -> tuple[bool, str]:
-    """`ocp say TARGET BODY`: a message that needs no answer, typed at once."""
+    """`hl say TARGET BODY`: a message that needs no answer, typed at once."""
     me, speaker = _who(kw)
     if me is None:
         return False, _NO_WHO
@@ -104,7 +104,7 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         return False, ("--no-task is for replying to the founder's request (--parent <its id>): "
                        "say what it becomes there")
     if task is None and kw.get("parent") is None and _is_report_of(me, target):
-        return False, ("work cannot reach a report by message: make it a task (`ocp task new`), "
+        return False, ("work cannot reach a report by message: make it a task (`hl task new`), "
                        "or say --task T<n> to memo one")
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is

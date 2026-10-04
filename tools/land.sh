@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Land a branch on main without main's checkout ever holding a half-merged tree.
 #
-# Every agent's `ocp` runs from the main checkout (bin/ocp is a symlink into
+# Every agent's `hl` runs from the main checkout (bin/ocp is a symlink into
 # it), so `git merge` there - conflict markers in .py files, minutes of a
 # suite run on a merge nobody has finished - breaks ocp for everyone (T390).
 # The merge and the suite run in a scratch worktree instead; main's checkout

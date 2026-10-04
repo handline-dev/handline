@@ -116,12 +116,12 @@ VERBS = {
 
 
 # Verbs that act on the strength of who the caller is: the name in the request counts only when the
-# process that sent it descends from the session `ocp launch` recorded for that agent (infra/sessiontoken.py).
+# process that sent it descends from the session `hl launch` recorded for that agent (infra/sessiontoken.py).
 TOKEN_VERBS = ("land", "land_pass")
 
 
 def _land_authorize(payload: dict, log) -> dict:
-    """The session's PreToolUse hook vouching for the `ocp land` command it is about to run
+    """The session's PreToolUse hook vouching for the `hl land` command it is about to run
     (session/landgate.py). Only the hook can name the per-session key."""
     agent, verb = payload.get("agent"), payload.get("land_verb")
     if verb not in TOKEN_VERBS or not sessiontoken.key_ok(agent, payload.get("key")):
@@ -144,10 +144,10 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
         if not sessiontoken.verify(agent, peer):
             log(f"  {verb} refused: caller is not the session of {str(agent)[:60]!r}")
             return {"ok": False, "said": f"{agent or 'the caller'} is not this request's session: it must come from a "
-                    f"session `ocp launch` recorded for that agent (relaunch an older one)"}
+                    f"session `hl launch` recorded for that agent (relaunch an older one)"}
         if not landauth.take(agent, verb, str(payload.get("sha"))):
             log(f"  {verb} refused: nothing the session's own command vouched for ({str(agent)[:60]!r})")
-            return {"ok": False, "said": f"{verb} is accepted only from the session's own `ocp land` command, "
+            return {"ok": False, "said": f"{verb} is accepted only from the session's own `hl land` command, "
                     f"not from other code it runs (a test run, a script)"}
         kw["caller"] = agent
     con = db.connect()

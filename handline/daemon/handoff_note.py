@@ -46,7 +46,7 @@ NOTE_MAX = 3000
 _ASK = ("Write your handoff to {path} now, while your prompt cache is warm, with one Write "
         "(replace what is there), then stop and run nothing else. The next session of you, if "
         "it starts fresh, reads it first: copy yourself into it. At most {max} characters, about "
-        "30 lines, only what `ocp` and your memory cannot tell it: (1) what you were deciding "
+        "30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding "
         "and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; "
         "(4) the founder's preferences and the pitfalls you learned this session; (5) who you "
         "wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite "

@@ -4,7 +4,7 @@ daemon per installation.
 Two processes type into an agent's terminal: the daemon on its tick, and the
 screen when a human presses a key. Waking blocks for up to
 WAKE_SESSION_TIMEOUT_S waiting for a session to appear, and seven ticks fit
-inside that window - so a second `ocp launch` gets typed into the terminal
+inside that window - so a second `hl launch` gets typed into the terminal
 while the first is still starting, and lands either beside the new session or
 inside its input box, unsent. That is the one thing in this system two writers
 can spoil: everything else is written to the database, where sqlite settles the

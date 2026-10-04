@@ -1,8 +1,8 @@
 """ocp - command dispatch, one module per command group.
 
 Logic lives here, not in a library nobody reads: SKILL.md stays a stub and
-detail is pulled on demand through `ocp guide <topic>` (AGENTS.md rule 3). The
-exception is what a human can also do from `ocp bridge` - `handline/actions/` holds
+detail is pulled on demand through `hl guide <topic>` (AGENTS.md rule 3). The
+exception is what a human can also do from `hl` - `handline/actions/` holds
 those, so the screen and the command line cannot come to differ about what
 unstalling or closing an agent means.
 

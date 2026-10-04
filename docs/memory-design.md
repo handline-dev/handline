@@ -77,7 +77,7 @@ limit (200 lines / 25KB) is 10x looser and is never reached.
    also how a permission-wait clears (T247, waiting.py) once the agent's turn
    continues past *any* tool, not only Read/Edit - narrowing the matcher would
    fix nothing here and silently stop that clearing for every other tool.
-3. **Pruning candidates.** `ocp doctor` and `ocp memory status` list per agent:
+3. **Pruning candidates.** `hl doctor` and `hl memory status` list per agent:
    bytes and entries against budget, files not in the index, and files unused
    for 28 days. Candidates are reported, never deleted by ocp.
 4. **Consolidate at handoff.** The handoff record is built by the daemon with no
@@ -86,7 +86,7 @@ limit (200 lines / 25KB) is 10x looser and is never reached.
    these before you finish") when the memory needs tending, and a fresh session
    with no record gets the same line in its wake prompt. Built in T230.
 5. **Promotion.** A lesson every agent needs moves to `AGENTS.md` / `ROLE.md`
-   by PR and is deleted from memory; `ocp memory status` flags an entry whose
+   by PR and is deleted from memory; `hl memory status` flags an entry whose
    text also appears in another agent's memory as a promotion candidate.
 6. **No automatic summarising.** ocp never rewrites an entry; rules stay verbatim.
 
@@ -110,7 +110,7 @@ at handoff, not a verdict.
 Result: 13 files become 9 entries (orcapipe 5, ui 2, auditor 1, AGENTS.md 1);
 3 duplicates merge away and 1 is deleted. core, daemon and merger start empty. `AGENTS.md` currently says to run the whole suite with
 `tools/suite.sh` while the ui entries say "full suite only at the auditor gate";
-reconcile the wording when promoting. `ocp memory migrate` runs as a dry run
+reconcile the wording when promoting. `hl memory migrate` runs as a dry run
 first, writes each owner's dir and index, and leaves `shared/memory` untouched
 until each agent has confirmed its own entries once; then the links are removed.
 
@@ -120,7 +120,7 @@ until each agent has confirmed its own entries once; then the links are removed.
   proving the index loads and writes land there; `Driver.memory_settings` and the
   merged `--settings`; hide other agents' memory dirs; the two hooks; the
   handoff and wake wording.
-- **core:** `ocp memory status|migrate`; `ocp doctor` check; create
+- **core:** `hl memory status|migrate`; `hl doctor` check; create
   `agents/<name>/memory/` on register; remove the account-move memory code for
   agents; the team-layer file and its injection next to `base.md`; the
   `AGENTS.md` promotion PR.
@@ -130,7 +130,7 @@ until each agent has confirmed its own entries once; then the links are removed.
 ## Open for the founder - decided (#1287)
 
 1. **Team layer: a separate file** in the appendix, `shared/team/<team>.md`,
-   injected beside `base.md` for each team the agent is in. `ocp doctor` warns
+   injected beside `base.md` for each team the agent is in. `hl doctor` warns
    past 10 rules or 2KB.
 2. **Pruning candidates: 28 days** (`memory.STALE_DAYS`).
 3. **Over budget, the write is denied** and the reason shown (T230's
@@ -138,11 +138,11 @@ until each agent has confirmed its own entries once; then the links are removed.
 
 ## Built by core (T231)
 
-- `ocp memory status [agent]`: bytes and entries against budget, files not in
+- `hl memory status [agent]`: bytes and entries against budget, files not in
   the index, files unused 28+ days (last use from `memory-use.json`, the file's
   mtime for one never read), and identical text in two agents' memory as a
   promotion candidate.
-- `ocp memory migrate`: dry run; `--apply` copies each topic file verbatim to
+- `hl memory migrate`: dry run; `--apply` copies each topic file verbatim to
   its owner's `agents/<name>/memory/` with a pointer line in `MEMORY.md`, never
   overwriting. Merges (3 to 1) are the owner's to do; ocp does not summarise.
   `shared/memory` is never touched: the links come off after each agent has

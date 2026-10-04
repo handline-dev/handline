@@ -1,4 +1,4 @@
-"""`ocp hr` and `ocp trust`."""
+"""`hl hr` and `hl trust`."""
 from __future__ import annotations
 
 import json
@@ -70,7 +70,7 @@ def cmd_hr(args) -> int:
     if args.hr_cmd in ("approve", "reject"):
         if protected.in_agent_session() or me != askmod.HUMAN:
             print("approving or rejecting a proposal is the founder's, from a terminal or the "
-                  "bridge, not an agent's", file=sys.stderr)
+                  "screen, not an agent's", file=sys.stderr)
             return 1
         subject = getattr(args, "subject", "")
         if args.hr_cmd == "approve" and not subject:

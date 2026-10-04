@@ -417,7 +417,7 @@ def memory_project_dir(acct: str, repo: str) -> str:
 
 
 def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
-    """What `ocp login <acct>` should do, and the line to print about it.
+    """What `hl login <acct>` should do, and the line to print about it.
 
     Separated from the doing because the doing is an exec: the human has to
     type the code into claude's own screen, and nothing about that can be
@@ -426,7 +426,7 @@ def login_plan(acct: str, force: bool = False) -> tuple[str, str]:
     """
     if acct not in paths.list_accounts():
         return "unknown", (f"no account '{acct}'. Add it first:\n\n"
-                           f"  ocp account add {acct}\n")
+                           f"  hl account add {acct}\n")
     if logged_in(acct) and not force:
         return "already", (f"account '{acct}' is already logged in.\n"
                            f"Use --force to log in again (a second copy of one "
@@ -507,14 +507,14 @@ def remove_plan(acct: str, con=None) -> tuple[bool, str]:
     """Whether this account may be removed, and the line to say about it.
 
     Refused while an agent has a session open on it: removing the account
-    strands that session, and closing it (the bridge's `c`) frees the account.
+    strands that session, and closing it (the screen's `c`) frees the account.
     """
     if acct not in paths.list_accounts():
         return False, f"no account '{acct}'"
     users = users_of(acct, con)
     if users:
         return False, (f"account '{acct}' has a session open for {', '.join(users)} - "
-                       f"close {'it' if len(users) == 1 else 'them'} in the bridge (c) first")
+                       f"close {'it' if len(users) == 1 else 'them'} on the screen (c) first")
     return True, ""
 
 
@@ -564,16 +564,16 @@ def add_account(name: str, run, no_login: bool = False,
     except ValueError as e:
         return False, str(e)
     if no_login:
-        return True, f"registered account '{name}'; log it in with: ocp login {name}"
+        return True, f"registered account '{name}'; log it in with: hl login {name}"
     argv, env = vendors.for_account(name).login_argv(), env_for(name)
     run(argv, env)
     if not logged_in(name):
-        return False, f"'{name}' is registered but not logged in - ocp login {name}"
+        return False, f"'{name}' is registered but not logged in - hl login {name}"
     twins = same_login_as(name)
     if twins:
         return False, (f"'{name}' is logged in as the same Anthropic account as "
                        f"{', '.join(twins)}: one usage limit under two names, and the "
-                       f"credentials invalidate each other. `ocp account remove {name}` "
+                       f"credentials invalidate each other. `hl account remove {name}` "
                        f"and add it with another login.")
     return True, (f"'{name}' is logged in. It takes work once a session has run on it "
                   f"and reported its usage.")

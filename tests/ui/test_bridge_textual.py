@@ -941,7 +941,7 @@ def test_the_browser_setting_writes_chrome_and_the_sites_through_register() -> N
           ok and not agents.chrome(now) and agents.browser_mode(now) == "playwright"
           and agents.browser_origins(now) == ["https://a.com", "https://b.org:8080"], said)
     check("browser: its command keeps the token read and the default profile",
-          'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat "$HOME/.orcapipe/browser/token")' in agents._browser_command(now)
+          f'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat {agents.paths.home() / "browser" / "token"})' in agents._browser_command(now)
           and f'--profile-dir-name "{agents.DEFAULT_BROWSER_PROFILE}"' in agents._browser_command(now))
     cur = cp.settings_of("backend")
     ok, said = cp.save_settings("backend", cp.settings_changes(cur, {**form, "browser": "playwright", "browser_sites": "https://c.net"}))
@@ -3737,7 +3737,7 @@ async def test_an_open_task_page_shows_what_an_agent_adds_without_reopening() ->
 
 
 def test_the_bridge_stylesheet_parses() -> None:
-    """A stray brace in chat_page.tcss stops `ocp bridge` from opening at all."""
+    """A stray brace in chat_page.tcss stops `hl` from opening at all."""
     from textual.app import App
     from textual.css.stylesheet import Stylesheet
     from handline.ui.bridge_textual import BridgeApp
@@ -4863,8 +4863,8 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
     app = BridgeApp()
     async with app.run_test(size=(100, 40)) as pilot:
         await pilot.pause()
-        check("stall: the title says the pid, the pid file names this process and it is a bridge",
-              f"pid {os.getpid()}" in app.title and stall.pid_file().read_text().strip() == str(os.getpid())
+        check("stall: the title is Handline with no pid, the pid file names this process and it is a screen",
+              app.title == "Handline" and stall.pid_file().read_text().strip() == str(os.getpid())
               and stall.running_pid() == os.getpid())
         await pilot.press("tab")
         await pilot.pause()
@@ -4882,7 +4882,7 @@ async def test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_
         check("stall: USR1 writes the stacks into the log", "Current thread" in stall.log_file().read_text()
               or "Thread 0x" in stall.log_file().read_text())
         out = _capture_out(lambda: clibridge.cmd_bridge(argparse.Namespace(once=False, textual=False, pid=True, dev_mode=False)))
-        check("stall: while the bridge runs, `ocp bridge --pid` prints its pid", out == (0, f"{os.getpid()}\n"), str(out))
+        check("stall: while the bridge runs, `hl bridge --pid` prints its pid", out == (0, f"{os.getpid()}\n"), str(out))
     os.close(stall._pid_fd)
     stall._pid_fd = None
     check("stall: once the bridge's lock is gone, the file names no bridge", stall.running_pid() is None)

@@ -98,7 +98,7 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
     context of the session before the clear.
 
     A project directory is keyed by working directory and each agent has its own
-    worktree, so nothing else writes here. `ocp fold`'s `claude -p` does not
+    worktree, so nothing else writes here. `hl fold`'s `claude -p` does not
     land in it either: it runs from the daemon's directory, not the agent's.
     """
     best: Located | None = None

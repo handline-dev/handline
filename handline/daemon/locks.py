@@ -43,7 +43,7 @@ def _supervises_this_home(pid: int) -> bool:
         # Unreadable is the one worth naming: a supervisor we cannot place is
         # exactly the one silence let run twice.
         return True
-    # Read, but not set: `ocp launch` (and launchd) set OCP_HOME, but a daemon
+    # Read, but not set: `hl launch` (and launchd) set OCP_HOME, but a daemon
     # started by hand usually does not, and that process still runs against
     # the default home - not against ours just because we could not name one.
     home = None
@@ -56,7 +56,7 @@ def _supervises_this_home(pid: int) -> bool:
 
 
 def processes() -> list[int]:
-    """PIDs of every `ocp daemon` supervising this OCP_HOME, this one aside.
+    """PIDs of every `hl daemon` supervising this OCP_HOME, this one aside.
 
     The lock refuses the next duplicate; it cannot end one that was already
     running when it arrived, and the lock names only its holder. The process
@@ -68,7 +68,7 @@ def processes() -> list[int]:
         argv = cmd.split()
         # The program being run: our own path, `daemon` next, and both at the
         # front of the command line. Anywhere else in it is somebody talking
-        # about us - a `grep -n ocp daemon`, an editor on this file, a session
+        # about us - a `grep -n hl daemon`, an editor on this file, a session
         # whose system prompt quotes the command. `service.build_plist` sets
         # ProgramArguments to exactly [ocp_executable(), "daemon"], so
         # launchd's own line never needs more than this.

@@ -618,7 +618,7 @@ def _start_for_work(con, agent: str, log) -> str:
                          + ([f"{answers} answer(s)"] if answers else [])) or "work"
         return (f"{agent}: {what} waiting and it has no terminal - set `repo:` in "
                 f"its agent.yaml, or start it by hand (t)")
-    # With no room `ocp launch` would refuse in the new terminal, and the
+    # With no room `hl launch` would refuse in the new terminal, and the
     # refusal would count against the agent though it is the accounts that are full.
     if not launch.choose_account(agent, con=con):
         return f"{agent}: not started - {launch.no_room(agent)}"
@@ -744,7 +744,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # agent was mid-work and its handoff is what it is started with.
         if moved_to is None and not force and not waiting_for(con, agent):
             return False, NOTHING_WAITING
-        # `ocp launch` refuses at the 5h wall, and the daemon can read that
+        # `hl launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent
         # whose only problem rolls over by itself.
@@ -841,7 +841,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # fresh start costs the handoff; the record stays on the row for the
         # launch to inject.
         cold = moved_to is None and not warm and cache_expired(con, agent, session, int(time.time()))
-        # A fresh start goes where there is room. With none, `ocp launch` would
+        # A fresh start goes where there is room. With none, `hl launch` would
         # refuse and the refusal would count against the agent's wake attempts,
         # though it is the accounts that are full.
         if moved_to is None and (cold or not session) \
@@ -1104,7 +1104,7 @@ def _handle_bypass_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]
 def _handle_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     """Standing consent: press "Yes" only for the folder the dialog itself
     names, only when that folder is both a declared root and the one on
-    record for this agent, and only while `ocp auto-accept` is on. Anything
+    record for this agent, and only while `hl auto-accept` is on. Anything
     else - unreadable, undeclared, a mismatch with the recorded worktree, or
     the setting off - raises a decision task, as does a press whose keys did not land.
     """

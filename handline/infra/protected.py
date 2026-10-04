@@ -83,7 +83,7 @@ def in_agent_session() -> bool:
 
 def _founder_only() -> None:
     if in_agent_session():
-        raise NotTheFounder("this is the founder's to set, from a terminal or the bridge, "
+        raise NotTheFounder("this is the founder's to set, from a terminal or the screen, "
                             "not an agent's")
 
 
@@ -120,7 +120,7 @@ def delete(namespace: str, name: str) -> None:
 
 
 def exposure() -> list[str]:
-    """What makes this store no lock at all, for `ocp doctor`: it sits inside a
+    """What makes this store no lock at all, for `hl doctor`: it sits inside a
     folder the agents write, or something other than its owner can write to it.
     Whether an agent's sandbox really refuses the write is the sandbox's own
     setting, which this cannot see."""

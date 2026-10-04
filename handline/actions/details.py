@@ -121,9 +121,9 @@ def _config_line(acct: str) -> str:
 
 
 def account_facts(con, acct: str, logged_in=None) -> dict:
-    """What is known of an account, as values, for the bridge's account page.
+    """What is known of an account, as values, for the screen's account page.
 
-    `logged_in` is the caller's login check: the bridge redraws the page every
+    `logged_in` is the caller's login check: the screen redraws the page every
     couple of seconds and passes its cached one, since the real one asks the
     keychain.
     """
@@ -210,7 +210,7 @@ def sandbox_is_off(agent: str) -> bool:
 def sandbox_back_on(agent: str) -> tuple[bool, str]:
     """End the founder's leave to run `agent` without its sandbox, at once: the key and the lease go now,
     and a session still running without it is restarted by the daemon's next idle sweep (its recipe
-    changed). The screen's one-click button and `ocp agent set <agent> sandbox=on`."""
+    changed). The screen's one-click button and `hl agent set <agent> sandbox=on`."""
     from ..team import agent_settings
     if agents.sandbox_on(agent, agents.read(agent)) and not agents.sandbox_lease(agent):
         return True, f"{agent}: the sandbox is already on"
@@ -229,7 +229,7 @@ def set_cycle_on(acct: str, on: bool) -> tuple[bool, str]:
 
 def set_cycle_end(acct: str, text: str) -> tuple[bool, str]:
     """The last usable day, typed as YYYY-MM-DD (a date alone turns the cycle on, as
-    `ocp account cycle --end` does); blank clears it."""
+    `hl account cycle --end` does); blank clears it."""
     import datetime as dt
     text = text.strip()
     try:

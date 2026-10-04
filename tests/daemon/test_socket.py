@@ -299,8 +299,8 @@ def test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(home: Pat
 
 def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_through_the_daemon(home: Path) -> None:
     """An agent a human ended comes back as the same conversation: the daemon records the closed
-    session and resumes it when work arrives. `ocp close --fresh` ends a live session, or forgets a
-    closed one's id, so the wake starts a new conversation. And `ocp close` is the daemon's to do,
+    session and resumes it when work arrives. `hl close --fresh` ends a live session, or forgets a
+    closed one's id, so the wake starts a new conversation. And `hl close` is the daemon's to do,
     since an agent's own sandbox cannot read the process table and called a live session "no session"."""
     from handline.cli import task as cli_task
     from handline.session import launch as launchmod
@@ -356,10 +356,10 @@ def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_th
         cli_task.dmn_client = types.SimpleNamespace(
             send=lambda payload, timeout=None: sent_to_daemon.append(payload) or {"ok": True, "said": "done"})
         rc = cli_task.cmd_close(types.SimpleNamespace(target="backend", fresh=True))
-        check("ocp close --fresh: sends one close verb with fresh set, and exits 0",
+        check("hl close --fresh: sends one close verb with fresh set, and exits 0",
               rc == 0 and sent_to_daemon == [{"verb": "close", "agent": "backend", "fresh": True}], str(sent_to_daemon))
         cli_task.dmn_client = types.SimpleNamespace(send=lambda payload, timeout=None: None)
-        check("ocp close: with no daemon it says nothing was closed and exits 1",
+        check("hl close: with no daemon it says nothing was closed and exits 1",
               cli_task.cmd_close(types.SimpleNamespace(target="backend", fresh=False)) == 1)
     finally:
         (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,

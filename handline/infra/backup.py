@@ -1,11 +1,11 @@
-"""Compressed snapshots of OCP_HOME, taken when it changed (`ocp backup`).
+"""Compressed snapshots of OCP_HOME, taken when it changed (`hl backup`).
 
-A test run once deleted the whole of ~/.orcapipe. launchd runs `ocp backup`
+A test run once deleted the whole of ~/.orcapipe. launchd runs `hl backup`
 every minute, outside any agent's sandbox, and writes into a folder
 beside OCP_HOME that agents cannot write to either.
 
 accounts/*/.claude is never copied: it holds logins and transcripts, and
-credentials are never copied (AGENTS.md rule 1). venv is rebuilt by `ocp venv`;
+credentials are never copied (AGENTS.md rule 1). venv is rebuilt by `hl venv`;
 logs/ and locks/ are left out.
 The database is copied with SQLite's backup API, so a snapshot taken while the
 daemon writes is still consistent.
@@ -110,7 +110,7 @@ def _write(home: Path, dest: Path, db_copy: Path | None, now: float) -> Path:
     """Write the archive under a name nothing else has, and return it.
 
     Built in a partial of its own and linked into place, so two runs in one
-    second (a manual `ocp backup` racing launchd) each keep theirs: `link`
+    second (a manual `hl backup` racing launchd) each keep theirs: `link`
     refuses a name that exists, where a rename would replace it. A file that
     vanishes between the walk and the read is left out - it is gone, and
     whatever replaced it is the next run's change - and any other failure
@@ -223,7 +223,7 @@ def require_recent(home: Path | None = None, now: float | None = None) -> str | 
     path, taken = newest(home)
     seen = ("there is no backup yet" if path is None
             else f"the newest, {path.name}, was taken {timefmt.ago(now - taken)} ago")
-    return f"no backup from the last {window} ({seen}). Make one with `ocp backup`, then run this again."
+    return f"no backup from the last {window} ({seen}). Make one with `hl backup`, then run this again."
 
 
 def expired(taken: list[float], now: float) -> set[float]:

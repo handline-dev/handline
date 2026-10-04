@@ -73,7 +73,7 @@ def test_without_a_venv_it_says_so_and_uses_python3_and_suite_sh_is_the_same_pat
     home.mkdir(parents=True, exist_ok=True)
     r = _run("test.sh", home, "-k", "nothing_matches_this_zzz", venv=False)
     check("test.sh: no venv is named on stderr, the run falls back to python3 rather than stopping",
-          "no venv at" in r.stderr and "ocp venv install" in r.stderr and "python3 -u tests/test_ocp.py" in r.stderr,
+          "no venv at" in r.stderr and "hl venv install" in r.stderr and "python3 -u tests/test_ocp.py" in r.stderr,
           r.stderr)
     r = _run("suite.sh", home, "-k", "x")
     check("suite.sh: is test.sh - the same header, the same arguments",

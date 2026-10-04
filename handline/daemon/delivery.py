@@ -30,7 +30,7 @@ _seen: dict[str, obs.Observed] = {}
 _seen_at = {"t": 0.0}
 
 # How old that reading may be before a send looks again. A tick is 2s, so
-# anything older came from another tick or from no tick at all - `ocp say`
+# anything older came from another tick or from no tick at all - `hl say`
 # delivers through here too - and one listing is cheap next to what a stray
 # send does.
 SEEN_FRESH_S = 10
@@ -130,7 +130,7 @@ def wait_for_session(agent: str, timeout_s: int, prompt: Path | None = None) -> 
     """Did the launch we typed actually start a session?
 
     `relaunch` reports on having sent the command, which is not the same thing:
-    `ocp launch` refuses over the 5h limit and exits when the account is not
+    `hl launch` refuses over the 5h limit and exits when the account is not
     logged in, leaving the shell exactly as it was. The reading is taken here
     rather than from the tick's cache, which predates the command.
 
@@ -195,8 +195,8 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     """
     handle = db.get_terminal(con, agent)
     if not handle:
-        return False, ("no terminal recorded; start the agent with `ocp spawn` or "
-                       "`ocp launch` inside an Orca terminal so its context can be reclaimed")
+        return False, ("no terminal recorded; start the agent with `hl spawn` or "
+                       "`hl launch` inside an Orca terminal so its context can be reclaimed")
     if not orca.available():
         return False, "orca is not on PATH"
     if not session_present(agent):
@@ -212,14 +212,14 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
 
 # T415: a clear that background work holds off is owed, not failed. The agent is told once
 # (CLEAR_NOTICE), and the clear is typed when its work ends or, at the latest, this long
-# after: long enough for a turn or two - stop the shells, write `ocp progress` - and short
+# after: long enough for a turn or two - stop the shells, write `hl progress` - and short
 # against a context that was climbing ~2k tokens a minute when the auditor was cleared late.
 CLEAR_WAIT_S = 300
 CLEAR_NOTICE = (
     "ocp: your context is full ({context}), so this session will be cleared in {minutes} minutes. "
     "No reply is needed. Before then: 1. Stop your background shells. Anything still running at "
     "that time is cut off. 2. If you were waiting on a result, write what was running and what is "
-    "left in: ocp progress \"done: ... left: ...\" - the next session starts from that note. "
+    "left in: hl progress \"done: ... left: ...\" - the next session starts from that note. "
     "3. Do not start new work or new background jobs. When your background work has ended, the "
     "clear happens at once.")
 
@@ -296,7 +296,7 @@ def wall_reason(con, agent: str, row=None) -> str | None:
     fails at once, marks the request delivered, clears the very mark that
     says the agent is at the wall - and the next ask starts it over, each
     round counting as a degraded handoff. Checked where the keystrokes are
-    sent, so no caller - `supervise`, `ocp say`, an answer - can skip it.
+    sent, so no caller - `supervise`, `hl say`, an answer - can skip it.
     """
     if events.at_limit(con, agent):
         return f"{agent} is at its usage limit"
@@ -432,7 +432,7 @@ def enforce_edges(con, agent: str, log) -> bool:
 
 def head_task_blocked(con, agent: str, head) -> bool:
     """Is `head`'s own task on record as waited on (T337): blocked by another
-    still-open task (`ocp task edit T<n> --blocked-by T<m>`), or held up on an
+    still-open task (`hl task edit T<n> --blocked-by T<m>`), or held up on an
     ask `agent` itself sent that is linked to the same task. Built on what
     already exists, not a new kind of wait nothing else reads - a head with
     no task at all is never this, since there is nothing to check it
@@ -456,11 +456,11 @@ def effective_head(con, agent: str):
     Read this, not `db.head_of_queue` directly, by anything asking what the
     agent is working on or was told - delivery, `forgotten_resolve`,
     `blocked.work_waiting`, a cold session's own close, a closed agent's wake,
-    the resume prompt, the handoff and the progress note, and `ocp inbox`'s
+    the resume prompt, the handoff and the progress note, and `hl inbox`'s
     unread view and the stuck screen's own reason for a specific request
     (T337 round 4, auditor #2028's sweep). `db.head_of_queue` itself is for a
     different question - what is structurally first, whatever is or is not
-    reachable right now - and every one of its own readers (`ocp inbox`
+    reachable right now - and every one of its own readers (`hl inbox`
     reading its own queue, the board, a plain queue-not-empty check) keeps
     asking it directly: the true head is never touched by any of this, so it
     is exactly what they keep finding, the moment the block clears.
@@ -478,7 +478,7 @@ def effective_head_or_marked(con, agent: str):
     """`effective_head`, or - with none - the oldest `send_now_pending` row
     (`db.head_of_queue_or_marked`'s own fallback, T293): a say is never a
     head, but with nothing else queued it is still the one thing waiting -
-    what a resumed session opens on, and `ocp inbox`'s own unread view."""
+    what a resumed session opens on, and `hl inbox`'s own unread view."""
     return effective_head(con, agent) or next(iter(db.send_now_pending(con, agent)), None)
 
 
@@ -709,7 +709,7 @@ def has_background_work(con, agent: str) -> bool:
 STALE_BG_S = 3000
 # Once the supervisor has been told, this long passes before the work may be
 # stopped: room to say no, by giving the agent something to do or with
-# `ocp idle-timeout never --agent`. (An agent that owes nothing is not asked about at
+# `hl idle-timeout never --agent`. (An agent that owes nothing is not asked about at
 # all: `bg_owes_nothing`, `idle_close.bg_notice_s`, `idle_close.bg_grace_s`.)
 STALE_BG_VETO_S = 600
 
@@ -962,8 +962,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     if task is not None:
         tid = task["id"]
         text = (f"T{tid} (#{head['id']}) is still yours and you have been idle {idle}{after}. "
-                f"Done: hand it on (`ocp task handoff T{tid} ...`) or `ocp task done T{tid}`. "
-                f"Waiting on something: record it - `ocp task edit T{tid} --blocked-by T<m>`, "
+                f"Done: hand it on (`hl task handoff T{tid} ...`) or `hl task done T{tid}`. "
+                f"Waiting on something: record it - `hl task edit T{tid} --blocked-by T<m>`, "
                 f"or a child or decision task.")
     else:
         what = (f"If the work is done, {answer_verb(con, head)}; if it is not, say what you are "
@@ -1010,11 +1010,11 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
         if task is not None:
             from .. import actions
             held = (f", and T{task['id']} is {actions.task_state(con, task)} - "
-                    f"`ocp task list` shows what you hold")
+                    f"`hl task list` shows what you hold")
         ok, _ = _send(
             handle,
             f"#{row['id']} from {row['requester']} was cancelled: {verdict}. Stop work "
-            f"on it; it is closed and needs no resolve{held}. `ocp read {row['id']}` shows it.")
+            f"on it; it is closed and needs no resolve{held}. `hl read {row['id']}` shows it.")
         if ok:
             _mark_typed(con, agent)
     return ok, "" if ok else "the send failed"
@@ -1049,15 +1049,15 @@ def answer_verb(con, head) -> str:
         task = _task_of(con, head)
         if task is not None:
             return (f"you own T{task['id']} now: hand it on with "
-                    f"`ocp task handoff T{task['id']} <agent> \"<note>\"`, or "
-                    f"`ocp task done T{task['id']}` if you are its last step")
+                    f"`hl task handoff T{task['id']} <agent> \"<note>\"`, or "
+                    f"`hl task done T{task['id']}` if you are its last step")
     if head["requester"] == db.HUMAN:
-        return (f"answer the founder now, before other work: `ocp say human --parent "
+        return (f"answer the founder now, before other work: `hl say human --parent "
                 f"{head['id']} \"...\" --task T<n>` (or `--no-task \"<why>\"`) - if it is work, "
                 f"one line on what you will do or who has it")
     if head["kind"] == "say":
         return "it asks nothing"
-    return f"answer with `ocp say {head['requester']} --parent {head['id']} \"<answer>\"`"
+    return f"answer with `hl say {head['requester']} --parent {head['id']} \"<answer>\"`"
 
 
 def more_waiting(kind: str, more: int) -> str | None:
@@ -1089,7 +1089,7 @@ def notices_text(con, agent: str, folded) -> str:
     lines = [textsafe.oneline(r["body"]) for r in folded]
     lines = [t if len(t) <= NOTICE_SHOWN else t[:NOTICE_SHOWN].rstrip() + "…" for t in lines]
     left = len(db.pending_notices(con, agent)) - len(folded)
-    return " Also: " + " | ".join(lines) + (f" (+{left} more: `ocp inbox --all`)" if left else "")
+    return " Also: " + " | ".join(lines) + (f" (+{left} more: `hl inbox --all`)" if left else "")
 
 
 def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded=()) -> str:
@@ -1098,7 +1098,7 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
     `ahead_of` is the head a "send now" request is jumping, or, with `parked`, the head the
     agent has sat idle on. `folded` is `folded_notices`, carried on the same line."""
     more = depth - 1
-    # One line; `ocp read` has the rest. The message is three lines at most
+    # One line; `hl read` has the rest. The message is three lines at most
     # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
     # shows its whole note first and cuts only the title: every handoff of a long-titled
     # task starts with the same title, so a cap over both hid the note (#2377).
@@ -1132,9 +1132,9 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
                 f" [Sent now, ahead of #{ahead_of['id']}, which is still open.]")
     reply = in_reply_to(con, head)
     return (f"#{head['id']} from {head['requester']}{f' ({reply})' if reply else ''}, waiting for you:\n{shown}{tail}\n"
-            f"`ocp read {head['id']}` shows it whole; {answer_verb(con, head)}"
+            f"`hl read {head['id']}` shows it whole; {answer_verb(con, head)}"
             + ("." if head["requester"] == db.HUMAN or head["kind"] == "say"
-               else ", or `ocp inbox` any time."))
+               else ", or `hl inbox` any time."))
 
 
 def _record_told(con, agent: str, head, depth: int, log, session: str | None,
@@ -1283,7 +1283,7 @@ def answers_text(answered) -> str:
     # Only when there is more to read. A one-line "ok go" followed by an
     # instruction to go and read it whole is three lines of ceremony around two
     # words, typed into an agent that was in the middle of something.
-    tail = "\nRead one whole with `ocp read <id>`." if cut else ""
+    tail = "\nRead one whole with `hl read <id>`." if cut else ""
     return "Answers to what you asked:\n" + " | ".join(lines) + tail
 
 

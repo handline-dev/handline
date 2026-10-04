@@ -125,7 +125,7 @@ def process_env(pid: int) -> str | None:
     """pid's own environment, past its argv - never argv itself, which a
     caller controls and can put an env-looking token inside (a launch
     argument such as `--append-system-prompt` carrying literal text like
-    `OCP_AGENT=x`), and which `ocp launch` reads to name the real agent.
+    `OCP_AGENT=x`), and which `hl launch` reads to name the real agent.
 
     `ps eww` prints argv followed by the environment; `ps ww` prints argv
     alone. The two share the exact same argv rendering, so `eww`'s output
@@ -150,7 +150,7 @@ def _extract(env: str, name: str) -> str | None:
 def env_of(pid: int, name: str) -> str | None:
     """One environment variable of a running process, as it was started with.
 
-    The variables `ocp launch` sets are how a process says which agent and
+    The variables `hl launch` sets are how a process says which agent and
     which installation it belongs to; nothing it writes down can be trusted to
     the same degree. None means unreadable or unset, and those two are the same
     answer here: neither says the process is somebody else's.
@@ -181,7 +181,7 @@ def live_sessions() -> dict[str, int] | None:
     """agent -> pid for every agent session that is actually running, whatever
     vendor it runs in (`is_session`).
 
-    Read from the environment `ocp launch` set before exec'ing the vendor's
+    Read from the environment `hl launch` set before exec'ing the vendor's
     binary, which is the same string the rest of the system keys on. A fold is
     excluded: it is a headless run that inherits whatever OCP_AGENT its caller
     had, and it is not the agent's session.

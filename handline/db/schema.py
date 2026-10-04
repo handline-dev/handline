@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- asker's separate sign-off is gone; a wrong result is reopened): a merge
   -- sha (checked against main), the id of a request where the result was
   -- already reported, or a free-text fact for work that leaves no commit.
-  -- NULL is "not done yet"; written by `ocp task done`.
+  -- NULL is "not done yet"; written by `hl task done`.
   done_evidence TEXT,
   -- #1366 should-fix 2, carried over: when done_evidence was written,
   -- stamped alongside it - reason_gaps() needs it to age old closes out of a
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- hatch for a reason that happens to look like hex) would otherwise read
   -- as a sha.
   done_via     TEXT,
-  -- Who last edited the owner or title, and when - `ocp task edit`'s
+  -- Who last edited the owner or title, and when - `hl task edit`'s
   -- evidence, the same job closed_by/closed_at do for a close. NULL until
   -- the first edit; overwritten by each later one, so this is the latest
   -- edit only - the full history (old value, new value) is in `events`
@@ -282,7 +282,7 @@ CREATE TABLE IF NOT EXISTS handoff (
 CREATE INDEX IF NOT EXISTS handoff_agent ON handoff(agent, state);
 
 -- One row per agent while ocp has work for it and cannot give it: the daemon
--- writes it, and the bridge, `ocp ps` and `ocp doctor` - other processes - read
+-- writes it, and the bridge, `hl ps` and `hl doctor` - other processes - read
 -- it. Gone the tick the agent can be given its work again.
 CREATE TABLE IF NOT EXISTS delivery_blocks (
   agent      TEXT PRIMARY KEY,
@@ -614,7 +614,7 @@ def _pre_schema_migrate(con, legacy: bool = True) -> None:
         # installation that only ever ran main, where every existing close
         # predates the --reason escape hatch this guesses wrong for; on this
         # branch's own history a hex-looking --reason (auditor's #1565 NOTE
-        # 1: `ocp close 1 deadbeef --reason`) is mislabeled 'sha'. One line
+        # 1: `hl close 1 deadbeef --reason`) is mislabeled 'sha'. One line
         # in a counting display, nothing else - a real gap, not a claim this
         # is exact everywhere.
         for r in con.execute(
@@ -1087,7 +1087,7 @@ def _hr_proposals_leave_tasks(con) -> None:
 
 def _task_leftovers_settled(con) -> None:
     """T751 D3: the deliveries still queued on a task that has ended, settled once at upgrade. After
-    this only `ocp doctor --settle-leftovers` does it - never a timer, which would race the writers
+    this only `hl doctor --settle-leftovers` does it - never a timer, which would race the writers
     that end a task and then answer its requester."""
     if get_cursor(con, "migrated:task_leftovers_settled"):
         return

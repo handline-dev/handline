@@ -4,8 +4,8 @@
   - a watchdog thread pings the event loop; when it has not answered for `STALL_S` it writes the
     stack of every thread (the loop's first) and again every second while it stays blocked, then
     one line when it answers;
-  - `kill -USR1 <pid>` writes the stacks on demand (the bridge's pid is in its title bar and in
-    `ocp bridge --pid`);
+  - `kill -USR1 <pid>` writes the stacks on demand (the screen's pid is
+    `hl --pid`);
   - breadcrumbs (`crumb`, `timed`, `snapshot`) from the places worth knowing the time of.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ def pid_file() -> Path:
 
 
 def log(line: str) -> None:
-    """One stamped line, however many lines `line` has; a failing disk never reaches the bridge."""
+    """One stamped line, however many lines `line` has; a failing disk never reaches the screen."""
     try:
         path = log_file()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +151,7 @@ def install(app) -> int:
     except (OSError, ValueError, AttributeError):
         held = True         # a log or pid file that cannot be written is no second bridge
     if not held:
-        app.exit(return_code=1, message="Another ocp bridge took the lock first; this one is closing.")
+        app.exit(return_code=1, message="Another Handline screen took the lock first; this one is closing.")
     log(f"bridge up: pid {pid} term {os.environ.get('TERM_PROGRAM', os.environ.get('TERM', '?'))} "
         f"python {sys.version.split()[0]}")
     Watchdog(asyncio.get_running_loop()).start()
@@ -180,7 +180,7 @@ def _claim_pid_file(pid: int) -> bool:
 
 
 def started_at() -> float | None:
-    """When the bridge named by the pid file took its lock (the file is written then)."""
+    """When the screen named by the pid file took its lock (the file is written then)."""
     try:
         return pid_file().stat().st_mtime
     except OSError:
@@ -188,7 +188,7 @@ def started_at() -> float | None:
 
 
 def close_bridge(pid: int, grace: float = 5.0) -> bool:
-    """Ask the bridge `pid` to end (SIGTERM, then SIGKILL after `grace` s) and wait for its lock to go."""
+    """Ask the screen `pid` to end (SIGTERM, then SIGKILL after `grace` s) and wait for its lock to go."""
     for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 2.0)):
         try:
             os.kill(pid, sig)
@@ -205,7 +205,7 @@ def close_bridge(pid: int, grace: float = 5.0) -> bool:
 
 
 def running_pid() -> int | None:
-    """The pid of the bridge that is up now: the pid file names it and something holds its lock."""
+    """The pid of the screen that is up now: the pid file names it and something holds its lock."""
     try:
         fd = os.open(pid_file(), os.O_RDONLY)
     except OSError:

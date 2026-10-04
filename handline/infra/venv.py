@@ -1,4 +1,4 @@
-"""The interpreter ocp itself runs under (`ocp venv ...`).
+"""The interpreter ocp itself runs under (`hl venv ...`).
 
 bin/ocp used to run under whichever python3 was on PATH - macOS ships one
 with PyYAML, Homebrew's has none, and the system one is externally managed,

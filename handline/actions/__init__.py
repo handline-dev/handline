@@ -1,6 +1,6 @@
 """What a human can do to an agent, in one place.
 
-`ocp bridge` is the screen the team is run from, so what it does has to live
+`hl` is the screen the team is run from, so what it does has to live
 somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
 one.

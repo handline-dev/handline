@@ -63,7 +63,7 @@ def test_a_task_is_told_to_hand_on_or_finish_never_to_resolve(home: Path) -> Non
         text = dmn_delivery.tell_text(con, head, 1)
         check("verb: a task handoff is not told to resolve", "ocp resolve" not in text, text)
         check("verb: it says the task is now the receiver's",
-              f"you own T{tid} now" in text and f"`ocp task done T{tid}`" in text, text)
+              f"you own T{tid} now" in text and f"`hl task done T{tid}`" in text, text)
         waiting = dmn_delivery.tell_text(con, head, 3)
         check("queue: a task's queue moves on when it is handed on or finished",
               "[2 more waiting - the next comes when you hand this on or finish it.]" in waiting, waiting)
@@ -118,7 +118,7 @@ def test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(home
         check("notice: a real delivery carries the first three, oldest first, on its own line",
               "Also: T1 done by x.helper: PASS 1 | T2 done by x.helper: PASS 2 | T3 done by x.helper: PASS 3" in text
               and "T4 done" not in text and text.count("\n") <= 2, text)
-        check("notice: and says how many more wait, and where", "(+2 more: `ocp inbox --all`)" in text, text)
+        check("notice: and says how many more wait, and where", "(+2 more: `hl inbox --all`)" in text, text)
         check("notice: a delivery with nothing waiting says nothing of notices",
               "Also:" not in dmn_delivery.tell_text(con, head, 1), "")
         db.mark_notices_shown(con, [int(r["id"]) for r in folded], "sess")

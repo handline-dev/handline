@@ -4,9 +4,9 @@ The daemon is outside every agent's sandbox, so it alone can write main's checko
 runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py on the message it is
 given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check`), and it names the
 tree it tested. A sha lands when
-  - the auditor recorded a PASS for that exact sha (`ocp land --pass`), and
-  - the merger recorded it with the tree its test saw (`ocp land <sha> <message> --tree <tree>`).
-Both are accepted only from a process of the session `ocp launch` recorded for that agent (found by
+  - the auditor recorded a PASS for that exact sha (`hl land --pass`), and
+  - the merger recorded it with the tree its test saw (`hl land <sha> <message> --tree <tree>`).
+Both are accepted only from a process of the session `hl launch` recorded for that agent (found by
 the socket's peer pid, infra/sessiontoken.py), never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
 tree that was tested; if main moved meanwhile the trees differ and the merger tests again. A sha lands
 at most once.
@@ -80,7 +80,7 @@ def request(con, sha: str, message: str, tree: str | None, caller: str | None) -
         return False, f"{caller or 'someone else'} may not land a branch; the merger does"
     message = (message or "").strip()
     if not message or not (tree or "").strip():
-        return False, "a land needs the merge message and the tree the test saw: use `ocp land --check <sha>`, then `ocp land <sha> <message> --tree <tree>`"
+        return False, "a land needs the merge message and the tree the test saw: use `hl land --check <sha>`, then `hl land <sha> <message> --tree <tree>`"
     refusal = _message_refusal(message)
     if refusal:
         return False, f"the merge message carries personal data or a local id: {refusal}"
@@ -156,7 +156,7 @@ def _run_one(row, log) -> None:
         short = row["sha"][:8]
         body = (f"land #{row['id']}: {short} is on main as {out[:8]}." if landed else
                 f"land #{row['id']}: {short} did not land. {textsafe.oneline(out)} "
-                f"Test again and send it with `ocp land`.")
+                f"Test again and send it with `hl land`.")
         log(f"  land #{row['id']}: {'landed' if landed else 'failed'}")
         _tell(con, row["requester"], body, log)
     except Exception as e:  # noqa: BLE001 - the row must not stay 'running' for a message that failed to send

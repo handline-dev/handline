@@ -1,5 +1,5 @@
-"""Roster proposals (`ocp hr`) waiting on the founder, and the view that lets them
-be approved or rejected: the same `hr.decide` the chat card and `ocp hr approve` call."""
+"""Roster proposals (`hl hr`) waiting on the founder, and the view that lets them
+be approved or rejected: the same `hr.decide` the chat card and `hl hr approve` call."""
 from __future__ import annotations
 
 

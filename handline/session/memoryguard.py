@@ -2,13 +2,13 @@
 
 `guard` runs before a Write or Edit and refuses one that would push the memory
 index over its budget; `note_use` runs after a tool call and records which memory
-files the agent has read or written, for `ocp memory status` to find the ones it
+files the agent has read or written, for `hl memory status` to find the ones it
 has not touched for a month. Neither calls a model, and neither is reached by a
 Bash write: a `>>` onto MEMORY.md is not a tool call this hook sees.
 
 The folder, the budget and the sidecar `agents/<name>/memory-use.json` ({path
 relative to the folder: unix ts}) are core's (`team/memory.py`); this module
-writes the sidecar and `ocp memory status` alone reads it.
+writes the sidecar and `hl memory status` alone reads it.
 """
 from __future__ import annotations
 

@@ -31,8 +31,8 @@ def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
     check("T480: on by default - a stop with no recorded wait is refused", block is True, (block, reason))
     check("T480: the refusal says why and names the commands that fix it",
           reason is not None and "Stop refused" in reason and f"T{tid} is current with no recorded wait" in reason
-          and f"`ocp task handoff T{tid} <next>" in reason and f"`ocp task done T{tid}`" in reason
-          and f"`ocp task edit T{tid} --blocked-by T<m>`" in reason, reason)
+          and f"`hl task handoff T{tid} <next>" in reason and f"`hl task done T{tid}`" in reason
+          and f"`hl task edit T{tid} --blocked-by T<m>`" in reason, reason)
     stopgate.set_enforced(False)
     block, reason = stopgate.decide("worker", {"session_id": "s1"})
     check("switched off by the founder: never blocks", block is False, (block, reason))
@@ -40,7 +40,7 @@ def test_stop_wait_reason_becomes_a_reason_naming_the_task(home: Path) -> None:
           reason is not None and f"T{tid}" in reason, reason)
     check("T401 item 18: names task handoff as the finish step, not task done, "
           "and drops the open-say wait",
-          "ocp task handoff" in reason and "ocp say" not in reason, reason)
+          "hl task handoff" in reason and "hl say" not in reason, reason)
     con = db.connect()
     try:
         rows = con.execute("SELECT payload FROM events WHERE agent = 'worker' "
@@ -140,7 +140,7 @@ def test_a_question_left_unanswered_is_reminded_once_when_the_turn_ends(home: Pa
         rid = _told(con, db.HUMAN, "다음에 뭐 할 거예요")
         block, reason = stopgate.decide("worker", {"session_id": "s1"})
         check("reminder: the founder's message with no answer is reminded, naming the command to answer it",
-              block is True and f"#{rid}" in reason and f"ocp say {db.HUMAN} --parent {rid}" in reason
+              block is True and f"#{rid}" in reason and f"hl say {db.HUMAN} --parent {rid}" in reason
               and "what you write in the terminal reaches no one" in reason, (block, reason))
         block, reason = stopgate.decide("worker", {"session_id": "s1"})
         con2 = db.connect()
@@ -183,7 +183,7 @@ def test_no_reminder_when_it_answered_or_the_message_asks_nothing(home: Path) ->
         rid2 = _told(con, "manager", "can you look at the retry loop？")
         block, reason = stopgate.decide("worker", {"session_id": "s1"})
         check("reminder: an agent's question, even with a full-width mark, is reminded and addressed to it",
-              block is True and f"ocp say manager --parent {rid2}" in reason, (block, reason))
+              block is True and f"hl say manager --parent {rid2}" in reason, (block, reason))
     finally:
         con.close()
 

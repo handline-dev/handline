@@ -1,5 +1,5 @@
 """T946: a body a shell would expand (a backtick, $( ) comes from `--file PATH` or `-` (stdin), on
-ocp say, task new, task handoff and task memo add/edit - the text arrives byte for byte.
+hl say, task new, task handoff and task memo add/edit - the text arrives byte for byte.
 
 Run on its own: python3 tests/team/test_body_input.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -95,9 +95,9 @@ def test_say_task_new_handoff_and_memo_take_their_text_from_a_file_or_stdin(home
 
 def test_the_refusal_names_the_ways_out_that_exist(home: Path) -> None:
     from handline.session import shellguard
-    why = shellguard.guard("Bash", {"command": 'ocp task new "`x`"'})
+    why = shellguard.guard("Bash", {"command": 'hl task new "`x`"'})
     check("guard: the refusal names task new and memo, and stdin with -",
-          why and "ocp task new" in why and "ocp task memo add" in why and "stdin with -" in why, str(why))
+          why and "hl task new" in why and "hl task memo add" in why and "stdin with -" in why, str(why))
 
 
 def main() -> int:

@@ -75,10 +75,10 @@ def _refusal(con, agent: str, tool: str) -> str:
     if mine:
         t = mine[0]
         more = f" (or another of yours: {', '.join('T%d' % m['id'] for m in mine[1:4])})" if len(mine) > 1 else ""
-        return f"{head} Run `ocp task start T{t['id']}` to make your task \"{t['title'][:60]}\" current{more}, then retry."
+        return f"{head} Run `hl task start T{t['id']}` to make your task \"{t['title'][:60]}\" current{more}, then retry."
     return (f"{head} You own no open task. If the founder just told you to do this, run "
-            f"`ocp task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: "
-            f"`ocp say <them> \"please open a task for <this work>\"`.")
+            f"`hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: "
+            f"`hl say <them> \"please open a task for <this work>\"`.")
 
 
 def guard(agent: str, tool: str | None, tool_input: object) -> str | None:

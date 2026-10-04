@@ -2,9 +2,9 @@
 
 The daemon retries every path that can land a task each tick (`taskqueue.sweep` moves the next task
 to a free owner, `delivery.deliver_queued` types it). What those paths said when they declined was
-logged or held in memory, so `ocp task list` showed a queued task with nothing beside it. This reads
+logged or held in memory, so `hl task list` showed a queued task with nothing beside it. This reads
 the same facts as a level each tick and keeps one line per waiting task in `meta`, for the readers in
-other processes (`ocp task list`, `ocp team`, the bridge).
+other processes (`hl task list`, `hl team`, the bridge).
 
 A reason is either a cause (behind another task, blocked, the owner mid-turn, closed, at its usage
 limit, a dialog, no terminal) or "the owner can take it" - nothing is in the way and the daemon is

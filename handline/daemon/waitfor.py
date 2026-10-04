@@ -111,7 +111,7 @@ def stuck_waits(con) -> dict[str, tuple[int, str]]:
         found["cycle:" + "-".join(map(str, group))] = (group[0], (
             f"These tasks wait on each other and none can finish: {names}"
             + (f", and T{', T'.join(map(str, more))} in the same tangle" if more else "")
-            + ". Drop one wait (`ocp task edit T<n> --unblock T<m>`, T<n> being the one that waits) "
+            + ". Drop one wait (`hl task edit T<n> --unblock T<m>`, T<n> being the one that waits) "
               "or close one of them."))
     return found
 

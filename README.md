@@ -6,7 +6,7 @@ You give an agent a task. A daemon delivers it, resumes the agent if its session
 moves it to another Claude account when the first one runs low. No model makes these decisions.
 They are plain rules you can read and change.
 
-It is a command-line tool called `ocp`, plus a terminal screen (`ocp bridge`) for watching the team.
+It is a command-line tool called `hl`, plus a terminal screen (`hl`) for watching the team.
 
 ## Who it is for
 
@@ -24,63 +24,63 @@ your own Mac.
 - Python 3 and git. It is developed on Python 3.14; older versions are untested.
 - [Claude Code](https://claude.com/claude-code), with the `claude` command on your PATH.
 - [Orca](https://github.com/stablyai/orca), with the `orca` command on your PATH.
-- One Claude login per account you want to add. You type each login yourself. `ocp` never reads
+- One Claude login per account you want to add. You type each login yourself. `hl` never reads
   or copies credentials.
 
 ## Install
 
 ```bash
 git clone <this repository> orcapipe && cd orcapipe
-ln -s "$PWD/bin/ocp" /usr/local/bin/ocp    # or add bin/ to your PATH
-ocp venv install                           # one dependency (Textual) for the bridge screen
-ocp init                                   # creates ~/.orcapipe
-ocp doctor                                 # lists what is still missing
+ln -s "$PWD/bin/hl" /usr/local/bin/hl    # or add bin/ to your PATH
+hl venv install                           # one dependency (Textual) for the screen
+hl init                                   # creates ~/.orcapipe
+hl doctor                                 # lists what is still missing
 ```
 
-`ocp doctor` will report a red line for no accounts and no agents. That is expected at this point.
+`hl doctor` will report a red line for no accounts and no agents. That is expected at this point.
 
 ## Your first team
 
 Add an account. This opens Claude's own login screen, and you type into it:
 
 ```bash
-ocp account add alpha
+hl account add alpha
 ```
 
 Register an agent. `--repo` is the git repository it works in:
 
 ```bash
-ocp agent register backend --model sonnet --repo ~/code/myproject
-ocp team init
-ocp doctor
+hl agent register backend --model sonnet --repo ~/code/myproject
+hl team init
+hl doctor
 ```
 
-`ocp team init` writes `~/.orcapipe/team.yaml`, which says who may send work to whom. Open it
+`hl team init` writes `~/.orcapipe/team.yaml`, which says who may send work to whom. Open it
 once; it is short. The starting file also names `reviewer` and `archivist`. Either register them
-the same way, or delete them from the file, or `ocp doctor` warns about them. Fix any red line
+the same way, or delete them from the file, or `hl doctor` warns about them. Fix any red line
 it shows.
 
 Start the agent in an Orca terminal. Use the full path to the repository:
 
 ```bash
-orca terminal create --worktree path:/Users/you/code/myproject --command "ocp launch backend"
+orca terminal create --worktree path:/Users/you/code/myproject --command "hl launch backend"
 ```
 
 Give it work, from your own shell:
 
 ```bash
-ocp task new --owner backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
-ocp inbox        # what is waiting on you
-ocp bridge       # the screen: agents, accounts, inbox
+hl task new --owner backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
+hl inbox        # what is waiting on you
+hl       # the screen: agents, accounts, inbox
 ```
 
-When the agent finishes, its result shows up in `ocp inbox`. That is the whole loop: you
+When the agent finishes, its result shows up in `hl inbox`. That is the whole loop: you
 write a task with a clear "done", an agent does it and reports, and you read the report.
 
 To keep the daemon running after you close the terminal or reboot:
 
 ```bash
-ocp service install
+hl service install
 ```
 
 ## Read next

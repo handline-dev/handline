@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -169,8 +170,8 @@ def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
         if not origins:
             raise ValueError("name at least one site for the sandboxed browser")
         servers[BROWSER_SERVER] = {"command": "sh", "args": ["-c", (
-            'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat "$HOME/.orcapipe/browser/token") '
-            'exec "$HOME/.orcapipe/browser/node_modules/.bin/playwright-mcp" --extension '
+            f'PLAYWRIGHT_MCP_EXTENSION_TOKEN=$(cat {shlex.quote(str(paths.home() / "browser" / "token"))}) '
+            f'exec {shlex.quote(str(paths.home() / "browser" / "node_modules" / ".bin" / "playwright-mcp"))} --extension '
             f'--profile-dir-name "{profile}" --allowed-origins "{";".join(origins)}"')]}
     return mcp_config_text(json.dumps({"mcpServers": servers})) if servers else ""
 

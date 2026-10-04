@@ -399,7 +399,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
 
 
 def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> None:
-    """`Path("")` is the current directory, so an OCP_HOME set but empty made `ocp init` set up
+    """`Path("")` is the current directory, so an OCP_HOME set but empty made `hl init` set up
     wherever it was run. Empty or blank is refused with the way out; unset still means ~/.orcapipe."""
     from handline.infra import paths
     saved = os.environ.get("OCP_HOME")

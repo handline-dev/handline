@@ -322,8 +322,8 @@ def test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemo
 
 
 def test_dev_mode_config_round_trips(home: Path) -> None:
-    """Task #64: off by default, `ocp dev-mode on/off` flips config.yaml
-    (the same file `account cap` writes to), and a plain `ocp dev-mode`
+    """Task #64: off by default, `hl dev-mode on/off` flips config.yaml
+    (the same file `account cap` writes to), and a plain `hl dev-mode`
     reads it back without changing it."""
     use_home(home)
     check("dev-mode: off by default", dmn_devmode.dev_mode_enabled() is False,
@@ -407,7 +407,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
     (root / "handline" / "core.py").write_text("x = 1\n")
-    (root / "bin" / "ocp").write_text("#!/bin/sh\n")
+    (root / "bin" / "hl").write_text("#!/bin/sh\n")
     (root / "requirements.txt").write_text("")
     real_repo_root = paths.repo_root
     paths.repo_root = lambda: root
@@ -487,7 +487,7 @@ def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> No
     (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
     (root / "handline" / "core.py").write_text("x = 1\n")
-    (root / "bin" / "ocp").write_text("#!/bin/sh\n")
+    (root / "bin" / "hl").write_text("#!/bin/sh\n")
     # requirements.txt is listed by _watched_files but never created.
     fp = dmn_devmode._code_fingerprint(root)
     check("dev-mode fingerprint: a missing watched file does not raise",
@@ -1266,7 +1266,7 @@ def test_a_screen_with_background_work_is_kept_as_a_sample(home: Path) -> None:
 
 def test_a_closed_session_shows_no_background_work(home: Path) -> None:
     """T405: the founder closed a session that had background work; its `bgwork`
-    cursor stayed, so `ocp team` kept saying 'RUNNING background 8h, stale'. A
+    cursor stayed, so `hl team` kept saying 'RUNNING background 8h, stale'. A
     session that is gone runs nothing: the screen reads it IDLE straight away,
     and the next tick drops the cursor."""
     _daemon_home(home, 20)
@@ -1863,7 +1863,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
                        "peer", "async", "task", 0, None)
         check("deliver: a waiting request reaches the agent",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
-        check("deliver: and it is told how to read it", "ocp inbox" in sent[-1], sent[-1])
+        check("deliver: and it is told how to read it", "hl inbox" in sent[-1], sent[-1])
         check("deliver: and who it is from", "reviewer" in sent[-1], sent[-1])
 
         sent.clear()
@@ -1997,7 +1997,7 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
         told = [t for t in sent if "look at this" in t]
         check("wake: the resume's first prompt is the message itself",
               len(told) == 1 and "from reviewer, waiting for you" in told[0]
-              and "ocp inbox" in told[0], str(sent))
+              and "hl inbox" in told[0], str(sent))
         check("wake: and not the generic line ahead of it",
               not any("Nothing was lost" in t for t in sent), str(sent))
         check("wake: the tell is on the row, for the session that read it",
@@ -2990,7 +2990,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
               rc == 0 and row["wake_failures"] == 0 and row["state"] == dmn_states.QUEUED,
               str(dict(row)))
 
-        # The 5h wall is the one failure that heals itself, and `ocp launch`
+        # The 5h wall is the one failure that heals itself, and `hl launch`
         # refuses on a reading the daemon has already got. Spending the wake
         # timeout to be told that, and counting it against the agent, is how a
         # window that rolls over in minutes took an agent out for hours.
@@ -3274,7 +3274,7 @@ def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
 
 def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     """A closed agent whose resume is blocked at its account's 5h wall used to
-    say nothing about it: `ocp ps` showed "·closed", `ocp triggers` said
+    say nothing about it: `hl ps` showed "·closed", `hl triggers` said
     "nothing to hand off", and the daemon's own refusal lived in a log line.
     One predicate now answers all of them, so a screen cannot drift from what
     the daemon actually acts on - and it has to fall silent again the moment
@@ -3312,14 +3312,14 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
 
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
-        # `ocp team` is asked from somewhere - `reviewer` is a peer of every
+        # `hl team` is asked from somewhere - `reviewer` is a peer of every
         # agent in DESIGN_TEAM, so backend is on its list.
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        check("walled: `ocp ps` says it", reason in ps_out, ps_out)
-        check("walled: `ocp triggers` says it", reason in trig_out, trig_out)
-        check("walled: `ocp team` says it too - the fourth surface",
+        check("walled: `hl ps` says it", reason in ps_out, ps_out)
+        check("walled: `hl triggers` says it", reason in trig_out, trig_out)
+        check("walled: `hl team` says it too - the fourth surface",
               "alpha" in team_out and when in team_out, team_out)
         # It is computed, not stored: once the account has room the sentence
         # disappears from every screen on its own, with nothing to clear.
@@ -3376,11 +3376,11 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
         frame = tui._ANSI.sub("", _snap(200, 40))
-        check("walled: `ocp ps` stays quiet with nothing waiting",
+        check("walled: `hl ps` stays quiet with nothing waiting",
               "rolls over" not in ps_out, ps_out)
-        check("walled: `ocp triggers` stays quiet too",
+        check("walled: `hl triggers` stays quiet too",
               "rolls over" not in trig_out, trig_out)
-        check("walled: `ocp team` stays quiet too", "rolls over" not in team_out, team_out)
+        check("walled: `hl team` stays quiet too", "rolls over" not in team_out, team_out)
         check("walled: and the bridge",
               "rolls over" not in frame and "⏳" not in frame,
               str([ln for ln in frame.splitlines() if "backend" in ln]))
@@ -3536,7 +3536,7 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         row = db.get_agent_state(con, "backend")
         check("with no other account it is STALLED, naming the account and the login command",
               row["state"] == dmn_states.STALLED and "login expired on alpha" in row["detail"]
-              and "ocp login alpha" in row["detail"], str(dict(row)))
+              and "hl login alpha" in row["detail"], str(dict(row)))
 
         sessions_are("backend")
         dmn_reconciler.sweep(con, logs.append, [])
@@ -3867,7 +3867,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     honours a ctx_limit it is handed - its control builds that trigger by
     calling evaluate() directly, so supervise() is never actually reached for
     the overridden agent. Nothing there proves the daemon, the bridge row or
-    `ocp triggers` resolve and pass a per-agent limit rather than the flat
+    `hl triggers` resolve and pass a per-agent limit rather than the flat
     default. Two agents, same account, same 200,000-token reading: only each
     call site's own status.effective_context_limit(agents.read(agent), ...)
     can tell them apart, so all three are driven through their real code
@@ -3918,9 +3918,9 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
         trig_out = _capture(lambda: climod.main(["triggers"]))
         real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)
         ctl_line = next(ln for ln in trig_out.splitlines() if "ctxctl" in ln)
-        check("ocp triggers: fires for the default-limit agent",
+        check("hl triggers: fires for the default-limit agent",
               "YES" in real_line, real_line)
-        check("ocp triggers: does not fire for the overridden agent, same reading",
+        check("hl triggers: does not fire for the overridden agent, same reading",
               "YES" not in ctl_line, ctl_line)
 
         # 3. tui's bridge row.
@@ -3986,7 +3986,7 @@ def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
 
 def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     """Order a child, read what it sends back, report to the parent - all of it
-    through `ocp`, with no step that needs a human or a subagent.
+    through `hl`, with no step that needs a human or a subagent.
 
     Each leg was there and none of them finished: `ocp ask` queued and left the
     rest to a tick, and a target with no terminal was a request for somebody to
@@ -4408,7 +4408,7 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
               told.startswith("ocp: your context is full (? of 200,000), so this session will be cleared in 5 minutes. "
                               "No reply is needed. Before then: 1. Stop your background shells. Anything still running "
                               "at that time is cut off. 2. If you were waiting on a result, write what was running and "
-                              'what is left in: ocp progress "done: ... left: ..." - the next session starts from that '
+                              'what is left in: hl progress "done: ... left: ..." - the next session starts from that '
                               "note. 3. Do not start new work or new background jobs. When your background work has "
                               "ended, the clear happens at once.") and "\n" not in told, told)
         check("owed (b): not parked, not degraded, no bump - a wait, not a failure",
@@ -4762,12 +4762,12 @@ def test_who_is_asking_is_not_guessed(home: Path) -> None:
               askmod.asking_agent() is None, str(askmod.asking_agent()))
         ok, msg, rid = askmod.ask("backend", "do this")
         check("identity: and is refused rather than promoted", not ok and rid is None, msg)
-        check("identity: and told agents start via ocp launch", "ocp launch" in msg, msg)
+        check("identity: and told agents start via hl launch", "hl launch" in msg, msg)
         ok, _msg, rid = askmod.ask("backend", "do this", requester="reviewer")
         check("identity: saying so explicitly still works", ok and rid is not None, _msg)
         out = _capture(lambda: climod.main(["withdraw", str(rid)]))
         check("identity: withdraw from nobody is refused, not 'not yours'",
-              "ocp launch" in out, out)
+              "hl launch" in out, out)
         try:
             climod.main(["say", "backend", "x", "--of", "1685"])
             gone = False
@@ -5231,13 +5231,13 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
 
 
 def test_one_daemon_is_counted_in_the_process_table(home: Path) -> None:
-    """A supervisor nobody recorded exists only there. The words `ocp daemon`
+    """A supervisor nobody recorded exists only there. The words `hl daemon`
     on a command line do not make one: a grep for them carries both, and so
     does an agent session whose system prompt quotes the command."""
     use_home(home)
     table = [
         (4707, "/usr/bin/python /Users/x/workspaces/orcapipe/bin/ocp daemon"),
-        (4801, "grep -n ocp daemon"),
+        (4801, "grep -n hl daemon"),
         (4802, "vim /Users/x/workspaces/orcapipe/ocp/daemon.py"),
         (4803, "/usr/bin/python /Users/x/.local/bin/ocp ps"),
         (4804, "claude --append-system-prompt Report with /Users/x/bin/ocp daemon"),

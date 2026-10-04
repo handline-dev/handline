@@ -89,7 +89,7 @@ def migrate(apply: bool) -> tuple[bool, str]:
     if not lines:
         return True, "team.yaml already rests on the name links - nothing to change"
     if not apply:
-        return True, "\n".join(lines) + "\nnothing written; `ocp hr links --apply` writes it"
+        return True, "\n".join(lines) + "\nnothing written; `hl hr links --apply` writes it"
     before = team.Team(load(text))
     names = sorted(set(before.agents) | {a for m in before.teams.values() for a in m} | {team.HUMAN})
 

@@ -809,7 +809,7 @@ class ChatMessage(Vertical):
 PAGE_COMMANDS = (("chat", "My chat", "mine"), ("all", "All chat", "all"), ("task", "Tasks", "tasks"),
                  ("sort", "Sort the tasks", "tasks"), ("settings", "Agent settings", "settings"),
                  ("back", "Back to the main screen", None), ("help", "List the commands", "help"),
-                 ("exit", "Quit the bridge", "exit"))
+                 ("exit", "Quit", "exit"))
 
 
 MENU_MAX = 8
@@ -1195,7 +1195,7 @@ class TaskActions:
         self.app.push_screen(TextPrompt("done - what came of it?"), answered)
 
     def action_queue_task(self) -> None:
-        """A draft is approved to run, a queued task goes back to draft (`actions.set_queued`, as `ocp task queue`)."""
+        """A draft is approved to run, a queued task goes back to draft (`actions.set_queued`, as `hl task queue`)."""
         if not (self.d and self.d["can_queue"]):
             self.say("only a draft can be queued, and only a queued task drafted")
             return
@@ -2130,7 +2130,7 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#tasks_view").sort_named(column)
 
     def run_slash(self, what: tuple) -> None:
-        """A `/` line is a command of the bridge: do it, or say why not and keep the text."""
+        """A `/` line is a command of the screen: do it, or say why not and keep the text."""
         kind = what[0]
         if kind == "error":
             self.notify(what[1], severity="error", timeout=6, markup=False)
@@ -2160,7 +2160,7 @@ class ChatPage(JobsAware, Screen):
             if not self.sending:
                 self.app.exit()
             else:
-                Confirm.ask(self.app, self.app.exit, "Quit the bridge", f"{self.sending} message(s) still being sent.",
+                Confirm.ask(self.app, self.app.exit, "Quit", f"{self.sending} message(s) still being sent.",
                             yes="Quit", no="Stay", danger=True)
             return
         if tab is None:

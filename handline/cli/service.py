@@ -34,7 +34,7 @@ def cmd_service_status(args) -> int:
     print(f"pid:         {st['pid'] or '-'}")
     print(f"last exit:   {st['last_exit_code'] or '-'}")
     if service.crash_loop_detected():
-        print("warning:     crash-looping - see `ocp service logs`")
+        print("warning:     crash-looping - see `hl service logs`")
     return 0
 
 

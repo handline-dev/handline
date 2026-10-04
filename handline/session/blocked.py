@@ -11,7 +11,7 @@ is a state a person has to clear (STALLED is that); a `delivery_blocks` row
 stands while the work waits and the same obstacle holds, is on the founder's
 list from SHOW_AFTER_S, and becomes one request to the founder at
 DECISION_AFTER_S. It is written by the daemon and read by the bridge and
-`ocp ps`, which are other processes, so it lives in the database.
+`hl ps`, which are other processes, so it lives in the database.
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
 only where `orca.declining_key` admits it - the dialog says Esc cancels and
@@ -80,7 +80,7 @@ PROBE_S = 30
 NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
 # The process table lists no session for an agent whose terminal draws one. Work is typed at it on the
 # screen's word, so this is not an obstacle; it is a fault in the table that the founder is told about
-# (the bridge, `ocp ps`, and a request once it outlasts DECISION_AFTER_S), with how each session-looking
+# (the bridge, `hl ps`, and a request once it outlasts DECISION_AFTER_S), with how each session-looking
 # process was read, since the table missing a live session is what starved the auditor for hours.
 TABLE_MISS = "table miss"
 TABLE_ORIGIN = "table"
@@ -503,7 +503,7 @@ def _raise(con, recs, now: int, log) -> None:
                      f"  In the way: {reason(r['kind'], r['detail'])}\n"
                      f"  Waiting: {r['work'] or 'nothing yet'}\n"
                      + (f"  {note[0].upper() + note[1:]}.\n" if note else "")
-                     + f"  To clear it: {ADVICE.get(r['kind'], 'see `ocp ps`')}.")
+                     + f"  To clear it: {ADVICE.get(r['kind'], 'see `hl ps`')}.")
     text = "[blocked] " + ("\n\n".join(lines)) + \
         "\n\nThis closes itself when it can be given its work."
     rid = askmod.raise_decision(con, recs[0]["agent"], text, "delivery blocked")

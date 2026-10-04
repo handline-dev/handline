@@ -64,7 +64,7 @@ def set_state_unless_running(con, agent: str, state: str, detail: str | None = N
 def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) -> None:
     """Record where an agent lives. This says nothing about what it is doing.
 
-    It ran at `ocp launch`, before execve, and inserted the row as RUNNING - so
+    It ran at `hl launch`, before execve, and inserted the row as RUNNING - so
     an agent was born working, and `_mark_activity` then declined to rewrite a
     state that was already RUNNING. RUNNING is what stops work being delivered
     and stops a session being closed, so the row that only meant to record a
@@ -82,7 +82,7 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
 def set_account(con, agent: str, account: str | None, source: str = "recorded") -> None:
     """Record which account a session is on, and how sure of it this is.
 
-    `source="recorded"` (the default) is written by `ocp launch`, by a move
+    `source="recorded"` (the default) is written by `hl launch`, by a move
     once its session is up, or by the daemon's check of the running process;
     only the launch writes from inside the process itself, so a move's record
     can disagree with the environment until `daemon._confirmed_reading`
@@ -248,7 +248,7 @@ def last_account_activity(con, account: str) -> int | None:
     a turn count - the daemon's own bookkeeping spends nothing.
 
     Not a promise that nothing was spent: a session outside ocp (a human's
-    `claude -p`, `ocp fold`'s one call) leaves no event here, which is why the
+    `claude -p`, `hl fold`'s one call) leaves no event here, which is why the
     poll also has a cadence it keeps whatever this says.
     """
     row = con.execute(

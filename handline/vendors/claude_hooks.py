@@ -23,7 +23,7 @@ import os
 import time
 from pathlib import Path
 
-from ..infra import atomic, paths
+from ..infra import atomic, names, paths
 from .claude import Claude
 
 # ocp's own status line scripts, which it no longer installs (D11).
@@ -152,10 +152,10 @@ SAFE_COMMANDS = (
     *(f"Bash({c}:*)" for c in ("tail", "head", "grep", "wc", "cat", "ls")),
     "Bash(git status)", "Bash(git log)", "Bash(git diff)",
     # read-only
-    *(f"Bash(ocp {c}:*)" for c in ("inbox", "read", "status", "task list")),
-    "Bash(ocp team)",
+    *(f"Bash({n} {c}:*)" for n in names.COMMANDS for c in ("inbox", "read", "status", "task list")),
+    *(f"Bash({n} team)" for n in names.COMMANDS),
     # reporting
-    *(f"Bash(ocp {c}:*)" for c in ("say", "progress", "task new")),
+    *(f"Bash({n} {c}:*)" for n in names.COMMANDS for c in ("say", "progress", "task new")),
 )
 
 
@@ -209,7 +209,7 @@ def unsandboxed_commands() -> list[str] | None:
     except ValueError:
         return None
     excluded = sandbox.get("excludedCommands") if isinstance(sandbox, dict) else None
-    return [e for e in excluded or [] if isinstance(e, str) and e.split(" ", 1)[0] == "ocp"]
+    return [e for e in excluded or [] if isinstance(e, str) and e.split(" ", 1)[0] in names.COMMANDS]
 
 
 def _is_orca_entry(entry: dict) -> bool:
@@ -329,7 +329,7 @@ def watch(interval: float = 5.0, once: bool = False) -> None:
 def _is_our_hook(command: object, event: str) -> bool:
     """Is this entry ours, whatever path it was written with?
 
-    `ocp` is on PATH as a symlink into the repo, so the same installation spells
+    `hl` is on PATH as a symlink into the repo, so the same installation spells
     itself two ways. Matching the exact string meant a second entry was added
     the first time the spelling changed, and then every hook fired twice - two
     events recorded per turn, and two of everything downstream.
@@ -338,7 +338,7 @@ def _is_our_hook(command: object, event: str) -> bool:
         return False
     parts = command.split()
     return (len(parts) >= 3 and parts[-2:] == ["hook", event]
-            and os.path.basename(parts[0]) == "ocp")
+            and os.path.basename(parts[0]) in names.COMMANDS)
 
 
 def ensure_shared() -> Path:
@@ -464,10 +464,10 @@ def shared_problems() -> list[tuple[str, str]]:
     except json.JSONDecodeError:
         line = {}
     # ocp installs no status line (D11); one of its old ones left in the slot
-    # points at a script `ocp init` deletes.
+    # points at a script `hl init` deletes.
     old = {str(_shared() / n) for n in OLD_STATUSLINES}
     if isinstance(line, dict) and line.get("command") in old:
-        return [("shared statusLine is an old ocp script", "run `ocp init` to remove it")]
+        return [("shared statusLine is an old ocp script", "run `hl init` to remove it")]
     return []
 
 

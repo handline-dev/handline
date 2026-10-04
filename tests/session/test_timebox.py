@@ -197,7 +197,7 @@ def test_a_task_opened_inside_ocp_gets_the_default_timeout_once_it_is_doing(home
 
 def test_a_doing_tasks_timeout_pauses_while_it_is_not_doing(home: Path) -> None:
     """The clock only runs while a task reads doing - its request answered
-    (or `ocp task release`), it pauses with no notice, and does not fire on
+    (or `hl task release`), it pauses with no notice, and does not fire on
     however long it sat not-doing; doing again, the clock restarts fresh."""
     sent = _world(home)
     con = db.connect()
@@ -1074,7 +1074,7 @@ def test_the_notices_name_the_next_step_and_use_task_verbs(home: Path) -> None:
         text = sent[0][1]
         check("task timeout: the title is cut and the holder named", len(text) < 400 and "held by marina" in text
               and long_title[:60].rstrip() in text and long_title[:120] not in text, text)
-        check("task timeout: a task that was not begun can be released", f"ocp task release T{tid}" in text, text)
+        check("task timeout: a task that was not begun can be released", f"hl task release T{tid}" in text, text)
         sent.clear()
         db.add_event(con, "manager", "task_begin", {"task_id": tid})
         timebox.sweep(con, lambda _m: None, now + 3600 + 3600)
@@ -1093,7 +1093,7 @@ def test_an_unasked_running_notice_points_at_a_message(home: Path) -> None:
         timebox.sweep_unasked_running(con, lambda _m: None, now)
         timebox.sweep_unasked_running(con, lambda _m: None, now + timebox.UNASKED_RUNNING_S + 1)
         check("unasked running: the supervisor is pointed at a message, not ocp ask",
-              sent and "ocp say marina" in sent[0][1] and "ocp ask" not in sent[0][1], str(sent))
+              sent and "hl say marina" in sent[0][1] and "ocp ask" not in sent[0][1], str(sent))
     finally:
         con.close()
 
@@ -1118,14 +1118,14 @@ def test_a_forgotten_tasks_nudges_use_task_verbs(home: Path) -> None:
         finally:
             dmn_delivery.type_notice = real
         check("nudge: it says the task is still theirs, names the task verbs and the recorded wait, not resolve",
-              told and f"T{tid} (#{rid}) is still yours" in told[0] and f"ocp task done T{tid}" in told[0]
+              told and f"T{tid} (#{rid}) is still yours" in told[0] and f"hl task done T{tid}" in told[0]
               and "--blocked-by" in told[0] and "ocp resolve" not in told[0], str(told))
         db.set_cursor(con, "nudge_count:marina", len(dmn_delivery.NUDGE_SCHEDULE_S))
         db.set_cursor(con, "nudge:marina", rid)
         sent.clear()
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, now)
         check("cap notice: a task head is pointed at release or a message, with no 'resolve another way'",
-              sent and f"T{tid} (#{rid})" in sent[0][1] and f"ocp task release T{tid}" in sent[0][1]
+              sent and f"T{tid} (#{rid})" in sent[0][1] and f"hl task release T{tid}" in sent[0][1]
               and "another way" not in sent[0][1] and "ocp ask" not in sent[0][1], str(sent))
     finally:
         con.close()
@@ -1146,7 +1146,7 @@ def test_the_capped_notice_offers_no_release_for_a_begun_task(home: Path) -> Non
         timebox.sweep_forgotten_resolve_capped(con, lambda _m: None, int(time.time()))
         check("cap notice: a begun task is not offered a release that would be refused",
               sent and f"T{tid} (#{rid})" in sent[0][1] and "release" not in sent[0][1]
-              and "ocp say marina" in sent[0][1], str(sent))
+              and "hl say marina" in sent[0][1], str(sent))
     finally:
         con.close()
 
@@ -1161,11 +1161,11 @@ def test_a_cancelled_task_handoff_names_the_task_state(home: Path) -> None:
         row = db.get_request(con, rid)
         ok, why = dmn_delivery.notify_cancelled(con, row, "no longer needed")
         check("cancel: the notice says what state the task is left in", ok and sent
-              and f"T{tid} is" in sent[-1][1] and "ocp task list" in sent[-1][1], str((ok, why, sent)))
+              and f"T{tid} is" in sent[-1][1] and "hl task list" in sent[-1][1], str((ok, why, sent)))
         plain = _delivered(con, "manager", "marina", 60)
         sent.clear()
         dmn_delivery.notify_cancelled(con, db.get_request(con, plain), "no longer needed")
-        check("cancel: an ordinary request's notice is unchanged", sent and "ocp task list" not in sent[-1][1], str(sent))
+        check("cancel: an ordinary request's notice is unchanged", sent and "hl task list" not in sent[-1][1], str(sent))
     finally:
         con.close()
 

@@ -1,6 +1,6 @@
 """The proof that a request comes from an agent's own session.
 
-There is no secret. `ocp launch` records its own process id and start time for the agent it becomes
+There is no secret. `hl launch` records its own process id and start time for the agent it becomes
 (`record`) in the protected store, which no agent session can write; the process it execs keeps that
 id, so every process the session starts descends from it. The daemon asks the kernel who is on the
 other end of a socket request (`peer_pid`) and accepts a verb only when that process descends from the

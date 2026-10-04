@@ -8,7 +8,7 @@ put to it (`_unanswered_question`).
 On unless the founder turns it off (T298, T480): every wait logs an event
 (`stop_gate`), and blocks unless `enforced()` says the founder switched it off.
 The switch lives in the protected store, so only the founder's own terminal
-or the bridge can flip it - never an agent's session.
+or the screen can flip it - never an agent's session.
 """
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ def set_enforced(on: bool) -> None:
 
 def _reason(tid: int, why: str) -> str:
     return (f"Stop refused: {why}, so ending your turn now would leave it with no owner working "
-            f"and nothing it waits on. Finished your part: `ocp task handoff T{tid} <next> ...` (or "
-            f"`ocp task done T{tid}` if you are the last step). Waiting on "
-            f"something: `ocp task edit T{tid} --blocked-by T<m>`, or a child or "
+            f"and nothing it waits on. Finished your part: `hl task handoff T{tid} <next> ...` (or "
+            f"`hl task done T{tid}` if you are the last step). Waiting on "
+            f"something: `hl task edit T{tid} --blocked-by T<m>`, or a child or "
             f"decision task.")
 
 
@@ -94,7 +94,7 @@ def decide(agent: str, raw: dict) -> tuple[bool, str | None]:
             db.set_meta(con, f"answer_reminded:{agent}", str(rid))
             db.add_event(con, agent, "stop_gate", {"answer_reminder": rid, "enforced": True})
             return True, (f"#{rid} may be waiting for an answer: if you have one, reply with "
-                          f"`ocp say {sender} --parent {rid} \"...\"` (what you write in the terminal "
+                          f"`hl say {sender} --parent {rid} \"...\"` (what you write in the terminal "
                           f"reaches no one).")
         tid = db.current_task(con, agent)
         marker = f"{raw.get('session_id') or ''}:{tid}"

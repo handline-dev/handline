@@ -1,10 +1,10 @@
-"""ocp bridge: the Textual app the team is run from.
+"""hl: the Textual app the team is run from.
 
 The app opens on the home page (`ui.pages.home.HomePage`), from which Enter opens an agent's chat page
 (`chat_page.ChatPage`); the founder's tasks
 are the home page's Tasks tab and a chat page's own (`components.tasks_view.TasksView`). Pages draw what the data functions in `tui.py`
 and `actions` say and decide nothing themselves, so a row or a page means the same
-here as in `ocp status` and the daemon. The widgets and modals pages share are in
+here as in `hl status` and the daemon. The widgets and modals pages share are in
 `ui.components`.
 
 Every verb a key or a slash command can run hands its work to `handline.ui.actrun`
@@ -12,7 +12,7 @@ through `jobs.Jobs` and returns at once, so a screen keeps redrawing and reading
 keys while an action is in flight, with a line saying what is running and for
 how long.
 
-Run once or into a pipe, `ocp bridge` is `tui.snapshot`, plain text, and does not
+Run once or into a pipe, `hl` is `tui.snapshot`, plain text, and does not
 start this app.
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ class BridgeApp(ClipboardApp):
     """The Textual bridge: the home page, and from it an agent's chat page - see
     `HomePage`, `chat_page.ChatPage`."""
 
-    TITLE = "ocp bridge"
+    TITLE = "Handline"
     BINDINGS = [("f5", "restart", "restart")]
     CSS_PATH = Path(__file__).with_name("chat_page.tcss")
 
@@ -75,7 +75,8 @@ class BridgeApp(ClipboardApp):
     def on_mount(self) -> None:
         from .pages.home import HomePage
         follow_os_theme(self)
-        self.title = f"ocp bridge · pid {stall.install(self)}"
+        stall.install(self)
+        self.title = "Handline"
         self.push_screen(HomePage())
         self.set_interval(CODE_CHECK_S, lambda: self.run_worker(
             self._check_code, thread=True, exclusive=True, group="code_check"))
@@ -98,7 +99,7 @@ class BridgeApp(ClipboardApp):
 
     def _restart_if_idle(self) -> None:
         if self._idle():
-            self.ask_restart("ocp was updated. Restart the bridge now?", declined=self._decline_update)
+            self.ask_restart("Handline was updated. Restart now?", declined=self._decline_update)
 
     def _decline_update(self) -> None:
         """Stay on this version: this change is not asked about again, a newer one is."""
@@ -106,7 +107,7 @@ class BridgeApp(ClipboardApp):
         self._code_state["fp"] = self._code_state["seen"]
 
     def ask_restart(self, question: str, declined=lambda: None) -> None:
-        """Ask once whether to restart the bridge; yes exits it and `run` execs the same entrypoint."""
+        """Ask once whether to restart the screen; yes exits it and `run` execs the same entrypoint."""
         if self._asking:
             return
         self._asking = True
@@ -122,7 +123,7 @@ class BridgeApp(ClipboardApp):
 
     def action_restart(self) -> None:
         lost = [w for sc in self.screen_stack for w in getattr(sc, "unsent", list)()]
-        self.ask_restart("Restart the bridge now?" if not lost else "Restart the bridge now? That loses "
+        self.ask_restart("Restart the screen now?" if not lost else "Restart the screen now? That loses "
                          + " and ".join(lost) + ".")
 
 
@@ -135,7 +136,7 @@ def _one_bridge(ask=input, tty: bool | None = None) -> bool:
     if tty is None:
         tty = sys.stdin.isatty()
     since = stall.started_at()
-    print(f"An ocp bridge is already running: pid {pid}"
+    print(f"An hl is already running: pid {pid}"
           + (f", since {time.strftime('%a %b %d %H:%M', time.localtime(since))}" if since else "") + ".")
     if not tty:
         return False
@@ -166,7 +167,7 @@ def run(once: bool = False) -> int:
     except OSError:
         held = True         # a pid file that cannot be written is no second bridge
     if not held:
-        print("Another ocp bridge took the lock first.")
+        print("Another Handline screen took the lock first.")
         return 1
     app = BridgeApp()
     app.run()

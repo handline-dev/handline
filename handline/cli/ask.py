@@ -102,7 +102,7 @@ def cmd_cancel(args) -> int:
     """
     if askmod.asking_agent() != askmod.HUMAN:
         print("cancel is the founder's: an agent takes back its own request with "
-              "`ocp withdraw`, and answers one it was handed with `ocp say <them> --parent <id>`.")
+              "`hl withdraw`, and answers one it was handed with `hl say <them> --parent <id>`.")
         return 1
     con = db.connect()
     try:
@@ -187,7 +187,7 @@ def cmd_inbox(args) -> int:
         if not rows:
             print(f"{agent}: inbox empty")
             return 0
-        print(f"{len(rows)} total. `ocp read <id>` shows one whole.")
+        print(f"{len(rows)} total. `hl read <id>` shows one whole.")
         for r in rows:
             print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
                   f"depth={r['chain_depth']} {textsafe.oneline(r['body'])[:60]}")
@@ -201,7 +201,7 @@ def cmd_inbox(args) -> int:
             return 0
         more = db.queue_depth(con, agent) - 1
         # Only a look at your own queue counts as being told - a foreign
-        # `ocp inbox <name>` must not spend the requester's withdraw/replace.
+        # `hl inbox <name>` must not spend the requester's withdraw/replace.
         if agent == askmod.asking_agent():
             db.mark_delivered(con, int(head["id"]))
             db.mark_landed(con, int(head["id"]))       # it has read it
@@ -221,8 +221,8 @@ def cmd_inbox(args) -> int:
         finally:
             con.close()
     else:
-        closes = f"`ocp say {head['requester']} --parent <id> \"<answer>\"` answers it"
-    print(f"\n{closes}. `ocp inbox --all` shows the whole queue and its history.")
+        closes = f"`hl say {head['requester']} --parent <id> \"<answer>\"` answers it"
+    print(f"\n{closes}. `hl inbox --all` shows the whole queue and its history.")
     return 0
 
 
@@ -231,7 +231,7 @@ def _human_inbox(show_all: bool = False) -> int:
 
     An agent is told what came back to it by the daemon typing into its
     terminal. Nobody types into a human, so an answer to something the human
-    asked has to be somewhere they look - and this command and `ocp bridge` have
+    asked has to be somewhere they look - and this command and `hl` have
     to hold the same rows, or clearing one leaves the other still asking.
 
     `--all` adds what has already been dealt with, the way it does everywhere
@@ -247,13 +247,13 @@ def _human_inbox(show_all: bool = False) -> int:
         # A count of messages, not of lines: read the same unfolded rows a
         # fold draws from, not the fold's own line count.
         print(f"{len(actions.mailbox_rows(con))} waiting. "
-              f"`ocp read <id>` shows one whole.")
+              f"`hl read <id>` shows one whole.")
         for m in rows:
             mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
             behind = f" (+{m['unread'] - 1})" if m["unread"] > 1 else ""
             print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
                   f"{textsafe.oneline(actions.first_line(m['body']))[:60]}{behind}")
-        print("`ocp say <who> --parent <id> \"<text>\"` answers one - a reply settles what it "
+        print("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it "
               "answers, and on a `<` row it goes back in that thread.")
         if show_all:
             # Not the ones printed above: an answer that is still on the list is
@@ -279,12 +279,12 @@ def _human_inbox(show_all: bool = False) -> int:
 def _who_refusal(verb: str) -> str:
     """Whose row it is cannot be checked against a caller we cannot name.
 
-    The same fail-closed rule `ocp say` uses: a human has a terminal, a script
+    The same fail-closed rule `hl say` uses: a human has a terminal, a script
     that dropped OCP_AGENT does not, and promoting one to the other is how an
     agent ends up clearing the founder's mailbox.
     """
     return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
-            f"an interactive shell. Agents are started with `ocp launch <agent>`, "
+            f"an interactive shell. Agents are started with `hl launch <agent>`, "
             f"which sets it.")
 
 
@@ -332,13 +332,13 @@ def _answered(con, request_id: int) -> bool:
 def cmd_read(args) -> int:
     """Print one request whole - what was asked, and what came back.
 
-    `ocp inbox` shows a line each - one per agent on the human's own, cut to
+    `hl inbox` shows a line each - one per agent on the human's own, cut to
     fit - and the only way to see the rest was to know where the raw JSON
     lives. An agent that cannot read the whole of what it was asked answers
     the half it could see.
 
     Any agent can read any request, which was already true of the database and
-    of `ocp inbox` - this makes it convenient
+    of `hl inbox` - this makes it convenient
     rather than new. Nothing typed into a request is private to two agents.
     """
     if args.wait and not _wait_for(

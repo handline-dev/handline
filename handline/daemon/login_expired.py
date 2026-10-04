@@ -92,7 +92,7 @@ def check(con, agent: str, row, acct: str | None, log, actions: list[str]) -> bo
     if dest is None:
         # Nothing is waiting out a window here, so a retry loop would only fail again:
         # the agent is shown as stopped, and `lift` releases it once the account logs in.
-        detail = f"{LOGIN_STALL} on {acct} and no other account can take it ({why}) - ocp login {acct}"
+        detail = f"{LOGIN_STALL} on {acct} and no other account can take it ({why}) - hl login {acct}"
         db.set_agent_state(con, agent, STALLED, wake_at=None, detail=detail[:300])
         actions.append(f"{agent}: STALLED, {LOGIN_STALL} on {acct}")
         log(f"  {agent}: {detail}")

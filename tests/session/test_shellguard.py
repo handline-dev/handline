@@ -16,23 +16,23 @@ from handline.session import shellguard  # noqa: E402
 
 def test_a_safe_ocp_command_is_let_through() -> None:
     check("no backtick or $(: nothing to refuse",
-          shellguard.guard("Bash", {"command": 'ocp say worker "just a note"'}) is None)
+          shellguard.guard("Bash", {"command": 'hl say worker "just a note"'}) is None)
     check("a command with no ocp in it is never looked at",
           shellguard.guard("Bash", {"command": 'echo "`whoami`"'}) is None)
     check("a tool other than Bash is never looked at",
-          shellguard.guard("Write", {"command": 'ocp say worker "`whoami`"'}) is None)
+          shellguard.guard("Write", {"command": 'hl say worker "`whoami`"'}) is None)
 
 
 def test_a_substitution_is_refused_with_the_nothing_ran_reason() -> None:
-    why = shellguard.guard("Bash", {"command": 'ocp say worker "`whoami`"'})
+    why = shellguard.guard("Bash", {"command": 'hl say worker "`whoami`"'})
     check("a backtick in double quotes is refused", why is not None, why)
     check("T401 item 17: says up front that nothing ran, heredocs and file writes included",
           why.startswith("Refused: nothing in this command ran, including any heredoc or "
                           "file write in it."), why)
-    check("names --file on ocp task handoff as one of the safe verbs",
-          "ocp task handoff" in why and "--file" in why, why)
+    check("names --file on hl task handoff as one of the safe verbs",
+          "hl task handoff" in why and "--file" in why, why)
 
-    why2 = shellguard.guard("Bash", {"command": 'ocp say worker "$(whoami)"'})
+    why2 = shellguard.guard("Bash", {"command": 'hl say worker "$(whoami)"'})
     check("$( in double quotes is refused the same way", why2 == why, (why, why2))
 
 

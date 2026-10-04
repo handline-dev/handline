@@ -1,4 +1,4 @@
-"""`ocp account ...`: register, add, remove, cap, recover, list."""
+"""`hl account ...`: register, add, remove, cap, recover, list."""
 from __future__ import annotations
 
 import json
@@ -33,7 +33,7 @@ def cmd_account_register(args) -> int:
     print(f"registered account '{args.name}': {d}")
     if not accounts.logged_in(args.name):
         print(f"\nnot logged in yet. From a terminal you can type into:\n\n"
-              f"  ocp login {args.name}\n")
+              f"  hl login {args.name}\n")
     return 0
 
 
@@ -54,13 +54,13 @@ def cmd_account_add(args) -> int:
         return 1
     if not args.no_login and not drv.binary():
         print(f"{drv.login_argv()[0]} was not found on PATH. Install it, then run:\n\n"
-              f"  ocp account add {args.name}"
+              f"  hl account add {args.name}"
               f"{'' if vendor == agents.DEFAULT_VENDOR else ' --vendor ' + vendor}\n",
               file=sys.stderr)
         return 1
     if not args.no_login and not sys.stdin.isatty():
         print(f"logging in needs a terminal you can type into. From one, run:\n\n"
-              f"  ocp account add {args.name}"
+              f"  hl account add {args.name}"
               f"{'' if vendor == agents.DEFAULT_VENDOR else ' --vendor ' + vendor}\n",
               file=sys.stderr)
         return 1
@@ -197,10 +197,10 @@ def cmd_account_recover(args) -> int:
     expired = accounts.login_expired(args.name)
     if expired:
         print(f"{args.name}: login expired - {expired['why']}; logging it in again clears this "
-              f"(`ocp account recover {args.name} --clear-relogin` if that cannot be seen)")
+              f"(`hl account recover {args.name} --clear-relogin` if that cannot be seen)")
     if recovermod.needs_relogin(args.name):
         print(f"{args.name}: marked needs re-login - recovery refuses it until "
-              f"that mark is cleared (`ocp account recover {args.name} --clear-relogin`)")
+              f"that mark is cleared (`hl account recover {args.name} --clear-relogin`)")
     return 0
 
 

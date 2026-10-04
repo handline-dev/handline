@@ -46,7 +46,7 @@ figure was actually observed, and it, not collected_at, bounds the carry.
 Past that bound we still use the floor for triggers, because an idle session
 cannot be racing toward the wall, but we refuse to assign new work on it.
 
-The quiet inference has one known exception, and it is ours: `ocp fold` runs
+The quiet inference has one known exception, and it is ours: `hl fold` runs
 its one model call headless, with no statusLine, so a fold spends quota that
 no collector will ever see. It is one small call, but it means quiet reads
 "no session reported spending", not "nothing was spent".
@@ -469,7 +469,7 @@ class AccountStatus:
           that case, not this one.
         - The floor is a lower bound, not a measurement - there is an
           unbounded invisible spender even with no agent of ours running (a
-          human running `claude -p` by hand; `ocp fold`'s own risk is closed
+          human running `claude -p` by hand; `hl fold`'s own risk is closed
           separately, see fold._cheapest_account) - so it is judged this far
           below the wall (`IDLE_FLOOR_MARGIN_PCT`), never against the wall
           itself.
@@ -1196,7 +1196,7 @@ def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
     wall in a window this call never re-checked. `replay.py` never passes
     this - a recorded sample cannot be asked anything, live or not - and
     every caller that is answering "what would happen" rather than "give an
-    agent somewhere to go right now" (a screen redraw, `ocp status`) leaves it
+    agent somewhere to go right now" (a screen redraw, `hl status`) leaves it
     False: a display must not cost a network call just by being drawn.
     """
     from ..team import agents

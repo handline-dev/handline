@@ -3,7 +3,7 @@
 Four facts, read from what is on disk and in the database, with no model call:
 
   1. the request it was working on (an agent has one delivered at a time, #189),
-  2. the progress note the agent itself wrote on that request (`ocp progress`),
+  2. the progress note the agent itself wrote on that request (`hl progress`),
   3. the path of the session's transcript,
   4. the worktree's branch, HEAD and git status.
 
@@ -241,7 +241,7 @@ def memory_line(agent: str) -> str:
 
 
 def _note_lines(con, agent: str) -> list[str]:
-    """The agent's own note for this stretch, after the facts ocp read: the agent was
+    """The agent's own note for this stretch, after the facts hl read: the agent was
     asked for it just before the close (`daemon.handoff_note`), and may not have written
     one, in which case the record is the facts alone."""
     from ..daemon import handoff_note  # local: see _request_line

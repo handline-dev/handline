@@ -2,7 +2,7 @@
 once it was typed.
 
 `delivered_at` is the daemon's mark that it went to type a request. What decides the
-word "delivered" (chat, `ocp inbox`, the stuck list) is `landed_at`, set here from
+word "delivered" (chat, `hl inbox`, the stuck list) is `landed_at`, set here from
 the transcript, read every tick: a level, so a daemon that was down when the line
 landed still finds it. Claude Code writes a line typed mid-turn as a
 `queue-operation` entry and one typed while idle as a `user` entry, so a landing is
@@ -62,7 +62,7 @@ def state(row, now: int | None = None) -> str:
 
 def _texts(entry: dict):
     """The text a transcript entry holds that a person or the daemon typed. Never a
-    tool result: `ocp inbox` prints the very header this looks for."""
+    tool result: `hl inbox` prints the very header this looks for."""
     kind = entry.get("type")
     if kind == "queue-operation" and entry.get("operation") == "enqueue":
         yield entry.get("content")

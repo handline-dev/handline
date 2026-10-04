@@ -74,11 +74,11 @@ def test_the_schedules_setting_is_validated_and_set_from_the_command_line(home: 
             check(f"setting: {bad!r} is refused", False)
         except ValueError:
             check(f"setting: {bad!r} is refused", True)
-    rc, out = _cli(["schedule", "add", "--agent", "backend", "--cron", "*/30 * * * *", "--message", "patrol: check ocp team"],
+    rc, out = _cli(["schedule", "add", "--agent", "backend", "--cron", "*/30 * * * *", "--message", "patrol: check hl team"],
                    as_agent=None)
     check("cli: add writes agent.yaml and shows it", rc == 0 and "1. */30 * * * *" in out and "patrol" in out, out)
     check("cli: and the daemon reads it back", schedules.of("backend")
-          == [{"cron": "*/30 * * * *", "message": "patrol: check ocp team"}])
+          == [{"cron": "*/30 * * * *", "message": "patrol: check hl team"}])
     rc, out = _cli(["schedule", "add", "--agent", "backend", "--cron", "nope", "--message", "x"], as_agent=None)
     check("cli: a bad expression is refused and nothing is written", rc == 1 and len(schedules.of("backend")) == 1, out)
     rc, out = _cli(["schedule", "list"], as_agent=None)
@@ -103,7 +103,7 @@ def test_a_due_schedule_is_typed_once_and_waits_for_a_running_agent(home: Path) 
     sent = _world(home)
     con = db.connect()
     try:
-        item = {"cron": "*/30 * * * *", "message": "patrol: check ocp team"}
+        item = {"cron": "*/30 * * * *", "message": "patrol: check hl team"}
         _give("backend", [item])
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         t0 = _at(2026, 9, 30, 21, 10)
@@ -113,7 +113,7 @@ def test_a_due_schedule_is_typed_once_and_waits_for_a_running_agent(home: Path) 
         check("due: nothing before the time", sent == [])
         schedules.sweep(con, lambda _m: None, _at(2026, 9, 30, 21, 30))
         check("due: at the time the message is typed, saying why",
-              len(sent) == 1 and "[schedule */30 * * * *] patrol: check ocp team" in sent[0][1], str(sent))
+              len(sent) == 1 and "[schedule */30 * * * *] patrol: check hl team" in sent[0][1], str(sent))
         schedules.sweep(con, lambda _m: None, _at(2026, 9, 30, 21, 31))
         check("due: and only once for that time", len(sent) == 1, str(sent))
         check("due: recorded as an event", con.execute("SELECT COUNT(*) FROM events WHERE kind = 'schedule_fired'").fetchone()[0] == 1)

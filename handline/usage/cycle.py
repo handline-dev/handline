@@ -168,7 +168,7 @@ def ended_why(acct: str, now: float, cfg: dict | None = None) -> str | None:
         return None
     d = end_date(acct, cfg)
     return (f"subscription ended {d} (month cycle) - not picked; after resubscribing, "
-            f"`ocp account cycle {acct} --end YYYY-MM-DD` sets the new end")
+            f"`hl account cycle {acct} --end YYYY-MM-DD` sets the new end")
 
 
 @dataclass

@@ -35,7 +35,7 @@ SHOWN_CHARS = 120
 # apart in the live db, which is what parallel subagents look like).
 # TeammateIdle is not this agent's own turn either - it is another agent's
 # status reaching this session (auditor #1654 NOTE 5). What is left is
-# unimpeachable: an `ocp` verb only runs once the tool call that ran it has
+# unimpeachable: an `hl` verb only runs once the tool call that ran it has
 # itself returned, and PostCompact is this session's own transcript growing,
 # neither a side effect an unrelated tool call could produce.
 MOVED_ON_KINDS = frozenset({

@@ -215,7 +215,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         landauth._grants.clear()            # grants an earlier refusal left unspent
         said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
         check("vouch: the auditor's own session, but nothing vouched for the command, is refused",
-              not said["ok"] and "own `ocp land` command" in said["said"], str(said))
+              not said["ok"] and "own `hl land` command" in said["said"], str(said))
         landauth.grant(lands.AUDITOR, "land_pass", feat)
         first = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
         again = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
@@ -352,34 +352,34 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
     from handline.infra import sessiontoken
     tree, sha = "a" * 40, "abc1234"
     ok = {
-        f"ocp land --pass {sha}": ("land_pass", sha),
+        f"hl land --pass {sha}": ("land_pass", sha),
         f"bin/ocp land --pass {sha}": ("land_pass", sha),
         f"handline land {sha} 'Merge feat (x & y)' --tree {tree}": ("land", sha),
-        f"ocp land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
-        f"ocp land --tree {tree} {sha} msg": ("land", sha),
-        "ocp land --pass abc#x": ("land_pass", "abc#x"),
+        f"hl land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
+        f"hl land --tree {tree} {sha} msg": ("land", sha),
+        "hl land --pass abc#x": ("land_pass", "abc#x"),
     }
-    no = [f"ocp land --check {sha}", "ocp land --list", f"ocp land {sha} msg", f"ocp land --pass",
-          f"ocp land --pass {sha} && tools/suite.sh", f"tools/suite.sh; ocp land --pass {sha}",
-          f"ocp land --pass {sha} | cat", f"ocp land --pass $(cat x)", f"ocp land --pass `cat x`",
-          f"ocp land {sha} \"$(cat x)\" --tree {tree}", f"ocp land --pass {sha}\nrm x",
-          f"python3 tests/x.py ocp land --pass {sha}", f"echo ocp land --pass {sha}", f"ocp land --pass a b",
-          f"ocp land --tree {tree} {sha} #x", f"ocp land --pass {sha} #x", f"ocp land --pass {sha} # note", "ocp land #c --pass abc1234",
-          f"ocp land --bogus {sha}", f"ocp land --pass {sha} > out", "ocp land"]
+    no = [f"hl land --check {sha}", "hl land --list", f"hl land {sha} msg", f"hl land --pass",
+          f"hl land --pass {sha} && tools/suite.sh", f"tools/suite.sh; hl land --pass {sha}",
+          f"hl land --pass {sha} | cat", f"hl land --pass $(cat x)", f"hl land --pass `cat x`",
+          f"hl land {sha} \"$(cat x)\" --tree {tree}", f"hl land --pass {sha}\nrm x",
+          f"python3 tests/x.py hl land --pass {sha}", f"echo hl land --pass {sha}", f"hl land --pass a b",
+          f"hl land --tree {tree} {sha} #x", f"hl land --pass {sha} #x", f"hl land --pass {sha} # note", "hl land #c --pass abc1234",
+          f"hl land --bogus {sha}", f"hl land --pass {sha} > out", "hl land"]
     for cmd, want in ok.items():
         check(f"gate: vouches for {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) == want,
               str(landgate.parse("Bash", {"command": cmd})))
     for cmd in no:
         check(f"gate: vouches for nothing in {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) is None,
               str(landgate.parse("Bash", {"command": cmd})))
-    check("gate: and for no tool but Bash", landgate.parse("Write", {"command": f"ocp land --pass {sha}"}) is None)
+    check("gate: and for no tool but Bash", landgate.parse("Write", {"command": f"hl land --pass {sha}"}) is None)
     sent, real = [], dmn_client.send
     dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True})[1]
     try:
         check("gate: with no key (the sandbox's view) it sends nothing",
-              not landgate.authorize("backend", "Bash", {"command": f"ocp land --pass {sha}"}) and not sent)
+              not landgate.authorize("backend", "Bash", {"command": f"hl land --pass {sha}"}) and not sent)
         sessiontoken.mint_key("backend")
-        done = landgate.authorize("backend", "Bash", {"command": f"ocp land --pass {sha}"})
+        done = landgate.authorize("backend", "Bash", {"command": f"hl land --pass {sha}"})
         check("gate: with the key it sends the agent, verb, sha and key",
               done and sent and sent[0]["land_verb"] == "land_pass" and sent[0]["sha"] == sha
               and sent[0]["key"] == sessiontoken.key_held("backend") and sent[0]["agent"] == "backend", str(sent))
@@ -430,7 +430,7 @@ def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Pa
     dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True})[1]
     os.environ["OCP_AGENT"] = "backend"
     try:
-        for command in ("tools/suite.sh", "ocp land --pass abc1234"):
+        for command in ("tools/suite.sh", "hl land --pass abc1234"):
             sys.stdin = io.StringIO(json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash",
                                                 "tool_input": {"command": command}}))
             with contextlib.redirect_stdout(io.StringIO()):

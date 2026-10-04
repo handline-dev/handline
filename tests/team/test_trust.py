@@ -276,7 +276,7 @@ def _doctor_rows():
 
 
 def test_ocp_trust_cli_is_wired(home: Path) -> None:
-    """`ocp trust add/list/remove` reach the same trust.py the daemon reads,
+    """`hl trust add/list/remove` reach the same trust.py the daemon reads,
     the founder's own path through the argparse layer."""
     use_home(home)
     root = home / "repos" / "widget"

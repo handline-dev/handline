@@ -884,7 +884,7 @@ def _read_dialog(handle: str, allow_truncated: bool = True,
 
 def dialog_on_screen(handle: str) -> Dialog | None:
     """The confirmation dialog this terminal shows now, parsed, or None when there is none
-    or it cannot be read - the bridge offers its options to the founder."""
+    or it cannot be read - the screen offers its options to the founder."""
     return _read_dialog(handle)[2]
 
 
@@ -1404,7 +1404,7 @@ def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
     does not depend on anything preserving the launch environment for us.
 
     `started` is asked, before the wait, whether the command actually started
-    something: sending only says we typed it, and `ocp launch` refuses over the
+    something: sending only says we typed it, and `hl launch` refuses over the
     5h limit and exits when the account is not logged in. It comes first
     because the wait below costs its whole timeout when there is no TUI, and a
     launch that started nothing is exactly that case.

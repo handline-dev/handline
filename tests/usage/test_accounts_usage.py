@@ -1661,7 +1661,7 @@ def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> Non
 
     The statusLine took it from `CLAUDE_CONFIG_DIR`, first-hand. The pull takes
     it from the path of the transcript, which is the same fact - and it follows
-    an `ocp agent move` for nothing, because the file left behind under the old
+    an `hl agent move` for nothing, because the file left behind under the old
     account is simply older. Measured live: `orcapipe.chat` moved alpha -> sigma
     and the pull reported sigma on the next read.
     """
@@ -1744,7 +1744,7 @@ def test_the_daemon_pulls_only_for_an_open_session(home: Path) -> None:
 def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> None:
     """The statusLine's per-turn push, done by a hook that was already there.
 
-    `Stop` fires when the agent has finished a turn, already runs `ocp hook`,
+    `Stop` fires when the agent has finished a turn, already runs `hl hook`,
     and already carries the `cwd` the transcript lives under - so the snapshot
     is refreshed at the moment the status line used to render one, with no
     status line installed. A `Stop` arriving is also the heartbeat: the session
@@ -2173,7 +2173,7 @@ def test_a_reset_window_gets_one_turn_per_reset_and_never_while_exhausted(home: 
             poll(con)
             check("reset turn: a window still running gets none", turns == [], turns)
 
-            # The switch (`ocp account recover <name> on|off`, config.yaml
+            # The switch (`hl account recover <name> on|off`, config.yaml
             # `usage_recover_<name>: false`): off, no turn is spent; on, one is.
             recovermod.recover = real[2]
             spent: list[str] = []
@@ -2526,7 +2526,7 @@ def test_carry_bounds_and_losses(home: Path) -> None:
 
 
 def test_an_account_change_and_a_new_account_leave_project_memory_alone(home: Path) -> None:
-    """Memory is per agent now (`ocp memory`), so neither a launch that lands on
+    """Memory is per agent now (`hl memory`), so neither a launch that lands on
     another account nor `register` moves, links or logs anything of the old
     repo-keyed project memory."""
     os.environ["OCP_HOME"] = str(home)
@@ -3831,7 +3831,7 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
     try:
         code = []
         _capture(lambda: code.append(climod.main(["agent", "move", "keeper", "beta", "--yes"])))
-        check("forced: `ocp agent move` from an agent's session is refused",
+        check("forced: `hl agent move` from an agent's session is refused",
               code == [1], str(code))
         check("forced: and nothing was changed",
               db.get_agent_state(db.connect(), "keeper") is None)
@@ -4611,7 +4611,7 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     check("stale: nothing that decides reads the number directly",
           st.short_trusted is None)
     out = _capture(lambda: climod.main(["account", "list"]))
-    check("stale: `ocp account list` shows it", "5h 41% (60m old)" in out, out)
+    check("stale: `hl account list` shows it", "5h 41% (60m old)" in out, out)
     panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
@@ -5405,7 +5405,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
         refused = False
     except SystemExit:
         refused = True
-    check("status: it has one job, so the dashboard flag is gone (`ocp bridge --once`)",
+    check("status: it has one job, so the dashboard flag is gone (`hl bridge --once`)",
           refused)
 
 

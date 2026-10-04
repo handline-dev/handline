@@ -6,7 +6,7 @@ from ..infra import paths
 from ..team import team
 
 
-# The name a human's own requests are sent under, and the inbox `ocp bridge`
+# The name a human's own requests are sent under, and the inbox `hl`
 # shows. Taken from `ask`, which is where decisions are addressed: a second
 # copy of the name would empty the panel the day it changed.
 HUMAN = askmod.HUMAN
@@ -24,7 +24,7 @@ def routing() -> "team.Team | None":
 
     None rather than an exception: the screen draws a team that has no
     hierarchy the same way it drew every team before there was one, and a typo
-    in team.yaml must not take the dashboard down with it - `ocp doctor` is
+    in team.yaml must not take the dashboard down with it - `hl doctor` is
     where a broken routing table is a finding.
     """
     p = paths.team_file()
@@ -91,7 +91,7 @@ def listing_refusal(caller: str | None, target: str) -> str | None:
     if supervisor_of(routing(), target) == caller:
         return None
     return (f"{caller} may not list {target}'s messages: only {target}, its supervisor "
-            f"and the human may. `ocp read <id>` shows one request by number.")
+            f"and the human may. `hl read <id>` shows one request by number.")
 
 
 def listable_agents(caller: str | None) -> tuple[str, ...] | None:

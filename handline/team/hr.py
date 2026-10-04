@@ -8,7 +8,7 @@ spend an account into the ground without anyone deciding to.
 
 The shape is therefore: any agent may *propose*, only the founder may decide, and an approve
 is applied by the same call that records it. A proposal is not a task: it is its own record, and
-the founder decides it from a chat card or `ocp hr approve|reject`. Three properties fall out:
+the founder decides it from a chat card or `hl hr approve|reject`. Three properties fall out:
 
   - It is a file. `hr/<id>.yaml` holds what was asked for, who asked, and what happened to it
     (proposed, approved, applied, rejected, withdrawn). A crash between the approval and the
@@ -76,7 +76,7 @@ def listing(unreadable: list[str] | None = None) -> list[dict]:
     """Every proposal that can be read. A file that cannot be - it does not
     parse, it is not text, or it parses to something that is not a proposal -
     is left out and, when `unreadable` is given, named there with why: the
-    bridge's waiting list and `ocp hr list` both read this, and one bad file
+    bridge's waiting list and `hl hr list` both read this, and one bad file
     must not take either down."""
     out = []
     for f in sorted(dir_().glob("*.yaml")):
@@ -361,7 +361,7 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
                   "Anything still queued for it stays queued and undeliverable."]
-    lines += ["", f"Approve or reject: `ocp hr approve {prop['id']}` / `ocp hr reject {prop['id']}`."]
+    lines += ["", f"Approve or reject: `hl hr approve {prop['id']}` / `hl hr reject {prop['id']}`."]
     return "\n".join(lines)
 
 
@@ -385,7 +385,7 @@ def subject_of(prop: dict) -> str:
 
 
 def card(prop: dict) -> dict:
-    """A proposal as the founder's chat card and `ocp hr list --json` show it. `text` is what
+    """A proposal as the founder's chat card and `hl hr list --json` show it. `text` is what
     will happen if it is approved; `state` is "proposed" (waiting on the founder) or "approved"
     (decided, but the change did not go through - `error` says why, and approving again retries).
     `subject` is the digest to hand back to `decide`: what was read is what is approved. `verdict` and
@@ -504,7 +504,7 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
                        f"{timefmt.stamp(prop.get('applied'), timefmt.DATE_TIME, 'an unknown date')}")
     if state != "approved":
         return False, (f"proposal {pid} is {state}, not approved - "
-                       f"the founder decides it with `ocp hr approve {pid}`")
+                       f"the founder decides it with `hl hr approve {pid}`")
     got = decisions.get("hr", pid)
     if got is None or got.get("call") != "approved":
         return False, (f"no approval from the founder is on record for proposal {pid} - "
@@ -821,7 +821,7 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
                        f"just now - try again in a moment.")
     if live.get(old):
         return False, (f"{old} has a session running. Close it first "
-                       f"(`ocp close {old}`, or `c` on the bridge) - an identity "
+                       f"(`hl close {old}`, or `c` on the screen) - an identity "
                        f"cannot change under a running session.")
     src, dest = paths.agent_dir(old), paths.agent_dir(new)
     if dest.exists():
@@ -974,7 +974,7 @@ def _edit_team_yaml(edit, present: str | None = None, absent: str | None = None,
     """
     p = paths.team_file()
     if not p.exists():
-        return False, f"{p} does not exist - run `ocp team init` first"
+        return False, f"{p} does not exist - run `hl team init` first"
     sealed.require_founder()
     text = p.read_text()
     sealed.check(sealed.TEAM, text, p)

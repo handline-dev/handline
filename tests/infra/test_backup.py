@@ -1,4 +1,4 @@
-"""Tests: `ocp backup` snapshots of OCP_HOME.
+"""Tests: `hl backup` snapshots of OCP_HOME.
 
 Run on its own: python3 tests/infra/test_backup.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -182,7 +182,7 @@ def test_a_partial_from_a_killed_run_is_pruned_once_stale(home: Path) -> None:
 
 def test_two_snapshots_in_one_second_keep_both(home: Path) -> None:
     """Names have one-second resolution, and a rename over an existing name
-    replaced it silently: a manual `ocp backup` racing launchd lost a snapshot."""
+    replaced it silently: a manual `hl backup` racing launchd lost a snapshot."""
     _world(home)
     dest = home.parent / "bk"
     first = backupmod.snapshot(home, dest, now=1_000_000)
@@ -334,7 +334,7 @@ def test_the_backups_live_beside_the_home_not_in_it(home: Path) -> None:
     check("backup: the folder is a sibling of OCP_HOME",
           backupmod.backup_dir(home) == home.with_name(home.name + "-backups"))
     plist = backupmod.build_plist(home)
-    check("backup: launchd runs `ocp backup` every minute",
+    check("backup: launchd runs `hl backup` every minute",
           plist["ProgramArguments"][-1] == "backup" and plist["StartInterval"] == 60)
     check("backup: the plist lands in the stand-in home under the suite",
           TEST_ROOT in backupmod.plist_path().parents)

@@ -26,7 +26,7 @@ def cmd_login(args) -> int:
     names = paths.list_accounts()
     if not args.account:
         if not names:
-            print("no accounts registered. `ocp account add <name>` first.")
+            print("no accounts registered. `hl account add <name>` first.")
             return 1
         for a in names:
             state = accounts.login_word(accounts.login_state(a))
@@ -35,7 +35,7 @@ def cmd_login(args) -> int:
             except vendors.UnknownVendor as e:
                 where = str(e)
             print(f"{a:<12}{state:<14}{where}")
-        print(f"\nLog one in with: ocp login <account>")
+        print(f"\nLog one in with: hl login <account>")
         return 0
 
     try:
@@ -103,7 +103,7 @@ def cmd_init(args) -> int:
         print(f"initialized git repo in {h}")
 
     print(f"initialized {h}")
-    print("next: ocp account add <name> - it registers the account and logs it in")
+    print("next: hl account add <name> - it registers the account and logs it in")
     return 0
 
 

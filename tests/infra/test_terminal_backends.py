@@ -142,9 +142,9 @@ def test_the_orca_backend_makes_the_same_cli_calls_it_always_did(home: Path) -> 
 
         seen, orcacli._exec = _record({"terminal create": _ok(terminal={"handle": "t9"})})
         check("orca: a terminal in a path is `--worktree path:<dir> --title --command --json`",
-              b.create_terminal("ocp launch x", "/wt/a", "x") == ("t9", "")
+              b.create_terminal("hl launch x", "/wt/a", "x") == ("t9", "")
               and seen[-1] == ["orca", "terminal", "create", "--worktree", "path:/wt/a", "--title", "x",
-                               "--command", "ocp launch x", "--json"], str(seen[-1]))
+                               "--command", "hl launch x", "--json"], str(seen[-1]))
         check("orca: with no path it is Orca's `current` worktree",
               b.create_terminal("c")[0] == "t9" and seen[-1][:5] == ["orca", "terminal", "create", "--worktree", "current"],
               str(seen[-1]))
@@ -296,7 +296,7 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
 
 
 def test_spawn_runs_an_agent_on_any_backend(home: Path) -> None:
-    """The whole of `ocp spawn` over a backend that is not Orca: a worktree, a terminal, the first task."""
+    """The whole of `hl spawn` over a backend that is not Orca: a worktree, a terminal, the first task."""
     use_home(home)
     agents.register("spawny")
     host = FakeHost()
@@ -586,10 +586,10 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
     try:
         check("tmux: nothing is running yet, and that is an answer: no terminals", tm.list_terminals() == set())
         os.environ["OCP_HOME"] = str(home)
-        pane, why = tm.create_terminal("ocp launch backend", cwd=str(home), title="back.end:1")
+        pane, why = tm.create_terminal("hl launch backend", cwd=str(home), title="back.end:1")
         st = _state(state)
         check("tmux: the first terminal starts the session, and the command is typed into its shell, then Enter",
-              pane == "%0" and why == "" and st["panes"]["%0"]["sent"] == ["ocp launch backend"]
+              pane == "%0" and why == "" and st["panes"]["%0"]["sent"] == ["hl launch backend"]
               and st["panes"]["%0"]["cwd"] == str(home), str(st))
         made = next(a for a in st["log"] if "new-session" in a)
         check("tmux: every call is on the dedicated server socket, the session detached and of a usable size, the home passed on",
@@ -597,7 +597,7 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
               and f"OCP_HOME={home}" in st["panes"]["%0"]["env"], str(st["log"]))
         check("tmux: the window name cannot carry a `.` or `:` that tmux reads as a target",
               st["panes"]["%0"]["name"] == "back_end_1", st["panes"]["%0"]["name"])
-        pane2, _ = tm.create_terminal("ocp launch reviewer")
+        pane2, _ = tm.create_terminal("hl launch reviewer")
         check("tmux: the second one is a window of the same session", pane2 == "%1"
               and any("new-window" in a for a in _state(state)["log"]))
         check("tmux: the live terminals are the pane ids", tm.list_terminals() == {"%0", "%1"})

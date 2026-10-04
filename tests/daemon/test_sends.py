@@ -244,7 +244,7 @@ def test_a_say_is_typed_at_once_and_owes_no_answer(home: Path) -> None:
     reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "which branch is it on?"})
     check("say: accepted, and its sender is told nothing about a way to answer",
-          reply["ok"] and "ocp say" not in reply["said"] and "needs-task" not in reply["said"], str(reply))
+          reply["ok"] and "hl say" not in reply["said"] and "needs-task" not in reply["said"], str(reply))
     check("say: typed at once", len(sent) == 1 and "which branch is it on?" in sent[0][1], str(sent))
 
 

@@ -54,7 +54,7 @@ def _index(n: int, pad: int = 0) -> str:
 
 
 def _hook(event: str, agent: str = "backend", **fields) -> str:
-    """Run `ocp hook <event>` for `agent` and return what it printed."""
+    """Run `hl hook <event>` for `agent` and return what it printed."""
     real_agent, out = os.environ.get("OCP_AGENT"), io.StringIO()
     os.environ["OCP_AGENT"] = agent
     try:

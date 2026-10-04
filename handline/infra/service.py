@@ -1,9 +1,9 @@
-"""launchd supervision for the daemon (`ocp service ...`).
+"""launchd supervision for the daemon (`hl service ...`).
 
 A daemon that only runs while a human keeps a terminal open is not a
 supervisor, it is a foreground script (README: "not dying overnight without a
 human"). This installs it as a LaunchAgent so launchd starts it at login and
-restarts it after a crash, and gives `ocp ps` / `ocp doctor` a way to say which
+restarts it after a crash, and gives `hl ps` / `hl doctor` a way to say which
 of the two is supervising (daemon.running_elsewhere() names it; the daemon lock
 is what stops both of them running at once).
 
@@ -59,9 +59,9 @@ def ocp_executable() -> str:
 
     A launchd job inherits almost none of the login environment, so PATH is
     not reliable enough to find a symlink someone installed there once; the
-    repo's own bin/ocp is what we know exists.
+    repo's own bin/hl is what we know exists.
     """
-    return str(paths.repo_root() / "bin" / "ocp")
+    return str(paths.repo_root() / "bin" / "hl")
 
 
 # ---------------------------------------------------------------- plist
@@ -192,13 +192,13 @@ def status() -> dict:
 def supervisor_of(pid: int | None) -> str:
     """Which process is watching the daemon at `pid` (8.4: only one may run).
 
-    Used by `ocp ps` so a human can tell a launchd-run daemon apart from one
+    Used by `hl ps` so a human can tell a launchd-run daemon apart from one
     they started by hand in a terminal - the two must never both be ticking.
     """
     st = status()
     if pid is None:
         if st["installed"] and not st["loaded"]:
-            return "not running (service installed but not loaded - see `ocp service status`)"
+            return "not running (service installed but not loaded - see `hl service status`)"
         return "not running"
     if st["loaded"] and st["pid"] == pid:
         return f"launchd ({LABEL})"

@@ -18,7 +18,7 @@ from ..infra import paths, sealed
 from ..infra.yamlcompat import ConfigError, load
 
 # The links an agent has without any edge written for them, so nobody runs
-# `ocp hr link` by hand for the ordinary shape. The name is the structure: the
+# `hl hr link` by hand for the ordinary shape. The name is the structure: the
 # parent of `harbor.sea` is `harbor` (everything before the last dot), a name
 # without a dot has none. Grandparents and nephews are not reachable by default.
 # A team's manager is the member named like the team (team `harbor` is
@@ -85,7 +85,7 @@ class Team:
     def load(cls, path=None) -> "Team":
         p = path or paths.team_file()
         if not p.exists():
-            raise FileNotFoundError(f"{p} not found - run `ocp team init`")
+            raise FileNotFoundError(f"{p} not found - run `hl team init`")
         text = p.read_text()
         sealed.check(sealed.TEAM, text, p)
         data = load(text)
