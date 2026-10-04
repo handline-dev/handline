@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from rich.style import Style  # noqa: E402
 from handline.usage import prices, stats  # noqa: E402
 
 NOW = 1_800_000_000
@@ -92,6 +93,77 @@ def test_agent_use_is_by_what_tokens_cost(home: Path) -> None:
               all(u.est_pct is None for u in stats.agent_use(con, NOW - 24 * H, NOW)))
     finally:
         con.close()
+
+
+def _call_at(con, when, cwd, model="claude-opus-5-5", inp=1000, i=[0]) -> None:
+    i[0] += 1
+    con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                ("alpha", "q", f"q{i[0]}", int(when.timestamp()), model, cwd, inp, 0, 0, 0, 0))
+
+
+def test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(home: Path) -> None:
+    import datetime as dt
+    from handline.ui.components import outlook_view as ov
+    use_home(home)
+    con = db.connect()
+    try:
+        names = [f"a{i}" for i in range(9)]
+        for n in names:
+            con.execute("INSERT INTO agent_state(agent, state, updated, worktree) VALUES(?, 'IDLE', 0, ?)", (n, f"/w/{n}"))
+        d1, d2 = dt.datetime(2026, 10, 1, 12), dt.datetime(2026, 10, 2, 12)
+        for i, n in enumerate(names):           # a0 is the dearest: i+1 calls of 1000 input tokens each day one
+            for _ in range(9 - i):
+                _call_at(con, d1, f"/w/{n}")
+        _call_at(con, d2, "/w/a0", inp=2000)
+        _call_at(con, d2, "/elsewhere")
+        _call_at(con, d1 - dt.timedelta(days=5), "/w/a0")                   # before the span
+        con.commit()
+        lo = int((d1 - dt.timedelta(days=1)).timestamp())
+        hi = int(d2.timestamp()) + 1
+        per = stats.daily_cost(con, lo, hi)
+        used = {u.agent: u.cost for u in stats.agent_use(con, lo, hi)}
+    finally:
+        con.close()
+    one = prices.cost("claude-opus-5-5", 1000, 0, 0, 0, 0)
+    check("daily: a day for each local date with a call, the one before the span left out",
+          sorted(per) == ["2026-10-01", "2026-10-02"], str(sorted(per)))
+    check("daily: an agent's day is its calls priced (a0 had nine of them on the first)",
+          abs(per["2026-10-01"]["a0"] - 9 * one) < 1e-12 and abs(per["2026-10-01"]["a8"] - one) < 1e-12)
+    check("daily: a call outside every worktree is the unattributed agent's, and a day sums its agents",
+          abs(per["2026-10-02"][stats.UNATTRIBUTED] - one) < 1e-12
+          and abs(sum(per["2026-10-02"].values()) - 3 * one) < 1e-12)
+    summed: dict[str, float] = {}
+    for per_agent in per.values():
+        for a, c in per_agent.items():
+            summed[a] = summed.get(a, 0.0) + c
+    check("daily: the days together are what agent_use says over the same span, agent by agent",
+          set(summed) == set(used) and all(abs(summed[a] - used[a]) < 1e-12 for a in used), f"{summed} {used}")
+    labels, stacked = stats.stack_agents(per)
+    check("daily: the top seven agents by cost are named, in order, and the rest are 'other'",
+          labels == [*(f"a{i}" for i in range(7)), stats.OTHER] and len(labels) == 8, str(labels))
+    check("daily: other is the two cheapest added up (a7 and a8, two calls and one call)",
+          abs(stacked["2026-10-01"][stats.OTHER] - 3 * one) < 1e-12, str(stacked["2026-10-01"]))
+    check("daily: stacking loses no cost on any day",
+          all(abs(sum(stacked[d].values()) - sum(per[d].values())) < 1e-12 for d in per))
+    check("daily: seven agents or fewer have no 'other'",
+          stats.stack_agents({"d": {"x": 1.0, "y": 2.0}})[0] == ["y", "x"])
+    cols = ov.colours_of(labels)
+    check("daily: seven different colours and a grey for the rest",
+          len({cols[l] for l in labels[:7]}) == 7 and cols[stats.OTHER] == ov.OTHER_COLOUR
+          and ov.OTHER_COLOUR not in {cols[l] for l in labels[:7]})
+    days = ["2026-10-01", "2026-10-02"]
+    text = ov.cost_chart(days, stacked, labels, cols, 40, 12)
+    drawn = {sp.style.color.name for sp in text.spans if isinstance(sp.style, Style) and sp.style.color}
+    check("daily: the chart draws every agent of the first day (all eight) in its own colour",
+          {c.lower() for c in cols.values()} <= drawn, f"{sorted(drawn)} {sorted(cols.values())}")
+    check("daily: with nothing in the range it says so", "no cost" in ov.cost_chart(days, {}, [], {}, 40).plain)
+    # one bar, two parts: the boundary inside a cell is a block of the lower colour on the upper's background
+    cell = ov._cell(0, 12, [(0, 5, "#111111"), (5, 12, "#222222")])
+    check("daily: a boundary inside a cell is the lower part's block over the upper's colour",
+          cell[0] == "\u2585" and cell[1].color.name == "#111111" and cell[1].bgcolor.name == "#222222", str(cell))
+    check("daily: a bar that ends inside a cell is a part block, a full cell is a full block, an empty one nothing",
+          ov._cell(0, 3, [(0, 3, "#111111")])[0] == "\u2583" and ov._cell(0, 20, [(0, 20, "#111111")])[0] == "\u2588"
+          and ov._cell(16, 8, [(0, 8, "#111111")])[0] == " ")
 
 
 def _sample(con, account, ago_h, used, reset_h=48, legacy=False, lost=False) -> None:
@@ -322,6 +394,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_prices(Path(td) / 'stats1'))
         run(lambda: test_agent_use_is_by_what_tokens_cost(Path(td) / 'stats2'))
+        run(lambda: test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(Path(td) / 'stats2b'))
         run(lambda: test_the_outlook_reads_each_sample_once_and_says_the_same(Path(td) / 'stats3'))
         run(lambda: test_the_guess_resets_the_week_again_each_week(Path(td) / 'stats4'))
         run(lambda: test_week_consumed_and_the_curve_start_from_the_last_sample_before_the_range(Path(td) / 'stats5'))

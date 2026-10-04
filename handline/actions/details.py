@@ -472,6 +472,14 @@ def agent_use(con, now: int, hours: int) -> list:
     return stats.agent_use(con, lo, now, prices.table_from_config(loadmod._config()), used)
 
 
+def daily_agent_cost(con, now: int, days: int) -> dict:
+    """What each agent cost per local day over the last `days` days (list price, from the token log)."""
+    import datetime as dt
+    from ..usage import prices, stats
+    first = dt.datetime.combine(dt.date.fromtimestamp(now) - dt.timedelta(days=days - 1), dt.time.min)
+    return stats.daily_cost(con, int(first.timestamp()) - 1, now, prices.table_from_config(loadmod._config()))
+
+
 def agent_overlay(con, use, now: int, hours: int, times: list[int]) -> list[float]:
     """Points of the combined week `use` (an `agent_use` row) had eaten by each of `times`: its
     cost share of each account times what that account used so far, averaged over the accounts."""

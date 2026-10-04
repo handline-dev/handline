@@ -3,8 +3,10 @@ week left of all accounts together, the range before now as recorded and the sam
 What is measured and what is guessed is `usage.outlook`'s; this draws it."""
 from __future__ import annotations
 
+import datetime as dt
 import time
 
+from rich.style import Style
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -20,6 +22,11 @@ from .key_guide import Key, KeyGuide, KeyHelp
 from .table_sync import sync_rows
 
 RANGES = (("12h", 12), ("24h", 24), ("3d", 72), ("7d", 168), ("14d", 336))
+DAYS = (("7d", 7), ("14d", 14), ("30d", 30))
+# Mid-lightness, colour-blind-safe (Okabe-Ito without its yellow), so a stack reads on a light and a dark
+# terminal alike; the agents past the top seven are one grey.
+PALETTE = ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "#56B4E9", "#7B5EA7")
+OTHER_COLOUR = "#8a8a8a"
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
 
@@ -89,14 +96,75 @@ def chart(o: Outlook, width: int, height: int = HEIGHT, span: str = "24h",
     return _grid([points[i][1] for i in idx], fut, [full[i] for i in idx], ("100%", "50%", "0%"), height, axis)
 
 
+def colours_of(labels: list[str]) -> dict[str, str]:
+    """A colour for each of the top agents in order, and the grey for `stats.OTHER`."""
+    return {l: OTHER_COLOUR if l == stats.OTHER else PALETTE[i % len(PALETTE)] for i, l in enumerate(labels)}
+
+
+def _cell(a: int, h: int, segs: list[tuple[int, int, str]]) -> tuple[str, Style]:
+    """One cell of a stacked bar covering eighths [a, a+8) of the height, the bar `h` eighths tall made
+    of `segs` (start, end, colour) from the bottom. A boundary inside the cell is a block of the lower
+    colour on the upper colour's background."""
+    top = min(h, a + 8)
+    if top <= a:
+        return " ", Style()
+    inside = [s for s in segs if s[1] > a and s[0] < top]
+    if len(inside) == 1 or top - a < 8:
+        colour = inside[-1][2]
+        return ("█" if top - a >= 8 else BLOCKS[top - a]), Style(color=colour)
+    low, up = inside[0], inside[1]
+    return BLOCKS[max(1, min(7, low[1] - a))], Style(color=low[2], bgcolor=up[2])
+
+
+def cost_chart(days: list[str], stacked: dict[str, dict[str, float]], labels: list[str],
+               colours: dict[str, str], width: int, height: int = HEIGHT) -> Text:
+    """One stacked bar per day (oldest left), each agent's part of the day's cost in its own colour,
+    the scale in dollars at the left and the days' dates under the bars."""
+    totals = [sum(stacked.get(d, {}).values()) for d in days]
+    top = max(totals, default=0.0)
+    if not days or top <= 0:
+        return Text("no cost recorded in this range", style="dim")
+    cols = max(10, width - AXIS_W)
+    bar = max(1, min(6, cols // len(days) - 1))
+    unit = bar + 1 if cols // len(days) > 1 else 1
+    scale = height * 8 / top
+    bars = []
+    for d in days:
+        edge, segs = 0, []
+        for l in labels:
+            c = stacked.get(d, {}).get(l, 0.0)
+            if c <= 0:
+                continue
+            nxt = edge + c * scale
+            segs.append((round(edge), max(round(nxt), round(edge) + 1), colours[l]))
+            edge = nxt
+        bars.append((round(edge), segs))
+    out = Text()
+    for row in range(height - 1, -1, -1):
+        label = {height - 1: f"${top:.0f}" if top >= 10 else f"${top:.2f}", (height - 1) // 2: "", 0: "$0"}.get(row, "")
+        out.append(label.rjust(AXIS_W - 1)[-(AXIS_W - 1):] + "│", style="dim")
+        for h, segs in bars:
+            ch, style = _cell(row * 8, h, segs)
+            out.append(ch * bar, style=style)
+            out.append(" " * (unit - bar))
+        out.append("\n")
+    step = max(1, -(-6 // unit))        # a date is five cells: not under every bar when they are narrow
+    marks = [(i * unit, d[5:]) for i, d in enumerate(days) if i % step == 0]
+    out.append(" " * (AXIS_W - 1) + "└" + _axis(cols, marks), style="dim")
+    return out
+
+
 class OutlookView(Vertical):
     can_focus = True
-    BINDINGS = [Binding("r", "range", "range"), Binding("question_mark", "key_help", "keys")]
+    BINDINGS = [Binding("r", "range", "range"), Binding("v", "view", "view"),
+                Binding("question_mark", "key_help", "keys")]
     DEFAULT_CSS = """
     OutlookView { height: 1fr; padding: 0 1; }
     OutlookView #outlook_chart { height: auto; }
     OutlookView #outlook_note { height: auto; color: $text-muted; }
     OutlookView #outlook_table { height: 1fr; margin-top: 1; }
+    OutlookView #cost_table { height: 1fr; margin-top: 1; }
+    OutlookView #outlook_legend { height: auto; }
     """
 
     def __init__(self, back: bool = False, **kw) -> None:
@@ -107,24 +175,44 @@ class OutlookView(Vertical):
         self.picked: str | None = None
         self.over: list[float] = []
         self.range = "24h"
+        self.mode = "left"                  # "left": the week left of the accounts; "cost": what the agents cost per day
+        self.days = "14d"
+        self.per_day: dict[str, dict[str, float]] = {}
+        self.cost_pick: str | None = None
+        self._now = int(time.time())
 
     def _keys(self) -> list[Key]:
-        return [Key("r", "range", 1, "step through the date range: 12h, 24h, 3d, 7d, 14d"),
+        return [Key("v", "view", 1, "switch between the session left and the cost per day"),
+                Key("r", "range", 1, "step through the date range: 12h, 24h, 3d, 7d, 14d (cost view: 7d, 14d, 30d)"),
                 *([Key("esc", "back", 1, "back")] if self.back else [])]
 
     def compose(self) -> ComposeResult:
         yield Static(id="outlook_title")
+        yield Select([("view: session left", "left"), ("view: cost per day", "cost")], id="o_view", value=self.mode,
+                     allow_blank=False, compact=True)
         yield Select([(f"range: ±{name}", name) for name, _ in RANGES], id="o_range", value=self.range,
                      allow_blank=False, compact=True)
+        yield Select([(f"range: {name}", name) for name, _ in DAYS], id="o_days", value=self.days,
+                     allow_blank=False, compact=True)
         yield Static(id="outlook_chart")
+        yield Static(id="outlook_legend")
         yield Static(id="outlook_note")
         yield TaskTable(id="outlook_table", cursor_type="row", zebra_stripes=True)
+        yield TaskTable(id="cost_table", cursor_type="row", zebra_stripes=True)
         yield KeyGuide(self._keys(), id="outlook_foot")
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("agent", "tokens", "cost", "share", "~ week %")
+        self.query_one("#outlook_table", DataTable).add_columns("agent", "tokens", "cost", "share", "~ week %")
+        self.query_one("#cost_table", DataTable).add_columns("agent", "cost", "share")
+        self._show_mode()
         self.set_interval(30.0, self.refresh_rows)
         self.refresh_rows()
+
+    def _show_mode(self) -> None:
+        cost = self.mode == "cost"
+        for sel, shown in (("#o_range", not cost), ("#o_days", cost), ("#outlook_table", not cost),
+                           ("#cost_table", cost), ("#outlook_legend", cost)):
+            self.query_one(sel).display = shown
 
     def on_resize(self) -> None:
         self._draw()
@@ -135,6 +223,8 @@ class OutlookView(Vertical):
         con = db.connect()
         try:
             now, hours = int(time.time()), dict(RANGES)[self.range]
+            if self.mode == "cost":
+                return actions.daily_agent_cost(con, now, dict(DAYS)[self.days]), now
             outlook = actions.weekly_outlook(con, now, hours)
             uses = stats.group_uses(actions.agent_use(con, now, hours))
             picked = self.picked if self.picked in {r.key for r in uses} else None
@@ -151,12 +241,12 @@ class OutlookView(Vertical):
 
         def work() -> None:
             data = self._load()
-            self.app.call_from_thread(self._apply, *data)
+            self.app.call_from_thread(self._apply_cost if self.mode == "cost" else self._apply, *data)
         self.run_worker(work, thread=True, exclusive=True, group="outlook", exit_on_error=False)
 
     def _apply(self, outlook, uses, picked, over) -> None:
         self.outlook, self.uses, self.picked, self.over = outlook, uses, picked, over
-        table = self.query_one(DataTable)
+        table = self.query_one("#outlook_table", DataTable)
         keep = table.cursor_row
         out = []
         for r in self.uses:
@@ -169,14 +259,75 @@ class OutlookView(Vertical):
             table.move_cursor(row=min(keep, len(self.uses) - 1), scroll=False)
         self._draw()
 
+    def _apply_cost(self, per_day: dict, now: int) -> None:
+        self.per_day = per_day
+        self._now = now
+        totals: dict[str, float] = {}
+        for per in per_day.values():
+            for agent, c in per.items():
+                totals[agent] = totals.get(agent, 0.0) + c
+        everyone = sum(totals.values())
+        labels, _ = stats.stack_agents(per_day)
+        colours = colours_of(labels)
+        table = self.query_one("#cost_table", DataTable)
+        keep = table.cursor_row
+        rows = []
+        for agent in sorted(totals, key=lambda a: (-totals[a], a)):
+            swatch = Text("■ ", style=colours.get(agent, OTHER_COLOUR))
+            swatch.append(textsafe.oneline(agent))
+            rows.append((agent, (swatch, Text(f"${totals[agent]:.2f}", justify="right"),
+                                 Text(f"{totals[agent] / everyone * 100:.0f}%" if everyone else "-", justify="right"))))
+        if self.cost_pick not in totals:
+            self.cost_pick = None
+        if sync_rows(table, rows) and rows:
+            table.move_cursor(row=min(keep, len(rows) - 1), scroll=False)
+        self._draw()
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         event.stop()
-        if event.row_key.value is not None:
+        if event.row_key.value is not None and event.data_table.id == "cost_table":
+            agent = str(event.row_key.value)
+            self.cost_pick = None if self.cost_pick == agent else agent
+            self._draw()
+        elif event.row_key.value is not None:
             agent = str(event.row_key.value)
             self.picked = None if self.picked == agent else agent
             self.refresh_rows()
 
+    def _days(self) -> list[str]:
+        n = dict(DAYS)[self.days]
+        today = dt.date.fromtimestamp(self._now)
+        return [(today - dt.timedelta(days=n - 1 - i)).isoformat() for i in range(n)]
+
+    def _draw_cost(self) -> None:
+        width = self.size.width - 2
+        height = max(4, min(HEIGHT, (self.size.height - 11) // 2))
+        labels, stacked = stats.stack_agents(self.per_day)
+        colours = colours_of(labels)
+        days = self._days()
+        total = sum(sum(v.values()) for v in self.per_day.values())
+        title = Text.assemble(("COST PER DAY  ", "bold"), (f"${total:.2f} at list price over {self.days}", "dim"))
+        if self.cost_pick:
+            mine = {d: {self.cost_pick: per.get(self.cost_pick, 0.0)} for d, per in self.per_day.items()}
+            stacked, labels = mine, [self.cost_pick]
+            colours = {self.cost_pick: colours_of(stats.stack_agents(self.per_day)[0]).get(self.cost_pick, OTHER_COLOUR)}
+            title.append_text(Text.assemble(("   ", ""), (textsafe.oneline(self.cost_pick), colours[self.cost_pick] + " bold"),
+                                            (f" ${sum(m[self.cost_pick] for m in mine.values()):.2f}", "dim")))
+        legend = Text()
+        for l in labels:
+            legend.append("■ ", style=colours[l])
+            legend.append(textsafe.oneline(l) + "   ")
+        self.query_one("#outlook_title", Static).update(title)
+        self.query_one("#outlook_chart", Static).update(
+            cost_chart(days, stacked, labels, colours, width, height) if width > 0 else Text(""))
+        self.query_one("#outlook_legend", Static).update(legend)
+        self.query_one("#outlook_note", Static).update(
+            "one bar per day, each agent its colour (the top seven, the rest grey 'other') · Enter on an agent: its days · "
+            "cost is the list price of the token log, not what the plan charged")
+
     def _draw(self) -> None:
+        if self.mode == "cost":
+            return self._draw_cost()
         o = self.outlook
         width = self.size.width - 2
         height = max(4, min(HEIGHT, (self.size.height - 9) // 2))
@@ -196,12 +347,26 @@ class OutlookView(Vertical):
         return f" about {u.est_pct:.1f}% of the week in this range" if u and u.est_pct is not None else ""
 
     def action_range(self) -> None:
-        names = [n for n, _ in RANGES]
-        self.query_one("#o_range", Select).value = names[(names.index(self.range) + 1) % len(names)]
+        cost = self.mode == "cost"
+        names = [n for n, _ in (DAYS if cost else RANGES)]
+        now = self.days if cost else self.range
+        self.query_one("#o_days" if cost else "#o_range", Select).value = names[(names.index(now) + 1) % len(names)]
+
+    def action_view(self) -> None:
+        self.query_one("#o_view", Select).value = "left" if self.mode == "cost" else "cost"
 
     def on_select_changed(self, event: Select.Changed) -> None:
         event.stop()
-        if event.value != self.range:
+        if event.select.id == "o_view":
+            if event.value != self.mode:
+                self.mode = str(event.value)
+                self._show_mode()
+                self.refresh_rows()
+        elif event.select.id == "o_days":
+            if event.value != self.days:
+                self.days = str(event.value)
+                self.refresh_rows()
+        elif event.value != self.range:
             self.range = str(event.value)
             self.refresh_rows()
 
