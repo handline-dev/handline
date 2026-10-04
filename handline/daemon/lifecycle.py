@@ -108,6 +108,8 @@ def closed_wake_cause(con, agent: str, row) -> tuple[str, str] | None:
     closes again on the next idle window."""
     if not row or not row["closed_at"]:
         return None
+    if restart_owed(con, agent, row):
+        return "restart", "a restart that has not started it again"
     waiting = [r for r in db.undelivered_for(con, agent) if not delivery.head_task_blocked(con, agent, r)]
     if waiting:
         return "work", f"{len(waiting)} waiting request(s)"
@@ -272,6 +274,54 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
     return True, f"{agent}: closed; its next wake starts a new session, not the old conversation"
 
 
+RESTART_OWED = "restart_owed"
+WAKE_BACKOFF_S = (10, 30, 90)       # the pause after the first, second and later failed wakes of a restart owed
+# A reading of the process table that missed is read again after each pause: a session just ended
+# leaves the table while it is read, which is the moment a restart reads it.
+TABLE_RETRY_PAUSES_S = (0.3, 0.7)
+UNCONFIRMED = "the process table could not be confirmed just now"
+
+
+def restart_owed(con, agent: str, row) -> dict | None:
+    """What a restart that closed this agent still owes it - {by, fresh, cause} - else None: a level
+    read from the record, so a restart whose wake failed is tried again by every tick until a session
+    is up, however long that takes, rather than left to someone noticing a bare shell. Over once a
+    wake is recorded after it, or the agent was closed again since (a later close is its own matter)."""
+    if not row or not row["closed_at"]:
+        return None
+    owed = db.last_event(con, agent, RESTART_OWED)
+    if not owed:
+        return None
+    woke, closed = db.last_event_id(con, agent, "wake"), db.last_event_id(con, agent, "close")
+    if (woke is not None and woke > owed[0]) or (closed is not None and closed > owed[0]):
+        return None
+    return owed[1]
+
+
+def restart_retry_wait(con, agent: str, row, now: int) -> int:
+    """Seconds before the next try of a restart owed, after wakes that failed: 0 when none has."""
+    failed = int(row["wake_failures"] or 0) if row else 0
+    last = db.last_event_ts(con, agent, "wake_failed")
+    if not failed or last is None:
+        return 0
+    return max(0, last + WAKE_BACKOFF_S[min(failed, len(WAKE_BACKOFF_S)) - 1] - now)
+
+
+def restart_retry_note(con, agent: str, row) -> str | None:
+    """What a screen says beside a closed agent whose restart is owed: that it is under way, or that it
+    is down, why, and which try is next. A reading of the process table that missed is retried by every
+    tick and counts for nothing, so it says only that it is retrying."""
+    owed = restart_owed(con, agent, row)
+    if not owed:
+        return None
+    failed = int(row["wake_failures"] or 0)
+    last = db.last_event(con, agent, "wake_failed")
+    if not last or last[0] < (db.last_event_id(con, agent, RESTART_OWED) or 0):
+        return "restarting"
+    why = last[1].get("why") or "it did not start"
+    return f"down, retry {failed + 1}/{MAX_FAILED_ATTEMPTS}: {why}" if failed else f"down: {why}, retrying"
+
+
 def restart_agent(con, agent: str, log, st, fresh: bool = False,
                   force: bool = False, by: str = db.HUMAN, applying: list[str] | None = None,
                   cause: str = "restart") -> tuple[bool, str]:
@@ -295,6 +345,7 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
         ok, said = close(con, agent, log, st, keep_pane=True, force=force)
         if not ok:
             return False, said
+    db.add_event(con, agent, "restart_owed", {"by": by, "fresh": fresh, "cause": cause})
     ok, why = wake_agent(con, agent, log, force=True, warm=not fresh, cause=cause, restarted_by=by,
                          applying=applying)
     if not ok:
@@ -698,6 +749,15 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
         return ok, said
 
 
+def _live_sessions_settled() -> dict[str, int] | None:
+    """`obs.live_sessions()`, read again after a pause while it misses (`TABLE_RETRY_PAUSES_S`)."""
+    for pause in (*TABLE_RETRY_PAUSES_S, None):
+        sessions = obs.live_sessions()
+        if sessions is not None or pause is None:
+            return sessions
+        time.sleep(pause)
+
+
 def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 force: bool = False, warm: bool = False, cause: str | None = None,
                 restarted_by: str | None = None, applying: list[str] | None = None) -> tuple[bool, str]:
@@ -735,6 +795,15 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 row = db.get_agent_state(con, agent)
                 closed = bool(row and row["closed_at"])
     if closed:
+        owed = restart_owed(con, agent, row)
+        if owed:
+            # The restart that closed it is finished by this wake, as it was asked: same conversation
+            # unless it was fresh, same requester. A person's own `force` is not made to wait.
+            left = 0 if force else restart_retry_wait(con, agent, row, int(time.time()))
+            if left:
+                return False, "its restart failed; trying again shortly"
+            force, warm = True, not owed.get("fresh")
+            restarted_by, cause = restarted_by or owed.get("by"), cause or owed.get("cause")
         # Before anything is typed: an agent.yaml that will not read is this
         # agent's ConfigError, which the callers stall by name.
         agents.read(agent)
@@ -830,9 +899,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
             the same reason it is not blamed on the agent's own streak - the
             caller only takes `why` from here when `foreign` is True, same
             as it always has for the confirmed case below."""
-            sessions = obs.live_sessions()
+            sessions = _live_sessions_settled()
             if sessions is None:
-                return True, "the process table could not be confirmed just now"
+                return True, UNCONFIRMED
             if sessions.get(agent):
                 return not taken, "a session it did not start is running"
             # The table lists none. Its one failure that matters is a live session missing from it,

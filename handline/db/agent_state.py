@@ -1,6 +1,7 @@
 """Per-agent state: state, terminal, account, closing, activity, counters."""
 from __future__ import annotations
 
+import json
 import time
 
 from . import cursors
@@ -150,6 +151,24 @@ def last_event_ts(con, agent: str, kind: str) -> int | None:
     row = con.execute("SELECT MAX(ts) AS t FROM events WHERE agent = ? AND kind = ?",
                       (agent, kind)).fetchone()
     return int(row["t"]) if row and row["t"] is not None else None
+
+
+def last_event_id(con, agent: str, kind: str) -> int | None:
+    row = con.execute("SELECT MAX(id) AS i FROM events WHERE agent = ? AND kind = ?", (agent, kind)).fetchone()
+    return int(row["i"]) if row and row["i"] is not None else None
+
+
+def last_event(con, agent: str, kind: str) -> tuple[int, dict] | None:
+    """(id, payload) of this agent's latest event of `kind`, else None."""
+    row = con.execute("SELECT id, payload FROM events WHERE agent = ? AND kind = ? ORDER BY id DESC LIMIT 1",
+                      (agent, kind)).fetchone()
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["payload"] or "{}")
+    except ValueError:
+        payload = {}
+    return int(row["id"]), payload if isinstance(payload, dict) else {}
 
 
 # What moves an agent's activity clock: the agent taking a turn, never an
