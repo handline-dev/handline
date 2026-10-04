@@ -16,7 +16,7 @@ from support import *  # noqa: E402,F401,F403
 
 
 def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Path) -> None:
-    from ocp.usage import tokenlog
+    from handline.usage import tokenlog
     _daemon_home(home, 20)
     proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
@@ -34,7 +34,7 @@ def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Pat
 
 
 def test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(home: Path) -> None:
-    from ocp.usage import tokenlog
+    from handline.usage import tokenlog
     _daemon_home(home, 20)
     proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
@@ -55,7 +55,7 @@ def test_a_record_bigger_than_the_budget_is_read_whole_not_stalled_forever(home:
 
 
 def test_a_unicode_line_separator_inside_a_record_does_not_split_it(home: Path) -> None:
-    from ocp.usage import tokenlog
+    from handline.usage import tokenlog
     _daemon_home(home, 20)
     proj = vendors.config_dir("alpha") / "projects" / "-w-purser"
     proj.mkdir(parents=True)
@@ -192,7 +192,7 @@ def test_daemon_kill_recovery(home: Path) -> None:
 def test_the_daemon_marks_itself_before_its_socket_takes_a_verb(home: Path) -> None:
     """T408 (auditor #5913): a push made inside the daemon starts the session itself, and the flag
     that says so is up before the socket can take a push verb."""
-    from ocp.team import ask as askmod
+    from handline.team import ask as askmod
     _daemon_home(home, 20)
     seen = {}
     real_start, real_tick = dmn_socket_server.SocketServer.start, dmn_evaluate.tick
@@ -404,9 +404,9 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     version so it is not re-logged every tick."""
     use_home(home)
     root = tmp_path / "repo"
-    (root / "ocp").mkdir(parents=True)
+    (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
-    (root / "ocp" / "core.py").write_text("x = 1\n")
+    (root / "handline" / "core.py").write_text("x = 1\n")
     (root / "bin" / "ocp").write_text("#!/bin/sh\n")
     (root / "requirements.txt").write_text("")
     real_repo_root = paths.repo_root
@@ -430,8 +430,8 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn_devmode._dev_import_check = lambda log_: True
         try:
             time.sleep(0.01)
-            (root / "ocp" / "sub").mkdir()
-            (root / "ocp" / "sub" / "x.py").write_text("x = 2\n")
+            (root / "handline" / "sub").mkdir()
+            (root / "handline" / "sub" / "x.py").write_text("x = 2\n")
             check("dev-mode: a new file in a subpackage, with the import check stubbed clean, asks to restart",
                   dmn_devmode._dev_mode_should_restart(state, log) is True,
                   str(state) + " " + str(logs))
@@ -444,7 +444,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
         dmn_devmode._dev_import_check = failing_check
         try:
             time.sleep(0.01)
-            (root / "ocp" / "core.py").write_text("x = 3\n")
+            (root / "handline" / "core.py").write_text("x = 3\n")
             logs.clear()
             check("dev-mode: a changed file that fails the import check does not ask to restart",
                   dmn_devmode._dev_mode_should_restart(state, log) is False, str(state))
@@ -461,16 +461,16 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
 
 
 def test_dev_mode_watches_subpackages(tmp_path: Path) -> None:
-    """`ocp/cli/` is a package: an edit under it must be seen as a change."""
+    """`handline/cli/` is a package: an edit under it must be seen as a change."""
     root = tmp_path / "repo"
-    (root / "ocp" / "cli").mkdir(parents=True)
-    (root / "ocp" / "top.py").write_text("x = 1\n")
-    (root / "ocp" / "cli" / "ask.py").write_text("x = 1\n")
+    (root / "handline" / "cli").mkdir(parents=True)
+    (root / "handline" / "top.py").write_text("x = 1\n")
+    (root / "handline" / "cli" / "ask.py").write_text("x = 1\n")
     names = {p.relative_to(root).as_posix() for p in dmn_devmode._watched_files(root)}
     check("dev-mode: a top-level and a subpackage file are both watched",
-          {"ocp/top.py", "ocp/cli/ask.py"} <= names, str(names))
+          {"handline/top.py", "handline/cli/ask.py"} <= names, str(names))
     before = dmn_devmode._code_fingerprint(root)
-    (root / "ocp" / "cli" / "ask.py").write_text("x = 22\n")
+    (root / "handline" / "cli" / "ask.py").write_text("x = 22\n")
     check("dev-mode: editing a subpackage file changes the fingerprint",
           dmn_devmode._code_fingerprint(root) != before)
 
@@ -484,9 +484,9 @@ def test_dev_mode_fingerprint_skips_a_missing_watched_file(tmp_path: Path) -> No
     (or one caught mid-merge) and `_dev_mode_should_restart` never getting
     past 'check failed' every tick."""
     root = tmp_path / "repo"
-    (root / "ocp").mkdir(parents=True)
+    (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
-    (root / "ocp" / "core.py").write_text("x = 1\n")
+    (root / "handline" / "core.py").write_text("x = 1\n")
     (root / "bin" / "ocp").write_text("#!/bin/sh\n")
     # requirements.txt is listed by _watched_files but never created.
     fp = dmn_devmode._code_fingerprint(root)
@@ -785,7 +785,7 @@ def test_a_stale_wake_at_does_not_claim_work_that_does_not_exist(home: Path) -> 
     or no work, until this wake_at comes due. QUEUED is a claim about the
     queue; the write must look at it before making that claim, the same way
     `_move_plan`'s own "work waiting" does. Driven both ways on the same
-    agent: an empty queue reads IDLE, not QUEUED - what ocp/actions/'s delivery
+    agent: an empty queue reads IDLE, not QUEUED - what handline/actions/'s delivery
     gate and the bridge would both read as nothing to do - and a real
     undelivered request still reads QUEUED, so the fix narrows the claim
     rather than removing it."""
@@ -856,7 +856,7 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
 def test_an_owed_clear_that_holds_everything_says_why_once(home: Path) -> None:
     """T456: settle_owed_clear returns True while a clear is owed and the tick then does nothing else
     for the agent - it must not do so silently."""
-    from ocp.daemon import handoff as dmn_handoff
+    from handline.daemon import handoff as dmn_handoff
     _daemon_home(home, 20)
     con = db.connect()
     real = (dmn_delivery.session_present, dmn_delivery._type_gate)
@@ -1132,7 +1132,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
 def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Path) -> None:
     """T86: every writer of config.yaml read a file that failed to parse as
     empty, and then wrote that one key over the whole of it."""
-    from ocp.infra.yamlcompat import ConfigError
+    from handline.infra.yamlcompat import ConfigError
     _daemon_home(home, 20)
     cfg = paths.config_file()
     writers = {
@@ -1208,7 +1208,7 @@ def test_a_screen_with_background_work_is_kept_as_a_sample(home: Path) -> None:
     """T592: what tells an idle agent with background work from one mid-turn is on its screen, which
     only the daemon can read. The rows the tick just read are kept - labelled with the db's state -
     once per interval, and only the newest few files stay."""
-    from ocp.daemon import screensamples
+    from handline.daemon import screensamples
     _daemon_home(home, 20)
     con = db.connect()
     names = ("available", "alive", "background_work", "last_tail", "live_terminals")
@@ -1790,7 +1790,7 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
 
 def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
     """T431: a daemon left behind by merges is caught by comparing this line to main."""
-    from ocp.infra import gitrun
+    from handline.infra import gitrun
     _daemon_home(home, 20)
     _, head, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
     out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
@@ -2035,7 +2035,7 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
     new terminal in the agent's worktree running the same launch a same-shell
     wake types - the resume id and the wake prompt - so no resume is lost.
     An agent that never closes keeps its pane."""
-    from ocp.actions import control
+    from handline.actions import control
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -2177,7 +2177,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
     first turn is over. The session is running for all of it, so the closed mark
     comes off when the session takes its prompt - not at the end - and the stuck
     list does not send a person to `w` while that hold would refuse it."""
-    from ocp.infra import lock
+    from handline.infra import lock
     _daemon_home(home, 20)
     con = db.connect()
     at_wait: list = []
@@ -3580,7 +3580,7 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
 def test_the_claude_driver_reads_when_a_keychain_credential_changed(home: Path) -> None:
     """What `security find-generic-password` (no -w) prints carries "mdat", the time a login
     last wrote the item; that, not the secret, is what ends a login-expired mark."""
-    from ocp.vendors import claude as claudemod
+    from handline.vendors import claude as claudemod
     out = ('attributes:\n    "cdat"<timedate>=0x00  "20261001000000Z\\000"\n'
            '    "mdat"<timedate>=0x00  "20261003021500Z\\000"\n')
     real = (claudemod.subprocess.run, claudemod.sys.platform)
@@ -3664,7 +3664,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
 
 def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None:
     """auditor #1813 should-fix 2: the PARKED branch's own triggers.evaluate
-    call (ocp/daemon/'s un-park check, above the main evaluate a few lines
+    call (handline/daemon/'s un-park check, above the main evaluate a few lines
     down) shares only the ctx_limit *variable* with that other call, not the
     keyword argument itself - each call can drop its own ctx_limit=
     independently, and the earlier call-site test (built to reach the main
@@ -4218,7 +4218,7 @@ def test_the_screens_say_a_closed_agent_is_woken_only_when_the_tick_wakes_it(hom
     was said to wake it and never did, and one told before the close (T154) is
     held, which the screen now says instead."""
     import importlib
-    stuck_screen = importlib.import_module("ocp.actions.stuck")
+    stuck_screen = importlib.import_module("handline.actions.stuck")
     _daemon_home(home, 20)
     con = db.connect()
     woken: list = []
@@ -4491,7 +4491,7 @@ def test_the_wait_for_sweep_tells_the_founder_once_of_a_stuck_wait(home: Path) -
     """T296: a cycle in `task_blocks` and a wait on a blocker that was discarded or closed
     without being done are read from the db every tick and go to the founder once - a
     cycle `add_block` refused can still come from a merge or a reopen."""
-    from ocp.daemon import waitfor
+    from handline.daemon import waitfor
     _daemon_home(home, 20)
     con = db.connect()
     log: list[str] = []
@@ -5379,7 +5379,7 @@ def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
     holder = subprocess.Popen(
         [sys.executable, "-c",
          f"import sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
-         "from ocp.infra import lock\n"
+         "from handline.infra import lock\n"
          "held = lock.singleton('daemon')\n"
          "print(held.__enter__(), flush=True)\n"
          "time.sleep(120)\n"],

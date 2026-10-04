@@ -74,14 +74,14 @@ def _run_one(path: Path, args: list[str], python: str | None = None,
 def missing_module(output: str) -> str | None:
     """The third-party module a file died on at import, when that is all that
     happened: it printed no PASS or FAIL, so it never ran a test. A module of
-    this repo - ocp, or a file beside the tests - is a broken import, a failure."""
+    this repo - handline, or a file beside the tests - is a broken import, a failure."""
     if re.search(r"^(PASS|FAIL)  ", output, re.M) or re.search(r"^\d+ passed, \d+ failed$", output, re.M):
         return None
     m = re.search(r"^ModuleNotFoundError: No module named '([^']+)'", output, re.M)
     if not m:
         return None
     top = m.group(1).split(".")[0]
-    if top == "ocp" or (HERE / f"{top}.py").exists() or any((d / f"{top}.py").exists() for d in HERE.glob("*/")):
+    if top in ("ocp", "handline") or (HERE / f"{top}.py").exists() or any((d / f"{top}.py").exists() for d in HERE.glob("*/")):
         return None
     return m.group(1)
 

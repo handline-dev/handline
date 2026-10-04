@@ -197,8 +197,8 @@ Keep all of `~/.orcapipe` **as a git repo.** Digest generations, rollback and ch
 
 There is **no** usage file under `~/.claude`. Reading a file that does not exist and returning `pct=0` would make every slot a perfect score and the wall trigger forever false. That is a fail-open where **the feature is dead and the dashboard is green.** So there are two sources, and they fail in different ways:
 
-- **The session's transcript** (`ocp/usage/collect.py`): context, session identity, model, cost. Our hook (`Stop` etc., every turn) writes it, and the daemon tick picks up a session the hook did not report. Which account it is also comes from **the transcript's path** (`accounts/<acct>/.claude/...`), as first-hand as `CLAUDE_CONFIG_DIR`.
-- **The usage endpoint** (`ocp/usage/usage_api.py`): the rate limit. It is not in the transcript (only a 429 after hitting the wall). One account per tick, and only when it could have changed.
+- **The session's transcript** (`handline/usage/collect.py`): context, session identity, model, cost. Our hook (`Stop` etc., every turn) writes it, and the daemon tick picks up a session the hook did not report. Which account it is also comes from **the transcript's path** (`accounts/<acct>/.claude/...`), as first-hand as `CLAUDE_CONFIG_DIR`.
+- **The usage endpoint** (`handline/usage/usage_api.py`): the rate limit. It is not in the transcript (only a 429 after hitting the wall). One account per tick, and only when it could have changed.
 
 The files are still `accounts/<acct>/status.json` and `agents/<agent>/status.json` with the same field shapes, so no reader changed.
 
@@ -226,7 +226,7 @@ The files are still `accounts/<acct>/status.json` and `agents/<agent>/status.jso
   - `carried_old`: the same carried value, but older. It is **used for triggers** (usage only rises within a window, so it is a floor) and **refuses new assignment**
   - `quiet`: a live collector says nothing about that window. This is an **observation** that no one used it in this window, so it reads as 0% and assigns. Refusing here would hand off an idle agent and burn only fold cost
   - `unknown`: no snapshot, or unreadable (NaN, a string, a boolean), or **lost without being carried.** Only this one fails closed. Assignment does not refuse a stale value as unknown: inside the window it is a floor, and when the window ends that floor loses its meaning and a probe asks again (`status.idle_floor`)
-- So the **writer** keeps four rules. Two of them lived in the original collector's jq and now live in `ocp/usage/usage_api.record` (the high-water mark and the rollover). The other two, carry-over for a payload that does not report a window and `rl_lost`, **no longer have anything to apply to**: the endpoint reports both windows or none. The reader rules (the five above) are all unchanged: when a poll fails or the token dies, that is all that is left
+- So the **writer** keeps four rules. Two of them lived in the original collector's jq and now live in `handline/usage/usage_api.record` (the high-water mark and the rollover). The other two, carry-over for a payload that does not report a window and `rl_lost`, **no longer have anything to apply to**: the endpoint reports both windows or none. The reader rules (the five above) are all unchanged: when a poll fails or the token dies, that is all that is left
   - A payload that does not report a window **does not erase that window's earlier value** (while `resets_at` is still ahead.
     A local clock error of 60 seconds is tolerated, since `resets_at` is set by the server and compared by the local clock)
   - **If there is no `resets_at` to tell whether the window ended**, drop the value but mark it `rl_lost`. A lost value is

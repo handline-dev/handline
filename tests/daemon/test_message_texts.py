@@ -96,7 +96,7 @@ def test_the_answer_line_of_a_handoff_says_whose_handoff_it_was(home: Path) -> N
 def test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(home: Path) -> None:
     """T935: a task-board notice ("T<n> done by X") is born landed - owed nothing, never a head, never
     a reason to wake - and the next typed delivery to its target carries it."""
-    from ocp.daemon import lifecycle
+    from handline.daemon import lifecycle
     _daemon_home(home, 20)
     hand_edit_team(TEAM)
     for a in ("manager", "worker", "x.helper"):

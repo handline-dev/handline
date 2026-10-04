@@ -1,7 +1,7 @@
 """The terminal boundary: everything ocp asks of the program that hosts an agent's terminal.
 
-`ocp.session.orca` (the terminal layer: dialogs, idle, clear, close, relaunch) and
-`ocp.team.spawn` reach the host only through a `Backend`. Orca is one; tmux is another.
+`handline.session.orca` (the terminal layer: dialogs, idle, clear, close, relaunch) and
+`handline.team.spawn` reach the host only through a `Backend`. Orca is one; tmux is another.
 A backend knows how to run a command in a terminal, list the live ones, read the
 rendered screen, type into one, wait for it to go quiet, and make a worktree. It knows
 nothing about agents, vendors or dialogs: reading what the screen means stays above it.

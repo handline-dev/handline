@@ -15,7 +15,7 @@ if [ ! -x "$py" ]; then
     py=python3
     echo "tools/test.sh: no venv at $home/venv (run \`ocp venv install\`); using python3, bridge tests will be skipped" >&2
 fi
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/ocp-test.XXXXXX")" || exit 1
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/handline-test.XXXXXX")" || exit 1
 trap 'rm -rf "$scratch"' EXIT
 if [ $# -gt 0 ] && [ -f "$1" ]; then
     target=("$1"); shift

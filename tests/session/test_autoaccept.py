@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.session import autoaccept  # noqa: E402
+from handline.session import autoaccept  # noqa: E402
 
 
 def _kinds(con) -> list[str]:
@@ -165,7 +165,7 @@ class _HighlightTerm(_KeyTerm):
 
 def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),), clears="2", term=None):
     """backend is running with no tool waiting, behind `tail`."""
-    from ocp.team import dialog_rules
+    from handline.team import dialog_rules
     _daemon_home(home, 20)
     orcamod.available = lambda: True
     orcamod.alive = lambda h: True

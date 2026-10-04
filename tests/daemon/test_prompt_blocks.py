@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from ocp import actions  # noqa: E402
-from ocp.daemon import prompts  # noqa: E402
-from ocp.team import dialog_rules  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.daemon import prompts  # noqa: E402
+from handline.team import dialog_rules  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "session"))
 from test_ask_question import SINGLE_DEFAULT  # noqa: E402
@@ -158,7 +158,7 @@ def test_an_answer_needs_the_very_prompt_the_row_names(home: Path) -> None:
 def test_an_answer_is_refused_while_something_else_holds_the_terminal(home: Path) -> None:
     """T351/T603: a key pressed here and a line the tick types can land in the same input box, so an
     answer takes the terminal lock the tick takes - the only lock left on the answer path."""
-    from ocp.infra import lock
+    from handline.infra import lock
     _daemon_home(home, 20)
     con = db.connect()
     try:
@@ -216,7 +216,7 @@ def test_always_is_never_saved_under_a_truncated_dialogs_placeholder(home: Path)
 
 
 def test_the_answer_is_a_socket_verb(home: Path) -> None:
-    from ocp.daemon import socket_server
+    from handline.daemon import socket_server
     check("answer_block is a verb of the daemon's socket", "answer_block" in socket_server.VERBS)
 
 

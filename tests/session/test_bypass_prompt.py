@@ -73,7 +73,7 @@ def _world(home: Path, allowed: bool, **kw):
 
 
 def test_the_founders_screen_is_recognised_and_its_highlight_read(home: Path) -> None:
-    from ocp.vendors import claude
+    from handline.vendors import claude
     check("screen: the cursor on 'No, exit' is read as that option",
           claude._bypass_screen(_screen("No, exit")) == "No, exit")
     check("screen: and on 'Yes, I accept'", claude._bypass_screen(_screen("Yes, I accept")) == "Yes, I accept")
@@ -225,7 +225,7 @@ def test_both_screens_are_answered_whichever_comes_first(home: Path) -> None:
 
 
 def test_a_vendor_with_no_bypass_warning_wakes_as_before(home: Path) -> None:
-    from ocp.vendors import opencode
+    from handline.vendors import opencode
     con, term = _both_world(home / "oc", ())
     try:
         real = orcamod._driver_for

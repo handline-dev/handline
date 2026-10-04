@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from ocp import actions  # noqa: E402
-from ocp.actions import confirmations  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.actions import confirmations  # noqa: E402
 
 
 def _pending(con, agent: str = "backend"):
@@ -20,8 +20,8 @@ def _pending(con, agent: str = "backend"):
     found = orcamod.confirmation_on_screen(handle) if handle else None
     return confirmations.describe(agent, found, None) if found else None
 
-from ocp.vendors.claude import Claude  # noqa: E402
-from ocp.vendors.opencode import Opencode  # noqa: E402
+from handline.vendors.claude import Claude  # noqa: E402
+from handline.vendors.opencode import Opencode  # noqa: E402
 
 RULE = "▔" * 60
 PROMPT = ["  earlier output", RULE, "   Bash command", "     rm -rf build",

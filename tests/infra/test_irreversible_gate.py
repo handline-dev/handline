@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.cli import health  # noqa: E402
-from ocp.db import schema as dbschema  # noqa: E402
+from handline.cli import health  # noqa: E402
+from handline.db import schema as dbschema  # noqa: E402
 
 WINDOW = backupmod.GATE_MAX_AGE_S
 

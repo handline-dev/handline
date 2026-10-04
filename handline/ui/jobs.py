@@ -1,7 +1,7 @@
 """Actions run off the key loop (task #45, taking over #1615's bridge-working
 branch as a requirement of the Textual port).
 
-A key that acts hands the verb to a process of its own (`ocp.ui.actrun`, one
+A key that acts hands the verb to a process of its own (`handline.ui.actrun`, one
 per action) and returns at once; the caller's event loop keeps reading keys
 and redrawing while it runs. `Jobs.lines()` is what a screen shows for it:
 what it is, what it can be waiting for, and how long - past `actions.WAITS`'s
@@ -28,7 +28,7 @@ from typing import Callable
 
 from .. import actions
 
-ACT_COMMAND = [sys.executable, "-m", "ocp.ui.actrun"]
+ACT_COMMAND = [sys.executable, "-m", "handline.ui.actrun"]
 GRACE_S = 2            # SIGTERM -> SIGKILL, once a job is past its own `longest`
 QUIET_S = 0.4          # a job done sooner than this is never drawn
 SLOW_S = 15            # past this a running job reads as taking a while

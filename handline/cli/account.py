@@ -180,7 +180,7 @@ def cmd_account_recover(args) -> int:
     """#1885's per-account switch: whether a dead read may spend one real turn
     to fix itself. With no on/off/--now, says where it stands, needs-re-login
     mark included since that is the other way this stops running on its own.
-    `--now` is the only caller of `recover.recover` until #76 wires ocp/daemon/'s
+    `--now` is the only caller of `recover.recover` until #76 wires handline/daemon/'s
     poll into it - the one way to run this by hand before then."""
     if args.clear_relogin:
         recovermod.clear_relogin(args.name)

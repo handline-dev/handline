@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import names  # noqa: E402
+from handline.infra import names  # noqa: E402
 
 
 def _set(**kw):
@@ -90,12 +90,12 @@ def test_what_a_session_is_started_with_carries_both_names(home: Path) -> None:
 
 
 def test_the_session_scan_reads_either_name_of_a_process_environment() -> None:
-    from ocp.session import observe
+    from handline.session import observe
     check("scan: a process started with the new name is found", observe._extract("PATH=/x HANDLINE_AGENT=a", "HANDLINE_AGENT") == "a")
-    src = (ROOT / "ocp" / "session" / "observe.py").read_text()
+    src = (ROOT / "handline" / "session" / "observe.py").read_text()
     check("scan: live_sessions asks for the new name before the old",
           '_extract(env, "HANDLINE_AGENT") or _extract(env, "OCP_AGENT")' in src)
-    lock_src = (ROOT / "ocp" / "daemon" / "locks.py").read_text()
+    lock_src = (ROOT / "handline" / "daemon" / "locks.py").read_text()
     check("scan: the daemon-lock check knows both home spellings", '"HANDLINE_HOME="' in lock_src)
 
 
@@ -157,6 +157,20 @@ def test_the_handline_command_runs_the_same_program_as_ocp(home: Path) -> None:
           (r.stdout + r.stderr)[-300:])
 
 
+def test_the_old_package_name_still_imports_the_same_modules() -> None:
+    r = subprocess.run([sys.executable, "-c",
+                        f"import sys; sys.path.insert(0, {str(ROOT)!r}); import ocp.infra.textsafe as a; "
+                        "import handline.infra.textsafe as b; from ocp import db; import handline.db as d; "
+                        "print(a is b, db is d)"], capture_output=True, text=True)
+    check("shim: import ocp.<module> gives the handline module itself, not a copy",
+          r.stdout.strip() == "True True", r.stdout + r.stderr[-300:])
+    r = subprocess.run([sys.executable, "-m", "ocp.ui.actrun"], input="{}", capture_output=True, text=True,
+                       env=dict(os.environ, PYTHONPATH=str(ROOT)))
+    check("shim: python -m ocp.<module> runs the handline module (a bridge started before the rename)",
+          "get_code" not in r.stderr and "No module named" not in r.stderr and "AttributeError" not in r.stderr,
+          r.stdout + r.stderr[-300:])
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_setting_is_read_under_both_names_new_first())
@@ -167,6 +181,7 @@ def main() -> int:
         run(lambda: test_a_test_reaching_either_real_home_is_caught(Path(td) / "guard"))
         run(lambda: test_the_session_scan_reads_either_name_of_a_process_environment())
         run(lambda: test_the_handline_command_runs_the_same_program_as_ocp(Path(td) / "cmd"))
+        run(lambda: test_the_old_package_name_still_imports_the_same_modules())
     return run_area(tests)
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import handoff_note  # noqa: E402
+from handline.daemon import handoff_note  # noqa: E402
 
 
 
@@ -1190,8 +1190,8 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
     """`ocp restart`: a close and a wake in one step. It resumes the conversation by default (whatever
     the prompt cache says) and types nothing at it unless something is waiting; --fresh starts a new
     one; an agent mid-turn is refused unless --force."""
-    from ocp.actions import control
-    from ocp.daemon import socket_server
+    from handline.actions import control
+    from handline.daemon import socket_server
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[tuple[str, str]] = []
@@ -1327,7 +1327,7 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         import argparse
         import contextlib
         import io
-        from ocp.cli import task as cli_task
+        from handline.cli import task as cli_task
         payloads: list = []
         real_send_cli, real_agent_env = cli_task.dmn_client.send, os.environ.get("OCP_AGENT")
         cli_task.dmn_client.send = lambda payload, timeout=0: (payloads.append(payload), {"ok": True, "said": "ok"})[1]
@@ -1389,7 +1389,7 @@ def test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(
     """What a launch reads from settings (`launch.fingerprint_parts`) is compared with what the running
     session was launched with: a differing one restarts the agent itself, resumed, naming it in the
     first prompt - never mid-turn, never over a dialog, and not for a setting that applies live."""
-    from ocp.daemon import applysettings
+    from handline.daemon import applysettings
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[tuple[str, str]] = []
@@ -1497,7 +1497,7 @@ def test_a_launch_records_the_settings_it_read(home: Path) -> None:
               and {k: v for k, v in json.loads(row["launch_parts"]).items() if k != launch.LAUNCHED_AT}
               == launch.fingerprint_parts("backend")
               and launch.launched_at(row) is not None, str(dict(row)))
-        from ocp.daemon import applysettings
+        from handline.daemon import applysettings
         (home / "agents" / "backend" / "base.md").write_text("a changed standing rule")
         check("launch: and a later change to one of them is named from them",
               applysettings.changed("backend", row) == ["base.md"], str(applysettings.changed("backend", row)))
@@ -2284,7 +2284,7 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             # identically to an empty box and blocked delivery for 8 hours
             # with nothing to clear it but the send it was refusing). Nor is
             # composer CONTENT (#1157: the screen cannot tell a person's
-            # typing from ocp's own echoed sends), so a recognized composer
+            # typing from handline's own echoed sends), so a recognized composer
             # box - whatever it shows - is just an idle input, never a block.
             screen["tail"] = _composer_typed("orca half-typed")
             check("composer: text in a recognized box is not a block", orcamod.screen_blocker("h") is None)
@@ -2463,7 +2463,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
 
 def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Path) -> None:
     """The real shape: an agent quiet past RESUME_WARM_S, then closed by ocp
-    a minute ago. ocp's own `/exit` fires SessionEnd at once (ocp/daemon/'s
+    a minute ago. ocp's own `/exit` fires SessionEnd at once (handline/daemon/'s
     END_WAIT_S comment), in the same second as the `close` event - before the
     fix this pinned the clock to the close and a wake one minute later read
     the cache warm and resumed it dead. It must read cold instead."""
@@ -3436,7 +3436,7 @@ def test_confirm_trust_presses_down_then_enter() -> None:
     default 'No, exit' lands on 'Yes, I trust this folder', and a bare Enter
     after that confirms it. Wrong order or a missing key each press whatever
     the cursor happened to be sitting on instead."""
-    from ocp.vendors import claude as claudemod
+    from handline.vendors import claude as claudemod
     calls: list[list[str]] = []
     real = orcacli._run
     try:

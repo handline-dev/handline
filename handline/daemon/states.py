@@ -19,8 +19,8 @@ EVALUATED = {RUNNING, HANDOFF, PARKED, QUEUED, THROTTLED, IDLE, DEGRADED}
 # Who or what wakes each state the daemon can write to `agent_state.state` -
 # the permanent-stop guard section 8.4 warns about: a state with no way back
 # sits idle forever once an agent lands in it. Checked by a test that scans
-# every `set_agent_state(con, ..., <STATE>)` call in ocp/*.py (this file,
-# ask.py, events.py, ocp/actions/, ocp/cli/ - wherever one is added) and fails
+# every `set_agent_state(con, ..., <STATE>)` call in handline/*.py (this file,
+# ask.py, events.py, handline/actions/, handline/cli/ - wherever one is added) and fails
 # if the state it writes is not a key here. DONE is declared above but never
 # written by anything, so it carries no entry and the guard does not need one.
 WAKER = {

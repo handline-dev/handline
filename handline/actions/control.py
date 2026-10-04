@@ -263,7 +263,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 # ------------------------------------------------- acting without holding a screen
 # Everything above returns when it is done, and some of it is not quick: it waits
 # for an agent to finish its turn, for a session to appear, for a model. The
-# bridge runs a verb in a process of its own (`ocp.ui.actrun`) and says, while it
+# bridge runs a verb in a process of its own (`handline.ui.actrun`) and says, while it
 # runs, what it can be waiting for and how long the longest of those waits is.
 # The verbs are the ones a key on the bridge acts with; nothing else can be asked.
 ASYNC_VERBS = ("wake", "close", "restart", "park", "fold", "unstall", "terminal", "message", "answer",
@@ -275,7 +275,7 @@ _DELIVERY_S = waits.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 # verb -> (what it can be waiting for, the longest that can take in seconds). The
 # longest is the sum of the waits on the path, each bounded by the constant that
 # bounds it; it is not a promise about a typical run, it is the point past which
-# something is wrong - and the point `ocp.ui.actrun` is stopped, not just flagged
+# something is wrong - and the point `handline.ui.actrun` is stopped, not just flagged
 # (jobs.py). Verbs that only write the record say nothing and are given a minute.
 WAITS: dict[str, tuple[str, int]] = {
     "wake": ("its session to start and settle", _DELIVERY_S),
@@ -302,7 +302,7 @@ def perform(verb: str, *args, **kwargs) -> tuple[bool, str]:
 
     Every verb here says what happened in words, and `ok` is True for all but
     `chat_reply`: their refusal is already in the words ("is not yours to
-    dismiss"), and `ocp.ui.actrun`'s "ok" turning that into a red "failed" line
+    dismiss"), and `handline.ui.actrun`'s "ok" turning that into a red "failed" line
     would misdescribe a well-formed answer. `chat_reply` is the one place a
     screen needs the real bool - the box it was typed in has to know whether
     to clear itself or keep what was typed - so it alone crosses through

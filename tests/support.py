@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from ocp.infra import paths, sealed  # noqa: E402
+from handline.infra import paths, sealed  # noqa: E402
 
 # The machine's venv, read once before the stand-in below hides the real home:
 # textual is only installed there (see _python_with_textual).
@@ -44,7 +44,7 @@ MACHINE_VENV = paths.default_home() / "venv"
 # see a temp directory as the user's home, and paths.home() refuses the real
 # ~/.orcapipe. An agent's session exports OCP_HOME=~/.orcapipe; a test that
 # ran against it once deleted the team's whole state.
-TEST_ROOT = Path(tempfile.mkdtemp(prefix="ocp-test-root-"))
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="handline-test-root-"))
 # A session also exports the new HANDLINE_ names, which are read first: left in, they would point
 # every test back at the real home.
 for _name in [k for k in os.environ if k.startswith("HANDLINE_")]:
@@ -63,26 +63,26 @@ if shutil.which("claude") is None:
     (_stub_dir / "claude").chmod(0o755)
     os.environ["PATH"] = f"{_stub_dir}{os.pathsep}{os.environ.get('PATH', '')}"
 
-from ocp.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
+from handline.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from ocp.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
-from ocp import actions, cli as climod, db, vendors  # noqa: E402
-from ocp.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
-from ocp.vendors import claude_meter as claudemeter  # noqa: E402
-from ocp.session import backends  # noqa: E402
-from ocp.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
-from ocp.vendors import claude_collect  # noqa: E402
-from ocp.vendors.base import Window  # noqa: E402
-from ocp.usage import windows  # noqa: E402
-from ocp.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
-from ocp.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
-from ocp.ui import jobs as jobsmod, tui  # noqa: E402
-from ocp.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
+from handline.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
+from handline import actions, cli as climod, db, vendors  # noqa: E402
+from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from handline.vendors import claude_meter as claudemeter  # noqa: E402
+from handline.session import backends  # noqa: E402
+from handline.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
+from handline.vendors import claude_collect  # noqa: E402
+from handline.vendors.base import Window  # noqa: E402
+from handline.usage import windows  # noqa: E402
+from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
+from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
+from handline.ui import jobs as jobsmod, tui  # noqa: E402
+from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
                         locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
                         reconciler as dmn_reconciler, socket_server as dmn_socket_server,
                         states as dmn_states, usage_poll as dmn_usage_poll)
-from ocp.vendors import opencode as ocmod  # noqa: E402
+from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -94,8 +94,8 @@ dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 # daemon: the CLI's client is a stand-in that hands the request to the very
 # handler the socket serves, on this process, and the notice is typed inline.
 import types as _types  # noqa: E402
-from ocp.cli import ask as _cli_ask  # noqa: E402
-from ocp.daemon import sends as _dmn_sends  # noqa: E402
+from handline.cli import ask as _cli_ask  # noqa: E402
+from handline.daemon import sends as _dmn_sends  # noqa: E402
 _dmn_sends.RUN_INLINE = True
 _cli_ask.dmn_client = _types.SimpleNamespace(
     send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
@@ -289,7 +289,7 @@ def legacy_shape(con) -> None:
     # An installed database has passed every one of those migrations; a test that wants one to run
     # again clears its own ledger, as the upgrade tests already do.
     import re
-    from ocp.db import schema as dbschema
+    from handline.db import schema as dbschema
     for name in set(re.findall(r'set_cursor\(con, "(migrated:[a-z_]+)"', Path(dbschema.__file__).read_text())):
         con.execute("INSERT OR IGNORE INTO cursors(name, row_id, updated) VALUES(?, 1, 0)", (name,))
 
@@ -297,7 +297,7 @@ def legacy_shape(con) -> None:
 def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
                        announced: bool = False) -> None:
     """Force a request row to any state, for setup only - never a production
-    closer, so it carries none of `ocp/db/`'s chokepoint guard (#2024): tests
+    closer, so it carries none of `handline/db/`'s chokepoint guard: tests
     that need to reach a row's own defense-in-depth past that guard (past
     `_would_strand_a_proposal`, for one) use this to get there."""
     now = int(time.time())
@@ -321,7 +321,7 @@ def answer_card(con, rid: int, verdict: str) -> None:
     the verdict and its decision task done with it (T785: a proposal reads its answer off the task).
     Not through `resolve`, so nothing is applied and nothing is recorded."""
     _set_request_state(con, rid, "landed", verdict)
-    from ocp.db import tasks as dbtasks
+    from handline.db import tasks as dbtasks
     dbtasks.settle_decision_tasks(con, rid, "done", verdict)
 
 
@@ -676,7 +676,7 @@ def _hold_daemon_lock_in_another_process(env: dict, write_name: bool = True):
     holder = subprocess.Popen(
         [sys.executable, "-c",
          f"import os, sys, time; sys.path.insert(0, {str(ROOT)!r})\n"
-         "from ocp.infra import lock\n"
+         "from handline.infra import lock\n"
          f"held = {take}\n"
          "held.__enter__()\n"
          "print(os.getpid(), flush=True)\n"
@@ -1754,7 +1754,7 @@ def run(one) -> None:
 
 def _python_with_textual() -> str | None:
     """A python3 that can import textual: the interpreter running the suite when
-    it can, else the real machine's venv (requirements.txt, ocp/infra/venv.py) -
+    it can, else the real machine's venv (requirements.txt, handline/infra/venv.py) -
     textual is only ever installed there, never assumed on whatever runs this
     suite."""
     candidates = [sys.executable, str(venvmod.venv_python(MACHINE_VENV))]
@@ -1946,9 +1946,9 @@ WRITE_LABELS_TO: str | None = None  # set by --write-labels
 def _states_written_in(path) -> set[str]:
     """Every literal state name a call to `set_agent_state` writes in one
     source file, however it spells the state: a bare constant (already equal
-    to its own name in ocp/daemon/, e.g. `PARKED = "PARKED"`), a quoted literal
+    to its own name in handline/daemon/, e.g. `PARKED = "PARKED"`), a quoted literal
     (ask.py's own style), or one qualified by its module (`daemon.QUEUED` in
-    ocp/actions/, `dmn_states.QUEUED` in ocp/cli/ - a miss here read both of those
+    handline/actions/, `dmn_states.QUEUED` in handline/cli/ - a miss here read both of those
     real call sites as writing nothing, which defeats the guard exactly where
     a state without one would be silent). Not a full parser - a regex over
     source text - but the one property this needs is only ever a name right

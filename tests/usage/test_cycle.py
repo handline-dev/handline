@@ -1,5 +1,5 @@
-"""Tests: an account on one-month subscriptions (T743; ocp/usage/cycle.py, the end date in
-status.pick_account / long_pace, ocp/daemon/subscriptions.py, `ocp account cycle`).
+"""Tests: an account on one-month subscriptions (handline/usage/cycle.py, the end date in
+status.pick_account / long_pace, handline/daemon/subscriptions.py, `ocp account cycle`).
 
 Run on its own: python3 tests/usage/test_cycle.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -15,11 +15,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.cli import account as cliaccount  # noqa: E402
-from ocp.daemon import subscriptions  # noqa: E402
-from ocp import actions  # noqa: E402
-from ocp.infra import atomic  # noqa: E402
-from ocp.usage import cycle, load  # noqa: E402
+from handline.cli import account as cliaccount  # noqa: E402
+from handline.daemon import subscriptions  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.infra import atomic  # noqa: E402
+from handline.usage import cycle, load  # noqa: E402
 
 DAY = 86400
 
@@ -677,7 +677,7 @@ def test_the_position_in_the_month_follows_the_subscription_start_and_the_settin
 
 
 def test_the_weekly_forecast_is_cut_where_an_account_ends_and_goes_on_where_it_renews(home: Path) -> None:
-    from ocp.usage import outlook
+    from handline.usage import outlook
     now, hr = 1_800_000_000, 3600
     rows = []
     for a, used in (("keep", 20), ("gone", 60)):

@@ -7,7 +7,7 @@ and `actions` say and decide nothing themselves, so a row or a page means the sa
 here as in `ocp status` and the daemon. The widgets and modals pages share are in
 `ui.components`.
 
-Every verb a key or a slash command can run hands its work to `ocp.ui.actrun`
+Every verb a key or a slash command can run hands its work to `handline.ui.actrun`
 through `jobs.Jobs` and returns at once, so a screen keeps redrawing and reading
 keys while an action is in flight, with a line saying what is running and for
 how long.

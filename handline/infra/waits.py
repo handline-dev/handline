@@ -1,7 +1,7 @@
 """Bounds that both the daemon and the actions that wait on it derive from.
 
-They live outside `ocp.daemon` so `ocp.actions` can read them at import time without importing the
-daemon package, which imports `ocp.actions` in turn.
+They live outside `handline.daemon` so `handline.actions` can read them at import time without importing the
+daemon package, which imports `handline.actions` in turn.
 """
 from __future__ import annotations
 

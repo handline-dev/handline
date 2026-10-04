@@ -55,7 +55,7 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
     areas = sorted(p for p in tests.glob("*/test_*.py")
                    if p.name != "test_bridge_textual.py")
     for path in (areas + [tests / "support.py", tests / "test_ocp.py"]
-                 + sorted((root / "ocp").rglob("*.py"))
+                 + sorted((root / "handline").rglob("*.py"))
                  + [root / "bin" / "_ocp_entry.py", root / "libexec" / "ptyrun.py"]):
         bad = sorted(_undefined_globals(path))
         check(f"names: {path.relative_to(root)} reads no name that is not defined",
@@ -296,7 +296,7 @@ def test_write_labels_disambiguates_a_name_repeated_inside_one_test(home: Path) 
 def test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch() -> None:
     """T62: `empty=` is what a missing time reads as; without it a missing
     time is the epoch, not now."""
-    from ocp.infra import timefmt
+    from handline.infra import timefmt
     check("stamp: a missing time reads as empty= when one is given",
           timefmt.stamp(None, timefmt.DATE_TIME, "-") == "-"
           and timefmt.stamp(0, timefmt.DATE_TIME, "an unknown date") == "an unknown date")
@@ -332,7 +332,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
               runner.missing_module("No module named 'x'\n1 passed, 0 failed\n") is None)
 
         own = Path(td) / "test_own.py"
-        own.write_text("import ocp.daemon.no_such_module_left_behind\n")
+        own.write_text("import handline.daemon.no_such_module_left_behind\n")
         _, _, out = runner._run_one(own, [], timeout=30)
         check("runner: a module of this repo that does not exist is not a skip - it is a broken import",
               runner.missing_module(out) is None and "no_such_module_left_behind" in out, out)
@@ -401,7 +401,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
 def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> None:
     """`Path("")` is the current directory, so an OCP_HOME set but empty made `ocp init` set up
     wherever it was run. Empty or blank is refused with the way out; unset still means ~/.orcapipe."""
-    from ocp.infra import paths
+    from handline.infra import paths
     saved = os.environ.get("OCP_HOME")
     try:
         for value in ("", "   "):
@@ -424,10 +424,10 @@ def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> Non
 
 def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
     """The daemon, actions and team packages import each other; a module imported first in a fresh
-    interpreter (as tools/migrate_home.py does with ocp.daemon.locks) must not hit a cycle."""
+    interpreter (as tools/migrate_home.py does with handline.daemon.locks) must not hit a cycle."""
     from concurrent.futures import ThreadPoolExecutor
     mods = sorted(f"ocp.{pkg}.{f.stem}" for pkg in ("daemon", "actions", "team")
-                  for f in (ROOT / "ocp" / pkg).glob("*.py") if f.stem != "__init__")
+                  for f in (ROOT / "handline" / pkg).glob("*.py") if f.stem != "__init__")
 
     def alone(mod: str) -> str:
         r = subprocess.run([sys.executable, "-c", f"import {mod}"], capture_output=True, text=True, cwd=ROOT)

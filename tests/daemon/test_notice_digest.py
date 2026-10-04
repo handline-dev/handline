@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.daemon import noticedigest, states as dmn_states  # noqa: E402
-from ocp.session import idle_close  # noqa: E402
+from handline.daemon import noticedigest, states as dmn_states  # noqa: E402
+from handline.session import idle_close  # noqa: E402
 
 TEAM = """
 agents:

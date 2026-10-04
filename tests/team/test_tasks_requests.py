@@ -413,7 +413,7 @@ def test_rate_limit_throttles(home: Path) -> None:
 
 def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
     """The event that would tell a fold an outstanding ask closed only ever
-    carries a count (ocp/daemon/'s `answered` event), never which id - and for
+    carries a count (handline/daemon/'s `answered` event), never which id - and for
     an agent that was parked when the answer landed, there may be no event at
     all yet. Either way the store already knows; the fold has to check it
     directly rather than wait for an event that may never name the id."""
@@ -489,7 +489,7 @@ def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> N
 def test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(home: Path) -> None:
     """auditor's #499/#1573: a fold's own errors are one-way - build_prompt
     forbids the very next fold from ever moving a line back out of Done - so
-    a wrong close is permanent in the document ocp/daemon/ tells an agent with
+    a wrong close is permanent in the document handline/daemon/ tells an agent with
     no handoff to read. \\d+ read every number in a line as a request id, and
     request ids are small integers that nearly all resolve. Reproduced with
     requests 1-8 done: "Phase 4 daemon rewrite, step 2 of 7" (ids 4, 2, 7,
@@ -633,7 +633,7 @@ def test_agents_stays_a_leaf_no_cycle_through_collect_or_vendors() -> None:
     (module level), and both shapes of a relative import - `from . import X`
     (X in `n.names`) and `from .X import Y` (X is `n.module`)."""
     import ast
-    tree = ast.parse((ROOT / "ocp" / "team" / "agents.py").read_text())
+    tree = ast.parse((ROOT / "handline" / "team" / "agents.py").read_text())
     imported: set[str] = set()
     for n in tree.body:
         if not isinstance(n, ast.ImportFrom):
@@ -825,7 +825,7 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
 
             # The token log walks that root too: the decoy sits where claude keeps
             # its transcripts, and must not be read for a vendor that does not.
-            from ocp.usage import tokenlog
+            from handline.usage import tokenlog
             (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
             decoy = cdir / "projects" / "-w-x"
             decoy.mkdir(parents=True, exist_ok=True)
@@ -1343,7 +1343,7 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
         check("handed on: the old holder holds nothing - nothing left in its line",
               not db.queued_for(con, "backend"), str([r["id"] for r in db.queued_for(con, "backend")]))
 
-        from ocp.actions import tasks as taskacts
+        from handline.actions import tasks as taskacts
         said: list = []
         real_say = taskacts._type_say
         taskacts._type_say = lambda _con, owner, body, why: said.append((owner, body))
@@ -2236,7 +2236,7 @@ def test_only_one_thing_types_at_an_agent_at_a_time(home: Path) -> None:
         holder = subprocess.Popen(
             [sys.executable, "-c",
              "import sys, time; sys.path.insert(0, %r);"
-             "from ocp.infra import lock;"
+             "from handline.infra import lock;"
              "ctx = lock.terminal('backend'); print(ctx.__enter__(), flush=True);"
              "time.sleep(30)" % str(ROOT)],
             stdout=subprocess.PIPE, text=True, env=dict(os.environ))
@@ -3208,7 +3208,7 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
     """`--wait` turns "a row changed" into "a command finished", which is the
     only one of the two that anything can be told about."""
     import threading
-    from ocp import cli
+    from handline import cli
     _daemon_home(home, 20)
     agents.register("reviewer")
     ok, _, rid = askmod.ask("reviewer", "audit branch keeper", requester=actions.HUMAN)
@@ -3705,7 +3705,7 @@ limits:
 """)
     for n in ("manager", "worker", "helper"):
         agents.register(n)
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
 
     def says_to(con, who, needle):
         return [r for r in con.execute("SELECT * FROM requests WHERE target = ? AND kind = 'say' ORDER BY id", (who,))
@@ -4356,7 +4356,7 @@ limits:
     check("task done: a sha-expecting task refuses a reason from its target",
           rc == 1 and "expects a sha" in out, out)
     import re
-    from ocp.cli import parser as cli_parser
+    from handline.cli import parser as cli_parser
     said = re.search(r"`ocp (task done [^`]+)`", out)
     try:
         cli_parser.build_parser().parse_args(said.group(1).replace("<sha>", "abc1234").split())
@@ -6501,7 +6501,7 @@ limits:
 def test_a_refused_delivery_is_told_to_whoever_queued_it_and_logged_once(home: Path) -> None:
     """T333: queuing a task whose delivery is refused said only "is queued" while the event log said
     task_deliver_refused. T334: every retry added another such event; now one per refusal."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     _board_world(home)
     hand_edit_team("""
 agents:
@@ -7217,7 +7217,7 @@ limits:
 
 
 def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
-    """`ocp.ui.actrun` is the process `Jobs.start` hands a verb to: it runs through
+    """`handline.ui.actrun` is the process `Jobs.start` hands a verb to: it runs through
     `actions.perform` and answers as JSON, and refuses anything that is not one
     of `actions.ASYNC_VERBS`. Every verb has something to say while it runs."""
     _daemon_home(home, 20)
@@ -7232,7 +7232,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
           and not actions.WAITS["dismiss"][0] and not actions.WAITS["unstall"][0])
 
     def ask(request: dict) -> tuple[dict, int]:
-        r = subprocess.run([sys.executable, "-m", "ocp.ui.actrun"], input=json.dumps(request),
+        r = subprocess.run([sys.executable, "-m", "handline.ui.actrun"], input=json.dumps(request),
                            capture_output=True, text=True, cwd=str(ROOT), env=dict(os.environ),
                            timeout=60)
         return json.loads(r.stdout.strip().splitlines()[-1]), r.returncode
@@ -7257,7 +7257,7 @@ def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
 
 
 def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
-    """ocp/cli/ and ocp/infra/service.py both describe the installed `ocp` as a
+    """handline/cli/ and handline/infra/service.py both describe the installed `ocp` as a
     symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
     the one path every real invocation runs through, and one every other
     test in this suite skips by calling bin/ocp at its real location. Auditor
@@ -7749,7 +7749,7 @@ def test_an_answer_that_does_not_close_a_queued_task_does_not_send_it_again(home
 def test_a_waiting_task_is_delivered_by_the_tick_when_no_edge_did(home: Path) -> None:
     """T440 (founder #5442): T296 was queued while its owner was busy and sat 12h - the edges
     that deliver the next task never fired again. The tick reads the same picker as a level."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     _board_world(home)
     con = db.connect()
     pushed: list[str] = []
@@ -7790,8 +7790,8 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
     """T443 (founder #5652): a doing task blocked by a child of its own - whoever owns it, whatever
     it is for - is not "waiting for reply": it says what it waits for, gets no other work and no
     "ask it what it is doing" alert, and is told the result when the child ends."""
-    from ocp.daemon import taskqueue, timebox
-    from ocp.ui import tui
+    from handline.daemon import taskqueue, timebox
+    from handline.ui import tui
     _board_world(home)
     con = db.connect()
     real_push = askmod.push
@@ -7863,7 +7863,7 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
 def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited_on(home: Path) -> None:
     """T443 (auditor #5855): a review that is the only blocker gives one result notice and an
     unblocked line without it; a child the owner holds itself is the next task, not a wait."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     _board_world(home)
     con = db.connect()
     real_push = askmod.push
@@ -7961,7 +7961,7 @@ def test_a_last_child_blocker_is_told_once_and_an_owners_own_child_is_not_waited
 def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> None:
     """T545 (founder: "all agents are idle"): a queued task whose owner has no terminal is
     delivered and its owner started - by queuing it, and by the tick when no edge did."""
-    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    from handline.daemon import lifecycle as dmn_lifecycle, taskqueue
     _board_world(home)
     con = db.connect()
     started: list[str] = []
@@ -7991,7 +7991,7 @@ def test_a_queued_task_for_an_agent_with_no_terminal_starts_it(home: Path) -> No
 def test_moving_a_task_to_another_owner_sends_it_there(home: Path) -> None:
     """T545: `ocp task edit --owner` moved a queued task and nothing delivered it - its request
     stayed queued for the old owner, and the new one saw a task already being asked."""
-    from ocp.daemon import lifecycle as dmn_lifecycle, taskqueue
+    from handline.daemon import lifecycle as dmn_lifecycle, taskqueue
     _board_world(home)
     hand_edit_team("""
 agents:
@@ -8065,7 +8065,7 @@ def test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close
     """T577 (founder #6793): T458 waited on a decision task the founder dismissed. Settling the card
     ends that task at the db layer, which ran none of the release a close does: a queued dependent was
     read as already handled and never sent, a doing one never told, and the block row was left."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     team = """
 agents:
   manager: {}
@@ -8129,7 +8129,7 @@ def test_a_done_blocker_releases_its_dependent_once_per_finish(home: Path) -> No
     """T568 (auditor #7022): a done blocker keeps its rows for a reopen, so the sweep that
     catches a done written below the actions layer must release once per finish - not tell
     the dependent again every tick, and again after a reopen and a new finish."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     _board_world(home)
     con = db.connect()
     real_push = askmod.push
@@ -8162,7 +8162,7 @@ def test_a_done_blocker_releases_its_dependent_once_per_finish(home: Path) -> No
 def test_a_blocker_that_cannot_be_released_does_not_stop_the_others(home: Path) -> None:
     """T588 (auditor #6841): one bad blocker's transaction re-raised every tick and would have halted
     the queue sweep for every agent. It is logged and left for the next tick; the rest are released."""
-    from ocp.daemon import taskqueue
+    from handline.daemon import taskqueue
     _board_world(home)
     con = db.connect()
     real_push, real_clear = askmod.push, actions.tasks._clear_blocks_on
@@ -8407,7 +8407,7 @@ limits:
         check("sent_at: an fyi report linked to a task does not send it", db.get_task(con, fy)["sent_at"] is None)
         con.execute("UPDATE tasks SET sent_at = NULL")
         con.execute("DELETE FROM cursors WHERE name = 'migrated:task_sent_at'")
-        from ocp.db import schema as dbschema2
+        from handline.db import schema as dbschema2
         dbschema2._task_sent_at(con)
         check("sent_at: the migration backfills it from the requests open now",
               db.get_task(con, t)["sent_at"] is not None and db.get_task(con, sn)["sent_at"] is None)
@@ -8459,9 +8459,9 @@ limits:
               and ghost not in [r["id"] for r in db.undelivered_for(con, "worker")]
               and ghost not in [r["id"] for r in db.send_now_pending(con, "worker")])
         import importlib
-        stuckmod = importlib.import_module("ocp.actions.stuck")
+        stuckmod = importlib.import_module("handline.actions.stuck")
         con.execute("UPDATE requests SET ts = ts - 100000 WHERE id = ?", (ghost,))
-        from ocp.session import observe as obsmod, orca as orcamod
+        from handline.session import observe as obsmod, orca as orcamod
         was = (orcamod.available, obsmod.live_sessions)
         orcamod.available, obsmod.live_sessions = (lambda: False), (lambda: {})
         actions._WORLD["at"] = 0.0
@@ -8483,7 +8483,7 @@ limits:
         con.execute("UPDATE requests SET delivered_at = ts WHERE id IN (?, ?)", (frid, ghost))
         check("ghost: the founder's delivery of an ended task is not told past an open head",
               frid not in [r["id"] for r in db.founder_pending(con, "worker")])
-        from ocp.infra import doctor as doctormod
+        from handline.infra import doctor as doctormod
         import inspect
         rep = doctormod.Report()
         doctormod._check_leftover_deliveries(rep)
@@ -8514,8 +8514,8 @@ limits:
         lor = db.task_requests(con, lo)[0]["id"]
         db.mark_task_done(con, lo, "x")
         import argparse, contextlib, io
-        from ocp.cli import health
-        from ocp.cli import parser as parsermod
+        from handline.cli import health
+        from handline.cli import parser as parsermod
         parsed = parsermod.build_parser().parse_args(["doctor", "--settle-leftovers"])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -8579,7 +8579,7 @@ limits:
         db.mark_task_done(con, two_a, "done", "reason")
         con.execute("DELETE FROM cursors WHERE name = 'migrated:task_deliveries_settled'")
         con.execute("UPDATE tasks SET delivered_at = NULL")
-        from ocp.db import schema as dbschema
+        from handline.db import schema as dbschema
         dbschema._task_deliveries_settled(con)
         check("delivered_at: the migration backfills from a landed delivery",
               db.get_task(con, landed)["delivered_at"] == 1234)
@@ -8685,7 +8685,7 @@ limits:
         mine_t = db.new_task(con, "the founder's own draft", "human", "human")
         check("T681: before the migration it is a draft", actions.task_state(con, db.get_task(con, old_t)) == "draft")
         con.execute("DELETE FROM cursors WHERE name = 'migrated:handed_to_founder_queued'")
-        from ocp.db import schema as dbschema
+        from handline.db import schema as dbschema
         dbschema._handed_to_founder_are_queued(con)
         old_row = db.get_task(con, old_t)
         check("T681: and the migrated task shows no such warning either",
@@ -8768,7 +8768,7 @@ limits:
               any(e["kind"] == "edit" and e["who"] == "manager" and e["text"].startswith("new brief")
                   for e in actions.task_timeline(con, bt)))
         told = []
-        from ocp.actions import tasks as taskacts
+        from handline.actions import tasks as taskacts
         real_say = taskacts._type_say
         taskacts._type_say = lambda _con, owner, body, why: told.append((owner, body))
         try:

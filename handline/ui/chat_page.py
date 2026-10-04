@@ -1,5 +1,5 @@
 """The new agent chat page, Textual widgets only. Run it alone with
-`~/.orcapipe/venv/bin/python3 -m ocp.ui.chat_page [agent]`; the layout lives in
+`~/.orcapipe/venv/bin/python3 -m handline.ui.chat_page [agent]`; the layout lives in
 chat_page.tcss."""
 from __future__ import annotations
 

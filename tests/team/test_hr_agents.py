@@ -968,7 +968,7 @@ def test_team_deny_validation() -> None:
 
 def test_keychain_service_is_keyed_by_the_user_home(home: Path) -> None:
     import hashlib
-    from ocp.vendors.claude import keychain_service
+    from handline.vendors.claude import keychain_service
     check("keychain: the default config dir under the user home is the bare service",
           keychain_service(paths.user_home() / ".claude") == "Claude Code-credentials")
     other = paths.user_home() / ".orcapipe" / "accounts" / "alpha" / ".claude"
@@ -1596,8 +1596,8 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
     migrate is a dry run until --apply and never touches shared/memory; the
     team layer is a file read per team."""
     import time as _t
-    from ocp.team import memory
-    from ocp.cli import memory as climemory
+    from handline.team import memory
+    from handline.cli import memory as climemory
     os.environ["OCP_HOME"] = str(home)
     agents.register("orcapipe")
     agents.register("orcapipe.ui")
@@ -1743,7 +1743,7 @@ def test_agent_memory_budget_migration_and_team_layer(home: Path) -> None:
 def test_team_rules_reach_the_prompt_and_doctor_reports_memory(home: Path) -> None:
     """T231: the team file is in the system prompt of a member only, an empty
     team in team.yaml breaks nothing, and doctor says what is over budget."""
-    from ocp.session import launch
+    from handline.session import launch
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -1920,7 +1920,7 @@ def test_the_opencode_driver(home: Path) -> None:
               rehome._project_dirs(Path("/tmp/a/b"), Path("/tmp/c"))
               == [(mem, mem.parent / "-tmp-c")],
               str(rehome._project_dirs(Path("/tmp/a/b"), Path("/tmp/c"))))
-        from ocp.usage import tokenlog
+        from handline.usage import tokenlog
         con = db.connect()
         try:
             check("opencode: the token log reads nothing for it",
@@ -2418,7 +2418,7 @@ deny: []
     rc, out = _cli(["hr", "links"], as_agent=askmod.HUMAN)
     check("hr links: run again, there is nothing to change", rc == 0 and "nothing to change" in out, out)
 
-    from ocp.team import linkmigrate
+    from handline.team import linkmigrate
     a, b, c = {"from": "x", "to": "y"}, {"from": "x", "to": "y", "relation": "peer"}, {"from": "p", "to": "q"}
     left = linkmigrate._without([a, c, dict(a), b], [dict(a), dict(b)])
     check("hr links: the edges left are the table's less one equal edge per dropped one",
@@ -2543,7 +2543,7 @@ deny:
     rc, out = _cli(["hr", "team", "reef2", "--member", "a", "--repo", "/w/reef2", "--why", "w"], as_agent="orca")
     check("team: an agent's `hr team` is a proposal", rc == 0 and "raised" in out
           and "reef2" not in paths.list_agents(), out)
-    from ocp.team import guide
+    from handline.team import guide
     check("guide: the rule is written down once, in the team topic",
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
 
@@ -2902,7 +2902,7 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     rc, out = _cli(["agent", "register", "boss", "--effort", "high"], as_agent=askmod.HUMAN)
     check("agent register: one that has a repo keeps it on re-registration", rc == 0
           and agents.read("boss").get("repo") == "/w/boss", out)
-    from ocp.cli import team as teamcli
+    from handline.cli import team as teamcli
     con = db.connect()
     try:
         check("ocp team: an agent with no repo says why it never starts",
@@ -2911,7 +2911,7 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
         check("ocp team: one with a repo does not", "no repo" not in teamcli._doing(con, "boss"))
     finally:
         con.close()
-    from ocp.infra import doctor
+    from handline.infra import doctor
     r = doctor.Report()
     doctor._check_agents(r)
     check("doctor: warns of the agent with no repo, naming the fix",
@@ -2926,8 +2926,8 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
     agents.register("other", repo=str(home))
     _daemon_home(home, 20)
     hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
-    from ocp.daemon import client as dmn_client, socket_server
-    from ocp.team import agent_settings
+    from handline.daemon import client as dmn_client, socket_server
+    from handline.team import agent_settings
 
     def daemon_send(payload):       # the daemon is not an agent's session: no OCP_AGENT there
         mine = os.environ.pop("OCP_AGENT", None)
@@ -2943,7 +2943,7 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
         cfg = agents.read("worker")
         check("settings: an agent's ordinary changes apply at once, its own handoff note off among them",
               rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["handoff_note"] is False, out)
-        from ocp.daemon import handoff_note
+        from handline.daemon import handoff_note
         check("settings: the daemon then reads that agent's handoff note as off", not handoff_note.enabled("worker"))
         reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {"idle_close": "0"}})
         check("settings: idle close needs the founder, since 0 keeps a session open for good",
@@ -3224,7 +3224,7 @@ edges:
               hr.load_proposal(unrecorded["id"])["state"] == "proposed")
         check("migrate: no hr item is left among the open tasks",
               not [t for t in db.open_tasks(con) if "[roster]" in (t["title"] or "")])
-        from ocp.db import schema
+        from handline.db import schema
         schema._hr_proposals_leave_tasks(con)
         check("migrate: the ledger marks it done", db.get_cursor(con, "migrated:hr_proposals_leave_tasks") == 1)
     finally:
@@ -3564,7 +3564,7 @@ def test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(home: Pa
     retired name is refused on the agent's and the founder's reads alike, and
     `ocp doctor` names it without sealing it; a db migration that rewrites
     team.yaml keeps its seal."""
-    from ocp.db import schema
+    from handline.db import schema
     _daemon_home(home, 20)
     agents.register("backend")
     hand_edit_team("agents:\n  backend: {}\n")
@@ -3626,7 +3626,7 @@ def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
     agent's read accepts them and begins nothing, `ocp doctor` seals nothing,
     the first founder-side read seals every file and sets the marker, and a
     folder planted after that is refused."""
-    from ocp.infra import protected
+    from handline.infra import protected
     _daemon_home(home, 20)
     tf = paths.team_file()
     tf.write_text("agents:\n  old: {}\n")
@@ -3677,7 +3677,7 @@ def test_seals_begin_once_and_only_from_a_founder_read(home: Path) -> None:
 def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(home: Path) -> None:
     """The sandbox refuses even a read of the protected store (EPERM). An agent's
     session must then read team.yaml and agent.yaml as unsealed, not fail."""
-    from ocp.infra import protected
+    from handline.infra import protected
     _daemon_home(home, 20)
     agents.register("backend")
     hand_edit_team("agents:\n  backend: {}\n")
@@ -3702,8 +3702,8 @@ def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> Non
     against a team.yaml it cannot verify. The daemon re-checks every waiting
     request against the founder's table: a tampered file holds delivery, and once
     the founder's text is back the request is refused."""
-    from ocp.daemon import delivery
-    from ocp.infra import protected
+    from handline.daemon import delivery
+    from handline.infra import protected
     _daemon_home(home, 20)
     agents.register("scout")
     agents.register("keeper")
@@ -3752,8 +3752,8 @@ def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out
     """T204: the founder allows scout -> keeper as a peer. A forged edge that only
     changes its relation passes the agent's own ask, and until the daemon has
     checked it, `ocp inbox` in keeper's session must show nothing."""
-    from ocp.daemon import delivery
-    from ocp.infra import protected
+    from handline.daemon import delivery
+    from handline.infra import protected
     _daemon_home(home, 20)
     agents.register("scout")
     agents.register("keeper")
@@ -3835,7 +3835,7 @@ def cliteam_seal() -> tuple[int, str]:
 def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Path) -> None:
     """An agent session's ask leaves edge_ok NULL; the human has no agent
     supervision to check it, so the tick does."""
-    from ocp.daemon import evaluate
+    from handline.daemon import evaluate
     _daemon_home(home, 20)
     agents.register("scout")
     hand_edit_team("agents:\n  scout: {}\nedges:\n"

@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.cli import ask as cliask  # noqa: E402
+from handline.cli import ask as cliask  # noqa: E402
 
 TRICKY = "ran `git log` and $(date): stays literal\nsecond line"
 
@@ -79,7 +79,7 @@ def test_say_task_new_handoff_and_memo_take_their_text_from_a_file_or_stdin(home
         check("memo add: inline text and --file together are refused", rc == 1, out)
 
         sent = []
-        from ocp.cli import say as clisay
+        from handline.cli import say as clisay
         real = clisay._send
         clisay._send = lambda verb, **kw: sent.append((verb, kw)) or 0
         try:
@@ -94,7 +94,7 @@ def test_say_task_new_handoff_and_memo_take_their_text_from_a_file_or_stdin(home
 
 
 def test_the_refusal_names_the_ways_out_that_exist(home: Path) -> None:
-    from ocp.session import shellguard
+    from handline.session import shellguard
     why = shellguard.guard("Bash", {"command": 'ocp task new "`x`"'})
     check("guard: the refusal names task new and memo, and stdin with -",
           why and "ocp task new" in why and "ocp task memo add" in why and "stdin with -" in why, str(why))

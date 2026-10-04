@@ -1,5 +1,5 @@
 """Tests: usage windows are found by length, written as a list, and old records still read
-(T57 step 7; ocp/usage/windows.py, status.read, usage_api.record, db usage_samples).
+(step 7; handline/usage/windows.py, status.read, usage_api.record, db usage_samples).
 
 Run on its own: python3 tests/usage/test_windows.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.vendors.base import Reading  # noqa: E402
+from handline.vendors.base import Reading  # noqa: E402
 
 NOW = 1_800_000_000
 

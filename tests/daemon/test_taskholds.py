@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp import actions  # noqa: E402
-from ocp.daemon import delivery, evaluate, lifecycle, locks, taskholds, taskqueue  # noqa: E402
+from handline import actions  # noqa: E402
+from handline.daemon import delivery, evaluate, lifecycle, locks, taskholds, taskqueue  # noqa: E402
 
 
 REAL_PUSH = askmod.push

@@ -460,18 +460,18 @@ def test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_a
 
 
 def test_no_module_outside_the_backends_starts_an_orca_process() -> None:
-    """The boundary is only a boundary if nothing walks around it. Orca's CLI is spoken in ocp/session/backends
+    """The boundary is only a boundary if nothing walks around it. Orca's CLI is spoken in handline/session/backends
     and nowhere else; text for a person (a command to run by hand) is not a call and may name it."""
     call = re.compile(r"""\[\s*["']orca["']\s*,|which\(\s*["']orca["']|["']orca["']\s*,\s*["'](?:terminal|worktree|repo|orchestration)["']""")
     offenders = []
-    for f in sorted((ROOT / "ocp").rglob("*.py")):
+    for f in sorted((ROOT / "handline").rglob("*.py")):
         if "backends" in f.parts:
             continue
         for n, line in enumerate(f.read_text().splitlines(), 1):
             if call.search(line):
                 offenders.append(f"{f.relative_to(ROOT)}:{n}")
     check("boundary: only the backends start an `orca` process", not offenders, str(offenders))
-    leaks = [f"{f.relative_to(ROOT)}" for f in sorted((ROOT / "ocp").rglob("*.py"))
+    leaks = [f"{f.relative_to(ROOT)}" for f in sorted((ROOT / "handline").rglob("*.py"))
              if "backends" not in f.parts and re.search(r"\borca\._run\b|\borcamod\._run\b", f.read_text())]
     check("boundary: and nothing calls the Orca runner directly any more", not leaks, str(leaks))
 
@@ -730,7 +730,7 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
     if shutil.which("tmux") is None:
         print("SKIPPED  real tmux: tmux is not installed")
         return
-    sock = f"ocp-test-{os.getpid()}"
+    sock = f"handline-test-{os.getpid()}"
     os.environ["OCP_TMUX_SOCKET"] = sock
     probe = subprocess.run(["tmux", "-L", sock, "new-session", "-d", "-s", "probe", "sleep 30"],
                            capture_output=True, text=True, timeout=20)

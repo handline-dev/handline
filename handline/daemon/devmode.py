@@ -30,10 +30,11 @@ def set_dev_mode(on: bool) -> None:
 
 
 def _watched_files(root: Path) -> list[Path]:
-    """ocp/**/*.py (subpackages such as ocp/cli/ and ocp/ui/ included), bin/ocp, requirements.txt - task #64's own list, read from
+    """handline/**/*.py (subpackages such as handline/cli/ and handline/ui/
+    included), bin/ocp, requirements.txt - task #64's own list, read from
     the checkout the daemon is running from rather than named once and left
     to rot as files are added."""
-    files = sorted((root / "ocp").rglob("*.py"))
+    files = sorted((root / "handline").rglob("*.py"))
     files.append(root / "bin" / "ocp")
     files.append(root / "requirements.txt")
     return files

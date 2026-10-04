@@ -1,4 +1,4 @@
-"""Tests: `ocp.infra.clipboard.copy`, the system clipboard write.
+"""Tests: `handline.infra.clipboard.copy`, the system clipboard write.
 
 Run on its own: python3 tests/infra/test_clipboard.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from ocp.infra import clipboard  # noqa: E402
+from handline.infra import clipboard  # noqa: E402
 
 
 def _with_tools(present: set[str], fail: bool = False):
