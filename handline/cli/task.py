@@ -11,7 +11,7 @@ from ..team import ask as askmod
 from ..daemon import client as dmn_client, taskholds
 from .. import db
 from ..session import handoff as handoffmod
-from ..infra import gitrun, paths
+from ..infra import gitrun, names, paths
 from ..infra import textsafe
 
 from .ask import _text_arg, _who_refusal
@@ -21,7 +21,8 @@ def cmd_progress(args) -> int:
     """Keep or show the agent's note on its request in progress."""
     agent = askmod.current_agent()
     if not agent:
-        print("cannot tell who is writing: OCP_AGENT is unset", file=sys.stderr)
+        print(_who_refusal("write") if names.getenv("OCP_AGENT") else "cannot tell who is writing: OCP_AGENT is unset",
+              file=sys.stderr)
         return 1
     con = db.connect()
     try:

@@ -244,7 +244,7 @@ def cmd_events(args) -> int:
             # agent's state column says already, and there are six of them for
             # every decision. `hl` used to filter them on screen; this is
             # where someone asking what the daemon did actually looks.
-            rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES]
+            rows = [r for r in rows if r["kind"] not in events.TURN_BOUNDARIES | events.AUDIT_KINDS]
         if not rows:
             print("no events" if args.all else "no decisions (--all includes turn edges)")
             return 0

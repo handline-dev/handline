@@ -87,7 +87,7 @@ def deterministic_facts(agent: str, events, repo: Path | None = None) -> str:
         # The last few events that are not turn boundaries. Those are counted
         # above and say nothing one at a time: a hundred identical SubagentStop
         # lines filled a handoff and told the agent nothing about its work.
-        told = [e for e in events if e["kind"] not in evmod.TURN_BOUNDARIES][-6:]
+        told = [e for e in events if e["kind"] not in evmod.TURN_BOUNDARIES | evmod.AUDIT_KINDS][-6:]
         if told:
             lines.append("- last events:")
             for e in told:

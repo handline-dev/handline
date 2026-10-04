@@ -68,6 +68,9 @@ back to the account its session lives on.""",
   hl task done T<n> "<evidence>" finish your task (a sha, --request N, or a reason)
   hl task handoff T<n> <agent> "<note>"   hand it on to someone else
   hl cancel <id>                 the founder's: take any request out of an agent's queue
+A claude you start from your own shell is not you: it inherits your name and hooks but cannot run hl as
+you, and its hooks are ignored. Start one only with a clean environment (env -i, or unset OCP_*, HANDLINE_*,
+CLAUDE_CODE_*), and never let it close your tasks.
   hl progress "<note>"           what is done and what is left on your task in progress
                                    (replaces the last note, at most 1500 characters; no note
                                    shows it). A handoff carries it, so the next session need

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import atomic, names, paths, textsafe
+from ..infra import atomic, names, paths, sessiontoken, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
 from ..infra import timefmt
@@ -38,8 +38,48 @@ HUMAN = db.HUMAN
 
 
 def current_agent() -> str | None:
-    """Who is asking, or None when nothing says. Set by `hl launch`."""
-    return names.getenv("OCP_AGENT") or None
+    """Who is asking, or None when nothing says. Set by `hl launch`. A process under a Claude Code that
+    itself runs under another has inherited the name without being that agent (a session an agent's
+    own script started), so it is nobody."""
+    agent = names.getenv("OCP_AGENT") or None
+    if agent and sessiontoken.nested():
+        _note_nested(agent)
+        return None
+    return agent
+
+
+def _chain_payload(argv: list[str]) -> dict:
+    """What a record of who issued a command holds: the command's first words and the programs above it."""
+    return {"argv": [a[:40] for a in argv[:3]],
+            "chain": " > ".join(f"{n}:{p}" for p, n in sessiontoken.chain()[:8])}
+
+
+def _note_nested(agent: str) -> None:
+    """Record that a command refused as an inherited name came from a nested Claude Code, with the chain of
+    programs above it, so an unexplained command can be traced later."""
+    try:
+        con = db.connect()
+        try:
+            db.add_event(con, agent, "nested_claude_refused", _chain_payload(sys.argv[1:4]))
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - a record that cannot be written must not change the refusal
+        pass
+
+
+def note_verb_chain(agent: str, argv: list[str]) -> None:
+    """One event per state-changing command: what it was run as and the programs above it, so a command
+    whose caller the ancestry check could not tell apart - a claude run through node, a session with its
+    hooks stripped - can still be traced to the chain that issued it. No dedup key: process ids are
+    reused and the key would be kept for good."""
+    try:
+        con = db.connect()
+        try:
+            db.add_event(con, agent, "verb_chain", _chain_payload(argv))
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - a record that cannot be written must not change what the command does
+        pass
 
 
 def asking_agent() -> str | None:
@@ -52,6 +92,8 @@ def asking_agent() -> str | None:
     is a fail-open. A human has a terminal; a script that dropped its
     environment does not, and it gets the refusal it used to get.
     """
+    if names.getenv("OCP_AGENT") and current_agent() is None:
+        return None             # an inherited name nobody vouches for is not "a human at their prompt" either
     return current_agent() or (HUMAN if sys.stdin.isatty() else None)
 
 

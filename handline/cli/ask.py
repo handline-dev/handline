@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from .. import actions
-from ..infra import timefmt
+from ..infra import names, timefmt
 from ..team import ask as askmod
 from .. import db
 from ..infra import textsafe
@@ -20,7 +20,8 @@ def _refused_listing(target: str | None) -> bool:
     """Print why and return True when the caller may not list `target`."""
     caller = askmod.asking_agent()
     if caller is None:
-        print("cannot tell who is asking: OCP_AGENT is unset and this is not an "
+        print(_who_refusal("list") + ", so nothing is listed" if names.getenv("OCP_AGENT") else
+              "cannot tell who is asking: OCP_AGENT is unset and this is not an "
               "interactive shell, so nothing is listed.")
         return True
     if not target:
@@ -155,7 +156,8 @@ def _wait_for(check, timeout: int, what: str) -> bool:
 def cmd_inbox(args) -> int:
     agent = args.agent or askmod.asking_agent()
     if not agent:
-        print("cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
+        print(_who_refusal("read the inbox") if names.getenv("OCP_AGENT") else
+              "cannot tell whose inbox this is: OCP_AGENT is unset and this is not "
               "an interactive shell. Name the agent.")
         return 1
     if _refused_listing(agent):
@@ -283,6 +285,10 @@ def _who_refusal(verb: str) -> str:
     that dropped OCP_AGENT does not, and promoting one to the other is how an
     agent ends up clearing the founder's mailbox.
     """
+    if names.getenv("OCP_AGENT"):
+        return (f"refused: this runs under a second Claude Code started inside an agent's session, which "
+                f"inherited the name {names.getenv('OCP_AGENT')} without being that agent; only the agent's "
+                f"own session can {verb} as it")
     return (f"cannot tell who is {verb}ing this: OCP_AGENT is unset and this is not "
             f"an interactive shell. Agents are started with `hl launch <agent>`, "
             f"which sets it.")

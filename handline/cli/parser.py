@@ -5,7 +5,8 @@ import argparse
 import sys
 
 from .. import actions
-from ..infra import timefmt
+from ..infra import names, timefmt
+from ..team import ask as askmod
 from ..team import agents
 from ..team import team
 
@@ -662,11 +663,27 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+_READ_ONLY = {"read", "inbox", "ps", "status", "team", "events", "doctor", "guide", "top", "watch", "bridge",
+              "hook", "hooks", "memory", "schedule", "login", "venv", "daemon", "service", "backup", "dev-mode"}
+_TASK_READS = {"list", "show", "board"}
+
+
+def _mutates(args) -> bool:
+    """Whether this command changes state on the caller's behalf, so that its chain is worth recording."""
+    cmd = getattr(args, "cmd", None)
+    if cmd in _READ_ONLY:
+        return False
+    return not (cmd == "task" and getattr(args, "sub", None) in _TASK_READS)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv or argv[0] in ("--once", "--textual", "--pid", "--dev-mode"):
         argv = ["bridge", *argv]            # `hl` alone is the screen; "bridge" is only its code name
     args = build_parser().parse_args(argv)
+    agent = names.getenv("OCP_AGENT")
+    if agent and _mutates(args):
+        askmod.note_verb_chain(agent, [args.cmd, getattr(args, "sub", None) or ""])
     try:
         return args.fn(args)
     except SystemExit:
