@@ -2635,6 +2635,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust add": "founder-only on a tty; driven in test_ocp_trust_cli_is_wired",
         "trust list": "prints declared roots; driven in test_ocp_trust_cli_is_wired",
         "trust remove": "driven in test_ocp_trust_cli_is_wired",
+        "trust mcp": "founder-only; approves a declared folder's .mcp.json servers; driven by trust.approve_mcp in test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
         "land": "queues a branch for the daemon to land on main; driven in "

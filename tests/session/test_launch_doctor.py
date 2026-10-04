@@ -478,21 +478,28 @@ def test_an_agent_is_never_launched_on_another_vendors_account(home: Path) -> No
 
 def test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(home: Path) -> None:
     from handline.infra import protected
+    from handline.team import trust
     use_home(home)
-    for name in ("trusted", "untrusted", "plain"):
+    servers = json.dumps({"mcpServers": {"gsc": {"command": "mcp-gsc"}}})
+    for name in ("approved", "declared", "undeclared", "plain"):
         (home / name).mkdir()
-    for name in ("trusted", "untrusted"):
-        (home / name / ".mcp.json").write_text("{}")
-    protected.put("trust", "roots.json", json.dumps([{"root": str(home / "trusted")}]))
-    for name in ("trusted", "untrusted", "plain"):
+    for name in ("approved", "undeclared"):
+        (home / name / ".mcp.json").write_text(servers)
+    (home / "declared" / ".mcp.json").write_text(json.dumps({"mcpServers": {"gsc": {"command": "other-gsc"}}}))
+    protected.put("trust", "roots.json", json.dumps([{"root": str(home / "approved")}, {"root": str(home / "declared")}]))
+    check("doctor: (the founder approves one repo's servers)", trust.approve_mcp(home / "approved")[0])
+    for name in ("approved", "declared", "undeclared", "plain"):
         agents.register(f"a-{name}", repo=str(home / name))
     r = doctor.Report()
     doctor._check_agents(r)
-    names = [n for _lv, n, _d in r.rows]
-    check("doctor: the repo with an unsettled .mcp.json is named",
-          f"repo {home / 'untrusted'}: its .mcp.json is not settled" in names, str(names))
-    check("doctor: and only that one: not the declared repo, not the one with no .mcp.json",
-          sum("is not settled" in n for n in names) == 1, str(names))
+    rows = {n: d for _lv, n, d in r.rows}
+    named = {k for k in rows if "is not settled" in k}
+    check("doctor: a declared repo whose servers were never approved is named, with the way to approve them",
+          f"repo {home / 'declared'}: its .mcp.json is not settled" in named
+          and f"`hl trust mcp {home / 'declared'}`" in rows[f"repo {home / 'declared'}: its .mcp.json is not settled"], str(rows))
+    check("doctor: an undeclared one is named, with the declaring first",
+          f"`hl trust add {home / 'undeclared'}`, then" in rows[f"repo {home / 'undeclared'}: its .mcp.json is not settled"])
+    check("doctor: and only those two: not the approved repo, not the one with no .mcp.json", len(named) == 2, str(named))
 
 
 def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> None:

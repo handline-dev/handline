@@ -15,6 +15,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl agent register <name>` | Add or update an agent. |
 | `hl team init` / `seal` | Write a starter `team.yaml`; accept hand edits to `team.yaml` and `agent.yaml`. |
 | `hl trust add <folder>` | Let ocp answer Claude's "trust this folder" screen for a folder. |
+| `hl trust mcp <folder>` | Founder only: approve the MCP servers in a declared folder's `.mcp.json` as they read now, so a launch there enables them without Claude asking. A server added or changed later is asked about. |
 | `hl backup install` | Snapshot `~/.orcapipe` every five minutes when it changed. |
 
 ## Run

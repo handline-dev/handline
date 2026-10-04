@@ -157,6 +157,10 @@ def cmd_trust(args) -> int:
             print(f"{p_['id']}  {p_.get('state', '?'):<10}#{p_.get('request', '-')}  "
                   f"{p_['root']}  by {p_.get('requested_by', '?')}")
         return 0
+    if args.trust_cmd == "mcp":
+        ok, said = trust.approve_mcp(args.root)
+        print(said)
+        return 0 if ok else 1
     if args.trust_cmd == "apply":
         ok, said = trust.apply(args.id)
         print(said)

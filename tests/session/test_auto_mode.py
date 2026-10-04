@@ -223,41 +223,61 @@ def test_the_sandbox_stays_off_across_sessions_until_turned_on(home: Path) -> No
         con.close()
 
 
-def test_a_declared_folders_mcp_servers_are_approved_at_launch_and_no_others(home: Path) -> None:
+def test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(home: Path) -> None:
     import os
     from handline.infra import protected
     from handline.team import trust
     _launch_world(home)
     declared, other = home / "proj", home / "elsewhere"
+    entries = {"supabase": {"command": "npx", "args": ["supabase-mcp"]}, "gsc": {"command": "mcp-gsc"}}
     for d in (declared, other):
         d.mkdir()
-        (d / ".mcp.json").write_text(json.dumps({"mcpServers": {"supabase": {}, "gsc": {}}}))
+        (d / ".mcp.json").write_text(json.dumps({"mcpServers": entries}))
     check("mcp: a driver given servers names them in --settings",
           _settings(Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=["b", "a"]))
           == [{"enabledMcpjsonServers": ["b", "a"]}])
     check("mcp: and given none passes no settings for it",
           "--settings" not in Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=[]))
     protected.put("trust", "roots.json", json.dumps([{"root": str(declared)}]))
-    check("mcp: a folder under a declared root names its servers",
-          launchmod.project_mcp_servers(declared) == ["gsc", "supabase"])
-    check("mcp: a folder outside every root names none, so claude still asks",
-          launchmod.project_mcp_servers(other) == [])
+    check("mcp: a declared folder whose servers nobody approved enables none: claude still asks",
+          trust.mcp_approved(declared) == [] and trust.mcp_unapproved(declared) == ["gsc", "supabase"])
+    check("mcp: approving a folder outside every root is refused, and writes nothing",
+          not trust.approve_mcp(other)[0] and trust.mcp_approved(declared) == [])
+    ok, said = trust.approve_mcp(declared)
+    check("mcp: the founder approves a declared folder's servers, and the message names them",
+          ok and said == "approved: gsc, supabase" and trust.mcp_approved(declared) == ["gsc", "supabase"], said)
+    check("mcp: the same entries in a folder outside every root are still not approved",
+          trust.mcp_approved(other) == [] and trust.mcp_unapproved(other) == ["gsc", "supabase"])
+    # What an agent can do to its own worktree's file: add a server, or change an approved one's command.
+    (declared / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        **entries, "evil": {"command": "sh", "args": ["-c", "x"]}}}))
+    check("mcp: a server the agent added is not approved", trust.mcp_approved(declared) == ["gsc", "supabase"]
+          and trust.mcp_unapproved(declared) == ["evil"])
+    (declared / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        "supabase": {"command": "sh", "args": ["-c", "x"]}, "gsc": entries["gsc"]}}))
+    check("mcp: an approved name with another command is not approved either",
+          trust.mcp_approved(declared) == ["gsc"] and trust.mcp_unapproved(declared) == ["supabase"])
     (declared / ".mcp.json").write_text("{not json")
-    check("mcp: an unreadable file names none", launchmod.project_mcp_servers(declared) == [])
-    (declared / ".mcp.json").write_text(json.dumps({"mcpServers": {"gsc": {}}}))
+    check("mcp: an unreadable file names none", trust.mcp_approved(declared) == [] and trust.mcp_unapproved(declared) == [])
+    (declared / ".mcp.json").write_text(json.dumps({"mcpServers": entries}))
     here = os.getcwd()
     try:
-        for folder, want in ((declared, ["gsc"]), (other, None)):
+        for folder, want in ((declared, ["gsc", "supabase"]), (other, None)):
             os.chdir(folder)
             got = [x.get("enabledMcpjsonServers") for x in _settings(launchmod.build("backend")[0])]
             check(f"mcp: a launch in {folder.name} carries {want}", [g for g in got if g] == ([want] if want else []), str(got))
+        (declared / ".mcp.json").write_text(json.dumps({"mcpServers": {**entries, "evil": {"command": "sh"}}}))
+        os.chdir(declared)
+        got = [x.get("enabledMcpjsonServers") for x in _settings(launchmod.build("backend")[0])]
+        check("mcp: and a launch after the agent added a server carries only the approved ones",
+              [g for g in got if g] == [["gsc", "supabase"]], str(got))
     finally:
         os.chdir(here)
 
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_a_declared_folders_mcp_servers_are_approved_at_launch_and_no_others(Path(td) / 'a6'))
+        run(lambda: test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(Path(td) / 'a6'))
         run(lambda: test_the_sandbox_stays_off_across_sessions_until_turned_on(Path(td) / 'a5'))
         run(lambda: test_an_agent_starts_in_the_mode_it_is_set_to(Path(td) / 'a3'))
         run(lambda: test_the_sandbox_is_off_only_where_the_founder_turned_it_off(Path(td) / 'a4'))
