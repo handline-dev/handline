@@ -2,7 +2,10 @@
 row and for the account page alike. What it says goes to a toast."""
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import tempfile
 
 from ...team import accounts
 from ... import actions, db
@@ -17,12 +20,26 @@ class AccountActions(Toasts):
         whole terminal to `argv` (a login is a human typing a code into
         claude's own screen - nothing about that can happen behind Textual's
         screen), then take it back."""
+        # `script` keeps a copy of the screen, so a failed exit can say what claude
+        # printed; without it the run is plain and says only the exit code.
+        script = shutil.which("script")
+        log = tempfile.NamedTemporaryFile(prefix="ocp-login-", delete=False) if script else None
+        if log:
+            log.close()
         try:
             with self.app.suspend():
-                r = subprocess.run(argv, env=env)
-                return r.returncode, f"{argv[0]} exited {r.returncode}"
+                run = [script, "-q", log.name, *argv] if log else argv
+                r = subprocess.run(run, env=env)
+            said = f"{argv[0]} exited {r.returncode}"
+            if r.returncode and log:
+                with open(log.name, errors="replace") as f:
+                    said += f": {actions.tail_of_typescript(f.read())}"
+            return r.returncode, said
         except (OSError, subprocess.SubprocessError) as e:
             return None, f"could not run {argv[0]}: {e}"
+        finally:
+            if log:
+                os.unlink(log.name)
 
     async def _account_login(self, name: str) -> None:
         line, argv, env = actions.login_argv(name)
