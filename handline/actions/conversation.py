@@ -234,3 +234,11 @@ def chat_unread(con, agent: str) -> int:
 
 def chat_seen(con, agent: str) -> None:
     db.set_cursor(con, _seen_key(agent), int(time.time()))
+
+
+ESC_CLEAR_WINDOW_S = 2.0
+
+
+def esc_pressed_twice(armed_at: float | None, now: float, window: float = ESC_CLEAR_WINDOW_S) -> bool:
+    """Whether an Esc at `now` follows the first one (`armed_at`) closely enough to clear the box."""
+    return armed_at is not None and 0 <= now - armed_at <= window

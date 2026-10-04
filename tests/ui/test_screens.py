@@ -3385,6 +3385,16 @@ def test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_fa
     assert bare == "Loading 10% | Loading 99% | Error: no network", bare
 
 
+def test_a_second_esc_right_after_the_first_clears_the_chat_box() -> None:
+    """Esc over typed text arms; a second Esc inside the window clears, one after it only arms again."""
+    from handline import actions
+    w = actions.ESC_CLEAR_WINDOW_S
+    assert not actions.esc_pressed_twice(None, 100.0)
+    assert actions.esc_pressed_twice(100.0, 100.0 + w / 2)
+    assert actions.esc_pressed_twice(100.0, 100.0 + w)
+    assert not actions.esc_pressed_twice(100.0, 100.0 + w + 0.1)
+
+
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
     def row(i, blocked=(), parent=None):
         return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
@@ -3477,6 +3487,7 @@ def main() -> int:
         run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
+        run(lambda: test_a_second_esc_right_after_the_first_clears_the_chat_box())
         run(lambda: test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(Path(td) / 'login'))
     return run_area(tests)
 
