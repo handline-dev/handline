@@ -4373,6 +4373,28 @@ def test_the_runway_is_an_estimate_from_the_daemons_burn(home: Path) -> None:
     write_status(home, "beta", pct_5h=65, pct_7d=10, collected_at=now - 3 * 3600)
     check("team: blank when no reading is current", status.team_outlook(["alpha", "beta"], now, gone=lambda n: False) == "")
 
+    # An account that ends before the reset takes the headroom it has not spent with it.
+    write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=now + 3 * 3600)      # 90 left, burns slowly
+    write_status(home, "beta", pct_5h=90, pct_7d=10, reset_5h=now + 3 * 3600)       # 10 left, burns faster
+    status.write_burn("alpha", 0.001, now)
+    status.write_burn("beta", 0.002, now)
+    check("team ends: with no end the pooled headroom lasts past the reset",
+          "last past the next reset" in status.team_outlook(["alpha", "beta"], now, gone=lambda n: False))
+    real_end = status.cycle.end_of
+    status.cycle.end_of = lambda a, cfg=None, at=None: now + 1000 if a == "alpha" else None
+    try:
+        line = status.team_outlook(["alpha", "beta"], now, gone=lambda n: False)
+        check("team ends: alpha ending in 1000 s takes its unspent 89 points with it, so the wall comes first",
+              "hit the wall around" in line, line)
+        status.cycle.end_of = lambda a, cfg=None, at=None: now + 9 * 3600 if a == "alpha" else None
+        check("team ends: an end after the reset changes nothing",
+              "last past the next reset" in status.team_outlook(["alpha", "beta"], now, gone=lambda n: False))
+    finally:
+        status.cycle.end_of = real_end
+    check("team ends: the walk of the pool by itself",
+          status._wall_with_ends(0, 100, 0.003, [(1000, 90, 0.001)]) == 5000
+          and status._wall_with_ends(0, 100, 0.003, []) == 100 / 0.003)
+
     # The daemon records what it measured.
     write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 1800)
     (home / "accounts" / "alpha" / "burn.json").unlink()

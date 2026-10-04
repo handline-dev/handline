@@ -82,7 +82,8 @@ def _end(acct: str, cfg: dict | None, now: float | None = None) -> tuple[dt.date
     account is not on a cycle or no end is known.
 
     `sub_end_<account>` is a day the founder typed: usable through all of it, so
-    the moment is the start of the next day. Without one the end is the next monthly
+    the moment is the start of the next day; it counts also where the switch was never
+    written, but not where it was turned off. Without one the end is the next monthly
     anniversary of the subscription start, at its time of day, because that is when
     the month lapses. The profile's start is the first subscription's and does not
     move at a renewal, so the anniversary still ahead is taken: a default end is
@@ -90,9 +91,9 @@ def _end(acct: str, cfg: dict | None, now: float | None = None) -> tuple[dt.date
     unquoted one as ambiguous); one that does not parse is no end, not the
     default: a typo must not end an account."""
     cfg = _cfg(cfg)
-    if cfg.get(f"month_cycle_{acct}") is not True:
-        return None
     v = cfg.get(f"sub_end_{acct}")
+    if cfg.get(f"month_cycle_{acct}") is not True and (v is None or f"month_cycle_{acct}" in cfg):
+        return None     # off (written, so the end it kept is not one), or never on and no end typed
     if v is not None:
         try:
             d = dt.date.fromisoformat(v) if isinstance(v, str) else None
