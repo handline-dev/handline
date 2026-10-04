@@ -732,17 +732,18 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         return
     sock = f"handline-test-{os.getpid()}"
     os.environ["OCP_TMUX_SOCKET"] = sock
-    probe = subprocess.run(["tmux", "-L", sock, "new-session", "-d", "-s", "probe", "sleep 30"],
-                           capture_output=True, text=True, timeout=20)
-    if probe.returncode != 0:
-        print(f"SKIPPED  real tmux: it cannot start a server here ({probe.stderr.strip()[:100]})")
-        os.environ.pop("OCP_TMUX_SOCKET", None)
-        return
     tm = tmuxbackend.TmuxBackend()
+    sock_file = Path(os.environ.get("TMUX_TMPDIR") or "/tmp").resolve() / f"tmux-{os.getuid()}" / sock
     try:
-        subprocess.run(["tmux", "-L", sock, "kill-server"], capture_output=True, timeout=20)
+        # The probe is the very call the test goes on to make: a sandbox that lets a bare new-session
+        # through can still refuse the one that sets a directory and a title.
         pane, why = tm.create_terminal("echo ocp-hello-from-tmux", cwd=str(home), title="t1")
+        if pane is None and "not permitted" in str(why).lower():
+            print(f"SKIPPED  real tmux: it cannot start a terminal here ({str(why).strip()[:100]})")
+            return
         check("real tmux: a terminal starts", pane is not None, why)
+        if pane is None:
+            return
         deadline = time.time() + 10
         text = ""
         while time.time() < deadline and "ocp-hello-from-tmux" not in text.replace("echo ocp-hello-from-tmux", ""):
@@ -754,9 +755,15 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         tm.send(pane, "echo second-line-ok")
         time.sleep(1)
         check("real tmux: a typed line lands", "second-line-ok" in "\n".join((tm.read_screen(pane) or {}).get("tail", [])))
-        check("real tmux: closing it removes it", tm.close_terminal(pane)[0] and pane not in (tm.list_terminals() or {pane}))
+        closed = tm.close_terminal(pane)[0]
+        left = tm.list_terminals()          # an empty set (no server left) is an answer; None is not
+        check("real tmux: closing it removes it", closed and left is not None and pane not in left)
     finally:
         subprocess.run(["tmux", "-L", sock, "kill-server"], capture_output=True, timeout=20)
+        try:
+            sock_file.unlink()
+        except OSError:
+            pass
         os.environ.pop("OCP_TMUX_SOCKET", None)
 
 
