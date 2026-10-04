@@ -42,7 +42,25 @@ def current_agent() -> str | None:
     itself runs under another has inherited the name without being that agent (a session an agent's
     own script started), so it is nobody."""
     agent = names.getenv("OCP_AGENT") or None
-    return None if agent and sessiontoken.nested() else agent
+    if agent and sessiontoken.nested():
+        _note_nested(agent)
+        return None
+    return agent
+
+
+def _note_nested(agent: str) -> None:
+    """Record, once per process, that a command refused as an inherited name came from a nested Claude Code,
+    with the chain of programs above it, so an unexplained command can be traced later."""
+    try:
+        con = db.connect()
+        try:
+            db.add_event(con, agent, "nested_claude_refused",
+                         {"argv": sys.argv[1:4], "chain": [f"{p} {n}" for p, n in sessiontoken.chain()][:12]},
+                         dedup_key=f"nested:{os.getpid()}")
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - a record that cannot be written must not change the refusal
+        pass
 
 
 def asking_agent() -> str | None:

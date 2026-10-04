@@ -123,6 +123,11 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
           "no task T9" in own.stdout, own.stdout + own.stderr[-200:])
     check("nested: the same command from a nested claude is refused as an inherited name, and says so",
           "second Claude Code" in nested.stdout and "no task" not in nested.stdout, nested.stdout + nested.stderr[-200:])
+    con = db.connect()
+    rec = con.execute("SELECT payload FROM events WHERE agent = 'scout' AND kind = 'nested_claude_refused'").fetchall()
+    con.close()
+    check("nested: the refusal is recorded with the chain of programs above the command",
+          len(rec) >= 1 and "9.9.9" in rec[0]["payload"], str([r["payload"] for r in rec])[:300])
 
 
 def shlex_quote(s: str) -> str:

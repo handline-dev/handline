@@ -85,6 +85,19 @@ def claude_ancestors(pid: int | None = None) -> int:
     return count
 
 
+def chain(pid: int | None = None) -> list[tuple[int, str]]:
+    """(pid, program) of each process above `pid`, for a record of who issued a command."""
+    pid = os.getpid() if pid is None else pid
+    out: list[tuple[int, str]] = []
+    for _ in range(_MAX_DEPTH):
+        info = _proc(pid)
+        if info is None or info[0] <= 1:
+            break
+        pid = info[0]
+        out.append((pid, os.path.basename(_exe(pid) or "?")))
+    return out
+
+
 def nested(pid: int | None = None) -> bool:
     """Whether this process runs under a Claude Code that itself runs under another."""
     return claude_ancestors(pid) >= 2
