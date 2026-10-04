@@ -1619,6 +1619,7 @@ class ChatPage(JobsAware, Screen):
         super().__init__(classes="chat_page")
         self.agent = agent
         self._focus = focus      # (request id, part) to pick as the reply target once it is drawn
+        self._fill_waits = 0
         self._tabbed = False     # the opening tab has been activated (that clears any reply target)
         self.replying: ChatMessage | None = None
         self._esc_at: float | None = None     # when the first Esc over typed text was pressed
@@ -1810,15 +1811,12 @@ class ChatPage(JobsAware, Screen):
             con.close()
 
     def refresh_agent_strip(self) -> None:
-        self.query_one(SandboxBanner).refresh_state(self.agent, not self.everyone)
-        strip = self.query_one(AgentStrip)
-        strip.display = not self.everyone
-        if strip.display:
-            con = db.connect()
-            try:
-                strip.show(con, self.agent)
-            finally:
-                con.close()
+        self.query_one(SandboxBanner).refresh_state(self.agent, True)
+        con = db.connect()
+        try:
+            self.query_one(AgentStrip).show(con, self.agent)
+        finally:
+            con.close()
 
     def refresh_view(self) -> None:
         self.refresh_agent_state()
@@ -1921,6 +1919,25 @@ class ChatPage(JobsAware, Screen):
     def _rebuilt(self) -> None:
         self._rebuilding = False
         self._sync_newbar()
+        self._fill_waits = 0
+        self._fill_older()
+
+    def _fill_older(self) -> None:
+        """Short newest messages leave the view part empty: read older pages above them until it is full,
+        or there are none (scrolling up is what loads them otherwise, and a view that fits cannot scroll)."""
+        if self.showing_tasks or self.showing_settings:
+            return
+        pane = self.query_one("#transcript", VerticalScroll)
+        shown = [w for w in pane.children if w.display]
+        if not shown or any(w.outer_size.height == 0 for w in shown):
+            if self._fill_waits < 20:       # just mounted: not laid out yet, so not measurable
+                self._fill_waits += 1
+                self.set_timer(0.05, self._fill_older)
+            return
+        # virtual_size is never below the view's own size, so the content is measured by its children
+        if actions.needs_older(self.more, sum(w.outer_size.height for w in shown), pane.size.height):
+            self.load_older()
+            self.set_timer(0.05, self._fill_older)
 
     def _sync_newbar(self) -> None:
         """Shown only while the transcript is scrolled up from its end; reaching the end by hand clears the count."""

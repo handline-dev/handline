@@ -73,7 +73,7 @@ def strip_text(info: AgentInfo) -> Text:
 
 class AgentStrip(Static):
     """The one line under a chat's header with the agent's model, account, context and the time left in its
-    prompt cache, which counts down each second between reads. Hidden where no single agent is chatted with."""
+    prompt cache, which counts down each second between reads. Always shown on the agent's page, in every tab."""
 
     DEFAULT_CSS = "AgentStrip { height: 1; padding: 0 2; }"
 
