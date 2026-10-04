@@ -56,6 +56,7 @@ class BridgeApp(ClipboardApp):
         self.restart_on_exit = False
         self._asking = False            # the restart question is on screen
         self._code_state: dict = {"fp": None, "warned": None, "seen": None}
+        self._declined: str | None = None   # the fingerprint "Not now" was answered for
 
     async def on_event(self, event) -> None:
         """While a box is over the page, the raw mouse and key events that reach the app, with what
@@ -86,12 +87,18 @@ class BridgeApp(ClipboardApp):
         check runs `ocp --help`, so this is a worker, not the UI thread. A restart found is owed
         until nothing on screen would be lost by asking (see `_idle`)."""
         try:
-            self.restart_owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
+            owed = devmode._dev_mode_should_restart(self._code_state, stall.crumb)
         except Exception as e:  # noqa: BLE001 - a tree mid-checkout must not take the bridge down
             stall.crumb(f"dev-mode check failed: {e}")
             return
+        self.call_from_thread(self._code_checked, owed, self._code_state["seen"])
+
+    def _code_checked(self, owed: bool, seen: str | None) -> None:
+        """The verdict of one check, taken on the UI thread: a check that began before "Not now" was
+        pressed must not ask again about the version just declined."""
+        self.restart_owed = owed and seen != self._declined
         if self.restart_owed:
-            self.call_from_thread(self._restart_if_idle)
+            self._restart_if_idle()
 
     def _idle(self) -> bool:
         """No box is open and no page holds a draft or a send in flight - what `ChatPage.leave` asks about."""
@@ -104,7 +111,8 @@ class BridgeApp(ClipboardApp):
     def _decline_update(self) -> None:
         """Stay on this version: this change is not asked about again, a newer one is."""
         self.restart_owed = False
-        self._code_state["fp"] = self._code_state["seen"]
+        self._declined = self._code_state["seen"]
+        self._code_state["fp"] = self._declined
 
     def ask_restart(self, question: str, declined=lambda: None) -> None:
         """Ask once whether to restart the screen; yes exits it and `run` execs the same entrypoint."""

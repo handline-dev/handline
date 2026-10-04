@@ -2699,8 +2699,23 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     _home("coderestart")
     real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S)
     bt.CODE_CHECK_S = 0.05
-    code = {"fp": "v1"}      # the tree, the import check and the switch stood in for; the decision is devmode's own
-    devmode._code_fingerprint = lambda root: code["fp"]
+    code = {"fp": "v1", "checks": 0}      # the tree, the import check and the switch stood in for; the decision is devmode's own
+
+    def fingerprint(root):
+        code["checks"] += 1
+        return code["fp"]
+
+    async def after_checks(pilot, n: int = 3) -> None:
+        """Until `n` more code checks have run and their answers reached the UI thread: what the
+        negative assertions wait on, instead of a sleep that a loaded machine can overrun."""
+        goal = code["checks"] + n
+        for _ in range(400):
+            if code["checks"] >= goal:
+                break
+            await pilot.pause(0.025)
+        await pilot.pause(0.05)
+
+    devmode._code_fingerprint = fingerprint
     devmode._dev_import_check = lambda log: True
     devmode.dev_mode_enabled = lambda: True
     try:
@@ -2709,22 +2724,22 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause(0.3)
             check("code restart: an unchanged tree asks nothing", not isinstance(app.screen, Confirm))
             code["fp"] = "v2"
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: new code asks, and does not restart on its own",
                   isinstance(app.screen, Confirm) and app.is_running and not app.restart_on_exit)
             code["fp"] = "v2b"
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: a newer update while it is open adds no second prompt",
                   sum(isinstance(sc, Confirm) for sc in app.screen_stack) == 1, str(app.screen_stack))
             await pilot.press("n")
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: n keeps running and neither version is asked about again",
                   app.is_running and not isinstance(app.screen, Confirm) and not app.restart_on_exit)
             code["fp"] = "v3"
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: a newer update asks again", isinstance(app.screen, Confirm))
             await pilot.press("y")
-            await pilot.pause(0.4)
+            await pilot.pause(0.3)       # the app stops: no more checks run to wait on
             check("code restart: y exits with a restart owed", app.restart_on_exit and not app.is_running)
 
         code["fp"] = "w1"
@@ -2737,20 +2752,20 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             box.text = "half a thought"
             await pilot.pause(0.2)
             code["fp"] = "w2"
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: a draft in the box is not asked over, the question owed",
                   app.is_running and app.restart_owed and app.screen is page)
             box.text = ""
             page.sending = 1
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: a send in flight is not asked over", app.screen is page)
             page.sending = 0
             other = Confirm("Sure", "?", yes="y", no="n")
             app.push_screen(other)
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: a box open over the page is not asked over", app.screen is other)
             app.pop_screen()
-            await pilot.pause(0.4)
+            await after_checks(pilot)
             check("code restart: nothing left to lose, the owed question is asked",
                   isinstance(app.screen, Confirm) and app.screen is not other)
             await pilot.press("escape")
@@ -2763,6 +2778,21 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             check("code restart: and y restarts", app.restart_on_exit and not app.is_running)
     finally:
         devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S = real
+
+
+def test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version() -> None:
+    """The worker's verdict reaches the UI thread after "Not now" was pressed: it names the version just
+    declined, so it asks nothing; a newer version still asks."""
+    app = bt.BridgeApp()
+    asked = []
+    app._restart_if_idle = lambda: asked.append(1)
+    app._code_state.update(fp="v1", seen="v2b")
+    app._decline_update()
+    app._code_checked(True, "v2b")           # the stale result of a check begun before the decline
+    check("code restart: a stale verdict for the declined version asks nothing",
+          not asked and not app.restart_owed, str(asked))
+    app._code_checked(True, "v3")
+    check("code restart: a newer version asks again", asked == [1] and app.restart_owed, str(asked))
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
@@ -5158,6 +5188,7 @@ async def _run_all() -> None:
     await test_the_bridge_asks_once_before_restarting_on_new_code()
     test_a_second_bridge_says_so_and_offers_to_take_over()
     test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed()
+    test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version()
     await test_the_stall_log_never_holds_what_is_typed_and_the_pid_file_is_held_by_the_bridge()
     test_dashboard_accounts_table_is_fed_by_accounts_data()
     test_dashboard_agents_table_is_fed_by_agents_data()
