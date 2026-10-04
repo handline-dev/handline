@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from ..team import accounts
@@ -165,8 +166,22 @@ def login_argv(acct: str, force: bool = False) -> tuple[str, list[str], dict]:
     action, msg = accounts.login_plan(acct, force=force)
     if action != "login":
         return msg, [], {}
+    env = {k: v for k, v in accounts.env_for(acct).items() if not k.startswith(_SESSION_ENV)}
     return (f"logging '{acct}' in - finish in claude, then come back",
-            vendors.for_account(acct).login_argv(), accounts.env_for(acct))
+            vendors.for_account(acct).login_argv(), env)
+
+
+# Set by a claude session for its own children; a login started from a terminal
+# that was itself opened by one would inherit it. CLAUDE_CONFIG_DIR is the account's.
+_SESSION_ENV = ("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID", "CLAUDE_TMPDIR", "CLAUDE_EFFORT")
+
+
+def tail_of_typescript(raw: str, lines: int = 2) -> str:
+    """The last few lines a terminal session printed, escapes and blanks removed: what
+    claude said before it exited, for a toast."""
+    text = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|[\x00-\x08\x0b-\x1f]", "", raw)
+    kept = [ln.strip() for ln in text.replace("\r", "\n").split("\n") if ln.strip()]
+    return " | ".join(kept[-lines:])
 
 
 def move(con, agent: str, account: str) -> str:

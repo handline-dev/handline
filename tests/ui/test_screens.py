@@ -3364,6 +3364,25 @@ def test_human_inbox_routing_matches_cmd_bridge() -> None:
         cliask._human_inbox = real_human
 
 
+def test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(tmp: Path) -> None:
+    """The login env carries the account's CLAUDE_CONFIG_DIR and none of the variables a claude
+    session sets for its children; the toast's tail is what claude printed, escapes gone."""
+    from ocp import actions, vendors
+    from ocp.team import accounts
+    accounts.register("loginacct")
+    os.environ.update(CLAUDECODE="1", CLAUDE_CODE_ENTRYPOINT="cli", CLAUDE_PID="1")
+    try:
+        line, argv, env = actions.login_argv("loginacct", force=True)
+    finally:
+        for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PID"):
+            os.environ.pop(k, None)
+    assert argv == vendors.for_account("loginacct").login_argv(), argv
+    assert env["CLAUDE_CONFIG_DIR"] == str(vendors.config_dir("loginacct")), env.get("CLAUDE_CONFIG_DIR")
+    assert not [k for k in env if k.startswith(("CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_PID"))], env
+    raw = "\x1b[2J\x1b[1mWelcome\x1b[0m\r\n\r\nError: keychain is locked\r\n\x1b[?25h"
+    assert actions.tail_of_typescript(raw) == "Welcome | Error: keychain is locked", actions.tail_of_typescript(raw)
+
+
 def test_task_tree_hangs_each_task_under_what_holds_it_up() -> None:
     def row(i, blocked=(), parent=None):
         return {"id": i, "blocked_by": list(blocked), "parent_task": parent}
@@ -3456,6 +3475,7 @@ def main() -> int:
         run(lambda: test_bridge_routing_is_textual_on_a_tty_and_text_otherwise())
         run(lambda: test_bridge_textual_missing_package_classification())
         run(lambda: test_human_inbox_routing_matches_cmd_bridge())
+        run(lambda: test_bridge_login_hands_claude_the_accounts_dir_and_no_session_vars_and_a_failure_says_what_claude_printed(Path(td) / 'login'))
     return run_area(tests)
 
 

@@ -22,7 +22,7 @@ from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, lis
 from .task_timeout import task_timeout, timeout_text, timeout_lines  # noqa: F401
 from .dialogs import add_answer, dialog_of, standing_answers, remove_answer  # noqa: F401
 from .prompt_blocks import open_blocks, open_block_of, headline as block_headline, request_answer as request_block_answer, answer as answer_block  # noqa: F401
-from .control import (wake, close, restart, unstall, park, fold, start, terminal, login_argv, move, can, ASYNC_VERBS, _IDLE_WAIT_S, _DELIVERY_S, WAITS, perform)  # noqa: F401
+from .control import (wake, close, restart, unstall, park, fold, start, terminal, login_argv, tail_of_typescript, move, can, ASYNC_VERBS, _IDLE_WAIT_S, _DELIVERY_S, WAITS, perform)  # noqa: F401
 from .requests import (message, message_ok, answer, answer_ok, record_human_resolve, dismiss, waiting_ids, cancel_plan, cancel, send_now, check_human_resolve, _is_answer_to_human, mailbox_rows, unseen_rows, for_you_seen, mark_read, fold_key, messages, founder_waits, opened_by_human, message_detail, QUOTE_LINES, _clip, EXCHANGE_ROWS, EXCHANGE_WIDTH, _exchange, _gist, _at, first_line)  # noqa: F401
 from .task_tree import task_tree  # noqa: F401
 from .tasks import memos_of, task_timeline, memo_add, memo_edit, memo_delete, memo_summary  # noqa: F401
