@@ -3481,6 +3481,9 @@ def test_an_accounts_email_is_asked_once_per_login(home: Path) -> None:
         check("email: an answer claude cannot give is not recorded as one",
               accounts.email("alpha") is None
               and "9999" not in (paths.account_dir("alpha") / "identity.json").read_text())
+        accounts.identity = lambda a: "late@example.com"
+        check("email: so a later ask that succeeds shows it",
+              accounts.email("alpha") == "late@example.com")
     finally:
         accounts.identity = orig
 

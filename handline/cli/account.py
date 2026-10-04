@@ -166,13 +166,10 @@ def cmd_account_cycle(args) -> int:
         return 0
     day = cycle.end_date(args.name)
     print(f"{args.name}: one-month subscription, " + (
-        f"last day {day}" + (" (a month after the subscription started)" if cycle.end_is_default(args.name) else "")
+        f"last day {day}" + (" (the next monthly anniversary of the subscription start)" if cycle.end_is_default(args.name) else "")
         if day else "no end date known - pass --end YYYY-MM-DD"))
     if pos and pos.day:
         print(f"  {pos.line()}")
-    if day and cycle.end_is_default(args.name) and cycle.end_of(args.name) <= time.time():
-        print(f"default end {day} is past - this account will not be picked; "
-              f"set the real end with --end YYYY-MM-DD")
     return 0
 
 

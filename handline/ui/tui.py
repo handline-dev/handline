@@ -324,7 +324,8 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
         # The tick beside the name says the pick could use it: not only
         # that it is under the wall but that it has a slot and would last.
         # No ranking: the one in hand is claude's; the page says the words.
-        allowed, _ = status.account_verdict(name, st, loads.get(name), [], _logged_in(name))
+        in_ = _logged_in(name)
+        allowed, _ = status.account_verdict(name, st, loads.get(name), [], in_)
         # The figure shown is the one decisions are made on, with a mark saying
         # where it came from - a quiet window drawn as "?" while the daemon acts
         # on 0% is the dashboard and the daemon disagreeing.
@@ -335,12 +336,20 @@ def accounts_data(con) -> tuple[list[AccountRow], list[str]]:
             name, cells, f"{GRN}✔{R}" if allowed else f"{RED}✘{R}",
             # Where work goes next is said in a word after the tick, not drawn
             # in the gutter the selection cursor uses on every other panel.
-            f" {GRN}{BOLD}next{R}" if name == first else ""))
+            account_note(in_, name == first)))
     notes = [] if rows else ["no accounts registered"]
     outlook = status.team_outlook(gone=lambda a: not _logged_in(a))
     if outlook:
         notes.append(outlook)
     return rows, notes
+
+
+def account_note(logged_in: bool, is_next: bool) -> str:
+    """The word after an account's tick: why it is crossed when it is logged
+    out, so that cross is not read as a full or capped one; else `next`."""
+    if not logged_in:
+        return f" {RED}not logged in{R}"
+    return f" {GRN}{BOLD}next{R}" if is_next else ""
 
 
 class WallCell(NamedTuple):

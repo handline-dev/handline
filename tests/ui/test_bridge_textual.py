@@ -1786,8 +1786,8 @@ def test_dashboard_accounts_table_is_fed_by_accounts_data() -> None:
         con.close()
     check("accounts_data: one row per registered account, keyed by name",
           [r.name for r in rows] == ["alpha"], rows)
-    check("accounts_data: a not-logged-in account carries the cross and not 'next'",
-          "\u2718" in rows[0].mark and rows[0].next == "", rows[0])
+    check("accounts_data: a not-logged-in account carries the cross and why, not 'next'",
+          "\u2718" in rows[0].mark and "not logged in" in rows[0].next and "next" not in tui._ANSI.sub("", rows[0].next).replace("not logged in", ""), rows[0])
     check("accounts_data: every column the panel draws has a cell",
           set(rows[0].cells) == set(tui.ACCT_W) - {"name"}, sorted(rows[0].cells))
 
