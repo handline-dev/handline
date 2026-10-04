@@ -139,3 +139,43 @@ def group_uses(uses: list[AgentUse]) -> list[UseRow]:
         for u in members:               # `uses` is largest cost first, and that order is kept
             rows.append(UseRow(u.agent, "self" if u.agent == name else u.agent[len(name) + 1:], 1, u))
     return rows
+
+
+OTHER = "other"
+
+
+def daily_cost(con, lo: int, hi: int, prices: dict[str, float] | None = None) -> dict[str, dict[str, float]]:
+    """List-price cost of each agent per local calendar day over (lo, hi]: {"YYYY-MM-DD": {agent: USD}}.
+    The same `token_calls` rows, prices and worktree attribution as `agent_use`; a day is the local
+    day of a call's timestamp, and a day with no call is absent."""
+    import datetime as dt
+    trees = _worktrees(con)
+    out: dict[str, dict[str, float]] = {}
+    for r in con.execute("SELECT ts, cwd, model, inp, cc, cr, out, thinking FROM token_calls "
+                         "WHERE ts > ? AND ts <= ?", (lo, hi)):
+        day = dt.datetime.fromtimestamp(r["ts"]).strftime("%Y-%m-%d")
+        agent = agent_for_cwd(r["cwd"], trees)
+        priced = pricing.class_costs(r["model"], r["inp"], r["cc"], r["cr"], r["out"], r["thinking"], prices)
+        per = out.setdefault(day, {})
+        per[agent] = per.get(agent, 0.0) + sum(priced.values())
+    return out
+
+
+def stack_agents(per_day: dict[str, dict[str, float]], top: int = 7) -> tuple[list[str], dict[str, dict[str, float]]]:
+    """The `top` agents by cost over all the days, most first, and each day's cost by those and by
+    `OTHER` (every agent after them added together, present only when there is one)."""
+    total: dict[str, float] = {}
+    for per in per_day.values():
+        for agent, c in per.items():
+            total[agent] = total.get(agent, 0.0) + c
+    ranked = sorted(total, key=lambda a: (-total[a], a))
+    keep = ranked[:top]
+    stacked: dict[str, dict[str, float]] = {}
+    for day, per in per_day.items():
+        row: dict[str, float] = {}
+        for agent, c in per.items():
+            label = agent if agent in keep else OTHER
+            row[label] = row.get(label, 0.0) + c
+        stacked[day] = row
+    labels = keep + ([OTHER] if len(ranked) > top else [])
+    return labels, stacked
