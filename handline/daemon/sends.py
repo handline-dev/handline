@@ -10,6 +10,7 @@ exactly as OCP_AGENT always was; the socket is private to the user (0600).
 """
 from __future__ import annotations
 
+import shlex
 import threading
 
 from .. import actions, db
@@ -70,6 +71,14 @@ def _is_report_of(me: str, target: str) -> bool:
         return False
 
 
+def _say_cmd(target: str, body: str, parent: int | None, *flags: str) -> str:
+    """A `hl say` line ready to paste: the body as sent, quoted, with the flags that would have worked."""
+    parts = ["hl say", target, shlex.quote(body)]
+    if parent is not None:
+        parts.append(f"--parent {parent}")
+    return " ".join(parts + list(flags))
+
+
 def say_verb(con, log, **kw) -> tuple[bool, str]:
     """`hl say TARGET BODY`: a message that needs no answer, typed at once."""
     me, speaker = _who(kw)
@@ -86,10 +95,20 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         # An answer to the founder's question on a task is no work to name: it joins that task.
         asked_on = [t["id"] for t in db.tasks_for_request(con, parent["id"])] if parent["kind"] == "say" else []
         plain = bool(asked_on) and not task and no_task is None
+        defaulted = False
+        if not plain and not task and no_task is None:
+            # Exactly one open task of the sender's is what the reply is about; with none or
+            # several the choice is theirs, and the refusal below names them.
+            mine = [t["id"] for t in db.open_tasks(con) if t["owner"] == me]
+            if len(mine) == 1:
+                task, defaulted = mine[0], True
         refusal = None if plain else actions.check_human_resolve(con, parent, [task] if task else None, no_task,
                                                                  me, one_task=True)
         if refusal:
-            return False, refusal
+            mine = [t["id"] for t in db.open_tasks(con) if t["owner"] == me]
+            tries = [_say_cmd(target, kw["body"], kw["parent"], f"--task T{t}") for t in mine[:3]]
+            tries.append(_say_cmd(target, kw["body"], kw["parent"], "--no-task '<why>'"))
+            return False, refusal + "\nTry:\n  " + "\n  ".join(tries)
         ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
                                   speaker=speaker, notify=False)
         if ok:
@@ -99,19 +118,22 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
             elif db.get_request(con, kw["parent"])["state"] != "queued":     # it settled, not lost a race
                 actions.record_human_resolve(con, kw["parent"], [task] if task else None, no_task, me)
             _after(rid, kw["target"], log)
+            if ok and defaulted:
+                msg += f"\nattached to T{task}, your only open task"
         return ok, msg
-    if no_task is not None:
-        return False, ("--no-task is for replying to the founder's request (--parent <its id>): "
-                       "say what it becomes there")
+    if no_task is not None and target != actions.HUMAN:
+        return False, ("--no-task is for replying to the founder (hl say human ...); to anyone else it "
+                       "means nothing. Try:\n  " + _say_cmd(target, kw["body"], kw.get("parent")))
     if task is None and kw.get("parent") is None and _is_report_of(me, target):
         return False, ("work cannot reach a report by message: make it a task (`hl task new`), "
-                       "or say --task T<n> to memo one")
+                       "or say --task T<n> to memo one. Try:\n  "
+                       f"hl task new --owner {target} -t 2h '<title>' {shlex.quote(kw['body'])}")
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is
         # that task's memo, delivered as one.
         row = db.get_task(con, task)
         if row is None:
-            return False, f"no task T{task}"
+            return False, f"no task T{task}. Try:\n  " + _say_cmd(target, kw["body"], kw.get("parent"))
         if target == actions.HUMAN and row["opened_by"] == me:
             # A reply to the founder naming the task it became: it is theirs to read, not a memo,
             # and the task is named whoever holds it now.
@@ -122,7 +144,8 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
                 _after(rid, kw["target"], log)
             return ok, msg
         if row["owner"] != target:
-            return False, f"T{task} is with {row['owner']}, not {target}"
+            return False, (f"T{task} is with {row['owner']}, not {target}. Try:\n  "
+                           + _say_cmd(row["owner"], kw["body"], kw.get("parent"), f"--task T{task}"))
         ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
         return ok, msg
     ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -241,12 +242,13 @@ def cmd_task_new(args) -> int:
         return 1
     if args.timeout is None:
         print("a task needs -t/--timeout (90m, 2h; at most "
-              f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
+              f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}). Try:\n"
+              f"  hl task new --owner {args.owner} -t 2h {shlex.quote(args.title or '<title>')}")
         return 1
     priority = args.priority if args.priority is not None else db.DEFAULT_PRIORITY
     title = textsafe.oneline(args.title).strip()
     if not title:
-        print("a task needs a title")
+        print(f"a task needs a title. Try:\n  hl task new --owner {args.owner} -t 2h '<title>'")
         return 1
     inline = args.body
     if args.file or inline == "-":

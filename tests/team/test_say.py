@@ -583,6 +583,71 @@ def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: P
               f"read as a look-up", not actions.is_lookup_bash(cmd))
 
 
+def test_say_friction_fixes(home: Path) -> None:
+    """Founder-approved fixes: a refusal prints the command that would work, --no-task to the
+    founder needs no open request, the sender's one open task is the default, and a body the
+    shell ate is warned about."""
+    from handline.cli.say import quoting_warning
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: manager, to: worker, relation: supervisor, response: fire_and_forget }
+  - { from: worker, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: human, kind: task }
+  - { from: human, to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    con = db.connect()
+    frid = db.add_request(con, "human", "manager", "how is it?", None, "supervisor",
+                          "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    # (3) the refusal carries a pasteable command, body quoted, parent kept
+    rc, out = _cli(["say", "human", "it's fine", "--parent", str(frid)], as_agent="manager")
+    check("refusal: names the --no-task command with the body quoted and the parent",
+          rc == 1 and f"hl say human 'it'\"'\"'s fine' --parent {frid} --no-task '<why>'" in out, out)
+    rc, out = _cli(["say", "worker", "do x"], as_agent="manager")
+    check("refusal: work to a report names the task command",
+          rc == 1 and "hl task new --owner worker -t 2h '<title>' 'do x'" in out, out)
+    # (1) zero open tasks: still refused. exactly one: attached, and said so
+    ok, msg, tid = actions.task_new("worker", "manager", "mine", "mine")
+    check("setup: manager holds one task", ok, msg)
+    rc, out = _cli(["say", "human", "fine", "--parent", str(frid)], as_agent="manager")
+    con = db.connect()
+    try:
+        check("default task: the one open task is attached and the reply says so",
+              rc == 0 and f"attached to T{tid}, your only open task" in out
+              and db.get_request(con, frid)["state"] == "landed", out)
+        check("default task: the founder's request is linked to that task",
+              [t["id"] for t in db.tasks_for_request(con, frid)] == [tid], out)
+    finally:
+        con.close()
+    # several open tasks: the choice is the sender's, and the refusal lists them
+    ok, msg, tid2 = actions.task_new("worker", "manager", "mine too", "mine too")
+    con = db.connect()
+    frid2 = db.add_request(con, "human", "manager", "and now?", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    rc, out = _cli(["say", "human", "ok", "--parent", str(frid2)], as_agent="manager")
+    check("default task: with two open tasks it is refused and each is offered",
+          rc == 1 and f"--task T{tid}" in out and f"--task T{tid2}" in out, out)
+    # (2) --no-task to the founder with no open request to settle is sent, not refused
+    rc, out = _cli(["say", "human", "one more thing", "--no-task", "a status note"], as_agent="manager")
+    check("--no-task to the founder works with no parent", rc == 0 and "queued as #" in out, out)
+    # (4) the warning
+    check("quoting: an empty span and a gap are flagged",
+          quoting_warning("run `` now") and quoting_warning("run  now") and quoting_warning("a `b"))
+    check("quoting: a whole body is not", quoting_warning("run `ls` now") is None
+          and quoting_warning("one\n\ntwo") is None)
+    rc, out = _cli(["say", "human", "run  now", "--no-task", "x"], as_agent="manager")
+    check("quoting: the CLI prints the warning and still sends",
+          rc == 0 and "lost text to shell quoting" in out and "queued as #" in out, out)
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -610,6 +675,7 @@ def main() -> int:
         run(lambda: test_is_lookup_bash_matches_the_allowlist_by_prefix(Path(td) / 'saylookup'))
         run(lambda: test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(
             Path(td) / 'sayshellop'))
+        run(lambda: test_say_friction_fixes(Path(td) / 'sayfriction'))
     return run_area(tests)
 
 
