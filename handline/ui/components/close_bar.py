@@ -2,7 +2,8 @@
 border line, for every modal. A click on it asks the screen to `close()`: the same answer Escape gives."""
 from __future__ import annotations
 
-CORNER_W = 9        # the cells at the right end of the top border that count as the ✕ close
+LABEL = " ✕ close "
+CORNER_W = len(LABEL) + 3     # the label, the cell of padding Textual puts each side of a border title, and the corner
 
 
 def in_close_corner(left: int, top: int, width: int, x: int, y: int) -> bool:
@@ -21,7 +22,7 @@ class CloseCorner:
         if not self.CLOSE_CORNER:
             return
         box = self.query_one("#dialog")
-        box.border_title = " ✕ close "
+        box.border_title = LABEL
         box.styles.border_title_align = "right"
         box.styles.border_title_color = "white"
         box.styles.border_title_style = "bold"

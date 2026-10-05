@@ -2856,7 +2856,7 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     import handline.ui as ui
     from textual.screen import ModalScreen
     from handline.ui.components import agent_settings_screen
-    from handline.ui.components.close_bar import CloseCorner, in_close_corner
+    from handline.ui.components.close_bar import CORNER_W, LABEL, CloseCorner, in_close_corner
     from handline.ui.components.confirm import Confirm
     from handline.ui.components.dialog import Dialog
     for m in pkgutil.walk_packages(ui.__path__, "handline.ui."):
@@ -2885,8 +2885,12 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     check("close: a modal whose choice already closes (No, Cancel) leaves the corner off, the rest keep it",
           off == {"Confirm", "TaskAssign", "ScheduleAdd", "AnswerAdd", "SiteEdit"}, str(off))
     check("close: only the last cells of the top border are the corner",
-          in_close_corner(10, 4, 60, 68, 4) and not in_close_corner(10, 4, 60, 60, 4)
+          in_close_corner(10, 4, 60, 68, 4) and not in_close_corner(10, 4, 60, 57, 4)
           and not in_close_corner(10, 4, 60, 68, 5) and not in_close_corner(10, 4, 60, 70, 4))
+    # drawn right-aligned: padding + label + padding + corner cell, the ✕ being the label's second cell
+    x_cell = 10 + 60 - (len(LABEL) + 3) + 2
+    check("close: the drawn ✕ close label lies in the click area", in_close_corner(10, 4, 60, x_cell, 4)
+          and CORNER_W == len(LABEL) + 3)
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
