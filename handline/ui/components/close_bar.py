@@ -22,7 +22,7 @@ class CloseCorner:
             return
         box = self.query_one("#dialog")
         box.border_title = " ✕ close "
-        box.border_title_align = "right"
+        box.styles.border_title_align = "right"
         box.styles.border_title_color = "white"
         box.styles.border_title_style = "bold"
 
