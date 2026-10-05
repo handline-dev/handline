@@ -9142,7 +9142,7 @@ def test_requests_parent_id_is_indexed(home: Path) -> None:
 
 
 def test_connect_to_a_migrated_database_takes_no_write_lock(home: Path) -> None:
-    """T1587: the UI connects every 2s; a connect whose migration finds nothing to do must not wait
+    """The UI connects every 2s; a connect whose migration finds nothing to do must not wait
     for the write lock another process holds (it died on 'database is locked')."""
     import sqlite3
     home.mkdir(parents=True, exist_ok=True)
