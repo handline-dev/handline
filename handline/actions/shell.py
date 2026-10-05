@@ -14,11 +14,11 @@ import threading
 import time
 from pathlib import Path
 
-from ..infra import protected
+from ..infra import paths, protected, textsafe
 
 KEEP_LINES = 20000      # the lines kept of one command's output; the oldest go first
 GRACE_S = 2             # SIGTERM -> SIGKILL when a command is stopped
-SEND_LINES = 200        # the last lines of the output that go to the agent
+KEEP_FILES = 50         # the output files kept under <home>/shell; the oldest go first
 
 
 def command_of(text: str) -> str | None:
@@ -49,9 +49,11 @@ class ShellRun:
         self.dropped = 0            # lines past KEEP_LINES that were let go
         self.code: int | None = None
         self.stopped = False
+        self.sent = False           # its result went to the agent
         self.started = time.time()
         self.ended: float | None = None
         self._lock = threading.Lock()
+        self._file: Path | None = None
         try:
             self._proc = subprocess.Popen(["zsh", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -102,11 +104,22 @@ class ShellRun:
         except (ProcessLookupError, PermissionError):
             pass
 
+    def save_output(self) -> Path:
+        """Everything kept of the output, written to a file the agent can read; the same file on a second call."""
+        if self._file is None:
+            folder = paths.home() / "shell"
+            folder.mkdir(parents=True, exist_ok=True)
+            for old in sorted(folder.glob("*.txt"), key=lambda f: f.stat().st_mtime)[:-(KEEP_FILES - 1)]:
+                old.unlink(missing_ok=True)
+            self._file = folder / f"{int(self.started)}-{os.getpid()}-{id(self) % 10000}.txt"
+        lines, dropped, _ = self.snapshot()
+        kept = ([f"... {dropped} earlier lines left out"] if dropped else []) + lines
+        self._file.write_text("".join(f"{safe}\n" for ln in kept for safe in textsafe.drawable(ln)))     # no escape codes for the agent to read
+        return self._file
+
     def as_message(self) -> str:
-        """The command and the end of its output, as the words that go to the agent."""
+        """The command, how it ended and the file its output is in, as the words that go to the agent."""
         lines, dropped, code = self.snapshot()
-        tail = lines[-SEND_LINES:]
-        cut = dropped + len(lines) - len(tail)
         status = "still running" if code is None else f"exit {code}"
-        return "\n".join([f"I ran `{self.command}` in {self.cwd} ({status}):", "```",
-                          *([f"... {cut} earlier lines left out"] if cut else []), *tail, "```"])
+        return (f"I ran `{self.command}` in {self.cwd} ({status}). Its {len(lines) + dropped} lines of output "
+                f"are in {self.save_output()}; read it there.")
