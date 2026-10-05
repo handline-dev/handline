@@ -165,7 +165,7 @@ def _eligible(con, agent: str, now: int) -> bool:
     return last is not None and now - last < RESUME_WARM_S
 
 
-def _ask(con, agent: str, log, kind: str = "close") -> bool:
+def ask(con, agent: str, log, kind: str = "close") -> bool:
     path = note_path(agent)
     path.unlink(missing_ok=True)
     last_event = con.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
@@ -199,7 +199,7 @@ def at_cache_edge(con, agent: str, now: int, st, log) -> bool:
     elapsed = now - clock.at
     if not (ASK_AT * clock.ttl <= elapsed < clock.ttl - ASK_MARGIN_S):
         return False
-    return _ask(con, agent, log, "cache")
+    return ask(con, agent, log, "cache")
 
 
 def hold(con, agent: str, now: int, log) -> bool:
@@ -208,6 +208,6 @@ def hold(con, agent: str, now: int, log) -> bool:
     on, with the note if it was written and without it otherwise - never a block."""
     got = asked(con, agent)
     if got is None:
-        return _eligible(con, agent, now) and _ask(con, agent, log)
+        return _eligible(con, agent, now) and ask(con, agent, log)
     when, prompts = got
     return prompts == 0 and now - when < ASK_WAIT_S
