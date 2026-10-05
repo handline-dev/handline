@@ -524,6 +524,9 @@ import json, os, sys
 state_path = os.environ["FAKE_TMUX_STATE"]
 raw = sys.argv[1:]
 args = raw[2:] if raw[:1] == ["-L"] else raw
+if os.environ.get("FAKE_TMUX_DOWN"):
+    sys.stderr.write("protocol version mismatch\n")
+    sys.exit(1)
 try:
     st = json.load(open(state_path))
 except OSError:
