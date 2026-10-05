@@ -1,8 +1,8 @@
-"""The one visible way to close a box over the page: a small `×` in its top-right corner, on the
+"""The one visible way to close a box over the page: a small `✕ close` in its top-right corner, on the
 border line, for every modal. A click on it asks the screen to `close()`: the same answer Escape gives."""
 from __future__ import annotations
 
-CORNER_W = 5        # the cells at the right end of the top border that count as the ×
+CORNER_W = 9        # the cells at the right end of the top border that count as the ✕ close
 
 
 def in_close_corner(left: int, top: int, width: int, x: int, y: int) -> bool:
@@ -21,7 +21,7 @@ class CloseCorner:
         if not self.CLOSE_CORNER:
             return
         box = self.query_one("#dialog")
-        box.border_title = " × "
+        box.border_title = " ✕ close "
         box.border_title_align = "right"
         box.styles.border_title_color = "white"
         box.styles.border_title_style = "bold"
