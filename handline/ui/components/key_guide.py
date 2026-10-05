@@ -14,7 +14,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from .close_bar import CloseBar
+from .close_bar import CloseCorner
 
 SEP = " · "
 HELP_KEY = "?"
@@ -69,7 +69,7 @@ class KeyGuide(Static):
         self.update(fit(self.keys, self.size.width))
 
 
-class KeyHelp(ModalScreen[None]):
+class KeyHelp(CloseCorner, ModalScreen[None]):
     """Every key of a screen, with what it does."""
 
     BINDINGS = [Binding("escape", "dismiss", "close"), Binding("question_mark", "dismiss", "close")]
@@ -79,6 +79,9 @@ class KeyHelp(ModalScreen[None]):
                       padding: 1 2; border: thick $primary; background: $panel; }
     KeyHelp #hint { margin-top: 1; color: $text-muted; }
     """
+
+    def on_mount(self) -> None:
+        self.mark_close_corner()
 
     def close(self) -> None:
         self.dismiss(None)
@@ -97,7 +100,6 @@ class KeyHelp(ModalScreen[None]):
             body.append(k.key.ljust(width + 2), "bold")
             body.append((k.help or k.label) + "\n")
         with Vertical(id="dialog"):
-            yield CloseBar()
             yield Static(Text(self.title_text, style="bold"))
             yield Static(body, id="keys")
             yield Static("esc or ? closes", id="hint")

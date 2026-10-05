@@ -16,6 +16,8 @@ class AnswerAdd(Dialog):
     and title, and the option to choose). Dismisses with the fields for `actions.add_answer`, or
     None."""
 
+    CLOSE_CORNER = False        # Esc is the Cancel button's key
+
     FOCUS = "#ans_folder"
     DEFAULT_CSS = """
     AnswerAdd #title { margin-bottom: 1; }

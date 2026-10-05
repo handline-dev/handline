@@ -15,6 +15,8 @@ class TaskAssign(Dialog):
     """The founder handing a task on from its page: the agent and the note that goes with it.
     Dismisses with (to, text), or None."""
 
+    CLOSE_CORNER = False        # Esc is the Cancel button's key
+
     FOCUS = "#ta_text"
     DEFAULT_CSS = """
     TaskAssign #title { margin-bottom: 1; }

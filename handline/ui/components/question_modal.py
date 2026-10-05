@@ -17,11 +17,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Static
 
 from ...infra import textsafe
-from .close_bar import CloseBar
+from .close_bar import CloseCorner
 from .text_prompt import TextPrompt
 
 
-class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
+class QuestionModal(CloseCorner, ModalScreen["tuple[bool, str] | None"]):
     """Dismisses with `press`'s own (ok, said) once it has actually run, or
     None when closed by hand before anything was sent - the terminal is left
     as it is either way. Pressing an option runs `press` on a thread; every
@@ -44,6 +44,9 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     QuestionModal #hint { color: $text-muted; }
     """
 
+    def on_mount(self) -> None:
+        self.mark_close_corner()
+
     def close(self) -> None:
         self.dismiss(None)
 
@@ -62,7 +65,6 @@ class QuestionModal(ModalScreen["tuple[bool, str] | None"]):
     def compose(self) -> ComposeResult:
         d = self.found
         with Vertical(id="dialog"):
-            yield CloseBar()
             yield Static(Text(f"{textsafe.oneline(d['agent'])} is asking - {textsafe.oneline(d['header'])}",
                               style="dim"), id="header")
             yield Static(Text(textsafe.oneline(d["question"])), id="question")

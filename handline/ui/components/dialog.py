@@ -5,10 +5,10 @@ from textual.binding import Binding
 from textual.screen import ModalScreen
 
 from .. import stall
-from .close_bar import CloseBar
+from .close_bar import CloseCorner
 
 
-class Dialog(ModalScreen):
+class Dialog(CloseCorner, ModalScreen):
     """A box in the middle of the screen over what is under it. A subclass draws its content in a
     `Vertical(id="dialog")`, names the widget to focus when it opens in `FOCUS` (a selector), and
     leaves through `finish`; Escape finishes with None. What is under it takes focus back by
@@ -26,8 +26,7 @@ class Dialog(ModalScreen):
     _finished = False
 
     def on_mount(self) -> None:
-        box = self.query_one("#dialog")
-        box.mount(CloseBar(), before=0)
+        self.mark_close_corner()
         if self.FOCUS:
             self.query_one(self.FOCUS).focus()
 

@@ -35,6 +35,7 @@ class Confirm(Dialog):
     or a stray arrow never answers it. Dismisses with True or False."""
 
     CLOSE_RESULT = False        # closing without answering is "no"
+    CLOSE_CORNER = False        # Esc is the No button's own key
     DEFAULT_CSS = """
     Confirm #dialog { width: 64; }
     Confirm #dialog.danger { border: thick $error; }

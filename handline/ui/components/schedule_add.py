@@ -18,6 +18,8 @@ class ScheduleAdd(Dialog):
     minutes), the time it needs, and a one-line message. It builds the cron with
     `actions.schedule_cron` and dismisses with (cron, message), or None."""
 
+    CLOSE_CORNER = False        # Esc is the Cancel button's key
+
     FOCUS = "#sa_message"
     DEFAULT_CSS = """
     ScheduleAdd #title { margin-bottom: 1; }
