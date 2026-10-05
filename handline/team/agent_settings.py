@@ -207,7 +207,7 @@ def set_by_agent(agent: str, values: dict[str, str], speaker: str | None) -> tup
     what `ORDINARY` names. `speaker` is the caller's own word, as for ask and say: the
     socket is private to the user, so this guards against mistakes, not a hostile local process."""
     if speaker != agent:
-        return False, f"{speaker or 'someone'} may not change {agent}'s settings; an agent changes its own"
+        return False, f"{speaker or 'someone'} may not change {agent}'s settings; an agent changes its own. For another's, propose it: `hl agent set {agent} <setting>=<value> --why \"...\"`"
     held = sorted(k for k in values if privileged(k))
     if held:
         return False, f"{', '.join(held)} needs the founder's approval: propose it with `hl agent set`"
