@@ -1089,7 +1089,7 @@ def notices_text(con, agent: str, folded) -> str:
     lines = []
     for r in folded:
         t = textsafe.oneline(r["body"])
-        # A cut notice names its id: the cut part held the result's paths and caveats (T1670).
+        # A cut notice names its id: the cut part held the result's paths and caveats.
         lines.append(t if len(t) <= NOTICE_SHOWN else f"{t[:NOTICE_SHOWN].rstrip()}… (hl read {r['id']})")
     left = len(db.pending_notices(con, agent)) - len(folded)
     return " Also: " + " | ".join(lines) + (f" (+{left} more: `hl inbox --all`)" if left else "")
