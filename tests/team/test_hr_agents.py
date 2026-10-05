@@ -2987,7 +2987,7 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
               and "proposal" in out, f"rc={rc} {out}")
     finally:
         dmn_client.send = real
-    pid = next(x["id"] for x in hr.listing() if x["kind"] == "settings")
+    pid = next(x["id"] for x in hr.listing() if x["kind"] == "settings" and x["agent"] == "worker")
     prop = hr.load_proposal(pid)
     con = db.connect()
     try:
