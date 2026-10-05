@@ -1039,7 +1039,8 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
     never answered with a verdict; whoever opened it, whoever asked through a linked delivery, and
     `also` are told in one say each, from the task board - "T<n> done by <by>: <evidence>" - as rows
     written in this same transaction, so a crash or a tick between the end and the notice cannot
-    lose it. Not the closer; not the owner of a parent task, which hears of a child from
+    lose it. The opener is the one waiting, so its say is typed at once; the others' is a notice
+    for the digest. Not the closer; not the owner of a parent task, which hears of a child from
     `_child_result_notice`. The caller delivers the returned `(rid, to, text)` after COMMIT
     (`_deliver_unblocked`). The notices are not linked to the task: a task that ended must not read
     as sent because of a say."""
@@ -1062,7 +1063,7 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
         if to in skip or to not in known:
             continue
         rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
-                             notice=not urgent_result(done_text))
+                             notice=to != row["opened_by"] and not urgent_result(done_text))
         db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
         told.append((rid, to, text))
     return told

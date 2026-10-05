@@ -3751,8 +3751,8 @@ limits:
             actions.tasks._deliver_unblocked = real
         taskqueue.sweep(con, lambda *_: None, 0)
         lost = says_to(con, "manager", f"T{crash} done by")
-        check("task end: a crash between the commit and the delivery leaves the notice written, not lost",
-              len(lost) == 1 and lost[0]["state"] == "landed" and lost[0]["delivered_at"] is None,
+        check("task end: a crash between the commit and the delivery leaves the say written, not lost",
+              len(lost) == 1 and lost[0]["state"] == "queued" and lost[0]["delivered_at"] is None,
               str([dict(r) for r in lost]))
 
         ok, _, by_founder = actions.task_new("manager", "worker", "closed by the founder", "w")
