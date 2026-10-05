@@ -179,3 +179,46 @@ def stack_agents(per_day: dict[str, dict[str, float]], top: int = 7) -> tuple[li
         stacked[day] = row
     labels = keep + ([OTHER] if len(ranked) > top else [])
     return labels, stacked
+
+
+def team_of(agent: str) -> str:
+    """The team an agent is drawn under: the first part of its dotted name (the way `group_uses` does)."""
+    return agent.split(".", 1)[0]
+
+
+def by_team(per_day: dict[str, dict[str, float]], team: str | None = None) -> dict[str, dict[str, float]]:
+    """Each day's cost by team (`team` None), or, for one `team`, by that team's own agents and nobody else's.
+    A team's day is the sum of its agents' days, so the two levels add up to one another."""
+    out: dict[str, dict[str, float]] = {}
+    for day, per in per_day.items():
+        row: dict[str, float] = {}
+        for agent, c in per.items():
+            if team is None:
+                row[team_of(agent)] = row.get(team_of(agent), 0.0) + c
+            elif team_of(agent) == team:
+                row[agent] = row.get(agent, 0.0) + c
+        out[day] = row
+    return out
+
+
+def cost_tree(per_day: dict[str, dict[str, float]]) -> list[tuple[str, str, int, float]]:
+    """The agents as the table lists them, (key, label, depth, cost over all the days): a team with
+    more than its own agent is a `grp:<team>` row at depth 0 with its agents under it at depth 1
+    (`self` for the agent named as the team), a lone agent is one plain row; dearest team first and
+    dearest agent first inside it."""
+    total: dict[str, float] = {}
+    for per in per_day.values():
+        for agent, c in per.items():
+            total[agent] = total.get(agent, 0.0) + c
+    teams: dict[str, list[str]] = {}
+    for agent in total:
+        teams.setdefault(team_of(agent), []).append(agent)
+    rows: list[tuple[str, str, int, float]] = []
+    for team, members in sorted(teams.items(), key=lambda kv: (-sum(total[a] for a in kv[1]), kv[0])):
+        if members == [team]:
+            rows.append((team, team, 0, total[team]))
+            continue
+        rows.append((f"grp:{team}", team, 0, sum(total[a] for a in members)))
+        for a in sorted(members, key=lambda a: (-total[a], a)):
+            rows.append((a, "self" if a == team else a[len(team) + 1:], 1, total[a]))
+    return rows

@@ -166,6 +166,35 @@ def test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(home: Path) -
           and ov._cell(16, 8, [(0, 8, "#111111")])[0] == " ")
 
 
+def test_the_cost_tree_groups_agents_by_team_and_the_levels_add_up() -> None:
+    per = {"2026-10-01": {"boss": 1.0, "boss.core": 2.0, "boss.ui": 4.0, "solo": 3.0},
+           "2026-10-02": {"boss.core": 1.0, "boss.ui": 0.5, "other.x": 0.25}}
+    check("tree: a team is the first part of the dotted name", stats.team_of("boss.core.sub") == "boss"
+          and stats.team_of("solo") == "solo")
+    teams = stats.by_team(per)
+    check("tree: at the team level a day is the sum of its team's agents",
+          teams["2026-10-01"] == {"boss": 7.0, "solo": 3.0} and teams["2026-10-02"] == {"boss": 1.5, "other": 0.25},
+          str(teams))
+    inside = stats.by_team(per, "boss")
+    check("tree: inside a team the bars are its own agents and nobody else's",
+          inside["2026-10-01"] == {"boss": 1.0, "boss.core": 2.0, "boss.ui": 4.0}
+          and inside["2026-10-02"] == {"boss.core": 1.0, "boss.ui": 0.5}, str(inside))
+    check("tree: the members add up to the team, on every day",
+          all(abs(sum(inside[d].values()) - teams[d]["boss"]) < 1e-12 for d in per))
+    check("tree: the days add up the same either way",
+          abs(sum(sum(v.values()) for v in teams.values()) - sum(sum(v.values()) for v in per.values())) < 1e-12)
+    tree = stats.cost_tree(per)
+    check("tree: dearest team first, a team's row then its agents dearest first, a lone agent one plain row",
+          tree == [("grp:boss", "boss", 0, 8.5), ("boss.ui", "ui", 1, 4.5), ("boss.core", "core", 1, 3.0),
+                   ("boss", "self", 1, 1.0), ("solo", "solo", 0, 3.0), ("grp:other", "other", 0, 0.25),
+                   ("other.x", "x", 1, 0.25)], str(tree))
+    check("tree: the team row is the sum of the rows under it",
+          abs(tree[0][3] - sum(c for k, _, d, c in tree if d == 1 and stats.team_of(k) == "boss")) < 1e-12)
+    top, stacked = stats.stack_agents(teams, top=1)
+    check("tree: the top-seven rule applies to teams at the team level (here the top one) and the rest are other",
+          top == ["boss", stats.OTHER] and abs(stacked["2026-10-01"][stats.OTHER] - 3.0) < 1e-12, str(top))
+
+
 def _sample(con, account, ago_h, used, reset_h=48, legacy=False, lost=False) -> None:
     ts = NOW - int(ago_h * H)
     if legacy:      # written before windows were a list: the four names of claude's two
@@ -394,6 +423,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_prices(Path(td) / 'stats1'))
         run(lambda: test_agent_use_is_by_what_tokens_cost(Path(td) / 'stats2'))
+        run(lambda: test_the_cost_tree_groups_agents_by_team_and_the_levels_add_up())
         run(lambda: test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(Path(td) / 'stats2b'))
         run(lambda: test_the_outlook_reads_each_sample_once_and_says_the_same(Path(td) / 'stats3'))
         run(lambda: test_the_guess_resets_the_week_again_each_week(Path(td) / 'stats4'))
