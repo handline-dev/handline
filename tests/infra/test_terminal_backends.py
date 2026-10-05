@@ -17,6 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import control as actions_control  # noqa: E402
+from handline.team import guide as guidemod  # noqa: E402
 
 
 class FakeHost(backends.base.Backend):
@@ -92,6 +94,78 @@ def test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_ba
 def test_the_old_module_name_is_the_same_module() -> None:
     import handline.session.orca as old
     check("rename: `handline.session.orca` is the very module `term`, not a copy", old is termmod)
+
+
+def test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(home: Path) -> None:
+    use_home(home)
+
+    class Watching(FakeHost):
+        def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
+            self.reading = turn_on_screen
+            return True
+    host, real = Watching(), termmod._lookup_driver
+    claude = vendors.get("claude")
+    backends.use(host)
+    termmod._lookup_driver = lambda handle: claude
+    try:
+        check("idle: the layer hands the host the driver's own turn_on_screen",
+              termmod.wait_idle("h1", 1000) is True and host.reading == claude.turn_on_screen)
+    finally:
+        termmod._lookup_driver = real
+    oc = vendors.get("opencode")
+    check("idle: opencode reads a turn on its own screen, and none on an idle or a missing one",
+          oc.turn_on_screen(OC_WORKING) is True and oc.turn_on_screen(OC_IDLE) is False
+          and oc.turn_on_screen(["$ "]) is False and oc.working_on_screen(["$ "]) is None)
+
+
+def test_orcas_own_words_for_the_manual_fallbacks_are_pinned(home: Path) -> None:
+    use_home(home)
+    b = orcacli.OrcaBackend()
+    check("orca words: a terminal, and a start in a worktree, are `orca terminal create`",
+          b.manual("terminal", worktree="path:/wt", command="hl launch x")
+          == 'orca terminal create --worktree path:/wt --command "hl launch x"'
+          and b.manual("start", wt="/wt", repo="/r", name="x", base_ref="main", command="hl launch x")
+          == 'orca terminal create --worktree path:/wt --command "hl launch x"')
+    check("orca words: a start with no worktree makes one first, then a terminal in it",
+          b.manual("start", wt=None, repo="/r", name="x", base_ref="main", command="hl launch x")
+          == 'orca worktree create --repo path:/r --name x --base-branch main\n'
+             '  orca terminal create --worktree <new> --command "hl launch x"')
+
+
+def test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(home: Path) -> None:
+    import contextlib
+    import io
+    use_home(home)
+    for host, want in ((orcacli.OrcaBackend(), 'orca terminal create --worktree path:<wt> --command "hl launch backend"'),
+                       (FakeHost(), 'fake: a terminal in path:<wt> running "hl launch backend"')):
+        backends.use(host)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            guidemod.show("launch")
+        check(f"guide: {host.name} words its own launch line and no `@` placeholder is left",
+              want in out.getvalue() and "@" not in out.getvalue(), out.getvalue())
+
+
+def test_a_missing_host_is_named_by_that_host_in_each_message(home: Path) -> None:
+    use_home(home)
+
+    class Gone(FakeHost):
+        def available(self):
+            return False
+    backends.use(Gone())
+    agents.register("lost")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "lost", "h1", str(home))
+        reclaim = dmn_delivery._reclaim_context(con, "lost", lambda _m: None)[1]
+        typed = dmn_messaging.can_type_now(con, "lost", "h1")[1]
+        focus = actions_control.terminal(con, "lost")
+        check("missing: the context reclaim, the typing check and the switch all name the host, not Orca",
+              "fake is not on PATH" in reclaim and typed == "fake is not on PATH"
+              and "fake is not on PATH" in focus and "orca" not in (reclaim + typed + focus).lower(),
+              f"{reclaim} | {typed} | {focus}")
+    finally:
+        con.close()
 
 
 def _record(replies: dict | None = None):
@@ -825,6 +899,10 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(Path(td) / "b1"))
         run(lambda: test_the_old_module_name_is_the_same_module())
+        run(lambda: test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(Path(td) / "b15"))
+        run(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"))
+        run(lambda: test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(Path(td) / "b17"))
+        run(lambda: test_a_missing_host_is_named_by_that_host_in_each_message(Path(td) / "b18"))
         run(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"))
         run(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"))
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))
