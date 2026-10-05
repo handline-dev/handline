@@ -121,5 +121,6 @@ class ShellRun:
         """The command, how it ended and the file its output is in, as the words that go to the agent."""
         lines, dropped, code = self.snapshot()
         status = "still running" if code is None else f"exit {code}"
-        return (f"I ran `{self.command}` in {self.cwd} ({status}). Its {len(lines) + dropped} lines of output "
-                f"are in {self.save_output()}; read it there.")
+        n = len(lines) + dropped
+        return (f"I ran `{self.command}` in {self.cwd} ({status}). Its output ({n} line{'' if n == 1 else 's'}) "
+                f"is in {self.save_output()}; read it there.")

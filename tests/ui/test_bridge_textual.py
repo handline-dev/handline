@@ -5288,7 +5288,7 @@ def test_a_card_mounted_on_a_finished_run_sets_its_timer_first_and_sends_once() 
         check("shell card: mounting on a finished run does not use its timer before it is set", ok)
         check("shell card: a finished run is sent on its own, once",
               len(posted) == 1 and isinstance(posted[0], ShellCard.Send), str(posted))
-        run.sent = True
+        check("shell card: it is marked sent when posted, before the page handles it", run.sent)
         card._final = False
         card.show()
         check("shell card: a run already sent is not sent again", len(posted) == 1)
@@ -5333,15 +5333,6 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
               len(rows) == before + 1 and "echo hello" in rows[-1][0] and "/shell/" in rows[-1][0], str(rows))
         check("bang card: a finished command offers Send to agent, not Stop",
               cards[0]._send.display and not cards[0]._stop.display)
-        if "BANG_SHOT_SENT" in os.environ:      # the fixture has no daemon, so it denies the send: show it as the queued one it is for real
-            con = db.connect()
-            con.execute("UPDATE requests SET state='queued' WHERE state='denied'")
-            con.commit()
-            con.close()
-            page.refresh_conversation(force=True)
-            await until(pilot, lambda: any("read it there" in str(m._text.render()) for m in page.query(cp_ChatMessage)))
-            await pilot.pause(0.5)
-            Path(os.environ["BANG_SHOT_SENT"]).write_text(app.export_screenshot())
         box.text = "!sleep 30"
         await pilot.press("enter")
         await until(pilot, lambda: len(page.shells) == 2)
