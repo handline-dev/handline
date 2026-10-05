@@ -1163,6 +1163,8 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
                 ok, why = _handle_bypass_prompt(con, agent, handle, log)
             elif term.trust_prompt_showing(handle):
                 ok, why = _handle_trust_prompt(con, agent, handle, log)
+            elif (other := _handle_startup_dialog(con, agent, handle, log)) is not None:
+                ok, why = other
             else:
                 return True, "clear"
             if not ok:
@@ -1272,6 +1274,38 @@ def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -
     # vendor has finished drawing its ordinary TUI loses the opening characters.
     term.wait_idle(handle)
     return True, "trusted"
+
+
+DIALOG_STALL = "start-up dialog"
+DIALOG_DECISION = "[dialog stall]"
+
+
+def _handle_startup_dialog(con, agent: str, handle: str, log) -> tuple[bool, str] | None:
+    """Any other dialog a launch stops at - the vendor's screens change, and each one
+    that was not named here left the wake failing until it read FATAL with no word of
+    what was on screen (the new-MCP-servers screen was one). None when there is none.
+    A standing rule's option is pressed (`autoaccept`, the setting that gates rules);
+    otherwise nothing is pressed and the founder is shown the dialog in its own words."""
+    seen = term.screen_blocker(handle)
+    if seen is None or seen.kind != term.MODAL:
+        return None
+    if autoaccept.enabled() and autoaccept.answer_by_rule(con, agent, handle, log):
+        return True, "answered by a standing rule"
+    return False, _raise_dialog_stall(con, agent, seen, log)
+
+
+def _raise_dialog_stall(con, agent: str, seen, log) -> str:
+    """STALLED, with one decision for the founder, until the dialog is gone: the same
+    shape as the trust stall, which the sweep lifts when the screen is read clear."""
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == STALLED and DIALOG_STALL in (row["detail"] or ""):
+        return row["detail"]
+    why = (f"{agent}'s terminal is showing a {DIALOG_STALL} no standing rule answers - "
+           f"nothing was typed into it. {seen.reason()}")
+    askmod.raise_decision(con, agent, f"{DIALOG_DECISION} {why}", why)
+    db.set_agent_state(con, agent, STALLED, wake_at=None, detail=why[:300])
+    log(f"  {agent}: {why}")
+    return why
 
 
 TRUST_STALL = "folder-trust prompt"

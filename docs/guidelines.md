@@ -90,6 +90,10 @@ says so in a task.
 `hl` shows a dialog an agent is stuck on, and it names the dialog, but it never answers one.
 Permission prompts, logins, and anything that costs money are yours.
 
+That holds at launch too. When a start stops at a dialog no standing rule answers, `hl ps` shows the
+agent stalled with the dialog in its own words and a decision lands in your inbox. Answer it in the
+terminal; the stall lifts by itself once the screen is clear.
+
 If you turn on `--skip-permissions`, do it per agent and only for agents working in a throwaway
 worktree.
 
