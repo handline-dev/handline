@@ -64,8 +64,8 @@ def _world(home: Path, allowed: bool, **kw):
     con, term = support._decline_world(home)
     bt = _BypassTerm(**kw)
     bt.install()
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
-    orcamod.time.sleep = lambda s: None
+    termmod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.time.sleep = lambda s: None
     support.agents.register("backend", skip_permissions=allowed)
     if not allowed:
         support.agents.register("backend", skip_permissions=False)
@@ -194,9 +194,9 @@ def _both_world(home: Path, order):
     con, _ = support._decline_world(home)
     term = _Both(order)
     term.install()
-    orcamod.confirm_trust = term.confirm_trust
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
-    orcamod.time.sleep = lambda s: None
+    termmod.confirm_trust = term.confirm_trust
+    termmod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.time.sleep = lambda s: None
     spawnmod.worktree_path = lambda w: LIVE_TRUST_PROMPT_FOLDER
     trustmod.is_declared = lambda p: True
     support.agents.register("backend", skip_permissions=True)
@@ -228,14 +228,14 @@ def test_a_vendor_with_no_bypass_warning_wakes_as_before(home: Path) -> None:
     from handline.vendors import opencode
     con, term = _both_world(home / "oc", ())
     try:
-        real = orcamod._driver_for
-        orcamod._driver_for = lambda handle: opencode.Opencode()
+        real = termmod._driver_for
+        termmod._driver_for = lambda handle: opencode.Opencode()
         try:
             term.tail = _screen("No, exit")
-            check("opencode: the bypass question is no, whatever is on screen", not orcamod.bypass_prompt_showing("term_x"))
+            check("opencode: the bypass question is no, whatever is on screen", not termmod.bypass_prompt_showing("term_x"))
             ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
         finally:
-            orcamod._driver_for = real
+            termmod._driver_for = real
         check("opencode: the wake gate clears and sends nothing", ok and term.sent == [], f"{why} {term.sent}")
     finally:
         con.close()

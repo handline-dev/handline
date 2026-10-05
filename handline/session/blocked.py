@@ -14,7 +14,7 @@ DECISION_AFTER_S. It is written by the daemon and read by the bridge and
 `hl ps`, which are other processes, so it lives in the database.
 
 ocp names what is in the way, and presses at most one key at a dialog: Esc, and
-only where `orca.declining_key` admits it - the dialog says Esc cancels and
+only where `term.declining_key` admits it - the dialog says Esc cancels and
 offers an option that just declines, or it is the one dialog whose Esc was
 measured. It never chooses: a press lands on the dialog or changes nothing,
 except where a person has typed into that agent's input box, which Esc can
@@ -31,7 +31,7 @@ import time
 
 from ..team import ask as askmod
 from .. import db
-from . import orca, waiting
+from . import term, waiting
 from ..infra import paths, timefmt
 
 # The same obstacle, with work waiting, this long before it is said. A dialog
@@ -77,7 +77,7 @@ MAX_PRESSES_AGENT = 10
 EXIT_ORIGIN = "exit"
 PROBE_S = 30
 
-NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
+NO_TERMINAL, NO_SESSION, STALLED, HOST_DOWN = "no terminal", "no session", "stalled", "host down"
 # The process table lists no session for an agent whose terminal draws one. Work is typed at it on the
 # screen's word, so this is not an obstacle; it is a fault in the table that the founder is told about
 # (the bridge, `hl ps`, and a request once it outlasts DECISION_AFTER_S), with how each session-looking
@@ -89,18 +89,18 @@ TABLE_ORIGIN = "table"
 # `w`, not the old `u`/unstall - founder #1620/#1631 folded that key into
 # wake, behind the same confirmation.
 ADVICE = {
-    orca.MODAL: "answer it in its terminal (t on the agents panel)",
-    orca.BACKGROUNDED: "open its terminal (t on the agents panel) and press Esc to return to the conversation",
-    orca.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
+    term.MODAL: "answer it in its terminal (t on the agents panel)",
+    term.BACKGROUNDED: "open its terminal (t on the agents panel) and press Esc to return to the conversation",
+    term.UNREADABLE: "check its terminal (t on the agents panel); ocp cannot read its screen",
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "w on the agents panel clears it",
-    ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
+    HOST_DOWN: "check the terminal host and PATH; ocp cannot reach it at all",
     TABLE_MISS: "the agent is being given its work on the screen's word; report this, with the pids named, so the process table's miss can be found",
 }
-LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",
-         orca.UNREADABLE: "screen unreadable",
-         ORCA_DOWN: "orca unreachable",
+LABEL = {term.MODAL: "dialog open", term.BACKGROUNDED: "conversation in the background",
+         term.UNREADABLE: "screen unreadable",
+         HOST_DOWN: "host unreachable",
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled",
          TABLE_MISS: "process table misses a live session"}
 
@@ -110,15 +110,15 @@ _probed: dict[str, int] = {}
 
 def reason(kind: str, detail: str) -> str:
     """What is in the way, as a sentence."""
-    if kind in (orca.MODAL, orca.BACKGROUNDED, orca.UNREADABLE):
-        return orca.Blocker(kind, detail).reason()
+    if kind in (term.MODAL, term.BACKGROUNDED, term.UNREADABLE):
+        return term.Blocker(kind, detail).reason()
     return f"{LABEL.get(kind, kind)}: {detail}" if detail else LABEL.get(kind, kind)
 
 
 def headline(kind: str, detail: str) -> str:
     """The short form for a row with little room: the label and, for a dialog,
     only its title."""
-    head = detail.split(" - ")[0] if kind == orca.MODAL else detail
+    head = detail.split(" - ")[0] if kind == term.MODAL else detail
     return f"{LABEL.get(kind, kind)}: {head}" if head else LABEL.get(kind, kind)
 
 
@@ -128,7 +128,7 @@ def table_miss(row) -> tuple[str, str, str] | None:
     from ..daemon import delivery as dmn_delivery
 
     handle = row["terminal"]
-    if row["closed_at"] or not handle or not orca.available():
+    if row["closed_at"] or not handle or not term.available():
         return None
     if dmn_delivery.table_lists_session(row["agent"]) is not False:
         return None
@@ -186,18 +186,18 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
     handle = row["terminal"]
     if not handle:
         return NO_TERMINAL, "", ""
-    if not orca.available():
+    if not term.available():
         # The sibling of UNREADABLE below: silently skipping this starves
         # every agent with queued work the same way, with nobody told, for as
         # long as Orca stays off PATH.
-        return ORCA_DOWN, "", ""
-    if not orca.alive(handle):
+        return HOST_DOWN, "", ""
+    if not term.alive(handle):
         return NO_TERMINAL, "its terminal is gone - Orca no longer has it", ""
     if dmn_delivery.wall_reason(con, agent, row):
         return None
     if row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF) and not dmn_delivery.session_present(agent):
         return NO_SESSION, "", ""
-    seen = orca.screen_blocker(handle)
+    seen = term.screen_blocker(handle)
     if seen is None:
         return None
     return seen.kind, seen.detail, seen.title
@@ -209,11 +209,11 @@ def exit_dialog(row) -> tuple[str, str, str] | None:
     waiting: it comes from a `/exit` and nothing else, so no working agent is
     at it and nobody but a person at the terminal is."""
     handle = row["terminal"]
-    if row["closed_at"] or not handle or not orca.available():
+    if row["closed_at"] or not handle or not term.available():
         return None
-    seen = orca.screen_blocker(handle)
-    if seen is None or seen.kind != orca.MODAL \
-            or seen.title.strip().lower() != orca.EXIT_OVER_WORK_TITLE:
+    seen = term.screen_blocker(handle)
+    if seen is None or seen.kind != term.MODAL \
+            or seen.title.strip().lower() != term.EXIT_OVER_WORK_TITLE:
         return None
     return seen.kind, seen.detail, seen.title
 
@@ -223,8 +223,8 @@ def note_close_failure(con, agent: str, log) -> None:
     it is on the list at once, since the dialog is ocp's own doing and nobody has
     been given the minutes the list otherwise waits for."""
     handle = db.get_terminal(con, agent)
-    seen = orca.screen_blocker(handle) if handle else None
-    if not seen or seen.kind != orca.MODAL:
+    seen = term.screen_blocker(handle) if handle else None
+    if not seen or seen.kind != term.MODAL:
         return
     now = int(time.time())
     if db.block_get(con, agent) is None:
@@ -255,20 +255,20 @@ def past_dialog(con, agent: str, log, now: int | None = None,
     because a person is answering it (a permission prompt on a working agent),
     and it reads as no obstacle at all."""
     handle = db.get_terminal(con, agent)
-    seen = orca.screen_blocker(handle) if handle else None
-    if seen is None or seen.kind != orca.MODAL:
+    seen = term.screen_blocker(handle) if handle else None
+    if seen is None or seen.kind != term.MODAL:
         return "", ""
-    if only_limit and not orca.usage_limit_open(handle):
+    if only_limit and not term.usage_limit_open(handle):
         return "", ""
     now = int(time.time()) if now is None else now
     stopped = stopped_pressing(con, agent, {"title": seen.title}, now)
     if stopped:
         return f"{reason(seen.kind, seen.detail)}; {stopped}", seen.title
-    outcome, title, why = orca.decline_dialog(handle)
-    if outcome == orca.NOT_PRESSED:
+    outcome, title, why = term.decline_dialog(handle)
+    if outcome == term.NOT_PRESSED:
         return f"{reason(seen.kind, seen.detail)}; ocp did not press it: {why}", seen.title
     db.press_add(con, agent, now, title, outcome, why)
-    if outcome == orca.STILL_OPEN:
+    if outcome == term.STILL_OPEN:
         return f'{reason(seen.kind, seen.detail)}; Esc did not close it', seen.title
     db.add_event(con, agent, "dialog_declined", {"title": title, "key": "Esc", "work": "exit"})
     log(f'  {agent}: pressed Esc on "{title}" to get to its exit')
@@ -283,12 +283,12 @@ def stop_work_and_exit(con, agent: str, log) -> bool:
     handle = db.get_terminal(con, agent)
     if not handle:
         return False
-    outcome, title, why = orca.stop_work_and_exit(handle)
-    if outcome == orca.NOT_PRESSED:
+    outcome, title, why = term.stop_work_and_exit(handle)
+    if outcome == term.NOT_PRESSED:
         return False
     db.add_event(con, agent, "stale_background_stopped", {"title": title, "outcome": outcome})
     log(f'  {agent}: pressed Enter on "{title}" - its background work was stale, so it is stopped')
-    return outcome == orca.CLEARED
+    return outcome == term.CLEARED
 
 
 def dialog_note(con, agent: str) -> str:
@@ -296,7 +296,7 @@ def dialog_note(con, agent: str) -> str:
     else '': what a stall on repeated failed handoffs adds so its reason is not
     only a count."""
     rec = db.block_get(con, agent)
-    return f" - {reason(rec['kind'], rec['detail'])}" if rec and rec["kind"] == orca.MODAL else ""
+    return f" - {reason(rec['kind'], rec['detail'])}" if rec and rec["kind"] == term.MODAL else ""
 
 
 def stopped_pressing(con, agent: str, rec, now: int) -> str:
@@ -335,7 +335,7 @@ def stopped_pressing(con, agent: str, rec, now: int) -> str:
 
 def press_note(con, agent: str, rec, now: int) -> str:
     """What ocp says about not having cleared this block's dialog, or ''."""
-    if rec["kind"] != orca.MODAL:
+    if rec["kind"] != term.MODAL:
         return ""
     stopped = stopped_pressing(con, agent, rec, now)
     if stopped:
@@ -351,15 +351,15 @@ def _decline(con, agent: str, rec, now: int, log):
     handle = db.get_terminal(con, agent)
     if now < press_at or not handle or stopped_pressing(con, agent, rec, now):
         return rec
-    outcome, title, why = orca.decline_dialog(handle)
-    if outcome == orca.NOT_PRESSED:
+    outcome, title, why = term.decline_dialog(handle)
+    if outcome == term.NOT_PRESSED:
         last = [p for p in db.presses_since(con, agent, rec["since"]) if p["outcome"] == "not-pressed"]
         if not last or last[-1]["note"] != why or last[-1]["title"] != title:
             db.press_add(con, agent, now, title, outcome, why)
             log(f"  {agent}: ocp did not press its dialog - {why}")
         return rec
     db.press_add(con, agent, now, title, outcome, why)
-    if outcome == orca.STILL_OPEN:
+    if outcome == term.STILL_OPEN:
         log(f"  {agent}: pressed Esc on \"{title}\" and it is still open")
         return rec
     how = f'cleared by ocp: pressed Esc on "{title}"'
@@ -396,7 +396,7 @@ def sweep(con, log, now: int | None = None) -> None:
             continue
         if rec is not None and rec["request_id"] is None and (
                 now - rec["since"] >= DECISION_AFTER_S
-                or (rec["kind"] == orca.MODAL and stopped_pressing(con, agent, rec, now))):
+                or (rec["kind"] == term.MODAL and stopped_pressing(con, agent, rec, now))):
             # A stall the daemon raised itself - a trust screen - is
             # already in front of the founder; the block stays for the bridge.
             if rec["kind"] == STALLED and db.open_decisions_of(con, agent):
@@ -468,8 +468,8 @@ def _track(con, agent: str, row, now: int, log):
     # An agent that is working may be waiting on a person for that very dialog;
     # only an idle one's is pressed - except the exit dialog, which no working
     # agent is at, and whose agent the state may still read as running.
-    if rec["kind"] == orca.MODAL and (row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF)
-                                      or rec["title"].strip().lower() == orca.EXIT_OVER_WORK_TITLE):
+    if rec["kind"] == term.MODAL and (row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF)
+                                      or rec["title"].strip().lower() == term.EXIT_OVER_WORK_TITLE):
         from ..daemon import lifecycle
         if lifecycle.auto_trust(con, agent, log):
             _end(con, agent, rec, "its folder-trust prompt was accepted", log)

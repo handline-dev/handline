@@ -26,11 +26,11 @@ def _world(home: Path) -> None:
     delivery._FAILED.clear()
     actions._WORLD["at"] = 0.0
     sessions_are("worker")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.live_terminals = lambda: {"term_w"}
-    orcamod.screen_blocker = lambda h: None
-    orcamod.typeable_now = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.live_terminals = lambda: {"term_w"}
+    termmod.screen_blocker = lambda h: None
+    termmod.typeable_now = lambda h: True
     locks.running_elsewhere = lambda: 4242
     # task_new would type the task at once; these tests are about the ones not yet typed.
     askmod.push = lambda _con, agent, rid=None: ""
@@ -178,7 +178,7 @@ def test_every_state_of_the_owner_gives_its_own_reason(home: Path) -> None:
         check("usage limit: says it is at its limit", why is not None and "usage limit" in why[0] and not why[1], str(why))
         db.add_event(con, "worker", "UserPromptSubmit", {})
 
-        db.block_open(con, "worker", orcamod.MODAL, "Trust this folder? - 1. Yes 2. No", "request #1",
+        db.block_open(con, "worker", termmod.MODAL, "Trust this folder? - 1. Yes 2. No", "request #1",
                       int(time.time()), int(time.time()) + 180, title="Trust this folder?")
         why = _why(con, t)
         check("dialog: the dialog's own title", why is not None and "Trust this folder?" in why[0] and not why[1], str(why))
@@ -190,10 +190,10 @@ def test_every_state_of_the_owner_gives_its_own_reason(home: Path) -> None:
               and not why[1], str(why))
         sessions_are("worker")
 
-        orcamod.live_terminals = lambda: set()
+        termmod.live_terminals = lambda: set()
         why = _why(con, t)
         check("terminal gone: Orca no longer has it", why is not None and "terminal is gone" in why[0], str(why))
-        orcamod.live_terminals = lambda: {"term_w"}
+        termmod.live_terminals = lambda: {"term_w"}
 
         con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'worker'")
         why = _why(con, t)
@@ -347,7 +347,7 @@ def test_a_free_owner_is_given_the_next_task_on_the_next_tick(home: Path) -> Non
 def test_a_real_tick_records_why_a_task_waits(home: Path) -> None:
     """The sweep is wired into the tick: take it out and the recording and the warning go with it."""
     _world(home)
-    orcamod.send = lambda h, t, enter=True: (True, "")
+    termmod.send = lambda h, t, enter=True: (True, "")
     con = db.connect()
     try:
         ok, msg, first = actions.task_new("manager", "worker", "first", "first")
@@ -364,22 +364,22 @@ def test_the_daemons_own_paths_note_why_they_did_not_type(home: Path) -> None:
     """No test writes the note here: deliver_queued and supervise do."""
     _world(home)
     sent: list[str] = []
-    orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
+    termmod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
     con = db.connect()
     try:
         ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
-        orcamod.typeable_now = lambda h: False
+        termmod.typeable_now = lambda h: False
         check("screen: deliver_queued declines", not delivery.deliver_queued(con, "worker", lambda _m: None))
         why = _why(con, t)
         check("screen: and the task says why, able on an idle row",
               why == ("its screen is not idle (mid-turn, or unreadable)", True), str(why))
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         check("screen: a later delivery lands it", delivery.deliver_queued(con, "worker", lambda _m: None) and sent)
         check("screen: and nothing is held or waiting any more",
               delivery.held_reason("worker", int(time.time())) is None and _why(con, t) is None,
               str(_why(con, t)))
     finally:
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         con.close()
 
 
@@ -389,13 +389,13 @@ def test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(home: P
     is gone the task is typed."""
     _world(home)
     sent: list[str] = []
-    orcamod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
+    termmod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
     con = db.connect()
     try:
         ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
-        dialog = orcamod.Blocker(orcamod.MODAL, '"Do you want to proceed?"')
-        orcamod.typeable_now = lambda h: False
-        orcamod.screen_blocker = lambda h: dialog
+        dialog = termmod.Blocker(termmod.MODAL, '"Do you want to proceed?"')
+        termmod.typeable_now = lambda h: False
+        termmod.screen_blocker = lambda h: dialog
         check("dialog: deliver_queued types nothing", not delivery.deliver_queued(con, "worker", lambda _m: None)
               and not sent, str(sent))
         why = _why(con, t)
@@ -413,22 +413,22 @@ def test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(home: P
         # A conversation sent to the background is the owner's own state too; a screen that cannot be
         # read says nothing about why, so that one stays worth contesting.
         for kind, blocker, reason, able in (
-                ("background", orcamod.Blocker(orcamod.BACKGROUNDED, "2 sessions"),
+                ("background", termmod.Blocker(termmod.BACKGROUNDED, "2 sessions"),
                  "its conversation moved to the background", False),
-                ("unreadable", orcamod.Blocker(orcamod.UNREADABLE),
+                ("unreadable", termmod.Blocker(termmod.UNREADABLE),
                  "its screen is not idle (mid-turn, or unreadable)", True)):
-            orcamod.screen_blocker = lambda h, b=blocker: b
+            termmod.screen_blocker = lambda h, b=blocker: b
             delivery.deliver_queued(con, "worker", lambda _m: None)
             why = _why(con, t)
             check(f"{kind}: nothing is typed, and the reason reads {reason!r}, able {able}",
                   not sent and why is not None and reason in why[0] and why[1] is able, f"{sent} {why}")
-        orcamod.typeable_now = lambda h: True
-        orcamod.screen_blocker = lambda h: None
+        termmod.typeable_now = lambda h: True
+        termmod.screen_blocker = lambda h: None
         check("dialog: once it is answered the task is typed",
               delivery.deliver_queued(con, "worker", lambda _m: None) and sent, str(sent))
     finally:
-        orcamod.typeable_now = lambda h: True
-        orcamod.screen_blocker = lambda h: None
+        termmod.typeable_now = lambda h: True
+        termmod.screen_blocker = lambda h: None
         con.close()
 
 
@@ -437,7 +437,7 @@ def test_a_wake_or_start_that_fails_in_the_tick_is_noted(home: Path) -> None:
     con = db.connect()
     real_wake, real_start = lifecycle.wake_agent, lifecycle._start_for_work
     try:
-        orcamod.send = lambda h, t, enter=True: (True, "")
+        termmod.send = lambda h, t, enter=True: (True, "")
         ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
         sessions_are()                      # nothing runs: the sweep leaves it closed
         db.set_closed(con, "worker", "sess-1")
@@ -466,7 +466,7 @@ def test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(
     con = db.connect()
     real_wake = lifecycle.wake_agent
     try:
-        orcamod.send = lambda h, t, enter=True: (True, "")
+        termmod.send = lambda h, t, enter=True: (True, "")
         ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
         sessions_are()
         db.set_closed(con, "worker", "sess-1")

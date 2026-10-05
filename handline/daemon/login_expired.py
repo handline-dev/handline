@@ -14,7 +14,7 @@ import time
 
 from ..team import accounts, agents
 from .. import db
-from ..session import orca
+from ..session import term
 from ..session import triggers
 from . import handoff
 from .states import QUEUED, RUNNING, IDLE, STALLED
@@ -64,13 +64,13 @@ def _mark_from_screen(con, agent: str, row, acct: str, log) -> dict | None:
     """The account's mark, made now when this agent's screen shows the line."""
     handle = row["terminal"]
     now = time.time()
-    if not handle or now - _checked.get(agent, 0) < CHECK_EVERY_S or not orca.available():
+    if not handle or now - _checked.get(agent, 0) < CHECK_EVERY_S or not term.available():
         return None
     _checked[agent] = now
     age = _session_age_s(con, agent)
     if age is not None and age < FRESH_SESSION_S or _lifted_in_this_session(con, agent):
         return None
-    text = orca.screen_text(handle)
+    text = term.screen_text(handle)
     if text is None or not shown(text):
         return None
     why = f"{agent}'s terminal showed \"{LINE}\""

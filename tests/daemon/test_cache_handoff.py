@@ -340,10 +340,10 @@ def test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(home: 
     """Through the real tick: an agent set never to close, idle until its cache is nearly spent, is asked
     once and is not closed by having answered."""
     con, asks, real, tpath, st = _world(home)
-    real_o = (orcamod.available, orcamod.alive, orcamod.live_terminals, orcamod.wait_idle)
+    real_o = (termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
         sessions_are("backend")
         idle_close.set_agent_close_timeout("backend", 0)
         t = time.time()
@@ -363,7 +363,7 @@ def test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(home: 
         check("tick: having answered, it is not closed for it and not asked again",
               not row["closed_at"] and len(asks) == 1, str(dict(row)))
     finally:
-        orcamod.available, orcamod.alive, orcamod.live_terminals, orcamod.wait_idle = real_o
+        termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle = real_o
         dmn_delivery.type_notice = real
         con.close()
 

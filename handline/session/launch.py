@@ -777,10 +777,10 @@ def _record_terminal(agent: str, acct: str | None = None, fp: str | None = None)
     # Late, because `spawn` imports this module: the launcher is the bottom of
     # the stack and the starters sit on top of it.
     from .. import db
-    from . import orca
+    from . import term
     from ..team import spawn
 
-    handle, wt = orca.terminal_handle(), orca.worktree_id()
+    handle, wt = term.terminal_handle(), term.worktree_id()
     # The other door into the same two columns `spawn` writes, and the values
     # come in no cleaner for arriving as environment rather than as JSON. Both
     # are identifiers, read back and named in messages long after this - so one

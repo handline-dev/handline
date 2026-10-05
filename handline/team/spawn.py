@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import agents
 from .. import db
-from ..session import launch, orca
+from ..session import launch, term
 from ..infra import textsafe
 
 # How long to wait for the agent to be ready, and then for its own hook to
@@ -147,11 +147,11 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
     `cmd` is what the terminal runs; a wake passes its launch with the resume id
     and prompt file, since a closed session's pane is closed with it (T407).
     """
-    if not orca.available():
-        return False, orca.missing()
+    if not term.available():
+        return False, term.missing()
     if not Path(worktree).exists():
         return False, f"{agent}: its worktree {worktree} is gone"
-    handle, why = orca.open_terminal(cmd or launch.command_for(agent), cwd=worktree, title=agent)
+    handle, why = term.open_terminal(cmd or launch.command_for(agent), cwd=worktree, title=agent)
     if handle is None and why:
         return False, f"{agent}: could not start in {worktree}: {why}"
     if handle:
@@ -170,27 +170,17 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
 
 def _dry_run_text(wt: str | None, repo: Path, agent: str, base_ref: str | None, why: str, cmd: str) -> str:
     """What `spawn` would do, as the host's own commands where it has them (Orca's)."""
-    if orca.host_name() == "orca":
-        if wt:
-            return (f"would start in its own worktree {wt}\n"
-                    f"  orca terminal create --worktree path:{wt} --command \"{cmd}\"")
-        return (f"would branch from {base_ref} ({why})\n"
-                f"  orca worktree create --repo path:{repo} --name {agent} "
-                f"--base-branch {base_ref}\n"
-                f"  orca terminal create --worktree <new> --command \"{cmd}\"")
-    host = orca.host_name()
+    steps = term.manual("start", wt=wt, repo=str(repo), name=agent, base_ref=base_ref, command=cmd)
     if wt:
-        return f"would start in its own worktree {wt}\n  {host}: a terminal there running \"{cmd}\""
-    return (f"would branch from {base_ref} ({why})\n"
-            f"  {host}: a worktree of {repo} named {agent} from {base_ref}, "
-            f"then a terminal in it running \"{cmd}\"")
+        return f"would start in its own worktree {wt}\n  {steps}"
+    return f"would branch from {base_ref} ({why})\n  {steps}"
 
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
           dry_run: bool = False) -> tuple[bool, str]:
     """Start the agent in its worktree: the one it has, else a new one named after it."""
-    if not orca.available():
-        return False, orca.missing()
+    if not term.available():
+        return False, term.missing()
     try:
         agents.read(agent)
     except Exception as e:  # noqa: BLE001
@@ -218,11 +208,11 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
         return True, _dry_run_text(wt, repo, agent, base_ref, why, cmd)
 
     if not wt:
-        wt, failed = orca.create_worktree(str(repo), agent, base_ref)
+        wt, failed = term.create_worktree(str(repo), agent, base_ref)
         if wt is None:
             return False, failed
 
-    handle, failed = orca.open_terminal(cmd, cwd=wt, title=agent)
+    handle, failed = term.open_terminal(cmd, cwd=wt, title=agent)
     if handle is None and failed:
         return False, f"worktree {wt} is ready, but starting the agent failed: {failed}"
 
@@ -263,12 +253,12 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
             con.close()
         # An Orca without this wait would no-op silently and we would type into
         # a booting TUI - the exact bug this exists to stop, restored. Asked
-        # through orca.wait_idle rather than run here: a zero exit only says the
+        # through term.wait_idle rather than run here: a zero exit only says the
         # wait command ran, and `result.wait.satisfied` is the answer.
-        if not orca.wait_idle(handle, SUBMIT_WAIT_S * 1000):
+        if not term.wait_idle(handle, SUBMIT_WAIT_S * 1000):
             lines.append("  WARNING: could not wait for the agent to be ready; "
                          "the first task may have been typed into a booting TUI")
-        orca.submit(handle, prompt, 30)
+        term.submit(handle, prompt, 30)
         if prompt_landed(agent, since):
             lines.append("  first task submitted")
         else:
@@ -300,15 +290,15 @@ def ensure_run(con) -> str | None:
     what a task lands in whatever `--run` says.
     """
     run = db.get_meta(con, RUN_KEY)
-    bound = orca.run_current()
+    bound = term.run_current()
     if bound:
         if bound != run:
             db.set_meta(con, RUN_KEY, bound)
         return bound
-    if run and orca.run_exists(run):
-        orca.run_use(run)
+    if run and term.run_exists(run):
+        term.run_use(run)
         return run
-    run = orca.run_create("Handline team")
+    run = term.run_create("Handline team")
     if run:
         db.set_meta(con, RUN_KEY, run)
     return run
@@ -322,7 +312,7 @@ def register_worker(con, agent: str, handle: str) -> str | None:
     only child it knew how to make. The tree comes from `team.yaml`, so the
     card and the routing cannot disagree about who reports to whom.
     """
-    if not orca.has_runs():
+    if not term.has_runs():
         return None
     run = ensure_run(con)
     if not run:
@@ -330,7 +320,7 @@ def register_worker(con, agent: str, handle: str) -> str | None:
     row = db.get_agent_state(con, agent)
     if row and row["task"]:
         # Already a worker; the dispatch binds the (possibly new) terminal.
-        return orca.dispatch(row["task"], handle, run)
+        return term.dispatch(row["task"], handle, run)
     parent_task = None
     try:
         boss = actions_supervisor(agent)
@@ -341,17 +331,17 @@ def register_worker(con, agent: str, handle: str) -> str | None:
         parent_task = boss_row["task"] if boss_row else None
     spec = (f"{agent}: a Handline agent. Work reaches it as a task (`hl task new --owner {agent}`); "
             f"this task is the card it appears in.")
-    task = orca.task_create(spec, title=agent, display_name=agent, run=run,
+    task = term.task_create(spec, title=agent, display_name=agent, run=run,
                             parent=parent_task)
     if not task and parent_task:
         # A parent in another Run - an older card, or one made before this
         # remembered which Run was the team's - is a reason to draw the agent
         # flat, not a reason not to draw it.
-        task = orca.task_create(spec, title=agent, display_name=agent, run=run)
+        task = term.task_create(spec, title=agent, display_name=agent, run=run)
     if not task:
         return None
     db.set_task(con, agent, task)
-    return orca.dispatch(task, handle, run)
+    return term.dispatch(task, handle, run)
 
 
 def actions_supervisor(agent: str) -> str | None:

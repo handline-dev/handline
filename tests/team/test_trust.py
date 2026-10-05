@@ -335,17 +335,17 @@ def test_trust_worktrees(home: Path) -> None:
     created: list[tuple[str, str | None]] = []
     sent: list[tuple[str, str]] = []
     closed: list[str] = []
-    real = (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
-            orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal)
+    real = (termmod.create_terminal, termmod.trust_prompt_showing, termmod.confirm_trust,
+            termmod.wait_idle, termmod.idle_now, termmod.send, termmod.close_terminal)
     try:
-        orcamod.create_terminal = (
+        termmod.create_terminal = (
             lambda cmd, **k: (created.append((cmd, k.get("title"))), "term_probe")[1])
-        orcamod.trust_prompt_showing = lambda h: True
-        orcamod.confirm_trust = lambda h: (True, "trusted")
-        orcamod.wait_idle = lambda h, *a, **k: True
-        orcamod.idle_now = lambda h: False
-        orcamod.send = lambda h, text, **k: (sent.append((h, text)), (True, "ok"))[1]
-        orcamod.close_terminal = lambda h, **k: (closed.append(h), (True, "closed"))[1]
+        termmod.trust_prompt_showing = lambda h: True
+        termmod.confirm_trust = lambda h: (True, "trusted")
+        termmod.wait_idle = lambda h, *a, **k: True
+        termmod.idle_now = lambda h: False
+        termmod.send = lambda h, text, **k: (sent.append((h, text)), (True, "ok"))[1]
+        termmod.close_terminal = lambda h, **k: (closed.append(h), (True, "closed"))[1]
 
         result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
         check("trust: ok, one line per worktree", result[0] and ";" not in result[1], str(result))
@@ -358,7 +358,7 @@ def test_trust_worktrees(home: Path) -> None:
         check("trust: and closes its terminal", closed == ["term_probe"], closed)
 
         created.clear(); sent.clear(); closed.clear()
-        orcamod.trust_prompt_showing = lambda h: False
+        termmod.trust_prompt_showing = lambda h: False
         result = actions.trust_worktrees("gamma", [("backend", "/w/backend")])
         check("trust: no prompt shown is reported, not claimed as a confirmed trust",
               result[0] and not result[1].endswith(": trusted") and "no trust prompt" in result[1],
@@ -367,34 +367,34 @@ def test_trust_worktrees(home: Path) -> None:
               sent == [("term_probe", "/exit")] and closed == ["term_probe"],
               str((sent, closed)))
     finally:
-        (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
-         orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
+        (termmod.create_terminal, termmod.trust_prompt_showing, termmod.confirm_trust,
+         termmod.wait_idle, termmod.idle_now, termmod.send, termmod.close_terminal) = real
 
 
 def test_trust_worktrees_reports_a_failure(home: Path) -> None:
     """One worktree trusted, one refused: ok is False and both lines are there, joined by "; "."""
     os.environ["OCP_HOME"] = str(home)
-    real = (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
-            orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal)
+    real = (termmod.create_terminal, termmod.trust_prompt_showing, termmod.confirm_trust,
+            termmod.wait_idle, termmod.idle_now, termmod.send, termmod.close_terminal)
     try:
-        orcamod.create_terminal = lambda cmd, **k: "term_probe"
-        orcamod.trust_prompt_showing = lambda h: True
-        orcamod.confirm_trust = lambda h: (("/w/b" in seen[-1]), "refused")
+        termmod.create_terminal = lambda cmd, **k: "term_probe"
+        termmod.trust_prompt_showing = lambda h: True
+        termmod.confirm_trust = lambda h: (("/w/b" in seen[-1]), "refused")
         seen: list[str] = []
-        orcamod.create_terminal = lambda cmd, **k: (seen.append(cmd), "term_probe")[1]
-        orcamod.wait_idle = lambda h, *a, **k: True
-        orcamod.idle_now = lambda h: False
-        orcamod.send = lambda h, text, **k: (True, "ok")
-        orcamod.close_terminal = lambda h, **k: (True, "closed")
+        termmod.create_terminal = lambda cmd, **k: (seen.append(cmd), "term_probe")[1]
+        termmod.wait_idle = lambda h, *a, **k: True
+        termmod.idle_now = lambda h: False
+        termmod.send = lambda h, text, **k: (True, "ok")
+        termmod.close_terminal = lambda h, **k: (True, "closed")
         ok, text = actions.trust_worktrees("gamma", [("a", "/w/a"), ("b", "/w/b")])
         check("trust: one refused makes ok False and both lines are kept, joined by '; '",
               not ok and text == "a (/w/a): refused; b (/w/b): trusted", str((ok, text)))
-        orcamod.create_terminal = lambda cmd, **k: None
+        termmod.create_terminal = lambda cmd, **k: None
         ok, text = actions.trust_worktrees("gamma", [("a", "/w/a")])
         check("trust: no session started is a failure", not ok and "could not start" in text, text)
     finally:
-        (orcamod.create_terminal, orcamod.trust_prompt_showing, orcamod.confirm_trust,
-         orcamod.wait_idle, orcamod.idle_now, orcamod.send, orcamod.close_terminal) = real
+        (termmod.create_terminal, termmod.trust_prompt_showing, termmod.confirm_trust,
+         termmod.wait_idle, termmod.idle_now, termmod.send, termmod.close_terminal) = real
 
 
 def test_trust_worktrees_quotes_the_path(home: Path) -> None:
@@ -402,15 +402,15 @@ def test_trust_worktrees_quotes_the_path(home: Path) -> None:
     break the command it is interpolated into."""
     os.environ["OCP_HOME"] = str(home)
     created: list[str] = []
-    real = orcamod.create_terminal
+    real = termmod.create_terminal
     try:
-        orcamod.create_terminal = lambda cmd, **k: (created.append(cmd), None)[1]
+        termmod.create_terminal = lambda cmd, **k: (created.append(cmd), None)[1]
         actions.trust_worktrees("gamma", [("backend", "/tmp/a'b")])
         check("trust: the command still parses, quote and all",
               created and shlex.split(created[0].split("&&")[0])[-1] == "/tmp/a'b",
               str(created))
     finally:
-        orcamod.create_terminal = real
+        termmod.create_terminal = real
 
 
 def test_trust_prompt_folder_parses_a_live_capture() -> None:
@@ -443,7 +443,7 @@ def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None
     a claude terminal showing something else."""
     os.environ["OCP_HOME"] = str(home)
     con = db.connect()
-    real_text = orcamod.screen_text
+    real_text = termmod.screen_text
     try:
         with second_vendor() as drv:
             drv.trust_screen = lambda tail: (
@@ -453,16 +453,16 @@ def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None
             agents.register("backend")
             db.set_terminal(con, "zbackend", "term_z", "wt")
             db.set_terminal(con, "backend", "term_c", "wt")
-            orcamod.screen_text = lambda h: (
+            termmod.screen_text = lambda h: (
                 "SECOND VENDOR TRUST" if h == "term_z" else "an ordinary claude screen")
             check("trust: the second vendor's own dialog is recognized on its terminal",
-                  orcamod.trust_prompt_showing("term_z")
-                  and orcamod.trust_prompt_folder("term_z") == "the/folder")
+                  termmod.trust_prompt_showing("term_z")
+                  and termmod.trust_prompt_folder("term_z") == "the/folder")
             check("trust: claude's terminal is not read as the second vendor's dialog",
-                  not orcamod.trust_prompt_showing("term_c")
-                  and orcamod.trust_prompt_folder("term_c") is None)
+                  not termmod.trust_prompt_showing("term_c")
+                  and termmod.trust_prompt_folder("term_c") is None)
     finally:
-        orcamod.screen_text = real_text
+        termmod.screen_text = real_text
         con.close()
 
 
@@ -473,17 +473,17 @@ def test_trust_prompt_showing_stays_true_when_the_folder_cannot_be_read(home: Pa
     wake line and Enter into the dialog - picking the default "No, exit"
     where main raises and stalls."""
     os.environ["OCP_HOME"] = str(home)
-    real_text = orcamod.screen_text
+    real_text = termmod.screen_text
     try:
-        orcamod.screen_text = lambda h: (
+        termmod.screen_text = lambda h: (
             "Quick safety check: Is this a project you created or one you trust?\n"
             "...\nNo, exit\nYes, I trust this folder\n")
         check("trust: showing, even though the folder cannot be read",
-              orcamod.trust_prompt_showing("term_x"))
+              termmod.trust_prompt_showing("term_x"))
         check("trust: and the folder itself is None, not a guess",
-              orcamod.trust_prompt_folder("term_x") is None)
+              termmod.trust_prompt_folder("term_x") is None)
     finally:
-        orcamod.screen_text = real_text
+        termmod.screen_text = real_text
 
 
 def test_a_declared_root_gets_standing_consent(home: Path) -> None:
@@ -503,10 +503,10 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
                 f"Quick safety check: Is this a project you created or one you trust?\n"
                 f"...\nNo, exit\nYes, I trust this folder\n")
 
-    real = (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
-            orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-            trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
-            orcamod.time.sleep)
+    real = (termmod.resume_with, termmod.alive, termmod.trust_prompt_showing,
+            termmod.confirm_trust, termmod.wait_idle, termmod.screen_text,
+            trustmod.is_declared, termmod.idle_now, termmod.send, termmod.screen_blocker,
+            termmod.time.sleep)
     sent: list[str] = []
     trusted: list[str] = []
     showing = {"v": True}
@@ -520,22 +520,22 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn_states.PARKED, detail="reset for the next case")
 
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
-        orcamod.wait_idle = lambda h, *a, **k: True
-        orcamod.trust_prompt_showing = lambda h: showing["v"]
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        termmod.wait_idle = lambda h, *a, **k: True
+        termmod.trust_prompt_showing = lambda h: showing["v"]
         # As in production: the trust dialog is a modal to screen_blocker.
-        orcamod.screen_blocker = lambda h: (orcamod.Blocker(orcamod.MODAL)
-                                            if orcamod.trust_prompt_showing(h) else None)
+        termmod.screen_blocker = lambda h: (termmod.Blocker(termmod.MODAL)
+                                            if termmod.trust_prompt_showing(h) else None)
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", str(wt))
         keep_handoff("backend", "# handoff · backend\n## next\n- carry on\n")
 
         # 1. Not a declared root at all: raises, nothing pressed.
-        orcamod.screen_text = lambda h: screen_for(wt)
+        termmod.screen_text = lambda h: screen_for(wt)
         trustmod.is_declared = lambda p: False
-        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        termmod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: an undeclared root raises, nothing confirmed or typed",
               not ok and not sent and not trusted, str((ok, sent, trusted)))
@@ -544,7 +544,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
 
         # 2. Declared, but the dialog names a folder the record does not.
         reset()
-        orcamod.screen_text = lambda h: screen_for(other)
+        termmod.screen_text = lambda h: screen_for(other)
         trustmod.is_declared = lambda p: True
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a recorded path that differs from the dialog's folder raises",
@@ -552,7 +552,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
 
         # 3. Declared and matching, but the keys never land.
         reset()
-        orcamod.screen_text = lambda h: screen_for(wt)
+        termmod.screen_text = lambda h: screen_for(wt)
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: keys that did not land raise rather than typing blind",
               not ok and not sent, str((ok, sent, trusted)))
@@ -563,7 +563,7 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
             trusted.append(h)
             showing["v"] = False
             return True, "trusted"
-        orcamod.confirm_trust = confirm_and_close
+        termmod.confirm_trust = confirm_and_close
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: declared, matching, and the keys land: pressed",
               ok and trusted == ["term_x"], str((ok, trusted)))
@@ -587,25 +587,25 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         def confirm_landing(h):
             confirmed["v"] = True
             return True, "trusted"
-        orcamod.trust_prompt_showing = slow_redraw
-        orcamod.confirm_trust = confirm_landing
-        orcamod.time.sleep = lambda s: None
+        termmod.trust_prompt_showing = slow_redraw
+        termmod.confirm_trust = confirm_landing
+        termmod.time.sleep = lambda s: None
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: a redraw that outlasts the press is waited out, not raised",
               ok and sent and reads["n"] >= 3
               and db.get_agent_state(con, "backend")["state"] != dmn_states.STALLED,
               str((ok, why, reads, sent)))
-        orcamod.time.sleep = real[-1]
-        orcamod.trust_prompt_showing = lambda h: showing["v"]
+        termmod.time.sleep = real[-1]
+        termmod.trust_prompt_showing = lambda h: showing["v"]
 
         # 6. The deliver paths meet the same screen: typeable_now refuses it,
         # so neither types nor presses - the sweep is what reports it.
         reset()
-        orcamod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
-        orcamod.screen_text = lambda h: screen_for(wt)
+        termmod.confirm_trust = lambda h: (trusted.append(h), (True, "trusted"))[1]
+        termmod.screen_text = lambda h: screen_for(wt)
         trustmod.is_declared = lambda p: False
-        orcamod.idle_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.idle_now = lambda h: True
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         db.add_request(con, "reviewer", "backend", "please look", None,
                        "peer", "fire_and_forget", None, 0, None)
         asked = db.add_request(con, "backend", "reviewer", "did it land?", None,
@@ -617,10 +617,10 @@ def test_a_declared_root_gets_standing_consent(home: Path) -> None:
         check("trust: the deliver paths neither type nor press at the screen",
               not sent and not trusted, str((sent, trusted)))
     finally:
-        (orcamod.resume_with, orcamod.alive, orcamod.trust_prompt_showing,
-         orcamod.confirm_trust, orcamod.wait_idle, orcamod.screen_text,
-         trustmod.is_declared, orcamod.idle_now, orcamod.send, orcamod.screen_blocker,
-         orcamod.time.sleep) = real
+        (termmod.resume_with, termmod.alive, termmod.trust_prompt_showing,
+         termmod.confirm_trust, termmod.wait_idle, termmod.screen_text,
+         trustmod.is_declared, termmod.idle_now, termmod.send, termmod.screen_blocker,
+         termmod.time.sleep) = real
         con.close()
 
 
@@ -636,7 +636,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
                     "Quick safety check: Is this a project you created or one you trust?\n"
                     "...\nNo, exit\nYes, I trust this folder\n")
     screen = {"v": trust_screen}
-    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text)
+    real = (termmod.available, termmod.live_terminals, obsmod.live_sessions, termmod.screen_text)
 
     def stalled_on_the_trust_screen() -> int:
         db.set_agent_state(con, "backend", dmn_states.QUEUED, detail="reset")
@@ -654,10 +654,10 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
 
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: {"term_x"}
         obsmod.live_sessions = lambda: {"backend": 4242}
-        orcamod.screen_text = lambda h: screen["v"]
+        termmod.screen_text = lambda h: screen["v"]
         rid = stalled_on_the_trust_screen()
         check("trust stall: the prompt raised a stall and one decision",
               db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED, rid)
@@ -776,7 +776,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         check("trust stall: a stall for another reason is left for a person",
               db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
     finally:
-        orcamod.available, orcamod.live_terminals, obsmod.live_sessions, orcamod.screen_text = real
+        termmod.available, termmod.live_terminals, obsmod.live_sessions, termmod.screen_text = real
         con.close()
 
 

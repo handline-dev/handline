@@ -1,6 +1,6 @@
 """The terminal boundary: everything ocp asks of the program that hosts an agent's terminal.
 
-`handline.session.orca` (the terminal layer: dialogs, idle, clear, close, relaunch) and
+`handline.session.term` (the terminal layer: dialogs, idle, clear, close, relaunch) and
 `handline.team.spawn` reach the host only through a `Backend`. Orca is one; tmux is another.
 A backend knows how to run a command in a terminal, list the live ones, read the
 rendered screen, type into one, wait for it to go quiet, and make a worktree. It knows
@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from ...infra import textsafe
 
@@ -51,14 +53,40 @@ def not_a_repo_root(path: str) -> tuple[str, str]:
     return "not_git", f"{path} is not a git repository: run `git init` there"
 
 
+@dataclass(frozen=True)
+class WorktreeInfo:
+    """What a host keeps about one worktree: its id, label, comment, parent (an id), status and
+    child ids. A field the host does not have is None, or empty for the children."""
+    id: str | None = None
+    label: str | None = None
+    comment: str | None = None
+    parent: str | None = None
+    status: str | None = None
+    children: tuple[str, ...] = ()
+
+
+class Unreadable:
+    """The answer of `worktree_info` when the host is there but did not give a usable one: not
+    the same as "no such worktree", which is None."""
+
+    def __repr__(self) -> str:
+        return "UNREADABLE"
+
+
+UNREADABLE = Unreadable()
+
+
 class Backend:
     name = ""
     # Whether the host draws a team: orchestration runs and tasks with workers under them.
     # Without it the run and task methods are never called by anything that matters.
     supports_runs = False
     # Whether the host keeps labels and parent links on worktrees that `ocp rename` and a worktree move
-    # must carry over, and answers `host_cli` about them.
+    # must carry over, and answers the worktree methods about them.
     supports_labels = False
+    # Whether the host installs Claude hooks into ~/.claude/settings.json that `StateHooks` mirrors. A host
+    # without them has the agent's own `hl hook` entries as its witness, and the doctor does not look.
+    supports_agent_hooks = False
 
     # -- the host itself
     def available(self) -> bool:
@@ -72,6 +100,23 @@ class Backend:
     def own_terminal(self) -> tuple[str | None, str | None]:
         """(handle, worktree id) of the terminal this process runs in, when the host started it."""
         raise NotImplementedError
+
+    def manual(self, op: str, **a: str) -> str:
+        """The host's own words for what to do by hand when ocp could not: `terminal` (`worktree`,
+        `command`), `start` (`wt` or None, `repo`, `name`, `base_ref`, `command`: its steps, one per
+        line), `label` (`path`, `label`) and `parent` (`child`, `path`)."""
+        if op == "terminal":
+            return f'{self.name}: a terminal in {a["worktree"]} running "{a["command"]}"'
+        if op == "start":
+            if a["wt"]:
+                return f'{self.name}: a terminal there running "{a["command"]}"'
+            return (f'{self.name}: a worktree of {a["repo"]} named {a["name"]} from {a["base_ref"]}, '
+                    f'then a terminal in it running "{a["command"]}"')
+        if op == "label":
+            return f'{self.name}: label {a["path"]} {a["label"]}'
+        if op == "parent":
+            return f'{self.name}: make {a["child"]} a child of {a["path"]}'
+        raise ValueError(f"no manual for {op!r}")
 
     # -- terminals
     def create_terminal(self, command: str, cwd: str | None = None,
@@ -97,8 +142,11 @@ class Backend:
         `wait_submit_s` asks the host to watch the prompt land, where it can."""
         raise NotImplementedError
 
-    def wait_idle(self, handle: str, timeout_ms: int) -> bool:
-        """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False."""
+    def wait_idle(self, handle: str, timeout_ms: int,
+                  turn_on_screen: Callable[[list[str]], bool] | None = None) -> bool:
+        """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False.
+        `turn_on_screen` is the vendor's reading of whether a rendered screen shows a turn in
+        progress, for a host that must read the screen to tell; a host with its own witness ignores it."""
         raise NotImplementedError
 
     def focus(self, handle: str) -> tuple[bool, str]:
@@ -116,10 +164,26 @@ class Backend:
         """(path of a new worktree named `name` branched from `base_ref`, "") or (None, why not)."""
         raise NotImplementedError
 
-    def host_cli(self, args: list[str], timeout: int = 180) -> tuple[bool, str]:
-        """One command to the host's own CLI, as (ok, its text). Only a host with `supports_labels` has
-        one; the others say so."""
-        return False, f"{self.name} has no CLI to ask"
+    def worktree_info(self, path: str, timeout: int = 180) -> WorktreeInfo | None | Unreadable:
+        """The host's entry for the checkout at `path`; None when it has no such worktree;
+        UNREADABLE when it would not say. Only a host with `supports_labels` keeps any."""
+        return UNREADABLE
+
+    def set_worktree(self, path: str, label: str | None = None, comment: str | None = None,
+                     parent: str | None = None, status: str | None = None,
+                     timeout: int = 180) -> tuple[bool, str]:
+        """Set the label, comment, parent (a worktree id) or status of the worktree at `path`:
+        (took, the host's reply)."""
+        return False, f"{self.name} keeps no worktree labels"
+
+    def adopt_worktree(self, child: str, path: str, timeout: int = 180) -> tuple[bool, str]:
+        """Make the worktree with id `child` a child of the one at `path`: (took, the host's reply)."""
+        return False, f"{self.name} keeps no worktree parents"
+
+    def terminals_in(self, path: str, worktree_id: str | None = None) -> list[str] | None:
+        """The handles of the terminals open in the worktree at `path` (or with id `worktree_id`);
+        None when the host would not list them."""
+        return None
 
     # -- orchestration (only a host with supports_runs)
     def run_current(self) -> str | None:

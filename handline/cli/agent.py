@@ -9,7 +9,7 @@ from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
 from ..daemon import client as dmn_client, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
-from ..session import launch
+from ..session import launch, term
 from ..infra import names, protected
 from ..team import spawn as spawnmod
 
@@ -83,8 +83,8 @@ def cmd_agent_register(args) -> int:
         print(f"chrome {args.chrome}: applies from its next launch")
     if args.mcp_config:
         print(f"mcp-config {args.mcp_config}: applies from its next launch")
-    print("launch it from Orca with:")
-    print(f'  orca terminal create --worktree <selector> --command "{launch.command_for(args.name)}"')
+    print(f"launch it from {term.host_title()} with:")
+    print("  " + term.manual("terminal", worktree="<selector>", command=launch.command_for(args.name)))
     return 0
 
 

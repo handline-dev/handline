@@ -30,17 +30,17 @@ def _world(home: Path) -> list:
     hand_edit_team(TEAM)
     agents.register("worker")
     sessions_are("backend")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.screen_blocker = lambda h: None
-    orcamod.typeable_now = lambda h: True
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.screen_blocker = lambda h: None
+    termmod.typeable_now = lambda h: True
+    termmod.live_terminals = lambda: {"term_x"}
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
         sent.append((handle, text))
         return True, ""
-    orcamod.send = send
+    termmod.send = send
     return sent
 
 
@@ -214,7 +214,7 @@ def test_the_wait_is_a_common_setting_with_a_per_agent_override(home: Path) -> N
     sent = []
     con = db.connect()
     try:
-        orcamod.send = lambda handle, text, enter=True: (sent.append(text) or (True, ""))
+        termmod.send = lambda handle, text, enter=True: (sent.append(text) or (True, ""))
         idle_close.set_notice_digest_s(60, "backend")
         _finish(con, "PASS soon")
         first = int(_notices(con)[0]["landed_at"])

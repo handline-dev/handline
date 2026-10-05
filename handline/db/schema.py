@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS delivery_blocks (
   -- 'tick' ends with the work; 'close' - ocp's own /exit raised the dialog -
   -- stands for as long as the dialog does.
   origin     TEXT NOT NULL DEFAULT 'tick',
-  -- The dialog's own title, raw from orca.Blocker (parse_dialog), for a MODAL
+  -- The dialog's own title, raw from term.Blocker (parse_dialog), for a MODAL
   -- block - never reconstructed from `detail`, which is a rendering a title
   -- with a quote in it or over DETAIL_CHARS long does not round-trip through.
   -- Empty for anything but MODAL.

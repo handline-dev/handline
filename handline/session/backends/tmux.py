@@ -7,7 +7,7 @@ command is typed into it, as Orca does: the agent is a child of a shell that out
 
 What tmux cannot do that Orca does, and how each is covered here:
   - tell that a TUI is idle: `wait_idle` reads the screen until it has stopped changing and
-    shows no turn in progress (WORKING_MARKERS, claude's wording);
+    shows no turn in progress (the driver's `turn_on_screen`, the vendor's own wording);
   - watch a prompt land: `send` ignores `wait_submit_s`; the agent's own hook is the witness;
   - draw a team: there are no runs or tasks (`supports_runs` is False), so none are made;
   - register repos: there is no registry, a git repository is simply known.
@@ -36,9 +36,6 @@ ENTER_DELAY_S = 0.4
 # How long the screen must hold still to count as idle, and how often it is looked at.
 IDLE_SETTLE_S = 1.5
 IDLE_POLL_S = 0.5
-# Text a working claude draws in its status row and an idle one does not.
-WORKING_MARKERS = ("esc to interrupt",)
-WORKING_ROWS = 12
 
 # A lone terminal escape sequence is sent as the key tmux names, not as bytes tmux may deliver one at a time.
 _KEYS = {"\x1b[A": "Up", "\x1b[B": "Down", "\x1b[C": "Right", "\x1b[D": "Left", "\x1b": "Escape", "\x03": "C-c"}
@@ -161,8 +158,9 @@ class TmuxBackend(Backend):
                 return False, err
         return True, ""
 
-    def wait_idle(self, handle: str, timeout_ms: int) -> bool:
-        """Idle: the frame has not changed for IDLE_SETTLE_S and shows no turn in progress."""
+    def wait_idle(self, handle: str, timeout_ms: int, turn_on_screen=None) -> bool:
+        """Idle: the frame has not changed for IDLE_SETTLE_S and `turn_on_screen` (the vendor's
+        reading) sees no turn in progress; with none given, a still frame is idle."""
         deadline = time.monotonic() + timeout_ms / 1000
         last, since = None, time.monotonic()
         while True:
@@ -173,7 +171,7 @@ class TmuxBackend(Backend):
             now = time.monotonic()
             if tail != last:
                 last, since = tail, now
-            elif now - since >= IDLE_SETTLE_S and not _working(tail):
+            elif now - since >= IDLE_SETTLE_S and not (turn_on_screen and turn_on_screen(tail)):
                 return True
             left = deadline - now
             if left <= 0:
@@ -210,6 +208,3 @@ class TmuxBackend(Backend):
             return None, f"worktree create failed: {why}"
         return None, f"worktree create failed: {name} through {name}-9 are all taken"
 
-
-def _working(tail: list[str]) -> bool:
-    return any(m in row.lower() for row in tail[-WORKING_ROWS:] for m in WORKING_MARKERS)

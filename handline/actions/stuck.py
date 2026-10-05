@@ -10,7 +10,7 @@ from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle
 from .. import db
 from ..usage import load as loadmod
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..usage import status
 
@@ -128,7 +128,7 @@ def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
     """
     if time.time() - _WORLD["at"] > ttl:
         _WORLD["sessions"] = obs.live_sessions()
-        _WORLD["handles"] = orca.live_terminals() if orca.available() else None
+        _WORLD["handles"] = term.live_terminals() if term.available() else None
         _WORLD["at"] = time.time()
     return _WORLD["sessions"], _WORLD["handles"]
 

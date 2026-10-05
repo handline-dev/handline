@@ -11,7 +11,7 @@ from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks a
 from .. import db
 from ..session import launch
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
@@ -102,7 +102,7 @@ def cmd_daemon_status(args) -> int:
                 block = db.block_get(con, r["agent"])
                 if prompt:
                     detail = textsafe.oneline(actions.block_headline(prompt))
-                elif block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
+                elif block and block["kind"] in (term.MODAL, term.BACKGROUNDED):
                     detail = textsafe.oneline(blockedmod.headline(block["kind"], block["detail"]))
                 walled = (dmn_lifecycle.would_wake(con, r) and
                           launch.wake_wait_reason(r["agent"], r, con))

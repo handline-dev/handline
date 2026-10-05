@@ -23,8 +23,8 @@ class _KeyTerm:
 
     def __init__(self, tail, ignores_key=False):
         self.tail, self.ignores_key, self.sent = list(tail), ignores_key, []
-        orcamod._screen = lambda h: support._screen_of(self.tail)
-        orcamod.send = self.send
+        termmod._screen = lambda h: support._screen_of(self.tail)
+        termmod.send = self.send
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -34,26 +34,26 @@ class _KeyTerm:
 
 
 def test_press_option_sends_one_digit_and_refuses_what_it_cannot_send(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     term = _KeyTerm(DIALOG)
-    out = orcamod.press_option("term_x", 2)
+    out = termmod.press_option("term_x", 2)
     check("press: the listed option's digit is sent without Enter, and the dialog is gone",
-          term.sent == [("2", False)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+          term.sent == [("2", False)] and out[0] == termmod.CLEARED, str((term.sent, out)))
     term = _KeyTerm(DIALOG)
-    out = orcamod.press_option("term_x", 5)
-    check("press: an option the dialog does not list sends nothing", not term.sent and out[0] == orcamod.NOT_PRESSED, str(out))
+    out = termmod.press_option("term_x", 5)
+    check("press: an option the dialog does not list sends nothing", not term.sent and out[0] == termmod.NOT_PRESSED, str(out))
     term = _KeyTerm(DIALOG, ignores_key=True)
-    out = orcamod.press_option("term_x", 1)
-    check("press: a dialog still on screen after the key is still open", out[0] == orcamod.STILL_OPEN, str(out))
+    out = termmod.press_option("term_x", 1)
+    check("press: a dialog still on screen after the key is still open", out[0] == termmod.STILL_OPEN, str(out))
     term = _KeyTerm(TEN)
-    out = orcamod.press_option("term_x", 10)
-    check("press: option 10 is refused, not sent as '1' then '0'", not term.sent and out[0] == orcamod.NOT_PRESSED, str((term.sent, out)))
+    out = termmod.press_option("term_x", 10)
+    check("press: option 10 is refused, not sent as '1' then '0'", not term.sent and out[0] == termmod.NOT_PRESSED, str((term.sent, out)))
     term = _KeyTerm(CLEARED_SCREEN)
-    out = orcamod.press_option("term_x", 1)
-    check("press: a screen that is not a dialog sends nothing", not term.sent and out[0] == orcamod.NOT_PRESSED, str(out))
-    check("press: and dialog_on_screen reads it as None", orcamod.dialog_on_screen("term_x") is None)
+    out = termmod.press_option("term_x", 1)
+    check("press: a screen that is not a dialog sends nothing", not term.sent and out[0] == termmod.NOT_PRESSED, str(out))
+    check("press: and dialog_on_screen reads it as None", termmod.dialog_on_screen("term_x") is None)
     _KeyTerm(DIALOG)
-    d = orcamod.dialog_on_screen("term_x")
+    d = termmod.dialog_on_screen("term_x")
     check("press: dialog_on_screen reads a dialog's title and options", d and d.title.startswith("Do you want") and len(d.options) == 3, str(d))
 
 
@@ -90,8 +90,8 @@ class _WideKeyTerm:
 
     def __init__(self, full_tail, ignores_key=False):
         self.full_tail, self.ignores_key, self.sent = list(full_tail), ignores_key, []
-        orcamod._screen = lambda h, limit=40: support._screen_of(self.full_tail[-limit:])
-        orcamod.send = self.send
+        termmod._screen = lambda h, limit=40: support._screen_of(self.full_tail[-limit:])
+        termmod.send = self.send
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -134,8 +134,8 @@ class _ScriptedTerm:
 
     def __init__(self, screens):
         self.screens, self.sent = [list(x) for x in screens], []
-        orcamod._screen = self.read
-        orcamod.send = self.send
+        termmod._screen = self.read
+        termmod.send = self.send
 
     def read(self, handle, limit=40):
         tail = self.screens.pop(0) if len(self.screens) > 1 else self.screens[0]
@@ -149,42 +149,42 @@ class _ScriptedTerm:
 def test_answer_dialog_and_press_option_share_one_digit_path(home: Path) -> None:
     """T209: both press an option by its number, through `_digit_key` - one digit only, and only
     for an option the dialog shows."""
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     for number, label in ((5, "an option the dialog does not show"), (10, "option 10")):
         term = _KeyTerm(TEN if number == 10 else DIALOG)
-        out = orcamod.answer_dialog("term_x", lambda vendor, dialog, n=number: n)
-        check(f"answer: {label} is refused and nothing is sent", not term.sent and out[0] == orcamod.NOT_PRESSED, str((term.sent, out)))
+        out = termmod.answer_dialog("term_x", lambda vendor, dialog, n=number: n)
+        check(f"answer: {label} is refused and nothing is sent", not term.sent and out[0] == termmod.NOT_PRESSED, str((term.sent, out)))
     term = _KeyTerm(DIALOG)
-    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    out = termmod.answer_dialog("term_x", lambda vendor, dialog: 2)
     check("answer: a listed option is pressed as press_option presses it",
-          term.sent == [("2", False)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+          term.sent == [("2", False)] and out[0] == termmod.CLEARED, str((term.sent, out)))
 
 
 def test_a_dialog_replaced_before_the_confirm_is_cleared_not_still_open(home: Path) -> None:
     """T212: a digit that leaves the ruled dialog open is followed by an Enter on a fresh read. When
     a different dialog has taken its place by then the ruled one is gone: CLEARED, as `_press_dialog`
     reads a replaced dialog, not STILL_OPEN with a hold against an answer that landed."""
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     confirmable = [ln.replace("Esc to cancel", "Enter to confirm \u00b7 Esc to cancel") for ln in DIALOG]
     confirmable = [ln.replace("\u276f 1. Yes", "  1. Yes").replace("2. Yes, and", "\u276f 2. Yes, and") for ln in confirmable]
     other = [ln.replace("Do you want to proceed?", "Do you want to overwrite it?") for ln in confirmable]
-    same_after_digit = [confirmable] * (orcamod.PRESS_SETTLE_READS + 1)
+    same_after_digit = [confirmable] * (termmod.PRESS_SETTLE_READS + 1)
 
     term = _ScriptedTerm(same_after_digit + [other])
-    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    out = termmod.answer_dialog("term_x", lambda vendor, dialog: 2)
     check("confirm: another dialog in the ruled one's place reads as cleared",
-          out[0] == orcamod.CLEARED and out[1].startswith("Do you want to proceed"), str(out))
+          out[0] == termmod.CLEARED and out[1].startswith("Do you want to proceed"), str(out))
     check("confirm: and Enter is not pressed on the stranger", term.sent == [("2", False)], str(term.sent))
 
     term = _ScriptedTerm(same_after_digit + [confirmable, CLEARED_SCREEN])
-    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    out = termmod.answer_dialog("term_x", lambda vendor, dialog: 2)
     check("confirm: the same dialog, its choice highlighted, is confirmed with one Enter",
-          term.sent == [("2", False), ("", True)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+          term.sent == [("2", False), ("", True)] and out[0] == termmod.CLEARED, str((term.sent, out)))
 
     term = _ScriptedTerm(same_after_digit + [DIALOG])
-    out = orcamod.answer_dialog("term_x", lambda vendor, dialog: 2)
+    out = termmod.answer_dialog("term_x", lambda vendor, dialog: 2)
     check("confirm: the same dialog that offers no Enter stays still-open",
-          out[0] == orcamod.STILL_OPEN and term.sent == [("2", False)], str((term.sent, out)))
+          out[0] == termmod.STILL_OPEN and term.sent == [("2", False)], str((term.sent, out)))
 
 
 def test_a_long_heredoc_dialog_can_actually_be_pressed(home: Path) -> None:
@@ -196,9 +196,9 @@ def test_a_long_heredoc_dialog_can_actually_be_pressed(home: Path) -> None:
     _DIALOG_READ_MAX) cases must actually press."""
     for body_lines in (45, 450):
         term = _WideKeyTerm(_heredoc_dialog(body_lines))
-        out = orcamod.press_option("term_x", 1)
+        out = termmod.press_option("term_x", 1)
         check(f"heredoc press ({body_lines} lines): the option is actually sent",
-              term.sent == [("1", False)] and out[0] == orcamod.CLEARED,
+              term.sent == [("1", False)] and out[0] == termmod.CLEARED,
               str((body_lines, term.sent, out)))
 
 
@@ -207,8 +207,8 @@ def test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(home: Path
     title past the ordinary 40-line read is still a real, answerable
     dialog - the read widens instead of the founder never seeing it."""
     calls: list[int] = []
-    orcamod._screen = _wide_screen(_heredoc_dialog(45), calls)
-    d = orcamod.dialog_on_screen("term_x")
+    termmod._screen = _wide_screen(_heredoc_dialog(45), calls)
+    d = termmod.dialog_on_screen("term_x")
     check("heredoc: the dialog is found once the read is wide enough",
           d is not None and d.title == "Bash command" and len(d.options) == 3, str(d))
     check("heredoc: the read widened past the default 40 to find it",
@@ -218,10 +218,10 @@ def test_a_long_heredoc_commands_dialog_is_found_by_widening_the_read(home: Path
 def test_a_command_past_the_widest_read_still_shows_a_truncated_dialog(home: Path) -> None:
     """T383: even past `_DIALOG_READ_MAX`, a real dialog is offered - marked
     as truncated - rather than the founder seeing nothing at all."""
-    orcamod._screen = _wide_screen(_heredoc_dialog(450))
-    d = orcamod.dialog_on_screen("term_x")
+    termmod._screen = _wide_screen(_heredoc_dialog(450))
+    d = termmod.dialog_on_screen("term_x")
     check("heredoc: past the widest read, the title says so rather than guessing",
-          d is not None and d.title == orcamod.TRUNCATED_TITLE, str(d))
+          d is not None and d.title == termmod.TRUNCATED_TITLE, str(d))
     check("heredoc: the options are still read correctly",
           d is not None and len(d.options) == 3
           and [n for n, _ in d.options] == [1, 2, 3], str(d))
@@ -231,8 +231,8 @@ def test_an_ordinary_short_dialog_costs_only_the_one_read(home: Path) -> None:
     """Control case (T383): a dialog whose top rule is already inside the
     first 40 lines never triggers a second, wider read."""
     calls: list[int] = []
-    orcamod._screen = _wide_screen(PERMISSION_PROMPT, calls)
-    d = orcamod.dialog_on_screen("term_x")
+    termmod._screen = _wide_screen(PERMISSION_PROMPT, calls)
+    d = termmod.dialog_on_screen("term_x")
     check("short command: found on the first read", d is not None and len(d.options) == 3, str(d))
     check("short command: never widened past the default", calls == [40], str(calls))
 
@@ -246,11 +246,11 @@ def test_a_truncated_dialogs_title_is_stable_across_reads(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     try:
-        orcamod._screen = _wide_screen(_heredoc_dialog(450))
+        termmod._screen = _wide_screen(_heredoc_dialog(450))
         first = actions.dialog_of(con, "backend")
         second = actions.dialog_of(con, "backend")
         check("truncated title: stable across two reads of the same screen",
-              bool(first) and bool(second) and first["title"] == second["title"] == orcamod.TRUNCATED_TITLE,
+              bool(first) and bool(second) and first["title"] == second["title"] == termmod.TRUNCATED_TITLE,
               str((first, second)))
     finally:
         con.close()
@@ -266,8 +266,8 @@ def test_a_heredoc_permission_prompt_is_read_from_the_screen(home: Path) -> None
     try:
         waiting.note("backend", "Bash", {"command": "git checkout -q x; python3 - <<'EOF'",
                                          "description": ""}, after_event_id=1)
-        orcamod._screen = _wide_screen(_heredoc_dialog(45))
-        prompt = orcamod.confirmation_on_screen("term_x")
+        termmod._screen = _wide_screen(_heredoc_dialog(45))
+        prompt = termmod.confirmation_on_screen("term_x")
         found = confirmations.describe("backend", prompt, None) if prompt else None
         check("heredoc confirm: the prompt is now found, with its wait record",
               found is not None and found["wait"] == 1, str(found))
@@ -283,7 +283,7 @@ def test_always_on_a_truncated_dialog_presses_but_saves_no_rule(home: Path) -> N
     con = db.connect()
     try:
         _WideKeyTerm(_heredoc_dialog(450))
-        ok, said = dialogs.press_choice(con, "backend", orcamod.TRUNCATED_TITLE, 1, always=True)
+        ok, said = dialogs.press_choice(con, "backend", termmod.TRUNCATED_TITLE, 1, always=True)
         check("truncated always: the press itself still lands", ok and "chose 1" in said, said)
         check("truncated always: the founder is told it was not remembered",
               "not remembered" in said and "and will again" not in said, said)

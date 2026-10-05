@@ -22,7 +22,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 
-from . import orca
+from . import term
 from .. import vendors
 from ..infra import textsafe
 
@@ -231,7 +231,7 @@ def diagnose() -> list[str]:
 
 def observe(agents: list[str], terminals: dict[str, str | None]) -> dict[str, Observed]:
     """One look at the world, for all the agents at once."""
-    handles = orca.live_terminals() if orca.available() else None
+    handles = term.live_terminals() if term.available() else None
     sessions = live_sessions()
     out: dict[str, Observed] = {}
     for a in agents:

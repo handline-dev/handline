@@ -24,18 +24,18 @@ SESSION = "sess-1"
 def _world(home: Path) -> list:
     _daemon_home(home, 20)
     sessions_are("backend")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.screen_blocker = lambda h: None
-    orcamod.typeable_now = lambda h: False
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.screen_blocker = lambda h: None
+    termmod.typeable_now = lambda h: False
+    termmod.live_terminals = lambda: {"term_x"}
     landing._typed_at.clear()
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
         sent.append((handle, text))
         return True, ""
-    orcamod.send = send
+    termmod.send = send
     return sent
 
 
@@ -230,7 +230,7 @@ def test_a_line_already_in_the_transcript_is_landed_without_typing(home: Path) -
 
 def test_a_head_the_transcript_already_holds_is_landed_not_typed(home: Path) -> None:
     sent = _world(home)
-    orcamod.typeable_now = lambda h: True
+    termmod.typeable_now = lambda h: True
     hand_edit_team(DESIGN_TEAM.replace(
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
@@ -327,7 +327,7 @@ def test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_
 
 def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
     sent = _world(home)
-    orcamod.typeable_now = lambda h: True
+    termmod.typeable_now = lambda h: True
     hand_edit_team(DESIGN_TEAM.replace(
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
         '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))

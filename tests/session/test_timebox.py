@@ -41,8 +41,8 @@ def _world(home: Path) -> list[str]:
     sent: list[tuple[str, str]] = []
     orca_seen()
     dmn_delivery.session_present = lambda a: True
-    orcamod.typeable_now = lambda h: True
-    orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+    termmod.typeable_now = lambda h: True
+    termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
     con = db.connect()
     try:
         for a in ("manager", "marina", "dohyun"):
@@ -450,11 +450,11 @@ def test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(home
         now = _forgotten(con, "marina", 600)
         db.set_cursor(con, "bg_prompt:marina", now - G)
         st = types.SimpleNamespace(session_id="s", ctx_pct=1)
-        real = (orcamod.background_work, orcamod.close_session, orcamod.close_terminal,
+        real = (termmod.background_work, termmod.close_session, termmod.close_terminal,
                 dmn_delivery._wait_session_gone, dmn_delivery._past_dialog, dmn_lifecycle._answer_exit_dialog)
-        orcamod.background_work = lambda h: "1 shell"
-        orcamod.close_session = lambda h: (True, "")
-        orcamod.close_terminal = lambda h, tab=True: (False, "kept")
+        termmod.background_work = lambda h: "1 shell"
+        termmod.close_session = lambda h: (True, "")
+        termmod.close_terminal = lambda h, tab=True: (False, "kept")
         dmn_delivery._wait_session_gone = lambda a: True
         dmn_delivery._past_dialog = lambda *a, **k: ""
         dmn_lifecycle._answer_exit_dialog = lambda *a, **k: False
@@ -470,7 +470,7 @@ def test_the_close_that_stops_forgotten_work_records_why_once_in_tick_order(home
             check("close order: the sweep after it clears the marks", not db.get_cursor(con, "bg_prompt:marina")
                   and not db.get_cursor(con, "bg_stop_noted:marina"))
         finally:
-            (orcamod.background_work, orcamod.close_session, orcamod.close_terminal,
+            (termmod.background_work, termmod.close_session, termmod.close_terminal,
              dmn_delivery._wait_session_gone, dmn_delivery._past_dialog, dmn_lifecycle._answer_exit_dialog) = real
     finally:
         con.close()
@@ -697,12 +697,12 @@ def test_forgotten_background_work_is_left_when_something_is_owed_or_it_never_cl
         timebox.sweep(con, lambda _m: None, now)
         check("forgotten: nor one set to never close", not [s for s in sent if s[0] == "term_marina"], str(sent))
         idle_close.set_agent_close_timeout("marina", None)
-        orcamod.typeable_now = lambda h: False
+        termmod.typeable_now = lambda h: False
         now = _forgotten(con, "marina", S)
         timebox.sweep(con, lambda _m: None, now)
         check("forgotten: a prompt that could not be typed is not marked, so it is tried again",
               not db.get_cursor(con, "bg_prompt:marina") and not [s for s in sent if s[0] == "term_marina"])
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         timebox.sweep(con, lambda _m: None, now + timebox.NOTICE_RETRY_S + 1)
         check("forgotten: and it goes out once the terminal takes it", db.get_cursor(con, "bg_prompt:marina"))
         con.execute("DELETE FROM cursors WHERE name = 'bgwork:marina'")
@@ -1040,10 +1040,10 @@ def test_the_exit_dialog_is_answered_by_stopping_only_over_stale_work_it_can_rea
 def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
     def dialog(title="Background work is running", footer="Enter to confirm \u00b7 Esc to cancel",
                marked=("\u276f 1. Exit and stop tasks", "  2. Move to background and exit", "  3. Stay")):
-        return orcamod.Dialog(title, (), footer, (title, *marked))
+        return termmod.Dialog(title, (), footer, (title, *marked))
 
     check("stopping_key: the measured dialog is pressed with Enter",
-          orcamod.stopping_key(dialog()) == (orcamod.ENTER, ""))
+          termmod.stopping_key(dialog()) == (termmod.ENTER, ""))
     near = (
         ("a different title", dialog(title="Something else is running")),
         ("a footer without Enter to confirm", dialog(footer="Esc to cancel")),
@@ -1053,7 +1053,7 @@ def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
         ("no marked line", dialog(marked=("  1. Exit and stop tasks", "  3. Stay"))),
     )
     for what, d in near:
-        key, why = orcamod.stopping_key(d)
+        key, why = termmod.stopping_key(d)
         check(f"stopping_key: {what} presses nothing", key is None and why, f"{key!r} {why}")
 
 

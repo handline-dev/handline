@@ -13,7 +13,7 @@ from .. import actions
 from ..team import agents
 from .. import db
 from ..usage import cycle, load
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..usage import recover as recovermod
 from ..usage import status
@@ -77,7 +77,7 @@ def cmd_account_add(args) -> int:
     # an existing agent meets claude's folder-trust screen cold. `no_login`
     # leaves nothing yet to start a session on.
     # The trust screen is claude's own.
-    if not args.no_login and vendor == agents.DEFAULT_VENDOR and orca.available():
+    if not args.no_login and vendor == agents.DEFAULT_VENDOR and term.available():
         _offer_to_trust_worktrees(args.name, input)
     return 0
 

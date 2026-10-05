@@ -67,7 +67,7 @@ from handline.cli import (account as cliaccount, ask as cliask, bridge as clibri
                      health as clihealth, setup as clisetup, task as clitask)
 from handline.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from handline import actions, cli as climod, db, vendors  # noqa: E402
-from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, orca as orcamod, triggers, waiting  # noqa: E402
+from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
 from handline.vendors import claude_meter as claudemeter  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
@@ -120,12 +120,12 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 # Every test that needs an Orca stands in for one, and a restore tuple that
 # forgot a name used to leak that stand-in into every test after it. Captured
 # once, put back by _daemon_home, so no test inherits another's world.
-REAL_ORCA = {n: getattr(orcamod, n) for n in (
+REAL_ORCA = {n: getattr(termmod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
     "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
     "typeable_now", "idle_with_background")}
-orcamod.LAUNCH_ENTER_DELAY_S = 0
+termmod.LAUNCH_ENTER_DELAY_S = 0
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -214,10 +214,10 @@ def restore_world() -> None:
     os.environ.pop("OCP_TERMINAL", None)
     accounts.logged_in = REAL_LOGGED_IN
     for n, f in REAL_ORCA.items():
-        setattr(orcamod, n, f)
+        setattr(termmod, n, f)
     # A session that ends closes its pane (T407); the tests that type into the
     # shell it left behind keep it, and the ones about the closing stand in for it.
-    orcamod.close_terminal = lambda h, tab=True: (False, "the test world keeps every pane")
+    termmod.close_terminal = lambda h, tab=True: (False, "the test world keeps every pane")
     # This process itself may be running inside an Orca-launched terminal -
     # left set, `orca.terminal_handle()` reads the real thing, and a test that
     # calls `launch._record_terminal` without setting its own value first
@@ -233,16 +233,16 @@ def restore_world() -> None:
     # keychain item means: the fixtures' logged-out accounts rely on it.
     os.environ.pop("SANDBOX_RUNTIME", None)
     # No screen to read in a fixture; a test about a modal says so itself.
-    orcamod.modal_open = lambda handle: False
-    orcamod.screen_blocker = lambda handle: None
+    termmod.modal_open = lambda handle: False
+    termmod.screen_blocker = lambda handle: None
     # screen_blocker_cached wraps whatever screen_blocker is at call time, but
     # the cache itself is keyed by handle and outlives the function it wraps -
     # most fixtures reuse "term_x", so a value cached by one test would answer
     # the next one's read of the same handle without this.
-    orcamod._screen_cache.clear()
+    termmod._screen_cache.clear()
     # And no screen to read for a key either: a test that presses one says so.
-    orcamod._screen = lambda handle: None
-    orcamod.PRESS_SETTLE_S = 0
+    termmod._screen = lambda handle: None
+    termmod.PRESS_SETTLE_S = 0
     blockedmod._checked.clear()
     dmn_login_expired._checked.clear()
     accounts._modified.clear()
@@ -665,7 +665,7 @@ def _daemon_home(home: Path, pct: int | None) -> None:
     # them. Otherwise the sweep asks the real machine, which has never heard of
     # term_x and is running no session called backend, and correctly tears the
     # fixture down.
-    orcamod.available = lambda: False
+    termmod.available = lambda: False
     obsmod.live_sessions = lambda: None
 
 
@@ -812,8 +812,8 @@ def _screen_of(tail, draft=None, source="screen"):
 def _blocked_world(home: Path):
     """backend has a terminal and a session, and a task waiting it has not been told."""
     _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
     sessions_are("backend")
     con = db.connect()
     db.set_agent_state(con, "backend", dmn_states.IDLE)
@@ -883,9 +883,9 @@ class _Terminal:
         self.reads = 0
 
     def install(self):
-        orcamod._screen = self.read
-        orcamod.send = self.send
-        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod._screen = self.read
+        termmod.send = self.send
+        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
 
     def read(self, handle, limit=40):
         self.reads += 1
@@ -918,11 +918,11 @@ class _ExitTerm:
         return _screen_of(self.screen)
 
     def install(self):
-        orcamod._screen = self._read
-        orcamod.send = self.send
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
-        orcamod.close_terminal = lambda h, tab=True: (True, "closed")
+        termmod._screen = self._read
+        termmod.send = self.send
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.close_terminal = lambda h, tab=True: (True, "closed")
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -955,9 +955,9 @@ def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None, prep=None):
 
 def _bg_of(tail):
     restore_world()
-    orcamod._screen = lambda h: None if tail is None else _screen_of(tail)
+    termmod._screen = lambda h: None if tail is None else _screen_of(tail)
     try:
-        return orcamod.background_work("term_x")
+        return termmod.background_work("term_x")
     finally:
         restore_world()
 
@@ -967,7 +967,7 @@ def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
     con = _blocked_world(home)
     term = _Terminal(tail, **kw)
     term.install()
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.live_terminals = lambda: {"term_x"}
     return con, term
 
 
@@ -1304,6 +1304,8 @@ class SecondVendor:
     idle_from_screen = False
     def idle_on_screen(self, tail):
         return True
+    def turn_on_screen(self, tail):
+        return False
     def idle_with_background(self, tail):
         return False
     def screen_blocker(self, tail):
@@ -1461,11 +1463,11 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
         db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
                     (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
-    orcamod.idle_now = lambda h: True
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.idle_now = lambda h: True
+    termmod.live_terminals = lambda: {"term_x"}
     term = _Terminal(tail, after=AT_THE_PROMPT, **term_kw)
     term.install()
     sessions_are("keeper")
@@ -1981,23 +1983,23 @@ def write_status_json(agent_dir: Path, fields: dict) -> None:
 
 def orca_seen() -> None:
     """Orca is there and term_x is a live terminal."""
-    orcamod.available = lambda: True
-    orcamod.live_terminals = lambda: {"term_x"}
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.live_terminals = lambda: {"term_x"}
+    termmod.alive = lambda h: True
 
 
 def orca_idle() -> None:
     """Orca is there and every terminal is idle."""
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.idle_now = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.idle_now = lambda h: True
 
 
 def orca_settled() -> None:
     """term_x is live and settled: both idle probes answer yes."""
-    orcamod.live_terminals = lambda: {"term_x"}
-    orcamod.alive = lambda h: True
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.live_terminals = lambda: {"term_x"}
+    termmod.alive = lambda h: True
+    termmod.wait_idle = lambda h, timeout_ms=0: True
 
 
 __all__ = [
@@ -2082,7 +2084,7 @@ __all__ = [
     'measure',
     'obsmod',
     'orcacli',
-    'orcamod',
+    'termmod',
     'paths',
     'recovermod',
     'rehome',

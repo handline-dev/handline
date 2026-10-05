@@ -7,7 +7,7 @@ from ..team import agents
 from ..team import ask as askmod
 from .. import db
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..usage import status
 from ..infra.yamlcompat import ConfigError
@@ -168,8 +168,8 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
     and a running session is not something a person needs to clear. Its
     decision closes with it. An unreadable screen changes nothing.
     """
-    with orca.driver_scope():
-        if not orca.trust_prompt_gone(row["terminal"]):
+    with term.driver_scope():
+        if not term.trust_prompt_gone(row["terminal"]):
             return
     # Decision first, row second: a lift whose close failed would strand the
     # decision, and a kept stall is retried on the next tick.
@@ -363,7 +363,7 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
     if mins is None:
         return
     handle = row["terminal"]
-    if not handle or not orca.available() or not orca.idle_now(handle):
+    if not handle or not term.available() or not term.idle_now(handle):
         return
     # idle_now alone reads a permission prompt or a dialog as idle: nothing is
     # streaming while it waits on a person, the same silence this whole check
@@ -372,7 +372,7 @@ def _unstick_running(con, agent: str, row, log, actions: list[str]) -> None:
     # legitimately waiting on the one thing that already has its own path to
     # the founder (T223/T187); flipping it to IDLE here only lets ordinary
     # delivery type new work over a screen nobody has answered yet.
-    if orca.screen_blocker(handle) is not None:
+    if term.screen_blocker(handle) is not None:
         return
     db.set_agent_state(con, agent, IDLE,
                        detail=f"RUNNING with nothing heard for {mins}m, and idle")

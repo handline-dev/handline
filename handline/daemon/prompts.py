@@ -2,7 +2,7 @@
 
 A job of its own, apart from the tick: it does nothing but read screens, so it can
 run every couple of seconds without dragging the tick's slower work with it. Each
-pass reads every agent's screen once (`orca.prompt_on_screen`) and reconciles the
+pass reads every agent's screen once (`term.prompt_on_screen`) and reconciles the
 result with the agent's open row, level-triggered: the same prompt refreshes
 `last_seen`, a different one closes the old row and opens a new one, none closes it.
 A screen that cannot be read changes nothing - a row is never closed or refreshed
@@ -18,7 +18,7 @@ import time
 
 from .. import db
 from ..actions import prompt_blocks
-from ..session import orca, waiting
+from ..session import term, waiting
 
 WATCH_S = 2.0
 def _watched(con, agent_row) -> str | None:
@@ -32,11 +32,11 @@ def _watched(con, agent_row) -> str | None:
 
 def watch_agent(con, agent: str, handle: str, now: int) -> str:
     """Bring `agent`'s open row in line with its screen; returns what it did, for the log."""
-    kind, payload = orca.prompt_on_screen(handle)
-    if kind == orca.PROMPT_UNREADABLE:
+    kind, payload = term.prompt_on_screen(handle)
+    if kind == term.PROMPT_UNREADABLE:
         return "unreadable"
     open_row = db.open_prompt(con, agent)
-    if kind == orca.PROMPT_NONE:
+    if kind == term.PROMPT_NONE:
         if open_row is not None:
             db.prompt_close(con, open_row["id"], now)
             return "closed"

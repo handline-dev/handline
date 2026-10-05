@@ -15,7 +15,7 @@ from ..usage import load
 from ..infra import lock
 from ..usage import measure
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..team.ask import HUMAN
 from ..usage import status
@@ -122,7 +122,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # leaving it up until the wake that would otherwise be the first thing to
     # look (#2087).
     if state in (PARKED, THROTTLED, DEGRADED) and row["terminal"] and not row["closed_at"] \
-            and orca.available():
+            and term.available():
         with lock.terminal(agent) as mine:
             if mine:
                 delivery._past_dialog(con, agent, log, only_limit=True)
@@ -355,7 +355,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     if not woke_now and row and row["terminal"] and not row["closed_at"] \
             and state == PARKED \
             and reading and reading.source != "assumed" \
-            and orca.available() and orca.alive(row["terminal"]):
+            and term.available() and term.alive(row["terminal"]):
         last = db.last_handoff(con, agent)
         verdict = triggers.evaluate(st.short_trusted, st.trusted_ctx_used,
                                     long_pct=st.long_trusted, ctx_limit=ctx_limit)

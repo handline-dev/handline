@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...team import accounts
 from ... import actions, db
-from ...session import orca
+from ...session import term
 from .. import tui
 from .account_actions import AccountActions
 from .text_prompt import TextPrompt
@@ -77,7 +77,7 @@ class RowActions(AccountActions):
         name = name.strip()
         ok, msg = accounts.add_account(name, lambda argv, env: self._run_suspended(argv, env)[0])
         self.toast(msg, ok)
-        if not ok or not orca.available():
+        if not ok or not term.available():
             return
         # 156 item 1c: the CLI and this screen share the one trusting sequence.
         declared, skipped = actions.eligible_worktrees()

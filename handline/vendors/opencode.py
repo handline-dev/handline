@@ -306,6 +306,9 @@ class Opencode:
             return None
         return any("interrupt" in r for r in footer)
 
+    def turn_on_screen(self, tail: list[str]) -> bool:
+        return self.working_on_screen(tail) is True
+
     def idle_with_background(self, tail: list[str]) -> bool:
         return False        # opencode's screen carries no background count
 
@@ -313,8 +316,8 @@ class Opencode:
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
         cannot be typed into safely."""
-        from ..session import orca  # late: orca looks drivers up
-        from ..infra import textsafe  # late: orca looks drivers up
+        from ..session import term  # late: term looks drivers up
+        from ..infra import textsafe  # late: term looks drivers up
         rows = [str(x) for x in tail]
         low = max(0, len(rows) - _FOOTER_ROWS)
         ask = next((i for i in range(len(rows) - 1, low - 1, -1)
@@ -324,9 +327,9 @@ class Opencode:
             title = next((i for i in range(len(lines) - 1, -1, -1)
                           if lines[i].startswith("\u25b3")), None)
             shown = [ln for ln in (lines[title:] if title is not None else lines[-3:]) if ln]
-            return orca.Blocker(orca.MODAL, " / ".join(shown[:3])[:orca.DETAIL_CHARS])
+            return term.Blocker(term.MODAL, " / ".join(shown[:3])[:term.DETAIL_CHARS])
         if self._footer(tail) is None:
-            return orca.Blocker(orca.UNREADABLE)
+            return term.Blocker(term.UNREADABLE)
         return None
 
     def trust_screen(self, tail: list[str]) -> str | None:

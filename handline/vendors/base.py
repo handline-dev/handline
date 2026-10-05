@@ -306,6 +306,10 @@ class Driver(Protocol):
         working state Orca reads (idle_from_screen False), the answer is
         None: Orca's word is that vendor's witness, not its screen."""
 
+    def turn_on_screen(self, tail: list[str]) -> bool:
+        """Whether the rendered screen shows a turn in progress by this vendor's own status wording:
+        what a host with no idle witness of its own reads the screen for. False when it shows none."""
+
     def idle_with_background(self, tail: list[str]) -> bool:
         """Whether the rendered screen shows the session idle at its prompt with
         work still running behind it, which Orca's idle answer reads as a turn
@@ -314,7 +318,7 @@ class Driver(Protocol):
 
     def screen_blocker(self, tail: list[str]):
         """What on this vendor's rendered screen a typed line would answer or
-        merge into, as an `orca.Blocker`, or None when its prompt is ready."""
+        merge into, as an `term.Blocker`, or None when its prompt is ready."""
 
     def trust_screen(self, tail: list[str]) -> str | None:
         """The folder this vendor's own folder-trust dialog names, when
@@ -357,7 +361,7 @@ class Driver(Protocol):
     def confirmation(self, dialog) -> Confirmation | None:
         """This vendor's one-time permission prompt, when `dialog` is exactly
         that: a `Confirmation`. None for anything else, and for a vendor with no
-        such prompt. Only ever answered by a person (`orca.answer_confirmation`)."""
+        such prompt. Only ever answered by a person (`term.answer_confirmation`)."""
 
     def ask_question(self, tail: list[str]) -> Question | None:
         """The AskUserQuestion prompt this vendor's screen shows now, as a
@@ -378,7 +382,7 @@ class Driver(Protocol):
         control) - never both. None when this vendor has no such prompt, or
         this combination is not sent this way (a multiSelect question's boxes
         and Other together go through the two methods below instead). Only
-        ever pressed by a person, through `orca.answer_question`."""
+        ever pressed by a person, through `term.answer_question`."""
 
     def question_toggle_keys(self, question: Question, choices: tuple[int, ...]) -> list[str] | None:
         """Stage one of a multiSelect question's boxes-and-Other combo: the

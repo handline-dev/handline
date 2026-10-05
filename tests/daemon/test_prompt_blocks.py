@@ -26,9 +26,9 @@ class _Term:
 
     def __init__(self, tail, ignores_key=False):
         self.tail, self.ignores_key, self.sent, self.reads = list(tail), ignores_key, [], 0
-        orcamod.PRESS_SETTLE_S = 0
-        orcamod._screen = self.screen
-        orcamod.send = self.send
+        termmod.PRESS_SETTLE_S = 0
+        termmod._screen = self.screen
+        termmod.send = self.send
 
     def screen(self, handle, limit=40):
         self.reads += 1
@@ -100,7 +100,7 @@ def test_the_row_follows_the_screen_and_fails_closed(home: Path) -> None:
         again = _open(con)
         check("the same prompt is the same row, refreshed", again["id"] == first["id"] and again["last_seen"] > first["last_seen"],
               str((first["id"], again["id"])))
-        orcamod._screen = lambda h, limit=40: None
+        termmod._screen = lambda h, limit=40: None
         _pass(con)
         check("an unreadable screen changes nothing", _open(con) is not None and _open(con)["last_seen"] == again["last_seen"])
         check("a row the watch just refreshed is shown to the bridge", len(actions.open_blocks(con)) == 1)
@@ -206,7 +206,7 @@ def test_always_is_never_saved_under_a_truncated_dialogs_placeholder(home: Path)
         _pass(con)
         row = _open(con)
         check("truncated: found by growing the read, and marked as truncated",
-              row and row["kind"] == "dialog" and row["title"] == orcamod.TRUNCATED_TITLE, str(dict(row or {})))
+              row and row["kind"] == "dialog" and row["title"] == termmod.TRUNCATED_TITLE, str(dict(row or {})))
         ok, said = actions.answer_block(con, row["id"], {"number": 1, "always": True})
         check("truncated: the press lands", ok and term.sent == ["1"], str((ok, said, term.sent)))
         check("truncated: no rule was saved, and the founder is told", dialog_rules.list_rules() == []

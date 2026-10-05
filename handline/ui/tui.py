@@ -24,7 +24,7 @@ from typing import NamedTuple
 
 from ..team import accounts, agents
 from .. import actions, db, vendors
-from ..session import blocked as blockedmod, launch, orca, triggers
+from ..session import blocked as blockedmod, launch, term, triggers
 from ..usage import load as loadmod, status
 from ..infra import paths
 from ..infra import timefmt
@@ -898,7 +898,7 @@ DETAIL_CAP = 40
 # life of the session. The witness is the pane's own screen, the same one
 # wait_idle's screen half trusts: Orca's tui-idle word is no good here,
 # measured on a busy opencode pane it answers idle while the turn streams
-# (orca.py's docstring says the same). One screen read is ~110ms; the cache
+# (term.py's docstring says the same). One screen read is ~110ms; the cache
 # keeps a redraw's rows from each paying it, and the timestamp is taken after
 # the read, so a slow answer is not born already expired.
 OPENCODE_STATE_TTL_S = 2.0
@@ -926,12 +926,12 @@ def _opencode_working(handle: str) -> bool | None:
     hit = _opencode_seen.get(handle)
     if hit and now - hit[0] <= OPENCODE_STATE_TTL_S:
         return hit[1]
-    term = orca._screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
+    frame = term._screen(handle)
+    tail = frame.get("tail") if frame else None
+    if not isinstance(tail, list) or frame.get("source") != "screen":
         working = None
     else:
-        working = orca._driver_for(handle).working_on_screen(tail)
+        working = term._driver_for(handle).working_on_screen(tail)
     if len(_opencode_seen) > 128:
         for k in [k for k, (at, _) in _opencode_seen.items() if now - at > OPENCODE_STATE_TTL_S]:
             del _opencode_seen[k]
@@ -981,7 +981,7 @@ def _screen_state(con, row) -> tuple[str, str]:
     if prompt:
         return "DIALOG", oneline(actions.block_headline(prompt))[:DETAIL_CAP]
     block = db.block_get(con, row["agent"])
-    if block and block["kind"] in (orca.MODAL, orca.BACKGROUNDED):
+    if block and block["kind"] in (term.MODAL, term.BACKGROUNDED):
         return "DIALOG", oneline(blockedmod.headline(block["kind"], block["detail"]))[:DETAIL_CAP]
 
     state, detail = row["state"], row["detail"] or ""

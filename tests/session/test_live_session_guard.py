@@ -35,11 +35,11 @@ def _world(home: Path, rows, table: bool):
     """backend is idle in term_x, whose screen draws `rows`; the process table lists it or not."""
     con = _blocked_world(home)
     screen = _Screen(rows)
-    orcamod._screen = screen.read
-    orcamod.send = screen.send
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
-    orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
-    orcamod.close_terminal = lambda h, tab=True: (True, "closed")
+    termmod._screen = screen.read
+    termmod.send = screen.send
+    termmod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+    termmod.close_terminal = lambda h, tab=True: (True, "closed")
     db.set_terminal(con, "backend", "term_x", "wt")
     if not table:
         obsmod.live_sessions = lambda: {}
@@ -54,7 +54,7 @@ def _exiting_but_still_drawn(screen: _Screen, table: dict) -> None:
         if text == "/exit":
             table.pop("backend", None)
         return True, ""
-    orcamod.send = send
+    termmod.send = send
 
 
 def test_the_screen_says_whether_a_session_is_drawn(home: Path) -> None:
@@ -64,12 +64,12 @@ def test_the_screen_says_whether_a_session_is_drawn(home: Path) -> None:
             ("a dialog", EXIT_DIALOG, True),
             ("a shell prompt", SHELL, False),
             ("an empty screen", [], False)):
-        orcamod._screen = lambda h, limit=40, r=rows: _screen_of(r)
+        termmod._screen = lambda h, limit=40, r=rows: _screen_of(r)
         check(f"screen: {name} reads as {'a session' if want else 'no session'}",
-              orcamod.session_on_screen("term_x") is want, str(rows[:2]))
-    orcamod._screen = lambda h, limit=40: None
+              termmod.session_on_screen("term_x") is want, str(rows[:2]))
+    termmod._screen = lambda h, limit=40: None
     check("screen: one that cannot be read is neither: None, so the table's word stands",
-          orcamod.session_on_screen("term_x") is None and dmn_delivery.session_still_drawn("term_x") is False)
+          termmod.session_on_screen("term_x") is None and dmn_delivery.session_still_drawn("term_x") is False)
     check("screen: no terminal, no session drawn", dmn_delivery.session_still_drawn(None) is False)
 
 
@@ -90,18 +90,18 @@ def test_an_exited_session_whose_composer_is_still_drawn_is_not_a_session(home: 
             ("dquote> continuation", [*COMPOSER_EMPTY, "dquote> "], False),
             ("a live composer with its statusline ending in a percent", COMPOSER_EMPTY, True),
             ("a live composer typed into", _composer_typed("echo $ HOME %"), True)):
-        orcamod._screen = lambda h, limit=40, r=rows: _screen_of(r)
+        termmod._screen = lambda h, limit=40, r=rows: _screen_of(r)
         check(f"exited: {name} reads as {'a session' if want else 'no session'}",
-              orcamod.session_on_screen("term_x") is want, str(rows[-2:]))
+              termmod.session_on_screen("term_x") is want, str(rows[-2:]))
 
 
 def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
     con, screen = _world(home, EXITED, table=False)
-    delivery_sleep, orcamod.SHELL_SETTLE_S = orcamod.SHELL_SETTLE_S, 0
+    delivery_sleep, termmod.SHELL_SETTLE_S = termmod.SHELL_SETTLE_S, 0
     try:
         ok, why = dmn_delivery._send("term_x", "a request, waiting for you:\nsay \"hi\" and `hl read 1`")
         check("shell: text is not typed at a shell under a stale composer", not ok and screen.sent == [], f"{why} {screen.sent}")
-        ok, why = orcamod.resume_with("term_x", "your handoff is in /x")
+        ok, why = termmod.resume_with("term_x", "your handoff is in /x")
         check("shell: nor is a handoff pointer", not ok and screen.sent == [], why)
         check("shell: a refusal before any typing sends no Ctrl-C and records nothing",
               con.execute("SELECT COUNT(*) FROM events WHERE kind = 'shell_cleared'").fetchone()[0] == 0)
@@ -111,7 +111,7 @@ def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
         def read(handle, limit=40):
             reads["n"] += 1
             return _screen_of(COMPOSER_EMPTY if reads["n"] == 1 else IF_CONTINUATION)
-        orcamod._screen = read
+        termmod._screen = read
         screen.sent.clear()
         ok, why = dmn_delivery._send("term_x", "say \"hi")
         check("shell: text that reached a shell is reported as not delivered", not ok and "shell prompt" in why, why)
@@ -125,16 +125,16 @@ def test_nothing_is_typed_at_a_shell_and_a_race_is_cleared(home: Path) -> None:
               and _json.loads(evs[0]["payload"])["screen"][-1].strip() == "if>"
               and any("Resume this session with" in r for r in _json.loads(evs[0]["payload"])["screen"]),
               str([tuple(e) for e in evs]))
-        orcamod._screen = lambda h, limit=40: _screen_of(COMPOSER_EMPTY)
+        termmod._screen = lambda h, limit=40: _screen_of(COMPOSER_EMPTY)
         screen.sent.clear()
         ok, why = dmn_delivery._send("term_x", "hello")
         check("shell: a live session takes it as before", ok and screen.sent == ["hello"], f"{why} {screen.sent}")
-        orcamod._screen = lambda h, limit=40: None
+        termmod._screen = lambda h, limit=40: None
         screen.sent.clear()
         ok, _ = dmn_delivery._send("term_x", "hello")
         check("shell: a screen that cannot be read does not stop a send", ok and screen.sent == ["hello"])
     finally:
-        orcamod.SHELL_SETTLE_S = delivery_sleep
+        termmod.SHELL_SETTLE_S = delivery_sleep
         con.close()
 
 
@@ -172,7 +172,7 @@ def test_a_close_is_not_recorded_while_a_session_is_still_drawn(home: Path) -> N
         def shell_soon(handle, limit=40, _n=[0]):
             _n[0] += 1
             return _screen_of(SHELL if _n[0] > 3 else COMPOSER_EMPTY)
-        orcamod._screen = shell_soon
+        termmod._screen = shell_soon
         ok, why = dmn_lifecycle._end_session(con, "backend", lambda m: None, st, resume="sess-1")
         row = db.get_agent_state(con, "backend")
         check("close: a screen that clears within the wait is a session that ended",
@@ -184,11 +184,11 @@ def test_a_close_is_not_recorded_while_a_session_is_still_drawn(home: Path) -> N
 def test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(home: Path) -> None:
     con, screen = _world(home, COMPOSER_EMPTY, table=False)
     try:
-        ok, why = orcamod.relaunch("term_x", "hl launch backend")
+        ok, why = termmod.relaunch("term_x", "hl launch backend")
         check("relaunch: refused at a drawn session, and nothing typed",
               not ok and "not typing a launch line" in why and screen.sent == [], f"{why} {screen.sent}")
         screen.rows = list(SHELL)
-        ok, _ = orcamod.relaunch("term_x", "hl launch backend")
+        ok, _ = termmod.relaunch("term_x", "hl launch backend")
         check("relaunch: typed at a shell", ok and screen.sent[0] == "hl launch backend", str(screen.sent))
 
         # Through the wake: the closed mark is there, the table lists nothing, the screen draws a session.
@@ -209,7 +209,7 @@ def test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(home: Path) -> N
 
 def test_the_sweep_does_not_call_a_drawn_session_gone(home: Path) -> None:
     con, screen = _world(home, COMPOSER_EMPTY, table=False)
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.live_terminals = lambda: {"term_x"}
     try:
         lines: list[str] = []
         for _ in range(3):
@@ -230,7 +230,7 @@ def test_the_sweep_does_not_call_a_drawn_session_gone(home: Path) -> None:
 def test_a_session_end_event_alone_marks_nothing_closed(home: Path) -> None:
     """A /clear fires SessionEnd and the process lives on; only the table and the screen say a session is gone."""
     con, screen = _world(home, COMPOSER_EMPTY, table=True)
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.live_terminals = lambda: {"term_x"}
     try:
         db.add_event(con, "backend", "SessionEnd", {"reason": "clear"})
         db.add_event(con, "backend", "SessionStart", {})
@@ -309,7 +309,7 @@ def test_a_session_is_present_if_the_table_lists_it_or_the_screen_draws_it(home:
     reads: list[int] = []
     real_read = screen.read
     screen.read = lambda handle, limit=40: (reads.append(1), real_read(handle, limit))[1]
-    orcamod._screen = screen.read
+    termmod._screen = screen.read
     try:
         _table(True)
         check("present: a session the table lists is present, and the screen is not read for it",
@@ -328,11 +328,11 @@ def test_a_session_is_present_if_the_table_lists_it_or_the_screen_draws_it(home:
         check("present: none listed and a shell drawn: not present", not dmn_delivery.session_present("backend"))
         _table(None)
         check("present: an unreadable table and a shell: still not (fail closed)", not dmn_delivery.session_present("backend"))
-        orcamod._screen = lambda h, limit=40: None
+        termmod._screen = lambda h, limit=40: None
         _table(False)
         check("present: none listed and a screen that cannot be read: not present", not dmn_delivery.session_present("backend"))
         db.set_terminal(con, "backend", None, "wt")
-        orcamod._screen = real_read
+        termmod._screen = real_read
         screen.rows = list(COMPOSER_EMPTY)
         _table(False)
         check("present: no terminal, nothing drawn", not dmn_delivery.session_present("backend"))

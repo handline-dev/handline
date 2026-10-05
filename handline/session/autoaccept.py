@@ -17,7 +17,7 @@ import time
 from .. import db
 from ..infra import paths
 from ..team import dialog_rules
-from . import idle_close, orca, waiting
+from . import idle_close, term, waiting
 
 KEY = "auto_accept_dialogs"
 # A prompt that Enter did not clear is left alone this long, not pressed again
@@ -68,13 +68,13 @@ def _accept(con, agent: str, row, now: int, log) -> bool:
         return False
     if _stuck(con, agent, now):
         return False
-    with orca.driver_scope():
-        if not orca.accepts_tool(row["terminal"], tool):
+    with term.driver_scope():
+        if not term.accepts_tool(row["terminal"], tool):
             return False
-        outcome, title, why = orca.accept_dialog(row["terminal"], tool)
-    if outcome == orca.NOT_PRESSED:
+        outcome, title, why = term.accept_dialog(row["terminal"], tool)
+    if outcome == term.NOT_PRESSED:
         return False
-    if outcome == orca.STILL_OPEN:
+    if outcome == term.STILL_OPEN:
         db.set_cursor(con, f"autoaccept_stuck:{agent}", now)
         db.add_event(con, agent, "dialog_accept_failed", {"title": title, "tool": tool})
         log(f"  {agent}: pressed Enter on \"{title}\" ({tool}) and it is still open")
@@ -91,10 +91,10 @@ def _answer_by_rule(con, agent: str, row, now: int, log, rules: set) -> None:
     if row["closed_at"] or _stuck(con, agent, now):
         return
     handle = row["terminal"]
-    with orca.driver_scope():
-        vendor = orca._driver_for(handle).name
-        blocker = orca.screen_blocker_cached(handle)
-        if blocker is None or blocker.kind != orca.MODAL or (vendor, blocker.title) not in rules:
+    with term.driver_scope():
+        vendor = term._driver_for(handle).name
+        blocker = term.screen_blocker_cached(handle)
+        if blocker is None or blocker.kind != term.MODAL or (vendor, blocker.title) not in rules:
             return
         chosen: dict[str, str] = {}
 
@@ -104,11 +104,11 @@ def _answer_by_rule(con, agent: str, row, now: int, log, rules: set) -> None:
                 chosen["label"] = dict(dialog.options)[number]
             return number
 
-        outcome, title, why = orca.answer_dialog(handle, choose)
-    if outcome == orca.NOT_PRESSED:
+        outcome, title, why = term.answer_dialog(handle, choose)
+    if outcome == term.NOT_PRESSED:
         return
     detail = {"title": title, "label": chosen.get("label", ""), "by": "rule"}
-    if outcome == orca.STILL_OPEN:
+    if outcome == term.STILL_OPEN:
         db.set_cursor(con, f"autoaccept_stuck:{agent}", now)
         db.add_event(con, agent, "dialog_accept_failed", detail)
         log(f"  {agent}: pressed '{detail['label']}' on \"{title}\" (rule) and it is still open")

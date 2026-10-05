@@ -17,6 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import control as actions_control  # noqa: E402
+from handline.team import guide as guidemod  # noqa: E402
 
 
 class FakeHost(backends.base.Backend):
@@ -47,7 +49,7 @@ class FakeHost(backends.base.Backend):
     def send(self, handle, text, enter=True, wait_submit_s=None):
         self._note("send", handle, text, enter, wait_submit_s)
         return True, ""
-    def wait_idle(self, handle, timeout_ms):
+    def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
         self._note("idle", handle, timeout_ms)
         return self.idle
     def focus(self, handle):
@@ -87,6 +89,83 @@ def test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_ba
           and backends.use(before) is pinned)
     (home / "config.yaml").write_text("terminal: orca\n")
     check("backend: the file is read again when it changes", backends.current().name == "orca")
+
+
+def test_the_old_module_name_is_the_same_module() -> None:
+    import handline.session.orca as old
+    check("rename: `handline.session.orca` is the very module `term`, not a copy", old is termmod)
+
+
+def test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(home: Path) -> None:
+    use_home(home)
+
+    class Watching(FakeHost):
+        def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
+            self.reading = turn_on_screen
+            return True
+    host, real = Watching(), termmod._lookup_driver
+    claude = vendors.get("claude")
+    backends.use(host)
+    termmod._lookup_driver = lambda handle: claude
+    try:
+        check("idle: the layer hands the host the driver's own turn_on_screen",
+              termmod.wait_idle("h1", 1000) is True and host.reading == claude.turn_on_screen)
+    finally:
+        termmod._lookup_driver = real
+    oc = vendors.get("opencode")
+    check("idle: opencode reads a turn on its own screen, and none on an idle or a missing one",
+          oc.turn_on_screen(OC_WORKING) is True and oc.turn_on_screen(OC_IDLE) is False
+          and oc.turn_on_screen(["$ "]) is False and oc.working_on_screen(["$ "]) is None)
+
+
+def test_orcas_own_words_for_the_manual_fallbacks_are_pinned(home: Path) -> None:
+    use_home(home)
+    b = orcacli.OrcaBackend()
+    check("orca words: a terminal, and a start in a worktree, are `orca terminal create`",
+          b.manual("terminal", worktree="path:/wt", command="hl launch x")
+          == 'orca terminal create --worktree path:/wt --command "hl launch x"'
+          and b.manual("start", wt="/wt", repo="/r", name="x", base_ref="main", command="hl launch x")
+          == 'orca terminal create --worktree path:/wt --command "hl launch x"')
+    check("orca words: a start with no worktree makes one first, then a terminal in it",
+          b.manual("start", wt=None, repo="/r", name="x", base_ref="main", command="hl launch x")
+          == 'orca worktree create --repo path:/r --name x --base-branch main\n'
+             '  orca terminal create --worktree <new> --command "hl launch x"')
+
+
+def test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(home: Path) -> None:
+    import contextlib
+    import io
+    use_home(home)
+    for host, want in ((orcacli.OrcaBackend(), 'orca terminal create --worktree path:<wt> --command "hl launch backend"'),
+                       (FakeHost(), 'fake: a terminal in path:<wt> running "hl launch backend"')):
+        backends.use(host)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            guidemod.show("launch")
+        check(f"guide: {host.name} words its own launch line and no `@` placeholder is left",
+              want in out.getvalue() and "@" not in out.getvalue(), out.getvalue())
+
+
+def test_a_missing_host_is_named_by_that_host_in_each_message(home: Path) -> None:
+    use_home(home)
+
+    class Gone(FakeHost):
+        def available(self):
+            return False
+    backends.use(Gone())
+    agents.register("lost")
+    con = db.connect()
+    try:
+        db.set_terminal(con, "lost", "h1", str(home))
+        reclaim = dmn_delivery._reclaim_context(con, "lost", lambda _m: None)[1]
+        typed = dmn_messaging.can_type_now(con, "lost", "h1")[1]
+        focus = actions_control.terminal(con, "lost")
+        check("missing: the context reclaim, the typing check and the switch all name the host, not Orca",
+              "fake is not on PATH" in reclaim and typed == "fake is not on PATH"
+              and "fake is not on PATH" in focus and "orca" not in (reclaim + typed + focus).lower(),
+              f"{reclaim} | {typed} | {focus}")
+    finally:
+        con.close()
 
 
 def _record(replies: dict | None = None):
@@ -167,8 +246,35 @@ def test_the_orca_backend_makes_the_same_cli_calls_it_always_did(home: Path) -> 
               and seen[2] == ["orca", "terminal", "switch", "--terminal", "t1"], str(seen))
 
         check("orca: it keeps runs and labels, and has its own CLI for them",
-              b.supports_runs and b.supports_labels and b.host_cli(["worktree", "show"])[0]
-              and seen[-1] == ["orca", "worktree", "show"])
+              b.supports_runs and b.supports_labels)
+        shown = json.dumps({"ok": True, "result": {"worktree": {
+            "id": "w1", "displayName": "n", "comment": "c", "parentWorktreeId": "p", "workspaceStatus": "s",
+            "childWorktreeIds": ["k"]}}})
+        seen, orcacli._exec = _record({"worktree show": (0, shown, ""), "worktree set": _ok()})
+        check("orca: a worktree is read with `worktree show --worktree path:<dir> --json`",
+              b.worktree_info("/wt/a") == backends.base.WorktreeInfo("w1", "n", "c", "p", "s", ("k",))
+              and seen[-1] == ["orca", "worktree", "show", "--worktree", "path:/wt/a", "--json"], str(seen[-1]))
+        check("orca: a set is label, then --json, then comment, parent as an id, and status",
+              b.set_worktree("/wt/a", label="n", comment="c", parent="p", status="s")[0]
+              and seen[-1] == ["orca", "worktree", "set", "--worktree", "path:/wt/a", "--display-name", "n",
+                               "--json", "--comment", "c", "--parent-worktree", "id:p",
+                               "--workspace-status", "s"], str(seen[-1]))
+        check("orca: a child is adopted by id under a path",
+              b.adopt_worktree("k", "/wt/a")[0]
+              and seen[-1] == ["orca", "worktree", "set", "--worktree", "id:k", "--parent-worktree",
+                               "path:/wt/a", "--json"], str(seen[-1]))
+        gone = json.dumps({"ok": False, "error": {"code": "selector_not_found"}})
+        orcacli._exec = _record({"worktree show": (1, gone, "")})[1]
+        check("orca: a worktree it does not have is None", b.worktree_info("/x") is None)
+        orcacli._exec = _record({"worktree show": (1, "", "boom")})[1]
+        check("orca: one it would not answer about is UNREADABLE", b.worktree_info("/x") is backends.base.UNREADABLE)
+        orcacli._exec = _record({"terminal list": _ok(terminals=[
+            {"handle": "t1", "worktreePath": "/wt/a"}, {"handle": "t2", "worktreeId": "w1"},
+            {"handle": "t3", "worktreePath": "/other"}])})[1]
+        check("orca: the terminals in a worktree are matched by path or by id",
+              b.terminals_in("/wt/a", "w1") == ["t1", "t2"] and b.terminals_in("/wt/a") == ["t1"])
+        orcacli._exec = _record({"terminal list": (1, "", "down")})[1]
+        check("orca: terminals it could not list are None", b.terminals_in("/wt/a") is None)
     finally:
         orcacli._exec = real
 
@@ -238,39 +344,39 @@ def test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(home: Pa
 def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path) -> None:
     use_home(home)
     for name, real in REAL_ORCA.items():        # the test world stubs some of these; this test is about the real ones
-        setattr(orcamod, name, real)
+        setattr(termmod, name, real)
     host = FakeHost()
     backends.use(host)
     check("layer: available, handles and live terminals come from the backend",
-          orcamod.available() and orcamod.terminal_handle() == "h-own" and orcamod.worktree_id() == "/wt/own"
-          and orcamod.live_terminals() == {"h1", "h2"} and orcamod.alive("h1") and not orcamod.alive("h3"))
+          termmod.available() and termmod.terminal_handle() == "h-own" and termmod.worktree_id() == "/wt/own"
+          and termmod.live_terminals() == {"h1", "h2"} and termmod.alive("h1") and not termmod.alive("h3"))
     check("layer: a new terminal's handle, and with the reason",
-          orcamod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
-          and orcamod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
+          termmod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
+          and termmod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
           and host.calls[-1] == ("create", "cmd", "/w", "t"))
-    ok, _ = orcamod.send("h1", "hello")
-    ok2, _ = orcamod.submit("h1", "task", 30)
+    ok, _ = termmod.send("h1", "hello")
+    ok2, _ = termmod.submit("h1", "task", 30)
     check("layer: send and submit are the backend's send",
           ok and ok2 and ("send", "h1", "hello", True, None) in host.calls
           and ("send", "h1", "task", True, 30) in host.calls, str(host.calls))
     check("layer: a screen read and its text come from the backend",
-          orcamod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
-          and orcamod.screen_text("h1") == "> ")
-    check("layer: focus and close are the backend's", orcamod.focus("h1")[0]
-          and orcamod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
-    check("layer: repos and worktrees too", orcamod.ensure_repo("/r") == ("known", "ok")
-          and ("repo", "/r", True) in host.calls and orcamod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
+          termmod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
+          and termmod.screen_text("h1") == "> ")
+    check("layer: focus and close are the backend's", termmod.focus("h1")[0]
+          and termmod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
+    check("layer: repos and worktrees too", termmod.ensure_repo("/r") == ("known", "ok")
+          and ("repo", "/r", True) in host.calls and termmod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
     check("layer: runs and tasks too",
-          orcamod.run_create("o") == "run-1" and orcamod.run_current() == "run-0" and orcamod.run_exists("run-1")
-          and orcamod.task_create("s", "t", "d", "run-1") == "task-1" and orcamod.dispatch("task-1", "h1", "run-1") == "disp-1"
-          and orcamod.has_runs())
+          termmod.run_create("o") == "run-1" and termmod.run_current() == "run-0" and termmod.run_exists("run-1")
+          and termmod.task_create("s", "t", "d", "run-1") == "task-1" and termmod.dispatch("task-1", "h1", "run-1") == "disp-1"
+          and termmod.has_runs())
 
     # Idle: the host's word, and for a vendor whose state it cannot read the screen's as well.
     host.idle = True
-    check("layer: idle is the backend's wait for claude", orcamod.wait_idle("h1", 5000)
+    check("layer: idle is the backend's wait for claude", termmod.wait_idle("h1", 5000)
           and ("idle", "h1", 5000) in host.calls)
     host.idle = False
-    check("layer: a busy host is not idle", not orcamod.wait_idle("h1", 5000))
+    check("layer: a busy host is not idle", not termmod.wait_idle("h1", 5000))
 
     # What a host with no runs or labels means for the callers that gate on them.
     class Bare(FakeHost):
@@ -278,8 +384,9 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
         supports_labels = False
     backends.use(Bare())
     check("layer: a host without runs or labels is gated out of both",
-          not orcamod.has_runs() and not orcamod.keeps_labels() and not orcamod.has_labels()
-          and orcamod.host_cli(["worktree", "show"])[0] is False)
+          not termmod.has_runs() and not termmod.keeps_labels() and not termmod.has_labels()
+          and termmod.worktree_info("/w") is backends.base.UNREADABLE
+          and termmod.set_worktree("/w", label="x")[0] is False and termmod.terminals_in("/w") is None)
     con = db.connect()
     try:
         check("layer: so no worker is registered", spawnmod.register_worker(con, "backend", "h1") is None)
@@ -332,9 +439,21 @@ class Bare(FakeHost):
         super().__init__()
         self.cli: list = []
 
-    def host_cli(self, args, timeout=180):
-        self.cli.append(args)
+    def worktree_info(self, path, timeout=180):
+        self.cli.append(("info", path))
+        return None
+
+    def set_worktree(self, path, label=None, comment=None, parent=None, status=None, timeout=180):
+        self.cli.append(("set", path))
+        return False, "{}"
+
+    def adopt_worktree(self, child, path, timeout=180):
+        self.cli.append(("adopt", child, path))
         return True, "{}"
+
+    def terminals_in(self, path, worktree_id=None):
+        self.cli.append(("terminals", path))
+        return []
 
 
 def test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(home: Path) -> None:
@@ -351,7 +470,7 @@ def test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(home: Pa
         backends.use(labels)
         ok, said = hr.label(con, "labelled")
         check("no labels: while a host that keeps them is asked, and its answer is read, not assumed",
-              labels.cli and labels.cli[0][:2] == ["worktree", "set"] and ok is False, f"{ok} {said} {labels.cli}")
+              labels.cli and labels.cli[0][0] == "set" and ok is False, f"{ok} {said} {labels.cli}")
     finally:
         con.close()
 
@@ -443,7 +562,7 @@ def test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_a
         db.set_terminal(con, "harbor.marina", "%4", str(old_wt))
         check("rehome quiet: the entry, the unreadable check and the blockers all answer nothing",
               rehome._orca_entry(old_wt) is None and rehome._orca_unreadable(old_wt) is False
-              and rehome._orca_blockers(old_wt) == "" and rehome._relabel({"id": "x", "childWorktreeIds": ["c"]},
+              and rehome._orca_blockers(old_wt) == "" and rehome._relabel(backends.base.WorktreeInfo("x", children=("c",)),
                                                                          new_wt, "harbor.marina") == "",
               "")
         check("rehome quiet: and none of them asked the host", host.cli == [], str(host.cli))
@@ -484,6 +603,9 @@ import json, os, sys
 state_path = os.environ["FAKE_TMUX_STATE"]
 raw = sys.argv[1:]
 args = raw[2:] if raw[:1] == ["-L"] else raw
+if os.environ.get("FAKE_TMUX_DOWN"):
+    sys.stderr.write("protocol version mismatch\n")
+    sys.exit(1)
 try:
     st = json.load(open(state_path))
 except OSError:
@@ -639,6 +761,9 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
         tmuxbackend.ENTER_DELAY_S = 0.4
 
 
+CLAUDE_TURN = vendors.get("claude").turn_on_screen
+
+
 def test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(home: Path) -> None:
     use_home(home)
     real_path = os.environ["PATH"]
@@ -650,14 +775,16 @@ def test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(ho
         pane, _ = tm.create_terminal("x")
         _screen(state, pane, ["done.", "", "> "])
         t0 = time.monotonic()
-        check("tmux idle: a screen that holds still with no turn on it is idle", tm.wait_idle(pane, 3000))
+        check("tmux idle: a screen that holds still with no turn on it is idle", tm.wait_idle(pane, 3000, CLAUDE_TURN))
         check("tmux idle: and it takes the settle time, not the whole timeout", time.monotonic() - t0 < 2.0)
         _screen(state, pane, ["working", "* Thinking... (12s - esc to interrupt)"])
         check("tmux idle: a screen that holds still but says `esc to interrupt` is a turn in progress",
-              tm.wait_idle(pane, 800) is False)
-        check("tmux idle: a pane that is gone is not idle", tm.wait_idle("%99", 800) is False)
+              tm.wait_idle(pane, 800, CLAUDE_TURN) is False)
+        check("tmux idle: with no reading of a turn, a still frame is idle, whatever it says",
+              tm.wait_idle(pane, 3000))
+        check("tmux idle: a pane that is gone is not idle", tm.wait_idle("%99", 800, CLAUDE_TURN) is False)
         _screen(state, pane, ["esc to interrupt"] + [f"row {i}" for i in range(20)])
-        check("tmux idle: a marker scrolled far above the bottom does not count", tm.wait_idle(pane, 3000))
+        check("tmux idle: a marker scrolled far above the bottom does not count", tm.wait_idle(pane, 3000, CLAUDE_TURN))
     finally:
         os.environ["PATH"] = real_path
         tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = saved
@@ -720,7 +847,8 @@ def test_tmux_makes_a_git_worktree_and_knows_a_repo_by_its_dot_git(home: Path) -
     check("tmux: it keeps no runs and no labels",
           not tm.supports_runs and not tm.supports_labels and tm.run_create("o") is None
           and tm.run_current() is None and tm.dispatch("t", "%0", "r") is None
-          and tm.host_cli(["x"])[0] is False)
+          and tm.worktree_info("/w") is backends.base.UNREADABLE and tm.set_worktree("/w", label="x")[0] is False
+          and tm.adopt_worktree("k", "/w")[0] is False and tm.terminals_in("/w") is None)
 
 
 def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
@@ -770,6 +898,11 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(Path(td) / "b1"))
+        run(lambda: test_the_old_module_name_is_the_same_module())
+        run(lambda: test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(Path(td) / "b15"))
+        run(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"))
+        run(lambda: test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(Path(td) / "b17"))
+        run(lambda: test_a_missing_host_is_named_by_that_host_in_each_message(Path(td) / "b18"))
         run(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"))
         run(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"))
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))

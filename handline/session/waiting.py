@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from . import orca
+from . import term
 from ..infra import atomic, paths
 
 # What of a tool's input is worth showing, in the order it is looked for.
@@ -141,8 +141,8 @@ def _modal_still_there(handle: str | None, since: int) -> bool:
     """
     if not handle:
         return True
-    blocker = orca.screen_blocker_cached(handle, not_before=since)
-    return bool(blocker and blocker.kind in (orca.MODAL, orca.UNREADABLE))
+    blocker = term.screen_blocker_cached(handle, not_before=since)
+    return bool(blocker and blocker.kind in (term.MODAL, term.UNREADABLE))
 
 
 def of(con, row) -> dict | None:

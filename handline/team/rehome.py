@@ -21,14 +21,14 @@ fixed name of the old entry gone, and its children lose their parent link;
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import time
 from pathlib import Path
 
 from . import accounts
 from .. import db, vendors
-from ..session import orca
+from ..session import term
+from ..session.backends.base import UNREADABLE, WorktreeInfo
 from ..infra import paths, textsafe
 
 
@@ -107,76 +107,50 @@ def _rename_all(pairs: list[tuple[Path, Path]]) -> None:
         raise
 
 
-def _orca_entry(path: Path) -> dict | None:
+def _orca_entry(path: Path) -> WorktreeInfo | None:
     """Orca's entry for the checkout at `path`, or None."""
-    if not orca.has_labels():
+    if not term.has_labels():
         return None
-    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"])
-    try:
-        w = json.loads(out)["result"]["worktree"] if ok else None
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-    return w if isinstance(w, dict) else None
+    info = term.worktree_info(path)
+    return info if isinstance(info, WorktreeInfo) else None
 
 
 def _orca_unreadable(path: Path) -> bool:
     """True when Orca is there but did not give a usable answer about `path`.
     An answer that says it has no such worktree is an answer."""
-    if not orca.has_labels():
-        return False
-    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"])
-    try:
-        data = json.loads(out)
-    except json.JSONDecodeError:
-        return True
-    if ok:
-        return not isinstance(data.get("result", {}).get("worktree"), dict)
-    return (data.get("error") or {}).get("code") != "selector_not_found"
-
-
-def _set_ok(args: list[str]) -> tuple[bool, str]:
-    """(took, Orca's reply): `took` is False on a non-zero exit or an ok:false reply."""
-    ok, out = orca.host_cli(args)
-    try:
-        return ok and bool(json.loads(out).get("ok")), out
-    except (json.JSONDecodeError, AttributeError):
-        return False, out
+    return term.has_labels() and term.worktree_info(path) is UNREADABLE
 
 
 def _reparent_cmd(child: str, dest: Path) -> str:
-    return f"`orca worktree set --worktree id:{child} --parent-worktree path:{dest}`"
+    return f"`{term.manual('parent', child=child, path=str(dest))}`"
 
 
-def _relabel(old: dict | None, dest: Path, agent: str) -> str:
+def _relabel(old: WorktreeInfo | None, dest: Path, agent: str) -> str:
     """Name Orca's new entry for the moved checkout `agent`, fixed, and carry
     over what the old entry held. "" when done or when Orca is not there."""
-    if not orca.has_labels():
+    if not term.has_labels():
         return ""
+    children = old.children if old else ()
     for _ in range(10):
         if _orca_entry(dest):
             break
         time.sleep(1)
     else:
         said = (f" Orca has not picked up {dest} yet, so its label is not set: "
-                f"`orca worktree set --worktree path:{dest} --display-name {agent}`.")
-        for child in (old or {}).get("childWorktreeIds") or []:
+                f"`{term.manual('label', path=str(dest), label=agent)}`.")
+        for child in children:
             said += f" Its child {child} is still unparented: {_reparent_cmd(child, dest)}."
         return said
-    args = ["worktree", "set", "--worktree", f"path:{dest}", "--display-name", agent, "--json"]
-    for key, flag in (("comment", "--comment"), ("parentWorktreeId", "--parent-worktree"),
-                      ("workspaceStatus", "--workspace-status")):
-        value = (old or {}).get(key)
-        if value:
-            args += [flag, f"id:{value}" if key == "parentWorktreeId" else str(value)]
     said = ""
-    took, out = _set_ok(args)
+    took, out = term.set_worktree(dest, label=agent, comment=old.comment if old else None,
+                                  parent=old.parent if old else None,
+                                  status=old.status if old else None)
     if not took:
         said = (f" Orca would not set the label ({out.strip()[:160]}). "
-                f"`orca worktree set --worktree path:{dest} --display-name {agent}`.")
+                f"`{term.manual('label', path=str(dest), label=agent)}`.")
     # Orca drops the parent link of every child of a moved worktree.
-    for child in (old or {}).get("childWorktreeIds") or []:
-        took, out = _set_ok(["worktree", "set", "--worktree", f"id:{child}",
-                             "--parent-worktree", f"path:{dest}", "--json"])
+    for child in children:
+        took, out = term.adopt_worktree(child, dest)
         if not took:
             said += (f" Orca would not re-parent {child} ({out.strip()[:160]}): "
                      f"{_reparent_cmd(child, dest)}.")
@@ -193,16 +167,9 @@ def _orca_blockers(src: Path) -> str:
     entry = _orca_entry(src)
     if entry is None:
         return ""
-    ok, out = orca.host_cli(["terminal", "list", "--json"])
-    try:
-        terms = json.loads(out)["result"]["terminals"] if ok else None
-    except (json.JSONDecodeError, KeyError, TypeError):
-        terms = None
-    if terms is None:
+    tabs = term.terminals_in(src, entry.id)
+    if tabs is None:
         return "Orca's terminals could not be read, so whether one is open in it is unknown"
-    mine = entry.get("id")
-    tabs = [t for t in terms if isinstance(t, dict)
-            and (t.get("worktreePath") == str(src) or (mine and t.get("worktreeId") == mine))]
     if not tabs:
         return ""
     return f"{len(tabs)} terminal(s) are open in it - a move would leave them in a folder that is gone"

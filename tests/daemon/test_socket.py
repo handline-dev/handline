@@ -61,15 +61,15 @@ def _typeable_world(home: Path) -> list:
     into."""
     _daemon_home(home, 20)
     sessions_are("backend")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.screen_blocker = lambda h: None
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.screen_blocker = lambda h: None
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
         sent.append((handle, text))
         return True, ""
-    orcamod.send = send
+    termmod.send = send
     return sent
 
 
@@ -206,8 +206,8 @@ def test_a_refused_socket_tells_the_client_the_daemon_is_down(home: Path) -> Non
 def test_a_screen_blocker_defers_to_a_pending_row_a_later_deliver_picks_up(home: Path) -> None:
     sent = _typeable_world(home)
     blocked = {"on": True}
-    orcamod.screen_blocker = lambda h: (
-        orcamod.Blocker(orcamod.MODAL, title="Trust?") if blocked["on"] else None)
+    termmod.screen_blocker = lambda h: (
+        termmod.Blocker(termmod.MODAL, title="Trust?") if blocked["on"] else None)
     con = db.connect()
     try:
         ok, said = dmn_messaging.send_message(con, "backend", "queued please", lambda m: None)
@@ -243,7 +243,7 @@ def test_a_tick_itself_delivers_a_pending_row_not_just_a_direct_call(home: Path)
     other test in this file calls deliver_pending/reload_pending directly,
     which would stay green even if that wiring were quietly dropped."""
     sent = _typeable_world(home)
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.live_terminals = lambda: {"term_x"}
     con = db.connect()
     try:
         db.add_pending(con, "backend", "typed by the tick itself", int(time.time()))
@@ -263,14 +263,14 @@ def test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(home: Pat
     test_only_one_thing_types_at_an_agent_at_a_time's own closed-agent wake."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send)
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.idle_now = lambda h: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True
         sent: list[str] = []
         table = sessions_are()          # closed - no session running yet
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-1")
 
@@ -292,8 +292,8 @@ def test_a_closed_agent_with_only_a_pending_message_is_woken_and_typed(home: Pat
               "wake up please" in sent, str(sent))
         check("wake: and the row is gone", db.list_pending(con, "backend") == [])
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle,
-         orcamod.idle_now, orcamod.send) = real
+        (termmod.available, termmod.alive, termmod.wait_idle,
+         termmod.idle_now, termmod.send) = real
         con.close()
 
 
@@ -306,17 +306,17 @@ def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_th
     from handline.session import launch as launchmod
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-            orcamod.close_terminal, cli_task.dmn_client, launchmod.find_room)
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+            termmod.close_terminal, cli_task.dmn_client, launchmod.find_room)
     sent_to_daemon: list[dict] = []
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.idle_now = lambda h: True
-        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True
+        termmod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         sent: list[str] = []
         table = sessions_are()
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
 
         # A human ended it: closed, with its session recorded; work arrives.
@@ -338,8 +338,8 @@ def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_th
         sent.clear()
         table = sessions_are("backend")
         dmn_delivery._seen_at["t"] = 0       # the tick's reading of the table is not this one
-        orcamod.send = relaunching_send(sent, table)
-        orcamod.close_session = exit_ends_session("backend")
+        termmod.send = relaunching_send(sent, table)
+        termmod.close_session = exit_ends_session("backend")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.set_cursor(con, "typed_at:backend", int(time.time()) - 3600)     # the wake above typed at it
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -362,8 +362,8 @@ def test_close_fresh_drops_the_session_a_wake_would_resume_and_ocp_close_goes_th
         check("hl close: with no daemon it says nothing was closed and exits 1",
               cli_task.cmd_close(types.SimpleNamespace(target="backend", fresh=False)) == 1)
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-         orcamod.close_terminal, cli_task.dmn_client, launchmod.find_room) = real
+        (termmod.available, termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+         termmod.close_terminal, cli_task.dmn_client, launchmod.find_room) = real
         con.close()
 
 
