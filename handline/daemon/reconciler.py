@@ -171,20 +171,31 @@ def _lift_trust_stall(con, agent: str, row, log, actions: list[str]) -> None:
     with term.driver_scope():
         if not term.trust_prompt_gone(row["terminal"]):
             return
+    _close_stall(con, agent, log, actions, lifecycle.trust_stall_prefixes(agent), "folder-trust prompt")
+
+
+def _lift_dialog_stall(con, agent: str, row, log, actions: list[str]) -> None:
+    """The same for a start-up dialog no rule answered (`lifecycle._raise_dialog_stall`):
+    lifted once the screen is read and shows no dialog. Unreadable changes nothing."""
+    with term.driver_scope():
+        seen = term.screen_blocker(row["terminal"])
+    if seen is None or seen.kind == term.BACKGROUNDED:
+        _close_stall(con, agent, log, actions, (lifecycle.DIALOG_DECISION,), lifecycle.DIALOG_STALL)
+
+
+def _close_stall(con, agent: str, log, actions: list[str], prefixes: tuple[str, ...], what: str) -> None:
     # Decision first, row second: a lift whose close failed would strand the
     # decision, and a kept stall is retried on the next tick.
-    for rid in (r for prefix in lifecycle.trust_stall_prefixes(agent)
-                for r in db.open_decision_ids(con, agent, prefix)):
+    for rid in (r for prefix in prefixes for r in db.open_decision_ids(con, agent, prefix)):
         try:
-            askmod.resolve(rid, "cleared - its folder-trust prompt is answered", state="done", notify=False)
+            askmod.resolve(rid, f"cleared - its {what} is answered", state="done", notify=False)
         except Exception as e:
             log(f"  {agent}: could not close decision {rid} ({e}); the stall stays")
-    if any(db.open_decision_ids(con, agent, prefix)
-           for prefix in lifecycle.trust_stall_prefixes(agent)):
+    if any(db.open_decision_ids(con, agent, prefix) for prefix in prefixes):
         return
-    db.set_agent_state(con, agent, IDLE, detail="the folder-trust prompt is answered; the stall is lifted")
-    actions.append(f"{agent}: STALLED -> IDLE (its folder-trust prompt is answered)")
-    log(f"  {agent}: its folder-trust prompt is answered; the stall is lifted")
+    db.set_agent_state(con, agent, IDLE, detail=f"the {what} is answered; the stall is lifted")
+    actions.append(f"{agent}: STALLED -> IDLE (its {what} is answered)")
+    log(f"  {agent}: its {what} is answered; the stall is lifted")
 
 
 # Once per terminal: the sweep comes round every tick, and a screen can stay drawn for a long time.
@@ -260,6 +271,9 @@ def sweep(con, log, actions: list[str]) -> None:
         if alive and row["state"] == STALLED and lifecycle.TRUST_STALL in (row["detail"] or ""):
             _lift_trust_stall(con, agent, row, log, actions)
             row = db.get_agent_state(con, agent)   # what follows judges the row as it now is
+        if alive and row["state"] == STALLED and lifecycle.DIALOG_STALL in (row["detail"] or ""):
+            _lift_dialog_stall(con, agent, row, log, actions)
+            row = db.get_agent_state(con, agent)
 
         if alive and row["state"] == STALLED:
             login_expired.lift(con, agent, row, log, actions)
@@ -275,7 +289,8 @@ def sweep(con, log, actions: list[str]) -> None:
             log(f"  {agent}: running again (pid {o.session_pid}); cleared the closed mark")
             # Judged before the streak is reset: the reset is what refutes it.
             wake_stall = (row["state"] == STALLED and row["wake_failures"] >= MAX_FAILED_ATTEMPTS
-                          and lifecycle.TRUST_STALL not in (row["detail"] or ""))
+                          and not any(m in (row["detail"] or "")
+                                   for m in (lifecycle.TRUST_STALL, lifecycle.DIALOG_STALL)))
             if row["wake_failures"]:
                 # A session is running, which refutes a streak of launches that
                 # started nothing - whatever state the row is in by now.
