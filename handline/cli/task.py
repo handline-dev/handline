@@ -228,7 +228,9 @@ def _task_owner_ok(name: str) -> bool:
 
 def _new_cmd(args, title: str) -> str:
     """The `task new` line as typed, with -t added: what to paste when only the timeout was missing."""
-    parts = ["hl task new", "--owner", args.owner, "-t 2h", shlex.quote(title)]
+    secs = args.timeout
+    typed = "2h" if secs is None else f"{secs // 60}m" if secs % 60 == 0 else f"{secs}s"
+    parts = ["hl task new", "--owner", args.owner, "-t", typed, shlex.quote(title)]
     if args.body not in (None, "-"):
         parts.append(shlex.quote(args.body))
     if args.file:
@@ -241,6 +243,8 @@ def _new_cmd(args, title: str) -> str:
         parts.append(f"--priority P{args.priority}")
     if args.expects is not None:
         parts.append(f"--expects {args.expects}")
+    if args.reply:
+        parts.append("--reply " + " ".join(shlex.quote(x) for x in args.reply))
     return " ".join(parts)
 
 

@@ -690,8 +690,25 @@ edges:
                                              "ORDER BY id DESC LIMIT 1").fetchone()["body"] or ""), out)
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "--owner", "worker", "-t", "2h", " "], as_agent="manager")
-    check("task new without a title: refused with a Try line", rc == 1 and "Try:" in out, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "-t", "45m", " ", "the body"], as_agent="manager")
+    check("task new without a title: refused, keeping the typed timeout and body",
+          rc == 1 and "-t 45m '<title>' 'the body'" in out, out)
+    con = db.connect()
+    mrid = db.add_request(con, "human", "manager", "build?", None, "supervisor",
+                          "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "reply title", "reply body", "--reply", str(mrid),
+                    "opened as {task}"], as_agent="manager")
+    check("task new without -t: the suggestion keeps --reply, both values quoted",
+          rc == 1 and f"--reply {mrid} 'opened as {{task}}'" in out, out)
+    rc, out = _paste(out)
+    con = db.connect()
+    try:
+        check("task new without -t: pasted, it opens the task and answers the founder",
+              rc == 0 and db.get_request(con, mrid)["state"] == "landed", out)
+    finally:
+        con.close()
     # (4) the warning
     check("quoting: a gap where a lost span was is flagged", quoting_warning("run  now") is not None)
     check("quoting: text the shell did not touch is not",
