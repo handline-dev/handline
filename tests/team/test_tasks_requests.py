@@ -9141,6 +9141,42 @@ def test_requests_parent_id_is_indexed(home: Path) -> None:
         con.close()
 
 
+def test_connect_to_a_migrated_database_takes_no_write_lock(home: Path) -> None:
+    """The UI connects every 2s; a connect whose migration finds nothing to do must not wait
+    for the write lock another process holds (it died on 'database is locked')."""
+    import sqlite3
+    home.mkdir(parents=True, exist_ok=True)
+    path = home / "nolock.db"
+    db.connect(path).close()
+    writer = sqlite3.connect(path, isolation_level=None)
+    writer.execute("BEGIN IMMEDIATE")
+    real = sqlite3.connect
+    sqlite3.connect = lambda p, timeout=10.0, **k: real(p, timeout=0.2, **k)
+    try:
+        try:
+            db.connect(path).close()
+            got = "connected"
+        except sqlite3.OperationalError as e:
+            got = str(e)
+    finally:
+        sqlite3.connect = real
+        writer.execute("ROLLBACK")
+        writer.close()
+    check("connect: a held write lock does not stop a connect with nothing to migrate",
+          got == "connected", got)
+    # Reading first must not stop the fixup running when a row needs it.
+    con = db.connect(path)
+    try:
+        con.execute("INSERT INTO requests(ts, requester, target, kind, state, landed_at, body) "
+                    "VALUES(1, 'a', 'b', 'say', 'queued', 5, 'x')")
+        con.close()
+        con = db.connect(path)
+        row = con.execute("SELECT state FROM requests").fetchone()
+        check("connect: a queued row that had landed is still moved to landed", row[0] == "landed", tuple(row))
+    finally:
+        con.close()
+
+
 def test_stop_wait_reason_reads_the_task_boards_own_wait(home: Path) -> None:
     """T288/#1748: `actions.stop_wait_reason`, checked branch by branch."""
     _board_world(home)
@@ -9392,6 +9428,7 @@ def main() -> int:
         run(lambda: test_a_refused_delivery_is_told_to_whoever_queued_it_and_logged_once(Path(td) / 'refuse'))
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
+        run(lambda: test_connect_to_a_migrated_database_takes_no_write_lock(Path(td) / 'nolock'))
     return run_area(tests)
 
 
