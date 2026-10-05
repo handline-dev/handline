@@ -150,7 +150,9 @@ def cmd_agent_set(args) -> int:
         print(said)
         return 0 if ok else 1
     me = askmod.asking_agent()
-    held = {k: v for k, v in values.items() if agent_settings.privileged(k)}
+    # Another agent's settings are never an agent's to write, so all of them wait for the founder.
+    mine = args.name == askmod.current_agent()
+    held = {k: v for k, v in values.items() if not mine or agent_settings.privileged(k)}
     now = {k: v for k, v in values.items() if k not in held}
     if held and not (args.why or "").strip():
         print(f"{', '.join(held)} needs the founder's approval: say why with --why", file=sys.stderr)

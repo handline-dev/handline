@@ -195,6 +195,8 @@ Orca dashboard.""",
   hl hr team <name> --member sea=<repo> --member shore --why "..."
                                    a manager and its members as one proposal, one approval
   hl hr add / link / unlink       one agent or one edge, for what the defaults do not cover
+  hl agent set <name> model=opus --why "..."
+                                   another agent's model or effort, for the founder to approve (never edit agent.yaml: it is sealed)
 
 The name is the structure: `harbor.sea` is under `harbor`. Every agent has these
 links without any edge written:

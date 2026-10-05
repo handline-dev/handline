@@ -2503,6 +2503,9 @@ deny:
           and agents.read("boat.sea").get("repo") == "/w/sea"
           and agents.read("boat").get("repo") == "/w/boat"
           and agents.read("boat.shore").get("repo") == "/w/boat")     # T531: no member goes without one
+    check("team: every applied agent's agent.yaml is sealed as written, so it loads trusted",
+          all(sealed.state(sealed.agent_key(n), agents.agent_file(n).read_text()) == "ok"
+              for n in ("boat", "boat.sea", "boat.shore", "boat.reviewer")))
     check("team: the manager is boat's supervisor",
           actions.supervisor_of(t, "boat.sea") == "boat")
     ok, said = hr.enact("team", "boat", why="again", members=["x"])
@@ -2950,9 +2953,20 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
         check("settings: idle close needs the founder, since 0 keeps a session open for good",
               not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
         rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
-        check("settings: an agent changes only its own", rc == 1 and agents.read("other").get("model") != "opus", out)
+        check("settings: another agent's setting is not written, and it needs a reason",
+              rc == 1 and agents.read("other").get("model") != "opus" and not hr.listing(), out)
+        rc, out = _cli(["agent", "set", "other", "model=opus", "effort=low", "--why", "its work is cheap"], as_agent="worker")
+        pid = next((x["id"] for x in hr.listing() if x["kind"] == "settings" and x["agent"] == "other"), None)
+        check("settings: with a reason it is proposed for the founder, and nothing is written",
+              rc == 0 and pid and agents.read("other").get("model") != "opus", f"rc={rc} {out}")
+        rc, out = _cli(["agent", "set", "worker", "effort=low"], as_agent="worker")
+        check("settings: its own ordinary change still needs no reason", rc == 0 and agents.read("worker")["effort"] == "low", out)
+        reply = daemon_send({"verb": "agent_set", "agent": "other", "speaker": "worker", "values": {"model": "opus"}})
+        check("settings: the daemon's refusal says how to propose it",
+              not reply["ok"] and "hl agent set other" in reply["said"] and "--why" in reply["said"], str(reply))
         rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")
-        check("settings: a privileged change needs a reason", rc == 1 and not hr.listing(), out)
+        check("settings: a privileged change needs a reason",
+              rc == 1 and not [x for x in hr.listing() if x["agent"] == "worker"], out)
         reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker",
                              "values": {"skip_permissions": "on"}})
         check("settings: the daemon verb refuses a privileged one outright",

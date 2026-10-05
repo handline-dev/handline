@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
                                   "at once; the rest (idle_close, browser, browser_sites, skip_permissions, repo, weight) "
-                                  "go to HR for the founder to approve")
+                                  "go to HR for the founder to approve; so does every change to another agent's settings")
     p.add_argument("name")
     p.add_argument("values", nargs="+", metavar="setting=value")
     p.add_argument("--why", default=None, help="what the founder is deciding, for a change that needs approval")
