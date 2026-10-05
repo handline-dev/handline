@@ -583,6 +583,146 @@ def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: P
               f"read as a look-up", not actions.is_lookup_bash(cmd))
 
 
+NO_SUCH = 99999
+
+
+def _paste(out: str, as_agent: str = "manager") -> tuple[int, str]:
+    """Run the first suggested line of a refusal, as typed."""
+    import shlex
+    line = out.split("Try:\n", 1)[1].splitlines()[0].strip()
+    argv = shlex.split(line)
+    assert argv[:1] == ["hl"], line
+    return _cli(argv[1:], as_agent=as_agent)
+
+
+def test_say_friction_fixes(home: Path) -> None:
+    """Founder-approved fixes: a refusal prints the command that would work, --no-task to the
+    founder needs no open request, the sender's one open task is the default, and a body the
+    shell ate is warned about."""
+    from handline.cli.say import quoting_warning
+    _say_world(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+
+edges:
+  - { from: manager, to: worker, relation: supervisor, response: fire_and_forget }
+  - { from: worker, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: human, kind: task }
+  - { from: human, to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    con = db.connect()
+    frid = db.add_request(con, "human", "manager", "how is it?", None, "supervisor",
+                          "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    # (3) the refusal carries a pasteable command, body quoted, parent kept
+    rc, out = _cli(["say", "human", "it's fine", "--parent", str(frid)], as_agent="manager")
+    check("refusal: names the --no-task command with the body quoted and the parent",
+          rc == 1 and f"hl say human 'it'\"'\"'s fine' --parent {frid} --no-task '<why>'" in out, out)
+    rc, out = _cli(["say", "worker", "do x"], as_agent="manager")
+    check("refusal: work to a report names the task command",
+          rc == 1 and "hl task new --owner worker -t 2h '<title>' 'do x'" in out, out)
+    # (1) zero open tasks: still refused. exactly one: attached, and said so
+    ok, msg, tid = actions.task_new("worker", "manager", "mine", "mine")
+    check("setup: manager holds one task", ok, msg)
+    rc, out = _cli(["say", "human", "fine", "--parent", str(frid)], as_agent="manager")
+    con = db.connect()
+    try:
+        check("default task: the one open task is attached and the reply says so",
+              rc == 0 and f"attached to T{tid}, your only open task" in out
+              and db.get_request(con, frid)["state"] == "landed", out)
+        check("default task: the founder's request is linked to that task",
+              [t["id"] for t in db.tasks_for_request(con, frid)] == [tid], out)
+    finally:
+        con.close()
+    # several open tasks: the choice is the sender's, and the refusal lists them
+    ok, msg, tid2 = actions.task_new("worker", "manager", "mine too", "mine too")
+    con = db.connect()
+    frid2 = db.add_request(con, "human", "manager", "and now?", None, "supervisor",
+                           "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    rc, out = _cli(["say", "human", "ok", "--parent", str(frid2)], as_agent="manager")
+    check("default task: with two open tasks it is refused and each is offered",
+          rc == 1 and f"--task T{tid}" in out and f"--task T{tid2}" in out, out)
+    # (2) --no-task to the founder with no open request to settle is sent, not refused
+    rc, out = _cli(["say", "human", "one more thing", "--no-task", "a status note"], as_agent="manager")
+    check("--no-task to the founder works with no parent", rc == 0 and "queued as #" in out, out)
+    # (3) every suggested line, pasted back, is accepted
+    ok, msg, wt = actions.task_new("manager", "worker", "theirs", "theirs")
+    for argv, want in ((["say", "worker", "x", "--task", f"T{NO_SUCH}"], f"no task T{NO_SUCH}. Try"),
+                       (["say", "worker", "x", "--no-task", "why"], "to anyone else"),
+                       (["say", "worker", "x", "--task", f"T{wt}", "--no-task", "why"], f"--task T{wt}")):
+        rc, out = _cli(argv, as_agent="manager")
+        check(f"suggestion for {' '.join(argv[3:])}: refused with a Try line", rc == 1 and "Try:" in out, out)
+        rc2, out2 = _paste(out)
+        check(f"suggestion for {' '.join(argv[3:])}: pasted, it is accepted", rc2 == 0, out2)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  third:   {}
+
+edges:
+  - { from: manager, to: worker, relation: supervisor, response: fire_and_forget }
+  - { from: manager, to: third, relation: supervisor, response: fire_and_forget }
+  - { from: worker, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: third, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: human, kind: task }
+  - { from: human, to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    agents.register("third")
+    ok, msg, tt = actions.task_new("manager", "third", "third's", "third's")
+    check("setup: a task held by a third agent", ok, msg)
+    rc, out = _cli(["say", "worker", "y", "--task", f"T{tt}"], as_agent="manager")
+    check("owner swap: refused, naming the holder", rc == 1 and f"T{tt} is with third, not worker" in out, out)
+    rc, out = _paste(out)
+    check("owner swap: pasted, it is accepted", rc == 0, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "the title", "the body", "--priority", "P1"],
+                   as_agent="manager")
+    check("task new without -t: refused", rc == 1 and "Try:" in out, out)
+    rc, out = _paste(out)
+    con = db.connect()
+    try:
+        row = con.execute("SELECT * FROM tasks WHERE title = 'the title'").fetchone()
+        check("task new without -t: pasted, it opens the same task with its body and priority",
+              rc == 0 and row is not None and row["priority"] == 1
+              and "the body" in (con.execute("SELECT body FROM requests WHERE target = 'worker' "
+                                             "ORDER BY id DESC LIMIT 1").fetchone()["body"] or ""), out)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "-t", "45m", " ", "the body"], as_agent="manager")
+    check("task new without a title: refused, keeping the typed timeout and body",
+          rc == 1 and "-t 45m '<title>' 'the body'" in out, out)
+    con = db.connect()
+    mrid = db.add_request(con, "human", "manager", "build?", None, "supervisor",
+                          "fire_and_forget", None, 0, None)
+    con.commit()
+    con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "reply title", "reply body", "--reply", str(mrid),
+                    "opened as {task}"], as_agent="manager")
+    check("task new without -t: the suggestion keeps --reply, both values quoted",
+          rc == 1 and f"--reply {mrid} 'opened as {{task}}'" in out, out)
+    rc, out = _paste(out)
+    con = db.connect()
+    try:
+        check("task new without -t: pasted, it opens the task and answers the founder",
+              rc == 0 and db.get_request(con, mrid)["state"] == "landed", out)
+    finally:
+        con.close()
+    # (4) the warning
+    check("quoting: a gap where a lost span was is flagged", quoting_warning("run  now") is not None)
+    check("quoting: text the shell did not touch is not",
+          all(quoting_warning(t) is None for t in (
+              "call main() then stop", "use $(x) here", "an empty string ''", "run `ls` now",
+              "one\n\ntwo", "a `b")))
+    rc, out = _cli(["say", "human", "run  now", "--no-task", "x"], as_agent="manager")
+    check("quoting: the CLI prints the warning and still sends",
+          rc == 0 and "lost to shell quoting" in out and "queued as #" in out, out)
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -610,6 +750,7 @@ def main() -> int:
         run(lambda: test_is_lookup_bash_matches_the_allowlist_by_prefix(Path(td) / 'saylookup'))
         run(lambda: test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(
             Path(td) / 'sayshellop'))
+        run(lambda: test_say_friction_fixes(Path(td) / 'sayfriction'))
     return run_area(tests)
 
 
