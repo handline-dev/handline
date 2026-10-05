@@ -807,6 +807,32 @@ def test_a_session_may_not_write_the_files_that_move_main(home: Path) -> None:
           str(both["permissions"]))
 
 
+def test_a_session_may_not_write_the_roster_files(home: Path) -> None:
+    """team.yaml, its backup and every agent.yaml are the founder's path alone: a session's sandbox
+    denies them by name and by one glob, and its file tools by one Edit rule each, so a `sed -i` on
+    one is refused where it is made, not found afterwards by the seal."""
+    use_home(home)
+    accounts.register("alpha")
+    agents.register("backend")
+    agents.register("backend.sea")
+    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    vendors.get("claude").binary = lambda: "/x/bin/claude"
+    argv = launch.build("backend")[0]
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    deny_write = settings["sandbox"]["filesystem"]["denyWrite"]
+    want = [str(paths.team_file()), f"{paths.team_file()}.bak",
+            str(paths.agent_dir("backend") / "agent.yaml"), str(paths.agent_dir("backend.sea") / "agent.yaml"),
+            str(paths.agents_dir() / "*" / "agent.yaml")]
+    check("roster: Bash is denied each file, and the glob for an agent made later",
+          all(w in deny_write for w in want), str(deny_write))
+    check("roster: the file tools are denied the same by Edit rules",
+          all(f"Edit(/{w})" in settings["permissions"]["deny"] for w in want), str(settings["permissions"]))
+    check("roster: an agent's own inbox and journal are not denied",
+          not any("inbox" in d or "journal" in d for d in deny_write), str(deny_write))
+    check("roster: the founder's own path still writes them",
+          agents.register("backend", effort="low") and agents.read("backend")["effort"] == "low")
+
+
 def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None:
     """The hook key (session/landgate.py) must not be readable by a session's Bash or Read tool, and the
     folder must exist when the first launch on a machine names it."""
@@ -2504,6 +2530,7 @@ def main() -> int:
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_session_may_not_write_the_files_that_move_main(Path(td) / 'mainrefs'))
+        run(lambda: test_a_session_may_not_write_the_roster_files(Path(td) / 'rosterdeny'))
         run(lambda: test_launch_hides_the_hook_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))
