@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
+from handline.session.backends.base import WorktreeInfo  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
@@ -780,7 +781,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         check("rehome: a failed terminal list refuses the move", "unknown" in blocked, blocked)
         # The move happened but Orca never shows the new path: the children's
         # commands are printed, not dropped.
-        old_entry = {"id": "i", "childWorktreeIds": ["repo-id::/kid"]}
+        old_entry = WorktreeInfo("i", children=("repo-id::/kid",))
         orcamod.available = lambda: True
         orcacli._run = lambda a, timeout=180: (False, json.dumps(
             {"ok": False, "error": {"code": "selector_not_found"}}))

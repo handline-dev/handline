@@ -9,7 +9,7 @@ import shutil
 import subprocess
 
 from ...infra import paths, textsafe
-from .base import Backend, not_a_repo_root
+from .base import UNREADABLE, Backend, Unreadable, WorktreeInfo, not_a_repo_root
 
 # `--tab` waits for Orca to persist the layout; a wedged Orca must not hold the tick.
 CLOSE_TIMEOUT_S = 30
@@ -175,8 +175,58 @@ class OrcaBackend(Backend):
         except (json.JSONDecodeError, KeyError, TypeError):
             return False
 
-    def host_cli(self, args: list[str], timeout: int = 180) -> tuple[bool, str]:
-        return _run(args, timeout=timeout)
+    def worktree_info(self, path: str, timeout: int = 180) -> WorktreeInfo | None | Unreadable:
+        """An answer that says Orca has no such worktree is an answer: None."""
+        ok, out = _run(["worktree", "show", "--worktree", f"path:{path}", "--json"], timeout=timeout)
+        try:
+            data = json.loads(out)
+            if ok:
+                w = data.get("result", {}).get("worktree")
+            else:
+                return None if (data.get("error") or {}).get("code") == "selector_not_found" else UNREADABLE
+        except (json.JSONDecodeError, AttributeError):
+            return UNREADABLE
+        if not isinstance(w, dict):
+            return UNREADABLE
+        return WorktreeInfo(id=w.get("id"), label=w.get("displayName"), comment=w.get("comment"),
+                            parent=w.get("parentWorktreeId"), status=w.get("workspaceStatus"),
+                            children=tuple(w.get("childWorktreeIds") or ()))
+
+    @staticmethod
+    def _took(ok: bool, out: str) -> tuple[bool, str]:
+        try:
+            return ok and bool(json.loads(out).get("ok")), out
+        except (json.JSONDecodeError, AttributeError):
+            return False, out
+
+    def set_worktree(self, path: str, label: str | None = None, comment: str | None = None,
+                     parent: str | None = None, status: str | None = None,
+                     timeout: int = 180) -> tuple[bool, str]:
+        args = ["worktree", "set", "--worktree", f"path:{path}"]
+        if label is not None:
+            args += ["--display-name", label]
+        args.append("--json")
+        for value, flag in ((comment, "--comment"), (parent, "--parent-worktree"),
+                            (status, "--workspace-status")):
+            if value:
+                args += [flag, f"id:{value}" if flag == "--parent-worktree" else str(value)]
+        return self._took(*_run(args, timeout=timeout))
+
+    def adopt_worktree(self, child: str, path: str, timeout: int = 180) -> tuple[bool, str]:
+        return self._took(*_run(["worktree", "set", "--worktree", f"id:{child}",
+                                 "--parent-worktree", f"path:{path}", "--json"], timeout=timeout))
+
+    def terminals_in(self, path: str, worktree_id: str | None = None) -> list[str] | None:
+        ok, out = _run(["terminal", "list", "--json"])
+        try:
+            terms = json.loads(out)["result"]["terminals"] if ok else None
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return None
+        if terms is None:
+            return None
+        return [str(t.get("handle", "")) for t in terms if isinstance(t, dict)
+                and (t.get("worktreePath") == str(path)
+                     or (worktree_id and t.get("worktreeId") == worktree_id))]
 
     def focus(self, handle: str) -> tuple[bool, str]:
         return _run(["terminal", "switch", "--terminal", handle], timeout=20)

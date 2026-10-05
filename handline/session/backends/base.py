@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 
 from ...infra import textsafe
 
@@ -51,13 +52,36 @@ def not_a_repo_root(path: str) -> tuple[str, str]:
     return "not_git", f"{path} is not a git repository: run `git init` there"
 
 
+@dataclass(frozen=True)
+class WorktreeInfo:
+    """What a host keeps about one worktree: its id, label, comment, parent (an id), status and
+    child ids. A field the host does not have is None, or empty for the children."""
+    id: str | None = None
+    label: str | None = None
+    comment: str | None = None
+    parent: str | None = None
+    status: str | None = None
+    children: tuple[str, ...] = ()
+
+
+class Unreadable:
+    """The answer of `worktree_info` when the host is there but did not give a usable one: not
+    the same as "no such worktree", which is None."""
+
+    def __repr__(self) -> str:
+        return "UNREADABLE"
+
+
+UNREADABLE = Unreadable()
+
+
 class Backend:
     name = ""
     # Whether the host draws a team: orchestration runs and tasks with workers under them.
     # Without it the run and task methods are never called by anything that matters.
     supports_runs = False
     # Whether the host keeps labels and parent links on worktrees that `ocp rename` and a worktree move
-    # must carry over, and answers `host_cli` about them.
+    # must carry over, and answers the worktree methods about them.
     supports_labels = False
 
     # -- the host itself
@@ -116,10 +140,26 @@ class Backend:
         """(path of a new worktree named `name` branched from `base_ref`, "") or (None, why not)."""
         raise NotImplementedError
 
-    def host_cli(self, args: list[str], timeout: int = 180) -> tuple[bool, str]:
-        """One command to the host's own CLI, as (ok, its text). Only a host with `supports_labels` has
-        one; the others say so."""
-        return False, f"{self.name} has no CLI to ask"
+    def worktree_info(self, path: str, timeout: int = 180) -> WorktreeInfo | None | Unreadable:
+        """The host's entry for the checkout at `path`; None when it has no such worktree;
+        UNREADABLE when it would not say. Only a host with `supports_labels` keeps any."""
+        return UNREADABLE
+
+    def set_worktree(self, path: str, label: str | None = None, comment: str | None = None,
+                     parent: str | None = None, status: str | None = None,
+                     timeout: int = 180) -> tuple[bool, str]:
+        """Set the label, comment, parent (a worktree id) or status of the worktree at `path`:
+        (took, the host's reply)."""
+        return False, f"{self.name} keeps no worktree labels"
+
+    def adopt_worktree(self, child: str, path: str, timeout: int = 180) -> tuple[bool, str]:
+        """Make the worktree with id `child` a child of the one at `path`: (took, the host's reply)."""
+        return False, f"{self.name} keeps no worktree parents"
+
+    def terminals_in(self, path: str, worktree_id: str | None = None) -> list[str] | None:
+        """The handles of the terminals open in the worktree at `path` (or with id `worktree_id`);
+        None when the host would not list them."""
+        return None
 
     # -- orchestration (only a host with supports_runs)
     def run_current(self) -> str | None:

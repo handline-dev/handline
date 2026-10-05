@@ -77,9 +77,26 @@ def has_labels() -> bool:
     return backends.current().supports_labels and available()
 
 
-def host_cli(args: list[str], timeout: int = 180) -> tuple[bool, str]:
-    """One command to the host's own CLI; only for what `has_labels` gates."""
-    return backends.current().host_cli(args, timeout)
+def worktree_info(path, timeout: int = 180):
+    """The host's entry for the checkout at `path` (a WorktreeInfo), None when it has none, UNREADABLE
+    when it would not say; only for what `has_labels` gates."""
+    return backends.current().worktree_info(str(path), timeout)
+
+
+def set_worktree(path, label=None, comment=None, parent=None, status=None,
+                 timeout: int = 180) -> tuple[bool, str]:
+    """Label, comment, parent id or status of the worktree at `path`: (took, the host's reply)."""
+    return backends.current().set_worktree(str(path), label, comment, parent, status, timeout)
+
+
+def adopt_worktree(child: str, path, timeout: int = 180) -> tuple[bool, str]:
+    """Make worktree id `child` a child of the one at `path`: (took, the host's reply)."""
+    return backends.current().adopt_worktree(child, str(path), timeout)
+
+
+def terminals_in(path, worktree_id: str | None = None) -> list[str] | None:
+    """The handles of the terminals open in the worktree at `path`, or None when unlisted."""
+    return backends.current().terminals_in(str(path), worktree_id)
 
 
 def knows_handle(handle: str) -> bool:

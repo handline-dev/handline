@@ -24,7 +24,6 @@ journal and handoffs are the record of work that was actually done.
 """
 from __future__ import annotations
 
-import json
 import re
 import shlex
 import time
@@ -880,19 +879,6 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
 LABEL_TIMEOUT_S = 30
 
 
-def _orca_entry(path: str) -> dict | None:
-    """Orca's entry for the checkout at `path`, or None."""
-    from ..session import orca
-
-    ok, out = orca.host_cli(["worktree", "show", "--worktree", f"path:{path}", "--json"],
-                            timeout=LABEL_TIMEOUT_S)
-    try:
-        entry = json.loads(out)["result"]["worktree"] if ok else None
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return None
-    return entry if isinstance(entry, dict) else None
-
-
 def label(con, agent: str) -> tuple[bool, str]:
     """Name the agent's Orca worktree for the agent. This is what the founder
     reads in Orca's sidebar, so it is what a rename has to change; the folder,
@@ -900,6 +886,7 @@ def label(con, agent: str) -> tuple[bool, str]:
     the agent has no worktree recorded; otherwise (whether Orca now shows the
     name, what to say about it) - the reply is read back, not assumed."""
     from ..session import orca
+    from ..session.backends.base import WorktreeInfo
     from . import spawn
 
     row = db.get_agent_state(con, agent)
@@ -912,13 +899,9 @@ def label(con, agent: str) -> tuple[bool, str]:
         return True, ""             # a host with no worktree labels has nothing to rename
     if not orca.has_labels():
         return False, f"Orca is not on PATH, so its label is not set: `{cmd}`"
-    ok, out = orca.host_cli(["worktree", "set", "--worktree", f"path:{path}",
-                             "--display-name", agent, "--json"], timeout=LABEL_TIMEOUT_S)
-    try:
-        ok = ok and bool(json.loads(out).get("ok"))
-    except (json.JSONDecodeError, AttributeError):
-        ok = False
-    shown = (_orca_entry(path) or {}).get("displayName") if ok else None
+    ok, out = orca.set_worktree(path, label=agent, timeout=LABEL_TIMEOUT_S)
+    info = orca.worktree_info(path, timeout=LABEL_TIMEOUT_S) if ok else None
+    shown = info.label if isinstance(info, WorktreeInfo) else None
     if not ok or shown != agent:
         return False, f"Orca would not set the label ({out.strip()[:160]}): `{cmd}`"
     return True, f"Orca now labels {path} {agent!r}"

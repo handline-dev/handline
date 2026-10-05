@@ -167,8 +167,35 @@ def test_the_orca_backend_makes_the_same_cli_calls_it_always_did(home: Path) -> 
               and seen[2] == ["orca", "terminal", "switch", "--terminal", "t1"], str(seen))
 
         check("orca: it keeps runs and labels, and has its own CLI for them",
-              b.supports_runs and b.supports_labels and b.host_cli(["worktree", "show"])[0]
-              and seen[-1] == ["orca", "worktree", "show"])
+              b.supports_runs and b.supports_labels)
+        shown = json.dumps({"ok": True, "result": {"worktree": {
+            "id": "w1", "displayName": "n", "comment": "c", "parentWorktreeId": "p", "workspaceStatus": "s",
+            "childWorktreeIds": ["k"]}}})
+        seen, orcacli._exec = _record({"worktree show": (0, shown, ""), "worktree set": _ok()})
+        check("orca: a worktree is read with `worktree show --worktree path:<dir> --json`",
+              b.worktree_info("/wt/a") == backends.base.WorktreeInfo("w1", "n", "c", "p", "s", ("k",))
+              and seen[-1] == ["orca", "worktree", "show", "--worktree", "path:/wt/a", "--json"], str(seen[-1]))
+        check("orca: a set is label, then --json, then comment, parent as an id, and status",
+              b.set_worktree("/wt/a", label="n", comment="c", parent="p", status="s")[0]
+              and seen[-1] == ["orca", "worktree", "set", "--worktree", "path:/wt/a", "--display-name", "n",
+                               "--json", "--comment", "c", "--parent-worktree", "id:p",
+                               "--workspace-status", "s"], str(seen[-1]))
+        check("orca: a child is adopted by id under a path",
+              b.adopt_worktree("k", "/wt/a")[0]
+              and seen[-1] == ["orca", "worktree", "set", "--worktree", "id:k", "--parent-worktree",
+                               "path:/wt/a", "--json"], str(seen[-1]))
+        gone = json.dumps({"ok": False, "error": {"code": "selector_not_found"}})
+        orcacli._exec = _record({"worktree show": (1, gone, "")})[1]
+        check("orca: a worktree it does not have is None", b.worktree_info("/x") is None)
+        orcacli._exec = _record({"worktree show": (1, "", "boom")})[1]
+        check("orca: one it would not answer about is UNREADABLE", b.worktree_info("/x") is backends.base.UNREADABLE)
+        orcacli._exec = _record({"terminal list": _ok(terminals=[
+            {"handle": "t1", "worktreePath": "/wt/a"}, {"handle": "t2", "worktreeId": "w1"},
+            {"handle": "t3", "worktreePath": "/other"}])})[1]
+        check("orca: the terminals in a worktree are matched by path or by id",
+              b.terminals_in("/wt/a", "w1") == ["t1", "t2"] and b.terminals_in("/wt/a") == ["t1"])
+        orcacli._exec = _record({"terminal list": (1, "", "down")})[1]
+        check("orca: terminals it could not list are None", b.terminals_in("/wt/a") is None)
     finally:
         orcacli._exec = real
 
@@ -279,7 +306,8 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
     backends.use(Bare())
     check("layer: a host without runs or labels is gated out of both",
           not orcamod.has_runs() and not orcamod.keeps_labels() and not orcamod.has_labels()
-          and orcamod.host_cli(["worktree", "show"])[0] is False)
+          and orcamod.worktree_info("/w") is backends.base.UNREADABLE
+          and orcamod.set_worktree("/w", label="x")[0] is False and orcamod.terminals_in("/w") is None)
     con = db.connect()
     try:
         check("layer: so no worker is registered", spawnmod.register_worker(con, "backend", "h1") is None)
@@ -332,9 +360,21 @@ class Bare(FakeHost):
         super().__init__()
         self.cli: list = []
 
-    def host_cli(self, args, timeout=180):
-        self.cli.append(args)
+    def worktree_info(self, path, timeout=180):
+        self.cli.append(("info", path))
+        return None
+
+    def set_worktree(self, path, label=None, comment=None, parent=None, status=None, timeout=180):
+        self.cli.append(("set", path))
+        return False, "{}"
+
+    def adopt_worktree(self, child, path, timeout=180):
+        self.cli.append(("adopt", child, path))
         return True, "{}"
+
+    def terminals_in(self, path, worktree_id=None):
+        self.cli.append(("terminals", path))
+        return []
 
 
 def test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(home: Path) -> None:
@@ -351,7 +391,7 @@ def test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(home: Pa
         backends.use(labels)
         ok, said = hr.label(con, "labelled")
         check("no labels: while a host that keeps them is asked, and its answer is read, not assumed",
-              labels.cli and labels.cli[0][:2] == ["worktree", "set"] and ok is False, f"{ok} {said} {labels.cli}")
+              labels.cli and labels.cli[0][0] == "set" and ok is False, f"{ok} {said} {labels.cli}")
     finally:
         con.close()
 
@@ -443,7 +483,7 @@ def test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_a
         db.set_terminal(con, "harbor.marina", "%4", str(old_wt))
         check("rehome quiet: the entry, the unreadable check and the blockers all answer nothing",
               rehome._orca_entry(old_wt) is None and rehome._orca_unreadable(old_wt) is False
-              and rehome._orca_blockers(old_wt) == "" and rehome._relabel({"id": "x", "childWorktreeIds": ["c"]},
+              and rehome._orca_blockers(old_wt) == "" and rehome._relabel(backends.base.WorktreeInfo("x", children=("c",)),
                                                                          new_wt, "harbor.marina") == "",
               "")
         check("rehome quiet: and none of them asked the host", host.cli == [], str(host.cli))
@@ -720,7 +760,8 @@ def test_tmux_makes_a_git_worktree_and_knows_a_repo_by_its_dot_git(home: Path) -
     check("tmux: it keeps no runs and no labels",
           not tm.supports_runs and not tm.supports_labels and tm.run_create("o") is None
           and tm.run_current() is None and tm.dispatch("t", "%0", "r") is None
-          and tm.host_cli(["x"])[0] is False)
+          and tm.worktree_info("/w") is backends.base.UNREADABLE and tm.set_worktree("/w", label="x")[0] is False
+          and tm.adopt_worktree("k", "/w")[0] is False and tm.terminals_in("/w") is None)
 
 
 def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
