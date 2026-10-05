@@ -511,6 +511,15 @@ def _migrate(con) -> None:
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
 
 
+def _write_if_any(con, table: str, where: str, sql: str, params: tuple = ()) -> None:
+    """Run a write only when `where` matches a row. The steps that run at every connect go through
+    this: a write that matches nothing still takes the database's one write lock, so a read-only
+    caller (the UI polling every 2s) would wait behind whichever process writes, and die on its
+    timeout. The read takes no lock."""
+    if con.execute(f"SELECT 1 FROM {table} WHERE {where} LIMIT 1", params).fetchone():
+        con.execute(sql, params)
+
+
 def _cols(con, table: str) -> set[str]:
     return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
 
@@ -1009,8 +1018,10 @@ def _requests_one_state(con, legacy: bool = True) -> None:
     # A request that reached its agent is landed, whichever code wrote the landing (T797 6b).
     from .requests import HUMAN
     told = ", announced_at = COALESCE(announced_at, landed_at)" if legacy else ""
-    con.execute('UPDATE requests SET "state" = \'landed\', state_at = landed_at' + told + ' WHERE "state" = \'queued\' '
-                'AND landed_at IS NOT NULL AND target != ?', (HUMAN,))
+    landed = '"state" = \'queued\' AND landed_at IS NOT NULL AND target != ?'
+    _write_if_any(con, "requests", landed,
+                  'UPDATE requests SET "state" = \'landed\', state_at = landed_at' + told + f' WHERE {landed}',
+                  (HUMAN,))
     if con.execute("SELECT 1 FROM requests WHERE state IN ('done', 'rejected') LIMIT 1").fetchone() is None:
         return
     con.execute('UPDATE requests SET "state" = \'landed\', state_at = COALESCE(landed_at, typed_at, '
@@ -1329,7 +1340,7 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} {kind}")
         # Told before landings were checked: nothing can prove or disprove them now.
         con.execute("UPDATE requests SET landed_at = delivered_at WHERE delivered_at IS NOT NULL")
-    con.execute("DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
+    _write_if_any(con, "cursors", "name LIKE 'sendnow_told:%'", "DELETE FROM cursors WHERE name LIKE 'sendnow_told:%'")
     task_cols = _cols(con, "tasks")
     for col in ("discarded_by", "discard_reason"):
         if col not in task_cols:
@@ -1343,14 +1354,14 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
         con.execute("UPDATE tasks SET discarded_at = closed_at WHERE discarded_by IS NOT NULL")
     # T568: closed is done and merged is a discard, so a task ends only by
     # done or discard. A closed row already carries its evidence.
-    con.execute(
-        "UPDATE tasks SET discarded_by = closed_by, discarded_at = closed_at, "
-        "discard_reason = 'merged into T' || merged_into "
-        "WHERE merged_into IS NOT NULL AND discarded_by IS NULL")
-    con.execute(
-        "UPDATE tasks SET done_evidence = 'closed by ' || closed_by, done_at = closed_at, "
-        "done_via = 'reason' WHERE closed_by IS NOT NULL AND discarded_by IS NULL "
-        "AND done_evidence IS NULL")
+    merged = "merged_into IS NOT NULL AND discarded_by IS NULL"
+    _write_if_any(con, "tasks", merged,
+                  "UPDATE tasks SET discarded_by = closed_by, discarded_at = closed_at, "
+                  f"discard_reason = 'merged into T' || merged_into WHERE {merged}")
+    closed = "closed_by IS NOT NULL AND discarded_by IS NULL AND done_evidence IS NULL"
+    _write_if_any(con, "tasks", closed,
+                  "UPDATE tasks SET done_evidence = 'closed by ' || closed_by, done_at = closed_at, "
+                  f"done_via = 'reason' WHERE {closed}")
     if "delivered_at" not in task_cols:
         con.execute("ALTER TABLE tasks ADD COLUMN delivered_at INTEGER")
     if "sent_at" not in task_cols:
