@@ -374,7 +374,7 @@ def _startup_world(home: Path, tail, rules=(), clears="3"):
 def test_a_launch_stopping_at_a_dialog_no_rule_covers_presses_nothing_and_shows_the_founder_the_dialog(home: Path) -> None:
     con, term = _startup_world(home, MCP_DIALOG)
     try:
-        ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
         row = db.get_agent_state(con, "backend")
         check("start-up dialog: the wake does not go on", not ok and MCP_TITLE in why, why)
         check("start-up dialog: nothing is typed or pressed", term.sent == [], str(term.sent))
@@ -383,7 +383,7 @@ def test_a_launch_stopping_at_a_dialog_no_rule_covers_presses_nothing_and_shows_
               and MCP_TITLE in row["detail"], str(dict(row)))
         decisions = db.open_decision_ids(con, "backend", dmn_lifecycle.DIALOG_DECISION)
         check("start-up dialog: one decision for the founder", len(decisions) == 1, str(decisions))
-        dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
         check("start-up dialog: the next wake does not raise a second",
               db.open_decision_ids(con, "backend", dmn_lifecycle.DIALOG_DECISION) == decisions)
         # With the setting off a rule that covers it is not pressed either.
@@ -391,8 +391,26 @@ def test_a_launch_stopping_at_a_dialog_no_rule_covers_presses_nothing_and_shows_
         dialog_rules.add("claude", MCP_TITLE, "Continue without using this MCP server")
         autoaccept.set_enabled(False)
         db.set_agent_state(con, "backend", dmn_states.QUEUED, detail="reset")
-        ok, _why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        ok, _why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
         check("start-up dialog: with the setting off a rule is not pressed", not ok and term.sent == [], str(term.sent))
+    finally:
+        con.close()
+
+
+PERMISSION_DIALOG = [
+    "  earlier output", "▔" * 60, "   Bash command", "   ❯ 1. Yes", "     2. No",
+    "   Enter to confirm · Esc to cancel"]
+
+
+def test_a_wake_in_place_meeting_a_permission_prompt_neither_stalls_nor_raises_a_decision(home: Path) -> None:
+    con, term = _startup_world(home, PERMISSION_DIALOG)
+    try:
+        ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        check("in-place wake: a mid-work dialog is left to the hooks and the wake goes on to its own check",
+              ok and term.sent == [], f"{ok} {why} {term.sent}")
+        check("in-place wake: no stall and no decision",
+              db.get_agent_state(con, "backend")["state"] != dmn_states.STALLED
+              and not db.open_decision_ids(con, "backend", dmn_lifecycle.DIALOG_DECISION))
     finally:
         con.close()
 
@@ -401,7 +419,7 @@ def test_a_launch_stopping_at_a_dialog_a_rule_covers_is_answered_and_goes_on(hom
     con, term = _startup_world(home, MCP_DIALOG,
                                rules=(("claude", MCP_TITLE, "Continue without using this MCP server"),))
     try:
-        ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        ok, why = dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
         check("start-up rule: the rule's number is pressed and the wake goes on",
               ok and term.sent == [("3", False)], f"{ok} {why} {term.sent}")
         check("start-up rule: no stall and no decision",
@@ -415,7 +433,7 @@ def test_a_dialog_stall_is_lifted_when_the_screen_shows_no_dialog_and_a_session_
     con, term = _startup_world(home, MCP_DIALOG)
     real = (termmod.live_terminals, obsmod.live_sessions)
     try:
-        dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None)
+        dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
         termmod.live_terminals = lambda: {"term_x"}
         obsmod.live_sessions = lambda: {"backend": 4242}
 
@@ -455,6 +473,7 @@ def main() -> int:
         run(lambda: test_auto_accept_config_round_trips(Path(td) / 'aa6'))
         run(lambda: test_a_launch_stopping_at_a_dialog_no_rule_covers_presses_nothing_and_shows_the_founder_the_dialog(Path(td) / 'aa16'))
         run(lambda: test_a_launch_stopping_at_a_dialog_a_rule_covers_is_answered_and_goes_on(Path(td) / 'aa17'))
+        run(lambda: test_a_wake_in_place_meeting_a_permission_prompt_neither_stalls_nor_raises_a_decision(Path(td) / 'aa19'))
         run(lambda: test_a_dialog_stall_is_lifted_when_the_screen_shows_no_dialog_and_a_session_runs(Path(td) / 'aa18'))
     return run_area(tests)
 
