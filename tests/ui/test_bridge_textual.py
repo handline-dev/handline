@@ -2891,6 +2891,13 @@ def test_every_box_over_the_page_has_a_close_button_and_escape_closes_it() -> No
     x_cell = 10 + 60 - (len(LABEL) + 3) + 2
     check("close: the drawn ✕ close label lies in the click area", in_close_corner(10, 4, 60, x_cell, 4)
           and CORNER_W == len(LABEL) + 3)
+    from types import SimpleNamespace as NS
+    from textual.widgets import Static
+    for on in (True, False):
+        box = Static()
+        CloseCorner.mark_close_corner(NS(CLOSE_CORNER=on, query_one=lambda sel: box))
+        check(f"close: mark_close_corner {'puts' if on else 'leaves off'} the label, right-aligned in styles",
+              (box.border_title == LABEL and box.styles.border_title_align == "right") == on)
 
 
 def test_run_execs_the_same_entrypoint_only_when_a_restart_is_owed() -> None:
