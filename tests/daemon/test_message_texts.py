@@ -119,6 +119,11 @@ def test_a_notice_rides_on_the_next_delivery_and_never_wakes_or_types_alone(home
               "Also: T1 done by x.helper: PASS 1 | T2 done by x.helper: PASS 2 | T3 done by x.helper: PASS 3" in text
               and "T4 done" not in text and text.count("\n") <= 2, text)
         check("notice: and says how many more wait, and where", "(+2 more: `hl inbox --all`)" in text, text)
+        long = db.get_request(con, db.add_request(con, db.NOTICE_REQUESTER, "manager", "T9 done by x.helper: " + "w" * 300,
+                                                  None, None, "fire_and_forget", "say", 0, None, notice=True))
+        cut = dmn_delivery.notices_text(con, "manager", [long])
+        check("notice: one cut for length names its id, so the rest can be read", f"(hl read {long['id']})" in cut
+              and "w" * 300 not in cut, cut)
         check("notice: a delivery with nothing waiting says nothing of notices",
               "Also:" not in dmn_delivery.tell_text(con, head, 1), "")
         db.mark_notices_shown(con, [int(r["id"]) for r in folded], "sess")
