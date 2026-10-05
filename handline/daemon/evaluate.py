@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import applysettings, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import applysettings, costpilot, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -291,8 +291,23 @@ def supervise(con, agent: str, log, now: int, samples: dict,
 
     # An open session that has sat idle until its prompt cache is nearly spent is asked once to
     # write its handoff note: the turn that writes it is the last cheap one.
+    # The cost pilot takes this over for an agent that has turned it on.
     if open_idle:
-        handoff_note.at_cache_edge(con, agent, now, st, log)
+        if costpilot.renewal_on(agent):
+            costpilot.renew(con, agent, row, now, st, log)
+        else:
+            handoff_note.at_cache_edge(con, agent, now, st, log)
+
+    # Pilot: an idle session over its fold size, between tasks, is closed fresh, after the note.
+    if open_idle and costpilot.fold_due(con, agent, row, now, st) \
+            and not handoff_note.hold(con, agent, now, log):
+        ok, why = costpilot.fold(con, agent, now, st, log)
+        if ok:
+            actions.append(f"{agent}: folded while idle")
+            row = db.get_agent_state(con, agent)
+        elif _SAID_CLOSE.get(agent) != why:
+            _SAID_CLOSE[agent] = why
+            log(f"  {agent}: idle over its fold size but not folded - {why}")
 
     # Memory is the scarce resource on one laptop running a team, and an
     # idle session spends it while earning nothing: it holds its context,

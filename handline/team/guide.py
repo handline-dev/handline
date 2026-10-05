@@ -171,7 +171,16 @@ asked once per stretch: idle time alone never earns a second ask, a delivered me
 turn does. The note goes to a session that starts fresh, and only while nothing happened after it;
 a resume whose cache is alive gets nothing extra. It is never waited on past 5 minutes: with no
 note the handoff is the facts alone. `handoff_note: false` in an agent's agent.yaml turns it off
-for that agent, in config.yaml for all; the agents screen shows each cache's time left.""",
+for that agent, in config.yaml for all; the agents screen shows each cache's time left.
+
+Cost pilot, off for every agent until its own agent.yaml says so: `cache_renewal: true`
+asks for the note again at 57.5 to 59 minutes, twice per idle stretch at most and never over 150k
+of context, so the hour's cache restarts; `idle_fold: true` closes an idle session fresh, after the
+note, once it holds no task, has nothing queued and its context is `idle_fold_tokens` (150000) or
+more after `idle_fold_after_s` (600) of silence. Each is an event, `cache_renewal` or `idle_fold`.
+A session closed by its idle window cannot be renewed, and the default window is 10 minutes: for a
+`cache_renewal` agent set `park_timeout_s` over 3600 (or 0, never) in its agent.yaml, which
+`hl idle-timeout 10800 --agent <name>` does.""",
 
     "hooks": """Orca hooks
   hl hooks status                 show drift
