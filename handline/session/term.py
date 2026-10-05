@@ -498,7 +498,7 @@ class Blocker:
 
 # A dialog's panel opens with a rule; the title is the first line under it. The
 # exit confirmation draws it with U+2594 (measured), the tool permission prompt
-# with U+2500 (a founder's paste of a live one, T277).
+# with U+2500 (a founder's paste of a live one).
 _RULE = re.compile(r"^[\u2594\u2500]{8,}$")
 _OPTION = re.compile(r"^(?:\u276f\s*)?\d+\.\s+\S")
 DETAIL_CHARS = 200
@@ -591,8 +591,8 @@ INERT_LABELS = frozenset({"stay", "cancel", "no", "back", "keep", "do nothing",
                           "not now", "never mind"})
 # Checked against a live terminal, not only against fixtures: orcapipe (the
 # founder) sent this exact byte via `orca terminal send --text $'\033'` to two
-# real, stuck Claude Code dialogs on 2026-09-21 - orcapipe.auditor and
-# harbor.marina, both showing "Background work is running" - and both cleared
+# real, stuck Claude Code dialogs on 2026-09-21 - two agents,
+# both showing "Background work is running" - and both cleared
 # on the next screen read. `accepted:true` and the dialog actually closing are
 # different claims; both were seen to hold.
 ESCAPE = "\x1b"
@@ -624,7 +624,7 @@ def _inert(label: str) -> bool:
 # What Claude Code asks when a turn ends on the session limit: none of its
 # options only declines ('Stop and wait' is a choice that stops the session), so
 # the inert-option rule cannot admit it. Esc was measured on a live one on
-# 2026-09-21 (orcapipe.chat, 'resets 3:30pm'): the dialog closed, the session
+# 2026-09-21 (a usage-limit dialog, 'resets 3:30pm'): the dialog closed, the session
 # stayed at its prompt, nothing was chosen. Named by the two options that make
 # it this dialog rather than by its title, which is generic, and by their start
 # only, since the second carries the reset time.
@@ -686,7 +686,7 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
 
 
 # The composer's own box: two full-width '─' rules around one content row.
-# How many rows sit below it varies by agent (auditor's #1144 fleet read), so
+# How many rows sit below it varies by agent (measured across the fleet), so
 # the triple is searched for rather than assumed to sit a fixed distance from
 # the end.
 _COMPOSER_RULE = re.compile(r"^[─]{8,}$")
@@ -695,7 +695,7 @@ _COMPOSER_RULE = re.compile(r"^[─]{8,}$")
 def _composer_box(tail: list) -> tuple[int, int] | None:
     """(top, bottom) row indices of the composer's rule/content/rule triple,
     or None. The triple is searched for, not assumed a fixed distance from
-    the end (auditor's #1144 fleet read)."""
+    the end (measured across the fleet)."""
     for k in range(3, 9):
         if len(tail) < k:
             break
@@ -847,8 +847,8 @@ def screen_blocker_cached(handle: str, not_before: float = 0.0) -> Blocker | Non
     """A cached read of `handle`'s screen, at most SCREEN_CACHE_TTL_S old.
 
     `not_before` refuses a cached read older than that instant: a read taken
-    before a fact existed cannot answer a question about it - auditor's
-    #1721 BLOCKING, a read from before a second permission prompt was raised
+    before a fact existed cannot answer a question about it - an
+    audit finding: a read from before a second permission prompt was raised
     read as "no dialog" and answered the new prompt with the old one's
     absence, deleting a wait that had not even been shown yet. A caller with
     no such fact in play passes nothing, and any cached read within the TTL
@@ -1155,7 +1155,7 @@ def prompt_on_screen(handle: str) -> tuple[str, object]:
 
 def question_on_screen(handle: str):
     """The AskUserQuestion prompt this terminal shows now, as a `Question`
-    (T304), or None when there is none or it cannot be read. Read from the raw
+    or None when there is none or it cannot be read. Read from the raw
     screen, not `dialog_on_screen`: this prompt's shape defeats `parse_dialog`
     (see `vendors.claude_ask`'s own docstring), so each vendor reads its `tail`
     itself, the way `trust_screen` does."""
@@ -1193,7 +1193,7 @@ def _question_cleared(handle: str, driver) -> bool:
 def _answer_question_toggle_and_other(handle: str, driver, found, choices: tuple[int, ...],
                                       text: str) -> tuple[str, str, str]:
     """A multiSelect question's boxes checked *and* Other typed together
-    (T322/T336 follow-up, founder capture 2026-09-28): toggling a box moves
+    (founder capture 2026-09-28): toggling a box moves
     the cursor too, so this sends only the toggles first, re-reads the real
     screen for where the cursor actually landed, and only then reaches for
     Other from there - never the whole guess in one blind sequence."""
@@ -1212,7 +1212,7 @@ def _answer_question_toggle_and_other(handle: str, driver, found, choices: tuple
     if after_toggle is None:
         return STILL_OPEN, found.header, f"the question closed on its own after toggling {toggle_keys}"
     read_back = sorted(i for i, o in enumerate(after_toggle.options) if o.checked)
-    # T336 diagnostics (temporary, founder #2013 - kept until this combo has a
+    # Diagnostics (temporary, from the founder - kept until this combo has a
     # few real captures behind it): the re-read that decides where Other is
     # reached from, spelled out so a log line shows it, not just the outcome.
     trail = (f"toggled {toggle_keys} -> checked {read_back}, cursor now {after_toggle.cursor}"
@@ -1281,7 +1281,7 @@ _BG_HINT = "to manage"
 
 
 # The rows `background_work` last read for each terminal, so a caller that wants to keep a sample of
-# the screen it was read from does not read it twice (T592).
+# the screen it was read from does not read it twice.
 _last_tail: dict[str, list[str]] = {}
 
 
@@ -1322,7 +1322,7 @@ def background_work(handle: str) -> str | None:
 
 
 def idle_with_background(handle: str) -> bool:
-    """Does the screen show a session idle at its prompt with work running behind it (T458)?
+    """Does the screen show a session idle at its prompt with work running behind it?
 
     Orca's own idle answer reads such a session as mid-turn, and a task is never typed at it.
     The screen is the second witness, and only on the busy side's absence: the driver says
@@ -1448,7 +1448,7 @@ def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
         # prompt, and a session that obeyed it would start a second copy of itself.
         return False, "a session is on the terminal's screen; not typing a launch line at it"
     # The line and its Enter go as two sends, in case an Enter that arrives with the line is swallowed
-    # by a shell taking it as a paste (T663: a hypothesis, not an observed cause).
+    # by a shell taking it as a paste (a hypothesis, not an observed cause).
     ok, out = send(handle, command, enter=False)
     if ok:
         time.sleep(LAUNCH_ENTER_DELAY_S)
