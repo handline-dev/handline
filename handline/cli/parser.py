@@ -208,6 +208,13 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--effort", default=None, choices=sorted(agents.VALID_EFFORT))
     q.add_argument("--vendor", default=None)
     q.add_argument("--why", required=True, help="what the founder is deciding")
+    q = hrsub.add_parser("context", help="propose new text for an agent's ROLE.md and/or base.md: the "
+                                          "founder sees the diff; an agent cannot write them itself")
+    q.add_argument("name", help="the agent whose files change")
+    q.add_argument("--role-file", default=None, help="a file holding the whole new ROLE.md")
+    q.add_argument("--base-file", default=None, help="a file holding the whole new base.md")
+    q.add_argument("--why", required=True, help="what the founder is deciding")
+    q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as cards")
     q.add_argument("--all", action="store_true", help="with --json: the settled ones too")

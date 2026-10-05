@@ -2923,6 +2923,54 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
           str(r.rows)[:400])
 
 
+def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(home: Path) -> None:
+    os.environ["OCP_HOME"] = str(home)
+    os.environ.pop("OCP_AGENT", None)
+    agents.register("worker", repo=str(home), role="the old role")
+    agents.register("other", repo=str(home))
+    hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
+    role_file, base_file = home / "new-role.md", home / "new-base.md"
+    role_file.write_text("# worker\n\nThe new role.\nSecond line: a \"quote\" and a colon.\n")
+    base_file.write_text("x" * (agents.BASE_BUDGET_BYTES + 1))
+    before = (paths.agent_dir("worker") / "ROLE.md").read_text()
+    rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--base-file", str(base_file),
+                    "--why", "tighten"], as_agent="other")
+    check("context: a file over its budget is refused, and nothing is raised",
+          rc == 1 and "budget" in out and not hr.listing(), out)
+    rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--why", "tighten"], as_agent="other")
+    pid = next((x["id"] for x in hr.listing() if x["kind"] == "context"), None)
+    check("context: an agent's proposal is raised, and nothing is written",
+          rc == 0 and pid and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, out)
+    prop = hr.load_proposal(pid)
+    text = hr.card(prop)["text"]
+    check("context: the founder reads a diff of what is there now",
+          "-the old role" in text and "+The new role." in text and "ROLE.md (proposed)" in text, text)
+    rc, out = _cli(["hr", "context", "nobody", "--role-file", str(role_file), "--why", "w"], as_agent="other")
+    check("context: for an agent that is not one, refused", rc == 1 and "not an agent" in out, out)
+    con = db.connect()
+    try:
+        ok, said = hr.apply(pid, con)
+        check("context: nothing applies before the founder answers",
+              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
+        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
+        edited = {**prop, "state": "approved", "set.ROLE.md": json.dumps("# worker\n\nSomething else.\n")}
+        hr.save(edited)
+        ok, said = hr.apply(pid, con)
+        check("context: a proposal edited after the approval is refused",
+              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
+        hr.save({**prop, "state": "approved"})
+        ok, said = hr.apply(pid, con)
+    finally:
+        con.close()
+    check("context: the approval writes exactly the proposed text, and not the other file",
+          ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == role_file.read_text()
+          and "base.md" not in said, said)
+    check("context: the file still loads as the agent's standing context",
+          role_file.read_text().strip() in launch.context_for("worker"))
+    rc, out = _cli(["hr", "context", "worker", "--base-file", str(base_file), "--why", "x"], as_agent="human")
+    check("context: the founder's own change over budget is refused too", rc == 1 and "budget" in out, out)
+
+
 def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
     os.environ.pop("OCP_AGENT", None)
@@ -3961,6 +4009,7 @@ def main() -> int:
         run(lambda: test_hr_link_and_unlink_edit_one_edge_and_nothing_else(Path(td) / 'hrlink'))
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
+        run(lambda: test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(Path(td) / 'ctxprop'))
         run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
         run(lambda: test_hr_cli_lists_cards_and_only_the_founder_decides(Path(td) / 'hrcli'))
         run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))

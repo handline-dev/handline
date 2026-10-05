@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 
 from ..team import ask as askmod
 from .. import db
@@ -117,6 +118,22 @@ def cmd_hr(args) -> int:
             ok, said = hr.enact("team", args.name, **kw)
         else:
             ok, said = hr.propose("team", args.name, requester=me, **kw)
+        print(said)
+        return 0 if ok else 1
+    if args.hr_cmd == "context":
+        texts = {}
+        for fn, path in (("ROLE.md", args.role_file), ("base.md", args.base_file)):
+            if path:
+                try:
+                    texts[fn] = Path(path).expanduser().read_text()
+                except (OSError, UnicodeDecodeError) as e:
+                    print(f"{path}: {e}", file=sys.stderr)
+                    return 1
+        kw = dict(why=args.why, sets=texts)
+        if me == askmod.HUMAN:
+            ok, said = hr.enact("context", args.name, **kw)
+        else:
+            ok, said = hr.propose("context", args.name, requester=me, **kw)
         print(said)
         return 0 if ok else 1
     kw = dict(why=args.why, team_name=args.team,

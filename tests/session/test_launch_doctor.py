@@ -822,13 +822,15 @@ def test_a_session_may_not_write_the_roster_files(home: Path) -> None:
     deny_write = settings["sandbox"]["filesystem"]["denyWrite"]
     want = [str(paths.team_file()), f"{paths.team_file()}.bak",
             str(paths.agent_dir("backend") / "agent.yaml"), str(paths.agent_dir("backend.sea") / "agent.yaml"),
-            str(paths.agents_dir() / "*" / "agent.yaml")]
+            str(paths.agents_dir() / "*" / "agent.yaml"),
+            *(str(paths.agent_dir(n) / f) for n in ("backend", "backend.sea") for f in ("ROLE.md", "base.md")),
+            str(paths.agents_dir() / "*" / "ROLE.md"), str(paths.agents_dir() / "*" / "base.md")]
     check("roster: Bash is denied each file, and the glob for an agent made later",
           all(w in deny_write for w in want), str(deny_write))
     check("roster: the file tools are denied the same by Edit rules",
           all(f"Edit(/{w})" in settings["permissions"]["deny"] for w in want), str(settings["permissions"]))
-    check("roster: an agent's own inbox and journal are not denied",
-          not any("inbox" in d or "journal" in d for d in deny_write), str(deny_write))
+    check("roster: an agent's own inbox, journal and memory are not denied",
+          not any(w in d for d in deny_write for w in ("inbox", "journal", "memory")), str(deny_write))
     check("roster: the founder's own path still writes them",
           agents.register("backend", effort="low") and agents.read("backend")["effort"] == "low")
 
