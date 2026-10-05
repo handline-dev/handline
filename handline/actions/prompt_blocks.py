@@ -16,10 +16,10 @@ import time
 from .. import db
 from ..daemon import client
 from ..infra import lock
-from ..session import orca, waiting
+from ..session import term, waiting
 from . import ask_question, confirmations, dialogs
 
-PERMISSION, QUESTION, DIALOG = orca.PROMPT_PERMISSION, orca.PROMPT_QUESTION, orca.PROMPT_DIALOG
+PERMISSION, QUESTION, DIALOG = term.PROMPT_PERMISSION, term.PROMPT_QUESTION, term.PROMPT_DIALOG
 # How old a row's last_seen may be before it no longer counts as a prompt on screen: a
 # watch that stopped, or a screen it cannot read, must not leave a prompt showing for good.
 STALE_S = 10
@@ -30,7 +30,7 @@ def fingerprint(kind: str, panel: list[str]) -> str:
 
 
 def describe(agent: str, kind: str, payload, held: dict | None) -> dict:
-    """{kind, title, panel, detail, wait_id, answerable} for what `orca.prompt_on_screen` read."""
+    """{kind, title, panel, detail, wait_id, answerable} for what `term.prompt_on_screen` read."""
     if kind == PERMISSION:
         detail = confirmations.describe(agent, payload, held)
         wait = detail["wait"]
@@ -43,7 +43,7 @@ def describe(agent: str, kind: str, payload, held: dict | None) -> dict:
         return {"kind": kind, "title": payload.question or payload.header, "panel": list(payload.lines),
                 "detail": detail, "wait_id": None, "answerable": True}
     detail = {"agent": agent, "options": [list(o) for o in payload.options],
-              "body": dialogs._context(payload), "truncated": payload.title == orca.TRUNCATED_TITLE}
+              "body": dialogs._context(payload), "truncated": payload.title == term.TRUNCATED_TITLE}
     return {"kind": kind, "title": payload.title, "panel": list(payload.body), "detail": detail,
             "wait_id": None, "answerable": True}
 
@@ -107,8 +107,8 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
         handle = dialogs._handle(con, agent)
         if handle is None:
             return _record(con, row, False, f"{agent}: it has no terminal to answer in")
-        kind, payload = orca.prompt_on_screen(handle)
-        if kind in (orca.PROMPT_NONE, orca.PROMPT_UNREADABLE):
+        kind, payload = term.prompt_on_screen(handle)
+        if kind in (term.PROMPT_NONE, term.PROMPT_UNREADABLE):
             return _record(con, row, False, f"{agent}: the prompt is gone or its screen cannot be read - nothing sent")
         now = describe(agent, kind, payload, waiting.read(agent))
         if now["kind"] != row["kind"] or fingerprint(now["kind"], now["panel"]) != row["fingerprint"]:
@@ -127,22 +127,22 @@ def answer(con, block_id: int, choice: dict) -> tuple[bool, str]:
 
 def _cancel(agent: str, handle: str, row) -> tuple[bool, str]:
     """Esc, once the prompt was just confirmed to be the row's. A permission prompt or question
-    reads Esc as No or cancel. A plain dialog gets it only where `orca.declining_key` says the
+    reads Esc as No or cancel. A plain dialog gets it only where `term.declining_key` says the
     screen shows Esc only declines - not one whose Esc leaves the session or stops tasks."""
     if row["kind"] == DIALOG:
-        outcome, _, why = orca.decline_dialog(handle)
-        if outcome == orca.CLEARED:
+        outcome, _, why = term.decline_dialog(handle)
+        if outcome == term.CLEARED:
             return True, f"{agent}: cancelled (Esc)"
         return False, f"{agent}: not cancelled - {why or outcome}"
-    ok, out = orca.send(handle, orca.ESCAPE, enter=False)
+    ok, out = term.send(handle, term.ESCAPE, enter=False)
     if not ok:
         return False, f"{agent}: the key could not be sent: {out[:120]}"
-    for _ in range(orca.PRESS_SETTLE_READS):
-        time.sleep(orca.PRESS_SETTLE_S)
-        kind, payload = orca.prompt_on_screen(handle)
-        if kind == orca.PROMPT_UNREADABLE:
+    for _ in range(term.PRESS_SETTLE_READS):
+        time.sleep(term.PRESS_SETTLE_S)
+        kind, payload = term.prompt_on_screen(handle)
+        if kind == term.PROMPT_UNREADABLE:
             continue        # not evidence either way
-        if kind == orca.PROMPT_NONE or fingerprint(kind, describe(agent, kind, payload, None)["panel"]) != row["fingerprint"]:
+        if kind == term.PROMPT_NONE or fingerprint(kind, describe(agent, kind, payload, None)["panel"]) != row["fingerprint"]:
             return True, f"{agent}: " + ("answered No (Esc)" if row["kind"] == PERMISSION else "cancelled (Esc)")
     return False, f"{agent}: the prompt is still on screen after Esc"
 
@@ -150,15 +150,15 @@ def _cancel(agent: str, handle: str, row) -> tuple[bool, str]:
 def _permission(agent: str, handle: str, row, now: dict, yes: bool) -> tuple[bool, str]:
     def same_wait() -> bool:
         return (waiting.read(agent) or {}).get("after_event_id") == row["wait_id"]
-    outcome, _, why = orca.answer_confirmation(handle, yes, tuple(now["panel"]), same_wait)
-    if outcome == orca.CLEARED:
+    outcome, _, why = term.answer_confirmation(handle, yes, tuple(now["panel"]), same_wait)
+    if outcome == term.CLEARED:
         return True, f"{agent}: answered {'Yes' if yes else 'No'}"
     return False, f"{agent}: not answered - {why or outcome}"
 
 
 def _question(agent: str, handle: str, now: dict, choices: tuple[int, ...], text) -> tuple[bool, str]:
-    outcome, _, why = orca.answer_question(handle, tuple(now["panel"]), choices, text)
-    if outcome == orca.CLEARED:
+    outcome, _, why = term.answer_question(handle, tuple(now["panel"]), choices, text)
+    if outcome == term.CLEARED:
         return True, f"{agent}: answered" + (f" ({why})" if why else "")
     return False, f"{agent}: not answered - {why or outcome}"
 

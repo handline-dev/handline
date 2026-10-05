@@ -31,7 +31,7 @@ os.environ.setdefault("OCP_TERMINAL", "tmux")
 
 from handline import db  # noqa: E402
 from handline.daemon import locks as daemon_locks  # noqa: E402
-from handline.session import backends, orca  # noqa: E402
+from handline.session import backends, term  # noqa: E402
 from handline.team import spawn  # noqa: E402
 
 RESULTS: list[tuple[str, bool, str]] = []
@@ -39,12 +39,12 @@ RESULTS: list[tuple[str, bool, str]] = []
 
 def show(handle: str, label: str) -> None:
     """The readers' verdicts on this screen, then its last rows."""
-    term = orca._screen(handle)
-    rows = (term or {}).get("tail") or []
-    blocker = orca.screen_blocker(handle)
-    prompt = orca.prompt_on_screen(handle)
+    screen = term._screen(handle)
+    rows = (screen or {}).get("tail") or []
+    blocker = term.screen_blocker(handle)
+    prompt = term.prompt_on_screen(handle)
     print(f"    [{label}] blocker={getattr(blocker, 'kind', blocker)!r} prompt={prompt[0]!r} "
-          f"trust={orca.trust_prompt_showing(handle)} typeable={orca.typeable_now(handle)}")
+          f"trust={term.trust_prompt_showing(handle)} typeable={term.typeable_now(handle)}")
     for row in rows[-10:]:
         print(f"      | {row}")
 
@@ -103,11 +103,11 @@ def main() -> int:
         return 1
 
     def alive():
-        return orca.alive(handle), f"terminal {handle}", None
+        return term.alive(handle), f"terminal {handle}", None
     step("list: the window is a live terminal", alive)
 
     def idle():
-        ok = orca.wait_idle(handle, 90_000)
+        ok = term.wait_idle(handle, 90_000)
         show(handle, "after boot")
         return ok, "idle once the TUI has drawn its prompt", None
     step("idle: wait_idle on the booted TUI", idle)
@@ -119,9 +119,9 @@ def main() -> int:
         finally:
             con.close()
         state["since"] = since
-        ok, why = orca.send(handle, "Reply with the single word ok and nothing else.")
+        ok, why = term.send(handle, "Reply with the single word ok and nothing else.")
         time.sleep(1.5)
-        mid = orca.wait_idle(handle, 1_500)
+        mid = term.wait_idle(handle, 1_500)
         show(handle, "turn started")
         return ok and not mid, f"send={why!r}; reported idle {mid} while the turn runs (want False)", None
     step("busy: a message is typed and a running turn is not idle", busy)
@@ -135,27 +135,27 @@ def main() -> int:
     step("delivered: UserPromptSubmit arrived", landed)
 
     def settled():
-        ok = orca.wait_idle(handle, 90_000)
+        ok = term.wait_idle(handle, 90_000)
         show(handle, "after the turn")
         return ok, "idle again after the turn", None
     step("idle: wait_idle after the turn", settled)
 
     def clear():
-        ok, why = orca.clear_context(handle, wait=False)
+        ok, why = term.clear_context(handle, wait=False)
         time.sleep(3)
         show(handle, "after /clear")
         return ok, why, None
     step("clear: /clear typed", clear)
 
     def exit_():
-        ok, why = orca.close_session(handle, wait=False)
+        ok, why = term.close_session(handle, wait=False)
         time.sleep(5)
         show(handle, "after /exit")
-        return ok and orca.alive(handle), f"{why}; the window should still be there with a shell in it", None
+        return ok and term.alive(handle), f"{why}; the window should still be there with a shell in it", None
     step("exit: /exit typed, the window stays", exit_)
 
     if not args.keep:
-        step("close: the window is closed", lambda: (orca.close_terminal(handle)[0] and not orca.alive(handle), "", None))
+        step("close: the window is closed", lambda: (term.close_terminal(handle)[0] and not term.alive(handle), "", None))
     print("\nsummary")
     for name, ok, detail in RESULTS:
         print(f"  {'OK  ' if ok else 'FAIL'} {name}")

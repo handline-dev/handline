@@ -15,7 +15,7 @@ from ..session import events
 from ..infra import lock
 from ..infra.waits import END_WAIT_S, WAKE_SESSION_TIMEOUT_S  # noqa: F401  (tests patch them here)
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..usage import status
 from ..infra import textsafe
 
@@ -61,7 +61,7 @@ def screen_draws_session(agent: str) -> bool:
         handle = db.get_terminal(con, agent)
     finally:
         con.close()
-    answer = bool(handle and orca.available() and session_still_drawn(handle, wait=False))
+    answer = bool(handle and term.available() and session_still_drawn(handle, wait=False))
     _drawn[agent] = (time.time(), answer)
     return answer
 
@@ -117,7 +117,7 @@ def session_still_drawn(handle: str | None, wait: bool = True) -> bool:
         return False
     deadline = time.time() + (END_WAIT_S if wait else 0)
     while True:
-        if not orca.session_on_screen(handle):
+        if not term.session_on_screen(handle):
             return False
         if time.time() >= deadline:
             return True
@@ -197,14 +197,14 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
     if not handle:
         return False, ("no terminal recorded; start the agent with `hl spawn` or "
                        "`hl launch` inside an Orca terminal so its context can be reclaimed")
-    if not orca.available():
-        return False, orca.missing()
+    if not term.available():
+        return False, term.missing()
     if not session_present(agent):
-        return False, f"no session process; not typing {orca.clear_command(handle)} at a shell prompt"
+        return False, f"no session process; not typing {term.clear_command(handle)} at a shell prompt"
     if _past_dialog(con, agent, log):
         return False, ("a dialog is open on its screen that ocp cannot get past; "
-                       f"not typing {orca.clear_command(handle)} at it")
-    running = orca.background_work(handle)
+                       f"not typing {term.clear_command(handle)} at it")
+    running = term.background_work(handle)
     if running:
         return _clear_over_background(con, agent, handle, running, log)
     return _clear_now(con, agent, handle, log)
@@ -249,7 +249,7 @@ def _cache_lapsed(con, agent: str, now: int) -> bool:
 
 
 def _clear_now(con, agent: str, handle: str, log) -> tuple[bool, str]:
-    ok, why = orca.clear_context(handle, timeout_ms=orca.IDLE_PROBE_MS)
+    ok, why = term.clear_context(handle, timeout_ms=term.IDLE_PROBE_MS)
     log(f"  {agent}: {why}")
     if ok:
         db.clear_cursor(con, f"clear_owed:{agent}")
@@ -269,14 +269,14 @@ def _clear_over_background(con, agent: str, handle: str, running: str, log) -> t
         st = status.read_for_agent(agent, agents.current_account(agent, con))
         limit = status.effective_context_limit(agents.read(agent), st.model_id)
         used = "?" if st.trusted_ctx_used is None else f"{st.trusted_ctx_used:,}"
-        ok, err = orca.send_to_session(handle, CLEAR_NOTICE.format(context=f"{used} of {limit:,}",
+        ok, err = term.send_to_session(handle, CLEAR_NOTICE.format(context=f"{used} of {limit:,}",
                                                                    minutes=CLEAR_WAIT_S // 60))
         db.set_cursor(con, f"clear_owed:{agent}", now)      # owed even if the notice did not go
         log(f"  {agent}: background work is running ({running}); told it will be cleared in "
             f"{CLEAR_WAIT_S // 60} min{'' if ok else f' (the notice failed: {err[:80]})'}")
-        return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
+        return False, f"background work is running ({running}); {term.clear_command(handle)} is owed"
     if now - since < CLEAR_WAIT_S:
-        return False, f"background work is running ({running}); {orca.clear_command(handle)} is owed"
+        return False, f"background work is running ({running}); {term.clear_command(handle)} is owed"
     log(f"  {agent}: {CLEAR_WAIT_S // 60} min are up with background work still running ({running}) - clearing")
     ok, why = _clear_now(con, agent, handle, log)
     if ok:
@@ -358,7 +358,7 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
     why not.
 
     `require_idle` is False at a site whose own act (`_end_session`) does its
-    own fresh idle read inline, where it actually types - `orca.typeable_now`
+    own fresh idle read inline, where it actually types - `term.typeable_now`
     here would only be a second, redundant read of the same thing.
 
     `require_settled` is True wherever the type that follows is destructive
@@ -370,7 +370,7 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
         last = db.get_cursor(con, f"typed_at:{agent}")
         if last and int(time.time()) - last < TYPE_SETTLE_S:
             return f"{agent} was typed at moments ago; letting the screen catch up"
-    if require_idle and handle and orca.available() and not orca.typeable_now(handle):
+    if require_idle and handle and term.available() and not term.typeable_now(handle):
         return f"{agent} is mid-turn or has a dialog open"
     return None
 
@@ -595,7 +595,7 @@ def deliver_queued(con, agent: str, log) -> bool:
     if why:
         return _held(agent, head, why, log)          # stays queued; told when it wakes or moves
     handle = db.get_terminal(con, agent)
-    if not handle or not orca.available() or not orca.alive(handle):
+    if not handle or not term.available() or not term.alive(handle):
         return _held(agent, head, "it has no live terminal", log)
     if not session_present(agent):
         # Nothing here is read by an agent that is not running; at a shell
@@ -605,11 +605,11 @@ def deliver_queued(con, agent: str, log) -> bool:
         return _held(agent, head, "no session is running in its terminal", log)
     # Typing at an agent mid-turn leaves the text sitting in its input box
     # unsent, which is how three agents once came up having been told nothing.
-    if not orca.typeable_now(handle):
+    if not term.typeable_now(handle):
         # An open dialog is a reason the agent cannot take it, not a delivery gone wrong: only a screen
         # that is busy with nothing to explain it (the row says idle) is worth contesting.
-        blocker = orca.screen_blocker(handle)
-        if blocker is not None and blocker.kind != orca.UNREADABLE:
+        blocker = term.screen_blocker(handle)
+        if blocker is not None and blocker.kind != term.UNREADABLE:
             return _held(agent, head, blocker.reason(), log)
         return _held(agent, head, "its screen is not idle (mid-turn, or unreadable)", log, contestable=True)
     depth = sum(1 for r in db.queued_for(con, agent) if r["kind"] == "task")
@@ -672,14 +672,14 @@ def track_background_work(con, agent: str, row) -> None:
         db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
         db.clear_cursor(con, f"bgcount:{agent}")
         return
-    if not row or row["state"] in (HANDOFF, STALLED) or not orca.available():
+    if not row or row["state"] in (HANDOFF, STALLED) or not term.available():
         return
-    running = orca.background_work(row["terminal"])
+    running = term.background_work(row["terminal"])
     if running is None:
         return                # unreadable is not "ended"
     if running:
         db.set_cursor(con, f"bgcount:{agent}", max(1, bgjobs.footer_count(running)))
-        screensamples.record(con, agent, row, running, orca.last_tail(row["terminal"]))
+        screensamples.record(con, agent, row, running, term.last_tail(row["terminal"]))
     if running and not db.get_cursor(con, key):
         db.set_cursor(con, key, 1)
     elif not running and db.get_cursor(con, key):
@@ -855,7 +855,7 @@ MAX_TYPED_LINES = 3
 
 
 def record_cleared(handle: str, rows: list[str]) -> None:
-    """Before `orca.send_to_session` sends Ctrl-C at `handle`: an event under the agent last recorded
+    """Before `term.send_to_session` sends Ctrl-C at `handle`: an event under the agent last recorded
     there, with the screen rows that read as a shell, so a Ctrl-C that interrupted a live turn is found
     from the record."""
     con = db.connect()
@@ -867,18 +867,18 @@ def record_cleared(handle: str, rows: list[str]) -> None:
         con.close()
 
 
-orca.on_cleared = record_cleared
+term.on_cleared = record_cleared
 
 
 def _send(handle: str, text: str) -> tuple[bool, str]:
-    """`orca.send` for text an agent is meant to act on: never more than
+    """`term.send` for text an agent is meant to act on: never more than
     `MAX_TYPED_LINES` lines. Past that the middle lines are joined into one; a
     sender still builds its own three lines so nothing important is squeezed."""
     lines = text.split("\n")
     if len(lines) > MAX_TYPED_LINES:
         keep = MAX_TYPED_LINES - 2
         lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
-    return orca.send_to_session(handle, "\n".join(lines))
+    return term.send_to_session(handle, "\n".join(lines))
 
 
 def type_notice(con, agent: str, text: str) -> bool:
@@ -891,9 +891,9 @@ def type_notice(con, agent: str, text: str) -> bool:
     here touches an attempt counter, so a notice cannot stall an agent.
     """
     handle = db.get_terminal(con, agent)
-    if typing_hold(con, agent) or not handle or not orca.available() \
-            or not orca.alive(handle) or not session_present(agent) \
-            or not orca.typeable_now(handle):
+    if typing_hold(con, agent) or not handle or not term.available() \
+            or not term.alive(handle) or not session_present(agent) \
+            or not term.typeable_now(handle):
         return False
     with lock.terminal(agent) as mine:
         if not mine or _type_gate(con, agent, handle):
@@ -993,11 +993,11 @@ def notify_cancelled(con, row, verdict: str) -> tuple[bool, str]:
     held = typing_hold(con, agent)
     if held:
         return False, held
-    if not handle or not orca.available() or not orca.alive(handle):
+    if not handle or not term.available() or not term.alive(handle):
         return False, f"{agent} has no terminal"
     if not session_present(agent):
         return False, f"{agent} has no running session"
-    if not orca.typeable_now(handle):
+    if not term.typeable_now(handle):
         return False, f"{agent} is mid-work or at a prompt"
     with lock.terminal(agent) as mine:
         if not mine:
@@ -1313,11 +1313,11 @@ def deliver_answers(con, agent: str, log) -> bool:
     if typing_hold(con, agent):
         return False              # stays unannounced; told when it wakes or moves
     handle = db.get_terminal(con, agent)
-    if not handle or not orca.available() or not orca.alive(handle):
+    if not handle or not term.available() or not term.alive(handle):
         return False
     if not session_present(agent):
         return False
-    if not orca.typeable_now(handle):
+    if not term.typeable_now(handle):
         return False
     text = answers_text(answered)
     with lock.terminal(agent) as mine:

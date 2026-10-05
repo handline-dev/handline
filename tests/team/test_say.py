@@ -361,13 +361,13 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
     finally:
         con.close()
     con = db.connect()
-    real_available = orcamod.available
+    real_available = termmod.available
     try:
-        orcamod.available = lambda: False   # stuck() asks orca only if it must
+        termmod.available = lambda: False   # stuck() asks orca only if it must
         check("say: stuck() lists nothing for an answered say",
               not any(f"#{rid}" in r["what"] for r in actions.stuck(con)), actions.stuck(con))
     finally:
-        orcamod.available = real_available
+        termmod.available = real_available
         con.close()
 
 
@@ -499,13 +499,13 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[tuple[str, str]] = []
-    real = (orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now)
+    real = (termmod.alive, termmod.send, termmod.available, termmod.typeable_now)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.typeable_now = lambda h: True
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.typeable_now = lambda h: True
+        termmod.live_terminals = lambda: {"term_x"}
+        termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
         # No live session yet: `say`'s own `push` (it calls `deliver_queued`
         # synchronously, same as any `ask`) cannot deliver it immediately, so
         # this proves the daemon's later, ordinary tick - not just the push -
@@ -533,18 +533,18 @@ def test_a_say_with_no_ordinary_head_still_gets_typed(home: Path) -> None:
               db.get_request(con, rid)["delivered_at"] is not None
               and db.get_request(con, rid)["state"] == "landed", str(dict(db.get_request(con, rid))))
     finally:
-        orcamod.alive, orcamod.send, orcamod.available, orcamod.typeable_now = real
+        termmod.alive, termmod.send, termmod.available, termmod.typeable_now = real
         con.close()
 
 
 def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path) -> None:
     """`stuck()` never calls a send_now row "waiting behind" the head."""
     con = _blocked_world(home)
-    real_typeable, real_available = orcamod.typeable_now, orcamod.available
+    real_typeable, real_available = termmod.typeable_now, termmod.available
     try:
-        orcamod.live_terminals = lambda: {"term_x"}
-        orcamod.typeable_now = lambda h: False
-        orcamod.available = lambda: False       # nothing can be typed: the say stays queued, held
+        termmod.live_terminals = lambda: {"term_x"}
+        termmod.typeable_now = lambda h: False
+        termmod.available = lambda: False       # nothing can be typed: the say stays queued, held
         agents.register("product")   # DESIGN_TEAM: product -> eng.* (backend) is peer/async
         head = db.head_of_queue(con, "backend")
         con.execute("INSERT OR REPLACE INTO cursors(name, row_id, updated) VALUES(?,?,?)",
@@ -557,7 +557,7 @@ def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path)
         check("stuck: a send_now row is never read as waiting behind the head",
               rows and all("waiting behind" not in r["why"] for r in rows), str(rows))
     finally:
-        orcamod.typeable_now, orcamod.available = real_typeable, real_available
+        termmod.typeable_now, termmod.available = real_typeable, real_available
 
 
 def test_is_lookup_bash_matches_the_allowlist_by_prefix(home: Path) -> None:

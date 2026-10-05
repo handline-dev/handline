@@ -79,7 +79,7 @@ def test_the_panel_says_the_true_thing_about_a_queue(home: Path) -> None:
     """Only the head of a queue is told; what waits behind it is waiting its
     turn, not failing to be told."""
     con = _blocked_world(home)
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.live_terminals = lambda: {"term_x"}
     for _ in range(2):
         db.add_request(con, "marina", "backend", "and this", None, "peer", "async", None, 0, None)
     now = int(time.time())
@@ -432,14 +432,14 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
         row = db.get_agent_state(con, "spawny")
         return ((row["terminal"], row["worktree"]) if row else (None, None))
 
-    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
            dmn_delivery.wait_for_session)
     con = db.connect()
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         spawnmod._run = lambda args, cwd=None: (0, "", "")      # git: no fetch, no comparison
-        orcamod.run_current = lambda: None
-        orcamod.run_create = lambda objective: None
+        termmod.run_current = lambda: None
+        termmod.run_create = lambda objective: None
         # spawn()/start_in() confirm a session came up before saying "started"
         # (#1976, T146 pt.2) - not this test's own concern, so it is not made
         # to wait for a real process table it has nothing in.
@@ -528,8 +528,8 @@ def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
     finally:
         os.environ.pop("ORCA_TERMINAL_HANDLE", None)
         os.environ.pop("ORCA_WORKTREE_ID", None)
-        (orcacli._exec, spawnmod._run, orcamod.available,
-         orcamod.run_current, orcamod.run_create, dmn_delivery.wait_for_session) = real
+        (orcacli._exec, spawnmod._run, termmod.available,
+         termmod.run_current, termmod.run_create, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -633,13 +633,13 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send)
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.send)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         table = sessions_are("backend")
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -746,11 +746,11 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         # Reporting the state afterwards read "RUNNING" as though it were a
         # result; the line it logged is the answer.
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="mid-turn")
-        orcamod.idle_now = lambda h: False
+        termmod.idle_now = lambda h: False
         said = actions.park(con, "backend")
         check("top: parking a busy agent says it was deferred, not its state",
               "defer" in said and "RUNNING" not in said, said)
-        orcamod.idle_now = lambda h: True
+        termmod.idle_now = lambda h: True
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared")
 
         # A terminal can be closed by a human or lost when Orca restarts, and
@@ -761,7 +761,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         wt.mkdir(parents=True, exist_ok=True)
         db.set_terminal(con, "backend", "term_x", str(wt))
         obsmod.live_sessions = lambda: {}
-        orcamod.live_terminals = lambda: set()      # Orca no longer has it
+        termmod.live_terminals = lambda: set()      # Orca no longer has it
         dmn_reconciler.sweep(con, lambda _m: None, [])
         row = db.get_agent_state(con, "backend")
         check("start: a dropped terminal does not take the worktree with it",
@@ -799,7 +799,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         finally:
             spawnmod._run, orcacli._exec = real_run, real_exec
         db.set_terminal(con, "backend", "term_x", "wt")
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         sessions_are("backend")
 
         check("top: an agent with a terminal is not offered a second one",
@@ -817,9 +817,9 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("top: going to an agent is never refused",
               actions.can(con, "backend", "terminal")[0])
         went: list[str] = []
-        real_focus, real_spawn = orcamod.focus, spawnmod.spawn
+        real_focus, real_spawn = termmod.focus, spawnmod.spawn
         try:
-            orcamod.focus = lambda h: (went.append(h), (True, ""))[1]
+            termmod.focus = lambda h: (went.append(h), (True, ""))[1]
             spawnmod.spawn = lambda agent, repo, base="main": (
                 db.set_terminal(db.connect(), agent, "term_new", str(repo)),
                 (True, f"{agent}: started in a new worktree"))[1]
@@ -832,7 +832,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             check("top: and one that already has a terminal is just gone to",
                   went == ["term_new"] and "started" not in said, f"{went} {said}")
         finally:
-            orcamod.focus, spawnmod.spawn = real_focus, real_spawn
+            termmod.focus, spawnmod.spawn = real_focus, real_spawn
         db.set_terminal(con, "backend", None, None)
         check("top: one with none is", actions.can(con, "backend", "start")[0])
         real_run, real_exec = spawnmod._run, orcacli._exec
@@ -861,7 +861,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         check("top: and it is no longer waiting on the human",
               rid not in [m["id"] for m in actions.messages(con)])
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send) = real
+        (termmod.available, termmod.alive, termmod.wait_idle, termmod.send) = real
         con.close()
 
 
@@ -1931,16 +1931,16 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.live_terminals,
-            orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+    real = (termmod.available, termmod.alive, termmod.live_terminals,
+            termmod.idle_now, termmod.send, obsmod.live_sessions,
             dmn_locks.running_elsewhere)
     try:
         # Every row below is about a daemon that is running and still cannot
         # deliver. "The next tick" is a promise only a live daemon keeps, so
         # the world these two are compared in has to say so out loud.
         dmn_locks.running_elsewhere = lambda: 4242
-        orcamod.available = lambda: True
-        orcamod.send = lambda h, t, enter=True: (True, "")
+        termmod.available = lambda: True
+        termmod.send = lambda h, t, enter=True: (True, "")
         db.set_terminal(con, "backend", "term_x", "wt")
         rid = db.add_request(con, "marina", "backend", "please", None,
                              "peer", "async", "task", 0, None)
@@ -1948,9 +1948,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
                     (int(time.time()) - actions.STUCK_AFTER_S - 60,))
 
         def world(terms, sess, state, told, idle=True, closed=False, age=None):
-            orcamod.live_terminals = lambda: terms
-            orcamod.alive = lambda h: h in terms
-            orcamod.idle_now = lambda h: idle
+            termmod.live_terminals = lambda: terms
+            termmod.alive = lambda h: h in terms
+            termmod.idle_now = lambda h: idle
             obsmod.live_sessions = lambda: dict(sess)
             dmn_delivery._seen.clear()
             dmn_delivery._seen_at["t"] = 0.0
@@ -2032,8 +2032,8 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               actions.stuck(con)[0]["what"] == "the daemon is not running",
               str(actions.stuck(con)[:1]))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.live_terminals,
-         orcamod.idle_now, orcamod.send, obsmod.live_sessions,
+        (termmod.available, termmod.alive, termmod.live_terminals,
+         termmod.idle_now, termmod.send, obsmod.live_sessions,
          dmn_locks.running_elsewhere) = real
         con.close()
 
@@ -2081,10 +2081,10 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
         # opinion about what is wrong. These are deliver_queued's own checks.
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
         db.set_terminal(con, "backend", "term_x", "wt")
-        real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+        real = (termmod.available, termmod.live_terminals, obsmod.live_sessions)
         try:
-            orcamod.available = lambda: True
-            orcamod.live_terminals = lambda: {"term_x"}
+            termmod.available = lambda: True
+            termmod.live_terminals = lambda: {"term_x"}
             sessions_are()                       # the terminal is there, nobody is in it
             actions._WORLD["at"] = 0.0           # look again, not at the last look
             why = dict((b["what"], b["why"]) for b in actions.stuck(con))
@@ -2092,7 +2092,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
                   any("no session is running" in r for r in why.values()), str(why))
 
             sessions_are("backend")
-            orcamod.live_terminals = lambda: set()
+            termmod.live_terminals = lambda: set()
             actions._WORLD["at"] = 0.0
             why = [b["why"] for b in actions.stuck(con)]
             check("stuck: a terminal Orca no longer has says that",
@@ -2100,7 +2100,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
 
             # Told and not answered is a queue working, until it has outlasted
             # the longest turn the daemon itself calls healthy.
-            orcamod.live_terminals = lambda: {"term_x"}
+            termmod.live_terminals = lambda: {"term_x"}
             actions._WORLD["at"] = 0.0
             rid = max(r["id"] for r in db.queued_for(con, "backend"))
             db.set_cursor(con, "notify:backend", rid)
@@ -2117,7 +2117,7 @@ def test_the_screen_says_what_is_stuck_and_what_was_decided(home: Path) -> None:
             check("stuck: and the threshold is the daemon's own, not a second number",
                   actions.STUCK_AFTER_S == dmn_states.STUCK_RUNNING_S)
         finally:
-            orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+            termmod.available, termmod.live_terminals, obsmod.live_sessions = real
 
         # What the daemon did is not a question the founder's screen answers -
         # it is `hl events`, which shows decisions and takes --all for the
@@ -3053,7 +3053,7 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
 
         # DIALOG, from each of its two sources - neither is a stored state.
         os.environ["OCP_AGENT"], os.environ["OCP_ACCOUNT"] = "backend", "alpha"
-        real_screen_blocker = orcamod.screen_blocker
+        real_screen_blocker = termmod.screen_blocker
         try:
             db.set_terminal(con, "backend", "term_x", "wt")
             db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
@@ -3065,13 +3065,13 @@ def test_the_screen_word_mapping_is_the_founders_six(home: Path) -> None:
                   word == "DIALOG" and "rm -rf /x" in extra, (word, extra))
             db.prompt_close(con, bid, int(time.time()))
         finally:
-            orcamod.screen_blocker = real_screen_blocker
+            termmod.screen_blocker = real_screen_blocker
             os.environ.pop("OCP_AGENT", None); os.environ.pop("OCP_ACCOUNT", None)
 
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.add_request(con, "reviewer", "backend", "look at this", None,
                        "peer", "async", None, 0, None)
-        db.block_open(con, "backend", orcamod.MODAL, "a dialog", "request #1",
+        db.block_open(con, "backend", termmod.MODAL, "a dialog", "request #1",
                      int(time.time()), show_at=int(time.time()) + 1000, title="")
         word, extra = tui.screen_state(con, db.get_agent_state(con, "backend"))
         check("map: a delivery block (blocked.py) is DIALOG too, over IDLE",

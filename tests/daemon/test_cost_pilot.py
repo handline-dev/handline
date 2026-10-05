@@ -287,13 +287,13 @@ def test_the_note_the_fold_waited_for_ends_the_wait_and_the_fold_is_an_event(hom
 
 def test_through_the_tick_the_pilot_agent_renews_and_folds_and_a_control_agent_is_unchanged(home: Path) -> None:
     con, asks, real, tpath, st, t0 = _world(home)
-    real_o = (orcamod.available, orcamod.alive, orcamod.live_terminals, orcamod.wait_idle)
+    real_o = (termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle)
     closed: list[str] = []
     real_close = dmn_lifecycle.close_fresh
     dmn_lifecycle.close_fresh = lambda c, a, log, s, **kw: (closed.append(a), (True, "closed"))[1]
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
         sessions_are("backend")
         idle_close.set_agent_close_timeout("backend", 0)
         write_agent_status("backend", "alpha", session_id="sess-1", transcript_path=str(tpath), ctx_used=80_000)
@@ -332,7 +332,7 @@ def test_through_the_tick_the_pilot_agent_renews_and_folds_and_a_control_agent_i
               closed == ["backend"] and len(_events(con, "idle_fold")) == 1, f"{closed} {lines}")
     finally:
         dmn_lifecycle.close_fresh = real_close
-        orcamod.available, orcamod.alive, orcamod.live_terminals, orcamod.wait_idle = real_o
+        termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle = real_o
         dmn_delivery.type_notice = real
         con.close()
 

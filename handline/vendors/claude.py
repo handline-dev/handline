@@ -218,16 +218,16 @@ class Claude:
         return any(m in row.lower() for row in tail[-self.WORKING_ROWS:] for m in self.WORKING_MARKERS)
 
     def idle_with_background(self, tail: list[str]) -> bool:
-        from ..session import orca  # late: orca looks drivers up
-        return _idle_with_background(orca, tail)
+        from ..session import term  # late: term looks drivers up
+        return _idle_with_background(term, tail)
 
     def screen_blocker(self, tail: list[str]):
-        from ..session import orca  # late: orca looks drivers up
-        return _screen_blocker(orca, tail)
+        from ..session import term  # late: term looks drivers up
+        return _screen_blocker(term, tail)
 
     def trust_screen(self, tail: list[str]) -> str | None:
-        from ..session import orca  # late: orca looks drivers up
-        return _trust_screen(orca, tail)
+        from ..session import term  # late: term looks drivers up
+        return _trust_screen(term, tail)
 
     def trust_answer(self) -> str:
         return TRUST_PROMPT_DOWN_ARROW
@@ -425,7 +425,7 @@ class Claude:
 # The markers below read claude's own screens; the reader they feed on
 # (Orca's terminal client, its Blocker/Dialog vocabulary, the composer-box and
 # dialog-panel parsing every vendor's screen_blocker shares) stays generic in
-# orca.py, reached here the same late way (design/04 §4.3: orca.py carries no
+# term.py, reached here the same late way (design/04 §4.3: term.py carries no
 # vendor's own screen text).
 
 # claude's folder-trust screen ("Quick safety check: Is this a project you
@@ -463,7 +463,7 @@ def _bypass_screen(tail: list[str]) -> str | None:
     return marked[0] if len(marked) == 1 else ""
 
 
-def _trust_screen(orca, tail: list[str]) -> str | None:
+def _trust_screen(term, tail: list[str]) -> str | None:
     """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
     missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
     text = "\n".join(str(x) for x in tail)
@@ -527,7 +527,7 @@ def _has_picker_hint(row: str) -> bool:
     return any(h in row for h in _BACKGROUNDED_HINTS)
 
 
-def _picker_box(orca, tail: list) -> tuple[int, int] | None:
+def _picker_box(term, tail: list) -> tuple[int, int] | None:
     """(banner_top, hint) when the composer's own hint carries a picker
     phrase ("enter to open" or "space to reply") and the picker's own banner
     is above it - the picker, unambiguously.
@@ -540,7 +540,7 @@ def _picker_box(orca, tail: list) -> tuple[int, int] | None:
     code does not otherwise recognise, and `screen_blocker` fails closed on
     it rather than reading it as nothing in the way (#1285 B1).
     """
-    box = orca._composer_box(tail)
+    box = term._composer_box(tail)
     if box is None:
         return None
     top, bottom = box
@@ -553,20 +553,20 @@ def _picker_box(orca, tail: list) -> tuple[int, int] | None:
     return top, hint
 
 
-def _hint_below_box(orca, tail: list) -> bool:
+def _hint_below_box(term, tail: list) -> bool:
     """Whether the composer's own hint says a picker phrase ("enter to
     open" or "space to reply"), whether or not its banner confirms it. Used
     only to tell an unconfirmed match from a clean composer: the hint alone
     is the one thing an ordinary conversation's composer never says
     (auditor's #1285 B1)."""
-    box = orca._composer_box(tail)
+    box = term._composer_box(tail)
     if box is None:
         return False
     _top, bottom = box
     return any(_has_picker_hint(str(tail[i])) for i in range(bottom, len(tail)))
 
 
-def _describe_backgrounded(orca, tail: list, top: int) -> str:
+def _describe_backgrounded(term, tail: list, top: int) -> str:
     """The picker's banner and session list above its own box, quoted - the
     same hostile-text care as describe_modal, since the agent paints this
     screen too. Never the box or the hint themselves, which say nothing
@@ -575,9 +575,9 @@ def _describe_backgrounded(orca, tail: list, top: int) -> str:
     #1285 N4: an agent's own transcript can quote this exact fixture, banner
     and all), but that case clears itself on the next read, unlike a false
     BACKGROUNDED that never scrolls."""
-    lines = [orca.textsafe.oneline(str(x).strip()) for x in tail[:top]]
-    shown = [ln for ln in lines if ln and not orca._COMPOSER_RULE.match(ln) and ln != "❯"]
-    return " / ".join(shown[:3])[:orca.DETAIL_CHARS]
+    lines = [term.textsafe.oneline(str(x).strip()) for x in tail[:top]]
+    shown = [ln for ln in lines if ln and not term._COMPOSER_RULE.match(ln) and ln != "❯"]
+    return " / ".join(shown[:3])[:term.DETAIL_CHARS]
 
 
 # A turn in progress draws a spinner row just above the composer ("✻ Honking… (2m 0s · ↓ 6.2k
@@ -587,42 +587,42 @@ _SPINNER_ROW = re.compile(r"^\S\s+\S+…(\s|$)")
 _SPINNER_ROWS = 6
 
 
-def _idle_with_background(orca, tail: list) -> bool:
+def _idle_with_background(term, tail: list) -> bool:
     """`Driver.idle_with_background` on Claude Code's layout: the hint row counts background
     work, and neither the spinner nor "esc to interrupt" is drawn (T458)."""
-    box = orca._composer_box(tail)
-    if box is None or not orca.footer_background(tail):
+    box = term._composer_box(tail)
+    if box is None or not term.footer_background(tail):
         return False
     if any("esc to interrupt" in str(r) for r in tail[box[1] + 1:]):
         return False
     return not any(_SPINNER_ROW.match(str(r).strip()) for r in tail[max(0, box[0] - _SPINNER_ROWS):box[0]])
 
 
-def _screen_blocker(orca, tail: list) -> "orca.Blocker | None":
+def _screen_blocker(term, tail: list) -> "term.Blocker | None":
     """`Driver.screen_blocker` on Claude Code's layout, from rows already read."""
-    footer = orca._footer_row(tail)
+    footer = term._footer_row(tail)
     if footer is not None:
         # Deliberately not widened: a long command's title stays "", so autoaccept never
         # matches a standing rule against a dialog it could not read whole.
-        dialog = orca.parse_dialog(tail, footer)
-        return orca.Blocker(orca.MODAL, orca.describe_modal(tail, footer),
+        dialog = term.parse_dialog(tail, footer)
+        return term.Blocker(term.MODAL, term.describe_modal(tail, footer),
                             title=dialog.title if dialog else "")
-    picker = _picker_box(orca, tail)
+    picker = _picker_box(term, tail)
     if picker is not None:
         top, _hint = picker
-        return orca.Blocker(orca.BACKGROUNDED, _describe_backgrounded(orca, tail, top))
-    if _hint_below_box(orca, tail):
+        return term.Blocker(term.BACKGROUNDED, _describe_backgrounded(term, tail, top))
+    if _hint_below_box(term, tail):
         # The composer's own hint says the picker's words but its banner is
         # not above the box: a picker shaped differently than the two we
         # have measured, not a clean composer. Fail closed rather than read
         # it as nothing in the way and type into what might be its
         # new-session box (auditor's #1285 B1) - the same failure 7f01f52
         # exists to fix, reopened by trusting a guess about session-row shape.
-        return orca.Blocker(orca.UNREADABLE)
-    if orca._composer_shape(tail):
+        return term.Blocker(term.UNREADABLE)
+    if term._composer_shape(tail):
         return None
     # Not the composer's shape either - a screen mid-scroll, a different
     # layout, a read that landed somewhere else. UNREADABLE goes through the
     # same decision as any other block and clears the moment a read
     # recognises the shape again.
-    return orca.Blocker(orca.UNREADABLE)
+    return term.Blocker(term.UNREADABLE)

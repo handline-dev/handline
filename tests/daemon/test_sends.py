@@ -21,17 +21,17 @@ def _world(home: Path) -> list:
     """backend can be typed at: a terminal, a live session, a clear screen."""
     _daemon_home(home, 20)
     sessions_are("backend")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.screen_blocker = lambda h: None
-    orcamod.typeable_now = lambda h: False    # only an immediate telling can type
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.screen_blocker = lambda h: None
+    termmod.typeable_now = lambda h: False    # only an immediate telling can type
+    termmod.live_terminals = lambda: {"term_x"}
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
         sent.append((handle, text))
         return True, ""
-    orcamod.send = send
+    termmod.send = send
     return sent
 
 
@@ -52,7 +52,7 @@ def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: P
               len(sent) == 1 and f"#{row['id']} from product" in sent[0][1]
               and "please look at the retry loop" in sent[0][1], str(sent))
         check("ask: the row is marked delivered, so the tick does not repeat it", row["delivered_at"], str(dict(row)))
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("ask: and the tick then types nothing more about it", len(sent) == 1, str(sent))
         check("ask: no pending row is left behind once it is typed", db.list_pending(con, "backend") == [])
@@ -62,7 +62,7 @@ def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: P
 
 def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(home: Path) -> None:
     sent = _world(home)
-    orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+    termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
     reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "when you are free"})
     con = db.connect()
@@ -73,7 +73,7 @@ def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_cle
         check("ask: it stays owed on its row - undelivered, so it can still be withdrawn",
               row["state"] == "queued" and not row["delivered_at"]
               and db.unreached_count(con, "backend") == 1, str(dict(row)))
-        orcamod.screen_blocker = lambda h: None
+        termmod.screen_blocker = lambda h: None
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("ask: typed once the screen clears, and only once",
@@ -121,17 +121,17 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
         check("handoff: delivered, and still open as a queued task",
               got["state"] == "queued" and got["delivered_at"], str(dict(got)))
         check("handoff: the task the holder has is still its current one", db.current_task(con, "backend") == held)
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("handoff: the tick does not type it a second time", len(sent) == 1, str(sent))
 
         # A handoff held back at a blocked screen is typed by the tick once the screen clears.
         sent.clear()
-        orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+        termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
         t2 = db.new_task(con, "handed in later", "product", "product")
         actions.task_handoff(con, "product", t2, "backend", "second one")
         check("handoff: at a blocked screen it waits", sent == [], str(sent))
-        orcamod.screen_blocker = lambda h: None
+        termmod.screen_blocker = lambda h: None
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("handoff: and is typed by the tick once it clears",
               len(sent) == 1 and "second one" in sent[0][1], str(sent))
@@ -204,7 +204,7 @@ def test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(home: Path) -
         check("closed agent: a second telling finds it told and types nothing",
               dmn_messaging.tell_now(con, int(row["id"]), lambda _m: None) == "already told"
               and sent == [], str(sent))
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("closed agent: and the tick adds nothing either", sent == [], str(sent))
         check("closed agent: no pending row was left to type it later", db.list_pending(con, "backend") == [])
@@ -231,7 +231,7 @@ def test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(home: Pa
               reply["ok"] and calls == [("started", "backend")], str((reply, calls)))
         check("no terminal: the notice is typed exactly once, by tell_now, and the row is delivered",
               row["delivered_at"] and len(sent) == 1 and "start for this" in sent[0][1], str((dict(row), sent)))
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("no terminal: the tick adds nothing, and no pending row is left",
               len(sent) == 1 and db.list_pending(con, "backend") == [], str(sent))
@@ -287,19 +287,19 @@ def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
                        "target": "backend", "body": "a task"})
         check("in: a task is told when the agent is free - one at a time",
               first["ok"] and db.unreached_count(con, "backend") == 1 and sent == [], str((first, sent)))
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         second = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                         "target": "backend", "body": "another task"})
         check("in: the task told is not counted, the one waiting behind it is",
               second["ok"] and len(sent) == 1 and db.unreached_count(con, "backend") == 1,
               str((sent, db.unreached_count(con, "backend"))))
-        orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a dialog")
+        termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a dialog")
         _ask_row({"verb": "ask", "requester": "reviewer", "speaker": "reviewer",
                "target": "backend", "body": "a message the screen blocks"})
         check("in: a message held by the screen counts, until it is typed",
               db.unreached_count(con, "backend") == 2)
-        orcamod.screen_blocker = lambda h: None
+        termmod.screen_blocker = lambda h: None
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("in: and stops counting once typed", db.unreached_count(con, "backend") == 1
               and len(sent) == 2, str(sent))
@@ -458,7 +458,7 @@ def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> Non
               any(f"#{rid} is held" in m and "cleared" in m for m in lines), str(lines))
         db.clear_cursor(con, "clear_owed:backend")
 
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         told = dmn_delivery.deliver_queued(con, "backend", lines.append)
         check("typed: once nothing holds it, it is told, and it is no longer said to be held",
               told and len(sent) == 1 and not dmn_delivery._HELD.get("backend"), str((told, sent)))
@@ -471,7 +471,7 @@ def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(h
     open head orcapipe was told about and left open. A told head keeps what is behind it back while the
     agent is busy, says why once, and lets the next one through once the agent has been idle on it."""
     sent = _world(home)
-    orcamod.typeable_now = lambda h: True
+    termmod.typeable_now = lambda h: True
     con = db.connect()
     lines: list[str] = []
     try:
@@ -516,8 +516,8 @@ def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
     """T398 (auditor #2427 3a): a send that fails leaves the row undelivered - owed,
     withdrawable - and the tick types it once the send works."""
     sent = _world(home)
-    ok_send = orcamod.send
-    orcamod.send = lambda h, text, enter=True: (False, "the pane is gone")
+    ok_send = termmod.send
+    termmod.send = lambda h, text, enter=True: (False, "the pane is gone")
     con = db.connect()
     try:
         reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
@@ -530,7 +530,7 @@ def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
         check("failed send: and it can still be withdrawn", ok, msg)
         _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                "target": "backend", "body": "second try"})
-        orcamod.send = ok_send
+        termmod.send = ok_send
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("failed send: the next tick types it once the send works",
               len(sent) == 1 and "second try" in sent[0][1] and db.unreached_count(con, "backend") == 0,
@@ -607,7 +607,7 @@ def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) 
     a withdraw cannot type the notice itself. Each writes its row and asks the daemon: the same
     telling the tick would make, and a refusal for something that is no agent."""
     sent = _world(home)
-    orcamod.typeable_now = lambda h: True
+    termmod.typeable_now = lambda h: True
     con = db.connect()
     try:
         # push: the next task of an agent, and one named request.
@@ -628,10 +628,10 @@ def test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(home: Path) 
         sessions_are("backend", "frontend")
         asked = db.add_request(con, "frontend", "backend", "is it done?", None, "peer", "async", None, 0, None)
         db.mark_delivered(con, asked)
-        orcamod.typeable_now = lambda h: False       # the sandboxed resolve could type nothing
+        termmod.typeable_now = lambda h: False       # the sandboxed resolve could type nothing
         ok, _ = askmod.resolve(asked, "yes, done")
         del sent[:]
-        orcamod.typeable_now = lambda h: True
+        termmod.typeable_now = lambda h: True
         reply = _verb({"verb": "push_answer", "requester": "frontend"})
         check("push_answer: the daemon types the answer at the one who asked",
               ok and reply["ok"] and any(h == "term_p" and "yes, done" in t for h, t in sent), f"{reply} {sent}")

@@ -76,7 +76,7 @@ def _pending(con, agent: str = "backend"):
     """What `ask_question._as_dict` makes of the question the agent's screen shows now, with its hook record."""
     row = db.get_agent_state(con, agent)
     handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
-    q = orcamod.question_on_screen(handle) if handle else None
+    q = termmod.question_on_screen(handle) if handle else None
     return ask_question._as_dict(agent, q, waiting.read(agent)) if q else None
 
 
@@ -147,8 +147,8 @@ class _Term:
 
     def __init__(self, tail):
         self.tail, self.sent = list(tail), []
-        orcamod._screen = lambda h: support._screen_of(self.tail)
-        orcamod.send = self.send
+        termmod._screen = lambda h: support._screen_of(self.tail)
+        termmod.send = self.send
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -185,8 +185,8 @@ class _TwoStageTerm:
         self.sent: list[tuple[str, bool]] = []
         self._before, self._after_toggle = before, after_toggle
         self._toggle_count = toggle_count
-        orcamod._screen = lambda h: support._screen_of(self.tail)
-        orcamod.send = self.send
+        termmod._screen = lambda h: support._screen_of(self.tail)
+        termmod.send = self.send
 
     @property
     def tail(self) -> list[str]:
@@ -206,46 +206,46 @@ def test_multiselect_boxes_and_other_together_toggle_then_reach_other(home: Path
     typing Other together used to be refused outright. It is sent now, in two
     stages - the toggles, a re-read for where they actually left the cursor,
     then Other from there - never as one sequence computed blind."""
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     q = Claude().ask_question(MULTI_SELECT_CURSOR_AT_TOP)
     term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
                          after_toggle=MULTI_SELECT_AFTER_TOGGLING_1_AND_3)
-    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
+    out = termmod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
     check("answer: the toggles land first, options 0 and 2 in ascending order",
           term.sent[:2] == [("1", False), ("3", False)], str(term.sent))
     check("answer: Other is reached from the re-read cursor (row 3), not the one first shown",
           term.sent[2:] == [(DOWN, False), (DOWN, False), ("sounds good", False),
                             (DOWN, False), ("", True), ("1", False)], str(term.sent))
-    check("answer: confirmed cleared", out[0] == orcamod.CLEARED, str(out))
+    check("answer: confirmed cleared", out[0] == termmod.CLEARED, str(out))
 
     # The re-read after toggling disagrees with what was asked for (a stray
     # key landed differently on the real screen) - refused, nothing further sent.
     term = _TwoStageTerm(MULTI_SELECT_CURSOR_AT_TOP, toggle_count=2,
                          after_toggle=MULTI_SELECT_CURSOR_AT_TOP)      # still unchecked
-    out = orcamod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
+    out = termmod.answer_question("term_x", q.lines, choices=(0, 2), text="sounds good")
     check("answer: a re-read that does not show what was toggled stops there",
-          term.sent == [("1", False), ("3", False)] and out[0] == orcamod.STILL_OPEN
+          term.sent == [("1", False), ("3", False)] and out[0] == termmod.STILL_OPEN
           and "not what was toggled" in out[2], str((term.sent, out)))
 
 
 def test_answer_question_sends_the_keys_and_confirms_it_cleared(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     q = Claude().ask_question(SINGLE_DEFAULT)
     term = _Term(SINGLE_DEFAULT)
-    out = orcamod.answer_question("term_x", q.lines, choices=(1,))
+    out = termmod.answer_question("term_x", q.lines, choices=(1,))
     check("answer: a single choice sends its number and confirms cleared",
-          term.sent == [("2", False)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+          term.sent == [("2", False)] and out[0] == termmod.CLEARED, str((term.sent, out)))
 
     term = _Term(SINGLE_OTHER)
-    out = orcamod.answer_question("term_x", ("stale",), choices=(0,))
+    out = termmod.answer_question("term_x", ("stale",), choices=(0,))
     check("answer: a question that is not the one shown is not pressed",
-          not term.sent and out[0] == orcamod.NOT_PRESSED, str(out))
+          not term.sent and out[0] == termmod.NOT_PRESSED, str(out))
 
 
 def test_question_data_is_preferred_only_when_it_still_matches_the_screen(home: Path) -> None:
     _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -278,24 +278,24 @@ def test_a_screen_two_recognizers_accept_is_one_prompt_and_the_permission_one(ho
     both modals. `orca.prompt_on_screen` reads one prompt, and a permission prompt outranks a question."""
     from handline.vendors.base import Confirmation
     _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
     con = db.connect()
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.RUNNING)
         _Term(SINGLE_DEFAULT)
         check("one prompt: a real AskUserQuestion screen reads as a question",
-              orcamod.prompt_on_screen("term_x")[0] == orcamod.PROMPT_QUESTION)
-        driver, real_read = orcamod._driver_for("term_x"), orcamod._read_dialog
+              termmod.prompt_on_screen("term_x")[0] == termmod.PROMPT_QUESTION)
+        driver, real_read = termmod._driver_for("term_x"), termmod._read_dialog
         driver.confirmation = lambda dialog: Confirmation("Bash command", (), 1, 2)
-        orcamod._read_dialog = lambda h, **k: (None, None, object())      # a dialog for it to recognize
+        termmod._read_dialog = lambda h, **k: (None, None, object())      # a dialog for it to recognize
         try:
             check("one prompt: the same screen is the permission prompt once that recognizer accepts it too",
-                  orcamod.prompt_on_screen("term_x")[0] == orcamod.PROMPT_PERMISSION)
+                  termmod.prompt_on_screen("term_x")[0] == termmod.PROMPT_PERMISSION)
         finally:
             del driver.confirmation
-            orcamod._read_dialog = real_read
+            termmod._read_dialog = real_read
     finally:
         con.close()
 

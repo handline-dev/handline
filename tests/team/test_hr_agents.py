@@ -430,9 +430,9 @@ edges:
   - { from: "*", to: "human", kind: task }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)
-    real_run, real_avail = orcacli._run, orcamod.available
+    real_run, real_avail = orcacli._run, termmod.available
     fake = FakeOrca({})
-    orcacli._run, orcamod.available = fake.run, lambda: True
+    orcacli._run, termmod.available = fake.run, lambda: True
     try:
         repo = str(home / "proj")
         for d in (repo, repo + "2"):
@@ -467,13 +467,13 @@ edges:
               ok and "refused" in paths.list_agents() and "would not add" in said
               and f"orca repo add --path {real}2" in said, said)
 
-        orcamod.available = lambda: False
+        termmod.available = lambda: False
         n = len(fake.calls)
         ok, said = hr.enact("add", "noorca", repo=repo, why="orca is not there")
         check("repo: with no Orca on PATH it says what to run, and calls nothing",
               ok and "not on PATH" in said and len(fake.calls) == n, said)
     finally:
-        orcacli._run, orcamod.available = real_run, real_avail
+        orcacli._run, termmod.available = real_run, real_avail
 
 
 def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
@@ -485,9 +485,9 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
     shared, own = home / "shared-proj", home / "own-proj"
     for d in (shared, own):
         (d / ".git").mkdir(parents=True)
-    real_run, real_avail = orcacli._run, orcamod.available
+    real_run, real_avail = orcacli._run, termmod.available
     fake = FakeOrca({})
-    orcacli._run, orcamod.available = fake.run, lambda: True
+    orcacli._run, termmod.available = fake.run, lambda: True
     try:
         prop = {"agent": "crew", "members": "crew.a,crew.b,crew.c", "repo": str(shared),
                 "repo.crew.a": str(shared), "repo.crew.b": str(own), "why": "w", "requested_by": "human", "created": int(time.time())}
@@ -504,7 +504,7 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
         old_home = os.environ.get("HOME")
         os.environ["HOME"] = str(own.parent)
         try:
-            state, msg = orcamod.ensure_repo("~/tilde")
+            state, msg = termmod.ensure_repo("~/tilde")
         finally:
             if old_home is None:
                 os.environ.pop("HOME", None)
@@ -513,7 +513,7 @@ def test_a_team_registers_each_distinct_repo_once(home: Path) -> None:
         check("ensure_repo: a ~ path is expanded before the git check and the add",
               state == "added" and fake.repos[-1] == str((own.parent / "tilde").resolve()), msg)
     finally:
-        orcacli._run, orcamod.available = real_run, real_avail
+        orcacli._run, termmod.available = real_run, real_avail
 
 
 def test_a_rename_names_the_agents_orca_worktree(home: Path) -> None:
@@ -535,12 +535,12 @@ edges:
     wt = home / "trees" / "oldname"
     wt.mkdir(parents=True)
     con = db.connect()
-    real_run, real_avail = orcacli._run, orcamod.available
+    real_run, real_avail = orcacli._run, termmod.available
     fake = FakeOrca({str(wt): "oldname"})
     try:
         sessions_are()
         db.set_terminal(con, "oldname", "term_x", f"repo-id::{wt}")
-        orcacli._run, orcamod.available = fake.run, lambda: True
+        orcacli._run, termmod.available = fake.run, lambda: True
         ok, said = hr.enact("rename", "oldname", to="newname", why="the name it should have had")
         check("label: the rename went through", ok and "newname" in paths.list_agents(), said)
         check("label: Orca's worktree is now named for the agent, and the message says so",
@@ -569,11 +569,11 @@ edges:
               and f"--display-name newname" in said, said)
 
         # Orca is not there: the rename stands, and the command to run is given.
-        orcamod.available = lambda: False
+        termmod.available = lambda: False
         done, said = hr.label(con, "newname")
         check("label: with no Orca on PATH it says what to run instead",
               not done and "not on PATH" in said and f"path:{wt}" in said, said)
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
 
         # Nothing recorded, or a folder that is gone: nothing to label, no call made.
         n = len(fake.calls)
@@ -585,7 +585,7 @@ edges:
         check("label: nothing but show and set ever reached Orca",
               all(c[0] == "worktree" and c[1] in ("show", "set") for c in fake.calls))
     finally:
-        orcacli._run, orcamod.available = real_run, real_avail
+        orcacli._run, termmod.available = real_run, real_avail
         con.close()
 
 
@@ -688,7 +688,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         # Orca as measured: the old entry has a comment and a parent; after the
         # move it knows the new path only as an automatic entry.
         calls: list[list[str]] = []
-        real_avail, real_run, real_sleep = orcamod.available, orcacli._run, time.sleep
+        real_avail, real_run, real_sleep = termmod.available, orcacli._run, time.sleep
         moved_yet = {"v": False}
         def fake_run(args, timeout=180):
             calls.append(args)
@@ -710,7 +710,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
                 return True, json.dumps({"ok": True, "result": {"terminals": tabs["v"]}})
             return True, json.dumps({"ok": True})
         tabs = {"v": []}
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         orcacli._run = fake_run
         time.sleep = lambda s_: moved_yet.update(v=True)
         try:
@@ -721,7 +721,7 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             tabs["v"] = []
             ok, said = rehome.move(con, "harbor.marina", "marina")
         finally:
-            orcamod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
+            termmod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
         sets = [c for c in calls if c[:2] == ["worktree", "set"]]
         check("rehome: Orca's new entry is named for the agent, fixed, with the old "
               "entry's comment, parent and status carried",
@@ -761,11 +761,11 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         for reply, want in ((lambda a, timeout=180: (False, "timeout"), True),
                             (lambda a, timeout=180: (False, json.dumps(
                                 {"ok": False, "error": {"code": "selector_not_found"}})), False)):
-            orcamod.available, orcacli._run = (lambda: True), reply
+            termmod.available, orcacli._run = (lambda: True), reply
             try:
                 blocked = rehome._orca_blockers(new_wt)
             finally:
-                orcamod.available, orcacli._run = real_avail, real_run
+                termmod.available, orcacli._run = real_avail, real_run
             check(f"rehome: Orca {'unreadable' if want else 'not knowing the path'} "
                   f"{'refuses' if want else 'does not block'}", bool(blocked) == want, blocked)
         # A terminal list that fails after a good show is no licence to move.
@@ -773,23 +773,23 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             if args[:2] == ["worktree", "show"]:
                 return True, json.dumps({"ok": True, "result": {"worktree": {"id": "i"}}})
             return False, "timeout"
-        orcamod.available, orcacli._run = (lambda: True), show_only
+        termmod.available, orcacli._run = (lambda: True), show_only
         try:
             blocked = rehome._orca_blockers(new_wt)
         finally:
-            orcamod.available, orcacli._run = real_avail, real_run
+            termmod.available, orcacli._run = real_avail, real_run
         check("rehome: a failed terminal list refuses the move", "unknown" in blocked, blocked)
         # The move happened but Orca never shows the new path: the children's
         # commands are printed, not dropped.
         old_entry = WorktreeInfo("i", children=("repo-id::/kid",))
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         orcacli._run = lambda a, timeout=180: (False, json.dumps(
             {"ok": False, "error": {"code": "selector_not_found"}}))
         time.sleep = lambda s_: None
         try:
             said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
         finally:
-            orcamod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
+            termmod.available, orcacli._run, time.sleep = real_avail, real_run, real_sleep
         check("rehome: when Orca never sees the new path, each child's re-parent command is printed",
               "orca worktree set --worktree id:repo-id::/kid --parent-worktree path:/new/place"
               in said and "--display-name harbor.marina" in said, said)
@@ -798,11 +798,11 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
             if args[:2] == ["worktree", "show"]:
                 return True, json.dumps({"ok": True, "result": {"worktree": {"id": "n"}}})
             return False, json.dumps({"ok": False, "error": {"code": "busy_now"}})
-        orcamod.available, orcacli._run = (lambda: True), refuses
+        termmod.available, orcacli._run = (lambda: True), refuses
         try:
             said = rehome._relabel(old_entry, Path("/new/place"), "harbor.marina")
         finally:
-            orcamod.available, orcacli._run = real_avail, real_run
+            termmod.available, orcacli._run = real_avail, real_run
         check("rehome: a refused label and a refused re-parent both say why",
               said.count("busy_now") == 2 and "would not set the label" in said
               and "would not re-parent repo-id::/kid" in said, said)
@@ -878,14 +878,14 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
                   pyyaml.safe_load(agents.agent_file(f"agent{i}").read_text()) == cfg)
     # What the replay does: apply builds the agent from the saved proposal's fields.
     hand_edit_team(team.STARTER)
-    real_avail = orcamod.available
-    orcamod.available = lambda: False   # this test is about the file, not Orca
+    real_avail = termmod.available
+    termmod.available = lambda: False   # this test is about the file, not Orca
     try:
         ok, said = hr._add({"agent": "replayed", "model": "4.5",
                             "effort": "high", "repo": "1_000", "why": "w",
                             "requested_by": "human", "created": int(time.time())}, None)
     finally:
-        orcamod.available = real_avail
+        termmod.available = real_avail
     cfg = agents.read("replayed")
     check("agent.yaml: an applied proposal carrying such values leaves a file that loads",
           ok and cfg["model"] == "4.5" and cfg["repo"] == "1_000" and cfg["effort"] == "high",
@@ -990,7 +990,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
     now = int(time.time())
     # Far enough from its reset that a move beats waiting for it.
     write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=5, reset_5h=now + 4 * 3600)
-    real = (accounts.logged_in, orcamod.available)
+    real = (accounts.logged_in, termmod.available)
     with second_vendor(metered=True):
         try:
             accounts.register("alpha")
@@ -1057,7 +1057,7 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                   and status.pick_account(agent="glm")[0] == "zeta",
                   str((launch.find_room("glm"), status.pick_account(agent="glm"))))
         finally:
-            accounts.logged_in, orcamod.available = real
+            accounts.logged_in, termmod.available = real
 
 
 def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None:
@@ -1126,10 +1126,10 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
     # And the invariant the miss actually broke: the daemon's own record of a
     # running agent. Real `live_sessions`, over a process table we supply.
     real = (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-            orcamod.available, orcamod.live_terminals)
+            termmod.available, termmod.live_terminals)
     obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
-    orcamod.available = lambda: True
-    orcamod.live_terminals = lambda: {"term_x", "term_z"}
+    termmod.available = lambda: True
+    termmod.live_terminals = lambda: {"term_x", "term_z"}
     with second_vendor(metered=True):
         try:
             accounts.register("zeta", vendor="zai")
@@ -1170,7 +1170,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
                 con.close()
         finally:
             (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-             orcamod.available, orcamod.live_terminals) = real
+             termmod.available, termmod.live_terminals) = real
 
 
 def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
@@ -1938,7 +1938,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
     once per step, and the daemon's refusals name the vendor's own clear
     command - opencode's /new, not claude's /clear."""
     os.environ["OCP_HOME"] = str(home)
-    real = {n: getattr(orcamod, n) for n in
+    real = {n: getattr(termmod, n) for n in
             ("_lookup_driver", "_host_idle", "_screen", "alive", "send", "available",
              "background_work", "screen_blocker", "close_session", "clear_context")}
     real_present = dmn_delivery.session_present
@@ -1954,37 +1954,37 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
 
         # The suite stubs these; this test is about the real ones.
         for n in ("screen_blocker", "close_session", "clear_context"):
-            setattr(orcamod, n, REAL_ORCA[n])
+            setattr(termmod, n, REAL_ORCA[n])
         looked: list[str] = []
         lookup = real["_lookup_driver"]
-        orcamod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
+        termmod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
         sent: list[str] = []
-        orcamod.alive = lambda h: True
-        orcamod._host_idle = lambda h, t, d: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        orcamod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
-        orcamod.clear_context("term_oc", wait=False)
+        termmod.alive = lambda h: True
+        termmod._host_idle = lambda h, t, d: True
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
+        termmod.clear_context("term_oc", wait=False)
         check("clear: opencode is sent its own /new", sent == ["/new"], str(sent))
         check("clear: the driver was looked up once for the whole clear",
               looked == ["term_oc"], str(looked))
         looked.clear()
-        orcamod.close_session("term_cl", wait=False)
+        termmod.close_session("term_cl", wait=False)
         check("close: and once for a whole close", looked == ["term_cl"], str(looked))
 
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         dmn_delivery.session_present = lambda agent: False
         _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
         _, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
         check("refusal: and under claude still names /clear", "/clear" in why, why)
         dmn_delivery.session_present = lambda agent: True
-        orcamod.background_work = lambda h: ["a job"]
+        termmod.background_work = lambda h: ["a job"]
         _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
         check("refusal: background work under opencode names /new too",
               "/new" in why and "/clear" not in why, why)
     finally:
         for n, v in real.items():
-            setattr(orcamod, n, v)
+            setattr(termmod, n, v)
         dmn_delivery.session_present = real_present
         con.close()
 
@@ -1999,7 +1999,7 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
     drv = vendors.get("opencode")
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
-    real = {n: getattr(orcamod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
+    real = {n: getattr(termmod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
     real_cli_run = orcacli._run
     real_execve, real_record = os.execve, launch._record_terminal
     try:
@@ -2047,32 +2047,32 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         finally:
             con.close()
         check("opencode session: a terminal is read as its agent's vendor",
-              [orcamod._driver_for(h).name for h in ("term_oc", "term_cl", "term_nobody")]
+              [termmod._driver_for(h).name for h in ("term_oc", "term_cl", "term_nobody")]
               == ["opencode", "claude", "claude"])
 
         # What is in the way, read off opencode's own screen.
-        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
         shown = {"tail": OC_IDLE}
-        orcamod._screen = lambda h: _screen_of(shown["tail"])
+        termmod._screen = lambda h: _screen_of(shown["tail"])
         for name, tail, want in (("idle", OC_IDLE, None), ("start", OC_HOME, None),
                                  ("working", OC_WORKING, None),
-                                 ("permission", OC_PERMISSION, orcamod.MODAL),
-                                 ("no prompt box", ["loading"], orcamod.UNREADABLE)):
+                                 ("permission", OC_PERMISSION, termmod.MODAL),
+                                 ("no prompt box", ["loading"], termmod.UNREADABLE)):
             shown["tail"] = tail
-            b = orcamod.screen_blocker("term_oc")
+            b = termmod.screen_blocker("term_oc")
             check(f"opencode session: its {name} screen has {want or 'nothing'} in the way",
                   (b.kind if b else None) == want, str(b))
         shown["tail"] = OC_PERMISSION
         check("opencode session: the permission request is quoted",
-              orcamod.screen_blocker("term_oc").detail
+              termmod.screen_blocker("term_oc").detail
               == "△ Permission required / ← Access external directory /etc / Patterns",
-              orcamod.screen_blocker("term_oc").detail)
+              termmod.screen_blocker("term_oc").detail)
         shown["tail"] = OC_IDLE
         check("opencode session: claude's reading of the same screen is unchanged",
-              orcamod.screen_blocker("term_cl").kind == orcamod.UNREADABLE)
+              termmod.screen_blocker("term_cl").kind == termmod.UNREADABLE)
 
         # Idle: Orca says yes throughout an opencode turn, so the screen decides.
-        orcamod.SCREEN_POLL_S = 0
+        termmod.SCREEN_POLL_S = 0
         orca_says = {"satisfied": True}
         waits: list[str] = []
 
@@ -2081,45 +2081,45 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
             return True, json.dumps({"result": {"wait": {"satisfied": orca_says["satisfied"]}}})
         orcacli._run = fake_run
         reads = iter([OC_WORKING, OC_WORKING, OC_IDLE])
-        orcamod._screen = lambda h: _screen_of(next(reads))
+        termmod._screen = lambda h: _screen_of(next(reads))
         check("opencode session: idle once the screen stops offering an interrupt",
-              orcamod.wait_idle("term_oc", 5000) and next(reads, "spent") == "spent")
-        orcamod._screen = lambda h: _screen_of(OC_WORKING)
+              termmod.wait_idle("term_oc", 5000) and next(reads, "spent") == "spent")
+        termmod._screen = lambda h: _screen_of(OC_WORKING)
         check("opencode session: a turn still running is not idle, whatever Orca says",
-              not orcamod.wait_idle("term_oc", 30))
-        orcamod._screen = lambda h: _screen_of(OC_HOME)
-        check("opencode session: its start screen is idle", orcamod.wait_idle("term_oc", 30))
-        orcamod._screen = lambda h: _screen_of(OC_HOME[:1])
+              not termmod.wait_idle("term_oc", 30))
+        termmod._screen = lambda h: _screen_of(OC_HOME)
+        check("opencode session: its start screen is idle", termmod.wait_idle("term_oc", 30))
+        termmod._screen = lambda h: _screen_of(OC_HOME[:1])
         check("opencode session: a screen still booting, no prompt box yet, is not",
-              not orcamod.wait_idle("term_oc", 30))
+              not termmod.wait_idle("term_oc", 30))
         orca_says["satisfied"] = False
-        orcamod._screen = lambda h: _screen_of(OC_HOME)
+        termmod._screen = lambda h: _screen_of(OC_HOME)
         check("opencode session: Orca's no stands over an idle screen",
-              not orcamod.wait_idle("term_oc", 30))
+              not termmod.wait_idle("term_oc", 30))
         orca_says["satisfied"] = True
-        orcamod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
+        termmod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
         check("opencode session: a claude terminal is still Orca's word alone",
-              orcamod.wait_idle("term_cl", 30))
+              termmod.wait_idle("term_cl", 30))
 
         # /new and /exit, typed only where nothing is in the way.
         sent: list[tuple[str, str]] = []
-        orcamod.alive = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        orcamod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
+        termmod.alive = lambda h: True
+        termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
+        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
         for h in ("term_oc", "term_cl"):
-            orcamod.clear_context(h, wait=False)
-            orcamod.close_session(h, wait=False)
+            termmod.clear_context(h, wait=False)
+            termmod.close_session(h, wait=False)
         check("opencode session: its clear is /new and its exit /exit; claude's are unchanged",
               sent == [("term_oc", "/new"), ("term_oc", "/exit"),
                        ("term_cl", "/clear"), ("term_cl", "/exit")], str(sent))
-        orcamod._screen = lambda h: _screen_of(OC_PERMISSION)
+        termmod._screen = lambda h: _screen_of(OC_PERMISSION)
         sent.clear()
-        ok, why = orcamod.clear_context("term_oc", wait=False)
+        ok, why = termmod.clear_context("term_oc", wait=False)
         check("opencode session: nothing is typed at a permission request",
               not ok and sent == [] and "not typing /new" in why, why)
     finally:
         for n, f in real.items():
-            setattr(orcamod, n, f)
+            setattr(termmod, n, f)
         orcacli._run = real_cli_run
         os.execve, launch._record_terminal = real_execve, real_record
         del drv.binary, drv.credential_present
@@ -2145,8 +2145,8 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     con = db.connect()
     screens = {"term_oc": OC_WORKING}
     asked: list[list] = []
-    real_screen = orcamod._screen
-    orcamod._screen = lambda h: (asked.append([h]), {
+    real_screen = termmod._screen
+    termmod._screen = lambda h: (asked.append([h]), {
         "source": "screen", "tail": screens[h]})[1]
     saved_seen = dict(tui._opencode_seen)
     tui._opencode_seen.clear()
@@ -2205,7 +2205,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
         con.commit()
 
-        orcamod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
+        termmod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
         tui._opencode_seen.clear()
         check("opencode row: an unreadable screen leaves the db state standing",
               tui.screen_state(con, row("glm"))[0] == "IDLE")
@@ -2221,17 +2221,17 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
                    drv.working_on_screen(OC_IDLE),
                    drv.working_on_screen(shell))))
 
-        orcamod._screen = real_screen
+        termmod._screen = real_screen
         tui._opencode_seen.clear()
         asked.clear()
-        orcamod._screen = lambda h: (asked.append([h]), {
+        termmod._screen = lambda h: (asked.append([h]), {
             "source": "screen", "tail": OC_WORKING})[1]
         first = tui.screen_state(con, row("glm"))[0]
         second = tui.screen_state(con, row("glm"))[0]
         check("opencode row: the cache holds within the ttl - one read per pane",
               first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
     finally:
-        orcamod._screen = real_screen
+        termmod._screen = real_screen
         tui._opencode_seen = saved_seen
         con.close()
 

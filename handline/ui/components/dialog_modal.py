@@ -9,7 +9,7 @@ from textual.containers import Vertical
 from textual.widgets import Button, Checkbox, Static
 
 from ...infra import textsafe
-from ...session import orca
+from ...session import term
 from .dialog import Dialog
 
 
@@ -37,7 +37,7 @@ class DialogModal(Dialog):
                 yield Static(Text("\n".join(textsafe.oneline(l) for l in d["body"]), style="dim"), id="body")
             for number, label in d["options"]:
                 yield Button(Text(f"{number}. {textsafe.oneline(label)}"), id=f"opt_{number}", compact=True)
-            if d["title"] != orca.TRUNCATED_TITLE:      # no rule can be kept for it (dialogs._remember)
+            if d["title"] != term.TRUNCATED_TITLE:      # no rule can be kept for it (dialogs._remember)
                 yield Checkbox("always choose the one I pick", id="always")
             yield Static("click an option or press its number · esc closes (the terminal is left as it is)", id="hint")
 

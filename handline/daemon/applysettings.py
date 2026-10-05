@@ -14,7 +14,7 @@ import time
 
 from .. import db
 from ..infra import paths
-from ..session import launch, orca
+from ..session import launch, term
 from ..team import agents
 from ..usage import status
 from . import delivery, lifecycle
@@ -57,7 +57,7 @@ def _apply(con, agent: str, log) -> None:
     parts = json.dumps(launch.fingerprint_parts(agent), sort_keys=True)
     if db.get_meta(con, APPLIED + agent) == parts:
         return
-    if not delivery.session_present(agent) or not orca.available() or not orca.typeable_now(row["terminal"]):
+    if not delivery.session_present(agent) or not term.available() or not term.typeable_now(row["terminal"]):
         return          # busy, or a dialog is open: the next tick asks again
     st = status.read_for_agent(agent, agents.current_account(agent, con))
     if not st.session_id:

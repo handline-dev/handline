@@ -16,7 +16,7 @@ from ..session import launch
 from ..infra import lock, timefmt
 from ..usage import measure
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..team import spawn as spawnmod
 from ..usage import status
@@ -375,13 +375,13 @@ def _close_agent(con, agent: str, log, st, keep_pane: bool = False,
         # one path that has already recorded the work, in its handoff record,
         # and then needs the session gone to start the next one somewhere else.
         # `force` is a restart's own call for a working agent: the handoff record is taken below as
-        # for any close, and `/exit` is only typed once the turn has ended (`orca.close_session`).
+        # for any close, and `/exit` is only typed once the turn has ended (`term.close_session`).
         return False, f"{agent} is {row['state']}; not closing a session mid-work"
     if row and row["state"] == RUNNING:
         # Only a forced restart gets here. Its handoff record is taken after the turn, so the turn's
         # last work is in it; `/exit` is typed once the turn has ended either way.
         handle = db.get_terminal(con, agent)
-        if not handle or not orca.wait_idle(handle):
+        if not handle or not term.wait_idle(handle):
             return False, "it is still mid-turn after waiting for it to finish; not closing"
     if not st.session_id and not discard:
         # Closing is only cheap because waking resumes the same session. With
@@ -412,7 +412,7 @@ def _answer_exit_dialog(con, agent: str, log, stop: bool = False) -> bool:
     """The `/exit` just typed can raise a dialog offering to stop background
     work: decline it (Esc keeps the session). Only with `stop` - the work is
     stale and its supervisor has had its say - is it answered the other way,
-    and then only by `orca.stopping_key`'s narrow match; a dialog that does
+    and then only by `term.stopping_key`'s narrow match; a dialog that does
     not match is declined as ever. True when one was declined; a dialog that
     would not be, or none, is left to the session-still-running report. Stops
     when the session is gone, or after EXIT_DIALOG_WAIT_S."""
@@ -423,8 +423,8 @@ def _answer_exit_dialog(con, agent: str, log, stop: bool = False) -> bool:
         sessions = obs.live_sessions()
         if sessions is not None and not sessions.get(agent):
             return False
-        seen = orca.screen_blocker(handle) if handle else None
-        if seen is not None and seen.kind == orca.MODAL:
+        seen = term.screen_blocker(handle) if handle else None
+        if seen is not None and seen.kind == term.MODAL:
             if stop and blocked.stop_work_and_exit(con, agent, log):
                 return False
             return not blocked.past_dialog(con, agent, log)[0]
@@ -455,7 +455,7 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     process table rather than of a snapshot.
     """
     handle = db.get_terminal(con, agent)
-    if not handle or not orca.available():
+    if not handle or not term.available():
         return False, "no terminal to close"
     if not delivery.session_present(agent):
         # `/exit` typed at the shell exits the shell, and Orca's terminal goes
@@ -468,7 +468,7 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     # background work is not idle, whichever path is closing it - unless it is
     # stale and its supervisor was told (`bg_may_stop`).
     stale = delivery.bg_may_stop(con, agent, int(time.time()))
-    running = orca.background_work(handle)
+    running = term.background_work(handle)
     if running and not stale:
         return False, f"background work is running ({running}); not closing"
     if running and delivery.bg_owes_nothing(con, agent):
@@ -477,12 +477,12 @@ def _end_session(con, agent: str, log, st, resume: str | None,
     # Past it first, so the close is one act and not a refusal the next tick
     # meets again; when it cannot be, the refusal says why.
     stuck = delivery._past_dialog(con, agent, log)
-    ok, why = orca.close_session(handle)
+    ok, why = term.close_session(handle)
     pane_gone = False
     if not ok and pane_may_close:
-        seen = orca.screen_blocker(handle)
-        if seen is not None and seen.kind == orca.UNREADABLE:
-            ok, why = orca.close_terminal(handle)
+        seen = term.screen_blocker(handle)
+        if seen is not None and seen.kind == term.UNREADABLE:
+            ok, why = term.close_terminal(handle)
             pane_gone = ok
             if ok:
                 # The handle points at nothing now, whether or not the session ends with it.
@@ -550,7 +550,7 @@ def _close_pane(con, agent: str, handle: str, log) -> str:
     only once Orca has closed the pane, and the worktree stays on the row, where
     the wake starts it again. A pane that stays is only a shell: the next wake
     types into it as before, and the sweep drops the handle if it is gone anyway."""
-    ok, why = orca.close_terminal(handle)
+    ok, why = term.close_terminal(handle)
     if not ok:
         log(f"  {agent}: session closed but its terminal was not: {why}")
         return f"terminal kept ({why})"
@@ -806,7 +806,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     # A closed session's pane was closed with it (`_end_session`); the wake
     # opens a new terminal in the worktree the agent kept.
     wt = spawnmod.worktree_path(row["worktree"]) if row else None
-    if not orca.available() or not (handle or (closed and wt)):
+    if not term.available() or not (handle or (closed and wt)):
         return False, "no terminal to wake"
     if not closed and row and delivery.session_present(agent):
         # A drifted session is ended and takes the closed agent's wake path
@@ -1086,7 +1086,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     if not ok:
         return False, why
 
-    if not orca.typeable_now(handle):
+    if not term.typeable_now(handle):
         return False, "the session is busy or has a modal open; not typing the handoff"
     # The record is a page of lines, and typed at a session that many arrive
     # inside <pasted_content> to be declined. It is written to a file the
@@ -1097,7 +1097,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
     pointer = (f"You were parked; this is a fresh session and your context is empty. Your "
                f"handoff is in {record} - read all of it. If it names a request or task, carry "
                f"on with it; if it says none, wait - the next item is typed to you when it comes.")
-    ok, why = orca.resume_with(handle, pointer)
+    ok, why = term.resume_with(handle, pointer)
     if ok:
         # The session stays the one the handoff's `/clear` started, so there is no launch to keep this.
         db.note_session_start(con, agent, "handoff", False,
@@ -1111,7 +1111,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
 def _took_prompt(con, agent: str, pf: Path) -> bool:
     """`delivery.wait_for_session` for a wake's launch, and the closed mark goes
     the moment a session has taken the prompt: what follows holds the terminal
-    until the session's first turn is over (`orca.wait_idle`, up to two
+    until the session's first turn is over (`term.wait_idle`, up to two
     minutes), and a session that is running must not read as closed meanwhile."""
     up = delivery.wait_for_session(agent, delivery.WAKE_SESSION_TIMEOUT_S, pf)
     if up:
@@ -1126,13 +1126,13 @@ def _launch_in_pane(con, agent: str, handle: str | None, wt: str | None, cmd: st
     terminal in its worktree (`spawn.start_in`). `started` says whether a typed
     launch took."""
     if handle:
-        return orca.relaunch(handle, cmd, started=started)
+        return term.relaunch(handle, cmd, started=started)
     ok, why = spawnmod.start_in(agent, wt, cmd)
     if ok and not started():
         return False, "the launch command was run but no session took its prompt"
     new = db.get_terminal(con, agent) if ok else None
     if new:
-        orca.wait_idle(new)
+        term.wait_idle(new)
     return ok, why
 
 
@@ -1155,13 +1155,13 @@ def _clear_trust_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]:
     ask this handle's driver, and a stalled clear would otherwise look it up
     fresh - a DB round trip - on every one of that poll's ticks.
     """
-    with orca.driver_scope():
+    with term.driver_scope():
         # An agent on a config directory that has never run it can meet both screens, in either
         # order, and whichever is left standing would take the wake's Enter.
         for _ in range(MAX_STARTUP_SCREENS):
-            if orca.bypass_prompt_showing(handle):
+            if term.bypass_prompt_showing(handle):
                 ok, why = _handle_bypass_prompt(con, agent, handle, log)
-            elif orca.trust_prompt_showing(handle):
+            elif term.trust_prompt_showing(handle):
                 ok, why = _handle_trust_prompt(con, agent, handle, log)
             else:
                 return True, "clear"
@@ -1198,12 +1198,12 @@ def _handle_bypass_prompt(con, agent: str, handle: str, log) -> tuple[bool, str]
     if not allowed:
         return False, (f"{agent}'s terminal is showing the bypass-permissions warning and {why} - "
                        "nothing was typed; answer it in its terminal")
-    ok, why = orca.accept_bypass(handle)
+    ok, why = term.accept_bypass(handle)
     if not ok:
         return False, f"{agent}: the bypass-permissions warning was not accepted: {why}"
     db.add_event(con, agent, "bypass_accepted", {})
     log(f"  {agent}: accepted the bypass-permissions warning (skip permissions is granted)")
-    orca.wait_idle(handle)
+    term.wait_idle(handle)
     return True, "accepted"
 
 
@@ -1226,8 +1226,8 @@ def auto_bypass(con, agent: str, log) -> bool:
     handle = db.get_terminal(con, agent)
     if not handle or not _bypass_allowed(agent):
         return False
-    with orca.driver_scope():
-        if not orca.bypass_prompt_showing(handle):
+    with term.driver_scope():
+        if not term.bypass_prompt_showing(handle):
             return False
         return _handle_bypass_prompt(con, agent, handle, log)[0]
 
@@ -1238,7 +1238,7 @@ def _trust_consent(con, agent: str, handle: str) -> tuple[str | None, str | None
     agent's own recorded worktree."""
     row = db.get_agent_state(con, agent)
     recorded = spawnmod.worktree_path(row["worktree"]) if row else None
-    shown = orca.trust_prompt_folder(handle)
+    shown = term.trust_prompt_folder(handle)
     consented = bool(autoaccept.enabled() and shown and recorded and trust.is_declared(shown)
                      and _same_path(shown, recorded))
     return shown, recorded, consented
@@ -1251,26 +1251,26 @@ def auto_trust(con, agent: str, log) -> bool:
     handle = db.get_terminal(con, agent)
     if not handle:
         return False
-    with orca.driver_scope():
-        if not orca.trust_prompt_showing(handle):
+    with term.driver_scope():
+        if not term.trust_prompt_showing(handle):
             return False
         shown, recorded, consented = _trust_consent(con, agent, handle)
         return consented and _press_trust(con, agent, handle, log, shown, recorded)[0]
 
 
 def _press_trust(con, agent: str, handle: str, log, shown: str, recorded: str) -> tuple[bool, str]:
-    ok, why = orca.confirm_trust(handle)
+    ok, why = term.confirm_trust(handle)
     # The redraw is not instant; checking on the very next line risks reading
     # the screen the vendor was still drawing, and raising a decision for a trust that
     # actually went through.
-    orca.wait_for_trust_prompt(handle, showing=False)
-    if not ok or orca.trust_prompt_showing(handle):
+    term.wait_for_trust_prompt(handle, showing=False)
+    if not ok or term.trust_prompt_showing(handle):
         return _raise_trust_prompt(con, agent, handle, log, shown, recorded)
     db.add_event(con, agent, "trust_confirmed", {"path": shown})
     log(f"  {agent}: trusted {shown} (standing consent)")
     # The screen just changed under us; typing the wake prompt before the
     # vendor has finished drawing its ordinary TUI loses the opening characters.
-    orca.wait_idle(handle)
+    term.wait_idle(handle)
     return True, "trusted"
 
 

@@ -2020,7 +2020,7 @@ def test_dashboard_messages_table_is_fed_by_messages_data() -> None:
 def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     import sys
     from unittest import mock
-    from handline.session import orca as orcamod
+    from handline.session import term as termmod
     from handline.team import trust
     from handline.ui.components.dialog_modal import DialogModal
     home = _home("dialogmodal")
@@ -2030,20 +2030,20 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
     db.set_terminal(con, "reviewer", "term_d", "wt")
     con.commit()
     con.close()
-    dialog = orcamod.Dialog("Do you want to proceed?", ((1, "Yes"), (2, "Yes, and don't ask again"), (3, "No")), "Esc to cancel")
+    dialog = termmod.Dialog("Do you want to proceed?", ((1, "Yes"), (2, "Yes, and don't ask again"), (3, "No")), "Esc to cancel")
     screen = {"dialog": dialog, "folder": None}
     pressed = []
 
     def press(handle, number):
         pressed.append((handle, number))
         screen["dialog"] = None
-        return orcamod.CLEARED, dialog.title, ""
+        return termmod.CLEARED, dialog.title, ""
     with mock.patch.dict(sys.modules, {"handline.team.dialog_rules": rules}), \
-            mock.patch.object(orcamod, "dialog_on_screen", lambda h: screen["dialog"]), \
-            mock.patch.object(orcamod, "trust_prompt_folder", lambda h: screen["folder"]), \
-            mock.patch.object(orcamod, "trust_prompt_showing", lambda h: screen.get("trust_unreadable", False)), \
-            mock.patch.object(orcamod, "confirm_trust", lambda h: (True, "trusted")), \
-            mock.patch.object(orcamod, "press_option", press):
+            mock.patch.object(termmod, "dialog_on_screen", lambda h: screen["dialog"]), \
+            mock.patch.object(termmod, "trust_prompt_folder", lambda h: screen["folder"]), \
+            mock.patch.object(termmod, "trust_prompt_showing", lambda h: screen.get("trust_unreadable", False)), \
+            mock.patch.object(termmod, "confirm_trust", lambda h: (True, "trusted")), \
+            mock.patch.object(termmod, "press_option", press):
         import handline.team as teampkg
         teampkg.dialog_rules = rules
         con = db.connect()
@@ -2051,7 +2051,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
             d = actions.dialog_of(con, "reviewer")
             check("dialog: a dialog on the terminal is read as title and numbered options",
                   d and d["kind"] == "dialog" and d["title"] == dialog.title and d["options"][1][1].startswith("Yes, and"), str(d))
-            screen["dialog"] = orcamod.Dialog(dialog.title, dialog.options, dialog.footer,
+            screen["dialog"] = termmod.Dialog(dialog.title, dialog.options, dialog.footer,
                                               (dialog.title, "Edit /tmp/x.py", "1. Yes", "2. Yes, and don't ask again", "3. No"))
             check("dialog: the panel's other lines ride along, not the title or the options",
                   actions.dialog_of(con, "reviewer")["body"] == ["Edit /tmp/x.py"])
@@ -2064,7 +2064,7 @@ def test_a_dialog_on_an_agent_terminal_is_read_and_pressed() -> None:
                   ok and pressed == [("term_d", 2)] and rules.rules == [
                       {"vendor": "claude", "title": dialog.title, "label": "Yes, and don't ask again"}], str((said, rules.rules)))
             screen["folder"] = str(home)
-            with mock.patch.object(orcamod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
+            with mock.patch.object(termmod, "screen_text", lambda h: "old\n" + "\u2500" * 20 + "\n Accessing workspace:\n\n /x/y\n\n \u276f No, exit\n   Yes, I trust this folder\n\n Enter to confirm \u00b7 Esc to cancel"):
                 check("dialog: the trust screen's own words ride along, without its two choices or key hint",
                       actions.dialog_of(con, "reviewer")["body"] == ["Accessing workspace:", "/x/y"],
                       str(actions.dialog_of(con, "reviewer")["body"]))

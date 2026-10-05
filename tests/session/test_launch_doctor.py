@@ -23,7 +23,7 @@ def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     removes the ones ocp used to install, and the settings entry pointing at
     them, and leaves anyone else's statusLine where it is."""
     use_home(home)
-    orcamod.live_terminals = lambda: None
+    termmod.live_terminals = lambda: None
     shared = vendors.shared_dir("claude")
     shared.mkdir(parents=True, exist_ok=True)
     settings = shared / "settings.json"
@@ -263,7 +263,7 @@ def test_launch(home: Path) -> None:
 
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
-    orcamod.live_terminals = lambda: None    # doctor asks Orca for its terminals; this is about mcp.json
+    termmod.live_terminals = lambda: None    # doctor asks Orca for its terminals; this is about mcp.json
     mcp_json = paths.mcp_config()
     mcp_json.parent.mkdir(parents=True, exist_ok=True)
     if mcp_json.exists():
@@ -309,12 +309,12 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
     it as well, on every retry, which is a line per tick for the same sentence."""
     _daemon_home(home, 100)
     con = db.connect()
-    real_avail, real_alive, real_run = orcamod.available, orcamod.alive, orcacli._run
+    real_avail, real_alive, real_run = termmod.available, termmod.alive, orcacli._run
 
     def no_orca(args, timeout=180):
         raise AssertionError(f"reached the real orca: {args}")
     try:
-        orcamod.available, orcamod.alive, orcacli._run = (lambda: True), (lambda h: True), no_orca
+        termmod.available, termmod.alive, orcacli._run = (lambda: True), (lambda h: True), no_orca
         db.set_closed(con, "backend", "sess-1")
         db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
                        None, 0, None)
@@ -335,7 +335,7 @@ def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
         check("wall wake: a direct wake does not log it either - its caller has the reason",
               not [m for m in logged if "5h window" in m], str(logged))
     finally:
-        orcamod.available, orcamod.alive, orcacli._run = real_avail, real_alive, real_run
+        termmod.available, termmod.alive, orcacli._run = real_avail, real_alive, real_run
         dmn_evaluate._SAID.clear()
         con.close()
 
@@ -346,12 +346,12 @@ def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
     the exact thing it exists to let a human paste and run."""
     _daemon_home(home, 20)
     con = db.connect()
-    real_avail = orcamod.available
+    real_avail = termmod.available
     try:
         wt = home / "trees" / "has space"
         wt.mkdir(parents=True)
         db.set_terminal(con, "has space", "term_x", f"repo-id::{wt}")
-        orcamod.available = lambda: False
+        termmod.available = lambda: False
         done, said = hr.label(con, "has space")
         cmd = said.split("`")[1]
         parts = shlex.split(cmd)
@@ -359,7 +359,7 @@ def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
               not done and parts[parts.index("--worktree") + 1] == f"path:{wt}"
               and parts[parts.index("--display-name") + 1] == "has space", said)
     finally:
-        orcamod.available = real_avail
+        termmod.available = real_avail
         con.close()
 
 
@@ -1163,16 +1163,16 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, orcamod.available,
+    real = (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
            dmn_delivery.wait_for_session)
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         spawnmod._run = fake_run
         orcacli._exec = lambda argv, timeout=120: fake_run(argv)
         spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.run_current = lambda: None       # register_worker looks for a Run to join;
-        orcamod.run_create = lambda objective: None    # there is none, so the worker is not registered
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.run_current = lambda: None       # register_worker looks for a Run to join;
+        termmod.run_create = lambda objective: None    # there is none, so the worker is not registered
         # spawn() confirms a session came up before it says "started" (#1976,
         # T146 pt.2) - not this test's own concern, so it is not made to wait.
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
@@ -1186,12 +1186,12 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         # The wait is the guard against typing into a booting TUI, so its
         # answer must read the right way round: it warned on success and was
         # silent on failure, which is worse than not warning at all.
-        orcamod.wait_idle = lambda h, timeout_ms=0: False
+        termmod.wait_idle = lambda h, timeout_ms=0: False
         calls.clear()
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, orcamod.wait_idle, orcamod.available,
+        (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
         dmn_delivery.wait_for_session) = real
 
 
@@ -1216,14 +1216,14 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
             return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
         return 0, "", ""
 
-    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
            dmn_delivery.wait_for_session)
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         spawnmod._run = fake_run
         orcacli._exec = lambda argv, timeout=120: fake_run(argv)
-        orcamod.run_current = lambda: None
-        orcamod.run_create = lambda objective: None
+        termmod.run_current = lambda: None
+        termmod.run_create = lambda objective: None
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
 
         ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
@@ -1246,7 +1246,7 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
         check("dispatch: and it counts as a failed wake, not a fresh streak",
               row["wake_failures"] == 1, str(dict(row)))
     finally:
-        (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
+        (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
         dmn_delivery.wait_for_session) = real
         con.close()
 
@@ -1273,14 +1273,14 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
         return 0, "", ""
 
     fake = FakeOrca({})
-    real = (orcacli._exec, spawnmod._run, orcamod.available, orcacli._run, orcamod.available,
-            orcamod.wait_idle, dmn_delivery.wait_for_session)
+    real = (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
+            termmod.wait_idle, dmn_delivery.wait_for_session)
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         spawnmod._run = fake_run
         orcacli._exec = lambda argv, timeout=120: fake_run(argv)
-        orcacli._run, orcamod.available = fake.run, lambda: True
-        orcamod.wait_idle = lambda *_a, **_k: True
+        orcacli._run, termmod.available = fake.run, lambda: True
+        termmod.wait_idle = lambda *_a, **_k: True
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
         real_add = fake.run
@@ -1293,8 +1293,8 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
                 have_repo["ok"] = True
             return r
         orcacli._run = add_then_ready
-        real_rc, real_rcr = orcamod.run_current, orcamod.run_create
-        orcamod.run_current, orcamod.run_create = (lambda: None), (lambda objective: None)
+        real_rc, real_rcr = termmod.run_current, termmod.run_create
+        termmod.run_current, termmod.run_create = (lambda: None), (lambda objective: None)
         ok, msg = spawnmod.spawn("regy", ROOT, base="main")
         check("spawn: repo_not_found registers the repo, then the worktree is made",
               len(creates) == 2 and fake.repos == [str(ROOT)], f"{msg} {creates} {fake.repos}")
@@ -1309,9 +1309,9 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
               not ok and len(creates) == 1 and "repo_not_found" in msg
               and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
     finally:
-        (orcacli._exec, spawnmod._run, orcamod.available, orcacli._run, orcamod.available,
-         orcamod.wait_idle, dmn_delivery.wait_for_session) = real
-        orcamod.run_current, orcamod.run_create = real_rc, real_rcr
+        (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
+         termmod.wait_idle, dmn_delivery.wait_for_session) = real
+        termmod.run_current, termmod.run_create = real_rc, real_rcr
 
 
 def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
@@ -1335,15 +1335,15 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
             return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
         return 0, "", ""
 
-    real = (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current, orcamod.run_create,
+    real = (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
            dmn_delivery.wait_for_session)
     con = db.connect()
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         spawnmod._run = fake_run
         orcacli._exec = lambda argv, timeout=120: fake_run(argv)
-        orcamod.run_current = lambda: None
-        orcamod.run_create = lambda objective: None
+        termmod.run_current = lambda: None
+        termmod.run_create = lambda objective: None
         # spawn() confirms a session came up before it says "started" (#1976,
         # T146 pt.2) - not this test's own concern, so it is not made to wait.
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
@@ -1370,8 +1370,8 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
               any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
     finally:
         con.close()
-        (orcacli._exec, spawnmod._run, orcamod.available, orcamod.run_current,
-        orcamod.run_create, dmn_delivery.wait_for_session) = real
+        (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current,
+        termmod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
@@ -1477,7 +1477,7 @@ def test_doctor_catches_a_wanted_event_installed_before_it_existed(home: Path) -
     launch's stderr - the same event gap `build` now closes on its own
     (`test_a_launch_installs_a_hook_event_added_since_the_last_install`)."""
     use_home(home)
-    orcamod.live_terminals = lambda: None
+    termmod.live_terminals = lambda: None
     target = home / "shared" / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     # PreToolUse only reached GUARDS with T247, after this machine's one and
@@ -1773,7 +1773,7 @@ def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) 
     live session writes one."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (obsmod.live_sessions, orcamod.live_terminals)
+    real = (obsmod.live_sessions, termmod.live_terminals)
     agent_dir = home / "agents" / "backend"
     agent_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1788,7 +1788,7 @@ def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) 
         return r.rows
 
     try:
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         db.set_terminal(con, "backend", "term_x", "wt")
         sessions_are()
         status_line()
@@ -1820,11 +1820,11 @@ def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) 
         # The sweep drops the handle and says so; two reports of one fact is
         # the screen arguing with the daemon.
         status_line()
-        orcamod.live_terminals = lambda: set()
+        termmod.live_terminals = lambda: set()
         check("doctor: a terminal that is gone is the sweep's to report",
               not rows(), str(rows()))
 
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         status_line(age_s=status.STALE_AFTER_S + 60)
         check("doctor: nor is a stale snapshot - nothing was writing it",
               not rows(), str(rows()))
@@ -1834,7 +1834,7 @@ def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) 
         check("doctor: and it stays quiet when it could not look at all",
               not rows(), str(rows()))
     finally:
-        obsmod.live_sessions, orcamod.live_terminals = real
+        obsmod.live_sessions, termmod.live_terminals = real
         con.close()
 
 
@@ -1971,7 +1971,7 @@ def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> No
     # way alpha and beta did above - unlink what register() just linked, so
     # the tick has something of its own to catch up on.
     (vendors.config_dir("epsilon") / "CLAUDE.md").unlink()
-    orcamod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
+    termmod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
     logs: list[str] = []
     con = db.connect()
     try:

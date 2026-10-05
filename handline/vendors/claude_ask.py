@@ -11,7 +11,7 @@ indented description line below it), the question, the header, a rule.
 
 Scope: a lone question, single-select or multiSelect, "Other" on either,
 checked boxes and Other together on a multiSelect question (that last one
-through `orca._answer_question_toggle_and_other`'s own two-stage send, never
+through `term._answer_question_toggle_and_other`'s own two-stage send, never
 `question_keys` here, which still refuses it outright). A call with more than
 one question, or a multiSelect question's own intermediate "Review your
 answers" screen, is not read here - `recognize` returns None rather than
@@ -45,11 +45,11 @@ ENTER = "enter"
 
 
 def question_keys(q: Question, choices: tuple[int, ...] = (), text: str | None = None) -> list[str] | None:
-    """The keys that answer `q`, sent in order by `orca.answer_question`, or
+    """The keys that answer `q`, sent in order by `term.answer_question`, or
     None when this combination is not sent here.
 
     `choices` are 0-based indexes into `q.options`; `text` is free text for
-    `q.other_number` - never both (see `orca._answer_question_toggle_and_other`
+    `q.other_number` - never both (see `term._answer_question_toggle_and_other`
     for that combination). One path per shape:
     - single-select, a choice: its own number submits outright.
     - single-select, Other: its number, the text, Enter.
@@ -92,7 +92,7 @@ def _toggle_keys(q: Question, choices: tuple[int, ...]) -> list[str]:
 def toggle_keys_for_other(q: Question, choices: tuple[int, ...]) -> list[str] | None:
     """Stage one of a multiSelect question's boxes-and-Other combo: the same
     toggle keys `question_keys`'s checkbox-only path sends, but never the
-    whole answer by themselves - `orca.answer_question` re-reads the real
+    whole answer by themselves - `term.answer_question` re-reads the real
     screen after these land, for the cursor's now-current row, before
     reaching for Other with `finish_other_keys` below."""
     if not q.multi_select or any(c < 0 or c >= len(q.options) for c in choices):

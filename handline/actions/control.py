@@ -11,7 +11,7 @@ from ..daemon import delivery as dmn_delivery, handoff as dmn_handoff, lifecycle
 from .. import db
 from ..infra import lock, waits
 from ..session import fold as foldmod
-from ..session import orca
+from ..session import term
 from ..team import spawn as spawnmod
 from ..usage import status
 from ..session import triggers
@@ -150,9 +150,9 @@ def terminal(con, agent: str, repo: str | None = None) -> str:
         handle = row["terminal"] if row else None
         if not handle:
             return said.rstrip(" ·")       # `start` said why
-    if not orca.available():
-        return said + f"{orca.missing()} - nothing to switch to"
-    ok, why = orca.focus(handle)
+    if not term.available():
+        return said + f"{term.missing()} - nothing to switch to"
+    ok, why = term.focus(handle)
     return said + (f"in {agent}'s terminal - come back to this tab when you are done"
                    if ok else f"could not switch to {agent}: {why}")
 
@@ -284,7 +284,7 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
 ASYNC_VERBS = ("wake", "close", "restart", "park", "fold", "unstall", "terminal", "message", "answer",
                "dismiss", "cancel", "move", "chat_reply")
 
-_IDLE_WAIT_S = orca.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
+_IDLE_WAIT_S = term.IDLE_TIMEOUT_MS // 1000 + 30       # wait_idle's own subprocess bound
 _DELIVERY_S = waits.WAKE_SESSION_TIMEOUT_S + _IDLE_WAIT_S + 60
 
 # verb -> (what it can be waiting for, the longest that can take in seconds). The

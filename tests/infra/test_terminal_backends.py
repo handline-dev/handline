@@ -89,6 +89,11 @@ def test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_ba
     check("backend: the file is read again when it changes", backends.current().name == "orca")
 
 
+def test_the_old_module_name_is_the_same_module() -> None:
+    import handline.session.orca as old
+    check("rename: `handline.session.orca` is the very module `term`, not a copy", old is termmod)
+
+
 def _record(replies: dict | None = None):
     """Stand in for the Orca CLI's one process-starting function; returns the calls it saw."""
     seen: list[list[str]] = []
@@ -265,39 +270,39 @@ def test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(home: Pa
 def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path) -> None:
     use_home(home)
     for name, real in REAL_ORCA.items():        # the test world stubs some of these; this test is about the real ones
-        setattr(orcamod, name, real)
+        setattr(termmod, name, real)
     host = FakeHost()
     backends.use(host)
     check("layer: available, handles and live terminals come from the backend",
-          orcamod.available() and orcamod.terminal_handle() == "h-own" and orcamod.worktree_id() == "/wt/own"
-          and orcamod.live_terminals() == {"h1", "h2"} and orcamod.alive("h1") and not orcamod.alive("h3"))
+          termmod.available() and termmod.terminal_handle() == "h-own" and termmod.worktree_id() == "/wt/own"
+          and termmod.live_terminals() == {"h1", "h2"} and termmod.alive("h1") and not termmod.alive("h3"))
     check("layer: a new terminal's handle, and with the reason",
-          orcamod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
-          and orcamod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
+          termmod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
+          and termmod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
           and host.calls[-1] == ("create", "cmd", "/w", "t"))
-    ok, _ = orcamod.send("h1", "hello")
-    ok2, _ = orcamod.submit("h1", "task", 30)
+    ok, _ = termmod.send("h1", "hello")
+    ok2, _ = termmod.submit("h1", "task", 30)
     check("layer: send and submit are the backend's send",
           ok and ok2 and ("send", "h1", "hello", True, None) in host.calls
           and ("send", "h1", "task", True, 30) in host.calls, str(host.calls))
     check("layer: a screen read and its text come from the backend",
-          orcamod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
-          and orcamod.screen_text("h1") == "> ")
-    check("layer: focus and close are the backend's", orcamod.focus("h1")[0]
-          and orcamod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
-    check("layer: repos and worktrees too", orcamod.ensure_repo("/r") == ("known", "ok")
-          and ("repo", "/r", True) in host.calls and orcamod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
+          termmod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
+          and termmod.screen_text("h1") == "> ")
+    check("layer: focus and close are the backend's", termmod.focus("h1")[0]
+          and termmod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
+    check("layer: repos and worktrees too", termmod.ensure_repo("/r") == ("known", "ok")
+          and ("repo", "/r", True) in host.calls and termmod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
     check("layer: runs and tasks too",
-          orcamod.run_create("o") == "run-1" and orcamod.run_current() == "run-0" and orcamod.run_exists("run-1")
-          and orcamod.task_create("s", "t", "d", "run-1") == "task-1" and orcamod.dispatch("task-1", "h1", "run-1") == "disp-1"
-          and orcamod.has_runs())
+          termmod.run_create("o") == "run-1" and termmod.run_current() == "run-0" and termmod.run_exists("run-1")
+          and termmod.task_create("s", "t", "d", "run-1") == "task-1" and termmod.dispatch("task-1", "h1", "run-1") == "disp-1"
+          and termmod.has_runs())
 
     # Idle: the host's word, and for a vendor whose state it cannot read the screen's as well.
     host.idle = True
-    check("layer: idle is the backend's wait for claude", orcamod.wait_idle("h1", 5000)
+    check("layer: idle is the backend's wait for claude", termmod.wait_idle("h1", 5000)
           and ("idle", "h1", 5000) in host.calls)
     host.idle = False
-    check("layer: a busy host is not idle", not orcamod.wait_idle("h1", 5000))
+    check("layer: a busy host is not idle", not termmod.wait_idle("h1", 5000))
 
     # What a host with no runs or labels means for the callers that gate on them.
     class Bare(FakeHost):
@@ -305,9 +310,9 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
         supports_labels = False
     backends.use(Bare())
     check("layer: a host without runs or labels is gated out of both",
-          not orcamod.has_runs() and not orcamod.keeps_labels() and not orcamod.has_labels()
-          and orcamod.worktree_info("/w") is backends.base.UNREADABLE
-          and orcamod.set_worktree("/w", label="x")[0] is False and orcamod.terminals_in("/w") is None)
+          not termmod.has_runs() and not termmod.keeps_labels() and not termmod.has_labels()
+          and termmod.worktree_info("/w") is backends.base.UNREADABLE
+          and termmod.set_worktree("/w", label="x")[0] is False and termmod.terminals_in("/w") is None)
     con = db.connect()
     try:
         check("layer: so no worker is registered", spawnmod.register_worker(con, "backend", "h1") is None)
@@ -819,6 +824,7 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(Path(td) / "b1"))
+        run(lambda: test_the_old_module_name_is_the_same_module())
         run(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"))
         run(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"))
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))

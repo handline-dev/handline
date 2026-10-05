@@ -15,7 +15,7 @@ import time
 
 from .. import db
 from ..infra import lock, paths
-from ..session import orca
+from ..session import term
 from ..team import ask as askmod
 
 from . import delivery, landing, lifecycle
@@ -23,18 +23,18 @@ from . import delivery, landing, lifecycle
 
 def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
     """Nothing on screen a typed line would answer instead, and not at the
-    wall - the two things immediate typing waits for. Not `orca.typeable_now`:
+    wall - the two things immediate typing waits for. Not `term.typeable_now`:
     that also requires idle, which this deliberately does not.
 
     `wall_reason` is the same check every other typing path makes (its own
     docstring: "no caller ... can skip it") - typed anyway, a turn at the
     usage wall fails at once and clears the very mark that says so."""
-    if not orca.available():
-        return False, orca.missing()
+    if not term.available():
+        return False, term.missing()
     reason = delivery.typing_hold(con, agent)
     if reason:
         return False, reason
-    blocker = orca.screen_blocker(handle)
+    blocker = term.screen_blocker(handle)
     if blocker is not None:
         return False, blocker.reason()
     return True, ""
@@ -58,7 +58,7 @@ def _deliver_row(con, agent: str, row_id: int, text: str) -> tuple[bool, str]:
     handle = db.get_terminal(con, agent)
     if not handle:
         return False, f"{agent} has no terminal"
-    if not orca.available() or not orca.alive(handle):
+    if not term.available() or not term.alive(handle):
         return False, f"{agent}'s terminal is gone"
     if not delivery.session_present(agent):
         return False, f"{agent} has no running session"
@@ -148,7 +148,7 @@ def tell_now(con, rid: int, log) -> str:
     handle = db.get_terminal(con, agent)
     if not handle or not delivery.session_present(agent):
         return "queued - no running session; told when it is up"
-    if not orca.available() or not orca.alive(handle):
+    if not term.available() or not term.alive(handle):
         return f"queued - {agent}'s terminal is gone"
     ok, why = can_type_now(con, agent, handle)
     if not ok:

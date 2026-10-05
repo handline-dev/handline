@@ -15,7 +15,7 @@ from ..usage import load
 from ..infra import lock
 from ..usage import measure
 from ..session import observe as obs
-from ..session import orca
+from ..session import term
 from ..infra import paths
 from ..usage import status
 from ..session import triggers
@@ -170,7 +170,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     handle = db.get_terminal(con, agent)
     settled = False
-    if handle and orca.available():
+    if handle and term.available():
         # A turn that ended on the usage limit and has stayed quiet for a while
         # is over, whatever the terminal's activity probe still says; sooner
         # than that a person may be typing, so the probe still decides. One
@@ -178,7 +178,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
         stopped = events.at_limit(con, agent)
         settled = trigger.kind == LOGIN_TRIGGER \
             or (stopped and int(time.time()) - stopped["at"] >= LIMIT_SETTLE_S)
-        if not settled and not orca.typeable_now(handle):
+        if not settled and not term.typeable_now(handle):
             # The usage-limit dialog is not a turn: it does not end by waiting,
             # so it is got past here rather than deferred to, tick after tick.
             # Any other dialog may be a person's to answer, and this is only the
@@ -189,7 +189,7 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
                 in_the_way = delivery._past_dialog(con, agent, log, only_limit=True) if mine else ""
             if in_the_way and delivery._stalled_on_dialog(con, agent, in_the_way, log):
                 return False
-            if in_the_way or not orca.typeable_now(handle):
+            if in_the_way or not term.typeable_now(handle):
                 log(f"  {agent}: {trigger.kind} fired but "
                     + (f"a dialog is in the way ({in_the_way})" if in_the_way else "the agent is mid-turn")
                     + " - deferring")
@@ -364,12 +364,12 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
     handle = db.get_terminal(con, agent)
     if not handle:
         return False, False
-    if not orca.available():
+    if not term.available():
         # Orca itself being unreachable is nobody's terminal in particular -
         # every agent's move would fail the same way, so this is not evidence
         # that a short recheck buys anything the account's own window would not.
         return False, False
-    if not orca.alive(handle):
+    if not term.alive(handle):
         # Two things this can mean - a terminal genuinely gone (not transient;
         # a short recheck buys nothing) or `live_terminals()` itself failing to
         # read (transient, same as `not handle`) - and `alive()`'s bool does

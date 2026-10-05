@@ -17,7 +17,7 @@ def _pending(con, agent: str = "backend"):
     """What `confirmations.describe` makes of the prompt the agent's screen shows now, or None."""
     row = db.get_agent_state(con, agent)
     handle = row["terminal"] if row and row["terminal"] and not row["closed_at"] else None
-    found = orcamod.confirmation_on_screen(handle) if handle else None
+    found = termmod.confirmation_on_screen(handle) if handle else None
     return confirmations.describe(agent, found, None) if found else None
 
 from handline.vendors.claude import Claude  # noqa: E402
@@ -32,7 +32,7 @@ PROMPT = ["  earlier output", RULE, "   Bash command", "     rm -rf build",
 
 
 def _dialog(tail):
-    return orcamod.parse_dialog(tail, orcamod._footer_row(tail))
+    return termmod.parse_dialog(tail, termmod._footer_row(tail))
 
 
 class _Term:
@@ -40,8 +40,8 @@ class _Term:
 
     def __init__(self, tail, ignores_key=False):
         self.tail, self.ignores_key, self.sent = list(tail), ignores_key, []
-        orcamod._screen = lambda h: support._screen_of(self.tail)
-        orcamod.send = self.send
+        termmod._screen = lambda h: support._screen_of(self.tail)
+        termmod.send = self.send
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -75,34 +75,34 @@ def test_the_claude_adapter_recognizes_only_the_one_time_permission_prompt(home:
 
 
 def test_a_confirmation_is_answered_with_the_plain_yes_or_no_and_nothing_else(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     seen = ("rm -rf build", "Remove the build directory")
     term = _Term(PROMPT)
-    out = orcamod.answer_confirmation("term_x", True, seen)
+    out = termmod.answer_confirmation("term_x", True, seen)
     check("answer: Yes is the plain Yes's digit, never the 'don't ask again' one",
-          term.sent == [("1", False)] and out[0] == orcamod.CLEARED, str((term.sent, out)))
+          term.sent == [("1", False)] and out[0] == termmod.CLEARED, str((term.sent, out)))
     term = _Term(PROMPT)
-    out = orcamod.answer_confirmation("term_x", False, seen)
-    check("answer: No is the No option's digit", term.sent == [("3", False)] and out[0] == orcamod.CLEARED,
+    out = termmod.answer_confirmation("term_x", False, seen)
+    check("answer: No is the No option's digit", term.sent == [("3", False)] and out[0] == termmod.CLEARED,
           str((term.sent, out)))
     term = _Term(_swap(PROMPT, "rm -rf build", "rm -rf /"))
-    out = orcamod.answer_confirmation("term_x", True, seen)
+    out = termmod.answer_confirmation("term_x", True, seen)
     check("answer: a prompt that is not the one answered is not pressed, and says why",
-          not term.sent and out[0] == orcamod.NOT_PRESSED and "not the one" in out[2], str((term.sent, out)))
+          not term.sent and out[0] == termmod.NOT_PRESSED and "not the one" in out[2], str((term.sent, out)))
     term = _Term(YES_NO_DIALOG)
-    out = orcamod.answer_confirmation("term_x", True, seen)
+    out = termmod.answer_confirmation("term_x", True, seen)
     check("answer: a dialog that is not a permission prompt is not pressed",
-          not term.sent and out[0] == orcamod.NOT_PRESSED and "recognizes" in out[2], str((term.sent, out)))
+          not term.sent and out[0] == termmod.NOT_PRESSED and "recognizes" in out[2], str((term.sent, out)))
     term = _Term(PROMPT, ignores_key=True)
-    out = orcamod.answer_confirmation("term_x", True, seen)
+    out = termmod.answer_confirmation("term_x", True, seen)
     check("answer: a key that leaves the prompt open is reported, not repeated",
-          out[0] == orcamod.STILL_OPEN and len(term.sent) == 1, str((term.sent, out)))
+          out[0] == termmod.STILL_OPEN and len(term.sent) == 1, str((term.sent, out)))
 
 
 def _world(home: Path, tail, **kw):
     _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
     con = db.connect()
     db.set_terminal(con, "backend", "term_x", "wt")
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
@@ -110,7 +110,7 @@ def _world(home: Path, tail, **kw):
 
 
 def test_a_confirmation_carries_the_command_and_reason_the_screen_has(home: Path) -> None:
-    orcamod.PRESS_SETTLE_S = 0
+    termmod.PRESS_SETTLE_S = 0
     con, term = _world(home, PROMPT)
     try:
         waiting.note("backend", "Bash", {"command": "rm -rf build", "description": "Remove the build directory"}, 7)

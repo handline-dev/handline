@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from ..infra import textsafe
-from ..session import orca
+from ..session import term
 from ..team import agents, trust
 from .. import db
 
@@ -35,14 +35,14 @@ def dialog_of(con, agent: str) -> dict | None:
     if handle is None:
         return None
     vendor = _vendor(agent)
-    folder = orca.trust_prompt_folder(handle)
+    folder = term.trust_prompt_folder(handle)
     if folder:
         return {"agent": agent, "vendor": vendor, "kind": TRUST, "title": f"Trust {textsafe.oneline(folder)}?",
                 "options": [(1, TRUST_LABEL)], "folder": textsafe.oneline(folder), "body": _trust_text(handle)}
-    dialog = orca.dialog_on_screen(handle)
+    dialog = term.dialog_on_screen(handle)
     if dialog is None:
         return None
-    if orca.trust_prompt_showing(handle):
+    if term.trust_prompt_showing(handle):
         # The trust screen with its folder unreadable is numbered like any dialog, but it is answered
         # by the trust roots only: offered here, "always" would save a rule nothing ever acts on (T211).
         return None
@@ -53,7 +53,7 @@ def dialog_of(con, agent: str) -> dict | None:
 def _trust_text(handle: str) -> list[str]:
     """The trust screen's own words, under its last rule line and without its two choices or its key hint (the
     modal's button is the trust one; declining is left to the terminal)."""
-    text = orca.screen_text(handle)
+    text = term.screen_text(handle)
     if text is None:
         return []
     lines = text.split("\n")
@@ -90,12 +90,12 @@ def press_choice(con, agent: str, title: str, number: int, always: bool = False)
         return False, f"{agent}: the dialog has no option {number}"
     handle = _handle(con, agent)
     if now["kind"] == TRUST:
-        ok, said = orca.confirm_trust(handle)
+        ok, said = term.confirm_trust(handle)
         if not ok:
             return False, f"{agent}: {said}"
     else:
-        outcome, _, why = orca.press_option(handle, number)
-        if outcome != orca.CLEARED:
+        outcome, _, why = term.press_option(handle, number)
+        if outcome != term.CLEARED:
             return False, f"{agent}: {why or outcome}"
     if always:
         ok, remember_said = _remember(now, label)
@@ -111,7 +111,7 @@ def _remember(dialog: dict, label: str) -> tuple[bool, str]:
         if trust.is_declared(dialog["folder"]):
             return True, "already trusted"
         return trust.enact(dialog["folder"], "chosen from the agent's dialog")
-    if dialog["title"] == orca.TRUNCATED_TITLE:
+    if dialog["title"] == term.TRUNCATED_TITLE:
         # every long command shares this title, so a rule on it would answer them all
         return False, "a long command's title is not shown, so no rule can be kept for it"
     from ..team import dialog_rules      # the founder-only store; agents cannot write it

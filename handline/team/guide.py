@@ -6,7 +6,7 @@ here only when they actually need it, so it costs no tokens the rest of the time
 from __future__ import annotations
 
 from ..infra import paths
-from ..session import orca
+from ..session import term
 from .team import DEFAULT_LINKS
 
 TOPICS = {
@@ -211,8 +211,8 @@ Exits 1 if anything failed. No phase is finished without it.""",
 
 def _filled(text: str) -> str:
     """The topic with the host's own words where it names the host's commands."""
-    launch = orca.manual("terminal", worktree="path:<wt>", command="hl launch backend")
-    return text.replace("@host@", orca.host_title()).replace("@launch@", launch)
+    launch = term.manual("terminal", worktree="path:<wt>", command="hl launch backend")
+    return text.replace("@host@", term.host_title()).replace("@launch@", launch)
 
 
 def show(topic: str | None) -> int:

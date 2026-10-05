@@ -14,7 +14,7 @@ from pathlib import Path
 
 from ..team import accounts, agents, team as teammod, trust
 from .. import db, vendors
-from ..session import launch, observe as obs, orca
+from ..session import launch, observe as obs, term
 from ..usage import load as loadmod, status
 from . import paths, protected, sealed, service, textsafe
 from . import timefmt
@@ -74,7 +74,7 @@ def _vendors_in_use() -> list:
 def _check_tools(r: Report) -> None:
     for tool, found, why, hard in (
         *((drv.name, drv.binary(), "needed to run agents", True) for drv in _vendors_in_use()),
-        (orca.host_name(), shutil.which(orca.host_name()), "terminal and worktree control", False),
+        (term.host_name(), shutil.which(term.host_name()), "terminal and worktree control", False),
     ):
         if found:
             r.add(OK, f"{tool} found", found)
@@ -130,7 +130,7 @@ def _check_mcp_config(r: Report) -> None:
 
 
 def _check_orca_hooks(r: Report) -> None:
-    if not orca.has_agent_hooks():     # Orca's agent hooks mean nothing to another host
+    if not term.has_agent_hooks():     # Orca's agent hooks mean nothing to another host
         return
     for h in vendors.state_hooks():
         src, dst, drift = h.plan()
@@ -437,7 +437,7 @@ def _check_session_matches_the_record(r: Report) -> None:
     sessions = obs.live_sessions()
     if sessions is None:
         return                      # could not look; not the same as none
-    handles = orca.live_terminals()
+    handles = term.live_terminals()
     known = set(paths.list_agents())
     con = db.connect()
     try:
@@ -471,10 +471,10 @@ def _check_terminal_handles(r: Report) -> None:
     con = db.connect()
     try:
         odd = [(row["agent"], row["terminal"]) for row in db.all_agent_states(con)
-               if row["terminal"] and not orca.knows_handle(row["terminal"])]
+               if row["terminal"] and not term.knows_handle(row["terminal"])]
     finally:
         con.close()
-    host = orca.host_name()
+    host = term.host_name()
     for agent, handle in odd:
         r.add(WARN, f"agent {agent}: its saved terminal {handle!r} is not a {host} terminal",
               f"it was made under another host, so {host} reads it as gone: the daemon forgets it and starts "

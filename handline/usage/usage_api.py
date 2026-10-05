@@ -31,7 +31,7 @@ def read(acct: str, refresh: bool = True) -> Reading | None:
     """Where this account stands now, or None when it could not be asked.
 
     None is "could not look", never "nothing has been spent" - the same
-    distinction `orca.live_terminals` is careful about, and the reason this
+    distinction `term.live_terminals` is careful about, and the reason this
     returns an object only when the endpoint actually answered.
 
     `refresh=False` skips the renewal, for a caller that already knows the

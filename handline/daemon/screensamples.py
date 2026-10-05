@@ -4,7 +4,7 @@ What tells an idle agent with background work from one mid-turn is on its screen
 sandboxes agents work in cannot read Orca; the daemon can. Each time it reads an agent's screen and
 finds background work, one sample in ten minutes goes to a file, labelled with what the db says the
 agent is doing - so a screen and the state it was mislabelled with can be read side by side. No
-extra read: the rows are the ones `orca.background_work` just took. The newest KEEP files stay.
+extra read: the rows are the ones `term.background_work` just took. The newest KEEP files stay.
 """
 from __future__ import annotations
 

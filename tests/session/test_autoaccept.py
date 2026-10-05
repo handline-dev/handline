@@ -47,8 +47,8 @@ def _trust_world(home: Path, consented: bool = True):
         term.tail = list(CLEARED_SCREEN)
         return True, "trusted"
 
-    orcamod.confirm_trust = confirm
-    orcamod.wait_idle = lambda h, timeout_ms=0: True
+    termmod.confirm_trust = confirm
+    termmod.wait_idle = lambda h, timeout_ms=0: True
     spawnmod.worktree_path = lambda w: LIVE_TRUST_PROMPT_FOLDER
     trustmod.is_declared = lambda p: consented
     return con, term, pressed
@@ -122,9 +122,9 @@ class _KeyTerm:
         def read(handle):
             self.reads += 1
             return support._screen_of(self.tail)
-        orcamod._screen = read
-        orcamod.send = self.send
-        orcamod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod._screen = read
+        termmod.send = self.send
+        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -143,14 +143,14 @@ class _HighlightTerm(_KeyTerm):
 
     def install(self):
         super().install()
-        plain = orcamod._screen
+        plain = termmod._screen
 
         def read(handle):
             if (self.closes_after_reads is not None and self.reads_at_send is not None
                     and self.reads - self.reads_at_send >= self.closes_after_reads):
                 self.tail = list(CLEARED_SCREEN)
             return plain(handle)
-        orcamod._screen = read
+        termmod._screen = read
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
@@ -167,8 +167,8 @@ def _rule_world(home: Path, tail, rules=(("claude", RULE_TITLE, "No, not now"),)
     """backend is running with no tool waiting, behind `tail`."""
     from handline.team import dialog_rules
     _daemon_home(home, 20)
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
     con = db.connect()
     db.set_terminal(con, "backend", "term_x", "wt")
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
@@ -332,7 +332,7 @@ def test_the_confirming_enter_needs_the_footer_to_say_so_and_a_vanished_dialog_i
     finally:
         con.close()
     # The settle reads after the digit still show it; the read before a confirming Enter does not.
-    gone = _HighlightTerm(RULE_DIALOG, closes_after_reads=orcamod.PRESS_SETTLE_READS)
+    gone = _HighlightTerm(RULE_DIALOG, closes_after_reads=termmod.PRESS_SETTLE_READS)
     con, term = _rule_world(home / "gone", RULE_DIALOG, term=gone)
     try:
         autoaccept.sweep(con, lambda _m: None)

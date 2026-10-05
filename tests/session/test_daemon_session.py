@@ -648,7 +648,7 @@ def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Pat
     (no db column, no fresh status snapshot) to `account_of` -> `read` ->
     the same ConfigError step 1 guards. My first attempt forced the
     exception by replacing `wake_agent` itself, which is what hid this path
-    from me - the test harness's `orcamod.available = lambda: False`
+    from me - the test harness's `termmod.available = lambda: False`
     (`_daemon_home`'s own default) makes `_wake_agent` return "no terminal
     to wake" before it ever reaches `wake_wait`, a property of the test
     environment, not of the code. Fixed here by setting it True instead, the
@@ -678,8 +678,8 @@ def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Pat
                            wake_at=int(time.time()) - 10, detail="due")
     finally:
         con.close()
-    orcamod.available = lambda: True
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.live_terminals = lambda: {"term_x"}
     con = db.connect()
     try:
         actions = dmn_reconciler.reconcile(con, lambda _m: None)
@@ -693,7 +693,7 @@ def test_reconcile_stalls_one_due_agents_unreadable_config_at_wake_too(home: Pat
               row["closed_at"] and row["wake_at"], str(dict(row)))
     finally:
         con.close()
-        orcamod.available = lambda: False
+        termmod.available = lambda: False
 
 
 def test_daemon_handoff_timeout(home: Path) -> None:
@@ -821,10 +821,10 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
     something queued, like the supervise wake: IDLE on an empty queue."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive)
+    real = (termmod.available, termmod.alive)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_account(con, "backend", "alpha")
         for queued in (False, True):
@@ -849,7 +849,7 @@ def test_the_other_wake_writers_also_read_the_queue(home: Path) -> None:
             check(f"usage recovered: queued={queued} reads {want}",
                   row["state"] == want and row["wake_at"] is None, str(dict(row)))
     finally:
-        orcamod.available, orcamod.alive = real
+        termmod.available, termmod.alive = real
         con.close()
 
 
@@ -944,49 +944,49 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     for name, tail, presses in cases:
         term = _Terminal(tail)
         term.install()
-        outcome, title, why = orcamod.decline_dialog("term_x")
+        outcome, title, why = termmod.decline_dialog("term_x")
         check(f"press: {name} - {'Esc' if presses else 'nothing'}",
               (term.sent == [("\x1b", False)]) if presses else term.sent == [],
               f"{outcome} {why} sent={term.sent}")
         if presses:
-            check(f"press: {name} - the dialog goes, and it says so", outcome == orcamod.CLEARED, outcome)
+            check(f"press: {name} - the dialog goes, and it says so", outcome == termmod.CLEARED, outcome)
         else:
-            check(f"press: {name} - and says why", outcome == orcamod.NOT_PRESSED and why, f"{outcome} {why}")
+            check(f"press: {name} - and says why", outcome == termmod.NOT_PRESSED and why, f"{outcome} {why}")
 
     # What is on screen NOW decides: a screen read as a dialog by the block, and
     # gone by the time of the key, gets nothing.
     term = _Terminal(CLEARED_SCREEN)
     term.install()
-    check("press: no dialog now, no key", orcamod.decline_dialog("term_x")[0] == orcamod.NOT_PRESSED
+    check("press: no dialog now, no key", termmod.decline_dialog("term_x")[0] == termmod.NOT_PRESSED
           and term.sent == [])
     for name, term in (("a stream, not a screen", _Terminal(EXIT_DIALOG, source="stream")),
                        ("a screen that cannot be read", None)):
         if term:
             term.install()
         else:
-            orcamod._screen = lambda h: None
-            orcamod.send = lambda h, text, enter=True: (_ for _ in ()).throw(AssertionError("typed"))
-        check(f"press: {name} - nothing", orcamod.decline_dialog("term_x")[0] == orcamod.NOT_PRESSED
+            termmod._screen = lambda h: None
+            termmod.send = lambda h, text, enter=True: (_ for _ in ()).throw(AssertionError("typed"))
+        check(f"press: {name} - nothing", termmod.decline_dialog("term_x")[0] == termmod.NOT_PRESSED
               and (term.sent == [] if term else True))
 
     term = _Terminal(EXIT_DIALOG, ignores_esc=True)
     term.install()
-    out = orcamod.decline_dialog("term_x")
+    out = termmod.decline_dialog("term_x")
     check("press: Esc that leaves the dialog standing is reported once, not repeated",
-          out[0] == orcamod.STILL_OPEN and term.sent == [("\x1b", False)], f"{out} {term.sent}")
+          out[0] == termmod.STILL_OPEN and term.sent == [("\x1b", False)], f"{out} {term.sent}")
     check("press: the screen is read before the key and again after it", term.reads >= 3, str(term.reads))
     check("press: the only key that is ever named is Esc",
-          orcamod.ESCAPE == "\x1b" and "Enter" not in repr(orcamod.declining_key))
+          termmod.ESCAPE == "\x1b" and "Enter" not in repr(termmod.declining_key))
 
     # `draft` is not consulted here either (#1157): it is polluted by ocp's own
     # sends, and refusing on it would leave a stale one's dialog unpressed.
     pressed = []
-    orcamod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
-    orcamod.send = lambda h, text, enter=True: (pressed.append((text, enter)),
+    termmod._screen = lambda h: dict(_screen_of(EXIT_DIALOG), draft="a person's half-typed reply")
+    termmod.send = lambda h, text, enter=True: (pressed.append((text, enter)),
                                                 (True, ""))[1]
-    out = orcamod.decline_dialog("term_x")
+    out = termmod.decline_dialog("term_x")
     check("press: a non-empty draft on the same read as the dialog does not stop the press",
-          out[0] != orcamod.NOT_PRESSED and pressed == [("\x1b", False)], f"{out} sent={pressed}")
+          out[0] != termmod.NOT_PRESSED and pressed == [("\x1b", False)], f"{out} sent={pressed}")
 
     # A read that fails right after the key is not evidence the dialog went -
     # the same screen fails closed everywhere else in this module.
@@ -1000,11 +1000,11 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
             return _screen_of(EXIT_DIALOG, source="stream")      # one bad read right after
         return _screen_of(CLEARED_SCREEN)                        # then it really is gone
     sent: list = []
-    orcamod._screen = flaky_then_gone
-    orcamod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
-    out = orcamod.decline_dialog("term_x")
+    termmod._screen = flaky_then_gone
+    termmod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
+    out = termmod.decline_dialog("term_x")
     check("press: an unreadable screen right after Esc is not read as cleared",
-          out[0] == orcamod.CLEARED and calls["n"] >= 3, f"{out} reads={calls['n']}")
+          out[0] == termmod.CLEARED and calls["n"] >= 3, f"{out} reads={calls['n']}")
 
     # And if it never comes back readable, that is reported as still open, not
     # as a clear nobody can stand behind.
@@ -1013,19 +1013,19 @@ def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
     def never_readable_after(h):
         reads["n"] += 1
         return _screen_of(EXIT_DIALOG) if reads["n"] == 1 else _screen_of(EXIT_DIALOG, source="stream")
-    orcamod._screen = never_readable_after
-    out = orcamod.decline_dialog("term_x")
+    termmod._screen = never_readable_after
+    out = termmod.decline_dialog("term_x")
     check("press: a screen that stays unreadable is still open, never a false clear",
-          out[0] == orcamod.STILL_OPEN, out)
+          out[0] == termmod.STILL_OPEN, out)
 
     # A DIFFERENT dialog showing up right after the key is not the one Esc
     # was pressed on still standing - that one is gone, whatever this new one
     # is, and still-open must never be counted against its title instead.
     term = _Terminal(EXIT_DIALOG, after=YES_NO_DIALOG)
     term.install()
-    out = orcamod.decline_dialog("term_x")
+    out = termmod.decline_dialog("term_x")
     check("press: a different dialog appearing after Esc is not the same one still open",
-          out[0] == orcamod.CLEARED and out[1] == "Background work is running", out)
+          out[0] == termmod.CLEARED and out[1] == "Background work is running", out)
 
 
 def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> None:
@@ -1037,7 +1037,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
     con = db.connect()
     names = ("available", "alive", "typeable_now", "send", "clear_context",
              "background_work", "live_terminals")
-    real = {n: getattr(orcamod, n) for n in names}
+    real = {n: getattr(termmod, n) for n in names}
     sent: list[str] = []
     cleared: list[str] = []
     bg = ["3 monitors"]
@@ -1045,10 +1045,10 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
     st = types.SimpleNamespace(session_id="s")
     try:
         orca_seen()
-        orcamod.typeable_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        orcamod.clear_context = lambda h, *a, **k: (cleared.append(h), (True, "cleared"))[1]
-        orcamod.background_work = lambda h: bg[0]
+        termmod.typeable_now = lambda h: True
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.clear_context = lambda h, *a, **k: (cleared.append(h), (True, "cleared"))[1]
+        termmod.background_work = lambda h: bg[0]
         db.set_terminal(con, "backend", "term_x", "wt")
         now = int(time.time())
         head = db.add_request(con, "marina", "backend", "carry on", None,
@@ -1125,7 +1125,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
               and dmn_lifecycle.cache_expired(con, "backend", "sess", now))
     finally:
         for n, f in real.items():
-            setattr(orcamod, n, f)
+            setattr(termmod, n, f)
         con.close()
 
 
@@ -1175,11 +1175,11 @@ def test_background_work_is_tracked_while_running_too(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     names = ("available", "alive", "background_work", "live_terminals")
-    real = {n: getattr(orcamod, n) for n in names}
+    real = {n: getattr(termmod, n) for n in names}
     bg = ["1 shell"]
     try:
         orca_seen()
-        orcamod.background_work = lambda h: bg[0]
+        termmod.background_work = lambda h: bg[0]
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="thinking")
         row = db.get_agent_state(con, "backend")
@@ -1200,7 +1200,7 @@ def test_background_work_is_tracked_while_running_too(home: Path) -> None:
               since2 is not None and since2 >= since1, (since1, since2))
     finally:
         for n, f in real.items():
-            setattr(orcamod, n, f)
+            setattr(termmod, n, f)
         con.close()
 
 
@@ -1212,13 +1212,13 @@ def test_a_screen_with_background_work_is_kept_as_a_sample(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     names = ("available", "alive", "background_work", "last_tail", "live_terminals")
-    real = {n: getattr(orcamod, n) for n in names}
+    real = {n: getattr(termmod, n) for n in names}
     bg = ["1 shell"]
     rows = ["Some output", "\u256d" + "\u2500" * 20, "\u2570" + "\u2500" * 20, "  1 shell \u00b7 to manage"]
     try:
         orca_seen()
-        orcamod.background_work = lambda h: bg[0]
-        orcamod.last_tail = lambda h: rows
+        termmod.background_work = lambda h: bg[0]
+        termmod.last_tail = lambda h: rows
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         row = db.get_agent_state(con, "backend")
@@ -1246,21 +1246,21 @@ def test_a_screen_with_background_work_is_kept_as_a_sample(home: Path) -> None:
             screensamples.record(con, "backend", row, "1 shell", rows, now=int(time.time()) + (i + 1) * 1000)
         check("sample: only the newest few are kept",
               len(list(screensamples.dir_().glob("*.txt"))) == screensamples.KEEP)
-        real_screen, real_last = orcamod._screen, real["last_tail"]
-        orcamod.background_work = real["background_work"]
-        orcamod._screen = lambda h, limit=40: {"source": "screen", "tail": rows}
+        real_screen, real_last = termmod._screen, real["last_tail"]
+        termmod.background_work = real["background_work"]
+        termmod._screen = lambda h, limit=40: {"source": "screen", "tail": rows}
         try:
-            orcamod.background_work("term_y")
+            termmod.background_work("term_y")
             check("sample: the real read keeps the rows it took, for the sample", real_last("term_y") == rows)
         finally:
-            orcamod._screen = real_screen
-        orcamod.last_tail = lambda h: None
+            termmod._screen = real_screen
+        termmod.last_tail = lambda h: None
         db.clear_cursor(con, "screen_sample:backend")
         check("sample: no rows read, nothing written and no failure",
               screensamples.record(con, "backend", row, "1 shell", None) is False)
     finally:
         for n, f in real.items():
-            setattr(orcamod, n, f)
+            setattr(termmod, n, f)
         con.close()
 
 
@@ -1272,10 +1272,10 @@ def test_a_closed_session_shows_no_background_work(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     names = ("available", "alive", "background_work", "live_terminals")
-    real = {n: getattr(orcamod, n) for n in names}
+    real = {n: getattr(termmod, n) for n in names}
     try:
         orca_seen()
-        orcamod.background_work = lambda h: "1 shell"
+        termmod.background_work = lambda h: "1 shell"
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
@@ -1294,7 +1294,7 @@ def test_a_closed_session_shows_no_background_work(home: Path) -> None:
               not db.get_cursor(con, "bgwork:backend"))
     finally:
         for n, f in real.items():
-            setattr(orcamod, n, f)
+            setattr(termmod, n, f)
         con.close()
 
 
@@ -1358,18 +1358,18 @@ def test_the_live_trust_screen_is_never_pressed(home: Path) -> None:
     neither key path may press anything at it, alone or from the sweep."""
     restore_world()
     tail = LIVE_TRUST_PROMPT_CAPTURE.split("\n")
-    footer = orcamod._footer_row(tail)
+    footer = termmod._footer_row(tail)
     check("live trust: the footer is found", footer is not None, str(footer))
     check("live trust: parse_dialog gives None",
-          footer is not None and orcamod.parse_dialog(tail, footer) is None)
+          footer is not None and termmod.parse_dialog(tail, footer) is None)
     term = _Terminal(tail)
     term.install()
-    seen = orcamod.screen_blocker("term_x")
+    seen = termmod.screen_blocker("term_x")
     check("live trust: screen_blocker reads it as a dialog",
-          seen is not None and seen.kind == orcamod.MODAL, str(seen))
-    outcome, _title, why = orcamod.decline_dialog("term_x")
+          seen is not None and seen.kind == termmod.MODAL, str(seen))
+    outcome, _title, why = termmod.decline_dialog("term_x")
     check("live trust: decline_dialog presses nothing, and says why",
-          outcome == orcamod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
+          outcome == termmod.NOT_PRESSED and why and term.sent == [], f"{outcome} {why} {term.sent}")
 
     con, term = _decline_world(home, tail)
     t0 = int(time.time()) - 5000
@@ -1846,11 +1846,11 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
     con = db.connect()
     fixture_clock = db.last_activity(con, "backend")
     sent: list[str] = []
-    real = (orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available)
+    real = (termmod.alive, termmod.idle_now, termmod.send, termmod.available)
     try:
         orca_seen()
-        orcamod.idle_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.idle_now = lambda h: True
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         # A running agent, so there is something in that terminal to tell.
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -1879,7 +1879,7 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         # Typing at an agent mid-turn leaves the text in its input box, unsent.
-        orcamod.idle_now = lambda h: False
+        termmod.idle_now = lambda h: False
         db.add_request(con, "reviewer", "backend", "later", None,
                        "peer", "async", "task", 0, None)
         sent.clear()
@@ -1896,14 +1896,14 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         # Resolving the head reveals the next one - a different id - and
         # resolve() delivers it right away, the same as asking delivers to an
         # idle target right away rather than waiting for the next tick.
-        orcamod.idle_now = lambda h: True
+        termmod.idle_now = lambda h: True
         head = db.head_of_queue(con, "backend")
         sent.clear()
         askmod.resolve(head["id"], "done")
         check("deliver: resolving the head delivers the one behind it, right away",
               sent and "and this" in sent[-1] and "look at this" not in sent[-1], str(sent))
     finally:
-        orcamod.alive, orcamod.idle_now, orcamod.send, orcamod.available = real
+        termmod.alive, termmod.idle_now, termmod.send, termmod.available = real
         con.close()
 
 
@@ -1968,17 +1968,17 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-            orcamod.available)
+    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+            termmod.available)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.idle_now = lambda h: True      # even so, it must not be told yet
-        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True      # even so, it must not be told yet
+        termmod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         # A session runs in that terminal until close_agent ends it, and
         # the wake below starts another one.
         table = sessions_are("backend")
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
@@ -2025,8 +2025,8 @@ def test_a_resume_woken_for_a_message_is_handed_that_message(home: Path) -> None
         check("wake: and the answer is marked told", not db.unannounced_answers(con, "backend"),
               str(sent))
     finally:
-        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-         orcamod.available) = real
+        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+         termmod.available) = real
         con.close()
 
 
@@ -2041,21 +2041,21 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
     sent: list[str] = []
     closed: list[str] = []
     created: list[str] = []
-    real = (spawnmod.start_in, orcamod.send)
+    real = (spawnmod.start_in, termmod.send)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.idle_now = lambda h: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True
         table = sessions_are("backend")
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         live = {"term_x"}
-        orcamod.live_terminals = lambda: set(live)
+        termmod.live_terminals = lambda: set(live)
 
         def close_terminal(handle, tab=True):
             closed.append(handle)
             live.discard(handle)
             return True, "closed"
-        orcamod.close_terminal = close_terminal
+        termmod.close_terminal = close_terminal
 
         def start_in(agent, worktree, cmd=None):
             created.append(cmd)
@@ -2151,7 +2151,7 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         idle_close.set_agent_close_timeout("backend", None)
         db.clear_closed(con, "backend")
         table["backend"] = 4200
-        orcamod.close_terminal = lambda h, tab=True: (False, "orca is busy")
+        termmod.close_terminal = lambda h, tab=True: (False, "orca is busy")
         ok, said = dmn_lifecycle._end_session(con, "backend", lambda _m: None,
                                               status.read_for_agent("backend", "alpha"), resume="sess-4")
         check("pane: a terminal that did not close keeps its handle", ok and db.get_terminal(con, "backend") == "term_x"
@@ -2161,14 +2161,14 @@ def test_a_closed_session_closes_its_pane_and_the_wake_opens_a_new_terminal_that
         db.clear_closed(con, "backend")
         table["backend"] = 4200
         closed.clear()
-        orcamod.close_terminal = close_terminal
+        termmod.close_terminal = close_terminal
         ok, _ = dmn_lifecycle._end_session(con, "backend", lambda _m: None,
                                            status.read_for_agent("backend", "alpha"), resume=None,
                                            keep_pane=True)
         check("pane: a caller that relaunches at once keeps the pane", ok and not closed
               and db.get_terminal(con, "backend") == "term_x", f"{ok} {closed}")
     finally:
-        spawnmod.start_in, orcamod.send = real
+        spawnmod.start_in, termmod.send = real
         con.close()
 
 
@@ -2181,18 +2181,18 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
     _daemon_home(home, 20)
     con = db.connect()
     at_wait: list = []
-    real = (spawnmod.start_in, orcamod.send)
+    real = (spawnmod.start_in, termmod.send)
     try:
         orca_seen()
         table = sessions_are()
-        orcamod.idle_now = lambda h: True
+        termmod.idle_now = lambda h: True
 
         def wait_idle(h, timeout_ms=0):
             row = db.get_agent_state(con, "backend")
             at_wait.append((row["closed_at"], row["resume_session"]))
             db.set_cursor(con, "ahead:backend:99", 1)       # a tell made to the running session meanwhile
             return True
-        orcamod.wait_idle = wait_idle
+        termmod.wait_idle = wait_idle
 
         def start_in(agent, worktree, cmd=None):
             db.set_terminal(con, agent, "term_new", worktree)
@@ -2200,7 +2200,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
             take_launched_prompt(cmd)
             return True, "started"
         spawnmod.start_in = start_in
-        orcamod.live_terminals = lambda: {"term_new"}
+        termmod.live_terminals = lambda: {"term_new"}
         wt = home / "wt"
         wt.mkdir()
         db.set_terminal(con, "backend", None, str(wt))
@@ -2228,7 +2228,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
         check("stuck: once it is free the closed reason is back", state[0] != "closed, starting", str(state))
         check("stuck: an agent whose lock file does not exist is not held", lock.terminal_busy("never-locked") is False)
     finally:
-        spawnmod.start_in, orcamod.send = real
+        spawnmod.start_in, termmod.send = real
         con.close()
 
 
@@ -2325,7 +2325,7 @@ def test_a_parked_closed_agent_without_a_pane_is_woken_at_its_deadline(home: Pat
     real = spawnmod.start_in
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are()
 
         def start_in(agent, worktree, cmd=None):
@@ -2369,13 +2369,13 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
     con = db.connect()
     sent: list[str] = []
     seen: list[str] = []
-    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-            orcamod.available, orcamod.clear_context)
+    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+            termmod.available, termmod.clear_context)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.idle_now = lambda h: True
-        orcamod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True
+        termmod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
         table = sessions_are("backend")
         relaunch = relaunching_send(sent, table)
 
@@ -2384,7 +2384,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
                 # What the new session is handed as its system prompt.
                 seen.append(launch.context_for("backend"))
             return relaunch(handle, text, enter)
-        orcamod.send = send
+        termmod.send = send
 
         wt = home / "wt"
         wt.mkdir()
@@ -2442,8 +2442,8 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
         check("cache: the wake is recorded as a fresh start for that reason",
               con.execute("SELECT 1 FROM events WHERE kind = 'wake' AND payload LIKE '%cache_expired%'").fetchone())
     finally:
-        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-         orcamod.available, orcamod.clear_context) = real
+        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+         termmod.available, termmod.clear_context) = real
         con.close()
 
 
@@ -2478,13 +2478,13 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
-    real = (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-            orcamod.available, orcamod.clear_context, orcamod.relaunch,
-            orcamod.typeable_now, orcamod.resume_with)
+    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+            termmod.available, termmod.clear_context, termmod.relaunch,
+            termmod.typeable_now, termmod.resume_with)
     logs: list[str] = []
     try:
         orca_seen()
-        orcamod.relaunch = lambda handle, cmd, started=None: (False, "no session started")
+        termmod.relaunch = lambda handle, cmd, started=None: (False, "no session started")
         con.execute("DELETE FROM events WHERE agent = 'backend'")
         db.set_closed(con, "backend", "sess-7")
         support.something_waiting(con, "backend")
@@ -2500,10 +2500,10 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
         db.clear_closed(con, "backend")
         typed: list[str] = []
         sessions_are("backend")
-        orcamod.idle_now = lambda h: True
-        orcamod.typeable_now = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
-        orcamod.resume_with = lambda h, text: (typed.append(text), (True, ""))[1]
+        termmod.idle_now = lambda h: True
+        termmod.typeable_now = lambda h: True
+        termmod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
+        termmod.resume_with = lambda h, text: (typed.append(text), (True, ""))[1]
         ok2, _ = dmn_lifecycle.wake_agent(con, "backend", logs.append)
         check("cold wake: the next wake at a live session types nothing", not ok2 and not typed,
               str(typed))
@@ -2516,9 +2516,9 @@ def test_a_cold_wake_that_fails_leaves_no_handoff_behind(home: Path) -> None:
               and con.execute("SELECT 1 FROM events WHERE kind = 'handoff' AND payload LIKE '%degraded%'").fetchone(),
               str(logs))
     finally:
-        (orcamod.alive, orcamod.wait_idle, orcamod.idle_now, orcamod.send,
-         orcamod.available, orcamod.clear_context, orcamod.relaunch,
-         orcamod.typeable_now, orcamod.resume_with) = real
+        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
+         termmod.available, termmod.clear_context, termmod.relaunch,
+         termmod.typeable_now, termmod.resume_with) = real
         con.close()
 
 
@@ -2627,10 +2627,10 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
     complaints leaves the human in the loop it exists to take them out of."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    real = (termmod.available, termmod.live_terminals, obsmod.live_sessions)
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
 
         # 1. Its terminal is gone. Nothing may be delivered to it and nothing
         #    can be closed in it, and both already key on having a handle.
@@ -2639,7 +2639,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         #    without us" branch below does when it has its own confirmation.
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
         waiting.note("backend", "Bash", {"command": "rm x"})
-        orcamod.live_terminals = lambda: set()
+        termmod.live_terminals = lambda: set()
         obsmod.live_sessions = lambda: {}
         gone_actions: list[str] = []
         dmn_reconciler.sweep(con, lambda _m: None, gone_actions)
@@ -2667,7 +2667,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             "account": "alpha",
             "collected_at": int(time.time()) - status.STALE_AFTER_S - 60,
             "session_id": "sess-dead", "pct_5h": 20}))
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         obsmod.live_sessions = lambda: {}
         dmn_reconciler.sweep(con, lambda _m: None, [])
         check("sweep: a session with no process is recorded as closed",
@@ -2696,16 +2696,16 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                     (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
-        real_idle = orcamod.idle_now
+        real_idle = termmod.idle_now
         try:
             # One witness is not enough: the probe is the one we have twice
             # declined to trust on its own.
-            orcamod.idle_now = lambda h: False
+            termmod.idle_now = lambda h: False
             dmn_reconciler.sweep(con, lambda _m: None, [])
             check("sweep: a long turn is left alone even when our events are silent",
                   db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING)
 
-            orcamod.idle_now = lambda h: True
+            termmod.idle_now = lambda h: True
             dmn_reconciler.sweep(con, lambda _m: None, [])
             check("sweep: silent for too long and idle at its prompt is unstuck",
                   db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
@@ -2719,12 +2719,12 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             db.add_event(con, "backend", "Stop", {})
             con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                         (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
-            orcamod.screen_blocker = lambda h: orcamod.Blocker(orcamod.MODAL, "Bash command")
+            termmod.screen_blocker = lambda h: termmod.Blocker(termmod.MODAL, "Bash command")
             dmn_reconciler.sweep(con, lambda _m: None, [])
             check("sweep: a screen_blocker (a live prompt) is not unstuck even when idle_now says yes",
                   db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING,
                   str(dict(db.get_agent_state(con, "backend"))))
-            orcamod.screen_blocker = lambda h: None
+            termmod.screen_blocker = lambda h: None
             dmn_reconciler.sweep(con, lambda _m: None, [])
             check("sweep: once the prompt clears, the same stuck agent is unstuck",
                   db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
@@ -2745,14 +2745,14 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             # bounds the tick however many are stuck at once.
             agents.register("stucktwo")
             probed: list[str] = []
-            orcamod.idle_now = lambda h: (probed.append(h), True)[1]
+            termmod.idle_now = lambda h: (probed.append(h), True)[1]
             old_ts = int(time.time()) - dmn_states.STUCK_RUNNING_S - 60
             for name, handle in (("backend", "term_x"), ("stucktwo", "term_y")):
                 db.set_terminal(con, name, handle, "wt")
                 db.set_agent_state(con, name, dmn_states.RUNNING, detail="working")
                 db.add_event(con, name, "Stop", {})
             con.execute("UPDATE events SET ts = ?", (old_ts,))
-            orcamod.live_terminals = lambda: {"term_x", "term_y"}
+            termmod.live_terminals = lambda: {"term_x", "term_y"}
             obsmod.live_sessions = lambda: {"backend": 1, "stucktwo": 2}
 
             dmn_reconciler.sweep(con, lambda _m: None, [])
@@ -2767,24 +2767,24 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
                   str([db.get_agent_state(con, n)["state"]
                        for n in ("backend", "stucktwo")]))
         finally:
-            orcamod.idle_now = real_idle
+            termmod.idle_now = real_idle
 
         # None is not an empty set. Reading "I could not ask" as "there are
         # none" would tear the team down the first time Orca answered slowly.
-        orcamod.live_terminals = lambda: None
+        termmod.live_terminals = lambda: None
         obsmod.live_sessions = lambda: {}
         dmn_reconciler.sweep(con, lambda _m: None, [])
         check("sweep: an unanswered Orca changes nothing",
               db.get_agent_state(con, "backend")["terminal"] == "term_x"
               and db.get_agent_state(con, "backend")["closed_at"] is None)
 
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         obsmod.live_sessions = lambda: None
         dmn_reconciler.sweep(con, lambda _m: None, [])
         check("sweep: an unreadable process table changes nothing",
               db.get_agent_state(con, "backend")["closed_at"] is None)
     finally:
-        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        termmod.available, termmod.live_terminals, obsmod.live_sessions = real
         con.close()
 
     # The distinction has to survive into the implementation, not only the fake.
@@ -2793,14 +2793,14 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
     try:
         orcacli._run = lambda *a, **k: (False, "connection refused")
         check("sweep: Orca failing to answer reads as unknown, not as empty",
-              orcamod.live_terminals() is None, str(orcamod.live_terminals()))
+              termmod.live_terminals() is None, str(termmod.live_terminals()))
         orcacli._run = lambda *a, **k: (True, "not json at all")
         check("sweep: and so does an answer we cannot parse",
-              orcamod.live_terminals() is None)
+              termmod.live_terminals() is None)
         orcacli._run = lambda *a, **k: (True, json.dumps(
             {"result": {"terminals": [{"handle": "term_a"}, {"nohandle": 1}]}}))
         check("sweep: a real answer is the set of handles",
-              orcamod.live_terminals() == {"term_a"}, str(orcamod.live_terminals()))
+              termmod.live_terminals() == {"term_a"}, str(termmod.live_terminals()))
     finally:
         orcacli._run = real_run
 
@@ -2812,12 +2812,12 @@ def test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(home: Path) ->
     alone, not a second look at this one agent."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.live_terminals, obsmod.live_sessions)
+    real = (termmod.available, termmod.live_terminals, obsmod.live_sessions)
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="idle")
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: {"term_x"}
 
         obsmod.live_sessions = lambda: None
         dmn_reconciler.sweep(con, lambda _m: None, [])
@@ -2832,7 +2832,7 @@ def test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(home: Path) ->
               db.get_agent_state(con, "backend")["closed_at"] is not None,
               str(dict(db.get_agent_state(con, "backend"))))
     finally:
-        orcamod.available, orcamod.live_terminals, obsmod.live_sessions = real
+        termmod.available, termmod.live_terminals, obsmod.live_sessions = real
         con.close()
 
 
@@ -2875,16 +2875,16 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-            orcamod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S)
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
+            termmod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S)
     try:
         dmn_delivery.WAKE_SESSION_TIMEOUT_S = 1
         orca_seen()
         waits: list[int] = []
-        orcamod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
-        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
+        termmod.wait_idle = lambda h, timeout_ms=0: (waits.append(timeout_ms), True)[1]
+        termmod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         table = sessions_are()          # the launch types, and nothing comes up
-        orcamod.send = lambda h, text, enter=True: (sent.append(text) if text or not enter else None, (True, ""))[1]
+        termmod.send = lambda h, text, enter=True: (sent.append(text) if text or not enter else None, (True, ""))[1]
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-8")
         support.something_waiting(con, "backend")
@@ -2914,7 +2914,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
                 take_launched_prompt(text)
                 table.update({"backend": 4242})
             return True, ""
-        orcamod.send = send_launching
+        termmod.send = send_launching
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a resume that starts nothing falls back to a fresh start", ok, why)
@@ -2950,7 +2950,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         db.reset_counter(con, "backend", "wake_failures")
         table.clear()
         obsmod.live_sessions = lambda: dict(table)
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
             dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
@@ -2969,7 +2969,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # the stall said could not exist, and a stall the world has refuted is
         # ours to lift - leaving it would hide a live agent from every delivery.
         table["backend"] = 4242
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.live_terminals = lambda: {"term_x"}
         dmn_reconciler.sweep(con, lambda _m: None, [])
         row = db.get_agent_state(con, "backend")
         check("wake: a stall the world refutes is lifted by the sweep",
@@ -3011,7 +3011,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # And once it rolls over, the same call goes through.
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         ok, _ = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("wake: and it goes through once the window rolls over", ok, str(sent))
         table.clear()   # the session that wake started is closed again below
@@ -3023,7 +3023,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         sent.clear()
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared by hand")
         obsmod.live_sessions = lambda: dict(table)
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a launch that starts a session is a wake", ok, why)
@@ -3033,8 +3033,8 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
               any("something for you" in t for t in sent)
               and not any("Nothing was lost" in t for t in sent), str(sent))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
-         orcamod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
+        (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
+         termmod.resume_with, dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
         con.close()
 
 
@@ -3050,12 +3050,12 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
             dmn_delivery.WAKE_SESSION_TIMEOUT_S)
     try:
         dmn_delivery.WAKE_SESSION_TIMEOUT_S = 1
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True
         table = sessions_are()
 
         def refused_while_someone_else_launches(h, text, enter=True):
@@ -3065,7 +3065,7 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             if " launch " in text:
                 table["backend"] = 4300     # the hand-typed launch, no prompt file
             return True, ""
-        orcamod.send = refused_while_someone_else_launches
+        termmod.send = refused_while_someone_else_launches
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", None)
         support.something_waiting(con, "backend")
@@ -3101,18 +3101,18 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
         sent.clear()
         db.set_closed(con, "backend", "sess-abc")
         support.something_waiting(con, "backend")
-        realr = orcamod.relaunch
+        realr = termmod.relaunch
 
         def own_but_late(h, cmd, **kw):
             sent.append(cmd)
             take_launched_prompt(cmd)
             table["backend"] = 4301
             return False, "no session seen within the timeout"
-        orcamod.relaunch = own_but_late
+        termmod.relaunch = own_but_late
         try:
             ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
-            orcamod.relaunch = realr
+            termmod.relaunch = realr
         row = db.get_agent_state(con, "backend")
         check("wake: nothing more is typed into its own late session",
               not ok and len(sent) == 1, f"{why} {sent}")
@@ -3153,16 +3153,16 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             # a session has shown up in the gap since.
             return {"backend": 4321} if calls["n"] >= 3 else {}
         obsmod.live_sessions = appears_before_the_second_attempt
-        realr = orcamod.relaunch
+        realr = termmod.relaunch
 
         def refused_once(h, cmd, **kw):
             sent.append(cmd)
             return False, "refused"
-        orcamod.relaunch = refused_once
+        termmod.relaunch = refused_once
         try:
             ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
-            orcamod.relaunch = realr
+            termmod.relaunch = realr
         row = db.get_agent_state(con, "backend")
         check("wake: a session that appears before the fresh-start attempt stops that one too",
               not ok and len(sent) == 1, f"{why} {sent}")
@@ -3189,24 +3189,24 @@ def test_a_wake_does_not_claim_a_session_it_did_not_start(home: Path) -> None:
             # attempt's own session has shown up since.
             return {"backend": 4322} if calls["n"] >= 3 else {}
         obsmod.live_sessions = appears_after_its_own_attempt_took_the_prompt
-        realr = orcamod.relaunch
+        realr = termmod.relaunch
 
         def took_but_no_session_seen(h, cmd, **kw):
             sent.append(cmd)
             take_launched_prompt(cmd)
             return False, "no session seen within the timeout"
-        orcamod.relaunch = took_but_no_session_seen
+        termmod.relaunch = took_but_no_session_seen
         try:
             ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         finally:
-            orcamod.relaunch = realr
+            termmod.relaunch = realr
         row = db.get_agent_state(con, "backend")
         check("wake: a session that turns out to be its own attempt's is not called foreign",
               not ok and why == "no session seen within the timeout", f"{why} {sent}")
         check("wake: so it counts toward STALLED, like any other failed attempt",
               row["wake_failures"] == 1, str(dict(row)))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+        (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
          dmn_delivery.WAKE_SESSION_TIMEOUT_S) = real
         con.close()
 
@@ -3219,12 +3219,12 @@ def test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(home: Path)
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+    real = (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
             obsmod.live_sessions)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         obsmod.live_sessions = lambda: None
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-unknown")
@@ -3239,7 +3239,7 @@ def test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(home: Path)
         check("wake: and it is not counted against the streak",
               row["wake_failures"] == 0, str(dict(row)))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.wait_idle, orcamod.send,
+        (termmod.available, termmod.alive, termmod.wait_idle, termmod.send,
          obsmod.live_sessions) = real
         con.close()
 
@@ -3282,10 +3282,10 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available,)
+    real = (termmod.available,)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: None    # the bridge's stuck panel asks; this is about the wall
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: None    # the bridge's stuck panel asks; this is about the wall
         db.set_closed(con, "backend", "sess-wall")
         support.something_waiting(con, "backend")
         # A screen only shows the wall next to a wait that is real: queued
@@ -3339,7 +3339,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
               and when not in team_out and when not in wide,
               "still walled somewhere after the window rolled over")
     finally:
-        (orcamod.available,) = real
+        (termmod.available,) = real
         con.close()
 
 
@@ -3430,7 +3430,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
     agents.register("keeper")
     credentialed(home, "alpha", "beta")
     con = db.connect()
-    real = (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+    real = (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
            obsmod.live_sessions)
     launched: list[str] = []
     try:
@@ -3446,9 +3446,9 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
         write_status(home, "alpha", pct_5h=10, pct_7d=100,
                      reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 4 * 86400)
         write_status(home, "beta", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
-        orcamod.available = lambda: True
-        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
-        orcamod.resume_with = lambda h, text: (True, "handed back")
+        termmod.available = lambda: True
+        termmod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        termmod.resume_with = lambda h, text: (True, "handed back")
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         ok, why = dmn_lifecycle._wake_agent(con, "keeper", lambda _m: None)
@@ -3462,7 +3462,7 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
               moved and '"from": "alpha"' in moved[-1]["payload"]
               and '"to": "beta"' in moved[-1]["payload"], str(moved))
     finally:
-        (orcamod.available, orcamod.relaunch, orcamod.resume_with, dmn_delivery.wait_for_session,
+        (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
         obsmod.live_sessions) = real
         con.close()
 
@@ -3478,8 +3478,8 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
     credentialed(home, "alpha", "beta")
     write_status(home, "beta", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.screen_text,
-            orcamod.relaunch, orcamod.resume_with, orcamod.send, orcamod.close_session,
+    real = (termmod.available, termmod.alive, termmod.idle_now, termmod.screen_text,
+            termmod.relaunch, termmod.resume_with, termmod.send, termmod.close_session,
             dmn_delivery.wait_for_session, dmn_delivery.session_present, dmn_handoff._record_handoff)
     screen = {"text": "some work\n\n\u23fa Login expired \u00b7 Please run /login\n\n> "}
     launched: list[str] = []
@@ -3488,12 +3488,12 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         orca_idle()
         orca_seen()
         sessions_are("backend")
-        orcamod.screen_text = lambda h: screen["text"]
-        orcamod.close_session = exit_ends_session("backend")
-        orcamod.wait_idle = lambda h, timeout_ms=0: True
-        orcamod.send = lambda h, text, enter=True: (True, "")
-        orcamod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
-        orcamod.resume_with = lambda h, text: (True, "handed back")
+        termmod.screen_text = lambda h: screen["text"]
+        termmod.close_session = exit_ends_session("backend")
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.send = lambda h, text, enter=True: (True, "")
+        termmod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        termmod.resume_with = lambda h, text: (True, "handed back")
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         dmn_delivery.session_present = lambda a: True
         dmn_handoff._record_handoff = lambda con_, agent, hid, log_: True
@@ -3571,8 +3571,8 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         finally:
             accounts.time.time = real_time
     finally:
-        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.screen_text,
-         orcamod.relaunch, orcamod.resume_with, orcamod.send, orcamod.close_session,
+        (termmod.available, termmod.alive, termmod.idle_now, termmod.screen_text,
+         termmod.relaunch, termmod.resume_with, termmod.send, termmod.close_session,
          dmn_delivery.wait_for_session, dmn_delivery.session_present, dmn_handoff._record_handoff) = real
         con.close()
 
@@ -3605,11 +3605,11 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.send)
+    real = (termmod.available, termmod.alive, termmod.send)
     try:
         orca_seen()
-        orcamod.wait_idle = lambda h, timeout_ms=0: True     # the relaunch waits for the shell
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.wait_idle = lambda h, timeout_ms=0: True     # the relaunch waits for the shell
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         sessions_are()
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_closed(con, "backend", "sess-2")
@@ -3630,7 +3630,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
         table = sessions_are()
-        orcamod.send = relaunching_send(sent, table)
+        termmod.send = relaunching_send(sent, table)
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("park: once it rolls over the park is woken and the deadline cleared",
@@ -3647,7 +3647,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         hooked = db.connect()
         table = sessions_are()
         launching = relaunching_send(sent, table)
-        orcamod.send = lambda h, text, enter=True: (
+        termmod.send = lambda h, text, enter=True: (
             evmod._mark_activity(hooked, "backend", "UserPromptSubmit")
             if " launch " in text else None, launching(h, text, enter))[1]
         try:
@@ -3658,7 +3658,7 @@ def test_a_park_that_cannot_be_woken_keeps_its_deadline(home: Path) -> None:
         check("park: an agent that has already answered its prompt stays RUNNING",
               row["state"] == dmn_states.RUNNING, str(dict(row)))
     finally:
-        orcamod.available, orcamod.alive, orcamod.send = real
+        termmod.available, termmod.alive, termmod.send = real
         con.close()
 
 
@@ -3680,10 +3680,10 @@ def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     reseal(agent_file)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive)
+    real = (termmod.available, termmod.alive)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
         write_status(home, "alpha", pct_5h=5, pct_7d=10, reset_5h=int(time.time()) + 1800)
         for name in ("parkreal", "parkctl"):
             db.set_terminal(con, name, f"term_{name}", "wt")
@@ -3704,7 +3704,7 @@ def test_a_parked_agent_is_unparked_by_its_own_context_limit(home: Path) -> None
               "reading, since its own PARKED-branch call site honoured the "
               "per-agent limit too", ctl_row["state"] != dmn_states.PARKED, dict(ctl_row))
     finally:
-        orcamod.available, orcamod.alive = real
+        termmod.available, termmod.alive = real
         con.close()
 
 
@@ -3729,21 +3729,21 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
     reseal(agent_file)
     con = db.connect()
     cleared = {"term_keeper": 0, "term_ctl": 0}
-    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+    real = (termmod.available, termmod.alive, termmod.idle_now, termmod.clear_context,
             dmn_delivery.session_present)
     try:
         db.set_terminal(con, "keeper", "term_keeper", "wt")
         db.set_terminal(con, "keeper_ctl", "term_ctl", "wt")
         db.set_account(con, "keeper", "alpha")
         db.set_account(con, "keeper_ctl", "alpha")
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h, **kw: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.idle_now = lambda h, **kw: True
 
         def clear(h, **kw):
             cleared[h] += 1
             return True, "cleared"
-        orcamod.clear_context = clear
+        termmod.clear_context = clear
         dmn_delivery.session_present = lambda a: True
 
         limit_real = status.effective_context_limit(agents.read("keeper"), "claude-sonnet-5")
@@ -3787,8 +3787,8 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
         check("control: it never folds, because the gate the daemon actually uses "
               "never opens for it", cleared["term_ctl"] == 0, cleared)
     finally:
-        (orcamod.available, orcamod.alive, orcamod.idle_now,
-         orcamod.clear_context, dmn_delivery.session_present) = real
+        (termmod.available, termmod.alive, termmod.idle_now,
+         termmod.clear_context, dmn_delivery.session_present) = real
         con.close()
 
 
@@ -3829,19 +3829,19 @@ def test_the_post_lock_idle_reread_actually_gates(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     typed: list[str] = []
-    real = (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
-            orcamod.clear_context)
+    real = (termmod.available, termmod.alive, termmod.typeable_now, termmod.send,
+            termmod.clear_context)
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.send = lambda h, text, enter=True: (typed.append(text), (True, "sent"))[1]
-        orcamod.clear_context = lambda h, **kw: (typed.append("/clear"), (True, "context cleared"))[1]
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.send = lambda h, text, enter=True: (typed.append(text), (True, "sent"))[1]
+        termmod.clear_context = lambda h, **kw: (typed.append("/clear"), (True, "context cleared"))[1]
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
         db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
 
         calls = [True, False]
-        orcamod.typeable_now = lambda h: calls.pop(0) if calls else False
+        termmod.typeable_now = lambda h: calls.pop(0) if calls else False
         ok = dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         check("reread: deliver_queued reads idle before the lock but busy "
               "after, and types nothing", not ok and not typed, typed)
@@ -3856,8 +3856,8 @@ def test_the_post_lock_idle_reread_actually_gates(home: Path) -> None:
         check("reread: and reports deferred (True), not degraded (False)",
               fired is True, fired)
     finally:
-        (orcamod.available, orcamod.alive, orcamod.typeable_now, orcamod.send,
-         orcamod.clear_context) = real
+        (termmod.available, termmod.alive, termmod.typeable_now, termmod.send,
+         termmod.clear_context) = real
         con.close()
 
 
@@ -3879,22 +3879,22 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     agent_file.write_text(agent_file.read_text() + "context_tokens: 10000000\n")
     reseal(agent_file)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.clear_context,
+    real = (termmod.available, termmod.alive, termmod.idle_now, termmod.clear_context,
             dmn_delivery.session_present)
     try:
         db.set_terminal(con, "ctxreal", "term_real", "wt")
         db.set_terminal(con, "ctxctl", "term_ctl", "wt")
         db.set_account(con, "ctxreal", "alpha")
         db.set_account(con, "ctxctl", "alpha")
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.idle_now = lambda h, **kw: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.idle_now = lambda h, **kw: True
         cleared = {"term_real": 0, "term_ctl": 0}
 
         def clear(h, **kw):
             cleared[h] += 1
             return True, "cleared"
-        orcamod.clear_context = clear
+        termmod.clear_context = clear
         dmn_delivery.session_present = lambda a: True
         write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 1800)
         for name in ("ctxreal", "ctxctl"):
@@ -3932,8 +3932,8 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
         check("bridge: does not for the overridden agent, same reading",
               "context" not in ctl_row, ctl_row)
     finally:
-        (orcamod.available, orcamod.alive, orcamod.idle_now,
-         orcamod.clear_context, dmn_delivery.session_present) = real
+        (termmod.available, termmod.alive, termmod.idle_now,
+         termmod.clear_context, dmn_delivery.session_present) = real
         con.close()
 
 
@@ -3996,11 +3996,11 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     credentialed(home, "alpha")
     con = db.connect()
     typed: list[tuple[str, str]] = []
-    real = (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
+    real = (termmod.available, termmod.alive, termmod.idle_now, termmod.send,
             spawnmod.spawn, dmn_delivery.wait_for_session)
     try:
         orca_idle()
-        orcamod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
+        termmod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
@@ -4053,7 +4053,7 @@ edges:
               oke and not typed and eid in [m["id"] for m in actions.messages(con)],
               f"{saide} {typed}"[:200])
     finally:
-        (orcamod.available, orcamod.alive, orcamod.idle_now, orcamod.send,
+        (termmod.available, termmod.alive, termmod.idle_now, termmod.send,
          spawnmod.spawn, dmn_delivery.wait_for_session) = real
         con.close()
 
@@ -4069,10 +4069,10 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
     credentialed(home, "alpha")
     con = db.connect()
     started: list = []
-    real = (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
+    real = (termmod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
     real_wake = dmn_lifecycle.wake_agent
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
@@ -4150,7 +4150,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         check("dispatch: and not once per tick for as long as it lasts",
               len([m for m in logged if "could not be started" in m]) == 1, str(logged))
     finally:
-        (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
+        (termmod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
         dmn_lifecycle.wake_agent = real_wake
         dmn_evaluate._SAID.clear()
         con.close()
@@ -4165,9 +4165,9 @@ def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
     credentialed(home, "alpha")
     con = db.connect()
     started: list = []
-    real = (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
+    real = (termmod.available, spawnmod.spawn, dmn_delivery.wait_for_session)
     try:
-        orcamod.available = lambda: True
+        termmod.available = lambda: True
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
@@ -4207,7 +4207,7 @@ def test_a_due_park_with_no_terminal_is_started_not_held(home: Path) -> None:
         check("tick: a closed agent with no terminal and only a pending message is started for it",
               started == ["marina"], str(started))
     finally:
-        (orcamod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
+        (termmod.available, spawnmod.spawn, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -4279,11 +4279,11 @@ def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(h
     credentialed(home, "alpha")
     con = db.connect()
     order: list = []
-    real = (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+    real = (termmod.available, termmod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
             dmn_lifecycle.wake_agent, dmn_evaluate.tick)
     try:
-        orcamod.available = lambda: True
-        orcamod.live_terminals = lambda: {"term_x"}
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: {"term_x"}
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
         def fake_spawn(agent, repo, base="main"):
@@ -4346,7 +4346,7 @@ def test_the_daemon_starts_every_agent_with_waiting_work_before_its_first_tick(h
               ("start", "marina") in order and order.index(("start", "marina")) < order.index("tick"),
               str(order))
     finally:
-        (orcamod.available, orcamod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
+        (termmod.available, termmod.live_terminals, spawnmod.spawn, dmn_delivery.wait_for_session,
          dmn_lifecycle.wake_agent, dmn_evaluate.tick) = real
         dmn_evaluate._SAID.clear()
 
@@ -4362,8 +4362,8 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
     con = db.connect()
     cleared, sent = [], []
     bg = ["1 shell"]
-    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.available,
-            orcamod.send, orcamod.background_work, dmn_handoff._record_handoff)
+    real = (termmod.clear_context, termmod.alive, termmod.idle_now, termmod.available,
+            termmod.send, termmod.background_work, dmn_handoff._record_handoff)
     t = triggers.Trigger(True, "context", "context 206,000 >= 200,000")
 
     def fresh() -> None:
@@ -4378,9 +4378,9 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
 
     try:
         orca_idle()
-        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
-        orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        orcamod.background_work = lambda h: bg[0]
+        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
+        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
+        termmod.background_work = lambda h: bg[0]
         dmn_handoff._record_handoff = lambda con_, agent, hid, log_: True     # the record itself is not under test
         sessions_are("backend")
         db.set_terminal(con, "backend", "term_x", "wt")
@@ -4459,7 +4459,7 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
         dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         db.set_cursor(con, "clear_owed:backend", now - dmn_delivery.CLEAR_WAIT_S - 1)
         tries = []
-        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (
             tries.append(h), (True, "context cleared") if len(tries) > 2 else (False, "agent is mid-turn; not clearing"))[1]
         for _ in range(3):
             db.clear_cursor(con, "typed_at:backend")
@@ -4468,7 +4468,7 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
               len(tries) == 3 and (db.get_handoff(con, "backend") or "").count("Cut off by the clear") == 1
               and db.get_agent_state(con, "backend")["state"] == dmn_states.PARKED,
               f"{len(tries)} {db.get_handoff(con, 'backend')}")
-        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
+        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (cleared.append(h), (True, "context cleared"))[1]
 
         check("owed (b)-forced: and the handoff record says what was cut off",
               "1 shell" in (db.get_handoff(con, "backend") or "") and "gone" in (db.get_handoff(con, "backend") or ""),
@@ -4482,8 +4482,8 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
               not dmn_handoff.settle_owed_clear(con, "backend", lambda _m: None)
               and not dmn_delivery.clear_owed(con, "backend"))
     finally:
-        (orcamod.clear_context, orcamod.alive, orcamod.idle_now, orcamod.available,
-         orcamod.send, orcamod.background_work, dmn_handoff._record_handoff) = real
+        (termmod.clear_context, termmod.alive, termmod.idle_now, termmod.available,
+         termmod.send, termmod.background_work, dmn_handoff._record_handoff) = real
         con.close()
 
 
@@ -4666,11 +4666,11 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
     con = db.connect()
     agents.register("mover")
     write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
-    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.idle_now, dmn_delivery.wait_for_session)
+    real = (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+            termmod.idle_now, dmn_delivery.wait_for_session)
     try:
         orca_idle()
-        orcamod.close_session = exit_ends_session("mover")
+        termmod.close_session = exit_ends_session("mover")
         sessions_are("mover")
         db.set_terminal(con, "mover", "term_x", "wt")
         db.set_account(con, "mover", "alpha")
@@ -4687,7 +4687,7 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
             _SESSION_TABLE["t"]["mover"] = 4242
             evmod._mark_activity(con, "mover", "UserPromptSubmit")
             return False, "no session seen within the timeout"
-        orcamod.relaunch = relaunch_fails_but_late
+        termmod.relaunch = relaunch_fails_but_late
 
         write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 4 * 3600)
         db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
@@ -4700,8 +4700,8 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
         check("stalled: the row still says closed - nothing here claims a live session",
               bool(row["closed_at"]) and row["account"] == "alpha", str(dict(row)))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.idle_now, dmn_delivery.wait_for_session) = real
+        (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+         termmod.idle_now, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -4823,10 +4823,10 @@ def test_handoff_reclaims_context(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     cleared = []
-    real_clear, real_alive, real_idle = orcamod.clear_context, orcamod.alive, orcamod.idle_now
+    real_clear, real_alive, real_idle = termmod.clear_context, termmod.alive, termmod.idle_now
     try:
         orca_idle()
-        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (
+        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (
             cleared.append(h), (True, "context cleared"))[1]
         # The agent is running: a handoff is for a session that has a context
         # to reclaim, and /clear at a shell prompt reclaims nothing.
@@ -4847,7 +4847,7 @@ def test_handoff_reclaims_context(home: Path) -> None:
         check("handoff: the terminal survives the park", row["terminal"] == "term_x")
         # A busy agent must be left alone: folding would miss the work in
         # flight and clearing would throw it away.
-        orcamod.idle_now = lambda h: False
+        termmod.idle_now = lambda h: False
         cleared.clear()
         before = len(db.in_flight_handoffs(con))
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="mid-turn")
@@ -4858,8 +4858,8 @@ def test_handoff_reclaims_context(home: Path) -> None:
         check("handoff: the agent keeps running",
               db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING)
     finally:
-        orcamod.clear_context, orcamod.alive = real_clear, real_alive
-        orcamod.idle_now = real_idle
+        termmod.clear_context, termmod.alive = real_clear, real_alive
+        termmod.idle_now = real_idle
         con.close()
 
 
@@ -4878,8 +4878,8 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
     typed: list[str] = []
-    real = (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
-           orcamod.resume_with, orcamod.typeable_now)
+    real = (termmod.clear_context, termmod.alive, termmod.idle_now,
+           termmod.resume_with, termmod.typeable_now)
     try:
         # A recorded (non-assumed) reading on an account with room to spare -
         # the case the auditor hit sitting PARKED 09:25-11:30 at 19%.
@@ -4887,9 +4887,9 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         write_status(home, "alpha", pct_5h=19, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 9000)
         orca_idle()
-        orcamod.typeable_now = lambda h: True
-        orcamod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        orcamod.resume_with = lambda h, text: (typed.append(text), (True, "typed"))[1]
+        termmod.typeable_now = lambda h: True
+        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
+        termmod.resume_with = lambda h, text: (typed.append(text), (True, "typed"))[1]
         readable_agent(con, home, "backend")
         # Otherwise the wake reads this as a launch-recipe change and takes
         # the closed-agent relaunch path instead of typing at the live one.
@@ -4917,8 +4917,8 @@ def test_a_context_handoff_wakes_at_once_with_its_record(home: Path) -> None:
         check("context handoff: the record is spent, not replayed on the next wake",
               db.get_handoff(con, "backend") is None)
     finally:
-        (orcamod.clear_context, orcamod.alive, orcamod.idle_now,
-         orcamod.resume_with, orcamod.typeable_now) = real
+        (termmod.clear_context, termmod.alive, termmod.idle_now,
+         termmod.resume_with, termmod.typeable_now) = real
         con.close()
 
 
@@ -4950,10 +4950,10 @@ def test_wake_injects_handoff(home: Path) -> None:
     _daemon_home(home, 50)
     con = db.connect()
     sent = []
-    real_resume, real_alive = orcamod.resume_with, orcamod.alive
+    real_resume, real_alive = termmod.resume_with, termmod.alive
     try:
         orca_idle()
-        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
+        termmod.resume_with = lambda h, text: (sent.append(text), (True, "handoff injected"))[1]
         # Cleared, not closed - the session is still there to be handed its
         # own record back.
         sessions_are("backend")
@@ -4985,7 +4985,7 @@ def test_wake_injects_handoff(home: Path) -> None:
               and "finish the thing" in starts[-1]["text"] and starts[-1]["prompt"] == sent[-1],
               str([dict(r) for r in starts]))
     finally:
-        orcamod.resume_with, orcamod.alive = real_resume, real_alive
+        termmod.resume_with, termmod.alive = real_resume, real_alive
         con.close()
 
 
@@ -5002,15 +5002,15 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+            termmod.resume_with, dmn_delivery.wait_for_session)
     sent: list[str] = []
     closed: list[str] = []
     launched: list[str] = []
     table = sessions_are("backend")
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
@@ -5026,10 +5026,10 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
 
-        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
-        orcamod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
+        termmod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        termmod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
                                                  (True, "session ended"))[2]
-        orcamod.relaunch = lambda h, cmd, started=None: (
+        termmod.relaunch = lambda h, cmd, started=None: (
             launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
@@ -5047,8 +5047,8 @@ def test_a_drifted_launch_relaunches_instead_of_waking_in_place(home: Path) -> N
         check("wake: the row is no longer marked closed once it is running again",
               row["closed_at"] is None, str(dict(row)))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.resume_with, dmn_delivery.wait_for_session) = real
+        (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+         termmod.resume_with, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -5062,15 +5062,15 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
     """
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-            orcamod.resume_with, dmn_delivery.wait_for_session)
+    real = (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+            termmod.resume_with, dmn_delivery.wait_for_session)
     sent: list[str] = []
     closed: list[str] = []
     launched: list[str] = []
     table = sessions_are("backend")
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
         db.set_terminal(con, "backend", "term_x", "wt")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
@@ -5087,10 +5087,10 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
         check("wake: the row starts with nothing recorded",
               db.get_agent_state(con, "backend")["launch_fingerprint"] is None)
 
-        orcamod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
-        orcamod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
+        termmod.resume_with = lambda h, text: (sent.append(text), (True, "typed"))[1]
+        termmod.close_session = lambda h, **kw: (closed.append(h), table.pop("backend", None),
                                                  (True, "session ended"))[2]
-        orcamod.relaunch = lambda h, cmd, started=None: (
+        termmod.relaunch = lambda h, cmd, started=None: (
             launched.append(cmd), table.update({"backend": 4242}), (True, "relaunched"))[2]
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
@@ -5101,8 +5101,8 @@ def test_a_parked_row_with_no_fingerprint_also_relaunches(home: Path) -> None:
               launched and "--resume sess-old" in launched[0], str(launched))
         check("wake: the relaunch itself is reported as a success", ok, why)
     finally:
-        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.relaunch,
-         orcamod.resume_with, dmn_delivery.wait_for_session) = real
+        (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
+         termmod.resume_with, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -5146,13 +5146,13 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
     falls through to typing in place, and the log has to say that happened."""
     _daemon_home(home, 20)
     con = db.connect()
-    real = (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+    real = (termmod.available, termmod.alive, termmod.close_session, termmod.resume_with,
             dmn_delivery.wait_for_session)
     table = sessions_are("backend")
     try:
-        orcamod.available = lambda: True
-        orcamod.alive = lambda h: True
-        orcamod.wait_idle = lambda h, timeout_ms=0: True     # typeable_now asks whether it is idle
+        termmod.available = lambda: True
+        termmod.alive = lambda h: True
+        termmod.wait_idle = lambda h, timeout_ms=0: True     # typeable_now asks whether it is idle
         db.set_terminal(con, "backend", "term_x", "wt")
         write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5,
                      reset_5h=int(time.time()) + 1800)
@@ -5160,7 +5160,7 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         db.set_launch_fingerprint(con, "backend", "stale-fingerprint")
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
-        orcamod.resume_with = lambda h, text: (True, "typed")
+        termmod.resume_with = lambda h, text: (True, "typed")
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
         f = paths.agent_status_file("backend")
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -5184,13 +5184,13 @@ def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
                            detail="usage; wakes soon")
         support.something_waiting(con, "backend")
-        orcamod.close_session = lambda h, **kw: (False, "would not close")
+        termmod.close_session = lambda h, **kw: (False, "would not close")
         logged.clear()
         dmn_lifecycle.wake_agent(con, "backend", logged.append)
         check("drift wake: a session that will not end is logged, not silent",
               any("would not end" in m and "in place" in m for m in logged), str(logged))
     finally:
-        (orcamod.available, orcamod.alive, orcamod.close_session, orcamod.resume_with,
+        (termmod.available, termmod.alive, termmod.close_session, termmod.resume_with,
          dmn_delivery.wait_for_session) = real
         con.close()
 

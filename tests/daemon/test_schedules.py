@@ -24,13 +24,13 @@ def _world(home: Path) -> list:
     """backend can be typed at: a terminal, a live session, a clear screen."""
     _daemon_home(home, 20)
     sessions_are("backend")
-    orcamod.available = lambda: True
-    orcamod.alive = lambda h: True
-    orcamod.screen_blocker = lambda h: None
-    orcamod.typeable_now = lambda h: False
-    orcamod.live_terminals = lambda: {"term_x"}
+    termmod.available = lambda: True
+    termmod.alive = lambda h: True
+    termmod.screen_blocker = lambda h: None
+    termmod.typeable_now = lambda h: False
+    termmod.live_terminals = lambda: {"term_x"}
     sent: list[tuple[str, str]] = []
-    orcamod.send = lambda handle, text, enter=True: (sent.append((handle, text)), (True, ""))[1]
+    termmod.send = lambda handle, text, enter=True: (sent.append((handle, text)), (True, ""))[1]
     return sent
 
 
@@ -140,7 +140,7 @@ def test_a_due_schedule_is_typed_once_and_waits_for_a_running_agent(home: Path) 
 
 def test_a_schedule_never_piles_up_behind_an_unread_message(home: Path) -> None:
     sent = _world(home)
-    orcamod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+    termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
     con = db.connect()
     try:
         _give("backend", [{"cron": "*/30 * * * *", "message": "patrol"}])
@@ -152,7 +152,7 @@ def test_a_schedule_never_piles_up_behind_an_unread_message(home: Path) -> None:
         rows = con.execute("SELECT * FROM requests WHERE requester = 'schedule'").fetchall()
         check("pile-up: a blocked screen holds the first, and no second is written behind it",
               sent == [] and len(rows) == 1 and not rows[0]["delivered_at"], str((sent, [dict(r) for r in rows])))
-        orcamod.screen_blocker = lambda h: None
+        termmod.screen_blocker = lambda h: None
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("pile-up: it is typed once the screen clears", len(sent) == 1, str(sent))
     finally:

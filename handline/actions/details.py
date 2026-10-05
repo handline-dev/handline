@@ -11,7 +11,7 @@ from ..team import agents
 from ..usage import collect
 from .. import db
 from ..usage import load as loadmod
-from ..session import idle_close, orca
+from ..session import idle_close, term
 from ..infra import paths
 from ..team import spawn as spawnmod
 from ..usage import cycle, status
@@ -381,7 +381,7 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> tuple[bool, str
     drv = vendors.for_account(acct)
     cmd = (f"cd {shlex.quote(worktree)} && {drv.config_dir_env()}="
            f"{shlex.quote(str(vendors.config_dir(acct)))} {shlex.quote(drv.binary() or drv.name)}")
-    handle = orca.create_terminal(cmd, title=f"trust-{acct}-{agent}")
+    handle = term.create_terminal(cmd, title=f"trust-{acct}-{agent}")
     if not handle:
         return False, f"{agent} ({worktree}): could not start a session to trust it"
     try:
@@ -389,22 +389,22 @@ def _trust_one_worktree(acct: str, agent: str, worktree: str) -> tuple[bool, str
         # and this one has none yet, so a bounded poll for the one screen
         # this cares about instead.
         deadline = time.time() + 20
-        while time.time() < deadline and not orca.trust_prompt_showing(handle):
-            if orca.idle_now(handle):
+        while time.time() < deadline and not term.trust_prompt_showing(handle):
+            if term.idle_now(handle):
                 break
             time.sleep(1)
-        if orca.trust_prompt_showing(handle):
-            ok, why = orca.confirm_trust(handle)
+        if term.trust_prompt_showing(handle):
+            ok, why = term.confirm_trust(handle)
             if not ok:
                 return False, f"{agent} ({worktree}): {why}"
-            orca.wait_idle(handle)
+            term.wait_idle(handle)
             result = f"{agent} ({worktree}): trusted"
         else:
             result = f"{agent} ({worktree}): no trust prompt appeared - already trusted?"
-        orca.send(handle, "/exit")
+        term.send(handle, "/exit")
         return True, result
     finally:
-        orca.close_terminal(handle)
+        term.close_terminal(handle)
 
 
 _SAMPLES: dict = {"db": None, "floor": None, "stamp": None, "rows": [], "ts": []}
