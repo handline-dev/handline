@@ -5234,6 +5234,31 @@ def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -
     check("bang: an agent's session is refused", refused)
 
 
+def test_a_shell_output_file_has_no_escape_codes_and_the_folder_keeps_the_newest() -> None:
+    from handline.infra import paths
+    _home("bangfile")
+    with tempfile.TemporaryDirectory() as d:
+        folder = paths.home() / "shell"
+        folder.mkdir(parents=True, exist_ok=True)
+        for i in range(actions.shell.KEEP_FILES + 7):
+            f = folder / f"old{i:03}.txt"
+            f.write_text("x")
+            os.utime(f, (1000 + i, 1000 + i))
+        run = actions.ShellRun(r"printf 'a\033[31mred\033[0m\033]0;title\007\nb\rc\n'", d)
+        for _ in range(100):
+            if not run.running:
+                break
+            time.sleep(0.05)
+        saved = run.save_output()
+        text = saved.read_text()
+        check("bang file: escape codes and a bare return are not in the file", "\x1b" not in text and "\r" not in text
+              and "\x07" not in text and text.startswith("ared"), repr(text))
+        left = sorted(f.name for f in folder.glob("*.txt"))
+        check("bang file: one save leaves KEEP_FILES files, the newest of them",
+              len(left) == actions.shell.KEEP_FILES and saved.name in left and "old000.txt" not in left and "old007.txt" not in left
+              and "old008.txt" in left, str(len(left)))
+
+
 def test_a_card_mounted_on_a_finished_run_sets_its_timer_first_and_sends_once() -> None:
     from handline.ui.components.shell_card import ShellCard
     _home("bangdone")
@@ -5308,6 +5333,15 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
               len(rows) == before + 1 and "echo hello" in rows[-1][0] and "/shell/" in rows[-1][0], str(rows))
         check("bang card: a finished command offers Send to agent, not Stop",
               cards[0]._send.display and not cards[0]._stop.display)
+        if "BANG_SHOT_SENT" in os.environ:      # the fixture has no daemon, so it denies the send: show it as the queued one it is for real
+            con = db.connect()
+            con.execute("UPDATE requests SET state='queued' WHERE state='denied'")
+            con.commit()
+            con.close()
+            page.refresh_conversation(force=True)
+            await until(pilot, lambda: any("read it there" in str(m._text.render()) for m in page.query(cp_ChatMessage)))
+            await pilot.pause(0.5)
+            Path(os.environ["BANG_SHOT_SENT"]).write_text(app.export_screenshot())
         box.text = "!sleep 30"
         await pilot.press("enter")
         await until(pilot, lambda: len(page.shells) == 2)
@@ -5537,6 +5571,7 @@ async def _run_all() -> None:
     await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
     await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
     test_a_late_answer_still_counts_as_new_everywhere()
+    test_a_shell_output_file_has_no_escape_codes_and_the_folder_keeps_the_newest()
     test_a_card_mounted_on_a_finished_run_sets_its_timer_first_and_sends_once()
 
 

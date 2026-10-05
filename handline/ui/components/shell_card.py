@@ -118,6 +118,7 @@ class ShellCard(Vertical):
             self._timer.stop()
             self.query_one(".sh_out").scroll_end(animate=False)
             if not self.run.sent and not self.run.stopped:      # the result goes to the agent on its own, once
+                self.run.sent = True        # here, not when the page handles it: a rebuild in between would send twice
                 self.post_message(self.Send(self.run))
 
     def stop(self) -> None:

@@ -114,7 +114,7 @@ class ShellRun:
             self._file = folder / f"{int(self.started)}-{os.getpid()}-{id(self) % 10000}.txt"
         lines, dropped, _ = self.snapshot()
         kept = ([f"... {dropped} earlier lines left out"] if dropped else []) + lines
-        self._file.write_text("".join(f"{safe}\n" for ln in kept for safe in textsafe.drawable(ln)))     # no escape codes for the agent to read
+        self._file.write_text("".join(f"{safe}\n" for ln in kept for safe in textsafe.drawable(ln, tabs=None)))     # no escape codes for the agent to read
         return self._file
 
     def as_message(self) -> str:
