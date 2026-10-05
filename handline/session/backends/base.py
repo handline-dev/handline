@@ -83,6 +83,9 @@ class Backend:
     # Whether the host keeps labels and parent links on worktrees that `ocp rename` and a worktree move
     # must carry over, and answers the worktree methods about them.
     supports_labels = False
+    # Whether the host installs Claude hooks into ~/.claude/settings.json that `StateHooks` mirrors. A host
+    # without them has the agent's own `hl hook` entries as its witness, and the doctor does not look.
+    supports_agent_hooks = False
 
     # -- the host itself
     def available(self) -> bool:
@@ -96,6 +99,23 @@ class Backend:
     def own_terminal(self) -> tuple[str | None, str | None]:
         """(handle, worktree id) of the terminal this process runs in, when the host started it."""
         raise NotImplementedError
+
+    def manual(self, op: str, **a: str) -> str:
+        """The host's own words for what to do by hand when ocp could not: `terminal` (`worktree`,
+        `command`), `start` (`wt` or None, `repo`, `name`, `base_ref`, `command`: its steps, one per
+        line), `label` (`path`, `label`) and `parent` (`child`, `path`)."""
+        if op == "terminal":
+            return f'{self.name}: a terminal in {a["worktree"]} running "{a["command"]}"'
+        if op == "start":
+            if a["wt"]:
+                return f'{self.name}: a terminal there running "{a["command"]}"'
+            return (f'{self.name}: a worktree of {a["repo"]} named {a["name"]} from {a["base_ref"]}, '
+                    f'then a terminal in it running "{a["command"]}"')
+        if op == "label":
+            return f'{self.name}: label {a["path"]} {a["label"]}'
+        if op == "parent":
+            return f'{self.name}: make {a["child"]} a child of {a["path"]}'
+        raise ValueError(f"no manual for {op!r}")
 
     # -- terminals
     def create_terminal(self, command: str, cwd: str | None = None,

@@ -122,7 +122,7 @@ def _orca_unreadable(path: Path) -> bool:
 
 
 def _reparent_cmd(child: str, dest: Path) -> str:
-    return f"`orca worktree set --worktree id:{child} --parent-worktree path:{dest}`"
+    return f"`{orca.manual('parent', child=child, path=str(dest))}`"
 
 
 def _relabel(old: WorktreeInfo | None, dest: Path, agent: str) -> str:
@@ -137,7 +137,7 @@ def _relabel(old: WorktreeInfo | None, dest: Path, agent: str) -> str:
         time.sleep(1)
     else:
         said = (f" Orca has not picked up {dest} yet, so its label is not set: "
-                f"`orca worktree set --worktree path:{dest} --display-name {agent}`.")
+                f"`{orca.manual('label', path=str(dest), label=agent)}`.")
         for child in children:
             said += f" Its child {child} is still unparented: {_reparent_cmd(child, dest)}."
         return said
@@ -147,7 +147,7 @@ def _relabel(old: WorktreeInfo | None, dest: Path, agent: str) -> str:
                                   status=old.status if old else None)
     if not took:
         said = (f" Orca would not set the label ({out.strip()[:160]}). "
-                f"`orca worktree set --worktree path:{dest} --display-name {agent}`.")
+                f"`{orca.manual('label', path=str(dest), label=agent)}`.")
     # Orca drops the parent link of every child of a moved worktree.
     for child in children:
         took, out = orca.adopt_worktree(child, dest)

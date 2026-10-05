@@ -25,7 +25,6 @@ journal and handoffs are the record of work that was actually done.
 from __future__ import annotations
 
 import re
-import shlex
 import time
 import uuid
 from pathlib import Path
@@ -893,8 +892,7 @@ def label(con, agent: str) -> tuple[bool, str]:
     path = spawn.worktree_path(row["worktree"] if row else None)
     if not path:
         return True, ""
-    cmd = ("orca worktree set --worktree " + shlex.quote(f"path:{path}")
-           + " --display-name " + shlex.quote(agent))
+    cmd = orca.manual("label", path=str(path), label=agent)
     if not orca.keeps_labels():
         return True, ""             # a host with no worktree labels has nothing to rename
     if not orca.has_labels():

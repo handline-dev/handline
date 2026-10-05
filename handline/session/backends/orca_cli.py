@@ -101,6 +101,25 @@ class OrcaBackend(Backend):
     name = "orca"
     supports_runs = True
     supports_labels = True
+    supports_agent_hooks = True
+
+    def manual(self, op: str, **a: str) -> str:
+        if op == "terminal":
+            return f'orca terminal create --worktree {a["worktree"]} --command "{a["command"]}"'
+        if op == "start":
+            terminal = self.manual("terminal", worktree=f'path:{a["wt"]}' if a["wt"] else "<new>",
+                                   command=a["command"])
+            if a["wt"]:
+                return terminal
+            return (f'orca worktree create --repo path:{a["repo"]} --name {a["name"]} '
+                    f'--base-branch {a["base_ref"]}\n  {terminal}')
+        if op == "label":
+            return ("orca worktree set --worktree " + shlex.quote(f'path:{a["path"]}')
+                    + " --display-name " + shlex.quote(a["label"]))
+        if op == "parent":
+            return ("orca worktree set --worktree " + shlex.quote(f'id:{a["child"]}')
+                    + " --parent-worktree " + shlex.quote(f'path:{a["path"]}'))
+        return super().manual(op, **a)
 
     def available(self) -> bool:
         return shutil.which("orca") is not None

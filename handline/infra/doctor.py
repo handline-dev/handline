@@ -130,7 +130,7 @@ def _check_mcp_config(r: Report) -> None:
 
 
 def _check_orca_hooks(r: Report) -> None:
-    if orca.host_name() != "orca":     # Orca's agent hooks mean nothing to another host
+    if not orca.has_agent_hooks():     # Orca's agent hooks mean nothing to another host
         return
     for h in vendors.state_hooks():
         src, dst, drift = h.plan()

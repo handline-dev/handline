@@ -109,6 +109,21 @@ def has_runs() -> bool:
     return backends.current().supports_runs and available()
 
 
+def manual(op: str, **a: str) -> str:
+    """The host's own words for what to do by hand; see `Backend.manual`."""
+    return backends.current().manual(op, **a)
+
+
+def host_title() -> str:
+    """The host's name as prose: Orca, tmux."""
+    return "Orca" if host_name() == "orca" else host_name()
+
+
+def has_agent_hooks() -> bool:
+    """Whether the configured host installs Claude hooks of its own."""
+    return backends.current().supports_agent_hooks
+
+
 def host_name() -> str:
     return backends.current().name
 

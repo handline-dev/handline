@@ -6,6 +6,7 @@ here only when they actually need it, so it costs no tokens the rest of the time
 from __future__ import annotations
 
 from ..infra import paths
+from ..session import orca
 from .team import DEFAULT_LINKS
 
 TOPICS = {
@@ -19,8 +20,8 @@ single use, so two copies of one credential invalidate each other.""",
     "launch": """launching agents
   hl launch <agent>               exec claude as that agent's account
 
-From Orca:
-  orca terminal create --worktree path:<wt> --command "hl launch backend"
+From @host@:
+  @launch@
 
 direnv is not used. Orca leaves CLAUDE_CONFIG_DIR empty and --command takes an
 arbitrary shell string, so one wrapper is enough - and Orca preserves the launch
@@ -208,6 +209,12 @@ Exits 1 if anything failed. No phase is finished without it.""",
 }
 
 
+def _filled(text: str) -> str:
+    """The topic with the host's own words where it names the host's commands."""
+    launch = orca.manual("terminal", worktree="path:<wt>", command="hl launch backend")
+    return text.replace("@host@", orca.host_title()).replace("@launch@", launch)
+
+
 def show(topic: str | None) -> int:
     if not topic:
         print("topics:")
@@ -218,5 +225,5 @@ def show(topic: str | None) -> int:
     if topic not in TOPICS:
         print(f"no such topic: {topic}\navailable: {', '.join(sorted(TOPICS))}")
         return 1
-    print(TOPICS[topic])
+    print(_filled(TOPICS[topic]))
     return 0

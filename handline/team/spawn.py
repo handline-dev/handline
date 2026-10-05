@@ -170,20 +170,10 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
 
 def _dry_run_text(wt: str | None, repo: Path, agent: str, base_ref: str | None, why: str, cmd: str) -> str:
     """What `spawn` would do, as the host's own commands where it has them (Orca's)."""
-    if orca.host_name() == "orca":
-        if wt:
-            return (f"would start in its own worktree {wt}\n"
-                    f"  orca terminal create --worktree path:{wt} --command \"{cmd}\"")
-        return (f"would branch from {base_ref} ({why})\n"
-                f"  orca worktree create --repo path:{repo} --name {agent} "
-                f"--base-branch {base_ref}\n"
-                f"  orca terminal create --worktree <new> --command \"{cmd}\"")
-    host = orca.host_name()
+    steps = orca.manual("start", wt=wt, repo=str(repo), name=agent, base_ref=base_ref, command=cmd)
     if wt:
-        return f"would start in its own worktree {wt}\n  {host}: a terminal there running \"{cmd}\""
-    return (f"would branch from {base_ref} ({why})\n"
-            f"  {host}: a worktree of {repo} named {agent} from {base_ref}, "
-            f"then a terminal in it running \"{cmd}\"")
+        return f"would start in its own worktree {wt}\n  {steps}"
+    return f"would branch from {base_ref} ({why})\n  {steps}"
 
 
 def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
