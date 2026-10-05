@@ -35,6 +35,7 @@ def _world(home: Path) -> list:
     termmod.screen_blocker = lambda h: None
     termmod.typeable_now = lambda h: True
     termmod.live_terminals = lambda: {"term_x"}
+    db.set_agent_state(db.connect(), "backend", dmn_states.RUNNING)      # busy unless a test frees it
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
@@ -84,6 +85,34 @@ def test_results_wait_then_arrive_in_one_digest(home: Path) -> None:
         check("digest: the notices are marked shown, so none waits any more", not db.pending_notices(con, "backend"))
         noticedigest.sweep(con, lambda _m: None, first + 10 * idle_close.NOTICE_DIGEST_S)
         check("digest: and a later tick sends nothing more", len(sent) == 1, str(sent))
+    finally:
+        con.close()
+
+
+def test_an_idle_agent_is_told_at_once_and_a_busy_one_waits_for_the_digest(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        _notice(con, "PASS one")
+        now = int(_notices(con)[0]["landed_at"])
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: working a turn, it waits for the digest", sent == [] and len(db.pending_notices(con, "backend")) == 1, str(sent))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: at its prompt, the same tick types it, well before the window",
+              len(sent) == 1 and "PASS one" in sent[0][1] and not db.pending_notices(con, "backend"), str(sent))
+        _notice(con, "PASS two")
+        db.set_cursor(con, "bgwork:backend", 1)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: with background work running it is still busy", len(sent) == 1, str(sent))
+        db.set_cursor(con, "bgwork:backend", 0)
+        db.set_closed(con, "backend", None)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: a closed agent keeps the clock, a result is not worth waking it for",
+              len(sent) == 1 and len(db.pending_notices(con, "backend")) == 1, str(sent))
+        db.clear_closed(con, "backend")
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: once its session is back at the prompt, it is told", len(sent) == 2 and "PASS two" in sent[1][1], str(sent))
     finally:
         con.close()
 
@@ -269,6 +298,7 @@ def test_ocp_notice_digest_shows_and_sets_the_wait(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_results_wait_then_arrive_in_one_digest(Path(td) / 'n0'))
+        run(lambda: test_an_idle_agent_is_told_at_once_and_a_busy_one_waits_for_the_digest(Path(td) / 'n20'))
         run(lambda: test_a_tell_that_raises_does_not_build_a_second_digest(Path(td) / 'n7'))
         run(lambda: test_only_a_digest_is_shown_whole_when_typed(Path(td) / 'n8'))
         run(lambda: test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothing_left(Path(td) / 'n1'))
