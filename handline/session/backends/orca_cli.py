@@ -180,7 +180,7 @@ class OrcaBackend(Backend):
             args += ["--wait-submit", str(wait_submit_s)]
         return _run(args)
 
-    def wait_idle(self, handle: str, timeout_ms: int) -> bool:
+    def wait_idle(self, handle: str, timeout_ms: int, turn_on_screen=None) -> bool:
         """`ok` only says the wait command ran; `result.wait.satisfied` is the answer."""
         ok, out = _run(
             ["terminal", "wait", "--terminal", handle, "--for", "tui-idle",

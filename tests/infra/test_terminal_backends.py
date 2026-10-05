@@ -47,7 +47,7 @@ class FakeHost(backends.base.Backend):
     def send(self, handle, text, enter=True, wait_submit_s=None):
         self._note("send", handle, text, enter, wait_submit_s)
         return True, ""
-    def wait_idle(self, handle, timeout_ms):
+    def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
         self._note("idle", handle, timeout_ms)
         return self.idle
     def focus(self, handle):
@@ -679,6 +679,9 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
         tmuxbackend.ENTER_DELAY_S = 0.4
 
 
+CLAUDE_TURN = vendors.get("claude").turn_on_screen
+
+
 def test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(home: Path) -> None:
     use_home(home)
     real_path = os.environ["PATH"]
@@ -690,14 +693,16 @@ def test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(ho
         pane, _ = tm.create_terminal("x")
         _screen(state, pane, ["done.", "", "> "])
         t0 = time.monotonic()
-        check("tmux idle: a screen that holds still with no turn on it is idle", tm.wait_idle(pane, 3000))
+        check("tmux idle: a screen that holds still with no turn on it is idle", tm.wait_idle(pane, 3000, CLAUDE_TURN))
         check("tmux idle: and it takes the settle time, not the whole timeout", time.monotonic() - t0 < 2.0)
         _screen(state, pane, ["working", "* Thinking... (12s - esc to interrupt)"])
         check("tmux idle: a screen that holds still but says `esc to interrupt` is a turn in progress",
-              tm.wait_idle(pane, 800) is False)
-        check("tmux idle: a pane that is gone is not idle", tm.wait_idle("%99", 800) is False)
+              tm.wait_idle(pane, 800, CLAUDE_TURN) is False)
+        check("tmux idle: with no reading of a turn, a still frame is idle, whatever it says",
+              tm.wait_idle(pane, 3000))
+        check("tmux idle: a pane that is gone is not idle", tm.wait_idle("%99", 800, CLAUDE_TURN) is False)
         _screen(state, pane, ["esc to interrupt"] + [f"row {i}" for i in range(20)])
-        check("tmux idle: a marker scrolled far above the bottom does not count", tm.wait_idle(pane, 3000))
+        check("tmux idle: a marker scrolled far above the bottom does not count", tm.wait_idle(pane, 3000, CLAUDE_TURN))
     finally:
         os.environ["PATH"] = real_path
         tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = saved

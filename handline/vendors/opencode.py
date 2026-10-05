@@ -306,6 +306,9 @@ class Opencode:
             return None
         return any("interrupt" in r for r in footer)
 
+    def turn_on_screen(self, tail: list[str]) -> bool:
+        return self.working_on_screen(tail) is True
+
     def idle_with_background(self, tail: list[str]) -> bool:
         return False        # opencode's screen carries no background count
 

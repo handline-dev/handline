@@ -1304,6 +1304,8 @@ class SecondVendor:
     idle_from_screen = False
     def idle_on_screen(self, tail):
         return True
+    def turn_on_screen(self, tail):
+        return False
     def idle_with_background(self, tail):
         return False
     def screen_blocker(self, tail):

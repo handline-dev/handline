@@ -210,6 +210,13 @@ class Claude:
         # marker ocp reads, so it is never the witness.
         return None
 
+    # Text a working claude draws in its status row and an idle one does not.
+    WORKING_MARKERS = ("esc to interrupt",)
+    WORKING_ROWS = 12
+
+    def turn_on_screen(self, tail: list[str]) -> bool:
+        return any(m in row.lower() for row in tail[-self.WORKING_ROWS:] for m in self.WORKING_MARKERS)
+
     def idle_with_background(self, tail: list[str]) -> bool:
         from ..session import orca  # late: orca looks drivers up
         return _idle_with_background(orca, tail)

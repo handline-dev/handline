@@ -1939,7 +1939,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
     command - opencode's /new, not claude's /clear."""
     os.environ["OCP_HOME"] = str(home)
     real = {n: getattr(orcamod, n) for n in
-            ("_lookup_driver", "_orca_idle", "_screen", "alive", "send", "available",
+            ("_lookup_driver", "_host_idle", "_screen", "alive", "send", "available",
              "background_work", "screen_blocker", "close_session", "clear_context")}
     real_present = dmn_delivery.session_present
     con = db.connect()
@@ -1960,7 +1960,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
         orcamod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
         sent: list[str] = []
         orcamod.alive = lambda h: True
-        orcamod._orca_idle = lambda h, t: True
+        orcamod._host_idle = lambda h, t, d: True
         orcamod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
         orcamod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
         orcamod.clear_context("term_oc", wait=False)

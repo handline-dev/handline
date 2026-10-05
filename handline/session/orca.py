@@ -149,9 +149,9 @@ def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
     or the time is up.
     """
     deadline = time.monotonic() + timeout_ms / 1000
-    if not _orca_idle(handle, timeout_ms):
-        return False
     drv = _driver_for(handle)
+    if not _host_idle(handle, timeout_ms, drv):
+        return False
     if not drv.idle_from_screen:
         return True
     while True:
@@ -170,8 +170,8 @@ def wait_idle(handle: str, timeout_ms: int = IDLE_TIMEOUT_MS) -> bool:
 SCREEN_POLL_S = 1.0
 
 
-def _orca_idle(handle: str, timeout_ms: int) -> bool:
-    return backends.current().wait_idle(handle, timeout_ms)
+def _host_idle(handle: str, timeout_ms: int, drv) -> bool:
+    return backends.current().wait_idle(handle, timeout_ms, drv.turn_on_screen)
 
 
 # Drivers already looked up inside the running `driver_scope`, by handle. Each

@@ -306,6 +306,10 @@ class Driver(Protocol):
         working state Orca reads (idle_from_screen False), the answer is
         None: Orca's word is that vendor's witness, not its screen."""
 
+    def turn_on_screen(self, tail: list[str]) -> bool:
+        """Whether the rendered screen shows a turn in progress by this vendor's own status wording:
+        what a host with no idle witness of its own reads the screen for. False when it shows none."""
+
     def idle_with_background(self, tail: list[str]) -> bool:
         """Whether the rendered screen shows the session idle at its prompt with
         work still running behind it, which Orca's idle answer reads as a turn

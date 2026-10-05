@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ...infra import textsafe
@@ -141,8 +142,11 @@ class Backend:
         `wait_submit_s` asks the host to watch the prompt land, where it can."""
         raise NotImplementedError
 
-    def wait_idle(self, handle: str, timeout_ms: int) -> bool:
-        """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False."""
+    def wait_idle(self, handle: str, timeout_ms: int,
+                  turn_on_screen: Callable[[list[str]], bool] | None = None) -> bool:
+        """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False.
+        `turn_on_screen` is the vendor's reading of whether a rendered screen shows a turn in
+        progress, for a host that must read the screen to tell; a host with its own witness ignores it."""
         raise NotImplementedError
 
     def focus(self, handle: str) -> tuple[bool, str]:
