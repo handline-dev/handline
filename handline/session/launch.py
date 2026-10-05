@@ -267,6 +267,17 @@ def main_ref_files(worktree: Path) -> list[str]:
     return [str(p) for p in (ref, Path(f"{ref}.lock"), packed, Path(f"{packed}.lock"))]
 
 
+def roster_files() -> list[str]:
+    """The files that say who the agents are and who may ask whom, which only the founder's path
+    writes: team.yaml and its backup, and every agent.yaml. Home is writable to a session (the db and
+    the inboxes live there), so these are denied by name, plus one glob so an agent made after this
+    launch is covered too. A session that edits one is caught by its seal; this stops the write."""
+    agents_dir = paths.agents_dir()
+    return [str(paths.team_file()), f"{paths.team_file()}.bak",
+            *(str(agents_dir / n / "agent.yaml") for n in paths.list_agents()),
+            str(agents_dir / "*" / "agent.yaml")]
+
+
 def hidden_memories(agent: str) -> list[str]:
     """The memory folders `agent` may not read: every other agent's, with no
     exception for its reports - a memory is that agent's own."""
@@ -456,7 +467,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
-                           no_write=main_ref_files(Path.cwd()),
+                           no_write=main_ref_files(Path.cwd()) + roster_files(),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
