@@ -24,6 +24,8 @@ journal and handoffs are the record of work that was actually done.
 """
 from __future__ import annotations
 
+import difflib
+import json
 import re
 import time
 import uuid
@@ -35,7 +37,9 @@ from ..infra import atomic, paths, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
-KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings")
+KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings", "context")
+# What a `context` proposal may replace: the files injected into every session, and their budgets.
+CONTEXT_FILES = {"ROLE.md": agents.ROLE_BUDGET_BYTES, "base.md": agents.BASE_BUDGET_BYTES}
 EDGE_KINDS = ("link", "unlink")
 
 
@@ -118,7 +122,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
             return {}, err
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename", "settings") + EDGE_KINDS and name not in registered:
+    if kind in ("retire", "rename", "settings", "context") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
     if kind in EDGE_KINDS:
         err = _edge_refusal(kind, name, to, response, relation, registered)
@@ -147,6 +151,11 @@ def _draft(kind: str, name: str, requester: str, why: str,
         _, problem = agent_settings.changes_for(name, sets)
         if problem:
             return {}, problem
+    if kind == "context":
+        err = _context_problem(sets)
+        if err:
+            return {}, err
+        sets = {fn: json.dumps(text) for fn, text in sets.items()}     # a proposal file holds no line break
     if kind == "add":
         repo = repo or _team_repo(team_name)
         if not repo:
@@ -181,6 +190,23 @@ def _draft(kind: str, name: str, requester: str, why: str,
             if (repos or {}).get(n):
                 prop[f"repo.{n}"] = repos[n]
     return prop, ""
+
+
+def _context_problem(texts: dict[str, str] | None) -> str | None:
+    """Why `texts` (file name -> the whole new file) cannot be proposed, or None."""
+    if not texts:
+        return "name ROLE.md or base.md, with the whole new text"
+    for fn, text in texts.items():
+        if fn not in CONTEXT_FILES:
+            return f"only {' and '.join(CONTEXT_FILES)} can be changed this way, not {fn!r}"
+        if not str(text).strip():
+            return f"{fn} cannot be empty"
+        if (textsafe.UNSAFE_IN_VALUE - {"\t", "\n"}) & set(str(text)):
+            return f"{fn} carries a control character"
+        size = len(str(text).encode())
+        if size > CONTEXT_FILES[fn]:
+            return f"{fn} is {size} bytes, over its {CONTEXT_FILES[fn]}-byte budget: it is paid for in every session"
+    return None
 
 
 def _team_repo(team_name: str | None) -> str | None:
@@ -347,6 +373,14 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
         lines += [f"  {k}: {v or '(none)'}" for k, v in _sets_of(prop).items()]
         lines += ["Written as the founder's own change, from its next launch; a running "
                   "session is not restarted."]
+    elif prop["kind"] == "context":
+        lines += [f"{prop['agent']}'s standing context would be replaced, as a diff of what is there now:"]
+        for fn, text in _context_texts(prop).items():
+            now = (paths.agent_dir(prop["agent"]) / fn)
+            was = now.read_text() if now.exists() else ""
+            lines += list(difflib.unified_diff(was.splitlines(), text.splitlines(), f"{fn} (now)", f"{fn} (proposed)",
+                                               lineterm="", n=2)) or [f"{fn}: no change"]
+        lines += ["Written from the next launch; a running session is not restarted."]
     elif prop["kind"] == "rename":
         lines += [f"{prop['agent']} would become {prop.get('to')}"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -369,6 +403,11 @@ _SUBJECT_FIELDS = ("kind", "agent", "to", "team", "repo", "model", "effort", "ve
 
 def _sets_of(prop: dict) -> dict[str, str]:
     return {k[4:]: str(v) for k, v in prop.items() if k.startswith("set.")}
+
+
+def _context_texts(prop: dict) -> dict[str, str]:
+    """The files a `context` proposal replaces, as the whole new text of each."""
+    return {fn: json.loads(v) for fn, v in _sets_of(prop).items()}
 
 
 def _members_of(prop: dict) -> list[str]:
@@ -914,7 +953,21 @@ def _settings(prop: dict, con) -> tuple[bool, str]:
         else agent_settings.save_settings(prop["agent"], changes)
 
 
-_DOERS = {"add": _add, "settings": _settings, "retire": _retire, "rename": _rename,
+def _context(prop: dict, con) -> tuple[bool, str]:
+    """Exactly the files that were proposed, as the founder's own change."""
+    texts = _context_texts(prop)
+    problem = _context_problem(texts)
+    if problem:
+        return False, problem
+    d = paths.agent_dir(prop["agent"])
+    if not d.is_dir():
+        return False, f"{prop['agent']} is not an agent"
+    for fn, text in texts.items():
+        atomic.write_text(d / fn, text)
+    return True, f"{prop['agent']}: {', '.join(texts)} replaced, from its next launch"
+
+
+_DOERS = {"add": _add, "settings": _settings, "context": _context, "retire": _retire, "rename": _rename,
           "link": _link, "unlink": _unlink, "team": _team}
 
 
