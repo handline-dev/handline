@@ -226,6 +226,24 @@ def _task_owner_ok(name: str) -> bool:
     return name == askmod.HUMAN or name in paths.list_agents()
 
 
+def _new_cmd(args, title: str) -> str:
+    """The `task new` line as typed, with -t added: what to paste when only the timeout was missing."""
+    parts = ["hl task new", "--owner", args.owner, "-t 2h", shlex.quote(title)]
+    if args.body not in (None, "-"):
+        parts.append(shlex.quote(args.body))
+    if args.file:
+        parts += ["--file", shlex.quote(args.file)]
+    if args.parent is not None:
+        parts.append(f"--parent T{args.parent}")
+    if args.blocked_by is not None:
+        parts.append(f"--blocked-by T{args.blocked_by}")
+    if args.priority is not None:
+        parts.append(f"--priority P{args.priority}")
+    if args.expects is not None:
+        parts.append(f"--expects {args.expects}")
+    return " ".join(parts)
+
+
 def cmd_task_new(args) -> int:
     """T292: open and deliver in one step (`actions.task_new`, C2 routing-
     checked). --blocked-by runs after, on its own connection, so its
@@ -243,12 +261,12 @@ def cmd_task_new(args) -> int:
     if args.timeout is None:
         print("a task needs -t/--timeout (90m, 2h; at most "
               f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}). Try:\n"
-              f"  hl task new --owner {args.owner} -t 2h {shlex.quote(args.title or '<title>')}")
+              f"  {_new_cmd(args, args.title)}")
         return 1
     priority = args.priority if args.priority is not None else db.DEFAULT_PRIORITY
     title = textsafe.oneline(args.title).strip()
     if not title:
-        print(f"a task needs a title. Try:\n  hl task new --owner {args.owner} -t 2h '<title>'")
+        print(f"a task needs a title. Try:\n  {_new_cmd(args, '<title>')}")
         return 1
     inline = args.body
     if args.file or inline == "-":

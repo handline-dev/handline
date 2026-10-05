@@ -583,6 +583,15 @@ def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: P
               f"read as a look-up", not actions.is_lookup_bash(cmd))
 
 
+def _paste(out: str, as_agent: str = "manager") -> tuple[int, str]:
+    """Run the first suggested line of a refusal, as typed."""
+    import shlex
+    line = out.split("Try:\n", 1)[1].splitlines()[0].strip()
+    argv = shlex.split(line)
+    assert argv[:1] == ["hl"], line
+    return _cli(argv[1:], as_agent=as_agent)
+
+
 def test_say_friction_fixes(home: Path) -> None:
     """Founder-approved fixes: a refusal prints the command that would work, --no-task to the
     founder needs no open request, the sender's one open task is the default, and a body the
@@ -638,14 +647,60 @@ edges:
     # (2) --no-task to the founder with no open request to settle is sent, not refused
     rc, out = _cli(["say", "human", "one more thing", "--no-task", "a status note"], as_agent="manager")
     check("--no-task to the founder works with no parent", rc == 0 and "queued as #" in out, out)
+    # (3) every suggested line, pasted back, is accepted
+    ok, msg, wt = actions.task_new("manager", "worker", "theirs", "theirs")
+    for argv, want in ((["say", "worker", "x", "--task", "T99999"], "no task T99999. Try"),
+                       (["say", "worker", "x", "--no-task", "why"], "to anyone else"),
+                       (["say", "worker", "x", "--task", f"T{wt}", "--no-task", "why"], f"--task T{wt}")):
+        rc, out = _cli(argv, as_agent="manager")
+        check(f"suggestion for {' '.join(argv[3:])}: refused with a Try line", rc == 1 and "Try:" in out, out)
+        rc2, out2 = _paste(out)
+        check(f"suggestion for {' '.join(argv[3:])}: pasted, it is accepted", rc2 == 0, out2)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+  third:   {}
+
+edges:
+  - { from: manager, to: worker, relation: supervisor, response: fire_and_forget }
+  - { from: manager, to: third, relation: supervisor, response: fire_and_forget }
+  - { from: worker, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: third, to: manager, relation: subordinate, response: fire_and_forget }
+  - { from: "*", to: human, kind: task }
+  - { from: human, to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    agents.register("third")
+    ok, msg, tt = actions.task_new("manager", "third", "third's", "third's")
+    check("setup: a task held by a third agent", ok, msg)
+    rc, out = _cli(["say", "worker", "y", "--task", f"T{tt}"], as_agent="manager")
+    check("owner swap: refused, naming the holder", rc == 1 and f"T{tt} is with third, not worker" in out, out)
+    rc, out = _paste(out)
+    check("owner swap: pasted, it is accepted", rc == 0, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "the title", "the body", "--priority", "P1"],
+                   as_agent="manager")
+    check("task new without -t: refused", rc == 1 and "Try:" in out, out)
+    rc, out = _paste(out)
+    con = db.connect()
+    try:
+        row = con.execute("SELECT * FROM tasks WHERE title = 'the title'").fetchone()
+        check("task new without -t: pasted, it opens the same task with its body and priority",
+              rc == 0 and row is not None and row["priority"] == 1
+              and "the body" in (con.execute("SELECT body FROM requests WHERE target = 'worker' "
+                                             "ORDER BY id DESC LIMIT 1").fetchone()["body"] or ""), out)
+    finally:
+        con.close()
+    rc, out = _cli(["task", "new", "--owner", "worker", "-t", "2h", " "], as_agent="manager")
+    check("task new without a title: refused with a Try line", rc == 1 and "Try:" in out, out)
     # (4) the warning
-    check("quoting: an empty span and a gap are flagged",
-          quoting_warning("run `` now") and quoting_warning("run  now") and quoting_warning("a `b"))
-    check("quoting: a whole body is not", quoting_warning("run `ls` now") is None
-          and quoting_warning("one\n\ntwo") is None)
+    check("quoting: a gap where a lost span was is flagged", quoting_warning("run  now") is not None)
+    check("quoting: text the shell did not touch is not",
+          all(quoting_warning(t) is None for t in (
+              "call main() then stop", "use $(x) here", "an empty string ''", "run `ls` now",
+              "one\n\ntwo", "a `b")))
     rc, out = _cli(["say", "human", "run  now", "--no-task", "x"], as_agent="manager")
     check("quoting: the CLI prints the warning and still sends",
-          rc == 0 and "lost text to shell quoting" in out and "queued as #" in out, out)
+          rc == 0 and "lost to shell quoting" in out and "queued as #" in out, out)
 
 
 def main() -> int:
