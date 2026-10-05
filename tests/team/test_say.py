@@ -583,6 +583,9 @@ def test_is_lookup_bash_refuses_a_shell_operator_before_the_prefix_check(home: P
               f"read as a look-up", not actions.is_lookup_bash(cmd))
 
 
+NO_SUCH = 99999
+
+
 def _paste(out: str, as_agent: str = "manager") -> tuple[int, str]:
     """Run the first suggested line of a refusal, as typed."""
     import shlex
@@ -649,7 +652,7 @@ edges:
     check("--no-task to the founder works with no parent", rc == 0 and "queued as #" in out, out)
     # (3) every suggested line, pasted back, is accepted
     ok, msg, wt = actions.task_new("manager", "worker", "theirs", "theirs")
-    for argv, want in ((["say", "worker", "x", "--task", "T99999"], "no task T99999. Try"),
+    for argv, want in ((["say", "worker", "x", "--task", f"T{NO_SUCH}"], f"no task T{NO_SUCH}. Try"),
                        (["say", "worker", "x", "--no-task", "why"], "to anyone else"),
                        (["say", "worker", "x", "--task", f"T{wt}", "--no-task", "why"], f"--task T{wt}")):
         rc, out = _cli(argv, as_agent="manager")
