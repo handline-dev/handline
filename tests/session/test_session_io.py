@@ -587,7 +587,7 @@ def test_what_is_not_a_block(home: Path) -> None:
 
         orcamod.available = lambda: False
         check("blocked: orca itself unreachable - the sibling of unreadable, not left silent either",
-              verdict() == "orca down")
+              verdict() == "host down")
         orcamod.available = lambda: True
 
         obsmod.live_sessions = lambda: {}

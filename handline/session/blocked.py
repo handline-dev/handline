@@ -77,7 +77,7 @@ MAX_PRESSES_AGENT = 10
 EXIT_ORIGIN = "exit"
 PROBE_S = 30
 
-NO_TERMINAL, NO_SESSION, STALLED, ORCA_DOWN = "no terminal", "no session", "stalled", "orca down"
+NO_TERMINAL, NO_SESSION, STALLED, HOST_DOWN = "no terminal", "no session", "stalled", "host down"
 # The process table lists no session for an agent whose terminal draws one. Work is typed at it on the
 # screen's word, so this is not an obstacle; it is a fault in the table that the founder is told about
 # (the bridge, `hl ps`, and a request once it outlasts DECISION_AFTER_S), with how each session-looking
@@ -95,12 +95,12 @@ ADVICE = {
     NO_TERMINAL: "t on the agents panel starts one",
     NO_SESSION: "w on the agents panel wakes it",
     STALLED: "w on the agents panel clears it",
-    ORCA_DOWN: "check Orca and PATH; ocp cannot reach it at all",
+    HOST_DOWN: "check the terminal host and PATH; ocp cannot reach it at all",
     TABLE_MISS: "the agent is being given its work on the screen's word; report this, with the pids named, so the process table's miss can be found",
 }
 LABEL = {orca.MODAL: "dialog open", orca.BACKGROUNDED: "conversation in the background",
          orca.UNREADABLE: "screen unreadable",
-         ORCA_DOWN: "orca unreachable",
+         HOST_DOWN: "host unreachable",
          NO_TERMINAL: "no terminal", NO_SESSION: "no session", STALLED: "stalled",
          TABLE_MISS: "process table misses a live session"}
 
@@ -190,7 +190,7 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
         # The sibling of UNREADABLE below: silently skipping this starves
         # every agent with queued work the same way, with nobody told, for as
         # long as Orca stays off PATH.
-        return ORCA_DOWN, "", ""
+        return HOST_DOWN, "", ""
     if not orca.alive(handle):
         return NO_TERMINAL, "its terminal is gone - Orca no longer has it", ""
     if dmn_delivery.wall_reason(con, agent, row):

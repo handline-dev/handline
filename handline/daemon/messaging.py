@@ -30,7 +30,7 @@ def can_type_now(con, agent: str, handle: str) -> tuple[bool, str]:
     docstring: "no caller ... can skip it") - typed anyway, a turn at the
     usage wall fails at once and clears the very mark that says so."""
     if not orca.available():
-        return False, "orca is not on PATH"
+        return False, orca.missing()
     reason = delivery.typing_hold(con, agent)
     if reason:
         return False, reason

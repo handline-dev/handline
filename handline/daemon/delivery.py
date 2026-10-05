@@ -198,7 +198,7 @@ def _reclaim_context(con, agent: str, log) -> tuple[bool, str]:
         return False, ("no terminal recorded; start the agent with `hl spawn` or "
                        "`hl launch` inside an Orca terminal so its context can be reclaimed")
     if not orca.available():
-        return False, "orca is not on PATH"
+        return False, orca.missing()
     if not session_present(agent):
         return False, f"no session process; not typing {orca.clear_command(handle)} at a shell prompt"
     if _past_dialog(con, agent, log):

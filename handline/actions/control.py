@@ -151,7 +151,7 @@ def terminal(con, agent: str, repo: str | None = None) -> str:
         if not handle:
             return said.rstrip(" ·")       # `start` said why
     if not orca.available():
-        return said + "orca is not on PATH - nothing to switch to"
+        return said + f"{orca.missing()} - nothing to switch to"
     ok, why = orca.focus(handle)
     return said + (f"in {agent}'s terminal - come back to this tab when you are done"
                    if ok else f"could not switch to {agent}: {why}")
