@@ -2,6 +2,16 @@
   "name": "@handline/config",
   "private": true,
   "type": "module",
-  "description": "Base tsconfigs shared by the packages",
-  "exports": { "./tsconfig.node.json": "./tsconfig.node.json" }
+  "description": "Base tsconfigs, ESLint flat configs and Prettier settings shared by the packages",
+  "exports": {
+    "./tsconfig.node.json": "./tsconfig.node.json",
+    "./tsconfig.react.json": "./tsconfig.react.json",
+    "./eslint": "./eslint/index.js",
+    "./prettier.json": "./prettier.json"
+  },
+  "scripts": {
+    "test": "node --test --test-timeout=60000 --test-reporter=spec test/*.test.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p ."
+  }
 }

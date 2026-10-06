@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["PinnedSocketModule"] },
+  "android": { "modules": ["dev.handline.pinnedsocket.PinnedSocketModule"] }
+}

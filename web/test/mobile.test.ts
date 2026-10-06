@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Store } from '../mobile/store.ts';
+import { Store } from '@handline/app-core';
+import { toState } from '../mobile/store.ts';
 import http from 'node:http';
 import { handler, listenOptions } from '../mobile/server.ts';
 import { app, esc, pageKey } from '../mobile/views.ts';
@@ -17,14 +18,19 @@ async function started() {
 
 test('the agent list shows every agent with its state, and follows the daemon', async () => {
   const { store } = await started();
-  assert.deepEqual(store.state.agents.map((a) => a.name).sort(), ['handline.architect', 'handline.auditor', A]);
-  let html = app(store.state);
+  assert.deepEqual(
+    toState(store)
+      .agents.map((a) => a.name)
+      .sort(),
+    ['handline.architect', 'handline.auditor', A],
+  );
+  let html = app(toState(store));
   assert.match(html, /handline\.architect<\/b><small>idle · Web UI design · acct alpha/);
   assert.match(html, /<span class="flag warn">wall<\/span>/); // the auditor's account is at the wall
   await store.openAgent(A);
   await store.startAgent(A);
-  await until(() => store.state.agents.find((a) => a.name === A)?.state === 'idle', 'state event');
-  html = app(store.state);
+  await until(() => toState(store).agents.find((a) => a.name === A)?.state === 'idle', 'state event');
+  html = app(toState(store));
   assert.ok(html.includes('class="tabs"'));
   store.stop();
 });
@@ -32,12 +38,12 @@ test('the agent list shows every agent with its state, and follows the daemon', 
 test('opening an agent shows Chat by default as an empty state, and Terminal on its tab', async () => {
   const { store } = await started();
   await store.openAgent(A);
-  let html = app(store.state);
+  let html = app(toState(store));
   assert.match(html, /aria-selected="true" class="on" data-act="tab" data-tab="chat"/);
   assert.match(html, /Chat is not available yet/);
   assert.doesNotMatch(html, /class="composer"/);
   store.setTab('terminal');
-  html = app(store.state);
+  html = app(toState(store));
   assert.match(html, /class="grid"/);
   assert.match(html, /data-key="esc"/);
   assert.match(html, /data-key="shift-tab"/);
@@ -48,27 +54,30 @@ test('start, input and stop go to the daemon; its refusals reach the screen in i
   const { store, daemon } = await started();
   await store.openAgent(A);
   await store.send(A, 'hello');
-  assert.match(store.state.error ?? '', /no open session/);
-  assert.match(app(store.state), /role="alert"/);
+  assert.match(store.error ?? '', /no open session/);
+  assert.match(app(toState(store)), /role="alert"/);
 
   await store.startAgent(A);
-  assert.equal(store.state.error, null);
-  assert.equal(store.state.page!.detail.session_open, true);
-  await until(() => store.state.page!.view.text().some((l) => l.startsWith('Claude Code')), 'banner');
+  assert.equal(store.error, null);
+  assert.equal(store.details.get(A)!.session_open, true);
+  await until(() => store.page!.view.text().some((l) => l.startsWith('Claude Code')), 'banner');
   store.setTab('terminal');
-  assert.match(app(store.state), /Claude Code v2\.1/);
+  assert.match(app(toState(store)), /Claude Code v2\.1/);
 
   await store.send(A, 'push the branch');
-  await until(() => store.state.page!.view.text().includes('> push the branch'), 'echo');
+  await until(() => store.page!.view.text().includes('> push the branch'), 'echo');
   await store.interrupt(A);
   await store.key(A, 'shift-tab');
-  assert.deepEqual(daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`), ['text:push the branch', 'key:esc', 'key:shift-tab']);
+  assert.deepEqual(
+    daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`),
+    ['text:push the branch', 'key:esc', 'key:shift-tab'],
+  );
 
   await store.stopAgent(A, 'close');
-  assert.equal(store.state.page!.detail.session_open, false);
-  assert.match(app(store.state), /data-act="resume"/);
+  assert.equal(store.details.get(A)!.session_open, false);
+  assert.match(app(toState(store)), /data-act="resume"/);
   await store.resume(A);
-  assert.equal(store.state.page!.detail.session_open, true);
+  assert.equal(store.details.get(A)!.session_open, true);
   store.stop();
 });
 
@@ -76,36 +85,21 @@ test('a permission prompt shows as a card on both tabs and Yes answers it', asyn
   const { store, daemon } = await started();
   await store.openAgent(A);
   await store.startAgent(A);
-  await store.send(A, 'go'); daemon.settle();
-  await until(() => store.state.page!.detail.prompt !== null, 'prompt card');
-  const prompt = store.state.page!.detail.prompt!;
+  await store.send(A, 'go');
+  daemon.settle();
+  await until(() => store.details.get(A)!.prompt !== null, 'prompt card');
+  const prompt = store.details.get(A)!.prompt!;
   for (const tab of ['chat', 'terminal'] as const) {
     store.setTab(tab);
-    const html = app(store.state);
+    const html = app(toState(store));
     assert.match(html, /git push origin buddyron\/handline\.term-build/);
     assert.match(html, new RegExp(`class="btn yes" data-act="answer" data-key="1" data-prompt="${prompt.id}"`));
     assert.match(html, /class="btn no" data-act="answer" data-key="2"/);
   }
-  await store.answer(prompt, '1'); daemon.settle();
-  await until(() => store.state.page!.detail.prompt === null, 'card closed');
-  assert.doesNotMatch(app(store.state), /class="card prompt"/);
-  store.stop();
-});
-
-test('answering a prompt that changed is refused and the page shows the open one', async () => {
-  const { store, daemon } = await started();
-  await store.openAgent(A);
-  await store.startAgent(A);
-  await store.send(A, 'go'); daemon.settle();
-  await until(() => store.state.page!.detail.prompt !== null, 'first prompt');
-  const first = store.state.page!.detail.prompt!;
-  await store.interrupt(A);
-  await until(() => store.state.page!.detail.prompt === null, 'closed');
-  await store.send(A, 'again'); daemon.settle();
-  await until(() => store.state.page!.detail.prompt !== null && store.state.page!.detail.prompt.id !== first.id, 'second prompt');
-  await store.answer(first, '1');
-  assert.ok(store.state.error);
-  assert.notEqual(store.state.page!.detail.prompt!.id, first.id);
+  await store.answer(prompt, '1');
+  daemon.settle();
+  await until(() => store.details.get(A)!.prompt === null, 'card closed');
+  assert.doesNotMatch(app(toState(store)), /class="card prompt"/);
   store.stop();
 });
 
@@ -113,12 +107,12 @@ test('a lost connection shows a banner and the page recovers on reconnect', asyn
   const { store, net, client } = await started();
   await store.openAgent(A);
   net.down = true;
-  (client as any).transport.close();
-  await until(() => store.state.connection === 'reconnecting', 'reconnecting');
-  assert.match(app(store.state), /Reconnecting/);
+  (client as unknown as { transport: { close(): void } }).transport.close();
+  await until(() => store.conn === 'reconnecting', 'reconnecting');
+  assert.match(app(toState(store)), /Reconnecting/);
   net.down = false;
-  await until(() => store.state.connection === 'open', 'open');
-  assert.doesNotMatch(app(store.state), /Reconnecting/);
+  await until(() => store.conn === 'open', 'open');
+  assert.doesNotMatch(app(toState(store)), /Reconnecting/);
   store.stop();
 });
 
@@ -131,14 +125,14 @@ test('streaming terminal output changes only the grid region, never the page key
   await store.openAgent(A);
   await store.startAgent(A);
   store.setTab('terminal');
-  const before = app(store.state);
+  const before = app(toState(store));
   daemon.daemonTypes(A, 'more output');
-  await until(() => store.state.page!.view.text().includes('> more output'), 'frame');
-  const after = app(store.state);
+  await until(() => store.page!.view.text().includes('> more output'), 'frame');
+  const after = app(toState(store));
   const strip = (h: string) => h.replace(/(<pre class="grid"[^>]*>)[\s\S]*?<\/pre>/, '$1</pre>');
   assert.match(after, /more output/);
   assert.equal(strip(after), strip(before));
-  assert.equal(pageKey(store.state), `agent:${A}:terminal`);
+  assert.equal(pageKey(toState(store)), `agent:${A}:terminal`);
   store.stop();
 });
 

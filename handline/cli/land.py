@@ -35,9 +35,26 @@ def _send(payload: dict) -> int:
     return 0 if reply.get("ok") else 1
 
 
+def _passed_flag(sha: str) -> list[str]:
+    """`--passed` when the auditor's PASS for `sha` is on record, so land.sh can skip a rerun of the
+    suite the auditor already ran on that very tree; anything unreadable means a full run."""
+    try:
+        full = subprocess.run(["git", "rev-parse", "--verify", f"{sha}^{{commit}}"], capture_output=True,
+                              text=True, cwd=paths.repo_root()).stdout.strip()
+        con = db.connect()
+        try:
+            known = con.execute("SELECT 1 FROM land_passes WHERE sha = ?", (full,)).fetchone()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - no db or no sha: the suite runs
+        return []
+    return ["--passed"] if known else []
+
+
 def _tested_tree(sha: str) -> str | None:
     """The tree of the merge `land.sh --check` tested, run here, in the caller's own sandbox."""
-    r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", sha], capture_output=True,
+    r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", *_passed_flag(sha), sha],
+                       capture_output=True,
                        text=True, cwd=paths.repo_root())
     sys.stderr.write(r.stderr[-2000:])
     out = r.stdout.strip().splitlines()

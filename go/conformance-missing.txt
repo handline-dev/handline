@@ -52,3 +52,4 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+hr.list

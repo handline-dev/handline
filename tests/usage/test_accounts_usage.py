@@ -1687,6 +1687,31 @@ def test_the_newest_transcript_across_accounts_is_the_session(home: Path) -> Non
           snap["ctx_pct"] == 2, snap["ctx_pct"])
 
 
+def test_a_shared_worktree_reports_each_agents_own_session(home: Path) -> None:
+    """Two agents share one worktree: a hook's session id picks that agent's transcript, on one
+    account or two, and a session absent from the directory yields nothing, never the other's."""
+    use_home(home)
+    accounts.register("alpha")
+    accounts.register("sigma")
+    cwd = home / "wt-shared"
+    cwd.mkdir(parents=True, exist_ok=True)
+    now = int(time.time())
+    a1, a2 = "aaaaaaaa-0000-4000-8000-000000000006", "aaaaaaaa-0000-4000-8000-000000000008"
+    s1 = "bbbbbbbb-0000-4000-8000-000000000007"
+    use = [("claude-opus-5", {"cache_read_input_tokens": 1_000})]
+    write_transcript(home, "alpha", cwd, a1, turns=use, at=now - 600)
+    write_transcript(home, "alpha", cwd, a2, turns=use, at=now - 300)
+    write_transcript(home, "sigma", cwd, s1, turns=use, at=now)
+    snap = collect.collect("quiet", cwd, session_id=a1)
+    check("shared, one account: the agent's own session wins over a newer one",
+          snap and snap["session_id"] == a1 and snap["account"] == "alpha", snap)
+    snap = collect.collect("quiet", cwd, session_id=a2)
+    check("shared, two accounts: and over a newer one on another account",
+          snap and snap["session_id"] == a2, snap)
+    check("shared: a session with no transcript here is nothing, not the newest",
+          collect.collect("quiet", cwd, session_id="cccccccc-0000-4000-8000-000000000009") is None)
+
+
 def test_an_unknown_model_gets_no_context_figure(home: Path) -> None:
     """A window size is a table, so an unfamiliar model has no percentage.
 
@@ -1737,6 +1762,12 @@ def test_the_daemon_pulls_only_for_an_open_session(home: Path) -> None:
         dmn_usage_poll.collect_snapshots(con, lambda _m: None)
         check("tick: a closed agent's snapshot is not refreshed",
               not paths.agent_status_file("backend").exists())
+
+        db.clear_closed(con, "backend")
+        db.set_terminal(con, "backend2", "term_y", str(cwd))
+        dmn_usage_poll.collect_snapshots(con, lambda _m: None)
+        check("tick: a worktree two open agents share is left to their hooks",
+              not paths.agent_status_file("backend").exists())
     finally:
         con.close()
 
@@ -1765,7 +1796,8 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
 
     def hook(event: str, **fields) -> None:
         real_in = sys.stdin
-        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s",
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": event,
+                                            "session_id": "eeeeeeee-0000-4000-8000-000000000008",
                                             "cwd": str(cwd), **fields}))
         try:
             evmod.record_from_stdin([event])
@@ -1782,6 +1814,15 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
         check("hook: with the session it was written by",
               st.session_id == "eeeeeeee-0000-4000-8000-000000000008", st.session_id)
 
+        write_transcript(home, "alpha", cwd, "ffffffff-0000-4000-8000-000000000009",
+                         turns=[("claude-opus-5", {"cache_read_input_tokens": 100_000})],
+                         at=int(time.time()) + 60)
+        hook("Stop")
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("hook: a newer transcript of another agent in the same worktree is not taken",
+              st.session_id == "eeeeeeee-0000-4000-8000-000000000008" and st.ctx_pct == 45,
+              f"{st.session_id} {st.ctx_pct}")
+
         paths.agent_status_file("backend").unlink()
         hook("PermissionRequest", tool_name="Bash")
         check("hook: an event that is not a turn boundary does not collect",
@@ -1791,6 +1832,38 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
             os.environ.pop("OCP_AGENT", None)
         else:
             os.environ["OCP_AGENT"] = real_agent
+
+
+def test_the_usage_poll_reads_the_oldest_reading_first(home: Path) -> None:
+    """One success per tick in a fixed order let the accounts early in the
+    list take every slot when ticks ran slow, and the later ones went unread
+    for an hour and were refused work as stale. Both due here; the one read
+    longer ago goes first, whatever its place in the list."""
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 5)
+    write_status(home, "beta", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 3600)
+    asked: list[str] = []
+
+    def fake_read(acct, refresh=True):
+        asked.append(acct)
+        return reading_of(acct, 7, None, 11, None, int(time.time()))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
+            check("poll order: the oldest reading is asked first", asked == ["beta"], asked)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
+            check("poll order: then the next oldest", asked == ["beta", "alpha"], asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
 
 
 def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(home: Path) -> None:
@@ -5958,6 +6031,7 @@ def main() -> int:
             Path(td) / 'pullclear'))
         run(lambda: test_the_newest_transcript_across_accounts_is_the_session(
             Path(td) / 'pullmove'))
+        run(lambda: test_a_shared_worktree_reports_each_agents_own_session(Path(td) / 'sharedwt'))
         run(lambda: test_an_unknown_model_gets_no_context_figure(Path(td) / 'pullmodel'))
         run(lambda: test_the_daemon_pulls_only_for_an_open_session(Path(td) / 'pulltick'))
         run(lambda: test_a_turn_ending_refreshes_the_snapshot_through_the_hook(
@@ -5965,6 +6039,7 @@ def main() -> int:
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_the_usage_poll_reads_the_oldest_reading_first(Path(td) / 'pollorder'))
         run(lambda: test_one_accounts_usage_read_raising_is_contained(Path(td) / 'pollraise'))
         run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
             Path(td) / 'pollrecover'))

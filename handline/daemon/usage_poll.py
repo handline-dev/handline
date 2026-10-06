@@ -31,12 +31,14 @@ def collect_snapshots(con, log) -> None:
     heartbeat - `status.stale` reads a fresh one as "a session is alive here" -
     and refreshing it for a closed agent would tell every reader the session is
     still up. A closed agent's file ages into stale exactly as it does now.
+
+    A worktree two agents share is left to their hooks, which carry the session id: the newest
+    transcript in it is not necessarily this agent's.
     """
-    for row in db.all_agent_states(con):
-        if row["closed_at"]:
-            continue
-        cwd = spawnmod.worktree_path(row["worktree"])
-        if not cwd:
+    rows = [r for r in db.all_agent_states(con) if not r["closed_at"]]
+    used = [spawnmod.worktree_path(r["worktree"]) for r in rows]
+    for row, cwd in zip(rows, used):
+        if not cwd or used.count(cwd) > 1:
             continue
         try:
             collect.collect(row["agent"], cwd)
@@ -93,7 +95,10 @@ def poll_usage(con, log) -> None:
     keeps failing rather than the same slice of it forever.
     """
     now = int(time.time())
-    for acct in paths.list_accounts():
+    # Oldest reading first: with one success per tick, a fixed order let the
+    # accounts early in the list take every slot whenever ticks ran slow, and
+    # omega/sigma/theta went unread for an hour and were refused work as stale.
+    for acct in sorted(paths.list_accounts(), key=lambda a: status.read(a).short.at or 0):
         try:
             if _poll_account(con, acct, now, log):
                 return
