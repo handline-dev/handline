@@ -1,0 +1,296 @@
+{
+ "fixtures": [
+  {
+   "name": "repos.list.an_agent_session_is_refused_by_role",
+   "spec": "repos.list",
+   "about": "A person's read: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "repos.list",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktrees.list.an_agent_session_is_refused_by_role",
+   "spec": "worktrees.list",
+   "about": "A person's read: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.diff.an_agent_session_is_refused_by_role",
+   "spec": "worktree.diff",
+   "about": "A person's read: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.diff",
+      "params": {
+       "path": "/tmp"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.options.an_agent_session_is_refused_by_role",
+   "spec": "agent.options",
+   "about": "A person's read: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.options",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.diff.only_a_known_worktree",
+   "spec": "worktree.diff",
+   "about": "A path that is not a worktree an agent works in is not_found: nothing outside one is read.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.diff",
+      "params": {
+       "path": "/"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.diff.the_file_stays_inside",
+   "spec": "worktree.diff",
+   "about": "A file that walks out of the worktree is bad_request naming file, checked before the path is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.diff",
+      "params": {
+       "path": "/",
+       "file": "../../etc/passwd"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "file"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.diff.needs_a_path",
+   "spec": "worktree.diff",
+   "about": "No path is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.diff",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "path"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktrees.list.repo_is_a_string",
+   "spec": "worktrees.list",
+   "about": "A repo that is not a string is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {
+       "repo": 3
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "repo"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
