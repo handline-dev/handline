@@ -24,6 +24,7 @@ from . import protected
 
 NS = "session-tokens"      # the store folder keeps its name; renaming it would orphan the records
 KEY_NS = "hook-keys"
+FOUNDER_NS = "founder-keys"     # the daemon's key for the founder's own callers; hidden from sessions like KEY_NS
 _MAX_DEPTH = 64
 
 
@@ -166,11 +167,17 @@ def key_folder():
     return protected.root() / KEY_NS
 
 
+def hidden_folders() -> list:
+    """The key folders a session must not read."""
+    return [key_folder(), protected.root() / FOUNDER_NS]
+
+
 def ensure_key_folder() -> None:
     """The folder exists before a launch hides it: the first launch on a machine would otherwise name a
     path the sandbox rule then does not cover once it appears. Quietly nothing when the store is unwritable."""
     try:
         protected.ensure(KEY_NS)
+        protected.ensure(FOUNDER_NS)
     except OSError:
         pass
 
@@ -196,3 +203,28 @@ def key_held(agent: str) -> str | None:
 def key_ok(agent: str | None, key: str | None) -> bool:
     kept = key_held(agent) if agent else None
     return bool(kept and key) and hmac.compare_digest(kept, str(key))
+
+
+def ensure_founder_key() -> bool:
+    """The founder key exists: the daemon makes one at start when there is none. False when the store
+    cannot be written, which is what an agent's session gets."""
+    if founder_key_held():
+        return True
+    try:
+        protected.put(FOUNDER_NS, "key", secrets.token_urlsafe(32))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def founder_key_held() -> str | None:
+    """The founder key, for the founder's own client. None inside a session's sandbox."""
+    try:
+        return (protected.get(FOUNDER_NS, "key") or "").strip() or None
+    except ValueError:
+        return None
+
+
+def founder_key_ok(key) -> bool:
+    kept = founder_key_held()
+    return bool(kept and isinstance(key, str) and key) and hmac.compare_digest(kept, key)

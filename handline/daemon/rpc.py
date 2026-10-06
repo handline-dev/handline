@@ -23,7 +23,11 @@ MAX_LINE_BYTES = 1 << 20
 ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
-PARSE_ERROR, INVALID_PARAMS = -32700, -32602
+PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
+# A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
+# calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.
+RECV_TIMEOUT_S = 30
+IDLE_TIMEOUT_S = 3600
 REPLY_KEEP_S = 24 * 3600
 REQUEST_ID_MAX = 128
 
@@ -49,14 +53,18 @@ def refused(reason: str, gate: str | None = None, hint: str | None = None) -> Rp
 
 
 class Caller:
-    """Who is on the other end of this connection, from the kernel's word about the peer process."""
+    """Who is on the other end, and only on positive proof: an agent when the peer process descends from a
+    session `hl launch` recorded, the founder when `hello` carried the founder key, anyone else anonymous.
+    A peer nothing can be traced for (a double-forked child, a failed pid lookup) proves nothing."""
 
-    def __init__(self, peer: int | None) -> None:
+    def __init__(self, peer: int | None, key=None) -> None:
         agent = sessiontoken.agent_of(peer)
-        if agent:
+        if agent:       # wins over a key: a session that held the founder key would be a leak, not the founder
             self.role, self.info = "agent", {"kind": "agent", "name": agent}
-        else:       # the local user on the local socket is the founder
+        elif sessiontoken.founder_key_ok(key):
             self.role, self.info = "founder", {"kind": "person", "name": getpass.getuser()}
+        else:
+            self.role, self.info = "anonymous", {"kind": "anonymous", "name": "anonymous"}
 
     @property
     def actor(self) -> str:
@@ -77,7 +85,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
         raise refused(f"this daemon serves clients of protocol {MIN_CLIENT} or newer; yours speaks {protocol}",
                       gate="protocol", hint="hl service install")
     from .loop import _loaded_sha       # loop imports this module's server, so not at the top
-    caller = ctx.caller
+    ctx.caller = caller = Caller(ctx.peer, params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
             "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": []},
@@ -159,6 +167,7 @@ class Connection:
                 return line
             if len(self._buf) > MAX_LINE_BYTES:
                 raise bad_request(f"a line is at most {MAX_LINE_BYTES} bytes")
+            self.conn.settimeout(IDLE_TIMEOUT_S if self.said_hello and not self._buf else RECV_TIMEOUT_S)
             chunk = self.conn.recv(65536)
             if not chunk:       # a client that shuts its write side after one object needs no newline
                 line, self._buf = self._buf, b""
@@ -227,7 +236,7 @@ class Connection:
             raise bad_request("the first call is hello", "method")
         entry = METHODS.get(method)
         if entry is None:
-            raise bad_request(f"no such method: {method}", "method")
+            raise bad_request(f"no such method: {method}", "method", NO_SUCH_METHOD)
         if not self.caller.allows(entry.role):
             raise refused(f"{method} is for a {entry.role} or above; this caller is {self.caller.role}", gate="role")
         result = _write(self, method, entry, params) if entry.write else entry.handler(self, params)

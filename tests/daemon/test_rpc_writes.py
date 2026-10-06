@@ -18,7 +18,7 @@ from handline.daemon import rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rpc import Wire, _code  # noqa: E402
+from test_rpc import Wire, _code, _hp  # noqa: E402
 
 
 class FakeWrite:
@@ -43,7 +43,7 @@ class FakeWrite:
 
 
 def _hello(w):
-    w.call("hello", {"client": "t", "protocol": 1})
+    w.call("hello", _hp())
 
 
 def _as_agent(name):
@@ -122,9 +122,10 @@ def test_retries_at_once_run_the_write_once(home: Path) -> None:
     f.pause = 0.3
     replies = []
     try:
+        hp = _hp()
         def go():
             w = Wire()
-            _hello(w)
+            w.call("hello", hp)
             replies.append(w.call("t.write", {"request_id": "r4"}))
             w.close()
         threads = [threading.Thread(target=go) for _ in range(6)]

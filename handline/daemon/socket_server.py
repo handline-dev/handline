@@ -32,10 +32,6 @@ from ..team import agent_settings
 
 from . import landauth, lands, messaging, rpc, sends
 
-# A request this old with nothing read yet is not going to finish reading;
-# closed rather than left to hold a thread forever on a client that connected
-# and stalled.
-RECV_TIMEOUT_S = 30
 
 
 def _wake(con, log, **kw) -> tuple[bool, str]:
@@ -160,7 +156,6 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
 
 def _serve_one(conn: socket.socket, log) -> None:
     try:
-        conn.settimeout(RECV_TIMEOUT_S)
         rpc.Connection(conn, log, _handle_request).serve()
     except OSError:
         pass        # the client went away or stalled past the timeout

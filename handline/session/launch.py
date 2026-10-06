@@ -469,7 +469,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     approved = trust.mcp_approved(Path.cwd())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
-                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(f) for f in sessiontoken.hidden_folders()],
                            no_write=main_ref_files(Path.cwd()) + roster_files(),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
