@@ -223,3 +223,37 @@ func TestAWaitingCallRunsBesideTheOthersAndStopsWhenTheClientHangsUp(t *testing.
 	}
 	<-done
 }
+
+func TestAWaitingCallKeepsTheCallerItWasRoutedWithWhileAnotherHelloReplacesIt(t *testing.T) {
+	cl, sv := net.Pipe()
+	srv := NewServer(fakeAuth{agent: "worker"}, "abc1234", 7, "local", func(string, ...any) {})
+	seen := make(chan string, 1)
+	srv.Register("slow", Method{Role: "agent", Waits: true, Handler: func(c *Conn, _ map[string]any) (any, error) {
+		for i := 0; i < 200; i++ { // reads the caller while the read loop handles hellos
+			_ = c.Caller.Role
+			_ = c.Caller.Info["name"]
+			time.Sleep(time.Millisecond)
+		}
+		seen <- c.Caller.Info["name"].(string)
+		return nil, nil
+	}})
+	done := make(chan struct{})
+	go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
+	c := &client{cl, bufio.NewReader(cl)}
+	c.raw(t, helloLine)
+	cl.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := cl.Write([]byte(`{"jsonrpc":"2.0","id":2,"method":"slow","params":{}}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		c.raw(t, strings.Replace(helloLine, `"id":1`, `"id":3`, 1))
+	}
+	if got := c.read(t); got["id"].(float64) != 2 {
+		t.Fatalf("%v", got)
+	}
+	if name := <-seen; name != "worker" {
+		t.Fatalf("caller %q", name)
+	}
+	cl.Close()
+	<-done
+}

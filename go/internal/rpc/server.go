@@ -239,8 +239,14 @@ func (c *Conn) route(msg any) (routed, error) {
 	if !c.Caller.Allows(m.Role) {
 		return routed{}, Refused(fmt.Sprintf("%s is for a %s or above; this caller is %s", name, m.Role, c.Caller.Role), "role", "")
 	}
+	// A call that waits runs on its own goroutine while a later hello may replace c.Caller: it gets the caller as
+	// it was when routed, on a Conn of its own that shares only what stays fixed.
+	at := c
+	if m.Waits {
+		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
+	}
 	return routed{waits: m.Waits, run: func() (any, error) {
-		result, err := m.Handler(c, params)
+		result, err := m.Handler(at, params)
 		if err != nil {
 			return nil, err
 		}
