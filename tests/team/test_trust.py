@@ -437,8 +437,8 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
     permissions = [
         "\u2500" * 60,
         " Accessing workspace:",
-        " /home/x/workspaces/",
-        " legacy/clearlogo",
+        " /srv/work/",
+        " team/app",
         " This folder pre-approves 291 tool permissions in .claude/settings.local.json:",
         "   Bash(git status:*)",
         " These will apply without asking. Only proceed if you trust this configuration.",
@@ -448,7 +448,7 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
         " Enter to confirm \u00b7 Esc to cancel",
     ]
     check("trust_screen: the pre-approved-permissions variant is the trust screen, folder joined bare",
-          drv.trust_screen(permissions) == "/home/x/workspaces/legacy/clearlogo",
+          drv.trust_screen(permissions) == "/srv/work/team/app",
           drv.trust_screen(permissions))
 
 
