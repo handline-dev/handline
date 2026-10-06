@@ -1769,6 +1769,7 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
                                             "cwd": str(cwd), **fields}))
         try:
             evmod.record_from_stdin([event])
+            drain_spool()
         finally:
             sys.stdin = real_in
 
@@ -4928,6 +4929,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
                  "transcript_path": str(transcript)}, **fields)))
             try:
                 evmod.record_from_stdin(["StopFailure"])
+                drain_spool()
             finally:
                 sys.stdin = real_in
 

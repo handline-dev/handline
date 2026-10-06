@@ -7,12 +7,12 @@ import time
 from .. import actions
 from ..infra import timefmt
 from ..session import blocked as blockedmod
-from ..daemon import devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
+from ..daemon import client as dmn_client, devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
 from .. import db
 from ..session import launch
 from ..session import observe as obs
 from ..session import term
-from ..infra import service
+from ..infra import gitrun, paths, service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
 from ..ui import tui
@@ -59,11 +59,27 @@ def _print_waits() -> None:
     print()
 
 
+def _code_line() -> str:
+    """Which code the running daemon is on, from its own hello, and whether the checkout has moved on."""
+    try:
+        sock = dmn_client.connect(5.0)
+        sha = dmn_client.call(sock, "hello", {"client": "hl", "protocol": 1})["daemon"] if sock else None
+    except (OSError, dmn_client.RpcError):
+        sha = None
+    if not sha:
+        return "  code: unknown (the daemon did not answer hello)"
+    rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    head = out.strip() if rc == 0 else ""
+    return f"  code: {sha}" + (f" - the checkout is at {head}: restart it with `{db.schema.RESTART_COMMAND}`" if head and head != sha else "")
+
+
 def cmd_daemon_status(args) -> int:
     _print_waits()
     pid = dmn_locks.running_elsewhere()
     supervisor = service.supervisor_of(pid)
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
+    if pid:
+        print(_code_line())
     live = dmn_locks.processes()
     if len(live) > 1:
         print(f"  WARNING: {len(live)} daemons are running (pid "

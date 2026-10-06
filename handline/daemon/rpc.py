@@ -43,6 +43,18 @@ class RpcError(Exception):
         return {"code": self.rpc_code, "message": self.message, "data": {"code": self.code, **self.data}}
 
 
+def schema_said(e: "db.SchemaError") -> str:
+    """What to tell a caller whose request the daemon cannot serve for the database's sake: which side is old,
+    and the one command that fixes it."""
+    if e.kind == "newer":
+        return (f"the database schema is newer than this daemon ({e.have} vs {e.latest}): the daemon is running old "
+                f"code, restart it with `{db.schema.RESTART_COMMAND}`")
+    if e.kind == "older":
+        return (f"the database schema is older than this daemon needs ({e.have} vs {e.latest}): it is migrated when "
+                f"the daemon starts; restart it with `{db.schema.RESTART_COMMAND}`")
+    return str(e)
+
+
 def bad_request(message: str, field: str | None = None, rpc_code: int = BAD_REQUEST) -> RpcError:
     return RpcError(rpc_code, "bad_request", message, **({"field": field} if field else {}))
 
@@ -70,6 +82,11 @@ class Caller:
     def actor(self) -> str:
         """The name a write is made under: an agent's own, else `human` (the founder and any device)."""
         return self.info["name"] if self.role == "agent" else db.HUMAN
+
+    @property
+    def actor_info(self) -> dict:
+        """The spec's `Actor` for an event: a person is a `user` there."""
+        return {**self.info, "kind": "user" if self.info["kind"] == "person" else self.info["kind"]}
 
     def allows(self, role: str) -> bool:
         return ROLES.index(self.role) >= ROLES.index(role)
@@ -101,6 +118,7 @@ class Method(NamedTuple):
     handler: Callable
     role: str               # the lowest role that may call it
     write: bool = False     # takes a request_id, keeps its reply a day, and is logged under its actor
+    own_event: bool = False  # it writes its own event, under its actor, so no generic one is added
 
 
 # Every method a later task adds is a line here.
@@ -140,7 +158,8 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
                     raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
                 return {**json.loads(row["reply"]), "replayed": True}
             result = m.handler(ctx, params)
-            db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.info})
+            if not m.own_event:
+                db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.actor_info})
             now = int(time.time())
             con.execute("DELETE FROM rpc_replies WHERE ts <= ?", (now - REPLY_KEEP_S,))
             con.execute("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",
@@ -157,6 +176,10 @@ class Connection:
         self.caller = Caller(self.peer)
         self.said_hello = False
         self._buf = b""
+        self._send_lock = threading.Lock()      # replies and event notices are written by different threads
+        self.subs: list = []
+        self.on_close: list = []
+        self.after_reply: list = []             # run once the reply to the call in hand is sent
 
     def _line(self) -> bytes | None:
         """The next line, or what is left at EOF; None at a clean EOF. A line past the limit is bad_request."""
@@ -176,12 +199,30 @@ class Connection:
 
     def _send(self, obj: dict) -> bool:
         try:
-            self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+            self.send_line(obj)
             return True
         except OSError:
             return False        # the client is gone; nothing left to tell it
 
+    def send_line(self, obj: dict) -> None:
+        with self._send_lock:
+            self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+
+    def hang_up(self) -> None:
+        """End the connection from another thread: the read in `serve` then returns."""
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
     def serve(self) -> None:
+        try:
+            self._serve()
+        finally:
+            for fn in self.on_close:
+                fn()
+
+    def _serve(self) -> None:
         while True:
             try:
                 raw = self._line()
@@ -211,13 +252,19 @@ class Connection:
             result = self._dispatch(msg)
         except RpcError as e:
             error = e
+        except db.SchemaError as e:
+            error = refused(schema_said(e), gate="schema", hint=db.schema.RESTART_COMMAND)
         except Exception as e:  # noqa: BLE001 - a call that breaks must reply, not kill the connection
             self.log(f"  rpc: {type(e).__name__}: {e}")
             error = RpcError(INTERNAL, "internal", "internal error")
         else:
             if isinstance(msg, dict) and "id" not in msg:
                 return True     # a notification is never answered
-            return self._send({"jsonrpc": "2.0", "id": rid, "result": result})
+            sent = self._send({"jsonrpc": "2.0", "id": rid, "result": result})
+            todo, self.after_reply = self.after_reply, []
+            for fn in todo:
+                fn()
+            return sent
         return self._send({"jsonrpc": "2.0", "id": rid, "error": error.wire()})
 
     def _dispatch(self, msg) -> dict:

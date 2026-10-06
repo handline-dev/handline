@@ -13,17 +13,28 @@ from ..infra import textsafe
 from ..session import triggers
 from ..team import ask as askmod
 
-from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server
+from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server, spool
 
 
 # ---------------------------------------------------------------- loop
-def _loaded_sha() -> str:
-    """The checkout's HEAD at the moment this process imported its code."""
+_loaded: list[str] = []
+
+
+def _head_sha() -> str:
     rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
     return out.strip() if rc == 0 and out.strip() else "unknown"
 
 
+def _loaded_sha() -> str:
+    """The checkout's HEAD when this process started, read once: what the daemon runs, however far the
+    checkout has moved since."""
+    if not _loaded:
+        _loaded.append(_head_sha())
+    return _loaded[0]
+
+
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
+    _loaded_sha()       # before anything else, so a checkout that moves during startup is not what is reported
     """`max_ticks` counts this process's own ticks. A dev-mode restart
     (task #64) execs a fresh process, so a run that restarts mid-way starts
     its count over at 0 and runs past `max_ticks` overall."""
@@ -92,6 +103,12 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         try:
             if not once and not max_ticks:      # a bounded run (a test, --once) has no screens to watch
                 prompts.start(stopping, log)
+            try:
+                n = spool.ingest(con, log)
+                if n:
+                    log(f"  spool: applied {n} hook event(s) left while the daemon was down")
+            except Exception as e:  # noqa: BLE001 - what is left in the spool is read at the next start
+                log(f"  spool: {type(e).__name__}: {e}")
             log("daemon starting - reconciling")
             log(f"  code: {_loaded_sha()}")     # T431: what a stale daemon is measured against
             reconciler.reconcile(con, log)
@@ -142,5 +159,5 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             con.close()
 
     if restarting:
-        devmode._dev_mode_restart()  # execs; does not return
+        devmode._dev_mode_restart(dev_state.get("seen"))  # execs; does not return
     return 0

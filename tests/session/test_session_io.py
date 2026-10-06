@@ -1397,6 +1397,7 @@ def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
             con.close()
         subprocess.run([str(ROOT / "bin" / "hl"), "hook", "PostToolUse"], input=payload,
                        capture_output=True, text=True, env=env)
+        drain_spool()
         con = db.connect()
         try:
             return db.get_agent_state(con, "toolish")["state"]
@@ -4210,6 +4211,7 @@ def test_hooks_report_activity(home: Path) -> None:
                           "prompt": "do the thing"})
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
+    drain_spool()
 
     con = db.connect()
     try:
@@ -4224,6 +4226,7 @@ def test_hooks_report_activity(home: Path) -> None:
         con.close()
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("hooks: activity does not clear STALLED",
@@ -4240,6 +4243,7 @@ def test_hooks_report_activity(home: Path) -> None:
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
                    input=json.dumps({"hook_event_name": "SessionStart", "session_id": "s"}),
                    capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("hooks: activity does not interrupt a handoff",
@@ -4255,6 +4259,7 @@ def test_hooks_report_activity(home: Path) -> None:
         subprocess.run([str(ROOT / "bin" / "ocp"), "hook", name],
                        input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
                        capture_output=True, text=True, env=env)
+        drain_spool()
 
     con = db.connect()
     try:
@@ -4333,6 +4338,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
         subprocess.run([str(ROOT / "bin" / "ocp"), "hook", event],
                        input=json.dumps({"hook_event_name": event, "session_id": "new"}),
                        capture_output=True, text=True, env=env)
+        drain_spool()
     con = db.connect()
     try:
         row = db.get_agent_state(con, "loopy")
@@ -4347,6 +4353,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
                    input=json.dumps({"hook_event_name": "UserPromptSubmit",
                                      "session_id": "new", "prompt": "do it"}),
                    capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("clear: a prompt still marks the agent as working",

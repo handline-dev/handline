@@ -30,7 +30,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, sends
+from . import landauth, lands, messaging, rpc, rpc_agents, rpc_hooks, rpc_stream, sends, stream  # noqa: F401 - the rpc_ modules register their methods
 
 
 
@@ -144,14 +144,19 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
             return {"ok": False, "said": f"{verb} is accepted only from the session's own `hl land` command, "
                     f"not from other code it runs (a test run, a script)"}
         kw["caller"] = agent
-    con = db.connect()
+    con = None
     try:
+        con = db.connect()
         ok, said = fn(con, log, **kw)
         return {"ok": bool(ok), "said": str(said)}
+    except db.SchemaError as e:     # an empty reply would read to the caller as "the daemon is not running"
+        log(f"  {verb}: {e}")
+        return {"ok": False, "said": rpc.schema_said(e)}
     except Exception as e:  # noqa: BLE001 - a bad request must reply, not kill the thread
         return {"ok": False, "said": f"{verb}: {e}"}
     finally:
-        con.close()
+        if con is not None:
+            con.close()
 
 
 def _serve_one(conn: socket.socket, log) -> None:
@@ -173,6 +178,7 @@ class SocketServer:
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._watcher = stream.Watcher(log)
 
     def start(self) -> None:
         path = paths.socket_file()
@@ -202,6 +208,7 @@ class SocketServer:
         self._thread = threading.Thread(target=self._accept_loop, daemon=True,
                                         name="ocp-daemon-socket")
         self._thread.start()
+        self._watcher.start()
 
     def _accept_loop(self) -> None:
         while not self._stop.is_set():
@@ -215,6 +222,7 @@ class SocketServer:
 
     def stop(self) -> None:
         self._stop.set()
+        self._watcher.close()
         if self._sock is not None:
             try:
                 self._sock.close()

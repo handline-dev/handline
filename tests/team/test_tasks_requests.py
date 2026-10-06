@@ -3082,6 +3082,7 @@ def test_ask_and_resolve_do_not_type_at_an_agent_at_the_wall(home: Path) -> None
                                             **fields}))
         try:
             evmod.record_from_stdin([event])
+            drain_spool()
         finally:
             sys.stdin = real_in
     real = (termmod.alive, termmod.idle_now, termmod.send, termmod.available)

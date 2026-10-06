@@ -87,7 +87,7 @@ def test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(ho
     dbschema.connect(p).close()
     raw = sqlite3.connect(p)
     raw.execute("DROP TABLE rpc_replies")
-    raw.execute("DELETE FROM schema_version WHERE version = 2")
+    raw.execute("DELETE FROM schema_version WHERE version > 1")
     raw.commit()
     raw.close()
     con = dbschema.connect(p)

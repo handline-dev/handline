@@ -73,8 +73,8 @@ func TestPreVersionDatabaseIsLeftToThePythonDaemon(t *testing.T) {
 func TestOldDatabaseMigratesOnceUnderConcurrentOpens(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, _ := Open(p)
-	db.Exec("DROP TABLE rpc_replies")
-	db.Exec("DELETE FROM schema_version WHERE version = 2")
+	db.Exec("DROP TABLE hook_applied")
+	db.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	db.Close()
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
@@ -99,9 +99,9 @@ func TestOldDatabaseMigratesOnceUnderConcurrentOpens(t *testing.T) {
 	db, _ = Open(p)
 	defer db.Close()
 	var n int
-	db.QueryRow("SELECT COUNT(*) FROM schema_version WHERE version = 2").Scan(&n)
+	db.QueryRow("SELECT COUNT(*) FROM schema_version WHERE version = ?", LatestVersion()).Scan(&n)
 	if n != 1 {
-		t.Fatalf("migration 2 recorded %d times", n)
+		t.Fatalf("the last migration recorded %d times", n)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		}
 	}
 	raw, _ = sql.Open("sqlite", "file:"+p)
-	raw.Exec("DROP TABLE rpc_replies") // a step that was not run has not made its tables
+	raw.Exec("DROP TABLE hook_applied") // a step that was not run has not made its tables
 	raw.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	raw.Close()
 	db, err := Open(p)

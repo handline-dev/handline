@@ -2232,7 +2232,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
               first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
     finally:
         termmod._screen = real_screen
-        tui._opencode_seen = saved_seen
+        tui._opencode_seen.clear(); tui._opencode_seen.update(saved_seen)
         con.close()
 
 

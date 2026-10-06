@@ -163,7 +163,7 @@ def test_every_write_leaves_an_event_naming_its_actor(home: Path) -> None:
     rows = {json.loads(r["payload"])["request_id"]: r for r in con.execute("SELECT * FROM events WHERE kind = 'rpc_write'")}
     con.close()
     check("actor: the founder's write names the user and is made as human",
-          rows["a1"]["agent"] == db.HUMAN and json.loads(rows["a1"]["payload"])["actor"]["kind"] == "person", str(dict(rows["a1"])))
+          rows["a1"]["agent"] == db.HUMAN and json.loads(rows["a1"]["payload"])["actor"]["kind"] == "user", str(dict(rows["a1"])))
     check("actor: an agent's write names the agent",
           rows["a2"]["agent"] == "backend" and json.loads(rows["a2"]["payload"])["actor"] == {"kind": "agent", "name": "backend"})
     check("actor: one event per write, not per retry", len(rows) == 2)
@@ -243,7 +243,7 @@ def test_a_database_made_before_the_reply_store_gets_it_at_migration(home: Path)
     p = home / "v1.db"
     con = db.connect(p)
     con.execute("DROP TABLE rpc_replies")
-    con.execute("DELETE FROM schema_version WHERE version = 2")
+    con.execute("DELETE FROM schema_version WHERE version > 1")
     con.close()
     con = db.connect(p, migrating=True)
     has = con.execute("SELECT 1 FROM sqlite_master WHERE name = 'rpc_replies'").fetchone()

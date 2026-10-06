@@ -7,15 +7,15 @@ import time
 
 # ---------------------------------------------------------------- events
 def add_event(con, agent: str, kind: str, payload: dict | None = None,
-              account: str | None = None, dedup_key: str | None = None) -> int | None:
-    """Append an event. Returns the row id, or None if deduped away."""
+              account: str | None = None, dedup_key: str | None = None, ts: int | None = None) -> int | None:
+    """Append an event, stamped `ts` or now. Returns the row id, or None if deduped away."""
     # ON CONFLICT names dedup_key specifically. A blanket IntegrityError catch
     # here would also swallow NOT NULL violations, dropping events with no trace
     # and reporting them as if they had been deduped.
     cur = con.execute(
         "INSERT INTO events(ts, agent, account, kind, payload, dedup_key) "
         "VALUES(?,?,?,?,?,?) ON CONFLICT(dedup_key) DO NOTHING",
-        (int(time.time()), agent, account, kind,
+        (int(time.time()) if ts is None else ts, agent, account, kind,
          json.dumps(payload, ensure_ascii=False) if payload else None, dedup_key),
     )
     return cur.lastrowid if cur.rowcount else None
