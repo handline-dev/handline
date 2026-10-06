@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, View } from 'react-native';
+import { ActivityIndicator, Platform, SafeAreaView, StatusBar as RNStatusBar, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import type { Store } from '@handline/app-core';
 import { DaemonProvider, useSelector } from '@handline/app-react';
@@ -19,7 +19,7 @@ export default function App() {
     : !store ? <PairScreen onPaired={setPairing} />
     : <DaemonProvider store={store}><Home store={store} onUnpair={() => { void forgetPairing().then(() => setPairing(null)); }} /></DaemonProvider>;
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight ?? 0 : 0 }}>
       <StatusBar style="auto" />
       <View style={{ flex: 1 }}>{body}</View>
     </SafeAreaView>
