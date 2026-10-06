@@ -93,7 +93,7 @@ def ensure(namespace: str) -> None:
     _founder_only()
     folder = root() / namespace
     if not folder.exists():
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)       # another thread or process may make it between the check and here
         for d in (root(), folder):
             d.chmod(0o700)
 

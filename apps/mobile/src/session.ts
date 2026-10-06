@@ -6,11 +6,21 @@ import { Store } from '@handline/app-core';
 import Native from '../modules/pinned-socket/index.ts';
 import { pinnedTransport } from './pinned-transport.ts';
 
-export interface Pairing { host: string; fingerprint: string; token: string; device: string }
+export interface Pairing {
+  host: string;
+  fingerprint: string;
+  token: string;
+  device: string;
+}
 const KEY = 'handline.pairing';
 
 export async function loadPairing(): Promise<Pairing | null> {
-  try { const s = await SecureStore.getItemAsync(KEY); return s ? (JSON.parse(s) as Pairing) : null; } catch { return null; }
+  try {
+    const s = await SecureStore.getItemAsync(KEY);
+    return s ? (JSON.parse(s) as Pairing) : null;
+  } catch {
+    return null;
+  }
 }
 export const forgetPairing = () => SecureStore.deleteItemAsync(KEY);
 
@@ -20,7 +30,9 @@ const connectTo = (host: string, fingerprint: string) => () => pinnedTransport(N
 export async function pair(uri: string, deviceName: string): Promise<Pairing> {
   const offer = parsePairingUri(uri.trim());
   // The daemon names input holders by this, so two phones need different names for "take from another device" to ask.
-  const name = `${deviceName}-${Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0')}`;
+  const name = `${deviceName}-${Math.floor(Math.random() * 0x10000)
+    .toString(16)
+    .padStart(4, '0')}`;
   const { token, device } = await redeemPairing(connectTo(offer.host, offer.fingerprint), offer.code, name);
   const p = { host: offer.host, fingerprint: offer.fingerprint, token, device };
   await SecureStore.setItemAsync(KEY, JSON.stringify(p));
@@ -28,4 +40,11 @@ export async function pair(uri: string, deviceName: string): Promise<Pairing> {
 }
 
 export const storeFor = (p: Pairing): Store =>
-  new Store(new DaemonClient({ client: 'phone', token: p.token, reconnect: { minMs: 500, maxMs: 8000 }, connect: connectTo(p.host, p.fingerprint) }));
+  new Store(
+    new DaemonClient({
+      client: 'phone',
+      token: p.token,
+      reconnect: { minMs: 500, maxMs: 8000 },
+      connect: connectTo(p.host, p.fingerprint),
+    }),
+  );

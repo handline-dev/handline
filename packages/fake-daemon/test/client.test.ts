@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RpcError, type Event } from '@handline/client';
+import type { RpcError } from '@handline/client';
+import { type Event } from '@handline/client';
 import { flush, second, setup, until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
@@ -29,7 +30,10 @@ test('errors carry a stable code, a readable sentence and the gate', async () =>
   const { client } = setup();
   await client.start();
   await assert.rejects(client.call('agent.get', { agent: 'nobody' }), (e: RpcError) => e.code === 'not_found' && /nobody/.test(e.message));
-  await assert.rejects(client.sendInput(A, 'x'), (e: RpcError) => e.code === 'refused' && e.gate === 'state' && /no open session/.test(e.message));
+  await assert.rejects(
+    client.sendInput(A, 'x'),
+    (e: RpcError) => e.code === 'refused' && e.gate === 'state' && /no open session/.test(e.message),
+  );
   await assert.rejects(client.sendKeys('handline.architect', 'f13'), (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'keys');
   await assert.rejects(client.call('hr.list', {}), (e: RpcError) => e.code === 'refused' && e.gate === 'unsupported');
   client.close();
@@ -37,9 +41,9 @@ test('errors carry a stable code, a readable sentence and the gate', async () =>
 
 test('a daemon that needs a newer client is refused with the fix', async () => {
   const { client, daemon } = setup();
-  const dispatch = (daemon as any).dispatch.bind(daemon);
-  (daemon as any).dispatch = (c: unknown, m: string, p: unknown) =>
-    (m === 'hello' ? { ...dispatch(c, m, p), min_client: 2 } : dispatch(c, m, p));
+  const inner = daemon as unknown as { dispatch(c: unknown, m: string, p: unknown): object };
+  const dispatch = inner.dispatch.bind(daemon);
+  inner.dispatch = (c, m, p) => (m === 'hello' ? { ...dispatch(c, m, p), min_client: 2 } : dispatch(c, m, p));
   await assert.rejects(client.start(), (e: RpcError) => e.code === 'protocol' && /hl service install/.test(e.reason ?? ''));
 });
 
@@ -66,7 +70,10 @@ test('session started, text streamed, input sent, Esc sent, prompt answered', as
   await until(() => view.text().includes('● Thinking…'), 'streamed text');
   await client.sendKeys(A, 'esc');
   await until(() => view.text().some((l) => l.includes('Interrupted')), 'interrupt');
-  assert.deepEqual(daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`), ['text:push the branch', 'key:esc']);
+  assert.deepEqual(
+    daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`),
+    ['text:push the branch', 'key:esc'],
+  );
 
   // second turn runs to the permission prompt
   await client.sendInput(A, 'push again');
@@ -83,7 +90,11 @@ test('session started, text streamed, input sent, Esc sent, prompt answered', as
   daemon.settle();
   await until(() => view.text().includes('● Pushed. Done.'), 'finish');
   assert.equal((await client.call('agent.get', { agent: A })).state, 'idle');
-  assert.ok(events.some((e) => e.type === 'agent.changed' && (e.data as any).has_dialog === false && e.actor?.name === 'web-test'));
+  assert.ok(
+    events.some(
+      (e) => e.type === 'agent.changed' && (e.data as { has_dialog?: boolean }).has_dialog === false && e.actor?.name === 'web-test',
+    ),
+  );
 
   // a fresh attach has the whole text, scrollback included
   const again = await client.attachTerminal(A);
@@ -110,14 +121,18 @@ test('a stale prompt answer sends nothing and names the open prompt', async () =
   const { client, daemon } = setup();
   await client.start();
   await client.startSession(A);
-  await client.sendInput(A, 'go'); daemon.settle();
+  await client.sendInput(A, 'go');
+  daemon.settle();
   const [p1] = await client.openPrompts(A);
   await client.sendKeys(A, 'esc'); // the prompt closes
-  await client.sendInput(A, 'again'); daemon.settle();
+  await client.sendInput(A, 'again');
+  daemon.settle();
   const [p2] = await client.openPrompts(A);
   const before = daemon.sessions.get(A)!.received.length;
-  await assert.rejects(client.answerPrompt(A, p1!.id, '1'),
-    (e: RpcError) => e.code === 'stale_prompt' && (e.data!.current as { id: string }).id === p2!.id);
+  await assert.rejects(
+    client.answerPrompt(A, p1!.id, '1'),
+    (e: RpcError) => e.code === 'stale_prompt' && (e.data!.current as { id: string }).id === p2!.id,
+  );
   assert.equal(daemon.sessions.get(A)!.received.length, before);
   client.close();
 });
@@ -127,7 +142,10 @@ test('at the wall keys pass and typed input is refused', async () => {
   await client.start();
   await assert.rejects(client.sendInput(W, 'x'), (e: RpcError) => e.code === 'refused' && e.gate === 'wall');
   await client.sendKeys(W, 'esc');
-  assert.deepEqual(daemon.sessions.get(W)!.received.map((r) => r.value), ['esc']);
+  assert.deepEqual(
+    daemon.sessions.get(W)!.received.map((r) => r.value),
+    ['esc'],
+  );
   assert.equal((await client.call('agents.list', {})).agents.find((a) => a.name === W)!.block?.kind, 'wall');
   client.close();
 });
@@ -140,12 +158,16 @@ test('the input holder: others are refused, release hands back to the daemon', a
   await b.start();
   const taken = await a.takeInput(A);
   assert.equal(taken.holder.name, 'web-a');
-  assert.deepEqual((await b.call('agent.get', { agent: A })).input_holders!.map((h) => h.name), ['web-a']);
+  assert.deepEqual(
+    (await b.call('agent.get', { agent: A })).input_holders!.map((h) => h.name),
+    ['web-a'],
+  );
   await assert.rejects(b.sendInput(A, 'hi'), (e: RpcError) => e.gate === 'input_holder' && /web-a holds/.test(e.message));
   assert.throws(() => daemon.daemonTypes(A, 'task'), /holds the input/);
   await a.releaseInput(A);
   await b.sendInput(A, 'hi');
-  a.close(); b.close();
+  a.close();
+  b.close();
 });
 
 test('stop, restart and park pass the lifecycle gates, not the holder gate', async () => {
@@ -161,7 +183,8 @@ test('stop, restart and park pass the lifecycle gates, not the holder gate', asy
   await b.startSession(A);
   await b.stopSession(A, 'exit');
   assert.equal((await a.call('agent.get', { agent: A })).session_open, false);
-  a.close(); b.close();
+  a.close();
+  b.close();
 });
 
 test('the daemon typing is marked in the stream', async () => {
@@ -186,8 +209,10 @@ test('a retried write with the same request_id is not repeated and says so', asy
   assert.equal(first.replayed, undefined);
   assert.equal(retry.replayed, true);
   assert.equal(daemon.sessions.get(A)!.received.length, 1);
-  await assert.rejects(client.call('session.input', { agent: A, text: 'other', enter: true, request_id: 'r-1' }),
-    (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'request_id');
+  await assert.rejects(
+    client.call('session.input', { agent: A, text: 'other', enter: true, request_id: 'r-1' }),
+    (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'request_id',
+  );
   client.close();
 });
 
@@ -195,8 +220,10 @@ test('a remounted terminal keeps the shared view until its last holder lets go',
   const { client, daemon } = setup();
   await client.start();
   await client.startSession(A);
-  const attached = () => [...(daemon as any).conns].reduce((n: number, c: any) => n + c.attached.size, 0);
-  const first = client.attachTerminal(A), second = client.attachTerminal(A); // remount before the first answer
+  const attached = () =>
+    [...(daemon as unknown as { conns: Set<{ attached: Set<string> }> }).conns].reduce((n, c) => n + c.attached.size, 0);
+  const first = client.attachTerminal(A),
+    second = client.attachTerminal(A); // remount before the first answer
   const [v1, v2] = await Promise.all([first, second]);
   assert.equal(v1, v2);
   await client.detachTerminal(A); // the cancelled mount lets go
@@ -231,7 +258,8 @@ test('reconnect resumes the event stream without loss and takes a fresh terminal
   const states: string[] = [];
   client.onState((s) => states.push(s));
 
-  await client.sendInput(A, 'one'); daemon.settle();
+  await client.sendInput(A, 'one');
+  daemon.settle();
   await until(() => view.text().includes('Do you want to proceed?'), 'prompt');
   const first = seen.length;
   assert.ok(first > 0);
@@ -250,10 +278,15 @@ test('reconnect resumes the event stream without loss and takes a fresh terminal
   await until(() => view.text().includes('● Understood, I will not push.'), 'terminal resync');
   await flush();
   assert.ok(seen.length > first, 'events from the outage arrived');
-  const all = (daemon as any).events.map((e: Event) => e.cursor) as number[];
-  assert.deepEqual(seen, all.filter((c) => c >= seen[0]!), 'every event from the first seen on, once, in order');
+  const all = (daemon as unknown as { events: Event[] }).events.map((e: Event) => e.cursor) as number[];
+  assert.deepEqual(
+    seen,
+    all.filter((c) => c >= seen[0]!),
+    'every event from the first seen on, once, in order',
+  );
   assert.deepEqual(view.text(), daemon.sessions.get(A)!.lines.slice(-view.text().length));
-  client.close(); other.close();
+  client.close();
+  other.close();
 });
 
 test('a write in flight when the connection drops is resent and done once', async () => {
@@ -293,7 +326,7 @@ test('close settles a call waiting for the connection to come back', async () =>
   const { client, net } = setup();
   await client.start();
   net.down = true;
-  (client as any).transport.close();
+  (client as unknown as { transport: { close(): void } }).transport.close();
   await until(() => client.state === 'reconnecting', 'drop');
   const waiting = client.call('daemon.status', {});
   client.close();
