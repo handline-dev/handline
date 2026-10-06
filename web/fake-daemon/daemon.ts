@@ -84,7 +84,7 @@ export class FakeDaemon {
     const s: Session = {
       fx, state: fx.state, since: this.iso(), sessionId: fx.session, open, hasTerminal: fx.state !== 'no_terminal',
       lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [], seq: 0, cols: COLS, rows: ROWS,
-      buffer: '', composing: false, holder: { holder: 'daemon', since: this.iso() }, prompt: null,
+      buffer: '', composing: false, holder: { who: 'daemon', since: this.iso() }, prompt: null,
       queue: [], promptCount: 0, received: [],
     };
     return s;
@@ -124,7 +124,7 @@ export class FakeDaemon {
   /** The daemon's own typing: refused while a person holds the terminal, marked in the stream otherwise. */
   daemonTypes(agent: string, text: string): void {
     const s = this.session(agent);
-    if (s.holder.holder !== 'daemon') throw refused(`${s.holder.holder} holds the input`);
+    if (s.holder.who !== 'daemon') throw refused(`${s.holder.who} holds the input`);
     this.record(s, 'text', text, 'daemon');
     this.edit(s, () => { s.lines.push(`> ${text}`); }, { kind: 'daemon_typed', text });
   }
@@ -357,15 +357,15 @@ export class FakeDaemon {
       }
       case 'input.take': {
         const s = agent();
-        if (s.holder.holder !== 'daemon' && s.holder.holder !== actor) throw refused(`${s.holder.holder} holds the input`);
-        if (s.holder.holder === 'daemon') s.holder = { holder: actor, since: this.iso() };
-        this.control(s, actor, 'input.take'); return s.holder;
+        if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
+        if (s.holder.who === 'daemon') s.holder = { who: actor, since: this.iso() };
+        this.control(s, actor, 'input.take'); return { holders: [s.holder] };
       }
       case 'input.release': {
         const s = agent();
-        if (s.holder.holder !== actor) throw refused('you do not hold the input');
-        s.holder = { holder: 'daemon', since: this.iso() };
-        this.control(s, actor, 'input.release'); return s.holder;
+        if (s.holder.who !== actor) throw refused('you do not hold the input');
+        s.holder = { who: 'daemon', since: this.iso() };
+        this.control(s, actor, 'input.release'); return { holders: [s.holder] };
       }
       case 'terminal.attach': {
         const s = agent();
@@ -385,7 +385,7 @@ export class FakeDaemon {
       }
       case 'terminal.resize': {
         const s = this.byTerminal(String(p.terminal));
-        if (s.holder.holder !== actor) throw refused('only the input holder may resize');
+        if (s.holder.who !== actor) throw refused('only the input holder may resize');
         s.cols = Number(p.cols); s.rows = Number(p.rows);
         this.pushTerminal(s, 'resize', (seq) => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
         return { accepted: true };
@@ -405,7 +405,7 @@ export class FakeDaemon {
   /** The gates every typing method passes: a session to type at, and nobody else holding the input. */
   private gate(s: Session, actor: string) {
     if (!s.open) throw refused('the agent has no open session');
-    if (s.holder.holder !== 'daemon' && s.holder.holder !== actor) throw refused(`${s.holder.holder} holds the input`);
+    if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
   }
   private control(s: Session, actor: string, what: string) {
     this.emit('agents', 'control', s.fx.name, actor, { method: what });
@@ -426,7 +426,7 @@ export class FakeDaemon {
   private stopSession(s: Session, mode: string, actor: string) {
     if (!['exit', 'close', 'kill'].includes(mode)) this.bad('mode must be exit, close or kill');
     if (!s.open) throw refused('the agent has no open session');
-    if (s.holder.holder !== 'daemon' && s.holder.holder !== actor) throw refused(`${s.holder.holder} holds the input`);
+    if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
     if (s.prompt) this.closePrompt(s, 'stopped', actor);
     s.queue = []; s.open = false;
     if (mode === 'kill') s.hasTerminal = false; else this.write(s, '(session ended)');
@@ -461,7 +461,7 @@ export class FakeDaemon {
   }
   private detail(s: Session): AgentDetail {
     return { ...this.view(s), worktree: s.fx.worktree, branch: s.fx.branch, terminal: tid(s), session: s.sessionId,
-      session_open: s.open, input: s.holder, prompt: s.prompt };
+      session_open: s.open, input: [s.holder], prompt: s.prompt };
   }
 }
 

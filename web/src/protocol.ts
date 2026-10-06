@@ -64,7 +64,8 @@ export interface AgentView {
   has_dialog: boolean;
   parent: string | null;
 }
-export interface InputHolder { holder: string; since: string } // holder: 'daemon' or a person/device
+// who: 'daemon' or a person/device. Carried as a list (length 1 in v1) so several holders need no protocol change.
+export interface InputHolder { who: string; since: string }
 
 export interface Prompt {
   id: string;
@@ -82,7 +83,7 @@ export interface AgentDetail extends AgentView {
   terminal: string; // terminal handle
   session: string | null; // session id when a session exists
   session_open: boolean;
-  input: InputHolder;
+  input: InputHolder[];
   prompt: Prompt | null;
 }
 export interface DaemonStatus {
@@ -143,8 +144,8 @@ export interface Methods {
   'session.interrupt': { params: WriteBase & { agent: string }; result: { accepted: true } };
   'prompt.list': { params: { agent: string }; result: { prompts: Prompt[] } };
   'prompt.answer': { params: WriteBase & { prompt: string; choice: NamedKey }; result: { accepted: true } };
-  'input.take': { params: WriteBase & { agent: string }; result: InputHolder };
-  'input.release': { params: WriteBase & { agent: string }; result: InputHolder };
+  'input.take': { params: WriteBase & { agent: string }; result: { holders: InputHolder[] } };
+  'input.release': { params: WriteBase & { agent: string }; result: { holders: InputHolder[] } };
 
   'terminal.attach': { params: { agent: string }; result: TerminalSnapshot };
   'terminal.detach': { params: { terminal: string }; result: Record<string, never> }; // ASSUMED: plan names no detach call
