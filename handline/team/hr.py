@@ -27,6 +27,8 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -468,9 +470,6 @@ class _Snapshot:
     GRANTS = (agents._SKIP_NS, agents._SANDBOX_NS)
 
     def __init__(self, names: set[str]):
-        import shutil
-        import tempfile
-
         self.dir = Path(tempfile.mkdtemp(prefix="hr-snapshot-", dir=paths.home()))
         self.files = {p: (p.read_bytes() if p.exists() else None)
                       for p in (paths.team_file(), paths.team_file().with_suffix(".yaml.bak"), paths.config_file())}
@@ -495,8 +494,6 @@ class _Snapshot:
             return None
 
     def restore(self) -> None:
-        import shutil
-
         for p, data in self.files.items():
             if data is None:
                 p.unlink(missing_ok=True)
@@ -523,8 +520,6 @@ class _Snapshot:
                 pass
 
     def drop(self) -> None:
-        import shutil
-
         shutil.rmtree(self.dir, ignore_errors=True)
 
 

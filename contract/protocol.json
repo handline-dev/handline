@@ -105,6 +105,7 @@
   "hl resume": "session.wake",
   "hl wake": "session.wake",
   "hl hr add|retire|rename|link|unlink|team|context": "hr.propose",
+  "hl hr diff": "hr.propose",
   "hl hr withdraw": "hr.withdraw",
   "hl hr list": "hr.list",
   "hl trust add": "trust.propose",
@@ -4499,7 +4500,7 @@
   },
   {
    "name": "hr.propose",
-   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context).",
+   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4515,7 +4516,8 @@
        "unlink",
        "team",
        "settings",
-       "context"
+       "context",
+       "bundle"
       ]
      }
     },
