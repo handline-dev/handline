@@ -3,8 +3,28 @@
   "private": true,
   "type": "module",
   "description": "React bindings for @handline/app-core: DaemonProvider and hooks that read the store",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@handline/app-core": "workspace:*", "@handline/client": "workspace:*" },
-  "peerDependencies": { "react": ">=18" },
-  "peerDependenciesMeta": { "react": { "optional": true } }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@handline/app-core": "workspace:*",
+    "@handline/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*",
+    "@types/react": "^19",
+    "react": "19.2.3"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }

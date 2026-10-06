@@ -1,5 +1,4 @@
 import { test } from 'node:test';
-import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { DaemonClient, webSocketTransport } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
@@ -31,7 +30,8 @@ test('the same client works over the line socket (TCP here; the Unix path is the
   await new Promise((r) => server.once('listening', r));
   const port = (server.address() as AddressInfo).port;
   await drive(new DaemonClient({ client: 'sock', reconnect: false, connect: () => unixSocketTransport(port) }), daemon);
-  daemon.stop(); server.close();
+  daemon.stop();
+  server.close();
 });
 
 test('the same client works over a WebSocket (browser path)', async () => {
@@ -40,5 +40,6 @@ test('the same client works over a WebSocket (browser path)', async () => {
   await new Promise((r) => server.once('listening', r));
   const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
   await drive(new DaemonClient({ client: 'ws', reconnect: false, connect: () => webSocketTransport(url) }), daemon);
-  daemon.stop(); server.close();
+  daemon.stop();
+  server.close();
 });

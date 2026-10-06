@@ -91,6 +91,7 @@ Cost: layouts do not follow a person from laptop to another browser. If that is 
 
 `workspace.ts`: the seven rules above, a save/load round trip, a layout from a newer `v` is ignored with the default, 4-pane cap on drag and on presets, Chat survives every sequence of moves and closes (a property test over random operations).
 Web: DOM test that closing a Chat tab is impossible, and a screenshot at 375, 768 and 1280 px with two and four panes.
+Every tab and the sidebar also owe the loading, error and write checks of `docs/turborepo-layout.md` §9, against the specs in §9 below.
 
 ## 6. Requests to the daemon (orcapipe)
 
@@ -108,10 +109,26 @@ R4 and R5 widen what a viewer can read on the host beyond the terminal, so the d
 
 ## 7. Units 3 and 4
 
-The units are in `docs/turborepo-layout.md` §6 (units 2, 3 and 4a–4e) and follow this document. The mobile app (unit 5) shows Chat and Terminal as two screens and never splits.
+The units are in `docs/turborepo-layout.md` §6 (units 2, 3, Q1–Q4 and 4a–4e) and follow this document. The mobile app (unit 5) shows Chat and Terminal as two screens and never splits.
 
 ## 8. Assumptions to confirm
 
 - **One Chat per agent**, in that agent's workspace, not one global Handline chat. If the founder means a single global chat, it becomes a fixed tab present in every workspace.
 - "Top" means the agent page header; the app's top bar (search, Inbox, Tasks, Team, Accounts; design §2) stays. Inbox, Tasks and the other destinations stay routes that replace the main view, not tabs.
 - Reversing F26 and F28 (browser and emulator) is intended.
+
+## 9. Loading, errors and writes per view
+
+Data comes through `@handline/app-data` (React Query), written once for web and mobile: `docs/turborepo-layout.md` §8. Loading is a **skeleton** of the real layout, never a spinner or a blank pane (first load only; 150 ms delay, 300 ms minimum; same token heights as the real content). Layout changes (open, close, move, split) are `app-core` state and never wait on the daemon.
+
+| View | Skeleton | Empty / error | Writes |
+|---|---|---|---|
+| Sidebar rows | 6 rows: a dot, two text lines (name; state and task), a short right-hand label | "No agents." / banner and Retry; the list stays under an error | Start, Resume, stop modes: **decided**, pending mark on the row ("starting…") |
+| Selected row's detail block | the 5 to 8 key-value lines (model, account, start-on, task, worktree, session, terminal, cache), label short and value long | lines the agent lacks are left out, not drawn empty | the account pick is local until Start |
+| **Chat** tab | three message blocks of different heights, alternating sides, then the message box (real, disabled until the connection is open) | no chat capability: "this daemon does not serve the conversation"; no messages: a sentence under the box | send: **authored**, the message is on screen at once as *sending*; failure keeps it with Retry and Discard. Answer, dismiss, withdraw: authored |
+| Permission / dialog card (Chat tab, Inbox) | none: a card exists only when the daemon reported the prompt | a prompt that went: the card leaves | answer: **decided**, "answering…", buttons off; `stale_prompt` refreshes the card |
+| **Terminal** tab | a grid of 20 lines of varied widths until the snapshot arrives; the strip's chips and who-holds-input are real and disabled until attached | "No terminal. Start the agent to open one." / the reason from `terminal.attach` | Take control and Release: decided, pending mark. Typing and key chips: not cached, no local echo; the stream shows the result |
+| Markdown tab | a heading bar and 8 text lines | "that file is gone" (error state of §4, kept until closed) | none (read-only) |
+| Web tab | an empty frame box under the strip until the iframe's `load`, or 10 s, then "open in a new tab" | page refuses framing: "open in a new tab" | none |
+| Emulator tab | the device outline until the first frame | "this daemon does not serve emulators" | taps and keys: not cached, the frame stream is the answer |
+| A tab restored from a saved layout | its own skeleton while its data loads | a tab whose agent, terminal or file is gone shows the error state until closed (§4) | none |
