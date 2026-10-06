@@ -2,7 +2,7 @@
 
 Layout, states and keys for units U15 (HR proposals and the Team table) and U16 (stats, home settings, standing answers) of `docs/pc-app-gaps.md` §4, in the frame of `docs/web-main-view.md`. Same form and shared rules as `docs/design/agents-accounts.md` and `docs/design/inbox-tasks-prompts.md` §1: tokens from `apps/web/src/styles.css` (no new colour), skeleton with `docs/turborepo-layout.md` §8.6 timing, the four list states, the key sheet on `?`, phone under 640 px. Write kinds are those of §8.5: **authored** (value changes at once, hollow dot `○`, reverts on refusal) and **decided** (no cache change, "…" on the clicked control, reason on error). Confirms, saves and thresholds below were read from the bridge (`proposals.py`, `hr_card.py`, `outlook_view.py`, `home.py` settings tab, `answer_add.py`), and role gates from `contract/protocol.json`. Docs only: nothing here is built.
 
-**Role gates (contract).** `hr.list`, `team.get` and `stats.get` are readable by agents and members; `hr.decide`, `settings.get`, `settings.set`, `answers.list`, `answer.add`, `answer.remove`, `trust.remove` and `settings.trust` are **founder-only**. Rule for every page here: a control the role cannot use is hidden (an action) or locked `🔒` with "founder only" (a value shown read-only); the Settings page is not served to a non-founder ("Settings are for the founder.") because `settings.get` itself is founder-only.
+**Role gates (contract).** `hr.list` and `team.get` need only the agent role (so any proven caller), `stats.get` the member role; `hr.decide`, `settings.get`, `settings.set`, `answers.list`, `answer.add`, `answer.remove` and `settings.trust` are **founder-only** (`trust.remove` has no gate). Rule for every page here: a control the role cannot use is hidden (an action) or locked `🔒` with "founder only" (a value shown read-only); the Settings page is not served to a non-founder ("Settings are for the founder.") because `settings.get` itself is founder-only.
 
 **Pending:** the outlook graph and the longer stats ranges wait on **N5** (§3.2); they are drawn but hidden until `stats.outlook` is listed.
 
@@ -10,7 +10,7 @@ Layout, states and keys for units U15 (HR proposals and the Team table) and U16 
 
 ### 1.1 Where it lives
 
-Route `/team` has two tabs, **Team** and **HR**, and `/team/hr/:proposal` is a deep link to one card. The HR tab wears the bridge's dot while a proposal waits: a `●` in `--block` and the count as text ("HR 2"), shown on the tab, on the **Team** item of the top bar and in the status bar's host line, so it is seen from any page; colour is never alone. The count is the proposals whose state is `proposed` or `approved` (the founder's move: waiting, or approved but not applied), as the bridge's `open_proposals`; it comes from `hr.list` and refreshes from the topic. The same proposal also appears in Inbox as an HR card (`inbox-tasks-prompts.md` §3.1) and both show one state.
+Route `/team` has two tabs, **Team** and **HR**, and `/team/hr/:proposal` is a deep link to one card. The HR tab wears the bridge's dot while a proposal waits: a `●` in `--block` and the count as text ("HR 2"), shown on the tab, on the **Team** item of the top bar and in the status bar's host line, so it is seen from any page; colour is never alone. The count is the proposals whose state is `proposed` or `approved` (the founder's move: waiting, or approved but not applied), as the bridge's `open_proposals`; it comes from `hr.list`. There is **no `hr` topic** in the contract, and `hr.list` is a snapshot-only read (§8.2: stale after 30 s, refetched on mount and on reconnect), so the dot is at most 30 s behind a proposal raised elsewhere; it also refetches when the person's own decide settles. A live dot needs the daemon to announce a new proposal (assumption 8). The same proposal also appears in Inbox as an HR card (`inbox-tasks-prompts.md` §3.1) and both show one state.
 
 ### 1.2 The HR tab
 
@@ -47,7 +47,7 @@ Below the cards, an **agents** table (agent, model, effort, browser, mode, sandb
 - **`subject`**: an approve or reject is for the text the card showed (the bridge's `subject`). If the proposal changed under the click, the daemon refuses as stale; nothing is applied, the card refreshes in place with "This proposal changed" in `--wait`, and the person decides again on the new text. Never auto-retried.
 - **Withdraw** (`w`) is the proposer's call (`hr.withdraw` is on §8.5's list of agent commands not made from the UI), so the web has no Withdraw; the bridge's keeps working. The key sheet omits it.
 - **Approve all** sends the calls one after another and shows each card's own "approving…" mark; a partial failure leaves the refused ones waiting, with "2 of 3 approved" and each reason in the toast. The bridge also sends each proposer one summary message; the contract has no batch call, so the web promises only what the daemon does for each `hr.decide`.
-- `hr.decide` is **decided**: the card's two buttons read "…" and disable, the card changes only when the `hr` topic says so, and the dot count drops then. On refusal the buttons return and the reason shows in the card. The three decide verbs and Edit settings are hidden for a role that is not founder; the cards stay readable.
+- `hr.decide` is **decided**: the card's two buttons read "…" and disable, the card changes only when the refetch of `hr.list` after the call shows it, and the dot count drops then. On refusal the buttons return and the reason shows in the card. The three decide verbs and Edit settings are hidden for a role that is not founder; the cards stay readable.
 - Keys work only with no text field focused; `?` lists them; Escape closes the reject field, then leaves the page.
 
 ### 1.4 States
@@ -56,7 +56,7 @@ Below the cards, an **agents** table (agent, model, effort, browser, mode, sandb
 - **Empty**: "No proposal is waiting for your decision." (the bridge's words), and under it "Roster and role changes agents propose land here." The tab's dot is off.
 - **Error / not served**: the shared strip and the "not served" line; cached cards stay. Not served hides the HR tab.
 - **Disconnected**: decide buttons disabled with "daemon not connected".
-- **A new proposal** arrives at the top of "waiting" with the 2 s left rule of the Inbox doc §3.3, and collects behind a "1 new" pill when the list is scrolled.
+- **A new proposal** (seen on a refetch) arrives at the top of "waiting" with the 2 s left rule of the Inbox doc §3.3, and collects behind a "1 new" pill when the list is scrolled.
 
 ### 1.5 Phone
 
@@ -117,7 +117,7 @@ Route `/settings` (the gear), founder only. One column, 640 px at most, label at
 
 Per-agent overrides of idle close and cache expiry are the agent's own page (U13); this page is the default.
 
-**Standing answers** (`answers.list`): a table of the auto-answers, one line each ("trust folder /path" or "<vendor>: <prompt title> → <option>"), with **Add** and **Remove selected** buttons under it, the bridge's two. **Add** opens a form with a kind select ("trust a folder" / "answer a dialog") and the fields of that kind: folder; or vendor, prompt title and the option to choose. Its Add button is the confirmation: the row appears at once with the hollow dot (`answer.add`, authored) and reverts on refusal; a form with every field empty sends nothing. **Remove** removes the row at once with no confirm (`answer.remove { kind, key }`, authored), and the row folds with a 6 s Undo that only delays the write, as the Inbox doc's dismiss (assumption 4). An empty list says "none - you are asked when a dialog shows" in `--muted`. The trusted-folder rows can also be removed through `trust.remove`; both leave the same list.
+**Standing answers** (`answers.list`): a table of the auto-answers, one line each ("trust folder /path" or "<vendor>: <prompt title> → <option>"), with **Add** and **Remove selected** buttons under it, the bridge's two. **Add** opens a form with a kind select ("trust a folder" / "answer a dialog") and the fields of that kind: folder; or vendor, prompt title and the option to choose. Its Add button is the confirmation: the row appears at once with the hollow dot (`answer.add`, authored) and reverts on refusal; a form with every field empty sends nothing. **Remove** removes the row at once with no confirm (`answer.remove { kind, key }`, authored), and the row folds with a 6 s Undo that only delays the write, as the Inbox doc's dismiss (assumption 4). An empty list says "none - you are asked when a dialog shows" in `--muted`. 
 
 States: **loading**: field-shaped skeleton (label and control bars, four section heads, three list rows); **error**: the shared strip with fields read-only; **not served** (`settings.get` missing): "This daemon does not serve settings." A non-founder gets "Settings are for the founder." with no controls. A change from elsewhere replaces the field unless it is focused, in which case "changed elsewhere: <value>" and a Use button, as `agents-accounts.md` §2.4.
 
@@ -138,3 +138,4 @@ States: **loading**: field-shaped skeleton (label and control bars, four section
 5. Auto-accept and the other switches save with no confirmation, as the bridge does, although auto-accept lets the daemon answer dialogs by rule. Whether it deserves a danger confirm like skip prompts is the founder's call.
 6. Team stays read-only; role and base files are shown by path and update time and are not opened in the web.
 7. Stats ranges stop at 24 h and 7 d until N5; the 12 h, 3 d and 14 d ranges of the bridge are not offered.
+8. There is no push for HR proposals (no `hr` topic, and `notifications` is not specified to carry them), so the tab dot and the card list are up to 30 s stale for a proposal raised elsewhere. Asking the daemon team for an `hr` topic, or for the proposal to arrive as an inbox item, makes the dot live; E2's native notice for a proposal needs the same.
