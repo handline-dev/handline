@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/version"
@@ -46,7 +47,7 @@ func main() {
 	gateway := flag.Bool("gateway", false, "run as the network front door of the Python daemon that owns the home: needs -listen, -cert and -key; "+
 		"opens the database without changing it, writes only the devices table and the pid file, relays what it does not serve")
 	relaySock := flag.String("relay-socket", "", "the Python daemon's relay socket, for -gateway (default: <home>/relay.sock)")
-	pidFile := flag.String("pid-file", "", "where -gateway records its pid (default: <home>/gateway.pid)")
+	pidFile := flag.String("pid-file", "", "where -gateway records its pid (default: the founder's protected store, gateway/pid, which no agent sandbox can write)")
 	native := flag.String("native", defaultNative, "with -gateway: the methods served here rather than relayed, besides hello, whoami and the device methods")
 	web := flag.String("web", "", "the built web UI to serve on the listener's own origin; empty serves none")
 	advertise := flag.String("advertise", "", "the host:port a pairing code names, when it differs from -listen (a Tailscale host name)")
@@ -74,7 +75,7 @@ func main() {
 			cfg.RelaySocket = filepath.Join(homeDir, "relay.sock")
 		}
 		if cfg.PidFile == "" {
-			cfg.PidFile = filepath.Join(homeDir, "gateway.pid")
+			cfg.PidFile = filepath.Join(authority.Root(homeDir), "gateway", "pid")
 		}
 		if cfg.SocketFile == "" && *serveFDs == "" && *serveNetFDs == "" {
 			cfg.SocketFile = filepath.Join(homeDir, "gateway.sock")

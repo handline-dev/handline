@@ -48,10 +48,10 @@ permission card, empty chat, a dockable live text-grid terminal pane with key ch
   The page connects to its own host on 7777, `wss` on an https page; another daemon: `/ui/?daemon=wss://host:port`
   (plain `ws://` is refused unless the daemon is on this machine).
 - `serve-ui.ts` type-strips `.ts` per request, so the browser loads the same files the tests run; Electron can load the same URL.
-- `ui/model.ts` (what the screens decide) and `ui/store.ts` (agents, detail, events) have no DOM and are tested in Node.
+- `packages/app-core` (what the screens decide, the store, key tables, the pane workspace) has no DOM and is tested in Node; `web/mobile/store.ts` only shapes that store for the phone views.
 - Type check: `tsc -p ui`.
 - Typing goes through a focused hidden textarea (input and composition events), so IME text and paste work; Backspace, Delete,
-  Left, Right, Home and End are mapped but say "the daemon cannot take it yet" until `session.keys` names them (`DAEMON_KEYS` in `ui/model.ts`).
+  Left, Right, Home and End are mapped but say "the daemon cannot take it yet" until `session.keys` names them (`DAEMON_KEYS` in `packages/app-core/src/keys.ts`).
 - To type in the terminal, press Take control first (the daemon stops typing there until Release); key chips take it for you.
 - Not built yet: Inbox, Tasks, Team, Accounts and the other screens (their top-bar buttons are disabled); chat (needs `chat.*`
   from the daemon); a shell pane (needs shell terminals).

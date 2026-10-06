@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -43,10 +44,38 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 		for _, n := range d.cfg.Native {
 			keep[n] = true
 		}
-		relay := d.cfg.RelaySocket
-		s.Relay = &rpc.Relay{Dial: func() (net.Conn, error) { return net.DialTimeout("unix", relay, 2*time.Second) }}
+		relay, lock := d.cfg.RelaySocket, filepath.Join(d.cfg.Home, "locks", "daemon.lock")
+		s.Relay = &rpc.Relay{Dial: func() (net.Conn, error) {
+			c, err := net.DialTimeout("unix", relay, 2*time.Second)
+			if err != nil {
+				return nil, err
+			}
+			if err := relayPeerIsTheDaemon(c, lock); err != nil {
+				c.Close()
+				return nil, err
+			}
+			return c, nil
+		}}
 	}
 	s.Restrict(func(name string) bool { return keep[name] })
+}
+
+// relayPeerIsTheDaemon refuses a relay socket nobody but the Python daemon answers on: anyone can unlink and rebind
+// a path in the home, so what sits at it must be the process that holds the daemon's lock (the pid it wrote there)
+// before any device traffic is sent.
+func relayPeerIsTheDaemon(c net.Conn, lockFile string) error {
+	b, err := os.ReadFile(lockFile)
+	if err != nil {
+		return fmt.Errorf("the daemon's lock file: %w", err)
+	}
+	want, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || want <= 0 {
+		return errors.New("the daemon's lock file names no process")
+	}
+	if got := peer.PID(c); got != want {
+		return fmt.Errorf("the relay socket is answered by pid %d, not the daemon (pid %d)", got, want)
+	}
+	return nil
 }
 
 // pidFile is the gateway's record of itself, which the relay's trust check reads: one decimal pid and a newline.
@@ -62,11 +91,27 @@ func takePidFile(path string) (*pidFile, error) {
 			return nil, fmt.Errorf("a gateway already runs (pid %d, %s)", old, path)
 		}
 	}
-	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+	// Written whole under another name and renamed, so the relay never reads half a pid.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".pid-")
+	if err != nil {
 		return nil, err
+	}
+	_, werr := tmp.WriteString(strconv.Itoa(os.Getpid()) + "\n")
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(tmp.Name(), 0o600)
+	}
+	if werr == nil {
+		werr = os.Rename(tmp.Name(), path)
+	}
+	if werr != nil {
+		os.Remove(tmp.Name())
+		return nil, werr
 	}
 	return &pidFile{path, os.Getpid()}, nil
 }
