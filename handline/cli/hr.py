@@ -16,6 +16,64 @@ from .ask import _who_refusal
 from .health import _name_col
 
 
+def _read_changes(path: str) -> tuple[list[dict], str]:
+    """The `changes:` of a team-diff file, with a file named by `role_file` / `base_file` read in as the
+    new text of a `context` change. (changes, refusal)."""
+    from ..infra.yamlcompat import ConfigError, load
+
+    base = Path(path).expanduser()
+    try:
+        data = load(base.read_text())
+    except (OSError, UnicodeDecodeError, ConfigError) as e:
+        return [], f"{path}: {e}"
+    changes = data.get("changes") if isinstance(data, dict) else None
+    if not isinstance(changes, list):
+        return [], f"{path}: needs a `changes:` list"
+    out = []
+    for ch in changes:
+        if not isinstance(ch, dict):
+            return [], f"{path}: each change is a map"
+        ch = dict(ch)
+        texts = dict(ch.get("sets") or {})
+        for key, fn in (("role_file", "ROLE.md"), ("base_file", "base.md")):
+            if key in ch:
+                try:
+                    texts[fn] = (base.parent / str(ch.pop(key))).expanduser().read_text()
+                except (OSError, UnicodeDecodeError) as e:
+                    return [], f"{path}: {e}"
+        if texts:
+            ch["sets"] = texts
+        if isinstance(ch.get("members"), str):
+            ch["members"] = [m for m in ch["members"].split(",") if m]
+        out.append(ch)
+    return out, ""
+
+
+def _approve_many(ids: list[str], yes: bool, me: str) -> int:
+    """The founder approving several proposals at once: each is read as it stands now, shown, and
+    confirmed once; they are applied one after another and each proposer gets one message."""
+    entries = []
+    for pid in ids:
+        prop, err = hr._open(pid)
+        if err:
+            print(err)
+            return 1
+        shown = hr.card(prop)
+        print("\n".join(textsafe.drawable(shown["text"])))
+        print()
+        entries.append((pid, shown["subject"]))
+    if not yes:
+        if not sys.stdin.isatty():
+            print("not a terminal: pass --yes to approve them as shown", file=sys.stderr)
+            return 1
+        if input(f"approve all {len(entries)}? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("left alone")
+            return 1
+    ok, lines = hr.decide_many(entries, "approved", me)
+    print("\n".join(lines))
+    return 0 if ok else 1
+
+
 # ---------------------------------------------------------------- team / ask
 def cmd_hr(args) -> int:
     """Propose a change to the roster, see the proposals, or apply an approved one.
@@ -73,6 +131,17 @@ def cmd_hr(args) -> int:
             print("approving or rejecting a proposal is the founder's, from a terminal or the "
                   "screen, not an agent's", file=sys.stderr)
             return 1
+        if args.hr_cmd == "approve":
+            ids = [c["id"] for c in hr.pending()] if args.all else list(args.ids)
+            if args.all and args.ids:
+                print("name proposals, or --all, not both", file=sys.stderr)
+                return 1
+            if not ids:
+                print("no proposals" if args.all else "name the proposals to approve, or --all", file=sys.stderr)
+                return 1 if not args.all else 0
+            if len(ids) > 1 or args.all:
+                return _approve_many(ids, args.yes, me)
+            args.id = ids[0]
         subject = getattr(args, "subject", "")
         if args.hr_cmd == "approve" and not subject:
             prop, err = hr._open(args.id)
@@ -90,6 +159,20 @@ def cmd_hr(args) -> int:
             subject = shown["subject"]
         ok, said = hr.decide(args.id, "approved" if args.hr_cmd == "approve" else "rejected",
                              me, getattr(args, "reason", ""), subject)
+        print(said)
+        return 0 if ok else 1
+    if args.hr_cmd == "diff":
+        if not me:
+            print(_who_refusal("propos"))
+            return 1
+        changes, err = _read_changes(args.file)
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+        if me == askmod.HUMAN:
+            ok, said = hr.enact_bundle(changes, args.why)
+        else:
+            ok, said = hr.propose_bundle(changes, me, args.why)
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "withdraw":

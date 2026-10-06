@@ -2589,6 +2589,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hr rename": "writes a proposal; prints its id",
         "hr link": "writes a proposal; prints its id", "hr unlink": "writes a proposal; prints its id",
         "hr team": "writes a proposal; prints its id",
+        "hr diff": "writes a proposal; driven in test_a_team_diff_is_one_proposal_applied_all_or_none "
+                   "(tests/team/test_hr_agents.py), not this scene",
         "team init": "writes team.yaml",
         "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
         "hook": "reads a hook payload on stdin and prints nothing",

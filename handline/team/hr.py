@@ -134,7 +134,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
     if kind in ("retire", "rename", "settings", "context") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
     if kind in EDGE_KINDS:
-        err = _edge_refusal(kind, name, to, response, relation, registered)
+        err = _edge_refusal(kind, name, to, response, relation, registered, coming)
         if err:
             return {}, err
     if kind == "rename":
@@ -334,6 +334,24 @@ def enact(kind: str, name: str, why: str,
             con.close()
 
 
+_ITEM_KEY = re.compile(r"i(\d+)\.(.+)")
+
+
+def _items_of(prop: dict) -> list[dict]:
+    """The steps of a team diff, which the proposal file holds as flat `i<n>.<field>` keys (it holds no
+    nested values), as the maps the one-change drafts are."""
+    grouped: dict[int, dict] = {}
+    for key, value in prop.items():
+        m = _ITEM_KEY.fullmatch(key)
+        if m:
+            grouped.setdefault(int(m.group(1)), {})[m.group(2)] = value
+    return [grouped[n] for n in sorted(grouped)]
+
+
+def _flat_items(items: list[dict]) -> dict:
+    return {f"i{n}.{k}": v for n, item in enumerate(items, 1) for k, v in item.items()}
+
+
 def _ordered(items: list[dict]) -> list[dict]:
     """The steps of a team diff in the order they are applied (the order given, within a kind)."""
     return sorted(items, key=lambda it: STEP_ORDER.index(it["kind"]))
@@ -389,7 +407,7 @@ def _bundle_draft(changes: list[dict], requester: str, why: str) -> tuple[dict, 
         registered = _roster_after(registered, item)
         coming |= set(registered) - set(paths.list_agents())
     prop = {"id": uuid.uuid4().hex[:8], "kind": BUNDLE, "agent": f"{len(items)} changes", "requested_by": requester,
-            "why": why.strip(), "created": int(time.time()), "state": "proposed", "items": items}
+            "why": why.strip(), "created": int(time.time()), "state": "proposed", **_flat_items(items)}
     return prop, ""
 
 
@@ -406,7 +424,7 @@ def propose_bundle(changes: list[dict], requester: str, why: str) -> tuple[bool,
     except ConfigError as e:
         return False, f"could not write the proposal down, so nothing was raised: {e}"
     save(prop)
-    return True, (f"proposal {prop['id']} raised: {len(prop['items'])} changes, decided once and applied together "
+    return True, (f"proposal {prop['id']} raised: {len(_items_of(prop))} changes, decided once and applied together "
                   f"or not at all. Nothing changes until the founder decides it; you are told how it went.")
 
 
@@ -535,7 +553,7 @@ def _run(prop: dict, con) -> tuple[bool, str]:
     """Carry out a proposal: one change, or every step of a team diff, in order. A step that is
     refused or raises puts back everything the steps before it did, and nothing of the diff stays.
     A diff says which step and why."""
-    items = _ordered(prop["items"]) if prop["kind"] == BUNDLE else [prop]
+    items = _ordered(_items_of(prop)) if prop["kind"] == BUNDLE else [prop]
     snap = _Snapshot(_names_of(items))
     after: list = []
     said: list[str] = []
@@ -643,7 +661,7 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
     `caveat=False` leaves out the unlink caveat, which reads the live team.yaml
     and so differs from one moment to the next (see `answered`)."""
     if prop["kind"] == BUNDLE:
-        items = _ordered(prop["items"])
+        items = _ordered(_items_of(prop))
         lines = [f"[roster] team diff, {len(items)} changes - asked by {prop['requested_by']}", "", prop["why"], "",
                  "Applied in this order, all or none: a step that fails puts every earlier one back.", ""]
         for n, item in enumerate(items, 1):
@@ -683,7 +701,7 @@ def subject_of(prop: dict) -> str:
     what applying it does, as a digest."""
     return decisions.digest({**{k: prop.get(k) for k in _SUBJECT_FIELDS},
                              **{k: v for k, v in prop.items() if k.startswith(("repo.", "set."))},
-                             **({"items": json.dumps(prop["items"], sort_keys=True)} if prop.get("items") else {})})
+                             **{k: v for k, v in prop.items() if _ITEM_KEY.fullmatch(k)}})
 
 
 def card(prop: dict) -> dict:
@@ -1000,7 +1018,7 @@ def _unlink_caveat(t, frm: str, to: str) -> str:
 
 
 def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
-                  relation: str | None, registered: list[str]) -> str:
+                  relation: str | None, registered: list[str], coming: set[str] = frozenset()) -> str:
     """Why this edge cannot be added or removed, or "" when it can. Read against
     the team.yaml as it is now; the write checks again, on the text it edits."""
     if not to or to not in registered:
@@ -1018,7 +1036,7 @@ def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
     exact = [e for e in t.edges if str(e.get("from")) == frm and str(e.get("to")) == to]
     if kind == "link":
         for end in (frm, to):
-            if end not in t.agents:
+            if end not in t.agents and end not in coming:
                 return f"{end} is not in team.yaml agents - add it there first"
         if exact:
             return f"team.yaml already has the edge {frm} -> {to}"

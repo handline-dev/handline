@@ -2552,6 +2552,173 @@ deny:
           all(d in guide.TOPICS["team"] for d in team.DEFAULT_LINKS))
 
 
+_DIFF_TEAM = """
+teams:
+  orca: [orca]
+agents:
+  orca: {}
+edges:
+  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+"""
+
+
+def _told(con, who: str) -> list[str]:
+    """What the founder's session has said to `who`, oldest first."""
+    return [r["body"] for r in con.execute(
+        "SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", (who,))]
+
+
+def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
+    """One proposal holds the whole change to the team: a link to an agent the same diff adds is judged against
+    the roster the steps before it leave; the founder decides once; the steps run in order with no agent step;
+    the proposer is told once; and a step that fails puts back every step before it."""
+    _daemon_home(home, 20)
+    hand_edit_team(_DIFF_TEAM)
+    agents.register("orca")
+    (home / "w" / "new").mkdir(parents=True)
+    con = db.connect()
+    try:
+        changes = [
+            {"kind": "context", "name": "orca.new", "sets": {"ROLE.md": "# role\nbuild things\n"}},
+            {"kind": "link", "name": "orca", "to": "orca.new"},
+            {"kind": "add", "name": "orca.new", "team": "orca", "repo": str(home / "w" / "new")},
+            {"kind": "settings", "name": "orca.new", "sets": {"model": "haiku"}},
+        ]
+        ok, said = hr.propose_bundle(changes, "orca", "grow")
+        check("diff: an agent proposes it, one proposal, nothing written yet",
+              ok and "orca.new" not in paths.list_agents() and len(hr.pending()) == 1, said)
+        pid = said.split()[1]
+        prop = hr.load_proposal(pid)
+        check("diff: stored in the order it is applied, kind bundle",
+              prop["kind"] == "bundle" and [i["kind"] for i in hr._items_of(prop)] == ["add", "settings", "link", "context"],
+              str([i["kind"] for i in hr._items_of(prop)]))
+        text = hr.card(prop)["text"]
+        check("diff: the founder reads every step once and one approve line",
+              all(x in text for x in ("1. add orca.new", "2. settings orca.new", "3. link orca -> orca.new",
+                                      "4. context orca.new", "+build things")) and text.count("hl hr approve") == 1, text)
+        ok, said = hr.apply(pid, con)
+        check("diff: refused until the founder approves", not ok, said)
+        ok, said = approve_hr(pid)
+        check("diff: one approval applies every step", ok and "4 changes" in said, said)
+        t = team.Team.load()
+        check("diff: the agent, its settings, the link and its context are all there",
+              "orca.new" in paths.list_agents() and agents.read("orca.new").get("model") == "haiku"
+              and t.route("orca", "orca.new").allowed
+              and (paths.agent_dir("orca.new") / "ROLE.md").read_text() == "# role\nbuild things\n"
+              and hr.load_proposal(pid)["state"] == "applied", said)
+        told = _told(con, "orca")
+        check("diff: the proposer is told once, with the whole result", len(told) == 1 and "applied" in told[0], str(told))
+
+        for label, bad in [("an unknown kind", [{"kind": "hire", "name": "x"}]),
+                           ("nothing", []),
+                           ("a link to nobody", [{"kind": "link", "name": "orca", "to": "ghost"}]),
+                           ("an argument that is not one", [{"kind": "add", "name": "z", "repo": "/w", "bogus": 1}])]:
+            ok, said = hr.propose_bundle(bad, "orca", "w")
+            check(f"diff: {label} is refused, naming the change", not ok and said, said)
+    finally:
+        con.close()
+
+
+def test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(home: Path) -> None:
+    _daemon_home(home, 20)
+    hand_edit_team(_DIFF_TEAM.replace("agents:\n  orca: {}", "agents:\n  orca: {}\n  loner: {}"))
+    agents.register("orca")
+    agents.register("loner", repo="/w/loner")
+    (paths.agent_dir("loner") / "journal" / "keep.md").write_text("mine")
+    before_team = (home / "team.yaml").read_text()
+    before_agents = sorted(paths.list_agents())
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        ok, said = hr.propose_bundle([
+            {"kind": "add", "name": "orca.fresh", "team": "orca", "repo": "/w/fresh"},
+            {"kind": "link", "name": "orca", "to": "orca.fresh"},
+            {"kind": "rename", "name": "loner", "to": "solo"},
+            {"kind": "retire", "name": "orca.fresh"}], "orca", "reshuffle")
+        pid = said.split()[1]
+        obsmod.live_sessions = lambda: {"loner": True}
+        ok, said = approve_hr(pid)
+        check("rollback: the diff is not applied, naming the step and that nothing changed",
+              not ok and "step 2 of 4 (rename loner)" in said and "Nothing was changed" in said, said)
+        check("rollback: team.yaml is as it was, byte for byte", (home / "team.yaml").read_text() == before_team)
+        check("rollback: the roster is as it was and the folders are back",
+              sorted(paths.list_agents()) == before_agents and not (paths.agent_dir("orca.fresh")).exists()
+              and (paths.agent_dir("loner") / "journal" / "keep.md").read_text() == "mine"
+              and sealed.state(sealed.TEAM, (home / "team.yaml").read_text()) == "ok")
+        check("rollback: it is still the founder's to retry, with the error on it",
+              hr.load_proposal(pid)["state"] == "approved" and "step 2" in hr.load_proposal(pid)["error"])
+        told = _told(con, "orca")
+        check("rollback: the proposer is told once what failed", len(told) == 1 and "step 2 of 4" in told[0], str(told))
+        obsmod.live_sessions = lambda: {}
+        ok, said = approve_hr(pid)
+        check("rollback: approving again, with nothing in the way, applies all of it",
+              ok and "solo" in paths.list_agents() and "orca.fresh" not in paths.list_agents()
+              and (paths.agent_dir("solo") / "journal" / "keep.md").exists(), said)
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+def test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(home: Path) -> None:
+    _daemon_home(home, 20)
+    hand_edit_team(_DIFF_TEAM)
+    agents.register("orca")
+    (home / "w").mkdir()
+    for n in ("a", "b", "c"):
+        agents.register(f"orca.{n}", repo=str(home / "w"))
+    con = db.connect()
+    try:
+        pids = []
+        for n in ("a", "b", "c"):
+            ok, said = hr.propose("settings", f"orca.{n}", requester="orca", why="talk", sets={"model": "haiku"})
+            check(f"many: orca.{n} is proposed", ok, said)
+            pids.append(said.split()[1])
+        ok, said = hr.propose("settings", "orca.a", requester="orca.b", why="w", sets={"effort": "high"})
+        pids.append(said.split()[1])
+        check("many: four proposals wait", len(hr.pending()) == len(pids) == 4, str((len(hr.pending()), pids)))
+        entries = [(c["id"], c["subject"]) for c in hr.pending()]
+        ok, lines = hr.decide_many(entries, "approved", askmod.HUMAN)
+        check("many: all applied by one action", ok and all(hr.load_proposal(p)["state"] == "applied" for p in pids),
+              str(lines))
+        told = _told(con, "orca")
+        check("many: the proposer of three hears once, listing all three",
+              len(told) == 1 and all(p in told[0] for p in pids[:3]) and "applied" in told[0], str(told))
+        check("many: the proposer of one hears once", len(_told(con, "orca.b")) == 1)
+        ok, lines = hr.decide_many([("nosuch", "x")], "approved", askmod.HUMAN)
+        check("many: an id that is not a proposal fails the action and says so", not ok and "no proposal" in lines[0], str(lines))
+    finally:
+        con.close()
+
+
+def test_hr_diff_and_approve_all_from_the_command_line(home: Path) -> None:
+    _daemon_home(home, 20)
+    hand_edit_team(_DIFF_TEAM)
+    agents.register("orca")
+    f = home / "diff.yaml"
+    (home / "role.md").write_text("# role\nfrom a file\n")
+    f.write_text("changes:\n  - { kind: add, name: orca.cli, team: orca, repo: /w/cli }\n"
+                 "  - { kind: context, name: orca.cli, role_file: role.md }\n")
+    rc, out = _cli(["hr", "diff", "--file", str(f), "--why", "cli"], as_agent="orca")
+    check("cli: an agent's `hr diff` is one proposal", rc == 0 and "raised" in out and "2 changes" in out
+          and "orca.cli" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "diff", "--file", str(home / "nope.yaml"), "--why", "x"], as_agent="orca")
+    check("cli: a file that is not there is refused", rc == 1, out)
+    rc, out = _cli(["hr", "approve", "--all"], as_agent="orca")
+    check("cli: an agent cannot approve", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "approve", "--all"], as_agent=askmod.HUMAN)
+    check("cli: with no terminal, several need --yes", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+    check("cli: approve --all --yes applies them", rc == 0 and "orca.cli" in paths.list_agents()
+          and (paths.agent_dir("orca.cli") / "ROLE.md").read_text() == "# role\nfrom a file\n", out)
+    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+    check("cli: nothing waiting is not an error", rc == 0, out)
+    f.write_text("changes:\n  - { kind: add, name: orca.direct, team: orca, repo: /w/d }\n")
+    rc, out = _cli(["hr", "diff", "--file", str(f), "--why", "direct"], as_agent=askmod.HUMAN)
+    check("cli: the founder's own `hr diff` is made, not proposed", rc == 0 and "orca.direct" in paths.list_agents(), out)
+
+
 def test_a_proposal_is_its_own_record_the_founder_decides(home: Path) -> None:
     """A roster proposal is not a task: raising it opens no task and no request, it is listed
     for the founder as a card (`hr.pending`), and `hr.decide` is the one way it is approved
@@ -3952,6 +4119,10 @@ def main() -> int:
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
+        run(lambda: test_a_team_diff_is_one_proposal_applied_all_or_none(Path(td) / 'diffall'))
+        run(lambda: test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(Path(td) / 'diffback'))
+        run(lambda: test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(Path(td) / 'diffmany'))
+        run(lambda: test_hr_diff_and_approve_all_from_the_command_line(Path(td) / 'diffcli'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
         run(lambda: test_team_and_agent_yaml_are_sealed_against_an_agents_hand(Path(td) / 'sealedyaml'))
