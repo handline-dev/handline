@@ -7,3 +7,7 @@ agent.timeline
 events.feed
 subscribe
 unsubscribe
+task.new
+task.edit
+task.withdraw
+task.cancel

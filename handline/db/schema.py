@@ -661,12 +661,29 @@ def _hook_applied(con) -> None:
     """)
 
 
+def _write_effects(con) -> None:
+    """What a write did, recorded in the same transaction as the write: a retry of its request_id after a crash
+    between the effect and the reply finds this and answers with it, repeating nothing (daemon/rpc.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS write_effects (
+          caller      TEXT    NOT NULL,
+          request_id  TEXT    NOT NULL,
+          method      TEXT    NOT NULL,
+          result_json TEXT    NOT NULL,
+          created_at  INTEGER NOT NULL,
+          PRIMARY KEY (caller, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS write_effects_created ON write_effects(created_at);
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
     (3, "agent_view", _agent_view, True),
     (4, "stream_log", _stream_log, True),
     (5, "hook_applied", _hook_applied, True),
+    (6, "write_effects", _write_effects, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

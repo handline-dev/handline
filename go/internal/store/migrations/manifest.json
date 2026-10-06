@@ -23,5 +23,10 @@
   "version": 5,
   "name": "hook_applied",
   "additive": true
+ },
+ {
+  "version": 6,
+  "name": "write_effects",
+  "additive": true
  }
 ]

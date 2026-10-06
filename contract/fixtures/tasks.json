@@ -1,0 +1,320 @@
+{
+ "fixtures": [
+  {
+   "name": "task.new.the_founder_is_refused",
+   "spec": "task.new",
+   "about": "A task is opened by an agent: the founder's call is refused.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "a.one",
+       "title": "t",
+       "body": "b",
+       "time_box": "1h",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.needs_a_request_id",
+   "spec": "task.new",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "a.one",
+       "title": "t",
+       "body": "b",
+       "time_box": "1h"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.time_box_is_a_span",
+   "spec": "task.new",
+   "about": "A time box that is not a span is bad_request naming the field.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "a.one",
+       "title": "t",
+       "body": "b",
+       "time_box": "soon",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "time_box"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.edit.no_such_task",
+   "spec": "task.edit",
+   "about": "Editing a task that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.edit",
+      "params": {
+       "task": 999999,
+       "title": "x",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.edit.waits_on_is_not_served",
+   "spec": "task.edit",
+   "about": "A part with no action behind it is bad_request, not dropped.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.edit",
+      "params": {
+       "task": 1,
+       "waits_on": "a review",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "waits_on"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.withdraw.no_such_task",
+   "spec": "task.withdraw",
+   "about": "Withdrawing a task that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.withdraw",
+      "params": {
+       "task": 999999,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.cancel.no_such_task",
+   "spec": "task.cancel",
+   "about": "Cancelling a task that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.cancel",
+      "params": {
+       "task": 999999,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.cancel.an_agent_is_below_the_role",
+   "spec": "task.cancel",
+   "about": "Cancel is the founder's: an agent is refused at the role gate.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.cancel",
+      "params": {
+       "task": 1,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

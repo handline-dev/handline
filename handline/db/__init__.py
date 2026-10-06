@@ -19,4 +19,5 @@ from .blocks import (block_get, blocks, block_open, block_update, block_set_requ
 from .prompt_blocks import (open_prompt, open_prompts, get_prompt, prompt_open, prompt_seen, prompt_close, prompt_answered)  # noqa: F401
 from .handoff import (note_session_start, bind_session_start, session_starts, start_handoff, advance_handoff, set_handoff, get_handoff, in_flight_handoffs, in_flight_for, last_handoff)  # noqa: F401
 from .usage import (USAGE_SAMPLE_RETENTION_DAYS, record_usage_sample, prune_usage_samples, usage_samples)  # noqa: F401
+from .effects import record_effect  # noqa: F401
 from .pending import (add_pending, get_pending, list_pending, delete_pending)  # noqa: F401
