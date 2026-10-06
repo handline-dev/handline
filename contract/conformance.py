@@ -327,11 +327,11 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                     if "result" in step:
                         if "result" not in reply:
                             raise Mismatch(f"wanted a result, got {json.dumps(reply)}")
-                        matches(step["result"], reply["result"], saved, "result")
+                        matches(substitute(step["result"], saved), reply["result"], saved, "result")
                     else:
                         if "error" not in reply:
                             raise Mismatch(f"wanted an error, got {json.dumps(reply)}")
-                        matches(step["error"], reply["error"], saved, "error")
+                        matches(substitute(step["error"], saved), reply["error"], saved, "error")
                 for want in step.get("notices", []):
                     conn.notice(want, saved)
             except (Mismatch, socket.timeout, ConnectionError, json.JSONDecodeError) as e:

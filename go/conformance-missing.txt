@@ -56,3 +56,4 @@ chat.send
 chat.answer
 chat.dismiss
 chat.withdraw
+hr.list

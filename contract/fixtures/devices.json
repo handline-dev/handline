@@ -166,7 +166,8 @@
      "result": {
       "role": "member",
       "caller": {
-       "kind": "device"
+       "kind": "device",
+       "device": "{{device}}"
       }
      }
     },
@@ -417,7 +418,8 @@
      "result": {
       "role": "member",
       "caller": {
-       "kind": "device"
+       "kind": "device",
+       "device": "{{device}}"
       }
      }
     },
@@ -595,7 +597,8 @@
      "result": {
       "role": "member",
       "caller": {
-       "kind": "device"
+       "kind": "device",
+       "device": "{{device}}"
       }
      }
     },
@@ -741,7 +744,8 @@
      "result": {
       "role": "member",
       "caller": {
-       "kind": "device"
+       "kind": "device",
+       "device": "{{device}}"
       }
      }
     },

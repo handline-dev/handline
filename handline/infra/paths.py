@@ -84,6 +84,11 @@ def socket_file() -> Path:
     return home() / "daemon.sock"
 
 
+def relay_socket_file() -> Path:
+    """Where the gateway, the process that fronts the daemon for paired devices, relays their calls (daemon/relay.py)."""
+    return home() / "relay.sock"
+
+
 def mcp_config() -> Path:
     """The MCP server registry every launch passes via `--mcp-config`.
 

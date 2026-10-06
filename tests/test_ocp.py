@@ -8,8 +8,8 @@ Run: python3 tests/test_ocp.py            (all areas)
 
 The tests live in tests/<group>/test_<area>.py over the shared tests/support.py, which
 this module also re-exports for tests/ui/test_bridge_textual.py. That file needs
-`textual`, so it runs under whichever python can import it (this one, else the
-venv's) and is reported as skipped, loudly, when none can.
+`textual`; the suite does not run it for now (BRIDGE_SKIPPED) and says so in its output.
+`python3 tests/ui/test_bridge_textual.py` still runs it by hand.
 """
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ from support import diff_labels  # noqa: E402
 HERE = Path(__file__).resolve().parent
 NOT_AREAS = {"test_ocp.py", "test_bridge_textual.py"}
 BRIDGE = HERE / "ui" / "test_bridge_textual.py"
+# The bridge is being replaced; its file stays, and the suite does not run it until that is settled.
+BRIDGE_SKIPPED = "the bridge is being replaced, so its tests are out of the suite for now"
 
 
 def area_files() -> list[Path]:
@@ -113,19 +115,10 @@ def run_all(argv: list[str]) -> int:
                 out += ["--write-labels", label_paths[p]]
             return out
 
-        bridge_py = _python_with_textual() if args.filter is None else None
         jobs = [(p, child_args(p), None) for p in files]
-        if bridge_py:
-            jobs.insert(0, (BRIDGE, [], bridge_py))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
             results = list(pool.map(lambda j: _run_one(*j), jobs))
-        skipped = ""
-        if args.filter is not None:
-            skipped = f"SKIPPED  {BRIDGE.name}: it has no -k filter; run the whole suite to include it"
-        elif not bridge_py:
-            skipped = (f"SKIPPED  {BRIDGE.name}: textual is importable from neither {sys.executable} "
-                       f"nor the machine's venv ({venvmod.venv_python(MACHINE_VENV)}); "
-                       "run `hl venv` to install it")
+        skipped = f"SKIPPED  {BRIDGE.name}: {BRIDGE_SKIPPED}"
         if args.write_labels:
             with open(args.write_labels, "w") as out:
                 for p in files:

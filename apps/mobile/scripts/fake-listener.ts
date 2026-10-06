@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -8,14 +8,47 @@ import path from 'node:path';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { serveWs } from '@handline/fake-daemon/serve';
 
-const arg = (n: string, d: string) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1]! : d; };
-const host = arg('host', '127.0.0.1'), port = Number(arg('port', '7788'));
+const arg = (n: string, d: string) => {
+  const i = process.argv.indexOf(`--${n}`);
+  return i > 0 ? process.argv[i + 1]! : d;
+};
+const host = arg('host', '127.0.0.1'),
+  port = Number(arg('port', '7788'));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-listener-'));
-execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '2', '-subj', '/CN=handline-fake',
-  '-addext', `subjectAltName=IP:${host}`, '-keyout', `${dir}/k.pem`, '-out', `${dir}/c.pem`], { stdio: 'ignore' });
+execFileSync(
+  'openssl',
+  [
+    'req',
+    '-x509',
+    '-newkey',
+    'ec',
+    '-pkeyopt',
+    'ec_paramgen_curve:prime256v1',
+    '-nodes',
+    '-days',
+    '2',
+    '-subj',
+    '/CN=handline-fake',
+    '-addext',
+    `subjectAltName=IP:${host}`,
+    '-keyout',
+    `${dir}/k.pem`,
+    '-out',
+    `${dir}/c.pem`,
+  ],
+  { stdio: 'ignore' },
+);
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.autoplay(Number(arg('autoplay', '1500')));
+// For watching the loading and refusal states on a device: `--latency 800` and `--refuse agents.list:state:the daemon is resting`
+// (method:gate:reason; repeat the flag for more). Both apply to calls after the pairing hello.
+daemon.knobs.latency(Number(arg('latency', '0')));
+process.argv.forEach((a, i) => {
+  if (a !== '--refuse') return;
+  const [method = '', gate = 'state', ...reason] = process.argv[i + 1]!.split(':');
+  daemon.knobs.refuse(method, gate, reason.join(':') || 'refused');
+});
 serveWs(daemon, port, host, { cert, key: fs.readFileSync(`${dir}/k.pem`) }, true);
 const fp = crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('hex');
 const uri = `handline://pair?${new URLSearchParams({ host: `${host}:${port}`, fp, code: daemon.issueCode() })}`;

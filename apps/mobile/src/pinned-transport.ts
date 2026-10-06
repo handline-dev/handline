@@ -11,17 +11,40 @@ export async function pinnedTransport(native: PinnedSocketNative, url: string, f
   let closed = false;
   const t: Transport = {
     onclose: null,
-    send: (m) => { if (!closed) native.send(id, m); },
-    close: () => { if (!closed) native.close(id); },
-    get onmessage() { return handler; },
-    set onmessage(fn) { handler = fn; if (fn) for (const m of early.splice(0)) fn(m); },
+    send: (m) => {
+      if (!closed) native.send(id, m);
+    },
+    close: () => {
+      if (!closed) native.close(id);
+    },
+    get onmessage() {
+      return handler;
+    },
+    set onmessage(fn) {
+      handler = fn;
+      if (fn) for (const m of early.splice(0)) fn(m);
+    },
   };
   let handler: ((m: string) => void) | null = null;
   const subs = [
-    native.addListener('message', (e) => { if (e.id !== id) return; if (handler) handler(e.data); else early.push(e.data); }),
-    native.addListener('close', (e) => { if (e.id !== id || closed) return; closed = true; for (const s of subs) s.remove(); t.onclose?.(); }),
+    native.addListener('message', (e) => {
+      if (e.id !== id) return;
+      if (handler) handler(e.data);
+      else early.push(e.data);
+    }),
+    native.addListener('close', (e) => {
+      if (e.id !== id || closed) return;
+      closed = true;
+      for (const s of subs) s.remove();
+      t.onclose?.();
+    }),
   ];
-  try { await native.connect(id, url, fingerprint); }
-  catch (e) { closed = true; for (const s of subs) s.remove(); throw new Error(`cannot connect to ${url}: ${(e as Error).message}`); }
+  try {
+    await native.connect(id, url, fingerprint);
+  } catch (e) {
+    closed = true;
+    for (const s of subs) s.remove();
+    throw new Error(`cannot connect to ${url}: ${(e as Error).message}`, { cause: e });
+  }
   return t;
 }

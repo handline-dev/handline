@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, applyPreset, defaultWorkspace, openTab, saveWorkspace, storageKey, type KV } from '@handline/app-core';
+import { Store, activate, applyPreset, defaultWorkspace, openTab, saveWorkspace, storageKey, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
@@ -9,9 +9,15 @@ import { App } from '../src/App.tsx';
 
 const ARCH = 'handline.architect'; // idle with a session
 const TB = 'handline.term-build'; // parked, no session
-const wait = (ms = 10) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+const wait = (ms = 10) =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
 async function until(cond: () => unknown, what: string) {
-  for (let i = 0; i < 300; i++) { if (cond()) return; await wait(); }
+  for (let i = 0; i < 300; i++) {
+    if (cond()) return;
+    await wait();
+  }
   throw new Error(`timed out waiting for ${what}`);
 }
 const memory = (): KV & { data: Map<string, string> } => {
@@ -23,23 +29,47 @@ let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
-const fire = (el: Element, type: string) => act(async () => { el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true })); });
-const click = (el: Element) => act(async () => { (el as HTMLElement).click(); });
+const fire = (el: Element, type: string) =>
+  act(async () => {
+    el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+  });
+const click = (el: Element) =>
+  act(async () => {
+    (el as HTMLElement).click();
+  });
 const text = (el: Element | null) => el?.textContent ?? '';
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
 
-async function mount(agent: string, storage: KV = memory(), s = setup()) {
+// The text grid is what these tests drive; the xterm pane has its own file.
+const textGrid = (): KV & { data: Map<string, string> } => {
+  const m = memory();
+  m.setItem('terminal', 'text');
+  return m;
+};
+
+async function mount(agent: string, storage: KV = textGrid(), s = setup()) {
   const store = new Store(s.client);
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
-  await act(async () => { root!.render(<App store={store} daemon="test" storage={storage} />); });
+  await act(async () => {
+    root!.render(<App store={store} daemon="test" storage={storage} />);
+  });
   return { store, storage, ...s };
 }
-const unmount = async () => { await act(async () => root?.unmount()); root = null; box?.remove(); };
+const unmount = async () => {
+  await act(async () => root?.unmount());
+  root = null;
+  box?.remove();
+};
 
-beforeEach(() => { vi.stubGlobal('confirm', () => true); });
-afterEach(async () => { await unmount(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  vi.stubGlobal('confirm', () => true);
+});
+afterEach(async () => {
+  await unmount();
+  vi.unstubAllGlobals();
+});
 
 describe('the workspace', () => {
   it('has no agent header and no per-agent tab row; every pane has its own strip, Chat first and unclosable', async () => {
@@ -56,7 +86,7 @@ describe('the workspace', () => {
     expect($('[data-tab="chat"] .x')).toBeNull();
     expect(text($('[data-tab="chat"]'))).toBe('Chat');
     expect($(`${termTab} .x`)).not.toBeNull();
-    expect(text($('.chat'))).toContain('No chat yet');
+    expect($('.chat .compose')).not.toBeNull(); // the Chat tab: its own tests are in chat.test.tsx
     await until(() => text($('.grid')).includes('Claude Code v2.1'), 'terminal text');
   });
 
@@ -70,7 +100,7 @@ describe('the workspace', () => {
     expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team.*Accounts/);
   });
 
-  it('closing a tab only detaches; closing a pane\'s last tab removes the pane; Chat stays', async () => {
+  it("closing a tab only detaches; closing a pane's last tab removes the pane; Chat stays", async () => {
     const { daemon } = await mount(ARCH);
     await until(() => $$('.pane').length === 2, 'two panes');
     await click($(`${termTab} .x`)!);
@@ -183,12 +213,34 @@ describe('the sidebar', () => {
     expect($('.row-actions .btn.primary')).toBeNull();
   });
 
-  it('switching agent opens that agent\'s own workspace, with its own terminal tab', async () => {
+  it("switching agent opens that agent's own workspace, with its own terminal tab", async () => {
     await mount(ARCH);
     await until(() => $(termTab), 'architect terminal tab');
-    await act(async () => { location.hash = `#/agents/${TB}`; dispatchEvent(new Event('hashchange')); });
+    await act(async () => {
+      location.hash = `#/agents/${TB}`;
+      dispatchEvent(new Event('hashchange'));
+    });
     await until(() => $('[data-tab="terminal:term:handline.term-build"]'), 'term-build terminal tab');
     expect($(termTab)).toBeNull();
     expect($$('[data-tab="chat"]')).toHaveLength(1);
+  });
+});
+
+describe('badges', () => {
+  it('say a stall in the rail, and a dialog on the rail row and on the terminal tab, with a dot while that tab is hidden', async () => {
+    const storage = textGrid();
+    const ws = activate(applyPreset(defaultWorkspace({ terminal: `term:${ARCH}` }), 'single'), 'chat'); // one pane, Chat showing
+    saveWorkspace(storage, storageKey('test', ARCH), ws);
+    const m = await mount(ARCH, storage);
+    await until(() => $(termTab), 'the terminal tab');
+    expect($('[data-agent="handline.auditor"] .badge.stalled')?.title).toMatch(/^wall since/);
+    expect($(`${termTab} .badge`)).toBeNull();
+    await m.store.client.sendInput(ARCH, 'push it');
+    m.daemon.settle(); // the scripted turn ends at a permission dialog
+    await until(() => $(`${termTab} .badge.dialog`), 'the dialog badge on the tab');
+    expect($(`[data-agent="${ARCH}"] .badge.dialog`)).not.toBeNull();
+    expect($(`${termTab} .unread-dot`)).not.toBeNull(); // the terminal is behind Chat
+    await click($(termTab)!);
+    expect($(`${termTab} .unread-dot`)).toBeNull(); // showing it clears the dot
   });
 });

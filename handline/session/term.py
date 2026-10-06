@@ -883,6 +883,7 @@ def screen_blocker_cached(handle: str, not_before: float = 0.0) -> Blocker | Non
 
 CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"
 NO_DIALOG = "no dialog is open"
+SCREEN_UNREAD = "its screen could not be read"
 # How long a dialog is given to go after Esc, read again each time.
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4
 
@@ -951,7 +952,7 @@ def _press_dialog(handle: str, pick, key_name: str, allow_truncated: bool = True
     """
     tail, footer, dialog = _read_dialog(handle, allow_truncated)
     if tail is None:
-        return NOT_PRESSED, "", "its screen could not be read"
+        return NOT_PRESSED, "", SCREEN_UNREAD
     if footer is None:
         return NOT_PRESSED, "", NO_DIALOG
     if dialog is None:
@@ -1270,7 +1271,7 @@ def answer_question(handle: str, seen: tuple[str, ...], choices: tuple[int, ...]
     term = _screen(handle)
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
-        return NOT_PRESSED, "", "its screen could not be read"
+        return NOT_PRESSED, "", SCREEN_UNREAD
     found = driver.ask_question(tail)
     if found is None:
         return NOT_PRESSED, "", NO_DIALOG

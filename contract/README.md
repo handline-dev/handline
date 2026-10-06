@@ -32,6 +32,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - Anonymous: the same socket, a hello without the key.
 - A role limit can sit inside one method: an agent may call `session.stop` with mode exit or close, never kill (refused, gate `role`). `session_stop.json` pins the kill refusal.
 - `shell_input.json` needs `--var shell_agent=NAME`: an agent whose pane is a shell prompt (its session has exited). `session.input` is refused there, gate `state`; the harness cannot make that screen, so the daemon under test must already be in that state.
+- `hr.json`'s three seeded fixtures need `--var hr_seeded=1`: a daemon that holds one open HR proposal and one rejected one (the var only names that the daemon is so seeded). The last of them rejects the open one, so run the file whole and in order.
 - Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0.
 - A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.
 
