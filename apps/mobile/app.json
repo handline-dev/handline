@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Handline",
+    "slug": "handline",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": { "supportsTablet": false, "bundleIdentifier": "dev.handline.mobile" },
+    "android": { "package": "dev.handline.mobile", "predictiveBackGestureEnabled": false }
+  }
+}

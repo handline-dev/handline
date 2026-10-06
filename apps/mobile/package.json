@@ -1,0 +1,33 @@
+{
+  "name": "@handline/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "The phone app: pair with a daemon, agent list, agent page. Expo dev client (not Expo Go: it carries the pinned-socket native module)",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "fake-listener": "node scripts/fake-listener.ts",
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@handline/app-core": "workspace:*",
+    "@handline/app-react": "workspace:*",
+    "@handline/client": "workspace:*",
+    "@handline/tokens": "workspace:*",
+    "expo": "~57.0.26",
+    "expo-dev-client": "~57.0.19",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*",
+    "@handline/fake-daemon": "workspace:*",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

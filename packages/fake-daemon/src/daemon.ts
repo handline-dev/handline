@@ -1,6 +1,7 @@
 // A fake daemon that answers the generated contract (contract/protocol.ts) from fixtures, with one
 // scripted fake session per agent. The UI cannot tell it from the real socket; the real daemon is a swap.
 // It serves the methods the UI's session screen needs; every other method is refused as `unsupported`.
+import crypto from 'node:crypto';
 import {
   METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
   type Actor, type AgentDetail, type AgentView, type Caller, type ErrorCode, type Event as WireEvent,
@@ -12,6 +13,8 @@ import { AGENTS, BANNER, PROMPT_LINES, type AgentFixture } from './fixtures.ts';
 const ROWS = 24, COLS = 80;
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
+// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
+const UNKEPT = new Set(['device.pair', 'device.redeem']);
 const row = (text: string): Row => ({ text });
 
 /** A refusal or error the caller gets as a JSON-RPC error. */
@@ -52,6 +55,8 @@ interface Conn {
   helloed: boolean;
   topics: Set<Topic> | null;
   attached: Set<string>; // terminal ids
+  network: boolean; // came in through the paired-device listener
+  paired: boolean; // a local connection always; a network one once hello carried a known token
 }
 
 export interface FakeDaemonOptions {
@@ -72,6 +77,8 @@ export class FakeDaemon {
   private retention: number;
   private now: () => Date;
   private timelineId = 0;
+  private codes = new Set<string>();
+  private tokens = new Map<string, { id: string; name: string }>();
 
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
@@ -93,12 +100,22 @@ export class FakeDaemon {
   // ---- hosting ----
 
   /** Serves one connection; `dropConnections` cuts them. */
-  accept(transport: Transport, role: Role = 'founder', name = 'unknown'): void {
+  accept(transport: Transport, role: Role = 'founder', name = 'unknown', network = false): void {
     const kind = role === 'agent' ? 'agent' : role === 'member' ? 'device' : 'person';
-    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set() };
+    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set(), network, paired: !network };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
     transport.onclose = () => { this.conns.delete(conn); };
+  }
+
+  /** A connection through the network listener: anonymous until hello carries a device token. */
+  acceptNetwork(transport: Transport): void { this.accept(transport, 'anonymous', 'unknown', true); }
+
+  /** What `device.pair` gives the founder: a one-time code to redeem. */
+  issueCode(): string {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // the Go daemon's, so a code looks the same
+    const code = Array.from(crypto.randomBytes(12), (b, i) => (i && i % 4 === 0 ? '-' : '') + alphabet[b % alphabet.length]).join('');
+    this.codes.add(code); return code;
   }
 
   dropConnections(): void { for (const c of [...this.conns]) c.transport.close(); }
@@ -285,6 +302,10 @@ export class FakeDaemon {
       return this.reply(c, req.id ?? null, this.fail(badRequest('A request needs an id and a method.')));
     }
     const params = req.params ?? {};
+    if (c.network && !c.paired && !(req.method === 'device.redeem' || (req.method === 'hello' && typeof params.token === 'string' && this.tokens.has(params.token)))) {
+      // The listener's one reply to anyone unpaired, the same words whatever was asked.
+      return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
+    }
     let body: Body;
     try { body = { result: this.withReplay(c, req.method, params) }; }
     catch (e) { if (!(e instanceof Failure)) throw e; body = this.fail(e); }
@@ -295,7 +316,7 @@ export class FakeDaemon {
   /** A write's successful reply is kept by request_id; the same id with the same params returns it, repeating nothing. */
   private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
-    if (!spec?.write || typeof p.request_id !== 'string') return this.dispatch(c, method, p);
+    if (!spec?.write || typeof p.request_id !== 'string' || UNKEPT.has(method)) return this.dispatch(c, method, p);
     const { request_id, ...rest } = p;
     const sig = JSON.stringify(rest);
     const kept = this.replies.get(request_id);
@@ -323,15 +344,17 @@ export class FakeDaemon {
     if (method === 'hello') {
       if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
       if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
+      const device = c.network && typeof p.token === 'string' ? this.tokens.get(p.token) : undefined;
+      if (device) { c.role = 'member'; c.paired = true; c.caller = { kind: 'device', device: device.id, name: device.name }; }
       c.helloed = true;
       if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
       return {
         protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, caller: c.caller,
-        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: 'local',
+        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS).map(([name, m]) => ({ name, since: m.since, role: m.role, allowed: this.mayCall(c.role, m.role) })),
       };
     }
-    if (!c.helloed) throw badRequest('say hello first');
+    if (!c.helloed && method !== 'device.redeem') throw badRequest('say hello first'); // an unpaired caller redeems with no hello
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
@@ -417,6 +440,19 @@ export class FakeDaemon {
         s.cols = Number(p.cols); s.rows = Number(p.rows);
         this.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
         return this.accepted('Resized.');
+      }
+      case 'device.pair': {
+        const code = this.issueCode();
+        return this.accepted('Pairing code made.', { code, expires_at: new Date(this.now().getTime() + 300_000).toISOString(), fingerprint: 'fa'.repeat(32),
+          uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}` });
+      }
+      case 'device.redeem': {
+        if (typeof p.code !== 'string') throw badRequest('code is a string', 'code');
+        if (typeof p.name !== 'string' || p.name === '') throw badRequest("name is the device's name, a string", 'name');
+        if (!this.codes.delete(p.code.trim().toUpperCase())) throw refused('pairing_code', 'that pairing code is not valid');
+        const token = 'hld_' + crypto.randomBytes(32).toString('hex'), id = 'dev_' + crypto.randomBytes(6).toString('hex');
+        this.tokens.set(token, { id, name: p.name });
+        return this.accepted('Paired.', { token, device: id });
       }
       default: throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
