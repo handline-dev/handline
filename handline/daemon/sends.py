@@ -212,27 +212,63 @@ def _background(name: str, fn, log) -> None:
 _HANDED = "handed to the daemon; it is typed as soon as the agent can take it"
 
 
-def push_verb(con, log, **kw) -> tuple[bool, str]:
-    """Tell `target` about what was queued for it: request `rid` when the caller names one
-    (a message is typed at once, a task keeps the one-at-a-time rule), else its next task."""
-    target = kw["target"]
+def push_check(target: str) -> str | None:
+    """Why `target` cannot be pushed to, or None."""
     if target == askmod.HUMAN or target not in paths.list_agents():
-        return False, f"{target} is not an agent"
-    rid = kw.get("rid")
+        return f"{target} is not an agent"
+    return None
+
+
+def push_act(target: str, rid: int | None, log) -> str:
+    """Tell `target` about what was queued for it: request `rid` when one is named (a message is typed at once, a task keeps the
+    one-at-a-time rule), else its next task."""
     if rid is not None:
         _after(int(rid), target, log)
     else:
         _background(f"push-{target}", lambda c: askmod.push_here(c, target), log)
-    return True, _HANDED
+    return _HANDED
+
+
+def push_verb(con, log, **kw) -> tuple[bool, str]:
+    """Tell `target` about what was queued for it: request `rid` when the caller names one
+    (a message is typed at once, a task keeps the one-at-a-time rule), else its next task."""
+    why = push_check(kw["target"])
+    return (False, why) if why else (True, push_act(kw["target"], kw.get("rid"), log))
+
+
+def push_answer_check(requester: str) -> str | None:
+    if requester == askmod.HUMAN or requester not in paths.list_agents():
+        return f"{requester} is not an agent"
+    return None
+
+
+def push_answer_act(requester: str, log) -> str:
+    _background(f"push-answer-{requester}", lambda c: askmod.push_answer_here(c, requester), log)
+    return _HANDED
 
 
 def push_answer_verb(con, log, **kw) -> tuple[bool, str]:
     """Put an answer in front of the agent that asked (`ask.push_answer_here`)."""
-    requester = kw["requester"]
-    if requester == askmod.HUMAN or requester not in paths.list_agents():
-        return False, f"{requester} is not an agent"
-    _background(f"push-answer-{requester}", lambda c: askmod.push_answer_here(c, requester), log)
-    return True, _HANDED
+    why = push_answer_check(kw["requester"])
+    return (False, why) if why else (True, push_answer_act(kw["requester"], log))
+
+
+def notify_cancelled_check(con, rid: int):
+    """The request `notify_cancelled_verb` would tell about and why not: (row, None) or (None, why). Pure reads."""
+    row = db.get_request(con, rid)
+    if row is None:
+        return None, f"no request #{rid}"
+    if row["target"] == askmod.HUMAN or row["target"] not in paths.list_agents():
+        return None, f"{row['target']} is not an agent"
+    if row["state"] != "landed" or not row["delivered_at"] or not db.closed_under(con, row["id"]):
+        return None, f"#{row['id']} was not cancelled after it was delivered"
+    return row, None
+
+
+def notify_cancelled_act(row, log) -> str:
+    from . import delivery
+    _background(f"notify-cancelled-{row['id']}", lambda c: delivery.notify_cancelled(c, row, str(db.shown_verdict(row) or "")), log)
+    return _HANDED
 
 
 def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
@@ -240,15 +276,5 @@ def notify_cancelled_verb(con, log, **kw) -> tuple[bool, str]:
 
     Only a delivered request already closed as rejected, and only with the verdict
     on its row: what the daemon types is never the caller's words."""
-    from . import delivery
-    row = db.get_request(con, int(kw["rid"]))
-    if row is None:
-        return False, f"no request #{kw['rid']}"
-    if row["target"] == askmod.HUMAN or row["target"] not in paths.list_agents():
-        return False, f"{row['target']} is not an agent"
-    if row["state"] != "landed" or not row["delivered_at"] or not db.closed_under(con, row["id"]):
-        return False, f"#{row['id']} was not cancelled after it was delivered"
-    _background(f"notify-cancelled-{row['id']}",
-                lambda c: delivery.notify_cancelled(c, row, str(db.shown_verdict(row) or "")), log)
-    return True, _HANDED
-
+    row, why = notify_cancelled_check(con, int(kw["rid"]))
+    return (False, why) if why else (True, notify_cancelled_act(row, log))

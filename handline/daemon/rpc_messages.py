@@ -80,39 +80,35 @@ def _ask(ctx, params) -> dict:
 
 def _push(ctx, params) -> dict:
     target, rid = _text(params, "target"), _int(params, "request")
-    if target == db.HUMAN or target not in paths.list_agents():
-        raise rpc.refused(f"{target} is not an agent")
+    why = sends.push_check(target)
+    if why:
+        raise rpc.refused(why)
     me, _ = _sender(ctx)
-    if rid is not None:
-        con = db.connect()
-        try:
-            row = db.get_request(con, rid)
-        finally:
-            con.close()
-        if row is None:
-            raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no request #{rid}", what="request", name=str(rid))
-        if row["requester"] != me:
-            raise rpc.refused(f"#{rid} is not yours to push", gate="state")
     con = db.connect()
     try:
+        if rid is not None:
+            row = db.get_request(con, rid)
+            if row is None:
+                raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no request #{rid}", what="request", name=str(rid))
+            if row["requester"] != me:
+                raise rpc.refused(f"#{rid} is not yours to push", gate="state")
         _record(ctx, params, "push")(con, sends._HANDED)
-        ok, msg = sends.push_verb(con, ctx.log, target=target, rid=rid)
     finally:
         con.close()
-    return {"accepted": True, "said": msg}
+    return {"accepted": True, "said": sends.push_act(target, rid, ctx.log)}
 
 
 def _push_answer(ctx, params) -> dict:
     requester = _text(params, "requester")
-    if requester == db.HUMAN or requester not in paths.list_agents():
-        raise rpc.refused(f"{requester} is not an agent")
+    why = sends.push_answer_check(requester)
+    if why:
+        raise rpc.refused(why)
     con = db.connect()
     try:
         _record(ctx, params, "push.answer")(con, sends._HANDED)
-        ok, msg = sends.push_answer_verb(con, ctx.log, requester=requester)
     finally:
         con.close()
-    return {"accepted": True, "said": msg}
+    return {"accepted": True, "said": sends.push_answer_act(requester, ctx.log)}
 
 
 def _push_cancelled(ctx, params) -> dict:
@@ -121,16 +117,15 @@ def _push_cancelled(ctx, params) -> dict:
         raise rpc.bad_request("request is a request number", "request", rpc.INVALID_PARAMS)
     con = db.connect()
     try:
-        row = db.get_request(con, rid)
-        if row is None:
+        if db.get_request(con, rid) is None:
             raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no request #{rid}", what="request", name=str(rid))
-        _record(ctx, params, "push.cancelled")(con, sends._HANDED)
-        ok, msg = sends.notify_cancelled_verb(con, ctx.log, rid=rid)
+        row, why = sends.notify_cancelled_check(con, rid)
+        if why:
+            raise rpc.refused(why)
+        _record(ctx, params, "push.cancelled")(con, sends._HANDED)     # recorded only once the checks pass: a refusal is never kept as a success
     finally:
         con.close()
-    if not ok:
-        raise rpc.refused(msg)
-    return {"accepted": True, "said": msg}
+    return {"accepted": True, "said": sends.notify_cancelled_act(row, ctx.log)}
 
 
 rpc.METHODS["say"] = rpc.Method(_say, "agent", write=True)

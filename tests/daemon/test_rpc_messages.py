@@ -221,6 +221,15 @@ def test_push_cancelled_tells_only_of_what_was_closed_after_delivery(home: Path)
         check("push.cancelled: one closed under its target is told, in the background", r["result"]["accepted"] and n.background == [f"notify-cancelled-{rid}"], str((r, n.background)))
         _call("push.cancelled", {"request": rid, "request_id": "c3"}, as_agent="manager")
         check("push.cancelled: and a retry tells nothing more", len(n.background) == 1)
+        fresh = askmod.say("worker", "another piece of work", requester="manager")[2]
+        refused = _call("push.cancelled", {"request": fresh, "request_id": "c5"}, as_agent="manager")
+        con = db.connect()
+        con.execute("UPDATE requests SET state = 'landed', delivered_at = 5 WHERE id = ?", (fresh,))
+        db.add_event(con, "manager", "closed_under", {"request_id": fresh, "target": "worker"})
+        con.close()
+        again = _call("push.cancelled", {"request": fresh, "request_id": "c5"}, as_agent="manager")
+        check("push.cancelled: a refusal is not kept as a success: the same request_id after the request was cancelled is judged afresh, accepted, and nudges",
+              _code(refused) == "refused" and again["result"]["accepted"] is True and not again["result"].get("replayed") and n.background[-1] == f"notify-cancelled-{fresh}", str((refused, again, n.background)))
         check("push.cancelled: a request that is not a number is bad_request", _code(_call("push.cancelled", {"request": "1", "request_id": "c4"})) == "bad_request")
 
 
