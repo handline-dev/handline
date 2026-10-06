@@ -33,6 +33,14 @@ def _err(code, message, **data):
     return {"code": code, "message": message, "data": {"code": message, **data}}
 
 
+def _method_of(line: bytes):
+    try:
+        req = json.loads(line)
+    except ValueError:
+        return None
+    return req.get("method") if isinstance(req, dict) else None
+
+
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
@@ -82,7 +90,7 @@ class FakeDaemon:
                 buf += chunk
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
-                    if said_hello and b'"inbox.list"' in line and not self.serial:
+                    if said_hello and not self.serial and _method_of(line) == "inbox.list":
                         threading.Thread(target=answer_later, args=(line,), daemon=True).start()
                         continue
                     reply, said_hello = self._answer(line, said_hello)
