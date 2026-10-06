@@ -8,3 +8,7 @@ contract/fixtures
 contract/prompts
 *.py
 go
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/assets
+tsconfig*.json
