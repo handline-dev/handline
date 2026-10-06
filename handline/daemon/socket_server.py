@@ -37,6 +37,7 @@ from . import (  # noqa: F401 - importing a module registers its methods; one pe
     rpc_hooks,
     rpc_inbox,
     rpc_input,
+    rpc_operations,
     rpc_options,
     rpc_prompts,
     rpc_schedules,
@@ -142,6 +143,7 @@ def _land_authorize(payload: dict, log) -> dict:
         log(f"  land_authorize refused for {str(agent)[:60]!r}")
         return {"ok": False, "said": "not authorized"}
     landauth.grant(agent, verb, str(payload.get("sha")))
+    log(f"  land_authorize: {str(agent)[:60]!r} vouched for {verb} {str(payload.get('sha'))[:40]!r}")
     return {"ok": True, "said": "vouched"}
 
 

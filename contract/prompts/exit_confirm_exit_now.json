@@ -1,0 +1,23 @@
+{
+ "name": "exit_confirm_exit_now",
+ "source": "tests/daemon/test_prompt_blocks.py exit_dialog (the background-tasks exit screen)",
+ "screen": [
+  "  earlier output",
+  "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
+  "   Background tasks are running. Exiting will stop tasks (esc)",
+  "   ❯ 1. Keep working",
+  "     2. Exit now",
+  "   Enter to confirm · Esc to cancel"
+ ],
+ "expect": {
+  "kind": "exit_confirm",
+  "tool": null,
+  "command": null,
+  "reason": null,
+  "options": [
+   "1",
+   "2",
+   "esc"
+  ]
+ }
+}

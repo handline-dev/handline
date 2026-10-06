@@ -77,7 +77,10 @@ class FakeDaemon:
 
         def send(reply):
             with out:
-                conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
+                try:
+                    conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
+                except OSError:     # the client closed first
+                    pass
 
         def answer_later(line):
             reply, _ = self._answer(line, True)
@@ -122,7 +125,7 @@ class FakeDaemon:
             if params["protocol"] < 1:
                 return fail({"code": -32002, "message": "refused", "data": {
                     "code": "refused", "gate": "protocol", "reason": "too old", "hint": "hl service install"}}), said_hello
-            kind = {"founder": "person", "agent": "agent", "anonymous": "anonymous"}[self.role]
+            kind = {"founder": "person", "agent": "agent", "member": "device", "anonymous": "anonymous"}[self.role]
             return ok({"protocol": 1, "min_client": 1, "daemon": "fake", "schema": 1, "role": self.role,
                        "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": self._methods(),
                        "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text"]}}), True
@@ -175,18 +178,93 @@ class FakeDaemon:
         return fail(_err(-32600, "bad_request")), said_hello
 
 
+class FakeNetwork:
+    """The network transport as the harness can show it: a connection that is unpaired until its hello carries a token device.redeem
+    gave, refused (gate unpaired, nothing else in the reply) at everything but device.redeem, and closed when its device is revoked.
+    It has no TLS and no pinned fingerprint: those belong to the Go listener's own tests."""
+
+    def __init__(self):
+        self.member = FakeDaemon("member")
+
+    def connect(self) -> socket.socket:
+        client, server = socket.socketpair()
+        threading.Thread(target=self._serve, args=(server,), daemon=True).start()
+        return client
+
+    def _serve(self, conn):
+        from fake_methods import devices as dev
+        paired, buf = None, b""
+        def send(reply):
+            try:
+                conn.sendall(json.dumps(reply).encode() + b"\n")
+            except OSError:
+                pass
+        with conn:
+            while True:
+                try:
+                    chunk = conn.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    try:
+                        req = json.loads(line)
+                    except ValueError:
+                        req = None
+                    if not isinstance(req, dict):
+                        send(self.member._answer(line, False)[0])
+                        continue
+                    rid, params = req.get("id"), req.get("params") or {}
+                    def refuse():
+                        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "refused", "data": {
+                            "code": "refused", "gate": "unpaired", "reason": "not paired"}}})
+                    if paired and not any(d["id"] == paired for d in dev.WORLD["devices"].values()):
+                        return              # revoked while it was open
+                    if req.get("method") == "device.redeem":
+                        until = dev.WORLD["codes"].pop(params.get("code"), None)
+                        if until is None or until < time.time():
+                            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "refused", "data": {
+                                "code": "refused", "gate": "pairing_code", "reason": "that code is not valid"}}})
+                            continue
+                        d = {"id": f"d{len(dev.WORLD['devices']) + 1}", "name": params.get("name", ""), "token": f"tok-{len(dev.WORLD['devices']) + 1}"}
+                        dev.WORLD["devices"][d["id"]] = d
+                        send({"jsonrpc": "2.0", "id": rid, "result": {"accepted": True, "token": d["token"], "device": d["id"]}})
+                        continue
+                    if req.get("method") == "hello" and not paired:
+                        d = dev.device_of(params.get("token"))
+                        if d is None:
+                            refuse()
+                            continue
+                        paired = d["id"]
+                        dev.WORLD["socks"].setdefault(paired, []).append(conn)
+                        reply, _ = self.member._answer(line, False)
+                        reply["result"]["caller"]["device"] = paired
+                        send(reply)
+                        continue
+                    if not paired:
+                        refuse()
+                        continue
+                    reply, _ = self.member._answer(line, True)
+                    send(reply)
+
+
 FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
 
 
 def _fakes(*roles: str, mutate=None, **kw) -> dict:
-    return {r: FakeDaemon(r, mutate, **kw).connect for r in roles}
+    from fake_methods import devices
+    devices.reset()
+    return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
 KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp"}
 KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched"]
+          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp"]
 
 
 def _count(results, status: str) -> int:
@@ -194,7 +272,7 @@ def _count(results, status: str) -> int:
 
 
 def test_the_fixtures_pass_against_a_fake_daemon() -> None:
-    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous"), KEY)
+    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
     bad = [(n, why) for s, why, n in results if s != "pass"]
     check("conformance: every fixture passes against the fake daemon", not bad and results, str(bad))
     check("conformance: each fixture is reported by name", {"hello.ok", "errors.not_found"} <= {n for _, _, n in results})
@@ -314,6 +392,48 @@ def test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture() ->
           results[0][0] == "fail" and "at least" in results[0][1], str(results))
 
 
+def test_the_device_fixtures_pass_against_a_fake_network_and_catch_a_leak() -> None:
+    from fake_methods import devices
+    path = [ROOT / "contract" / "fixtures" / "devices.json"]
+    def run(network):
+        devices.reset()
+        return conformance.run_all(path, {"founder": FakeDaemon("founder").connect, "unpaired": network.connect}, KEY)
+    results = run(FakeNetwork())
+    check("conformance: the device fixtures pass against a fake network that refuses the unpaired", all(s == "pass" for s, _, _ in results), str(results))
+    check("conformance: one step per method of protocol.json is sent unpaired", len(conformance.load(path)[0]["steps"]) >= len(METHODS) + 1)
+
+    class Leaky(FakeNetwork):       # answers an unpaired hello with the method list, as a daemon that forgot the rule would
+        def _serve(self, conn):
+            self.member._answer = (lambda orig: lambda line, said: orig(line, True))(self.member._answer)
+            super()._serve(conn)
+    class OpenAfterRevoke(FakeNetwork):     # keeps a revoked device's connection open
+        def _serve(self, conn):
+            from fake_methods import devices as dev
+            real = dev.WORLD["socks"]
+            super()._serve(conn)
+    leaky = FakeNetwork()
+    orig = leaky.connect
+    def leaking():
+        client, server = socket.socketpair()
+        def serve():
+            buf = b""
+            with server:
+                while True:
+                    chunk = server.recv(65536)
+                    if not chunk:
+                        return
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        reply, _ = FakeDaemon("member")._answer(line, True)
+                        server.sendall(json.dumps(reply).encode() + b"\n")
+        threading.Thread(target=serve, daemon=True).start()
+        return client
+    leaky.connect = leaking
+    results = run(leaky)
+    check("conformance: a network that answers an unpaired caller fails the unpaired fixture", dict((n, s) for s, _, n in results)["devices.unpaired_gets_nothing"] == "fail", str(results))
+
+
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
     _first_fixture_fails(lambda r: {**r, "jsonrpc": "1.0"}, "jsonrpc", "conformance: a reply with jsonrpc 1.0 fails")
     _first_fixture_fails(lambda r: {k: v for k, v in r.items() if k != "jsonrpc"}, "jsonrpc", "conformance: a reply without jsonrpc fails")
@@ -335,7 +455,7 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
     with contextlib.redirect_stdout(out):
         only_founder = conformance.main(KEYARG, _fakes("founder"))
         allowed = conformance.main(["--allow-skip", *KEYARG], _fakes("founder"))
-        all_roles = conformance.main(KEYARG, _fakes("founder", "agent", "anonymous"))
+        all_roles = conformance.main(KEYARG, _fakes("founder", "agent", "anonymous", "unpaired"))
     check("conformance: a run with only the founder socket exits 3, not 0", only_founder == 3, out.getvalue())
     check("conformance: --allow-skip makes the same run exit 0", allowed == 0)
     check("conformance: a run with every role passes with exit 0", all_roles == 0)
@@ -349,7 +469,7 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
 def _run(args, **fake) -> tuple[int, str]:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        code = conformance.main(args, _fakes("founder", "agent", "anonymous", **fake))
+        code = conformance.main(args, _fakes("founder", "agent", "anonymous", "unpaired", **fake))
     return code, out.getvalue()
 
 
@@ -406,9 +526,12 @@ def test_fixtures_follow_the_format_and_the_spec() -> None:
     check("conformance: every fixture names the spec method or x- section it pins", all(f.get("spec") in spec_keys for f in fixtures),
           str([f["name"] for f in fixtures if f.get("spec") not in spec_keys]))
     check("conformance: every fixture has a role, an about line and steps that expect something",
-          all(f.get("as", "founder") in RANK and f.get("about") and f["steps"] and all(
-              sum(k in s for k in ("send", "raw", "await")) == 1 and (
+          all(f.get("as", "founder") in RANK | {"unpaired": 0} and f.get("about") and f["steps"] and all(
+              sum(k in s for k in ("send", "raw", "await")) + (("closed" in s) and not any(k in s for k in ("send", "raw", "await"))) == 1 and (
                   "result" in s or "error" in s or "closed" in s or ("send" in s and "await" not in s)) for s in f["steps"]) for f in fixtures))
+    check("conformance: the extra connections of a fixture have roles, and every step's `on` names one",
+          all(set(f.get("with", {}).values()) <= set(RANK) | {"unpaired"} and {s.get("on") for s in f["steps"]} - {None} <= set(f.get("with", {}))
+              for f in fixtures))
     for f in fixtures:
         pending = set()
         for s in f["steps"]:
@@ -417,7 +540,7 @@ def test_fixtures_follow_the_format_and_the_spec() -> None:
             pending.discard(s.get("await"))
         check(f"conformance: {f['name']} awaits every call it only sends", not pending, str(pending))
     sent = {s["send"]["method"] for f in fixtures for s in f["steps"] if "send" in s}
-    check("conformance: every method a fixture sends is in the spec", sent <= set(METHODS), str(sent - set(METHODS)))
+    check("conformance: every method a fixture sends is in the spec (or the one it does not have)", sent - {"no.such_method"} <= set(METHODS), str(sent - set(METHODS)))
     refused = {f["spec"] for f in fixtures for s in f["steps"] if "error" in s}
     check("conformance: hello and whoami each have a refusal or error case", {"hello", "whoami"} <= refused, str(refused))
 
@@ -431,6 +554,7 @@ def main() -> int:
         run(lambda: test_the_command_line_arguments_over_socketpairs())
         run(lambda: test_skips_for_a_missing_var_and_a_method_the_daemon_lacks())
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
+        run(lambda: test_the_device_fixtures_pass_against_a_fake_network_and_catch_a_leak())
         run(lambda: test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture())
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))

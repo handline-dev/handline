@@ -2,8 +2,8 @@
 //   node fake-daemon/serve.ts [--socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS]
 import type https from 'node:https';
 import net from 'node:net';
-import type { Transport } from '../src/transport.ts';
-import { wrapSocket } from '../src/node-socket.ts';
+import type { Transport } from '@handline/client';
+import { wrapSocket } from '@handline/client-node';
 import { FakeDaemon } from './daemon.ts';
 import { wsServer } from './ws-server.ts';
 

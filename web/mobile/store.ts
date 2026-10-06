@@ -1,7 +1,6 @@
 // The mobile app's state: the agent list and the open agent page, kept current from the daemon's
 // events. No DOM here; views.ts draws it and app.ts wires it, so tests drive it against the fake daemon.
-import { DaemonClient, RpcError, type TerminalView } from '../src/client.ts';
-import type { AgentDetail, AgentView, Event, Prompt } from '../src/protocol.ts';
+import { DaemonClient, RpcError, type AgentDetail, type AgentView, type Event, type Prompt, type TerminalView } from '@handline/client';
 
 export type Tab = 'chat' | 'terminal';
 

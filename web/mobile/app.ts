@@ -1,6 +1,5 @@
 // Browser entry: connects to the daemon, draws views.ts into #app and delegates its controls.
-import { DaemonClient } from '../src/client.ts';
-import { webSocketTransport } from '../src/transport.ts';
+import { DaemonClient, webSocketTransport } from '@handline/client';
 import { Store } from './store.ts';
 import { app } from './views.ts';
 

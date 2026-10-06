@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -11,7 +12,10 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/devices"
+	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/version"
@@ -33,9 +37,14 @@ type Config struct {
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
 type Daemon struct {
 	cfg     Config
+	db      *sql.DB
+	hooks   *hooks.Recorder
+	stop    chan struct{} // closed by Close: the spool loop ends
+	started time.Time
 	ln      net.Listener
 	local   *rpc.Server
 	net     *networkListener
+	dev     *devices.Manager // nil unless the network listener is on
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
@@ -53,12 +62,17 @@ func Start(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close() // the schema is up; the first method that needs the database opens it itself
-	d := &Daemon{cfg: cfg, conns: map[net.Conn]struct{}{}}
-	d.local = rpc.NewServer(cfg.Auth, version.Sha, store.LatestVersion(), "local", cfg.Log)
+	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{}),
+		hooks: &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}}
+	d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
+	if cfg.Listen != "" {
+		d.dev = devices.New(devices.NewMemStore()) // until the database has its devices table
+	}
+	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
 		if err != nil {
+			db.Close()
 			return nil, err
 		}
 		d.ln = ln
@@ -73,8 +87,46 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.net = nl
 	}
+	d.wg.Add(1)
+	go d.spoolLoop()
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
+}
+
+// newServer is a connection server on one transport, with the methods this daemon serves.
+func (d *Daemon) newServer(transport string) *rpc.Server {
+	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
+	s.DB = d.db
+	if d.hooks != nil {
+		d.hooks.Register(s)
+	}
+	if transport == "network" {
+		s.Net = d.dev
+	}
+	devices.Register(s, d.dev)
+	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+	return s
+}
+
+func (d *Daemon) ingestSpool() {
+	if _, err := d.hooks.Ingest(); err != nil {
+		d.cfg.Log("  spool: %v", err)
+	}
+}
+
+// spoolLoop reads the hook spool every SpoolEvery, the work the Python daemon does each tick.
+func (d *Daemon) spoolLoop() {
+	defer d.wg.Done()
+	t := time.NewTicker(hooks.SpoolEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-t.C:
+			d.ingestSpool()
+		}
+	}
 }
 
 // listenUnix binds the socket, 0600, replacing a stale file but never one a live daemon answers on.
@@ -156,9 +208,32 @@ func (d *Daemon) ServeFile(f *os.File) error {
 	return nil
 }
 
+// ServeNetFile serves one connection that already exists as a network connection: past TLS and the pinned
+// fingerprint, so the gate and the device roles apply. It is how the contract's network fixtures reach a daemon where
+// no socket can be bound.
+func (d *Daemon) ServeNetFile(f *os.File) error {
+	c, err := net.FileConn(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	if d.net == nil || !d.track(c) {
+		c.Close()
+		return errors.New("no network listener")
+	}
+	go func() {
+		defer d.untrack(c)
+		d.net.rs.ServeNet(rpc.NewLineTransport(c), "", func() { c.Close() })
+	}()
+	return nil
+}
+
 // Close stops listening, drops every connection and waits for their goroutines.
 func (d *Daemon) Close() {
 	d.mu.Lock()
+	if !d.closing && d.stop != nil {
+		close(d.stop)
+	}
 	d.closing = true
 	for c := range d.conns {
 		c.Close()
@@ -172,6 +247,9 @@ func (d *Daemon) Close() {
 		d.net.close()
 	}
 	d.wg.Wait()
+	if d.db != nil {
+		d.db.Close()
+	}
 }
 
 // Wait blocks until ctx ends, then closes.

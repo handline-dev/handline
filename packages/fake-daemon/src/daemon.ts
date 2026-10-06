@@ -5,8 +5,8 @@ import {
   METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
   type Actor, type AgentDetail, type AgentView, type Caller, type ErrorCode, type Event as WireEvent,
   type InputHolder, type MethodName, type Notifications, type Prompt, type Role, type Row, type Timestamp, type Topic,
-} from '../src/protocol.ts';
-import type { Transport } from '../src/transport.ts';
+} from '@handline/contract';
+import type { Transport } from '@handline/client';
 import { AGENTS, BANNER, PROMPT_LINES, type AgentFixture } from './fixtures.ts';
 
 const ROWS = 24, COLS = 80;
@@ -158,7 +158,7 @@ export class FakeDaemon {
 
   private view(s: Session): AgentView {
     return {
-      name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, state_since: s.since,
+      name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, state_since: s.since, state_detail: '',
       block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
       wall_reason: s.fx.wall ? 'usage limit' : null,
       account: s.fx.account, task: s.fx.task,

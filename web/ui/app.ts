@@ -1,5 +1,5 @@
 // The frame: top bar, agent rail, tabs, context panel and status bar around the screens.
-import { DaemonClient, RpcError, webSocketTransport } from '../src/index.ts';
+import { DaemonClient, RpcError, webSocketTransport } from '@handline/client';
 import { AgentPage } from './agent-page.ts';
 import { h, keyed } from './dom.ts';
 import { ago, dotOf, railGroups, type GroupBy, type KV } from './model.ts';

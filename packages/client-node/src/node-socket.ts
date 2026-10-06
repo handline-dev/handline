@@ -1,6 +1,6 @@
 // Node only (Electron main, tests, tools): the daemon's Unix socket, one JSON object per line.
 import net from 'node:net';
-import { LineSplitter, type Transport } from './transport.ts';
+import { LineSplitter, type Transport } from '@handline/client';
 
 export function wrapSocket(sock: net.Socket): Transport {
   const split = new LineSplitter();

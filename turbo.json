@@ -1,0 +1,11 @@
+{
+  "agentGuidance": false,
+  "globalPassThroughEnv": ["TMPDIR"],
+  "cacheDir": ".turbo/cache",
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "test": { "dependsOn": ["^test"] },
+    "typecheck": { "dependsOn": ["^typecheck"] },
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] }
+  }
+}

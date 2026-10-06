@@ -281,19 +281,32 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
         return "needvar", f"needs --var {missing[0]}=..."
     if methods is not None and fx.get("spec") in spec_methods() and fx["spec"] not in methods:
         return "missing", "method not implemented by this daemon"
+    for extra in fx.get("with", {}).values():
+        if extra not in sockets:
+            return "skip", f"no socket for role {extra} (pass --as {extra}=SOCKET)"
     saved = dict(vars_)
+    conns = {}
     try:
-        conn = Connection(sockets[role])
+        conns[None] = Connection(sockets[role])
+        for name, extra in fx.get("with", {}).items():
+            conns[name] = Connection(sockets[extra])
     except OSError as e:
-        return "fail", f"cannot connect to {sockets[role]}: {e}"
+        for c in conns.values():
+            c.close()
+        return "fail", f"cannot connect: {e}"
     try:
         for n, step in enumerate(fx["steps"], 1):
             try:
+                conn = conns[step.get("on")]
+                if "sleep_s" in step:
+                    time.sleep(step["sleep_s"])
                 if "raw" in step:
                     conn.send_line(step["raw"])
                     rid = None
                 elif "await" in step:
                     rid = step["await"]
+                elif "send" not in step:
+                    rid = None
                 else:
                     req = substitute(step["send"], saved)
                     conn.send_line(json.dumps(req))
@@ -325,13 +338,32 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                 return "fail", f"step {n}: {type(e).__name__ + ': ' if not isinstance(e, Mismatch) else ''}{e}"
         return "pass", ""
     finally:
-        conn.close()
+        for c in conns.values():
+            c.close()
+
+
+def expand(node, method: str):
+    """`node` with "@method" replaced by the method's name in every string."""
+    if isinstance(node, str):
+        return node.replace("@method", method)
+    if isinstance(node, dict):
+        return {k: expand(v, method) for k, v in node.items()}
+    if isinstance(node, list):
+        return [expand(v, method) for v in node]
+    return node
 
 
 def load(paths: list[Path]) -> list[dict]:
+    """Fixtures from the files. A fixture with `for_each: "method"` has its steps repeated for every method of protocol.json
+    (less `except`) and for one name it does not have, "@method" standing for the name, so a new method cannot escape it."""
     out = []
     for p in paths:
         for fx in json.loads(p.read_text())["fixtures"]:
+            if fx.get("for_each") == "method":
+                names = sorted(spec_methods() - set(fx.get("except", []))) + ["no.such_method"]
+                lead = [s for s in fx["steps"] if not s.get("each")]
+                each = [{k: v for k, v in s.items() if k != "each"} for s in fx["steps"] if s.get("each")]
+                fx = {**fx, "steps": lead + [expand(s, n) for n in names for s in each]}
             out.append({**fx, "file": p.name})
     return out
 
@@ -344,7 +376,7 @@ def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = No
         if only and only not in fx["name"]:
             continue
         role = fx.get("as", "founder")
-        if role in sockets and role not in listed:
+        if role in sockets and role not in listed and role not in ("unpaired", "member"):
             listed[role] = listed_methods(sockets[role])
         out.append((*run_fixture(fx, sockets, vars_, listed.get(role)), fx["name"]))
     return out

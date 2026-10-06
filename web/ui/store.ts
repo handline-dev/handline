@@ -1,6 +1,5 @@
 // The app's view of the daemon: agents, the open agent's detail, and what changed. Screens subscribe to it.
-import { DaemonClient, RpcError, type ConnectionState } from '../src/client.ts';
-import type { AgentDetail, AgentView, Event as WireEvent } from '../src/protocol.ts';
+import { DaemonClient, RpcError, type AgentDetail, type AgentView, type ConnectionState, type Event as WireEvent } from '@handline/client';
 
 export interface Note { at: string; kind: string; text: string; actor: string | null }
 

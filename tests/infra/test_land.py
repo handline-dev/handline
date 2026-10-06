@@ -245,8 +245,11 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
             check(f"vouch: land_authorize with {label} vouches for nothing", not said["ok"], str(said))
         said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: so a land_pass from the session's own process is still refused", not said["ok"], str(said))
-        said = socket_server._handle_request({**authorize, "key": key}, lambda m: None)
+        logged: list[str] = []
+        said = socket_server._handle_request({**authorize, "key": key}, logged.append)
         check("vouch: the right key vouches", said["ok"], str(said))
+        check("vouch: and the daemon's log says who was vouched for, so a refusal later can be told from a vouch never sent",
+              any(AUDITOR in m and "vouched for land_pass" in m for m in logged), str(logged))
         said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: and then the session's land_pass is accepted", said["ok"], str(said))
 

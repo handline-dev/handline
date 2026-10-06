@@ -1,0 +1,7 @@
+{
+  "name": "@handline/config",
+  "private": true,
+  "type": "module",
+  "description": "Base tsconfigs shared by the packages",
+  "exports": { "./tsconfig.node.json": "./tsconfig.node.json" }
+}

@@ -4,7 +4,7 @@ import { Store } from '../mobile/store.ts';
 import http from 'node:http';
 import { handler, listenOptions } from '../mobile/server.ts';
 import { app, esc, pageKey } from '../mobile/views.ts';
-import { setup, until } from './helpers.ts';
+import { setup, until } from '@handline/fake-daemon/helpers';
 
 const A = 'handline.term-build';
 

@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import type { Duplex } from 'node:stream';
-import type { Transport } from '../src/transport.ts';
+import type { Transport } from '@handline/client';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 

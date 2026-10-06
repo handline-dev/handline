@@ -1,5 +1,5 @@
 // Screen B: the agent page. Chat on one side (empty until the daemon serves chat), a movable pane with the live terminal on the other.
-import type { AgentDetail, Prompt } from '../src/protocol.ts';
+import type { AgentDetail, Prompt } from '@handline/client';
 import { h, keyed } from './dom.ts';
 import {
   ago, controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, saveLayout, STOP_MODES,

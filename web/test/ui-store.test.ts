@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../ui/store.ts';
 import { controlsOf } from '../ui/model.ts';
-import { setup, until } from './helpers.ts';
+import { setup, until } from '@handline/fake-daemon/helpers';
 
 const ARCH = 'handline.architect'; // idle with a session
 const TB = 'handline.term-build'; // parked, no session
