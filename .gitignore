@@ -18,3 +18,4 @@ dist/
 apps/mobile/ios/
 apps/mobile/android/
 apps/mobile/.expo/
+.DS_Store
