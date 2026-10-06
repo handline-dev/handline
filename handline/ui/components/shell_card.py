@@ -60,7 +60,7 @@ class OutputModal(Dialog):
 
 class ShellCard(Vertical):
     """One command. Stop while it runs; Show all when the card holds less than it printed; Send to agent
-    once it has something to say (posts `ShellCard.Send`)."""
+    once it has something to say (posts `ShellCard.Send`, by itself when a command ends that was not stopped)."""
 
     class Send(Message):
         def __init__(self, run: ShellRun) -> None:
@@ -95,8 +95,8 @@ class ShellCard(Vertical):
         yield Horizontal(self._stop, self._all, self._send, classes="sh_buttons")
 
     def on_mount(self) -> None:
+        self._timer = self.set_interval(0.25, self.show)    # before the first show: a run that is over stops it there
         self.show()
-        self._timer = self.set_interval(0.25, self.show)
 
     def show(self) -> None:
         """Redraw from the run; once it has ended and been drawn that last time, stop redrawing."""
@@ -117,6 +117,9 @@ class ShellCard(Vertical):
             self._final = True
             self._timer.stop()
             self.query_one(".sh_out").scroll_end(animate=False)
+            if not self.run.sent and not self.run.stopped:      # the result goes to the agent on its own, once
+                self.run.sent = True        # here, not when the page handles it: a rebuild in between would send twice
+                self.post_message(self.Send(self.run))
 
     def stop(self) -> None:
         self.run.stop()
