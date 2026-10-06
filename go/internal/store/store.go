@@ -4,11 +4,11 @@ package store
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,7 +17,7 @@ import (
 	_ "modernc.org/sqlite" // pure Go: the launchd build needs no C toolchain
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations
 var migrationFiles embed.FS
 
 const (
@@ -30,31 +30,38 @@ const (
 var ErrSchema = errors.New("schema")
 
 type migration struct {
-	version int
-	name    string
-	sql     string
+	version  int
+	name     string
+	additive bool
+	sql      string
 }
 
+// migrations are the steps manifest.json lists, which tools/go_schema.py writes from handline/db/schema.py:
+// the Go store knows no step the Python one does not.
 func migrations() ([]migration, error) {
-	entries, err := migrationFiles.ReadDir("migrations")
+	raw, err := migrationFiles.ReadFile("migrations/manifest.json")
 	if err != nil {
 		return nil, err
 	}
+	var steps []struct {
+		Version  int    `json:"version"`
+		Name     string `json:"name"`
+		Additive bool   `json:"additive"`
+	}
+	if err := json.Unmarshal(raw, &steps); err != nil {
+		return nil, fmt.Errorf("migrations/manifest.json: %w", err)
+	}
 	var out []migration
-	for _, e := range entries {
-		base := strings.TrimSuffix(e.Name(), ".sql")
-		num, name, ok := strings.Cut(base, "_")
-		v, err := strconv.Atoi(num)
-		if !ok || err != nil {
-			return nil, fmt.Errorf("migration file %q is not NNNN_name.sql", e.Name())
+	for i, st := range steps {
+		if st.Version != i+1 {
+			return nil, fmt.Errorf("migrations/manifest.json: step %d is numbered %d", i+1, st.Version)
 		}
-		body, err := migrationFiles.ReadFile("migrations/" + e.Name())
+		body, err := migrationFiles.ReadFile(fmt.Sprintf("migrations/%04d_%s.sql", st.Version, st.Name))
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, migration{v, name, string(body)})
+		out = append(out, migration{st.Version, st.Name, st.Additive, string(body)})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].version < out[j].version })
 	return out, nil
 }
 
