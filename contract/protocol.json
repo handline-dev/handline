@@ -7,6 +7,7 @@
  },
  "x-protocol": 1,
  "x-framing": {
+  "reach": "v1 reaches this machine, the LAN or Tailscale only: the network listener binds the interface the config names (default loopback), says whether it uses TLS or Tailscale encryption, and there is no relay or public endpoint.",
   "transport": [
    "Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line",
    "WebSocket (network listener, off by default), one object per text frame"
@@ -34,6 +35,7 @@
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
+  "unsupported": "Reserved and not implemented.",
   "session_token": "Session token and peer-pid check, unchanged."
  },
  "x-legacy": {
@@ -97,6 +99,14 @@
     "prompt_asked": "Prompt",
     "stall": "{agent}",
     "account_out": "{account}"
+   }
+  },
+  "chat": {
+   "snapshot": "chat.transcript",
+   "data": {
+    "chat.message": "ChatMessage",
+    "chat.transcript": "TranscriptItem",
+    "chat.working": "Working"
    }
   },
   "operations": {
@@ -314,6 +324,18 @@
       "caller": {
        "$ref": "#/components/schemas/Caller"
       },
+      "capabilities": {
+       "$ref": "#/components/schemas/Capabilities"
+      },
+      "transport": {
+       "type": "string",
+       "enum": [
+        "local",
+        "tls",
+        "tailscale"
+       ],
+       "description": "How this connection is protected."
+      },
       "methods": {
        "type": "array",
        "items": {
@@ -348,6 +370,8 @@
       "schema",
       "role",
       "caller",
+      "capabilities",
+      "transport",
       "methods"
      ]
     }
@@ -1522,6 +1546,44 @@
    ]
   },
   {
+   "name": "input.ask",
+   "summary": "Reserved: ask the holder for input. Refused (gate `unsupported`) until implemented; see capabilities.input_ask.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "unsupported"
+   ]
+  },
+  {
    "name": "input.release",
    "summary": "Hand the terminal back to the daemon.",
    "paramStructure": "by-name",
@@ -1560,6 +1622,401 @@
    ],
    "x-gates": [
     "role"
+   ]
+  },
+  {
+   "name": "chat.messages",
+   "summary": "Messages of an agent's chat, newest first. Page with before (older) or since (newer).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "scope",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "mine: person and this agent; all: everything it sent or received."
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "messages": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ChatMessage"
+       }
+      },
+      "more": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "messages",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.transcript",
+   "summary": "The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TranscriptItem"
+       }
+      },
+      "more": {
+       "type": "boolean"
+      },
+      "working": {
+       "$ref": "#/components/schemas/Working"
+      }
+     },
+     "required": [
+      "items",
+      "more",
+      "working"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.locate",
+   "summary": "Which scope and page show a message number.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "scope": {
+       "type": "string",
+       "enum": [
+        "mine",
+        "all"
+       ],
+       "description": "mine: person and this agent; all: everything it sent or received."
+      },
+      "message": {
+       "$ref": "#/components/schemas/ChatMessage"
+      }
+     },
+     "required": [
+      "scope",
+      "message"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.send",
+   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "body",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "task",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "title": {
+        "type": "string"
+       },
+       "time_box": {
+        "$ref": "#/components/schemas/Duration"
+       }
+      },
+      "required": [
+       "title"
+      ]
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "request": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "request"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.answer",
+   "summary": "Answer a message that asked something.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.dismiss",
+   "summary": "Dismiss a message.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.withdraw",
+   "summary": "Withdraw a message not yet landed.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
    ]
   },
   {
@@ -3946,8 +4403,10 @@
      "inbox",
      "tasks",
      "notifications",
-     "operations"
-    ]
+     "operations",
+     "chat"
+    ],
+    "description": "chat is added for the chat view (T1690 memo, UI design b7594c0b): messages, landing state, transcript items and working state of one agent; events carry `agent`."
    },
    "Caller": {
     "type": "object",
@@ -4398,8 +4857,12 @@
        "session_open": {
         "type": "boolean"
        },
-       "input_holder": {
-        "$ref": "#/components/schemas/InputHolder"
+       "input_holders": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/InputHolder"
+        },
+        "description": "Who holds the input; one in v1, a list so more can later."
        },
        "prompt": {
         "oneOf": [
@@ -4417,7 +4880,7 @@
        "terminal",
        "session_id",
        "session_open",
-       "input_holder",
+       "input_holders",
        "prompt"
       ]
      }
@@ -5561,6 +6024,9 @@
        "health"
       ]
      },
+     "listener": {
+      "$ref": "#/components/schemas/Listener"
+     },
      "trust_folders": {
       "type": "array",
       "items": {
@@ -5624,6 +6090,7 @@
     "required": [
      "timings",
      "terminal_host",
+     "listener",
      "trust_folders",
      "hooks"
     ]
@@ -5795,6 +6262,365 @@
      "cursor",
      "history",
      "holder"
+    ]
+   },
+   "Landing": {
+    "type": "string",
+    "enum": [
+     "queued",
+     "typed",
+     "delivered",
+     "delivered_unanswered",
+     "answered",
+     "dismissed",
+     "withdrawn"
+    ],
+    "description": "Landing state of a message; open set."
+   },
+   "ChatMessage": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Request id."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "state_at": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "from": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string"
+     },
+     "landing": {
+      "$ref": "#/components/schemas/Landing"
+     },
+     "sending_reason": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Why it is still sending."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "body": {
+      "type": "string"
+     },
+     "answer": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "integer"
+         },
+         "text": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "id",
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "dismissed": {
+      "type": "boolean"
+     },
+     "delivered_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "typed_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "landed_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "parent": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "kind": {
+      "type": "string"
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "title": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "id",
+        "title"
+       ]
+      }
+     },
+     "is_task_question": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "at",
+     "state_at",
+     "from",
+     "to",
+     "state",
+     "landing",
+     "sending_reason",
+     "body",
+     "answer",
+     "dismissed",
+     "delivered_at",
+     "typed_at",
+     "landed_at",
+     "parent",
+     "kind",
+     "tasks",
+     "is_task_question"
+    ]
+   },
+   "TranscriptItem": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Ordered and stable, so a client appends and never redraws."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "reply",
+       "tool",
+       "prompt",
+       "task_event"
+      ]
+     },
+     "text": {
+      "type": "string"
+     },
+     "tool": {
+      "type": "string"
+     },
+     "prompt": {
+      "$ref": "#/components/schemas/Prompt",
+      "description": "Prompt card; `open` says whether it can still be answered."
+     },
+     "open": {
+      "type": "boolean"
+     },
+     "task_event": {
+      "type": "object",
+      "properties": {
+       "event": {
+        "type": "string",
+        "enum": [
+         "opened",
+         "changed",
+         "done",
+         "withdrawn"
+        ]
+       },
+       "task": {
+        "type": "integer"
+       },
+       "request": {
+        "oneOf": [
+         {
+          "type": "integer"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "evidence": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "event",
+       "task",
+       "request",
+       "evidence"
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "at",
+     "kind"
+    ]
+   },
+   "Working": {
+    "type": "object",
+    "properties": {
+     "turn_running": {
+      "type": "boolean"
+     },
+     "line": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "What it waits for or is blocked by."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "turn_running",
+     "line",
+     "since"
+    ]
+   },
+   "Capabilities": {
+    "type": "object",
+    "properties": {
+     "chat": {
+      "type": "boolean"
+     },
+     "review": {
+      "type": "boolean",
+      "description": "Worktree review beyond worktree.diff; false in v1, the UI hides the Review tab."
+     },
+     "input_ask": {
+      "type": "boolean",
+      "description": "input.ask is implemented; reserved."
+     },
+     "terminal_format": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "text",
+        "styled"
+       ]
+      }
+     }
+    },
+    "required": [
+     "chat",
+     "review",
+     "input_ask",
+     "terminal_format"
+    ]
+   },
+   "Listener": {
+    "type": "object",
+    "properties": {
+     "enabled": {
+      "type": "boolean"
+     },
+     "bind": {
+      "type": "string",
+      "description": "loopback, lan, tailscale or an address."
+     },
+     "encryption": {
+      "type": "string",
+      "enum": [
+       "tls",
+       "tailscale",
+       "none"
+      ],
+      "description": "What protects the transport; `none` only on loopback."
+     },
+     "fingerprint": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "enabled",
+     "bind",
+     "encryption",
+     "fingerprint"
     ]
    },
    "HistoryPage": {

@@ -23,11 +23,11 @@ terminal.resize session.start session.wake session.stop session.restart session.
 prompt.answer input.take input.release inbox.list inbox.mark_read inbox.answer inbox.reply tasks.list task.get task.new task.withdraw
 task.cancel task.edit team.get hr.list hr.decide account.set_cap account.login repos.list worktrees.list worktree.diff
 worktree.set_status agent.options agent.create schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
-settings.set settings.trust devices.list device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
+settings.set settings.trust devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.withdraw input.ask device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
 AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say ask push land hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \
-                     "terminal.history terminal.resize devices.list device.pair device.revoke settings.set".split()
+                     "terminal.history terminal.resize chat.send input.ask devices.list device.pair device.revoke settings.set".split()
 FOUNDER_ONLY = "schedule.add schedule.edit schedule.remove settings.get settings.set devices.list device.pair device.revoke".split()
 ROLES = SPEC["x-roles"]["order"]
 
@@ -90,8 +90,8 @@ def test_session_gates_are_declared_and_defined() -> None:
 
 
 def test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text() -> None:
-    check("contract: topics are the plan's seven", sorted(SPEC["x-topics"]) ==
-          sorted("status accounts agents inbox tasks notifications operations".split()))
+    check("contract: topics are the plan's seven plus chat", sorted(SPEC["x-topics"]) ==
+          sorted("status accounts agents inbox tasks notifications operations chat".split()))
     check("contract: every topic's snapshot method exists", all(t["snapshot"] in METHODS for t in SPEC["x-topics"].values()))
     check("contract: frames are text with a reserved place for styled rows",
           SPEC["components"]["schemas"]["TerminalSnapshot"]["properties"]["format"]["enum"] == ["text"]

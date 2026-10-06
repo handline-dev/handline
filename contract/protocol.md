@@ -6,6 +6,7 @@ OpenRPC-shaped. Source of contract/protocol.md and contract/protocol.ts: regener
 ## Framing
 
 - **Transport:** Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line; WebSocket (network listener, off by default), one object per text frame.
+- **Reach:** v1 reaches this machine, the LAN or Tailscale only: the network listener binds the interface the config names (default loopback), says whether it uses TLS or Tailscale encryption, and there is no relay or public endpoint.
 - **Lines:** UTF-8 JSON, terminated by \n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.
 - **Ids:** Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.
 - **Params:** By name only.
@@ -44,6 +45,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `wall` | The usage limit (wall_reason): typing would only spend quota. |
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
+| `unsupported` | Reserved and not implemented. |
 | `session_token` | Session token and peer-pid check, unchanged. |
 
 ## Methods
@@ -78,7 +80,15 @@ A method marked write takes a required `request_id`.
 | `prompt.list` | member |  | `agent` | `{` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
 | `input.take` | member | yes | `agent`, `request_id` | `Accepted & {` | `refused`, `not_found` | role, input_holder |
+| `input.ask` | member | yes | `agent`, `request_id` | `Accepted` | `refused` | unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
+| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{` | `not_found` |  |
+| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{` | `not_found` |  |
+| `chat.locate` | member |  | `agent`, `request` | `{` | `not_found` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {` | `refused`, `not_found` |  |
+| `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `chat.withdraw` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?` | `TerminalSnapshot` | `not_found`, `bad_request` |  |
 | `terminal.history` | member |  | `terminal`, `before`, `limit` | `HistoryPage` | `not_found` |  |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
@@ -236,9 +246,41 @@ Answer the prompt the caller saw; if it changed nothing is sent.
 
 Become the one who types at this terminal.
 
+### `input.ask`
+
+Reserved: ask the holder for input. Refused (gate `unsupported`) until implemented; see capabilities.input_ask.
+
 ### `input.release`
 
 Hand the terminal back to the daemon.
+
+### `chat.messages`
+
+Messages of an agent's chat, newest first. Page with before (older) or since (newer).
+
+### `chat.transcript`
+
+The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state.
+
+### `chat.locate`
+
+Which scope and page show a message number.
+
+### `chat.send`
+
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
+
+### `chat.answer`
+
+Answer a message that asked something.
+
+### `chat.dismiss`
+
+Dismiss a message.
+
+### `chat.withdraw`
+
+Withdraw a message not yet landed.
 
 ### `terminal.attach`
 
@@ -450,6 +492,7 @@ Cancel a device and close its connections at once.
 | `inbox` | `inbox.added` (InboxItem), `inbox.changed` (InboxItem) | `inbox.list` |
 | `tasks` | `task.changed` (Task) | `tasks.list` |
 | `notifications` | `task_done` ({task}), `prompt_asked` (Prompt), `stall` ({agent}), `account_out` ({account}) | `events.feed` |
+| `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 
 ## Notifications

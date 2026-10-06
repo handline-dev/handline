@@ -10,7 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations";
+/** chat is added for the chat view (T1690 memo, UI design b7594c0b): messages, landing state, transcript items and working state of one agent; events carry `agent`. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -116,7 +117,8 @@ export type AgentDetail = AgentView & {
   terminal: string | null;
   session_id: string | null;
   session_open: boolean;
-  input_holder: InputHolder;
+  /** Who holds the input; one in v1, a list so more can later. */
+  input_holders: InputHolder[];
   prompt: Prompt | null;
 };
 
@@ -351,6 +353,7 @@ export type Settings = {
     available: string[];
     health: "ok" | "degraded" | "down";
   };
+  listener: Listener;
   trust_folders: {
     account: string;
     agent: AgentName | null;
@@ -408,6 +411,80 @@ export type TerminalSnapshot = {
   holder: InputHolder;
 };
 
+/** Landing state of a message; open set. */
+export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" | "answered" | "dismissed" | "withdrawn";
+
+export type ChatMessage = {
+  /** Request id. */
+  id: number;
+  at: Timestamp;
+  state_at: string | null;
+  from: string;
+  to: string;
+  state: string;
+  landing: Landing;
+  sending_reason: string | null;
+  body: string;
+  answer: {
+    id: number;
+    text: string;
+    at: Timestamp;
+  } | null;
+  dismissed: boolean;
+  delivered_at: Timestamp | null;
+  typed_at: Timestamp | null;
+  landed_at: Timestamp | null;
+  parent: number | null;
+  kind: string;
+  tasks: {
+    id: number;
+    title: string;
+  }[];
+  is_task_question: boolean;
+};
+
+export type TranscriptItem = {
+  /** Ordered and stable, so a client appends and never redraws. */
+  id: number;
+  at: Timestamp;
+  kind: "reply" | "tool" | "prompt" | "task_event";
+  text?: string;
+  tool?: string;
+  /** Prompt card; `open` says whether it can still be answered. */
+  prompt?: Prompt;
+  open?: boolean;
+  task_event?: {
+    event: "opened" | "changed" | "done" | "withdrawn";
+    task: number;
+    request: number | null;
+    evidence: string | null;
+  };
+};
+
+export type Working = {
+  turn_running: boolean;
+  line: string | null;
+  since: Timestamp | null;
+};
+
+export type Capabilities = {
+  chat: boolean;
+  /** Worktree review beyond worktree.diff; false in v1, the UI hides the Review tab. */
+  review: boolean;
+  /** input.ask is implemented; reserved. */
+  input_ask: boolean;
+  terminal_format: ("text" | "styled")[];
+};
+
+export type Listener = {
+  enabled: boolean;
+  /** loopback, lan, tailscale or an address. */
+  bind: string;
+  /** What protects the transport; `none` only on loopback. */
+  encryption: "tls" | "tailscale" | "none";
+  fingerprint: string | null;
+};
+
 export type HistoryPage = {
   first: number;
   lines: Row[];
@@ -435,6 +512,9 @@ export interface Methods {
     schema: number;
     role: Role;
     caller: Caller;
+    capabilities: Capabilities;
+    /** How this connection is protected. */
+    transport: "local" | "tls" | "tailscale";
     methods: {
       name: string;
       since: number;
@@ -581,8 +661,65 @@ export interface Methods {
 }; result: Accepted & {
     holder: InputHolder;
   } };
+  "input.ask": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
   "input.release": { params: {
   agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
+  "chat.messages": { params: {
+  agent: AgentName;
+  /** mine: person and this agent; all: everything it sent or received. */
+  scope: "mine" | "all";
+  before?: number;
+  since?: number;
+  limit?: number;
+}; result: {
+    messages: ChatMessage[];
+    more: boolean;
+  } };
+  "chat.transcript": { params: {
+  agent: AgentName;
+  before?: number;
+  since?: number;
+  limit?: number;
+}; result: {
+    items: TranscriptItem[];
+    more: boolean;
+    working: Working;
+  } };
+  "chat.locate": { params: {
+  agent: AgentName;
+  request: number;
+}; result: {
+    /** mine: person and this agent; all: everything it sent or received. */
+    scope: "mine" | "all";
+    message: ChatMessage;
+  } };
+  "chat.send": { params: {
+  agent: AgentName;
+  body: string;
+  task?: {
+    title: string;
+    time_box?: Duration;
+  };
+  request_id: RequestId;
+}; result: Accepted & {
+    request: number;
+  } };
+  "chat.answer": { params: {
+  request: number;
+  text: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "chat.dismiss": { params: {
+  request: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "chat.withdraw": { params: {
+  request: number;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.attach": { params: {
@@ -907,7 +1044,15 @@ export const METHODS: { [K in MethodName]: { role: Role; write: boolean; since: 
   "prompt.list": { role: "member", write: false, since: 1 },
   "prompt.answer": { role: "member", write: true, since: 1 },
   "input.take": { role: "member", write: true, since: 1 },
+  "input.ask": { role: "member", write: true, since: 1 },
   "input.release": { role: "member", write: true, since: 1 },
+  "chat.messages": { role: "member", write: false, since: 1 },
+  "chat.transcript": { role: "member", write: false, since: 1 },
+  "chat.locate": { role: "member", write: false, since: 1 },
+  "chat.send": { role: "member", write: true, since: 1 },
+  "chat.answer": { role: "member", write: true, since: 1 },
+  "chat.dismiss": { role: "member", write: true, since: 1 },
+  "chat.withdraw": { role: "member", write: true, since: 1 },
   "terminal.attach": { role: "member", write: false, since: 1 },
   "terminal.history": { role: "member", write: false, since: 1 },
   "terminal.resize": { role: "member", write: true, since: 1 },

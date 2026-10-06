@@ -202,7 +202,7 @@ when they leave, where the backend can resize.
 
 Each need in the UI's data list (section 8 of its design), and the method that serves it. Live means
 pushed on a topic; `topics` are `status`, `accounts`, `agents`, `inbox`, `tasks`, `notifications`,
-`operations`, plus the terminal channel above.
+`operations` and `chat`, plus the terminal channel above.
 
 | Screen | Methods |
 |---|---|
@@ -220,6 +220,7 @@ pushed on a topic; `topics` are `status`, `accounts`, `agents`, `inbox`, `tasks`
 | Schedules | `schedules.list`; founder only: `schedule.add`, `schedule.edit`, `schedule.remove`. |
 | Stats | `stats.get {window}` for 24 hours or 7 days. |
 | Settings | `settings.get` (timings, terminal host choice and health, trust folders, hooks installed), `settings.set`, `settings.trust`, `devices.list` (with last seen), `device.pair`, `device.redeem`, `device.revoke`. |
+| Chat | `chat.messages {scope}`, `chat.transcript` (replies, tool activity, prompt cards, task events, working state), `chat.locate`, `chat.send`, `chat.answer`, `chat.dismiss`, `chat.withdraw`. Live on `chat`. `hello` carries `capabilities` (chat, review, input_ask); `input.ask` is reserved. |
 | Notifications | `events.feed {since}`: task done, prompt asked, stall, account out, each with a deep-link target; resumable by cursor. Live. |
 | Everywhere | `whoami` (viewer, device, role, methods allowed); every write is an event with its actor, shown in `events.feed` and `agent.timeline`. |
 

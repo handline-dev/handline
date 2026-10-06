@@ -106,7 +106,7 @@ def gen_md(spec: dict) -> str:
     fr = spec["x-framing"]
     o = [f"<!-- {HEADER} -->", f"# {spec['info']['title']} (protocol {spec['x-protocol']})", "", spec["info"]["description"], "",
          "## Framing", ""]
-    o += [f"- **Transport:** {'; '.join(fr['transport'])}."] + [f"- **{k.replace('_', ' ').capitalize()}:** {fr[k]}" for k in ("lines", "ids", "params", "legacy", "request_id")]
+    o += [f"- **Transport:** {'; '.join(fr['transport'])}."] + [f"- **{k.replace('_', ' ').capitalize()}:** {fr[k]}" for k in ("reach", "lines", "ids", "params", "legacy", "request_id")]
     o += ["", "## Handshake and versions", "", spec["x-handshake"], "", "## Roles", "",
           f"Order: {' < '.join(spec['x-roles']['order'])}. {spec['x-roles']['rule']}", "", "## Errors", "",
           "Every error is a JSON-RPC error whose `data.code` is the stable string. A refusal carries the reason; fail-closed is `refused`, never a silent default.", "",
