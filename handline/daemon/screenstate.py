@@ -76,8 +76,8 @@ def _background_detail(con, agent: str) -> str:
 
 
 def screen_state(con, row) -> tuple[str, str]:
-    """`_screen_state`, with an idle agent whose task waits on a child of its own (T443) or is
-    blocked (T563) saying so."""
+    """`_screen_state`, with an idle agent whose task waits on a child of its own or is
+    blocked saying so."""
     word, detail = _screen_state(con, row)
     if word == "IDLE" and not detail and row:
         detail = oneline(actions.child_wait(con, row["agent"]) or actions.block_wait(con, row["agent"]) or "")
@@ -90,7 +90,7 @@ def _screen_state(con, row) -> tuple[str, str]:
     here and read by `hl ps` (handline/cli/) alike, through this one function, so
     the two screens cannot disagree about a row.
 
-    No `·closed` suffix (founder #1639/#1640: information nobody needs on
+    No `·closed` suffix (the founder found it information nobody needs on
     this screen - `closed_at` still decides whether the daemon can wake the
     agent, in `handline/daemon/`, untouched here).
 
@@ -159,7 +159,7 @@ def _screen_state(con, row) -> tuple[str, str]:
             and _opencode_working(row["terminal"]) is True:
         return "RUNNING", ""
     # A row the daemon marked with work still running behind the prompt says so beside
-    # its word; it is not working (founder #5308).
+    # its word; it is not working (the founder asked for this).
     if state == dmn_states.IDLE and dmn_delivery.has_background_work(con, row["agent"]):
         return "IDLE", _background_detail(con, row["agent"])
     # IDLE, and anything not written above (section 8.4's own DONE, never
