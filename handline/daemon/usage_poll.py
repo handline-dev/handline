@@ -93,7 +93,10 @@ def poll_usage(con, log) -> None:
     keeps failing rather than the same slice of it forever.
     """
     now = int(time.time())
-    for acct in paths.list_accounts():
+    # Oldest reading first: with one success per tick, a fixed order let the
+    # accounts early in the list take every slot whenever ticks ran slow, and
+    # omega/sigma/theta went unread for an hour and were refused work as stale.
+    for acct in sorted(paths.list_accounts(), key=lambda a: status.read(a).short.at or 0):
         try:
             if _poll_account(con, acct, now, log):
                 return

@@ -1,0 +1,22 @@
+{
+  "name": "@handline/app-core",
+  "private": true,
+  "type": "module",
+  "description": "What the apps share and React does not: the store, screen decisions, key tables, the pane workspace. No React, no DOM, no React Native",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@handline/client": "workspace:*",
+    "@handline/tokens": "workspace:*"
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*",
+    "@handline/fake-daemon": "workspace:*"
+  }
+}
