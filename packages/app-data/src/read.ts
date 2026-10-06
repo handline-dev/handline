@@ -1,0 +1,74 @@
+// The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
+import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useStore } from '@handline/app-react';
+import type { CallParams, Methods } from '@handline/client';
+import { useData, useFeed, useServes } from './provider.ts';
+import { keyOf, reads, type ReadMethod, type ReadSpec } from './reads.ts';
+
+export const SNAPSHOT_STALE_MS = 30_000;
+
+export type ReadResult<M extends ReadMethod> = UseQueryResult<Methods[M]['result']>;
+
+/**
+ * A read of the daemon as a query. It runs only while the connection is open and the daemon lists the method; an event-fed read
+ * is never stale (the bridge keeps it current) and a snapshot read is stale after 30 s. A list keeps its rows while a filter changes.
+ */
+export function useRead<M extends ReadMethod>(method: M, params: CallParams<M>, opts: { enabled?: boolean } = {}): ReadResult<M> {
+  const store = useStore();
+  const { daemon } = useData();
+  const { served, open } = useServes(method);
+  const spec: ReadSpec = reads[method];
+  useFeed(spec.feed, served);
+  return useQuery({
+    queryKey: keyOf(daemon, method, params),
+    queryFn: () => store.client.call(method, params),
+    enabled: served && open && (opts.enabled ?? true),
+    staleTime: spec.feed ? Infinity : SNAPSHOT_STALE_MS,
+    placeholderData: spec.id ? undefined : keepPreviousData,
+  });
+}
+
+export type ViewState = 'not_served' | 'loading' | 'error' | 'empty' | 'refreshing' | 'ready';
+
+/** Which of a view's five states to draw (plus *ready*): the skeleton, the error block, the empty sentence, or the data with a quiet marker. */
+export function viewState(
+  q: Pick<UseQueryResult, 'isPending' | 'isFetching' | 'isError' | 'data'>,
+  served: boolean,
+  isEmpty = false,
+): ViewState {
+  if (!served) return 'not_served';
+  if (q.isPending) return q.isError ? 'error' : 'loading';
+  if (q.isError) return 'error';
+  if (isEmpty) return 'empty';
+  return q.isFetching ? 'refreshing' : 'ready';
+}
+
+export const useAgents = () => useRead('agents.list', {});
+export const useAgentDetail = (agent: string) => useRead('agent.get', { agent });
+export const useAgentTimeline = (agent: string) => useRead('agent.timeline', { agent });
+export const useAgentOptions = () => useRead('agent.options', {});
+export const useTriggers = (agent?: string) => useRead('agent.triggers', { agent });
+export const usePrompts = (agent: string) => useRead('prompt.list', { agent });
+export const useStatus = () => useRead('daemon.status', {});
+export const useAccounts = () => useRead('accounts.list', {});
+export const useInbox = (filter: CallParams<'inbox.list'> = {}) => useRead('inbox.list', filter);
+export const useInboxItem = (id: number) => useRead('inbox.get', { id });
+export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
+export const useTask = (task: number) => useRead('task.get', { task });
+export const useMemos = (task: number) => useRead('task.memo.list', { task });
+export const useTaskBoard = () => useRead('task.board', {});
+export const useTrust = () => useRead('trust.list', {});
+export const useMemory = (agent?: string) => useRead('memory.status', { agent });
+export const useTeam = () => useRead('team.get', {});
+export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', filter);
+export const useRepos = () => useRead('repos.list', {});
+export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
+export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });
+export const useSchedules = () => useRead('schedules.list', {});
+export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });
+export const useSettings = (agent?: string) => useRead('settings.get', { agent });
+export const useAnswers = () => useRead('answers.list', {});
+export const useDevices = () => useRead('devices.list', {});
+export const useOperation = (operation: string) => useRead('operation.get', { operation });
+export const useChatLocate = (params: CallParams<'chat.locate'>) => useRead('chat.locate', params);
+export const useChatSearch = (params: CallParams<'chat.search'>) => useRead('chat.search', params);
