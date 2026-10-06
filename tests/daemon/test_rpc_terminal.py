@@ -210,22 +210,36 @@ def test_two_clients_watch_one_terminal_with_one_poll_at_the_capped_rate(home: P
         b.close()
 
 
+def _until(pred, secs: float = 30.0) -> bool:
+    """Wait on a condition, not for a time: the limit only ends a test that would never finish."""
+    end = time.monotonic() + secs
+    while not pred():
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.005)
+    return True
+
+
 def test_a_slow_client_is_sent_a_fresh_frame_and_no_backlog(home: Path) -> None:
     support._board_world(home)
     with Screen() as s:
         termchannel.RATE_S = 0.02
         got: list = []
+        gate = threading.Event()
 
-        def slow(msg):
+        def slow(msg):          # a client that takes nothing more until the gate opens
             got.append(msg)
-            time.sleep(0.3)
+            gate.wait(30)
         client = termchannel.Client(slow, lambda: None)
         ch = termchannel.HUB.attach("t-worker", client)
         ch.begin(client)
+        _until(lambda: got)
         for i in range(12):
             s.rows = [f"state {i}", "second row", "third row"]
-            time.sleep(0.04)
-        time.sleep(0.8)
+            seen = s.reads
+            _until(lambda: s.reads >= seen + 2)     # the poller has read this screen, whatever the machine's load
+        gate.set()
+        _until(lambda: any(m["method"] == "frame" and m["params"]["lines"][0]["text"] == "state 11" for m in got))
         frames = [m for m in got if m["method"] == "frame"]
         check("slow client: it is not sent a message per change", 1 <= len(frames) <= 5, str(len(frames)))
         last = frames[-1]["params"]
