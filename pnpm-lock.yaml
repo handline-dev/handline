@@ -64,6 +64,9 @@ importers:
         specifier: workspace:*
         version: link:../packages/client
     devDependencies:
+      '@handline/config':
+        specifier: workspace:*
+        version: link:../packages/config
       '@handline/fake-daemon':
         specifier: workspace:*
         version: link:../packages/fake-daemon

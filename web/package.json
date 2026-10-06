@@ -3,10 +3,21 @@
   "private": true,
   "type": "module",
   "description": "The current web UI and phone app, until apps/web replaces them",
-  "engines": { "node": ">=22.18" },
-  "scripts": {
-    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts"
+  "engines": {
+    "node": ">=22.18"
   },
-  "dependencies": { "@handline/client": "workspace:*" },
-  "devDependencies": { "@handline/fake-daemon": "workspace:*" }
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "mobile": "node mobile/server.ts",
+    "fake-daemon": "pnpm --filter @handline/fake-daemon serve",
+    "ui": "node serve-ui.ts --fake",
+    "typecheck": "tsc -p ui"
+  },
+  "dependencies": {
+    "@handline/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@handline/fake-daemon": "workspace:*",
+    "@handline/config": "workspace:*"
+  }
 }

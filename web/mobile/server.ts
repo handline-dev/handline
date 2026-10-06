@@ -13,7 +13,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const TYPES: Record<string, string> = {
   '.html': 'text/html', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.js': 'text/javascript', '.ts': 'text/javascript', '.png': 'image/png',
 };
-// Only what the page imports: the app, the shared client (/client, mapped in index.html), and the contract's generated types.
+// Only what the page imports: the app, the shared client (@handline/client, served from /packages/client/src, mapped in index.html), and the contract's generated types.
 const ALLOWED = [/^\/web\/mobile\/(?!\.+$)[\w.-]+$/, /^\/packages\/client\/src\/[\w.-]+\.ts$/, /^\/contract\/protocol\.ts$/];
 
 export function handler(req: http.IncomingMessage, res: http.ServerResponse): void {
