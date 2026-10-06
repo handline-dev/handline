@@ -1,4 +1,4 @@
-# web: shared daemon client and fake daemon
+# web: shared daemon client, fake daemon and the PC web UI
 
 `src/` is the one TypeScript client for the web app, Electron and mobile; `fake-daemon/` serves the
 JSON-RPC contract of `contract/protocol.json` from fixtures so the real daemon is a swap.
@@ -36,3 +36,18 @@ Test: `npm test`.
 
 Not yet built: Inbox, Tasks, Accounts and More; take/release input; the landscape fullscreen terminal and terminal resize
 for the phone (design 7.4, 4.2); pair device; a real icon (the manifest's are placeholders).
+
+## PC web UI
+
+`ui/` is the PC app: frame (top bar, agent rail, tabs, context panel, status bar) and the agent page (header controls,
+permission card, empty chat, a dockable live text-grid terminal pane with key chips). It uses `src/` as is and the types of
+`contract/protocol.ts`; no framework and no build step.
+
+- Run: `cd web && npm run ui`, then open http://127.0.0.1:8080/ (starts the fake daemon on ws 7777). Against another daemon:
+  `node serve-ui.ts --port 8080`, then `/ui/?daemon=ws://host:port`.
+- `serve-ui.ts` type-strips `.ts` per request, so the browser loads the same files the tests run; Electron can load the same URL.
+- `ui/model.ts` (what the screens decide) and `ui/store.ts` (agents, detail, events) have no DOM and are tested in Node.
+- Type check: `tsc -p ui`.
+- To type in the terminal, press Take control first (the daemon stops typing there until Release); key chips take it for you.
+- Not built yet: Inbox, Tasks, Team, Accounts and the other screens (their top-bar buttons are disabled); chat (needs `chat.*`
+  from the daemon); a shell pane (needs shell terminals).
