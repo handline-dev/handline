@@ -1793,6 +1793,38 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
             os.environ["OCP_AGENT"] = real_agent
 
 
+def test_the_usage_poll_reads_the_oldest_reading_first(home: Path) -> None:
+    """One success per tick in a fixed order let the accounts early in the
+    list take every slot when ticks ran slow, and the later ones went unread
+    for an hour and were refused work as stale. Both due here; the one read
+    longer ago goes first, whatever its place in the list."""
+    _daemon_home(home, 40)
+    accounts.register("beta")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 5)
+    write_status(home, "beta", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 3600)
+    asked: list[str] = []
+
+    def fake_read(acct, refresh=True):
+        asked.append(acct)
+        return reading_of(acct, 7, None, 11, None, int(time.time()))
+
+    real_read, real_login = usage_api.read, accounts.logged_in
+    try:
+        accounts.logged_in = lambda acct: True
+        usage_api.read = fake_read
+        con = db.connect()
+        try:
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
+            check("poll order: the oldest reading is asked first", asked == ["beta"], asked)
+            dmn_usage_poll.poll_usage(con, lambda _m: None)
+            check("poll order: then the next oldest", asked == ["beta", "alpha"], asked)
+        finally:
+            con.close()
+    finally:
+        usage_api.read, accounts.logged_in = real_read, real_login
+
+
 def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(home: Path) -> None:
     """Rate limits are the half no transcript carries, so they are polled.
 
@@ -2830,6 +2862,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
                     "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_end_told", "bypass_accepted", "notice_told", "notices_digested", "task_deliver_refused", "closed_under", "dismissed", "request_reason",
                     "demoted_doing", "queue_task", "draft_task",
+                    "input_holder",
                     "fold", "fold_failed", "cache_renewal", "idle_fold",
                     "forced_move", "fresh_close", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
@@ -5964,6 +5997,7 @@ def main() -> int:
         run(lambda: test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(
             Path(td) / 'pullpoll'))
         run(lambda: test_a_failing_account_never_blocks_the_ones_behind_it(Path(td) / 'pollstarve'))
+        run(lambda: test_the_usage_poll_reads_the_oldest_reading_first(Path(td) / 'pollorder'))
         run(lambda: test_one_accounts_usage_read_raising_is_contained(Path(td) / 'pollraise'))
         run(lambda: test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(
             Path(td) / 'pollrecover'))

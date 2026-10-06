@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
+AUDITOR = "alpha.auditor"
+
 
 def _af_unix_bind_works() -> bool:
     """Whether this process may actually `bind()` an AF_UNIX socket. False
@@ -456,14 +458,14 @@ def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(hom
               sessiontoken.peer_pid(a) == os.getpid(), str(sessiontoken.peer_pid(a)))
     finally:
         a.close(); b.close()
-    ask = {"verb": "land_pass", "agent": lands.AUDITOR, "sha": "0" * 40}
-    sessiontoken.record(lands.AUDITOR, os.getpid())
+    ask = {"verb": "land_pass", "agent": AUDITOR, "sha": "0" * 40}
+    sessiontoken.record(AUDITOR, os.getpid())
     reply = _serve_one_roundtrip(ask)
     check("socket: land_pass from the recorded auditor session gets past the identity check",
           reply is not None and "not this request's session" not in reply["said"], str(reply))
     other = subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        sessiontoken.record(lands.AUDITOR, other.pid)
+        sessiontoken.record(AUDITOR, other.pid)
         reply = _serve_one_roundtrip(ask)
         check("socket: land_pass is refused when another process is the recorded auditor session",
               reply is not None and reply["ok"] is False and "not this request's session" in reply["said"], str(reply))

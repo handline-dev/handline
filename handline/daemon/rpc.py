@@ -23,6 +23,7 @@ MAX_LINE_BYTES = 1 << 20
 ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
+STALE_PROMPT = -32003
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
 # A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
 # calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.
@@ -105,7 +106,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     ctx.caller = caller = Caller(ctx.peer, params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": []},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
             "transport": "local",
             "methods": _methods(caller)}
 
@@ -119,6 +120,7 @@ class Method(NamedTuple):
     role: str               # the lowest role that may call it
     write: bool = False     # takes a request_id, keeps its reply a day, and is logged under its actor
     own_event: bool = False  # it writes its own event, under its actor, so no generic one is added
+    waits: bool = False     # it may hold its answer for a long time: served on a thread of its own, so the calls behind it are answered
 
 
 # Every method a later task adds is a line here.
@@ -187,6 +189,7 @@ class Connection:
         self.subs: list = []
         self.on_close: list = []
         self.after_reply: list = []             # run once the reply to the call in hand is sent
+        self.closed = threading.Event()         # set when the connection ends
 
     def _line(self) -> bytes | None:
         """The next line, or what is left at EOF; None at a clean EOF. A line past the limit is bad_request."""
@@ -215,6 +218,10 @@ class Connection:
         with self._send_lock:
             self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
 
+    def hung_up(self) -> bool:
+        """Whether the client is gone, for a call that waits to stop waiting."""
+        return self.closed.is_set()
+
     def hang_up(self) -> None:
         """End the connection from another thread: the read in `serve` then returns."""
         try:
@@ -226,6 +233,7 @@ class Connection:
         try:
             self._serve()
         finally:
+            self.closed.set()
             for fn in self.on_close:
                 fn()
 
@@ -255,6 +263,15 @@ class Connection:
         rid = msg.get("id") if isinstance(msg, dict) else None
         if isinstance(rid, bool) or not isinstance(rid, (int, str, type(None))):
             rid = None
+        entry = METHODS.get(msg.get("method")) if isinstance(msg, dict) and isinstance(msg.get("method"), str) else None
+        if entry is not None and entry.waits and self.said_hello and "id" in msg and self.caller.allows(entry.role):
+            threading.Thread(target=self._answer, args=(msg, rid, True), daemon=True).start()
+            return True
+        return self._answer(msg, rid)
+
+    def _answer(self, msg, rid, own_thread: bool = False) -> bool:
+        """Answer one call. Only the reading loop runs what `after_reply` holds (a subscribe's start): a call answered on a
+        thread of its own must not take the one a later call queued."""
         try:
             result = self._dispatch(msg)
         except RpcError as e:
@@ -268,9 +285,10 @@ class Connection:
             if isinstance(msg, dict) and "id" not in msg:
                 return True     # a notification is never answered
             sent = self._send({"jsonrpc": "2.0", "id": rid, "result": result})
-            todo, self.after_reply = self.after_reply, []
-            for fn in todo:
-                fn()
+            if not own_thread:
+                todo, self.after_reply = self.after_reply, []
+                for fn in todo:
+                    fn()
             return sent
         return self._send({"jsonrpc": "2.0", "id": rid, "error": error.wire()})
 

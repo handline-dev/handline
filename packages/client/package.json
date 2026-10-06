@@ -1,0 +1,10 @@
+{
+  "name": "@handline/client",
+  "private": true,
+  "type": "module",
+  "description": "The daemon client: JSON-RPC, reconnect, cursors, terminal views, and the WebSocket transport",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p ." },
+  "dependencies": { "@handline/contract": "workspace:*" },
+  "devDependencies": { "@handline/config": "workspace:*" }
+}

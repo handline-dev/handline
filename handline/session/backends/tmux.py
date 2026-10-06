@@ -134,6 +134,19 @@ class TmuxBackend(Backend):
             rows.pop()
         return {"handle": handle, "status": "running", "tail": rows[-limit:], "source": "screen"}
 
+    def size(self, handle: str) -> tuple[int, int] | None:
+        if not isinstance(handle, str) or not _PANE.match(handle):
+            return None
+        code, out, _err = _tmux(["display-message", "-p", "-t", handle, "#{pane_width} #{pane_height}"])
+        parts = out.split()
+        return (int(parts[0]), int(parts[1])) if code == 0 and len(parts) == 2 and all(p.isdigit() for p in parts) else None
+
+    def resize(self, handle: str, cols: int, rows: int) -> tuple[bool, str]:
+        if not isinstance(handle, str) or not _PANE.match(handle):
+            return False, f"not a tmux pane: {handle!r}"
+        code, _o, err = _tmux(["resize-window", "-t", handle, "-x", str(cols), "-y", str(rows)])
+        return (True, "") if code == 0 else (False, err.strip() or "tmux would not resize it")
+
     def send(self, handle: str, text: str, enter: bool = True,
              wait_submit_s: int | None = None) -> tuple[bool, str]:
         if not _PANE.match(handle):

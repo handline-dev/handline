@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const WEB = path.dirname(fileURLToPath(import.meta.url));
-const ROOTS: Record<string, string> = { '/ui/': path.join(WEB, 'ui'), '/src/': path.join(WEB, 'src'), '/contract/': path.join(WEB, '..', 'contract') };
+const ROOTS: Record<string, string> = { '/ui/': path.join(WEB, 'ui'), '/src/': path.join(WEB, '..', 'packages', 'client', 'src'), '/app-core/': path.join(WEB, '..', 'packages', 'app-core', 'src'), '/tokens/': path.join(WEB, '..', 'packages', 'tokens', 'src'), '/contract/': path.join(WEB, '..', 'contract') };
 const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.ts': 'text/javascript', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
 
 /** The file a URL path names, only under a served root; undefined for anything else. */
@@ -53,8 +53,8 @@ if (import.meta.url === pathToFileURL(process.argv[1]!).href) {
   if (!cert && !['127.0.0.1', 'localhost', '::1'].includes(host)) { console.error('Serving beyond this machine needs --cert and --key.'); process.exit(2); }
   const tls = cert ? { cert: fs.readFileSync(cert), key: fs.readFileSync(key!) } : undefined;
   if (process.argv.includes('--fake')) {
-    const { FakeDaemon } = await import('./fake-daemon/daemon.ts');
-    const { serveWs } = await import('./fake-daemon/serve.ts');
+    const { FakeDaemon } = await import('@handline/fake-daemon/daemon');
+    const { serveWs } = await import('@handline/fake-daemon/serve');
     const daemon = new FakeDaemon();
     const ms = Number(arg('autoplay') ?? '1000');
     if (ms > 0) daemon.autoplay(ms);

@@ -275,6 +275,20 @@
     "applied_at": 1760000000,
     "name": "write_effects",
     "version": 6
+   },
+   {
+    "__rowid": 7,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "input_holders",
+    "version": 7
+   },
+   {
+    "__rowid": 8,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "operations",
+    "version": 8
    }
   ]
  },

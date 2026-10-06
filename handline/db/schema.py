@@ -677,6 +677,40 @@ def _write_effects(con) -> None:
     """)
 
 
+def _input_holders(con) -> None:
+    """Who types at an agent's terminal when it is not the daemon: no row is the daemon. `last_typed` is what the
+    idle hold is counted from."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS input_holders (
+          agent       TEXT    PRIMARY KEY,
+          kind        TEXT    NOT NULL,
+          name        TEXT    NOT NULL,
+          since       INTEGER NOT NULL,
+          last_typed  INTEGER NOT NULL
+        );
+    """)
+
+
+def _operations(con) -> None:
+    """Long-running operations (`agent.create`): one row each, updated as steps finish and kept for `operation.get`.
+    Additive: a process that does not know the table never reads it."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS operations (
+          id          TEXT    PRIMARY KEY,
+          kind        TEXT    NOT NULL,
+          state       TEXT    NOT NULL,
+          step        TEXT,
+          steps_done  INTEGER NOT NULL DEFAULT 0,
+          steps_total INTEGER,
+          message     TEXT,
+          result_json TEXT,
+          agent       TEXT,
+          created_at  INTEGER NOT NULL,
+          updated_at  INTEGER NOT NULL
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -684,6 +718,8 @@ MIGRATIONS = [
     (4, "stream_log", _stream_log, True),
     (5, "hook_applied", _hook_applied, True),
     (6, "write_effects", _write_effects, True),
+    (7, "input_holders", _input_holders, True),
+    (8, "operations", _operations, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

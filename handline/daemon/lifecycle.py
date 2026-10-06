@@ -23,7 +23,7 @@ from ..usage import status
 from ..team import trust
 from .. import vendors
 
-from . import delivery, handoff, handoff_note
+from . import inputhold, delivery, handoff, handoff_note
 from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
                      MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
@@ -236,7 +236,7 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
     """
     with lock.terminal(agent) as mine:
         if not mine:
-            return False, "someone else is typing at this agent; not closing"
+            return False, f"{TYPING_ELSEWHERE}; not closing"
         # A delivery or an answer just typed in this same tick can still read
         # idle on the very probe `_end_session` uses (#1973's settle window) -
         # require_idle=False since that probe is `_end_session`'s own to run,
@@ -276,6 +276,8 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
     return True, f"{agent}: closed; its next wake starts a new session, not the old conversation"
 
 
+# What a refusal says when the terminal lock is held by whoever is typing: callers that must tell it from a state refusal match it.
+TYPING_ELSEWHERE = "someone else is typing at this agent"
 RESTART_OWED = "restart_owed"
 WAKE_BACKOFF_S = (10, 30, 90)       # the pause after the first, second and later failed wakes of a restart owed
 # A reading of the process table that missed is read again after each pause: a session just ended
@@ -768,11 +770,14 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
     as (`db.session_starts`); a wake says "wake", "fresh close" or "move" itself. `restarted_by`
     names who asked for a restart: the session's first prompt says so.
     """
+    held = inputhold.held_by_other(con, agent)
+    if held:        # nothing is typed into a pane someone holds, a launch line included; the work stays queued
+        return False, inputhold.held_why(agent, held)
     with lock.terminal(agent) as mine:
         if not mine:
             # A human's key and a tick can both land here, and this one holds
             # the terminal for as long as a session takes to appear.
-            return False, "someone else is typing at this agent; not waking twice"
+            return False, f"{TYPING_ELSEWHERE}; not waking twice"
         # Not `_type_gate`: closed means no live process to be mid-turn in,
         # and the sub-paths below that do meet a live one probe it themselves.
         ok, said = _wake_agent(con, agent, log, force=force, warm=warm, cause=cause,

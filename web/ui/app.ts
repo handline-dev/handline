@@ -1,9 +1,9 @@
 // The frame: top bar, agent rail, tabs, context panel and status bar around the screens.
-import { DaemonClient, RpcError, webSocketTransport } from '../src/index.ts';
+import { DaemonClient, RpcError, webSocketTransport } from '@handline/client';
 import { AgentPage } from './agent-page.ts';
 import { h, keyed } from './dom.ts';
-import { ago, dotOf, railGroups, type GroupBy, type KV } from './model.ts';
-import { Store } from './store.ts';
+import { ago, dotOf, railGroups, type GroupBy, type KV } from '@handline/app-core';
+import { Store } from '@handline/app-core';
 
 const storage: KV | null = (() => { try { return localStorage; } catch { return null; } })();
 const get = (k: string, d: string) => { try { return storage?.getItem(k) ?? d; } catch { return d; } };

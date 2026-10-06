@@ -1,0 +1,4 @@
+{
+  "extends": "@handline/config/tsconfig.node.json",
+  "include": ["src", "test"]
+}

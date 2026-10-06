@@ -30,7 +30,28 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, rpc_agents, rpc_hooks, rpc_stream, rpc_tasks, sends, stream  # noqa: F401 - the rpc_ modules register their methods
+from . import landauth, lands, messaging, rpc, sends, stream
+from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
+    rpc_accounts,
+    rpc_agents,
+    rpc_hooks,
+    rpc_inbox,
+    rpc_input,
+    rpc_operations,
+    rpc_options,
+    rpc_prompts,
+    rpc_schedules,
+    rpc_session,
+    rpc_settings,
+    rpc_status,
+    rpc_stream,
+    rpc_tasks,
+    rpc_taskview,
+    rpc_team,
+    rpc_terminal,
+    rpc_typing,
+    rpc_worktrees,
+)
 
 
 
@@ -122,6 +143,7 @@ def _land_authorize(payload: dict, log) -> dict:
         log(f"  land_authorize refused for {str(agent)[:60]!r}")
         return {"ok": False, "said": "not authorized"}
     landauth.grant(agent, verb, str(payload.get("sha")))
+    log(f"  land_authorize: {str(agent)[:60]!r} vouched for {verb} {str(payload.get('sha'))[:40]!r}")
     return {"ok": True, "said": "vouched"}
 
 

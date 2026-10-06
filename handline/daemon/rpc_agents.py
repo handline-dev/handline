@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 from .. import actions, db
 from ..infra import gitrun, paths, textsafe
-from ..session import launch
-from . import agentview, rpc
+from ..session import launch, promptparse
+from . import agentview, inputhold, rpc
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
 
@@ -36,13 +36,36 @@ def _agents_list(ctx, params) -> dict:
         con.close()
 
 
+ESC = {"key": "esc", "label": "Cancel (Esc)", "answer": "other", "highlighted": False}
+
+
+def options_of(block: dict) -> list[dict]:
+    """The choices `prompt.answer` takes as `choice`, by what the screen read: yes, no and Esc for a permission prompt that
+    a hook record pins (the others are answered in the terminal), the numbered options of a question or a dialog, and Esc."""
+    detail = block.get("detail") or {}
+    if block["kind"] == "permission":
+        if not block.get("answerable"):
+            return []
+        return [{"key": "yes", "label": "Yes", "answer": "yes", "highlighted": False},
+                {"key": "no", "label": "No", "answer": "no", "highlighted": False}, dict(ESC)]
+    if block["kind"] == "question":
+        return [{"key": str(i + 1), "label": o["label"], "answer": "other", "highlighted": bool(o.get("checked"))}
+                for i, o in enumerate(detail.get("options") or [])] + [dict(ESC)]
+    return [{"key": str(n), "label": label, "answer": "other", "highlighted": False}
+            for n, label in detail.get("options") or []] + [dict(ESC)]
+
+
 def prompt_of(block: dict) -> dict:
-    """An open prompt as the spec's `Prompt`; `options` wait for prompt.list's parser."""
+    """An open prompt as the spec's `Prompt`."""
     name = block["agent"]
     detail = block.get("detail") or {}
-    return {"id": block["fingerprint"], "agent": name, "kind": block["kind"], "tool": detail.get("tool") or None,
+    kind = block["kind"]
+    if kind == "dialog":
+        kind = promptparse.dialog_kind(detail.get("options") or [])
+    return {"id": block["fingerprint"], "agent": name, "kind": kind, "tool": detail.get("tool") or None,
             "command": detail.get("command") or None, "reason": detail.get("reason") or None,
-            "lines": list(block["panel"]), "options": [], "since": agentview._ts(block.get("first_seen") or block["last_seen"])}
+            "lines": list(block["panel"]), "options": options_of(block),
+            "since": agentview._ts(block.get("first_seen") or block["last_seen"])}
 
 
 def _prompt(con, name: str) -> dict | None:
@@ -66,7 +89,7 @@ def _agent_get(ctx, params) -> dict:
                 "terminal": row["terminal"] if row else None,
                 "session_id": row["resume_session"] if row else None,
                 "session_open": bool(row and row["terminal"] and not row["closed_at"]),
-                "input_holders": [{"kind": "daemon", "name": "daemon", "since": None}],
+                "input_holders": inputhold.view(con, name),
                 "account_pick": {"account": account,
                                  "reason": "the account a session start would be placed on" if account
                                  else "no account can take work"},

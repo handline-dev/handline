@@ -19,14 +19,34 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
   - `result` or `error`: what the reply with that id must hold. `error` has `code`, `message`, `data`.
   - `notices`: notifications that must arrive after the reply, in this order (others may be interleaved); waits 1 s.
   - `closed`: true or false, whether the daemon closes the connection.
-  - A step with `send` and no `result`, `error` or `closed` only sends: the call is pipelined, and a later step `{"await": id, "result"|"error": ...}` reads its reply, whatever order the replies came in. `within_s` on a step bounds how long its reply may take (default 5), which is how a fixture shows a waiting call did not hold up the one behind it.
+  - A step with `send` and no `result`, `error` or `closed` only sends: the call is pipelined, and a later step `{"await": id, "result"|"error": ...}` reads its reply, whatever order the replies came in. `within_s` on a step bounds how long its reply may take (default 5), which is how a fixture shows a waiting call did not hold up the one behind it. `at_least_s` is the reverse: the reply must take at least that long from its send, which shows a wait really waited.
 - Matching: an object matches if every key in it matches (extra keys in the reply are fine), an array must match element by element, anything else must be equal. Matchers: `{"$type": string|integer|number|boolean|object|array|null|timestamp}`, `{"$any": true}`, `{"$oneOf": [m, ...]}`, `{"$contains": m}` (some element of an array matches), `{"$each": m}` (every element matches; an empty array does), `{"$regex": r}`, `{"$absent": true}` (the key is missing), `"$exact": true` beside plain keys (the object has no other keys, for closed shapes such as an error's `data`), `{"$save": name}` (keep the value; alone or beside `$type`).
-- `{{name}}` in a request string is replaced by a `--var` or a saved value.
+- `{{name}}` in a request string is replaced by a `--var` or a saved value (a name a step of the same fixture saves needs no `--var`).
+- More than one connection: `with` is `{name: role}` of extra connections, opened with the first, and a step's `on: name` runs it there (default: the fixture's own). A step with only `closed` (and `on`) waits for that connection to be closed. `sleep_s` on a step waits before it.
+- `for_each: "method"` repeats the steps marked `each` once for every method of `protocol.json` (less `except`) and once for a name it does not have (`@method` in the step stands for the name), so a method added to the spec is covered without a fixture edit.
 - Every method that gets fixtures has at least one refusal or error case.
 
 ## Running them
 
 - Founder: the connection proves it by the founder key, which a fixture sends as `{{founder_key}}` in `hello`. Pass it with `--var founder_key=KEY`. The Python daemon keeps it in its protected store (`sessiontoken.founder_key_held()`, minted by `sessiontoken.ensure_founder_key()`); the Go daemon's own test harness mints one.
 - Anonymous: the same socket, a hello without the key.
+- A role limit can sit inside one method: an agent may call `session.stop` with mode exit or close, never kill (refused, gate `role`). `session_stop.json` pins the kill refusal.
+- `shell_input.json` needs `--var shell_agent=NAME`: an agent whose pane is a shell prompt (its session has exited). `session.input` is refused there, gate `state`; the harness cannot make that screen, so the daemon under test must already be in that state.
 - Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0.
 - A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.
+
+## Other checks
+
+The web client's tests are not part of `tools/test.sh`: run `npm test` in `web/` (Node's test runner over `web/test/*.test.ts`).
+
+## Prompt captures
+
+`prompts/*.json` are screens of open prompts and what `prompt.list` must read from each: `{name, source, screen, expect}`. `screen` is the terminal's rows as captured, `expect` the prompt's `kind`, `tool`, `command`, `reason` and option `keys`. A field the screen does not state is null. `tests/daemon/test_prompt_fields.py` runs each through the Python daemon's screen watch; the Go daemon is to read the same screens to the same answers. Not covered: the folder-trust screen and the bypass warning (the screen watch does not list them: trust has its own path, and the bypass screen's options are unnumbered) and an edit approval (never captured); one that reaches the watch as a dialog is listed with its raw lines and no fields.
+
+## The network transport
+
+A daemon that has a network listener (Go) speaks the same JSON-RPC over a WebSocket on TLS, and the client pins the certificate fingerprint it read from the pairing uri. The role `unpaired` is a connection on that transport with no token, and `member` one that said hello with a device token. `devices.json` runs on them:
+
+    python3 contract/conformance.py FOUNDER_SOCKET --as unpaired=SOCKET --var founder_key=KEY --var terminal_agent=NAME contract/fixtures/devices.json
+
+`SOCKET` is a Unix socket path, or a connector function (`conformance.run_all`), that is already past TLS and the fingerprint check: this harness opens no WebSocket and checks no certificate. A listener under test therefore gives the harness a socket that behaves as one network connection (the Go daemon's test exposes one), and the founder socket is its local one, which pairs and revokes. A client tells "unpaired" from "too old" by the refusal itself: gate `unpaired` means not paired, and the same words come back for a revoked or never issued token. A client that is too old is knowable only after pairing, when the first authenticated hello carries the version. What this shows: no data to an unpaired caller for any method of the spec, hello and an unknown name included; a code that redeems once; a revoke that closes the connection and attach; a member refused above member. What it does not: that the listener refuses a certificate other than the pinned one, that it refuses plaintext, or that it binds only the configured address. The Go listener's own tests pin those, and the Python fake (`tests/infra/test_conformance.py`, `FakeNetwork`) shows only the rules above.

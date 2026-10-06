@@ -3,7 +3,7 @@
   {
    "name": "framing.waiting_call_does_not_block",
    "spec": "inbox.list",
-   "about": "A call that waits (inbox.list with wait_s) does not hold up a later call on the same connection; its own reply still comes. Meaningful when the founder's inbox has nothing unread (else the first call returns at once).",
+   "about": "A call that waits (inbox.list with wait_s) does not hold up a later call on the same connection; its own reply still comes, after the wait. It filters on before: 1, which no item is older than, so it holds the full 3 s whatever the inbox holds.",
    "as": "founder",
    "steps": [
     {
@@ -34,7 +34,8 @@
       "id": 2,
       "method": "inbox.list",
       "params": {
-       "wait_s": 3
+       "wait_s": 3,
+       "before": 1
       }
      }
     },
@@ -59,7 +60,74 @@
       "more": {
        "$type": "boolean"
       }
+     },
+     "at_least_s": 2.5
+    }
+   ]
+  },
+  {
+   "name": "framing.waiting_call_filters_hold",
+   "spec": "inbox.list",
+   "about": "The filters of inbox.list apply to a waiting call: unread with a kind no item has holds for the full wait, and does not hold up a later call.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder",
+      "methods": {
+       "$contains": {
+        "name": "hello",
+        "role": "anonymous",
+        "allowed": true
+       }
+      }
      }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {
+       "wait_s": 2,
+       "unread": true,
+       "kind": "conformance.no_such_kind"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "whoami",
+      "params": {}
+     },
+     "within_s": 1.5,
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "await": 2,
+     "result": {
+      "items": {
+       "$type": "array"
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     },
+     "at_least_s": 1.5
     }
    ]
   },

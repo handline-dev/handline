@@ -5358,6 +5358,7 @@ def test_live_sessions_fails_the_whole_reading_on_an_unmappable_pid() -> None:
 
     real_run, real_table = obsmod.subprocess.run, obsmod.process_table
     table = [(101, "/usr/bin/claude")]
+    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]     # the test world answers "could not look"; this is about the real reading
     try:
         obsmod.process_table = lambda: table
 

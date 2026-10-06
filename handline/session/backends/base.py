@@ -142,6 +142,14 @@ class Backend:
         `wait_submit_s` asks the host to watch the prompt land, where it can."""
         raise NotImplementedError
 
+    def size(self, handle: str) -> tuple[int, int] | None:
+        """(columns, rows) of the terminal, or None when this host does not tell."""
+        return None
+
+    def resize(self, handle: str, cols: int, rows: int) -> tuple[bool, str]:
+        """Make the terminal cols by rows. A host that cannot says so; the terminal channel refuses a resize then."""
+        return False, f"{self.name} cannot resize a terminal"
+
     def wait_idle(self, handle: str, timeout_ms: int,
                   turn_on_screen: Callable[[list[str]], bool] | None = None) -> bool:
         """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False.

@@ -1,0 +1,10 @@
+{
+  "name": "@handline/client-node",
+  "private": true,
+  "type": "module",
+  "description": "The daemon's Unix socket as a client Transport (Node only: tests, Electron main, tools)",
+  "exports": { ".": "./src/node-socket.ts" },
+  "scripts": { "typecheck": "tsc -p ." },
+  "dependencies": { "@handline/client": "workspace:*" },
+  "devDependencies": { "@handline/config": "workspace:*" }
+}

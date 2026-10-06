@@ -15,6 +15,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 LAND = ROOT / "tools" / "land.sh"
+AUDITOR = "alpha.auditor"
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
 
@@ -144,7 +145,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         sleepers = [subprocess.Popen(["sleep", "300"], **quiet) for _ in range(3)]   # stand-ins for three sessions
         p_merger, p_auditor, p_core = (s.pid for s in sleepers)
         check("session: recorded in the protected store, one process per agent",
-              all(sessiontoken.record(a, p) for a, p in ((lands.MERGER, p_merger), (lands.AUDITOR, p_auditor),
+              all(sessiontoken.record(a, p) for a, p in ((lands.MERGER, p_merger), (AUDITOR, p_auditor),
                                                          ("backend", p_core)))
               and sessiontoken.verify(lands.MERGER, p_merger))
         was = os.environ.get("OCP_AGENT")
@@ -188,7 +189,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
               not said["ok"] and "not this request's session" in said["said"], str(said))
         said = ask_daemon("land", lands.MERGER, p_core)
         check("land: another agent's session cannot land as the merger", not said["ok"], str(said))
-        said = ask_daemon("land_pass", lands.AUDITOR, p_merger)
+        said = ask_daemon("land_pass", AUDITOR, p_merger)
         check("land: the merger's session cannot record the auditor's PASS", not said["ok"], str(said))
         import socket
         a, b = socket.socketpair()
@@ -213,56 +214,66 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
               "not this request's session" in said["said"], str(said))
         import time
         landauth._grants.clear()            # grants an earlier refusal left unspent
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: the auditor's own session, but nothing vouched for the command, is refused",
               not said["ok"] and "own `hl land` command" in said["said"], str(said))
-        landauth.grant(lands.AUDITOR, "land_pass", feat)
-        first = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
-        again = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        landauth.grant(AUDITOR, "land_pass", feat)
+        first = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
+        again = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: a vouched request is accepted once", first["ok"] and not again["ok"], f"{first} {again}")
-        landauth.grant(lands.AUDITOR, "land_pass", "0" * 40)
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        landauth.grant(AUDITOR, "land_pass", "0" * 40)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: it covers the sha in the command and no other", not said["ok"], str(said))
-        landauth.grant(lands.AUDITOR, "land_pass", feat, now=time.time() - 3600)
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        landauth.grant(AUDITOR, "land_pass", feat, now=time.time() - 3600)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: it expires", not said["ok"], str(said))
-        landauth.grant(lands.AUDITOR, "land", feat)
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        landauth.grant(AUDITOR, "land", feat)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: and covers the verb in the command, not the other land verb", not said["ok"], str(said))
-        landauth.take(lands.AUDITOR, "land", feat)
+        landauth.take(AUDITOR, "land", feat)
 
         # A branch's test run is a child of the session; only the hook, which holds the key, can vouch.
         test_run = subprocess.Popen(["sleep", "300"], **quiet)
         sleepers.append(test_run)
-        key_set = sessiontoken.mint_key(lands.AUDITOR)
-        key = sessiontoken.key_held(lands.AUDITOR)
+        key_set = sessiontoken.mint_key(AUDITOR)
+        key = sessiontoken.key_held(AUDITOR)
         check("vouch: the hook's key is minted into the protected store", key_set and key and len(key) > 20)
-        authorize = {"verb": "land_authorize", "agent": lands.AUDITOR, "land_verb": "land_pass", "sha": feat}
+        authorize = {"verb": "land_authorize", "agent": AUDITOR, "land_verb": "land_pass", "sha": feat}
         for label, extra in (("no key", {}), ("a wrong key", {"key": "x" * 43}), ("a key of another agent",
                               {"key": sessiontoken.key_held("backend") or "y"})):
             said = socket_server._handle_request({**authorize, **extra}, lambda m: None)
             check(f"vouch: land_authorize with {label} vouches for nothing", not said["ok"], str(said))
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: so a land_pass from the session's own process is still refused", not said["ok"], str(said))
-        said = socket_server._handle_request({**authorize, "key": key}, lambda m: None)
+        logged: list[str] = []
+        said = socket_server._handle_request({**authorize, "key": key}, logged.append)
         check("vouch: the right key vouches", said["ok"], str(said))
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor, vouched=False)
+        check("vouch: and the daemon's log says who was vouched for, so a refusal later can be told from a vouch never sent",
+              any(AUDITOR in m and "vouched for land_pass" in m for m in logged), str(logged))
+        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
         check("vouch: and then the session's land_pass is accepted", said["ok"], str(said))
 
         said = ask_daemon("land", "backend", p_core)
         check("land: an agent with its own valid session that is not the merger is refused",
               not said["ok"] and "may not land" in said["said"], str(said))
-        said = ask_daemon("land_pass", lands.AUDITOR, p_auditor)
+        said = ask_daemon("land_pass", AUDITOR, p_auditor)
         check("land: the auditor's own session records a PASS", said["ok"], str(said))
+        other = subprocess.Popen(["sleep", "300"], **quiet)
+        sleepers.append(other)
+        sessiontoken.record("beta.auditor", other.pid)
+        said = ask_daemon("land_pass", "beta.auditor", other.pid)
+        check("land: another team's auditor, in its own session, records a PASS too", said["ok"], str(said))
+        said = ask_daemon("land_pass", "beta.auditor", p_core)
+        check("land: and only from its own session", not said["ok"], str(said))
         con.execute("DELETE FROM land_passes")
 
         ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
         check("land: no PASS, no land", not ok and "no auditor PASS" in said, said)
         other = _branch(main, "other", "o.py", "o = 1\n")
-        lands.record_pass(con, other, lands.AUDITOR)
+        lands.record_pass(con, other, AUDITOR)
         ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
         check("land: a PASS for another sha does not count", not ok and "no auditor PASS" in said, said)
-        ok, said = lands.record_pass(con, feat, lands.AUDITOR)
+        ok, said = lands.record_pass(con, feat, AUDITOR)
         ok, said = lands.request(con, feat, "Merge feat", tree, lands.MERGER)
         check("land: a passed, tested sha is queued", ok and "queued" in said, said)
         ok, said = lands.request(con, feat, "again", tree, lands.MERGER)
@@ -280,7 +291,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
 
         # Main moves after the merger's test: the daemon's merge is a different tree, so nothing lands.
         late = _branch(main, "late", "l.py", "l = 1\n")
-        lands.record_pass(con, late, lands.AUDITOR)
+        lands.record_pass(con, late, AUDITOR)
         stale = _check(main, late)
         mover = _branch(main, "mover", "m.py", "m = 1\n")
         _git(main, "merge", "-q", "--ff-only", mover)
@@ -323,7 +334,7 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
     os.environ["OCP_LAND_REPO"] = str(main)
     con = db.connect()
     try:
-        lands.record_pass(con, clean, lands.AUDITOR)
+        lands.record_pass(con, clean, AUDITOR)
         tree = _check(main, clean)
         for bad in ("Merge clean for T" + "1234", "#" + "1234 is why", "mail me at someone@" + "gmail.com"):
             ok, said = lands.request(con, clean, bad, tree, lands.MERGER)
@@ -442,11 +453,34 @@ def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Pa
         os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
 
 
+def test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(home: Path) -> None:
+    from handline.daemon import lands
+    main = _repo(home / "repo")
+    keep = os.environ.get("OCP_LAND_REPO")
+    os.environ["OCP_LAND_REPO"] = str(main)
+    con = db.connect()
+    try:
+        sha = _git(main, "rev-parse", "HEAD")
+        for who in ("alpha.auditor", "beta.auditor", "gamma.sea.auditor"):
+            ok, said = lands.record_pass(con, sha, who)
+            check(f"pass: {who} records one", ok, said)
+        for who in ("alpha.merger", "alpha.core", "auditor", "alpha.auditors", "alpha.auditor.helper",
+                    "alpha.Auditor", "", None, "human"):
+            ok, said = lands.record_pass(con, sha, who)
+            check(f"pass: {who!r} may not", not ok and "may not record a PASS" in said, said)
+        check("pass: the one who recorded it is kept",
+              con.execute("SELECT by FROM land_passes WHERE sha = ?", (sha,)).fetchone()["by"] == "gamma.sea.auditor")
+    finally:
+        con.close()
+        os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
+        run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))

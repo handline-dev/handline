@@ -1,0 +1,17 @@
+"""task.new, task.edit, task.withdraw, task.cancel."""
+from . import err, fake
+
+
+@fake("task.new", "task.edit", "task.withdraw", "task.cancel")
+def tasks(role, method, params):
+    if not isinstance(params.get("request_id"), str) or not params["request_id"]:
+        return "fail", err(-32600, "bad_request", field="request_id")
+    if params.get("waits_on") is not None:
+        return "fail", err(-32602, "bad_request", field="waits_on")
+    if method == "task.new":
+        if role != "agent":
+            return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}
+        if params.get("time_box") not in ("30m", "1h", "2h"):
+            return "fail", err(-32602, "bad_request", field="time_box")
+        return "ok", {"accepted": True, "said": "opened", "task": 1}
+    return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}

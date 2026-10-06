@@ -153,6 +153,7 @@ def test_the_handline_command_runs_the_same_program_as_ocp(home: Path) -> None:
     check("command: all three names answer --version the same", out["hl"].returncode == 0
           and out["hl"].stdout == out["ocp"].stdout == out["handline"].stdout and out["hl"].stdout.startswith("hl "), str({k: (v.returncode, v.stdout, v.stderr[-200:]) for k, v in out.items()}))
     env["HANDLINE_HOME"] = str(home)
+    env["OCP_TEST"] = os.environ.get("OCP_TEST", "")     # doctor in a child reads the machine's process table, so it may reach the stand-in Orca: as this test's call
     r = subprocess.run([str(ROOT / "bin" / "handline"), "doctor"], capture_output=True, text=True, env=env, timeout=60)
     check("command: HANDLINE_HOME picks the home the command runs in", str(home) in (r.stdout + r.stderr),
           (r.stdout + r.stderr)[-300:])

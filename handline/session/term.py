@@ -762,7 +762,7 @@ CLEARED_ROWS, CLEARED_ROW_CHARS = 6, 200
 on_cleared = None
 
 
-def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S) -> tuple[bool, str]:
+def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S, enter: bool = True) -> tuple[bool, str]:
     """`send` for text meant for a session, which must never reach a shell. Nothing is typed where the
     screen already shows a shell; and after the type the screen is read again, since the session can
     exit between the check and the typing. Text that landed at a shell is not delivered: the
@@ -773,7 +773,7 @@ def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S) ->
     tail = _screen_tail(handle)
     if tail is not None and shell_prompt_in(tail):
         return False, "a shell prompt is showing, not a session; nothing typed"
-    ok, out = send(handle, text)
+    ok, out = send(handle, text, enter)
     if not ok:
         return ok, out
     if settle_s:
@@ -789,6 +789,24 @@ def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S) ->
         clear_shell(handle)
         return False, "the session had exited: the text reached a shell prompt, which was cleared"
     return ok, out
+
+
+# What a person's named key is, as the bytes a terminal sends for it. A lone sequence is one key to every host
+# (the tmux backend names it, Orca passes the bytes on); a digit is itself.
+KEY_BYTES = {"esc": ESCAPE, "enter": None, "up": "\x1b[A", "down": "\x1b[B", "tab": "\t", "shift-tab": "\x1b[Z", "ctrl-c": "\x03",
+             **{str(d): str(d) for d in range(10)}}
+
+
+def send_keys(handle: str, keys: list[str]) -> tuple[bool, str]:
+    """Press the named keys in order (`KEY_BYTES`), stopping at the first the host refuses. Nothing here reads the
+    screen: a person who presses a key has looked at it."""
+    for k in keys:
+        if k not in KEY_BYTES:
+            return False, f"not a key: {k!r}"
+        ok, out = send(handle, "") if k == "enter" else send(handle, KEY_BYTES[k], enter=False)
+        if not ok:
+            return False, f"{k}: {out[:200]}"
+    return True, ""
 
 
 def session_on_screen(handle: str) -> bool | None:

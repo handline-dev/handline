@@ -1,0 +1,999 @@
+{
+ "fixtures": [
+  {
+   "name": "session.input.unknown_agent_is_not_found",
+   "spec": "session.input",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-t-1",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.needs_a_request_id",
+   "spec": "session.input",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "nobody.here",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.an_agent_session_is_refused_by_role",
+   "spec": "session.input",
+   "about": "It is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "a.one",
+       "request_id": "conf-t-2",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.terminal_lock_gate",
+   "spec": "session.input",
+   "about": "While the agent's terminal lock is held the call is refused at once, gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-t-3",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.input_holder_gate",
+   "spec": "session.input",
+   "about": "While another person holds the input the call is refused, gate input_holder. Needs --var held_agent: an agent whose input someone else holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "{{held_agent}}",
+       "request_id": "conf-t-4",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.unknown_agent_is_not_found",
+   "spec": "session.type",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-t-1",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.needs_a_request_id",
+   "spec": "session.type",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "nobody.here",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.an_agent_session_is_refused_by_role",
+   "spec": "session.type",
+   "about": "It is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "a.one",
+       "request_id": "conf-t-2",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.terminal_lock_gate",
+   "spec": "session.type",
+   "about": "While the agent's terminal lock is held the call is refused at once, gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-t-3",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.input_holder_gate",
+   "spec": "session.type",
+   "about": "While another person holds the input the call is refused, gate input_holder. Needs --var held_agent: an agent whose input someone else holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "{{held_agent}}",
+       "request_id": "conf-t-4",
+       "text": "hello"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.unknown_agent_is_not_found",
+   "spec": "session.keys",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-t-1",
+       "keys": [
+        "esc"
+       ]
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.needs_a_request_id",
+   "spec": "session.keys",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "nobody.here",
+       "keys": [
+        "esc"
+       ]
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.an_agent_session_is_refused_by_role",
+   "spec": "session.keys",
+   "about": "It is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "a.one",
+       "request_id": "conf-t-2",
+       "keys": [
+        "esc"
+       ]
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.terminal_lock_gate",
+   "spec": "session.keys",
+   "about": "While the agent's terminal lock is held the call is refused at once, gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-t-3",
+       "keys": [
+        "esc"
+       ]
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.input_holder_gate",
+   "spec": "session.keys",
+   "about": "While another person holds the input the call is refused, gate input_holder. Needs --var held_agent: an agent whose input someone else holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "{{held_agent}}",
+       "request_id": "conf-t-4",
+       "keys": [
+        "esc"
+       ]
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.interrupt.unknown_agent_is_not_found",
+   "spec": "session.interrupt",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.interrupt",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-t-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.interrupt.needs_a_request_id",
+   "spec": "session.interrupt",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.interrupt",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.interrupt.an_agent_session_is_refused_by_role",
+   "spec": "session.interrupt",
+   "about": "It is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.interrupt",
+      "params": {
+       "agent": "a.one",
+       "request_id": "conf-t-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.interrupt.terminal_lock_gate",
+   "spec": "session.interrupt",
+   "about": "While the agent's terminal lock is held the call is refused at once, gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.interrupt",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-t-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.interrupt.input_holder_gate",
+   "spec": "session.interrupt",
+   "about": "While another person holds the input the call is refused, gate input_holder. Needs --var held_agent: an agent whose input someone else holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.interrupt",
+      "params": {
+       "agent": "{{held_agent}}",
+       "request_id": "conf-t-4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.wall_gate",
+   "spec": "session.input",
+   "about": "A line typed at an agent at its usage limit is refused, gate wall. Needs --var walled_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "{{walled_agent}}",
+       "text": "hello",
+       "request_id": "conf-t-5"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "wall"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.screen_blocker_gate",
+   "spec": "session.input",
+   "about": "A line typed where a dialog is open is refused, gate screen_blocker. Needs --var dialog_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "{{dialog_agent}}",
+       "text": "hello",
+       "request_id": "conf-t-6"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "screen_blocker"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.input.text_holds_no_control_character",
+   "spec": "session.input",
+   "about": "Text with Esc or another control character is bad_request naming text: those are keys.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "a.one",
+       "text": "a\u001bb",
+       "request_id": "conf-t-7"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.type.text_holds_no_newline",
+   "spec": "session.type",
+   "about": "Typing sends no Enter: a newline is bad_request naming text.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.type",
+      "params": {
+       "agent": "a.one",
+       "text": "a\nb",
+       "request_id": "conf-t-8"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.keys.a_key_is_one_of_the_named",
+   "spec": "session.keys",
+   "about": "A key that is not esc, enter, up, down, tab, shift-tab, ctrl-c or a digit is bad_request naming keys.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.keys",
+      "params": {
+       "agent": "a.one",
+       "keys": [
+        "f13"
+       ],
+       "request_id": "conf-t-9"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "keys"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

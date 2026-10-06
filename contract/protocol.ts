@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -70,7 +70,7 @@ export type Prompt = {
   /** Opaque; changes whenever the open prompt changes (the daemon uses the screen block's fingerprint). */
   id: string;
   agent: AgentName;
-  /** e.g. permission, trust, dialog; open set. */
+  /** permission, question, dialog or exit_confirm today; open set. A dialog is `dialog` unless its screen is a known one (contract/prompts/). */
   kind: string;
   tool?: string | null;
   command?: string | null;
@@ -325,6 +325,8 @@ export type Proposal = {
   diff: string;
   state: "open" | "approved" | "rejected";
   created: Timestamp;
+  /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
+  subject: string;
 };
 
 export type Repo = {
@@ -994,7 +996,7 @@ export interface Methods {
   before?: number;
   /** Default 50, at most 200. */
   limit?: number;
-  /** Hold the call up to this many seconds while nothing unread exists, and return when something arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
+  /** Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
   wait_s?: number;
 }; result: {
     items: InboxItem[];
@@ -1302,6 +1304,7 @@ export interface Methods {
   proposal: number;
   decision: "approve" | "reject";
   note?: string;
+  subject?: string;
   request_id: RequestId;
 }; result: Accepted };
   "accounts.list": { params: { [key: string]: unknown }; result: {
@@ -1421,6 +1424,8 @@ export interface Methods {
   } };
   "device.pair": { params: {
   name?: string;
+  /** Seconds the code lives; default 300. */
+  ttl_s?: number;
   request_id: RequestId;
 }; result: Accepted & {
     code: string;
