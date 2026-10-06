@@ -182,8 +182,8 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: FakeDaemon(r, mutate, **kw).connect for r in roles}
 
 
-KEY = {"founder_key": "k"}
-KEYARG = ["--var", "founder_key=k"]
+KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked"}
+KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked"]
 
 
 def _count(results, status: str) -> int:

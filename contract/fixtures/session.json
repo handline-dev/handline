@@ -578,6 +578,203 @@
      }
     }
    ]
+  },
+  {
+   "name": "session.stop.state_gate_refuses_a_session_mid_work",
+   "spec": "session.stop",
+   "about": "Closing an agent that is mid-turn is refused with gate state, the action's own words kept. Needs --var running_agent: an agent with a session in a turn.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "{{running_agent}}",
+       "mode": "close",
+       "request_id": "conf-s-7"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.wake.terminal_lock_gate",
+   "spec": "session.wake",
+   "about": "A wake while the agent's terminal lock is held is refused at once with gate terminal_lock. Needs --var locked_agent: an agent whose terminal lock the harness holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.wake",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-s-8"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.terminal_lock_gate_holds_for_exit",
+   "spec": "session.stop",
+   "about": "An exit while the agent's terminal lock is held is refused at once with gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "mode": "exit",
+       "request_id": "conf-s-9"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.close.terminal_lock_gate",
+   "spec": "terminal.close",
+   "about": "Closing a terminal while its lock is held is refused at once with gate terminal_lock. Needs --var locked_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.close",
+      "params": {
+       "agent": "{{locked_agent}}",
+       "request_id": "conf-s-10"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "terminal_lock"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.kill_is_refused_to_an_agent_session",
+   "spec": "session.stop",
+   "about": "Killing a session is a person's: a call from an agent session is refused, gate role. Exit and close stay as the legacy verbs allow.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "a.one",
+       "mode": "kill",
+       "request_id": "conf-s-11"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
   }
  ]
 }

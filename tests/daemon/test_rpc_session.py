@@ -44,11 +44,6 @@ def _call(method: str, params: dict, as_agent: str | None = "manager") -> dict:
 
 class Actions:
     """The session actions replaced for a test, each recording its calls and answering what it is told."""
-    NAMES = ((lifecycle, "wake_agent"), (control, "close_result"), (control, "restart_result"), (control, "park_result"),
-             (control, "start_result"), (control, "unstall"), (termmod, "close_session"), (termmod, "close_terminal"),
-             (termmod, "available"), (obs, "live_sessions"), (delivery, "session_present"), (delivery, "_wait_session_gone"),
-             (control.os if hasattr(control, "os") else None, "kill"))
-
     def __enter__(self):
         import os
         self.calls: list[tuple] = []
@@ -157,7 +152,7 @@ def test_a_refusal_names_the_gate_that_said_no(home: Path) -> None:
             for method, params in (("session.wake", {}), ("session.stop", {"mode": "close"}), ("session.stop", {"mode": "exit"}),
                                    ("session.stop", {"mode": "kill"}), ("session.restart", {}), ("session.park", {}),
                                    ("session.start", {})):
-                r = _call(method, {"agent": "worker", "request_id": f"l-{method}-{params}", **params})
+                r = _call(method, {"agent": "worker", "request_id": f"l-{method}-{params}", **params}, as_agent=None)
                 check(f"{method} {params}: refused at once while the terminal lock is held", _code(r) == "refused"
                       and r["error"]["data"]["gate"] == "terminal_lock", str(r))
             r = _call("terminal.close", {"agent": "worker", "request_id": "l-tc"}, as_agent=None)
@@ -210,17 +205,78 @@ def test_stop_exit_and_kill_act_on_the_session_and_say_when_there_is_none(home: 
         r = _call("session.stop", {"agent": "worker", "mode": "exit", "request_id": "e3"})
         check("session.stop exit: a turn in progress is refused with the terminal's words", "mid-turn" in r["error"]["message"], str(r))
         a.sessions = {"worker": 4242}
-        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k1"})["result"]
+        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k1"}, as_agent=None)["result"]
         check("session.stop kill: ends the process the table lists for that agent", a.named("kill") == [("kill", (4242, signal.SIGTERM), {})]
               and r["accepted"], str(a.calls))
         a.sessions = {"manager": 1}
-        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k2"})
+        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k2"}, as_agent=None)
         check("session.stop kill: no process for it is refused and nothing is signalled", r["error"]["data"]["gate"] == "state"
               and len(a.named("kill")) == 1, str(r))
         a.sessions = None
-        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k3"})
+        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "k3"}, as_agent=None)
         check("session.stop kill: an unreadable process table is refused, never guessed at", _code(r) == "refused"
               and "process table" in r["error"]["message"] and len(a.named("kill")) == 1, str(r))
+
+
+def test_a_retry_after_a_lost_reply_replays_the_effect_and_repeats_none(home: Path) -> None:
+    support._board_world(home)
+    with Actions() as a:
+        _state("worker", "IDLE")
+        a.sessions = {"worker": 4242}
+        for name, params in (("restart", {"fresh": True}), ("exit", {}), ("kill", {}), ("wake", {}), ("close", {}), ("park", {}), ("start", {})):
+            method = "session.stop" if name in ("exit", "kill", "close") else f"session.{name}"
+            call = {"agent": "worker", "request_id": f"lost-{name}", **params, **({"mode": name} if method == "session.stop" else {})}
+            first = _call(method, call, as_agent=None)
+            n = len(a.calls)
+            a.sessions = {"worker": 5151}       # what the tick woke in between
+            con = db.connect()
+            con.execute("DELETE FROM rpc_replies WHERE request_id = ?", (f"lost-{name}",))     # the crash: the effect kept, the reply not
+            con.close()
+            retry = _call(method, call, as_agent=None)
+            check(f"{method} {name}: a retry after a lost reply answers the first run's result, marked replayed",
+                  retry.get("result", {}).get("replayed") is True and retry["result"]["said"] == first["result"]["said"], str((first, retry)))
+            check(f"{method} {name}: and does nothing a second time", len(a.calls) == n, str(a.calls[n:]))
+            a.sessions = {"worker": 4242}
+    check("kill: the session asked about is the only one signalled", [c[1][0] for c in a.named("kill")] == [4242], str(a.named("kill")))
+
+
+def test_exit_kill_and_terminal_close_act_with_the_terminal_lock_held(home: Path) -> None:
+    support._board_world(home)
+    with Actions() as a:
+        _state("worker", "CLOSED", closed=True)
+        a.sessions = {"worker": 4242}
+        held_during: dict = {}
+
+        def probe(name):
+            def rec(*args, **kw):
+                with lock.terminal("worker") as mine:
+                    held_during[name] = not mine        # the lock is ours, so a second taker is refused
+                return a.answer if name != "kill" else None
+            return rec
+        termmod.close_session = probe("exit")
+        termmod.close_terminal = lambda handle, tab=True: probe("close_terminal")()
+        import os
+        os.kill = lambda pid, sig: probe("kill")()
+        a.present = False
+        _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "h1"}, as_agent=None)
+        a.present = True
+        _call("session.stop", {"agent": "worker", "mode": "exit", "request_id": "h2"}, as_agent=None)
+        a.present = False
+        _call("terminal.close", {"agent": "worker", "request_id": "h3"}, as_agent=None)
+        check("the lock is held while the action runs, so a tick cannot start between the check and it",
+              held_during == {"kill": True, "exit": True, "close_terminal": True}, str(held_during))
+
+
+def test_kill_is_not_an_agents_to_send(home: Path) -> None:
+    support._board_world(home)
+    with Actions() as a:
+        a.sessions = {"worker": 4242}
+        r = _call("session.stop", {"agent": "worker", "mode": "kill", "request_id": "ak1"})
+        check("session.stop kill: refused to an agent session, gate role, nothing signalled", r["error"]["data"]["gate"] == "role"
+              and not a.named("kill"), str(r))
+        for mode in ("exit", "close"):
+            r = _call("session.stop", {"agent": "worker", "mode": mode, "request_id": f"ak-{mode}"})
+            check(f"session.stop {mode}: an agent may, as the legacy verbs allow", "result" in r or r["error"]["data"]["gate"] != "role", str(r))
 
 
 def test_terminal_close_frees_the_terminal_of_a_closed_session_only(home: Path) -> None:
@@ -282,13 +338,17 @@ def test_the_session_fixtures_pass_against_this_daemon(home: Path) -> None:
             return a
         return connect
     support._board_world(home)
+    _state("worker", "RUNNING")
     real = sessiontoken.agent_of
     results = []
     try:
-        for role in ("founder", "agent"):
-            sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
-            results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/session.json")], {role: connector()},
-                                                                 {"founder_key": _hp()["key"]}) if r[0] != "skip"]
+        with lock.terminal("manager") as mine:        # the harness holds this one's terminal lock for the run
+            check("(the test holds the terminal lock)", mine)
+            for role in ("founder", "agent"):
+                sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
+                results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/session.json")], {role: connector()},
+                                                                     {"founder_key": _hp()["key"], "running_agent": "worker",
+                                                                      "locked_agent": "manager"}) if r[0] != "skip"]
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
@@ -303,6 +363,9 @@ def main() -> int:
         run(lambda: test_a_call_that_is_malformed_or_names_nobody_is_refused_before_anything_runs(Path(td) / "s3"))
         run(lambda: test_stop_exit_and_kill_act_on_the_session_and_say_when_there_is_none(Path(td) / "s4"))
         run(lambda: test_terminal_close_frees_the_terminal_of_a_closed_session_only(Path(td) / "s5"))
+        run(lambda: test_a_retry_after_a_lost_reply_replays_the_effect_and_repeats_none(Path(td) / "s8"))
+        run(lambda: test_exit_kill_and_terminal_close_act_with_the_terminal_lock_held(Path(td) / "s9"))
+        run(lambda: test_kill_is_not_an_agents_to_send(Path(td) / "s10"))
         run(lambda: test_the_legacy_verbs_and_commands_these_methods_re_expose_still_work_from_an_agent_session(Path(td) / "s6"))
         run(lambda: test_the_session_fixtures_pass_against_this_daemon(Path(td) / "s7"))
     return run_area(tests)

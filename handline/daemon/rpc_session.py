@@ -5,9 +5,11 @@ hl park, hl start), with the verbs' own state checks and no new one; `session.st
 
 A refusal names its gate: `terminal_lock` when whoever types at the agent holds the lock the tick takes, `state` for
 every other reason the action gives. The action is the daemon's own and takes its time, as the verb did, so the
-reply comes when it is done. A retry after a crash is judged by the agent's state, which the first run changed: a
-session already woken, closed or parked refuses a second wake, close or park, and nothing is done twice.
-`session.start` has no account to name yet and refuses one."""
+reply comes when it is done. Each success is recorded in `write_effects` under the caller's request_id the moment the
+action returns, so a retry after a crash that lost the reply replays it instead of acting again: a restart is not
+run twice and a kill is not sent to the session the tick woke in between. `exit`, `kill` and `terminal.close` act
+with the agent's terminal lock held; the other verbs take it themselves. `session.start` has no account to name
+yet and refuses one; `session.stop kill` is refused to an agent session."""
 from __future__ import annotations
 
 import os
@@ -51,19 +53,26 @@ def _done(ok: bool, said: str) -> dict:
     return {"accepted": True, "said": said}
 
 
-def _locked(agent: str) -> None:
-    """Refuse at once while someone else holds the agent's terminal lock, before anything is started."""
-    with lock.terminal(agent) as mine:
-        if not mine:
-            raise rpc.refused(f"{agent}: {lifecycle.TYPING_ELSEWHERE}", gate="terminal_lock")
+def _busy(agent: str) -> rpc.RpcError:
+    return rpc.refused(f"{agent}: {lifecycle.TYPING_ELSEWHERE}", gate="terminal_lock")
 
 
-def _run(params, fn) -> dict:
+def _run(ctx, name: str, params, fn, hold: bool = False) -> dict:
+    """Run `fn(con, agent)` and record its result as the effect of this request_id. With `hold` the agent's terminal
+    lock is held across it; without, it is only looked at first, for a refusal before anything starts, because the
+    action takes the lock itself."""
     agent = _agent(params)
-    _locked(agent)
     con = db.connect()
     try:
-        return fn(con, agent)
+        with lock.terminal(agent) as mine:
+            if not mine:
+                raise _busy(agent)
+            if hold:
+                result = fn(con, agent)
+        if not hold:
+            result = fn(con, agent)
+        db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
+        return result
     finally:
         con.close()
 
@@ -74,7 +83,7 @@ def _start(ctx, params) -> dict:
     for k in ("repo", "base"):
         if params.get(k) is not None and not isinstance(params[k], str):
             raise rpc.bad_request(f"{k} is a string", k, rpc.INVALID_PARAMS)
-    return _run(params, lambda con, agent: _done(*control.start_result(con, agent, params.get("repo"), params.get("base") or "main")))
+    return _run(ctx, "session.start", params, lambda con, agent: _done(*control.start_result(con, agent, params.get("repo"), params.get("base") or "main")))
 
 
 def _wake(ctx, params) -> dict:
@@ -84,16 +93,16 @@ def _wake(ctx, params) -> dict:
             return _done(True, control.unstall(con, agent))
         ok, why = lifecycle.wake_agent(con, agent, _noop)
         return _done(ok, f"{agent}: {why}" if ok else f"{agent}: not woken - {why}")
-    return _run(params, wake)
+    return _run(ctx, "session.wake", params, wake)
 
 
 def _restart(ctx, params) -> dict:
     fresh, force = _flag(params, "fresh"), _flag(params, "force")
-    return _run(params, lambda con, agent: _done(*control.restart_result(con, agent, fresh, force, ctx.caller.actor)))
+    return _run(ctx, "session.restart", params, lambda con, agent: _done(*control.restart_result(con, agent, fresh, force, ctx.caller.actor)))
 
 
 def _park(ctx, params) -> dict:
-    return _run(params, lambda con, agent: _done(*control.park_result(con, agent)))
+    return _run(ctx, "session.park", params, lambda con, agent: _done(*control.park_result(con, agent)))
 
 
 def _exit(con, agent: str) -> dict:
@@ -125,9 +134,11 @@ def _stop(ctx, params) -> dict:
         raise rpc.bad_request("mode is exit, close or kill", "mode", rpc.INVALID_PARAMS)
     if fresh and mode != "close":
         raise rpc.bad_request("fresh is for close only", "fresh", rpc.INVALID_PARAMS)
+    if mode == "kill" and not ctx.caller.allows("member"):
+        raise rpc.refused(f"session.stop kill is for a member or above; this caller is {ctx.caller.role}", gate="role")
     if mode == "close":
-        return _run(params, lambda con, agent: _done(*control.close_result(con, agent, fresh)))
-    return _run(params, _exit if mode == "exit" else _kill)
+        return _run(ctx, "session.stop", params, lambda con, agent: _done(*control.close_result(con, agent, fresh)))
+    return _run(ctx, "session.stop", params, _exit if mode == "exit" else _kill, hold=True)
 
 
 def _terminal_close(ctx, params) -> dict:
@@ -144,7 +155,7 @@ def _terminal_close(ctx, params) -> dict:
         db.set_terminal(con, agent, None, row["worktree"] if row else None)
         db.add_event(con, agent, "terminal_closed", {"handle": handle})
         return {"accepted": True, "said": f"{agent}: terminal closed"}
-    return _run(params, close)
+    return _run(ctx, "terminal.close", params, close, hold=True)
 
 
 rpc.METHODS["session.start"] = rpc.Method(_start, "agent", write=True)
