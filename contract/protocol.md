@@ -93,9 +93,9 @@ A method marked write takes a required `request_id`.
 | `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found` |  |
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
-| `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?` | `TerminalSnapshot` | `not_found`, `bad_request` |  |
 | `terminal.history` | member |  | `terminal`, `before`, `limit` | `HistoryPage` | `not_found` |  |

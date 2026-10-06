@@ -52,3 +52,7 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+chat.send
+chat.answer
+chat.dismiss
+chat.withdraw
