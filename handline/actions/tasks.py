@@ -901,7 +901,7 @@ def _queue_state(con, tid: int, by: str, queued: bool):
 
 
 def _queue_deliver(con, tid: int, by: str, queued: bool, row) -> str:
-    """What queuing does after its write commits (T325): the task goes out now if its owner is free."""
+    """What queuing does after its write commits: the task goes out now if its owner is free."""
     if queued and row["owner"] == HUMAN:
         # The founder holds no current task, so nothing advances it: queuing is putting
         # the card back on their board.
@@ -931,12 +931,12 @@ def _queue_deliver(con, tid: int, by: str, queued: bool, row) -> str:
 
 def set_queued(con, tid: int, by: str, queued: bool) -> tuple[bool, str]:
     """Approve a draft task to run (`queued`), or send a queued one back to
-    draft (T82). The founder or the manager of the task's owner - not its
+    draft. The founder or the manager of the task's owner - not its
     opener, so an agent cannot approve its own work; refused for a task that
     is done or ended, or that already has a request out (that is doing, and
     is not taken back by a word).
 
-    T325: queuing also delivers, through `advance_current_task` - right away
+    Queuing also delivers, through `advance_current_task` - right away
     if the owner is free, or once its turn comes if not. `task_state` after
     the call, not `advance_current_task`'s own True/False, says which: a
     busy owner moves on to nothing just as validly as a free one delivers.
