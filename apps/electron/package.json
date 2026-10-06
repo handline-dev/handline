@@ -8,6 +8,7 @@
     "build": "node build.ts",
     "start": "node build.ts && electron .",
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "lint": "eslint .",
     "typecheck": "tsc -p ."
   },
   "dependencies": { "@handline/client": "workspace:*", "@handline/client-node": "workspace:*" },
