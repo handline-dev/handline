@@ -14,16 +14,16 @@ are listed first, then every writer found.
 | command | method | state |
 |---|---|---|
 | `hl task new`, `edit`, `show`, `list` | task.new, task.edit, task.get, tasks.list | served, agent-role test |
-| `hl task memo add|edit|delete` | task.memo.add, .edit, .delete | write methods slice b, in review, agent-role test there |
-| `hl task done|reopen|merge|release|discard|queue|draft` | task.done, .reopen, .merge, .release, .discard, .queue, .draft | write methods slice c, in review, agent-role test there |
-| `hl task begin|start|handoff`, `hl progress` | task.begin, .start, .handoff, .progress | gap: the agent-surface task |
+| `hl task memo add\|edit\|delete` | task.memo.add, .edit, .delete | write methods for memos and the inbox, agent-role test there |
+| `hl task done\|reopen\|merge\|release\|discard\|queue\|draft` | task.done, .reopen, .merge, .release, .discard, .queue, .draft | write methods for the task moves, agent-role test there |
+| `hl task begin\|start\|handoff`, `hl progress` | task.begin, .start, .handoff, .progress | gap: the agent-surface task |
 | `hl task board`, `hl task memo list` | task.board, task.memo.list | reads, the Go side |
 | `hl inbox` | inbox.list (+ inbox.mark_read for the head of the queue) | served; mark_read in slice b |
 | `hl read` | inbox.get | gap: standing answers and inbox.get task |
 | `hl say`, `hl ask`, `hl withdraw` | say, ask, chat.withdraw | gap: agent-surface task and chat slice 2 |
 | `hl land`, `hl land --pass` | land, land.pass | gap: agent-surface task |
 | `hl hook` | hook.record | served; no agent-role test of the command yet |
-| `hl agent set|move`, `hl fold` | agent.set, agent.move, agent.fold | gap: agent-surface task |
+| `hl agent set\|move`, `hl fold` | agent.set, agent.move, agent.fold | gap: agent-surface task |
 | `hl close`, `hl restart` | session.stop, session.restart | served, agent-role test |
 | `hl resume` | session.wake | served, agent-role test |
 | `hl wake` | session.wake | **the spec lists a command that does not exist**: `hl wake` is no subcommand (`hl resume` is the one); fix the spec's x-agent-commands |
@@ -39,7 +39,7 @@ are listed first, then every writer found.
 |---|---|---|
 | account.cmd_account_remove | accounts.remove_account | **gap**: the spec has no account.remove; founder command |
 | agent.cmd_resume | set_agent_state, wake | method: session.wake (served) |
-| agent.cmd_unstall | actions.unstall | **gap**: the spec has no unstall; founder command |
+| agent.cmd_unstall | actions.unstall | method: session.wake (founder), which unstalls a STALLED agent as the verb does |
 | ask.cmd_cancel | actions.cancel_plan | **gap**: no method for cancelling a planned message; chat slice 2 |
 | ask.cmd_inbox | mark_delivered, mark_landed, answer verb | method: inbox.mark_read (slice b) |
 | ask.cmd_read | db.dismissal | **gap**: inbox.get, which also records the dismissal |
@@ -61,6 +61,7 @@ are listed first, then every writer found.
 | ask._note_nested, ask.note_verb_chain | add_event | inside: events about a command's own process chain, written where the command is served |
 | spawn.spawn, spawn.start_in | set_terminal, open_terminal | inside: agent.create's start step and session.start |
 | trust.propose, trust.apply | open_decision, settle_moot | **gap**: trust.propose, trust.list, trust.remove |
+| hr.decide, hr.withdraw, hr.apply | the proposal files and the decision | inside: what hr.decide runs (served) and what the hr commands call; hr.withdraw is a gap with the agent surface |
 
 ### ui/
 
@@ -77,8 +78,8 @@ are listed first, then every writer found.
 
 ## What is left
 
-No writer is unnamed. The gaps are: account.remove, unstall, cancel_plan, send_now, chat.send and the rest of chat slice 2,
+No writer is unnamed. The gaps are: account.remove, cancel_plan, send_now, chat.send and the rest of chat slice 2,
 inbox.get (with its dismissal), task.begin/start/handoff/progress, say/ask/land/hr/trust/agent.* of the agent surface, rehome.
 None of them has a method this part could serve except those the agent-surface and chat tasks already carry;
-**account.remove, unstall, cancel_plan and send_now have no method in the spec at all**, so a decision on their names comes first.
+**account.remove, cancel_plan and send_now have no method in the spec at all**, so a decision on their names comes first.
 `hl hook` has a method and no agent-role test of the command (it takes its event on stdin from the harness); `hl wake` is in the spec and not in the CLI.
