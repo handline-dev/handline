@@ -6,7 +6,7 @@
   "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
   " Bash command",
   "",
-  " │ ocp ask human 'T239 (#1328) is blocked. Need one of: (a) approve that edit'",
+  " │ ocp ask human 'the task is blocked. Need one of: (a) approve that edit'",
   " │ 2>&1 | tail -3",
   "   Raise the block to the founder",
   "",
@@ -21,7 +21,7 @@
  "expect": {
   "kind": "permission",
   "tool": "Bash",
-  "command": "ocp ask human 'T239 (#1328) is blocked. Need one of: (a) approve that edit'\n2>&1 | tail -3",
+  "command": "ocp ask human 'the task is blocked. Need one of: (a) approve that edit'\n2>&1 | tail -3",
   "reason": "ocp names a path that is computed at run time, which cannot be checked against the read block (permissions.blockReadsOutsideWorkingDirectories)",
   "options": []
  }

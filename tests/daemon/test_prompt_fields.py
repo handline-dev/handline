@@ -48,7 +48,7 @@ def test_every_capture_reads_as_the_fixture_says(home: Path) -> None:
         check(f"{cap['name']}: the raw lines are always there", bool(got and got["lines"]), str(got))
 
 
-def test_a_field_the_screen_does_not_state_is_null_never_guessed() -> None:
+def test_a_field_the_screen_does_not_state_is_null_never_guessed(home: Path) -> None:
     check("fields: a title never captured names no tool", promptparse.permission_fields("Edit file", ["src/a.py"])["tool"] is None)
     check("fields: nothing between the title and the question is no command and no reason",
           promptparse.permission_fields("Bash command", []) == {"tool": "Bash", "command": None, "reason": None})
@@ -85,7 +85,7 @@ def test_a_prompt_that_changed_between_list_and_answer_is_stale(home: Path) -> N
 def main() -> int:
     def tests(td):
         run(lambda: test_every_capture_reads_as_the_fixture_says(Path(td) / "d0"))
-        run(test_a_field_the_screen_does_not_state_is_null_never_guessed)
+        run(lambda: test_a_field_the_screen_does_not_state_is_null_never_guessed(Path(td) / "d2"))
         run(lambda: test_a_prompt_that_changed_between_list_and_answer_is_stale(Path(td) / "d1"))
     return run_area(tests)
 
