@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentView, Prompt } from '@handline/client';
+import type { AgentDetail, AgentView, Prompt } from '@handline/client';
 import {
   controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, railGroups, saveLayout, keyFrom, DEFAULT_LAYOUT, DAEMON_KEYS, type KV,
-} from '../ui/model.ts';
+} from '../src/index.ts';
 
 const agent = (name: string, over: Partial<AgentView> = {}): AgentView => ({
   name, role: 'implementer', model: 'opus', effort: null, state: 'idle', state_since: new Date().toISOString(), account: 'alpha',
   task: null, cache_until: null, has_dialog: false, parent: null, ...over,
-});
+}) as AgentView;
 const key = (k: string, o: object = {}) => ({ key: k, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...o });
 
 test('the dot follows the daemon state, with a dialog or block taking over', () => {
@@ -73,14 +73,14 @@ test('kill always asks; close asks only mid-turn', () => {
 
 test('controls follow the session and who holds the input', () => {
   const d = (over: object) => ({ ...agent('a'), worktree: null, terminal: null, session_id: null, session_open: false, input_holders: [{ kind: 'daemon', name: 'daemon', since: null }],
-    account_pick: { account: null, reason: '' }, prompt: null, ...over }) as never;
+    account_pick: { account: null, reason: '' }, prompt: null, ...over }) as AgentDetail;
   assert.deepEqual(Object.entries(controlsOf(d({}), 'me')).filter(([, v]) => v).map(([k]) => k), ['start']);
   assert.deepEqual(Object.entries(controlsOf(d({ session_id: 's' }), 'me')).filter(([, v]) => v).map(([k]) => k), ['resume']);
   assert.deepEqual(Object.entries(controlsOf(d({ session_id: 's', session_open: true }), 'me')).filter(([, v]) => v).map(([k]) => k), ['stop', 'take']);
   const mine = d({ session_open: true, input_holders: [{ kind: 'person', name: 'me', since: '' }] });
   assert.deepEqual(Object.entries(controlsOf(mine, 'me')).filter(([, v]) => v).map(([k]) => k), ['stop', 'release', 'typing']);
   assert.equal(controlsOf(mine, 'you').take, false); // someone else holds it
-  assert.equal(holderLabel(mine.input_holders[0], 'me'), 'YOU');
+  assert.equal(holderLabel(mine.input_holders?.[0], 'me'), 'YOU');
 });
 
 test('the pane layout is remembered per agent and survives bad or blocked storage', () => {
