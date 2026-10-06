@@ -47,3 +47,7 @@ device.redeem
 device.revoke
 devices.list
 hr.list
+task.begin
+task.start
+task.handoff
+task.progress
