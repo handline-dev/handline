@@ -1799,16 +1799,19 @@ def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
     from handline.infra import gitrun
     _daemon_home(home, 20)
     _, head, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    dmn_loop._loaded.clear()        # the sha is read once per process; each run here stands for a new process
     out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
     check("daemon: the start line names the checkout's HEAD",
           head.strip() != "" and f"  code: {head.strip()}\n" in out, out[:300])
 
     real = dmn_loop.gitrun.run
     dmn_loop.gitrun.run = lambda *a, **k: (None, "", "git is not there")
+    dmn_loop._loaded.clear()
     try:
         out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
     finally:
         dmn_loop.gitrun.run = real
+        dmn_loop._loaded.clear()
     check("daemon: when git fails the start line says unknown, not an empty sha",
           "  code: unknown\n" in out, out[:300])
 

@@ -2808,8 +2808,10 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
     from handline.ui import chat_page as cp
     from handline.ui.components.confirm import Confirm
     _home("coderestart")
-    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S)
+    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S,
+            devmode.QUIET_S, devmode._changed_since_start)
     bt.CODE_CHECK_S = 0.05
+    devmode.QUIET_S, devmode._changed_since_start = 0, lambda root: False       # about what the bridge asks, not the wait
     code = {"fp": "v1", "checks": 0}      # the tree, the import check and the switch stood in for; the decision is devmode's own
 
     def fingerprint(root):
@@ -2888,7 +2890,7 @@ async def test_the_bridge_asks_once_before_restarting_on_new_code() -> None:
             await pilot.pause(0.3)
             check("code restart: and y restarts", app.restart_on_exit and not app.is_running)
     finally:
-        devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S = real
+        devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, bt.CODE_CHECK_S, devmode.QUIET_S, devmode._changed_since_start = real
 
 
 def test_a_code_check_that_began_before_not_now_does_not_ask_about_the_declined_version() -> None:
