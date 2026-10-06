@@ -72,8 +72,8 @@ def _seed(home: Path) -> dict:
     db.set_agent_state(con, "manager", "idle")
     con.execute("UPDATE agent_state SET terminal = 't-2', closed_at = ? WHERE agent = 'manager'", (int(time.time()),))
     now = int(time.time())
-    con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('worker', 'person', 'ron', ?, ?)", (now - 60, now - 5))
-    con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('manager', 'person', 'ron', ?, ?)", (now - 9000, now - 9000))
+    con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('worker', 'person', 'holder-1', ?, ?)", (now - 60, now - 5))
+    con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('manager', 'person', 'holder-1', ?, ?)", (now - 9000, now - 9000))
     db.prompt_open(con, "worker", "permission", "fp1", "Run it?", ["Run ls?", "1. Yes"],
                    {"tool": "Bash", "command": "ls", "reason": "to look", "wait": 3}, 3, True, now)
     db.prompt_open(con, "manager", "question", "fp2", "Which?", ["Which?"],
