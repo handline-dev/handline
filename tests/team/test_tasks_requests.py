@@ -5616,18 +5616,18 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         db.link_request(con, two, first)
         db.link_request(con, two, second)
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, two))
-        real_retire = askmod.retire_open
+        real_retire = askmod.retire_write
 
-        def losing_retire(con, rid, verdict, notify=True, settle=True):
+        def losing_retire(con, rid, verdict, notify=None, settle=True):
             if rid == first:
                 db.close_if_queued(con, rid, "done", "someone else got there first")
             return real_retire(con, rid, verdict, notify, settle)
 
-        askmod.retire_open = losing_retire
+        askmod.retire_write = losing_retire
         try:
             ok, msg = actions.release_task(con, two, "manager")
         finally:
-            askmod.retire_open = real_retire
+            askmod.retire_write = real_retire
         check("release: one request losing its own race does not stop the other "
               "from being retired, and both are named",
               ok and f"#{second}" in msg and "not retired" in msg and f"#{first}" in msg, msg)
