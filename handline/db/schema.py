@@ -464,7 +464,7 @@ def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Con
             else:
                 migrate(con, additive_only=True)
             have = schema_version(con)
-        if have > LATEST_VERSION:
+        if have > LATEST_VERSION and not _newer_steps_only_add(con):
             raise SchemaError(f"{p} is at schema version {have}, newer than the {LATEST_VERSION} this code "
                               f"knows: update handline before using it")
         if have < LATEST_VERSION:
@@ -514,7 +514,7 @@ def migrate(con, additive_only: bool = False) -> None:
         lock.write(str(os.getpid()))
         lock.flush()
         have = schema_version(con)
-        if have > LATEST_VERSION:
+        if have > LATEST_VERSION and not _newer_steps_only_add(con):
             raise SchemaError(f"{file} is at schema version {have}, newer than the {LATEST_VERSION} this code "
                               f"knows: update handline before using it")
         for version, name, step, additive in MIGRATIONS:
@@ -524,9 +524,30 @@ def migrate(con, additive_only: bool = False) -> None:
                 break
             step(con)
             con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, "
-                        "name TEXT NOT NULL, applied_at INTEGER NOT NULL)")
-            con.execute("INSERT INTO schema_version(version, name, applied_at) VALUES(?, ?, ?)",
-                        (version, name, int(time.time())))
+                        "name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)")
+            _mark_additive_column(con)
+            con.execute("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(?, ?, ?, ?)",
+                        (version, name, int(time.time()), int(additive)))
+
+
+def _mark_additive_column(con) -> None:
+    """A database stamped before steps said whether they only add: give it the column, filled from the
+    steps this code knows."""
+    if "additive" in _cols(con, "schema_version"):
+        return
+    con.execute("ALTER TABLE schema_version ADD COLUMN additive INTEGER NOT NULL DEFAULT 0")
+    for version, _name, _step, additive in MIGRATIONS:
+        con.execute("UPDATE schema_version SET additive = ? WHERE version = ?", (int(additive), version))
+
+
+def _newer_steps_only_add(con) -> bool:
+    """True when every step this code does not know was recorded as additive: it only added tables and
+    columns, so this code, which names none of them, runs on the database as it is. A daemon started
+    before a merge keeps running after another process applies a step the merge brought."""
+    if "additive" not in _cols(con, "schema_version"):
+        return False
+    return not con.execute("SELECT 1 FROM schema_version WHERE version > ? AND additive = 0 LIMIT 1",
+                           (LATEST_VERSION,)).fetchone()
 
 
 def _baseline(con) -> None:
