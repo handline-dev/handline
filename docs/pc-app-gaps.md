@@ -43,7 +43,7 @@ Legend (the daemon team's plan groups): D1 chat reads and the `chat` topic; D2 c
 
 Numbered on from `docs/turborepo-layout.md` §6 (units 1–7). Each needs unit 4a's responsive shell and ends with the root gate green, a test against the fake daemon, and the auditor. A unit builds only what `hello.methods` lists and shows "this daemon does not serve <thing>" otherwise (as `web-main-view.md` §3 does for tabs), so none waits for a daemon task to start.
 
-**Data layer first.** Every unit reads and writes through `@handline/app-data` (React Query; `docs/turborepo-layout.md` §8), and every unit's *done when* includes that document's §9 checklist for its views: skeleton on first load, empty and error states, an optimistic or pending write for each action, rollback on refusal. Units Q1 (the package) and Q2 (`apps/web`'s existing reads and writes onto it) are in that document's §6 and **come before U8**; mobile's Q3 builds on Q1.
+**Data layer first.** Every unit reads and writes through `@handline/app-data` (React Query; `docs/turborepo-layout.md` §8), and every unit's *done when* includes that document's §9 checklist for its views: skeleton on first load, empty and error states, an optimistic or pending write for each action, rollback on refusal. Units Q1 (the package) and Q2 (`apps/web`'s existing reads and writes onto it) are in that document's §6 and **come before U8**; Q3 (mobile onto the same layer) follows Q1, and Q4 (removing what the cache replaced in the store) waits for both apps.
 
 | Unit | Builds (web) | Done when | Needs | Can start |
 |---|---|---|---|---|

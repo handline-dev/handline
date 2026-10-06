@@ -77,7 +77,7 @@ Every step ends with the root gate green, and the tests of code that has not mov
 3. **Core.** `packages/app-core`: one `Store` that covers both old stores (the PC store's `details` and `notes`, the mobile store's `page` and terminal view),
    plus `model.ts`, the key tables and `workspace.ts`; then `packages/tokens` and `packages/app-react`. `web/ui` and `web/mobile` move onto the unified store and **keep running**:
    the phone keeps a working UI until `apps/web` has a phone layout. The store cases of `mobile.test.ts` fold into `ui-store`'s file.
-3b. **Data layer** (units Q1–Q2, §6). `packages/app-data` lands with its guard tests; `apps/web`'s reads and writes move onto it and the store drops what the cache now owns. `apps/mobile` starts on it (unit Q3).
+3b. **Data layer** (units Q1–Q4, §6). `packages/app-data` lands with its guard tests (Q1); `apps/web` (Q2) and `apps/mobile` (Q3) move their reads and writes onto it, each keeping the old store fields working for the other; only then does the store drop what the cache owns (Q4).
 4. **Web.** `apps/web` is built beside `web/ui`. Then, when it shows everything `web/ui` and `web/mobile` show at desktop and phone width, `web/ui`, `web/mobile` and `serve-ui.ts` are deleted.
    The hardening cases of `serve-ui.ts` and `mobile/server.ts` (6 tests: loopback-only without `--cert`, TLS rule, path hardening, a malformed or directory URL answered with an error and not a crash, plain http refused off loopback)
    move to the static server that serves `dist`; the `views.ts` cases (escaped daemon text, only the grid redraws while streaming) are rewritten for the terminal tab. They do not drop out between steps.
@@ -87,7 +87,7 @@ Every step ends with the root gate green, and the tests of code that has not mov
 
 ## 6. Work units
 
-The first column is a suggestion; the manager assigns. Units 1–3 and Q1 touch the repo root and `packages/`, so they run in order;
+The first column is a suggestion; the manager assigns. Units 1–3, Q1 and Q4 touch the repo root and `packages/`, so they run in order;
 4a and 5 touch disjoint directories and run in parallel after 3; 6 can start now.
 
 | # | Unit | Suggested owner | After | Done when |
@@ -96,8 +96,9 @@ The first column is a suggestion; the manager assigns. Units 1–3 and Q1 touch 
 | 2 | `app-core` (with `workspace.ts` and its tests, see web-main-view §4–5), `tokens`, `app-react`; `web/ui` and `web/mobile` onto the unified store (step 3) | pc-build (wrote `ui/store`), mobile-build reviews the merged store | 1 | `ui-model` 9, `ui-store` 4, the folded mobile store cases and the workspace tests pass from `app-core`; `web/ui` and `web/mobile` still run; the commit lists where each of the 10 mobile tests went |
 | 3 | `apps/web` shell: sidebar with the agent controls, tab strip and split panes on `app-react`, tabs Chat and Terminal on today's API (step 4, first half) | pc-build | 2 | every control of the old agent header works from the sidebar and the main view has no header and no per-agent tab row, and each pane has its own tab strip; up to 4 panes, close rules and reload restore verified in a DOM test and screenshots |
 | Q1 | **`app-data`** (§8): query provider, key factory, hooks for every read in `docs/pc-app-gaps.md`, event bridge, write table with optimistic update and rollback, `Skeleton` and the per-view specs, fake-daemon `latency` and `refuse` knobs, the guard tests (§8.7) | pc-build (wrote the store); mobile-build reviews | 3 | `pnpm turbo test typecheck` green; every read method and every UI write method of `contract/protocol.json` is in a table; each row of §8.4 and §8.5 has a test; the §9 list passes for the package |
-| Q2 | `apps/web` onto `app-data`: sidebar rows and detail block, the prompt card, Start / Resume / stop and Take control / Release as writes; the store loses `agents`, `details`, `watch`, `refresh`, `act`, `run`; skeletons for the sidebar, detail block and Terminal tab | pc-build | Q1 | no component outside `app-data` calls `client.call` for data (guard test); the unit-3 tests still pass or move with a note of where each went; screenshots of the loading state at 375, 768 and 1280 px; §9 passes |
-| Q3 | `apps/mobile` built on `app-data` from its first data screen (agent list, agent page chat, inbox, tasks, accounts), with the same skeleton specs | mobile-build | Q1, 5 | each of those screens shows its skeleton, then data, and a write shows at once and rolls back on refusal, against the fake daemon with `latency` and `refuse`; §9 passes |
+| Q2 | `apps/web` onto `app-data`: sidebar rows and detail block, the prompt card, Start / Resume / stop and Take control / Release as writes; the store is left as it is; skeletons for the sidebar, detail block and Terminal tab | pc-build | Q1 | no component outside `app-data` calls `client.call` for data (guard test); the unit-3 tests still pass or move with a note of where each went; screenshots of the loading state at 375, 768 and 1280 px; §9 passes |
+| Q3 | `apps/mobile` onto `app-data`: the agent list and agent page (now reading `s.agents` and `s.details`) move to the query hooks and the shared skeleton specs; the screens that follow (inbox, tasks, accounts) start on it | mobile-build | Q1, 5 | each screen shows its skeleton, then data, and a write shows at once and rolls back on refusal, against the fake daemon with `latency` and `refuse`; §9 passes; the store is left as it is |
+| Q4 | Store cleanup: remove `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act`, `run`; `openAgent` only attaches (§8.1) | pc-build | Q2, Q3 | no app reads a removed field (typecheck is the proof); the store tests that covered them move to `app-data` with a note of where each went; the gate is green |
 | 4a | Responsive collapse, drawer sidebar, phone width; then delete `web/ui`, `web/mobile`, `serve-ui.ts` (step 4, second half) | pc-build | 3 | screenshots at 375, 768 and 1280 px; the 6 hardening tests pass against the static server for `dist`; nothing `web/ui` or `web/mobile` showed is missing |
 | 4b–4e | Shell, Markdown, Web and Emulator tabs | pc-build | 4a, Q2 and the daemon request each needs | per tab as in `docs/web-main-view.md` §3 and §6 |
 | 5 | `apps/mobile`: Expo skeleton, pair, agent list, agent page (step 5) | mobile-build | 2; its data screens follow Q1 (unit Q3) | runs on a device or simulator against the fake daemon over `wss`; list, page, terminal text, key strip and permission card work |
@@ -130,7 +131,8 @@ Written against the store on main @1048b3f5 and `contract/protocol.json` (111 me
 | Layout (`Workspace`), drafts, filters, rail group, scroll | `app-core` model and the app's own storage (design: per browser) | UI state; no daemon call |
 | Which daemon (`daemonId`) | provider prop | every query key starts with it, so two daemons never share an entry |
 
-The store loses `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act` and `run`; the cache replaces them. `useAgents()` and `useAgentDetail()` keep their names and become query hooks, so a screen's call sites do not change.
+The cache replaces the store's `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act` and `run`, but **they are removed only in unit Q4, after both apps have moved** (§6): `apps/mobile` reads `s.agents`, `s.details` and `openAgent` today, and breaks if they go first. Until Q4 the two coexist and no screen reads both.
+`useAgents()`, `useAgentDetail()` and the other hooks of `app-data` return the **query result** (`data`, `isPending`, `isFetching`, `error`), which is what draws the five states of §8.3; a call site changes once, when its app moves (Q2, Q3). After Q4 `openAgent` only attaches the terminal and sets `page` (`agent`, `tab`, `view`); it no longer watches or loads detail. The page's agent row and detail come from `useAgent(page.agent)` and `useAgentDetail(page.agent)`, and a `not_found` there shows "<agent> is gone" and closes the page, as the store's `loadDetail` does now.
 
 ### 8.2 Queries and keys
 
@@ -139,7 +141,7 @@ The store loses `agents`, `details`, `watch` and its refcount, `refresh`, `loadD
 - **Snapshot only** (`stats.get`, `settings.get`, `schedules.list`, `team.get`, `hr.list`, `worktrees.list`, `answers.list`): `staleTime` 30 s, refetch on mount and on reconnect.
 - **Gated on the connection and the daemon's method list**: `enabled` only while the connection is `open` **and** `hello.methods` lists the method (`useServes(method)`). A method the daemon does not serve is not an error: the view shows "this daemon does not serve <thing>", as `docs/web-main-view.md` §3 does for tabs, and nothing is called.
 - Filters keep the previous rows on screen while the next page loads (`placeholderData: keepPreviousData`), so changing a filter never flashes a skeleton.
-- `networkMode: 'always'`: the connection is to a daemon, not the internet, and the client already waits for `open` and **re-sends pending writes with their `request_id`** after a reconnect (`DaemonClient.call`, `establish`). React Query does not retry a write; it would double what the client already does.
+- `networkMode: 'always'`: the connection is to a daemon, not the internet, and the client already waits for `open` and, in `DaemonClient.open()`, **re-sends every pending call after a reconnect** (reads too; writes with their old `request_id`, so the daemon answers from its stored reply). React Query does not retry a write; it would double that.
 
 ### 8.3 Loading and errors
 
@@ -151,7 +153,9 @@ Errors are classified once in `app-data`, from `RpcError.code`:
 | `transport` | nothing in the view: the connection banner speaks, the data stays, a reconnect refetches (as `Store.act` does today) |
 | `not_found` | the empty state of that view ("No agent named X"), not an error |
 | `refused` (gate, reason, hint) | the daemon's own sentence with its hint, in the view or the toast; reads are not retried; gate `unsupported` is the "not served" state below |
-| `unknown_method`, or gate `unsupported` | the "not served" state |
+| `bad_request` with `data.method` (JSON-RPC -32601, an unknown method), or gate `unsupported` | the "not served" state (most never reach the wire: `useServes` gates on `hello.methods`) |
+| `daemon_busy` (`retry_after_ms`) | the read waits that long and tries again; no Retry block |
+| `protocol` (client too old) | the provider's fatal sentence for the whole app, not a view error |
 | anything else | an error block with **Retry**; the last data stays visible beneath it |
 
 ### 8.4 Events into the cache
@@ -188,16 +192,18 @@ Rules for both: the write is idempotent through the `request_id` the client adds
 | `chat.send` | authored | a message row with `state: sending`, keyed by its `request_id`, at the top of *mine* | the row turns `failed` with **Retry** and **Discard**; the text is never lost |
 | `chat.withdraw` `chat.dismiss` `chat.answer` | authored | the message's flag or answer | restore the message |
 | `task.new` | authored | a provisional row (negative id, `pending`) | row removed, form refilled |
-| `task.done` `reopen` `queue` `draft` `release` `discard` `withdraw` `cancel` `edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
+| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.discard` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
 | `task.merge` | authored | merged rows leave the list | restore the list |
-| `task.memo.add` `edit` `delete` | authored | the memo in the list | restore |
-| `inbox.mark_read` `answer` `reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
-| `agent.set` `settings.set` `account.set` `account.set_cap` `schedule.add` `edit` `remove` `answer.add` `remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
-| `session.start` `wake` `restart` `park` `stop` `interrupt` `agent.fold` `agent.move` `agent.create` | decided | pending mark on the row; `agent.create` follows its `operation.progress` | the mark goes, the reason shows |
+| `task.memo.add` `task.memo.edit` `task.memo.delete` | authored | the memo in the list | restore |
+| `inbox.mark_read` `inbox.answer` `inbox.reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
+| `agent.set` `settings.set` `account.set` `account.set_cap` `schedule.add` `schedule.edit` `schedule.remove` `answer.add` `answer.remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
+| `session.start` `session.wake` `session.restart` `session.park` `session.stop` `session.interrupt` `agent.fold` `agent.move` `agent.create` | decided | pending mark on the row; `agent.create` follows its `operation.progress` | the mark goes, the reason shows |
 | `prompt.answer` | decided | the card shows "answering…" and keeps its buttons off; it leaves when the prompt's id changes by event | `stale_prompt`: refetch the prompt, the card refreshes; any other refusal: buttons back, reason shown |
-| `input.take` `input.release` `hr.decide` `account.login` `terminal.close` `worktree.set_status` | decided | pending mark | the mark goes, the reason shows |
+| `input.take` `input.release` `hr.decide` `account.login` `terminal.close` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke` keeps its confirmation) | the mark goes, the reason shows |
+| `settings.trust` | authored | the folder in the trusted list (G11) | restore the list |
+| `device.redeem` | pairing, before `hello` and outside the cache | the app's pair flow calls it, not a view | the flow shows the reason |
 | `session.input` `session.keys` `session.type` `terminal.resize` | **not cached** | none: the terminal stream is the answer, and the app draws no local echo | refusal shown in the terminal tab's status |
-| Agent-facing writes (`say`, `ask`, `push*`, `land*`, `hook.record`, `hr.propose` and the like) | not from the UI | none | none |
+| The "not from the UI" list, read by guard test 2: `ask` `say` `push` `push.answer` `push.cancelled` `land` `land.authorize` `land.pass` `hook.record` `hr.propose` `hr.withdraw` `trust.propose` `input.ask` `task.begin` `task.start` `task.progress` `task.handoff` | agent commands | none | none |
 
 ### 8.6 Skeleton
 
@@ -223,7 +229,7 @@ Each item is pass or fail with a test or a screenshot as evidence in the task no
 1. **Reads**: every read in the unit is a hook over `qk`; no `client.call` for data in the unit's files (guard test 1 green).
 2. **Writes**: every write in the unit has a row in §8.5 with the right kind; guard test 2 green.
 3. **Loading**: each view has its skeleton spec; with `latency(500)` the skeleton shows after 150 ms, stays 300 ms at least, and is replaced by the content; no spinner and no blank pane in the loading state; skeleton and content use the same token heights (a test compares the two).
-4. **Empty and error**: each view shows its empty sentence; a `refused` read shows the daemon's sentence and hint; `transport` shows nothing in the view; `unknown_method` and gate `unsupported` show the "not served" state; the last data stays under an error.
+4. **Empty and error**: each view shows its empty sentence; a `refused` read shows the daemon's sentence and hint; `transport` shows nothing in the view; `bad_request` with `data.method` and gate `unsupported` show the "not served" state; `daemon_busy` waits `retry_after_ms`; the last data stays under an error.
 5. **Optimistic (authored)**: with `latency(500)` the change is on screen **before** the call resolves; with `refuse(...)` the cache equals the snapshot from before (deep equal) and the person's input is still in the box; a `chat.send` that fails keeps its text and offers Retry.
 6. **Decided**: the cache is untouched while the write is in flight; the pending mark shows; on refusal the mark goes and the reason shows; `prompt.answer` with a changed prompt sends nothing and the card refreshes.
 7. **Events**: an event for the same thing replaces an optimistic value; two writes on one target keep their order; a `gap` and a reconnect refetch every active query (fake daemon test).

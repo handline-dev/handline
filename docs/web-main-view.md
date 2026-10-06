@@ -109,7 +109,7 @@ R4 and R5 widen what a viewer can read on the host beyond the terminal, so the d
 
 ## 7. Units 3 and 4
 
-The units are in `docs/turborepo-layout.md` §6 (units 2, 3, Q1–Q2 and 4a–4e) and follow this document. The mobile app (unit 5) shows Chat and Terminal as two screens and never splits.
+The units are in `docs/turborepo-layout.md` §6 (units 2, 3, Q1–Q4 and 4a–4e) and follow this document. The mobile app (unit 5) shows Chat and Terminal as two screens and never splits.
 
 ## 8. Assumptions to confirm
 
