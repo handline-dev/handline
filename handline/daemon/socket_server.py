@@ -190,6 +190,9 @@ def _serve_one(conn: socket.socket, log) -> None:
         conn.close()
 
 
+MAX_CONNECTIONS = 256       # served at once; one past it is answered `daemon_busy` and closed
+
+
 class SocketServer:
     """Runs the accept loop in a background thread, one further thread per
     connection - see the module docstring for why neither is inline with the
@@ -201,6 +204,7 @@ class SocketServer:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._watcher = stream.Watcher(log)
+        self._open, self._open_lock = 0, threading.Lock()
 
     def start(self) -> None:
         path = paths.socket_file()
@@ -240,7 +244,30 @@ class SocketServer:
                 continue
             except OSError:
                 break  # the socket was closed under us by stop()
-            threading.Thread(target=_serve_one, args=(conn, self._log), daemon=True).start()
+            with self._open_lock:
+                full = self._open >= MAX_CONNECTIONS
+                self._open += not full
+            if full:
+                self._refuse_busy(conn)
+                continue
+            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    def _serve(self, conn: socket.socket) -> None:
+        try:
+            _serve_one(conn, self._log)
+        finally:
+            with self._open_lock:
+                self._open -= 1
+
+    def _refuse_busy(self, conn: socket.socket) -> None:
+        """One line saying why, then the connection is closed: the daemon serves as many connections as it can and says so past that."""
+        try:
+            conn.settimeout(1.0)
+            conn.sendall(json.dumps({"jsonrpc": "2.0", "id": None, "error": rpc.RpcError(rpc.BUSY, "daemon_busy", f"{MAX_CONNECTIONS} connections are open: try again").wire()}).encode() + b"\n")
+        except OSError:
+            pass
+        finally:
+            conn.close()
 
     def stop(self) -> None:
         self._stop.set()
