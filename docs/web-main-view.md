@@ -1,6 +1,6 @@
 # Web main view: sidebar-only agent controls, tabs and split panes
 
-Founder's rule (T1803): agent controls live **only in the left sidebar**, none at the top. The main view's top is a tab strip: **Chat** (cannot be closed),
+Founder's rule: agent controls live **only in the left sidebar**, none at the top. The main view's top is a tab strip: **Chat** (cannot be closed),
 the agent's **Claude Code / Codex terminal**, **simulator / emulator**, **web**, **markdown file** and so on. Any tab can be dragged to the **right or below**
 to split the view, up to **four** panes; every tab but Chat can be closed.
 
@@ -102,21 +102,11 @@ None blocks unit 3; they gate the tab kinds in §3. Each is a new method or fiel
 
 R4 and R5 widen what a viewer can read on the host beyond the terminal, so the daemon team decides roles and confinement (design §8 cross-cutting 7); the UI assumes member-or-founder and greys the tab otherwise.
 
-## 7. Units 3 and 4 of `turborepo-layout.md`, revised
+## 7. Units 3 and 4
 
-`turborepo-layout.md` is under review at 1f8f5ad4 and is not edited here; these rows replace its rows 2, 3 and 4.
-
-| # | Unit | After | Done when |
-|---|---|---|---|
-| 2 | as before, **plus `app-core/workspace.ts`** with its tests (§5) | 1 | `ui-model` 9, `ui-store` 4, the folded mobile cases and the workspace tests pass from `app-core` |
-| 3 | `apps/web` shell: sidebar with the controls of §2 and detail block, tab strip and split panes on `app-react`, tab kinds **Chat and Terminal (agent session)** on today's API, saved layout, keyboard moves | 2 | every control of the old agent header works from the sidebar; the main view has no header; splits to 4 panes, close rules and reload restore verified in a DOM test and screenshots |
-| 4a | Responsive: collapse to one group under the size rule, drawer sidebar, phone width; remove `web/ui` and `serve-ui.ts` (its 4 tests ported) | 3 | screenshots at 375, 768, 1280 px; `web/ui` gone |
-| 4b | Shell tab | 4a, R2 | opens, lists, reattaches; closing detaches |
-| 4c | Markdown tab | 4a, R5 | a file renders sanitized, relative images work, reload on change |
-| 4d | Web tab | 4a, R4 | a dev server in a worktree shows; a framing refusal shows the fallback |
-| 4e | Emulator tab | 4a, R3 | screen shows and a tap lands; last, largest, may be cut |
-| — | Agent terminal label from R1 | R1 | tab says Claude Code or Codex |
-
+Units 2, 3 and 4a–4e of `docs/turborepo-layout.md` §6 are written to match this document: unit 2 adds `app-core/workspace.ts` with the tests of §5; unit 3 builds the sidebar of §2,
+the tab strip and the split panes with the Chat and Terminal tabs on today's API; unit 4a makes them responsive and removes `web/ui` and `web/mobile`;
+4b–4e add the Shell, Markdown, Web and Emulator tabs as R2, R5, R4 and R3 land, and the Claude Code / Codex label waits on R1.
 The mobile app (unit 5) is unaffected: it shows Chat and Terminal as two screens and never splits.
 
 ## 8. Assumptions to confirm

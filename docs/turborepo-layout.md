@@ -1,8 +1,9 @@
 # Turborepo layout: React Native app, responsive web, shared packages
 
-Founder's rule (T1798): mobile means a **React Native app**; the web is **responsive**; what they share lives in a **Turborepo**.
+Founder's rule: mobile means a **React Native app**; the web is **responsive**; what they share lives in a **Turborepo**.
 This replaces "mobile is a PWA" in `web/README.md` (the PWA in `web/mobile/` is dropped) and extends
-`docs/web-ui-design.md` (§4 PC screens, §7 mobile screens). Written against main @2f7de798.
+`docs/web-ui-design.md` (§2 frame, §3 screens, §7 mobile screens); the main view of `apps/web` is in `docs/web-main-view.md`.
+Written against main @2f7de798. Choices not yet confirmed by the founder: repo-root layout, pnpm, Vite over Next, logic-only sharing.
 
 ## 1. Decisions
 
@@ -47,8 +48,8 @@ Dependency direction is one way: `contract` → `client` → `app-core` → `app
 | Tokens and breakpoints | `web/ui/style.css` | Where they land (web: CSS variables from the constants; mobile: used directly) |
 | Fake daemon and test helpers | `web/fake-daemon/`, `web/test/helpers.ts` | — |
 
-Responsive web: breakpoints come from `@handline/tokens` (phone < 640, tablet 640–1023, PC ≥ 1024). The PC layout is design §4
-(rail, tabs, context panel); at phone width the web shows the design §7 screens (one column, tab bar). Which screens exist is
+Responsive web: breakpoints come from `@handline/tokens` (phone < 640, tablet 640–1023, PC ≥ 1024). The PC layout is design §2 and §3
+(rail, agent page, context panel §4.5), with the main view as `docs/web-main-view.md` revises it; at phone width the web shows the design §7 screens (one column, tab bar). Which screens exist is
 decided in `app-core`; CSS only decides how they are laid out. Electron (design: web first, Electron wraps the same app) loads the built `apps/web`.
 
 ## 4. Tasks and tests
@@ -63,19 +64,18 @@ Today's 46 tests: client 17, transports 2, ui-model 9, ui-store 4, serve-ui 4, m
 ## 5. Migration order
 
 Every step ends with the root gate green, and the tests of code that has not moved yet still run from `web/`
-(`web` is a temporary workspace member until step 6). No step changes behavior and moves files in one commit; moves are `git mv`.
+(`web` is a temporary workspace member until step 5). Moves are `git mv`, in commits that change no behavior. What each step must show is in the §6 table.
 
 1. **Scaffold.** Root `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `turbo.json`, `packages/config`, `contract/package.json`;
-   `.gitignore` for `node_modules`, `.turbo`, `dist`. No code moves. Done when `pnpm install && pnpm turbo test` runs the 46 existing tests unchanged from `web/`.
+   `.gitignore` for `node_modules`, `.turbo`, `dist`. No code moves.
 2. **Client and fake daemon.** `web/src` → `packages/client` (minus `node-socket.ts` → `packages/client-node`); `web/fake-daemon` → `packages/fake-daemon`;
-   `web/test/helpers.ts` with them. `web/ui` and `web/mobile` import by package name. Done when client 17 and transports 2 pass from the packages and the other 27 still pass.
+   `web/test/helpers.ts` with them. `web/ui` and `web/mobile` import by package name.
 3. **Core.** `packages/app-core`: one `Store` that covers both old stores (the PC store's `details` and `notes`, the mobile store's `page` and terminal view),
-   plus `model.ts` and the key tables. `ui-model` 9 and `ui-store` 4 move over; the store cases in `mobile.test.ts` are folded into `ui-store`'s file.
-   `web/mobile/` is deleted here: its 10 tests are either moved (store behavior) or removed with the code they test (`views.ts` HTML), and the commit lists which.
-   Then `packages/tokens` and `packages/app-react`. Done when `web/ui` runs on `app-core` and no test was dropped without that list.
-4. **Web.** `apps/web` is built beside `web/ui`: shell, agent rail, agent page, terminal pane, then the responsive layouts. `web/ui` is deleted only when
-   `apps/web` shows every screen `web/ui` shows (agent rail, header controls, permission card, empty chat, terminal pane with key chips, take/release).
-   `serve-ui.ts` goes with it; its 4 tests port to the static server that serves the built `dist` (loopback-only without `--cert`, TLS rule, path hardening).
+   plus `model.ts`, the key tables and `workspace.ts`; then `packages/tokens` and `packages/app-react`. `web/ui` and `web/mobile` move onto the unified store and **keep running**:
+   the phone keeps a working UI until `apps/web` has a phone layout. The store cases of `mobile.test.ts` fold into `ui-store`'s file.
+4. **Web.** `apps/web` is built beside `web/ui`. Then, when it shows everything `web/ui` and `web/mobile` show at desktop and phone width, `web/ui`, `web/mobile` and `serve-ui.ts` are deleted.
+   The hardening cases of `serve-ui.ts` and `mobile/server.ts` (6 tests: loopback-only without `--cert`, TLS rule, path hardening, a malformed or directory URL answered with an error and not a crash, plain http refused off loopback)
+   move to the static server that serves `dist`; the `views.ts` cases (escaped daemon text, only the grid redraws while streaming) are rewritten for the terminal tab. They do not drop out between steps.
 5. **Mobile.** `apps/mobile` can start once step 3's store API is merged; the TLS-pinning spike (§6) can start at once. First screens: pair, agent list, agent page
    with Chat/Terminal, key strip, permission card, as in design §7.
 6. **Cleanup.** Delete `web/`; move `web/README.md` content into `docs/development.md`; fix any doc that names `web/` (none of `development.md`, `web-ui-design.md`, `phase0-findings.md` does today).
@@ -83,17 +83,18 @@ Every step ends with the root gate green, and the tests of code that has not mov
 ## 6. Work units
 
 The first column is a suggestion; the manager assigns. Units 1–3 touch the repo root and `packages/`, so they run in order;
-4 and 5 touch disjoint directories and run in parallel after 3; 6 can start now.
+4a and 5 touch disjoint directories and run in parallel after 3; 6 can start now.
 
 | # | Unit | Suggested owner | After | Done when |
 |---|---|---|---|---|
-| 1 | Scaffold (step 1) and the client move (step 2) | term-build (wrote the client) | — | root gate green; client 17 and transports 2 run from `packages/`; the other 27 still run from `web/` |
-| 2 | `app-core`, `tokens`, `app-react`, PWA removal (step 3) | pc-build (wrote `ui/store`), mobile-build reviews the merged store | 1 | `ui-model` 9, `ui-store` 4 and the folded mobile cases pass from `app-core`; list of the 10 mobile tests and where each went |
-| 3 | `apps/web` shell, rail and agent page on `app-react` (step 4, first half) | pc-build | 2 | same screens as `web/ui`, run against the fake daemon; DOM smoke test |
-| 4 | Web responsive layouts and `web/ui` removal (step 4, second half) | pc-build | 3 | screens render at 375, 768 and 1280 px widths (screenshots); `serve-ui` hardening tests ported |
+| 1 | Scaffold and the client move (steps 1, 2) | term-build (wrote the client) | — | `pnpm install && pnpm turbo test` green; client 17 and transports 2 run from `packages/`; the other 27 still run from `web/` |
+| 2 | `app-core` (with `workspace.ts` and its tests, see web-main-view §4–5), `tokens`, `app-react`; `web/ui` and `web/mobile` onto the unified store (step 3) | pc-build (wrote `ui/store`), mobile-build reviews the merged store | 1 | `ui-model` 9, `ui-store` 4, the folded mobile store cases and the workspace tests pass from `app-core`; `web/ui` and `web/mobile` still run; the commit lists where each of the 10 mobile tests went |
+| 3 | `apps/web` shell: sidebar with the agent controls, tab strip and split panes on `app-react`, tabs Chat and Terminal on today's API (step 4, first half) | pc-build | 2 | every control of the old agent header works from the sidebar and the main view has no header; up to 4 panes, close rules and reload restore verified in a DOM test and screenshots |
+| 4a | Responsive collapse, drawer sidebar, phone width; then delete `web/ui`, `web/mobile`, `serve-ui.ts` (step 4, second half) | pc-build | 3 | screenshots at 375, 768 and 1280 px; the 6 hardening tests pass against the static server for `dist`; nothing `web/ui` or `web/mobile` showed is missing |
+| 4b–4e | Shell, Markdown, Web and Emulator tabs | pc-build | 4a and the daemon request each needs | per tab as in `docs/web-main-view.md` §3 and §6 |
 | 5 | `apps/mobile`: Expo skeleton, pair, agent list, agent page (step 5) | mobile-build | 2 | runs on a device or simulator against the fake daemon over `wss`; list, page, terminal text, key strip and permission card work |
 | 6 | **Spike**: RN WebSocket to a daemon with a self-signed certificate pinned by fingerprint (design §7) | mobile-build | — | a written result: works in Expo dev client or needs prebuild; the code if a config plugin is needed. Decides Expo vs bare. |
-| 7 | Cleanup (step 6) | architect | 4, 5 | `web/` gone; no doc names it |
+| 7 | Cleanup (step 6) | architect | 4a, 5 | `web/` gone; no doc names it |
 
 Each unit goes through the auditor before merge, and the unit's task note gives the test count before and after.
 
@@ -105,4 +106,3 @@ Each unit goes through the auditor before merge, and the unit's task note gives 
   that is a daemon decision for the daemon team. Until then a small static server in `apps/web` serves it for development.
 - **Dependencies.** The repo has had none in `web/`. React, Vite, Expo and TypeScript are the first; the packages `client`, `client-node`, `fake-daemon` and `app-core` stay dependency-free
   so the contract tests do not depend on a UI toolchain.
-- **Author's choices, not confirmed by the founder:** repo-root layout, pnpm, Vite over Next, logic-only sharing. Each is one row of §1 and cheap to change before unit 1.

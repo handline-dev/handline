@@ -1,6 +1,6 @@
-# Orca feature inventory (from ~/workspaces/orca-references)
+# Orca feature inventory (from the founder's reference screenshots)
 
-Source: 52 screenshots, each viewed one by one (52/52; the `.mov` is excluded, #13884). Orca is a desktop app (Electron-style) that runs coding agents in git worktrees.
+Source: 52 screenshots, each viewed one by one (52/52; the `.mov` is excluded). Orca is a desktop app (Electron-style) that runs coding agents in git worktrees.
 
 **Evidence column**: `S##` is the screenshot's number in the appendix, with its time stamp. File name = `Screenshot 2026-10-05 at <time>.png`.
 
@@ -21,7 +21,7 @@ Source: 52 screenshots, each viewed one by one (52/52; the `.mov` is excluded, #
 | F05 | Agent rows on a card | S01 S44 S45 | Under each worktree: the agents running there with name, last message snippet, age, working/done icon; "2 agents" collapses a group. | daemon+app |
 | F06 | Workspace options | S07 | Group by None/Status/PR/Project; sort; project order; card layout; shown properties; hide sleeping, default-branch, automation-created, CLI-created, detached-HEAD worktrees. | app |
 | F07 | Create worktree dialog | S10 | Project, host, "create from" (Smart / GitHub / Branch / Name, base `origin/main`), agent, Advanced, "create more", ⌘↵. | term+app |
-| F08 | Create from an issue, PR or URL | S10 S06 S25 | Smart field takes a name, `#1234`, a branch or a GitHub, GitLab or Jira URL; the issue becomes linked context (`{linkedIssue}`) for the agent. | daemon+app |
+| F08 | Create from an issue, PR or URL | S10 S06 S25 | Smart field takes a name, `#1234`, a branch or a GitHub, GitLab or Jira URL; the issue becomes linked context (`{linkedIssue}`) for the agent. | daemon+app | <!-- local-ref-ok -->
 | F09 | Workspace board | S45 | Kanban of worktrees: Todo, In progress, In review, Done, plus a "Pinned" drop zone; search, filter, drag to change status. | app |
 | F10 | Where worktrees live | S18 | Workspace directory, nest by repo name, recognised sources (`.claude/worktrees`, `.gsd-workspaces`, other roots). | term |
 | F11 | Branch naming and base | S25 | Branch prefix (git user / custom / none); refresh and fast-forward local main on create; default compare base. | term |
