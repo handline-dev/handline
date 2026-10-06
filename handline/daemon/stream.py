@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 from .. import db
 from ..actions import prompt_blocks
-from . import rpc_agents
+from . import agentview, rpc_agents
 
 WATCH_S = 0.25
 RETRY_S = 2.0              # after the watcher has failed, before it tries again
@@ -211,7 +211,7 @@ def _agents(con, state: dict) -> None:
     for name, view in now.items():
         if before.get(name) != view:
             v = json.loads(view)
-            emit(con, "agents", "agent.changed", v, agent=name, title=None, target={"screen": "agent", "id": name})
+            emit(con, "agents", "agent.changed", agentview.on_the_wire(v), agent=name, title=None, target={"screen": "agent", "id": name})
             if v["state"] == "FATAL" and (json.loads(before[name])["state"] if name in before else None) != "FATAL":
                 emit(con, "notifications", "stall", {"agent": name}, agent=name, title=f"{name} stalled",
                      target={"screen": "agent", "id": name})

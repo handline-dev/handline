@@ -198,11 +198,11 @@ def test_the_methods_serve_the_view_and_the_agents_detail(home: Path) -> None:
     listed = w.call("agents.list", {})["result"]["agents"]
     mine = next(a for a in listed if a["name"] == "backend")
     check("agents.list: every registered agent, the stored view", {a["name"] for a in listed} == set(paths.list_agents())
-          and mine["state"] == "RUNNING" and mine["has_dialog"] is False, str(mine))
+          and mine["state"] == "running" and mine["has_dialog"] is False, str(mine))
     check("agents.list: the spec's required fields are all there", all(k in mine for k in (
         "name", "role", "model", "effort", "state", "state_since", "account", "task", "cache_until", "has_dialog", "parent")))
     got = w.call("agent.get", {"agent": "backend"})["result"]
-    check("agent.get: the view plus the session and terminal facts", got["state"] == "RUNNING" and got["terminal"] == "term_x"
+    check("agent.get: the view plus the session and terminal facts", got["state"] == "running" and got["terminal"] == "term_x"
           and got["session_open"] is True and got["input_holders"][0]["kind"] == "daemon"
           and set(got["account_pick"]) == {"account", "reason"} and got["prompt"] is None, str(got))
     check("agent.get: an agent that is not there is not_found", _code(w.call("agent.get", {"agent": "nobody"})) == "not_found")

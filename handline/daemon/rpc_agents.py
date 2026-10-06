@@ -24,14 +24,14 @@ def _named(con, params) -> str:
 
 def _view(con, name: str) -> dict:
     """The stored view; one made now for an agent registered since the last tick."""
-    return agentview.stored(con, name) or agentview.compute(con, name)
+    return agentview.on_the_wire(agentview.stored(con, name) or agentview.compute(con, name))
 
 
 def _agents_list(ctx, params) -> dict:
     con = db.connect()
     try:
         have = {v["name"]: v for v in agentview.stored_all(con)}
-        return {"agents": [have.get(n) or agentview.compute(con, n) for n in paths.list_agents()]}
+        return {"agents": [agentview.on_the_wire(have.get(n) or agentview.compute(con, n)) for n in paths.list_agents()]}
     finally:
         con.close()
 
