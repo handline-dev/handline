@@ -25,7 +25,7 @@ setup and how to adopt it. Measured on main merged into this branch. Docs only: 
   [max-lines-per-function](https://eslint.org/docs/rules/max-lines-per-function)
 - **Biome** has `noExcessiveLinesPerFunction` (default 50, since 2.0) and `noExcessiveLinesPerFile` (default 300, `skipBlankLines`, not in the recommended
   set, since 2.3). The function limit's ceiling was raised to 65535 in 2.2.7 so large JSX components could be configured.
-  [per function](https://biomejs.dev/linter/rules/no-excessive-lines-per-function), [per file](https://biomejs.dev/linter/rules/no-excessive-lines-per-file)
+  [per function](https://biomejs.dev/linter/rules/no-excessive-lines-per-function), [per file](https://biomejs.dev/linter/rules/no-excessive-lines-per-file) (the page I read is the CSS variant, since 2.3.12; the JS/TS file rule is listed separately and I did not check its version)
 - **oxlint** ships `max-lines` as a pedantic rule, so it is off until enabled. [max-lines in oxlint](https://oxc.rs/docs/guide/usage/linter/rules/eslint/max-lines)
 - The common default across the three is **300 lines per file and 50 per function**. Teams that adopt it on real React code loosen the function limit
   (components are long JSX) and relax tests, which is what §1 does.
@@ -59,7 +59,7 @@ Tokens need a tokenizer in CI for no gain.
 |---|---|---|---|
 | File and function size rules | yes, built in | yes, both | `max-lines` yes; check function rule at adoption |
 | React hooks rules | `eslint-plugin-react-hooks`, the maintained source | partial re-implementation | via a JS plugin bridge |
-| `@tanstack/eslint-plugin-query` (three rules: `exhaustive-deps`, `no-rest-destructuring`, `stable-query-client`) | yes, flat config preset `flat/recommended` ([docs](https://tanstack.com/query/latest/docs/eslint/eslint-plugin-query)) | none | a port exists, version 0.1: too new |
+| `@tanstack/eslint-plugin-query` | yes, flat config preset `flat/recommended` (`flat/recommended-strict` also exists; pick at adoption) ([docs](https://tanstack.com/query/latest/docs/eslint/eslint-plugin-query)) | none | a port exists, version 0.1: too new |
 | Type-aware rules (`no-floating-promises` matters for our async client) | yes, most mature | limited | in progress |
 | Import boundaries by folder | `no-restricted-imports` with patterns, or `eslint-plugin-boundaries` | `noRestrictedImports`, less per-path control | yes for plain restrictions |
 | Format | Prettier (separate tool) | built in, Prettier-compatible | none |
@@ -76,7 +76,7 @@ ESLint style rules anyway (`eslint-config-prettier`, or simply not enabling any 
 
 Version note: ESLint 10 (February 2026) makes flat config the only format and ESLint 9 left support in August 2026, so start on 10. I could not
 check the npm registry from this sandbox, so **verify at install that typescript-eslint, `eslint-plugin-react-hooks` and the query plugin list ESLint 10
-in their peer ranges**; if one does not, pin ESLint 9 for a month rather than disabling the plugin.
+in their peer ranges**; if one does not, **do not pin ESLint 9**: it has been out of support since August 2026, so pinning it is a workaround. Drop that plugin's preset until its peer range lists 10, and keep a dated task to turn it on.
 
 ## 5. Rule set
 
@@ -95,8 +95,8 @@ Base (all packages and apps):
 ESLint gives a rule one level, so there is one error line and no warning band. The aim figures (250 lines, 60 per function) are written
 in `AGENTS.md` for the agent to steer by. A warning band would need a second lint run for little gain; add it only if files keep landing just under 400.
 
-React (`apps/*`, `packages/app-react`): `react-hooks/rules-of-hooks` error, `react-hooks/exhaustive-deps` error, plus
-`@tanstack/query/flat/recommended` once React Query is in (nothing imports it today; the plugin is added with the first query).
+React (`apps/*`, `packages/app-react`, `packages/app-data`): `react-hooks/rules-of-hooks` error, `react-hooks/exhaustive-deps` error, plus
+`@tanstack/query/flat/recommended` (the query plugin backs the React Query design: that package is `packages/app-data`).
 `max-lines-per-function` for `*.tsx` is 250 because components are JSX.
 
 Tests (`**/test/**`, `*.test.ts(x)`): file limit 600; function limit off (a `describe` callback is one long function by design);
@@ -108,7 +108,7 @@ Exemption list (`ignores`):
 - `**/dist/**`, `**/.turbo/**`, `**/node_modules/**`, `pnpm-lock.yaml`
 - `*.css` is not linted by ESLint; style files get Prettier only. If a CSS limit is wanted later, Biome's CSS file rule can be the one use of Biome.
 - A file-level `/* eslint-disable max-lines -- <why> */` is allowed. `reportUnusedDisableDirectives: "error"` makes a stale one fail, and the
-  reason text is required by a `eslint-comments/require-description` rule or by review. Zero exist today (no `eslint-disable` anywhere), so a new one is
+  reason text is required by `eslint-comments/require-description` (plugin `@eslint-community/eslint-plugin-eslint-comments`) or by review. Zero exist today (no `eslint-disable` anywhere), so a new one is
   visible in a diff.
 
 ## 6. Shared config in `packages/config`
@@ -123,7 +123,7 @@ packages/config/
   prettier.json      { "printWidth": 140, "singleQuote": true, "trailingComma": "all" }
 ```
 
-Prettier settings are what the code already looks like: 139 lines in the TS files exceed 140 characters, single quotes, no semicolon change; run it once
+Prettier settings are what the code already looks like: 141 lines in the TS files exceed 140 characters, single quotes, no semicolon change; run it once
 and check the diff is small before fixing the width. Each package has:
 
 ```js
@@ -138,6 +138,7 @@ Import boundaries are written once in `base` as `no-restricted-imports` patterns
 |---|---|
 | `packages/client`, `packages/tokens` | `react`, `react-dom`, `react-native`, any `@handline/app-*` |
 | `packages/app-core` | `react*`, `react-native`, DOM globals (`no-restricted-globals`: `window`, `document`) |
+| everywhere except `packages/app-data` | `@tanstack/react-query`; and `apps/*` may not call `client.call` for data. This is the React Query design's guard test 1 as a lint rule, not a second mechanism |
 | `packages/*` | anything under `apps/` or `web/` |
 | everywhere | `@handline/*/src/*` (deep imports; use the package entry) |
 | `apps/*` | `packages/fake-daemon` outside `test/` and `vite.config.ts` |
@@ -180,7 +181,7 @@ Raw line counts (`wc -l`, so blank and comment lines included; the lint counts l
 | > 400 | 1: `packages/fake-daemon/src/daemon.ts` 486 |
 | 300-400 | `packages/client/src/client.ts` 336, `packages/fake-daemon/test/client.test.ts` 301 (test, under its limit) |
 | 200-300 | `app-core/src/workspace.ts` 274, `app-core/test/store.test.ts` 249, `app-core/test/workspace.test.ts` 217 |
-| Whole tree | median 58, 90th percentile 217, apps and `web/` have no file over 200 |
+| Whole tree | median 60, 90th percentile 217, apps and `web/` have no file over 200 |
 
 Per area: `packages` 23 files, 2651 lines; `apps/web` 11 files, 774; `web/` (retiring) 11 files, 949.
 
