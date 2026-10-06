@@ -22,8 +22,13 @@ test('a restart waits for an open box, text in a field or a send in flight', () 
 });
 
 // U8's message row, as ChatTab renders it: data-id is negative until the daemon numbers the message.
-const row = (id: number, landing: string) => `<div class="msg person" data-landing="${landing}" data-id="${id}"><div class="msg-body">hi</div></div>`;
-const dom = (html: string) => { const w = new Window(); w.document.body.innerHTML = html; return w.document as unknown as Parameters<typeof unsent>[0]; };
+const row = (id: number, landing: string) =>
+  `<div class="msg person" data-landing="${landing}" data-id="${id}"><div class="msg-body">hi</div></div>`;
+const dom = (html: string) => {
+  const w = new Window();
+  w.document.body.innerHTML = html;
+  return w.document as unknown as Parameters<typeof unsent>[0];
+};
 
 test("against U8's markup: only a row the daemon has not numbered, a marked element or typed text counts; a queued message does not", () => {
   assert.equal(unsent(dom(row(41, 'queued') + row(42, 'typed') + '<textarea class="compose"></textarea>')), false);
@@ -44,18 +49,29 @@ test('a build is the page that names its assets plus the main bundle, and null w
   const files = { page: path.join(dir, 'index.html'), main: path.join(dir, 'main.cjs') };
   try {
     assert.equal(buildId(files), null);
-    fs.writeFileSync(files.main, 'x'); fs.writeFileSync(files.page, '<script src="/assets/a.js">');
+    fs.writeFileSync(files.main, 'x');
+    fs.writeFileSync(files.page, '<script src="/assets/a.js">');
     const a = buildId(files);
     assert.equal(buildId(files), a);
     fs.writeFileSync(files.page, '<script src="/assets/b.js">');
     assert.notEqual(buildId(files), a);
-  } finally { fs.rmSync(dir, { recursive: true }); }
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
 });
 
 function harness(first: string | null = 'v1') {
   const s = { build: first, idle: true, answer: true, asked: 0, restarts: 0 };
   const u = new Updater({
-    build: () => s.build, idle: async () => s.idle, ask: async () => { s.asked++; return s.answer; }, restart: () => { s.restarts++; },
+    build: () => s.build,
+    idle: async () => s.idle,
+    ask: async () => {
+      s.asked++;
+      return s.answer;
+    },
+    restart: () => {
+      s.restarts++;
+    },
   });
   return { s, u };
 }
@@ -71,8 +87,10 @@ test('the same build asks nothing; a newer one asks once and restarts on yes', a
 
 test('while a draft or a send is open it does not ask, and asks once it is idle', async () => {
   const { s, u } = harness();
-  s.build = 'v2'; s.idle = false;
-  await u.check(); await u.check();
+  s.build = 'v2';
+  s.idle = false;
+  await u.check();
+  await u.check();
   assert.equal(s.asked, 0);
   s.idle = true;
   await u.check();
@@ -81,8 +99,11 @@ test('while a draft or a send is open it does not ask, and asks once it is idle'
 
 test('a build said no to is not asked about again, a newer one is', async () => {
   const { s, u } = harness();
-  s.build = 'v2'; s.answer = false;
-  await u.check(); await u.check(); await u.check();
+  s.build = 'v2';
+  s.answer = false;
+  await u.check();
+  await u.check();
+  await u.check();
   assert.deepEqual([s.asked, s.restarts], [1, 0]);
   s.build = 'v3';
   await u.check();

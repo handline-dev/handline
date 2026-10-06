@@ -14,11 +14,16 @@ export function noticeFor(e: Event): Notice | null {
   if (e.topic !== 'notifications') return null;
   const who = e.agent ?? text(e.data.agent);
   switch (e.type) {
-    case 'prompt_asked': return { title: `${who || 'An agent'} is asking`, body: e.title ?? 'A prompt is waiting', agent: e.agent };
-    case 'task_done': return { title: `Task ${text(e.data.task)} done`, body: e.title ?? who, agent: e.agent };
-    case 'stall': return { title: `${who || 'An agent'} is stalled`, body: e.title ?? 'It has stopped making progress', agent: e.agent };
-    case 'account_out': return { title: `Account ${text(e.data.account)} is out`, body: e.title ?? 'It has hit its limit', agent: e.agent };
-    default: return null;
+    case 'prompt_asked':
+      return { title: `${who || 'An agent'} is asking`, body: e.title ?? 'A prompt is waiting', agent: e.agent };
+    case 'task_done':
+      return { title: `Task ${text(e.data.task)} done`, body: e.title ?? who, agent: e.agent };
+    case 'stall':
+      return { title: `${who || 'An agent'} is stalled`, body: e.title ?? 'It has stopped making progress', agent: e.agent };
+    case 'account_out':
+      return { title: `Account ${text(e.data.account)} is out`, body: e.title ?? 'It has hit its limit', agent: e.agent };
+    default:
+      return null;
   }
 }
 

@@ -37,7 +37,9 @@ if (!app.requestSingleInstanceLock()) {
       if (/^https?:\/\//.test(url)) void shell.openExternal(url);
       return { action: 'deny' };
     });
-    win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== new URL(web.url).origin) e.preventDefault(); });
+    win.webContents.on('will-navigate', (e, url) => {
+      if (new URL(url).origin !== new URL(web.url).origin) e.preventDefault();
+    });
     await win.loadURL(ws ? `${web.url}?daemon=${encodeURIComponent(ws)}` : web.url);
     app.on('activate', show);
     app.on('window-all-closed', () => app.quit());
@@ -46,15 +48,29 @@ if (!app.requestSingleInstanceLock()) {
     const updater = new Updater({
       build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
       idle: async () => !!win && !win.isDestroyed() && !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true)),
-      ask: async () => (await dialog.showMessageBox(win!, { message: 'Handline was updated. Restart now?', buttons: ['Restart', 'Not now'], defaultId: 0, cancelId: 1 })).response === 0,
-      restart: () => { app.relaunch(); app.quit(); },
+      ask: async () =>
+        (
+          await dialog.showMessageBox(win!, {
+            message: 'Handline was updated. Restart now?',
+            buttons: ['Restart', 'Not now'],
+            defaultId: 0,
+            cancelId: 1,
+          })
+        ).response === 0,
+      restart: () => {
+        app.relaunch();
+        app.quit();
+      },
     });
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
 
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     const desk = new Desk(client, {
-      setBadge: (t) => { if (app.dock) app.dock.setBadge(t); else app.setBadgeCount(Number(t.replace('+', '')) || 0); },
+      setBadge: (t) => {
+        if (app.dock) app.dock.setBadge(t);
+        else app.setBadgeCount(Number(t.replace('+', '')) || 0);
+      },
       notify: (n, onClick) => {
         const notice = new Notification({ title: n.title, body: n.body });
         notice.on('click', onClick);
@@ -69,12 +85,20 @@ if (!app.requestSingleInstanceLock()) {
     // The client reconnects once it has been up; a daemon that is down at launch is retried here.
     void (async () => {
       for (;;) {
-        try { await client.start(); break; }
-        catch { await new Promise((r) => setTimeout(r, 2000)); }
+        try {
+          await client.start();
+          break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
       }
       for (;;) {
-        try { await desk.start(); return; }
-        catch { await new Promise((r) => setTimeout(r, 2000)); }
+        try {
+          await desk.start();
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
       }
     })();
   });

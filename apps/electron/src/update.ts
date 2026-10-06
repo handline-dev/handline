@@ -9,7 +9,8 @@ import fs from 'node:fs';
  */
 export function unsent(doc: { querySelectorAll(s: string): ArrayLike<{ value?: string }> }): boolean {
   if (doc.querySelectorAll('dialog[open], [aria-modal="true"]').length) return true;
-  for (const f of Array.from(doc.querySelectorAll('textarea, input[type="text"], input:not([type])'))) if ((f.value ?? '').trim()) return true;
+  for (const f of Array.from(doc.querySelectorAll('textarea, input[type="text"], input:not([type])')))
+    if ((f.value ?? '').trim()) return true;
   return doc.querySelectorAll('[data-id^="-"], [data-pending]').length > 0;
 }
 export const UNSENT_PROBE = `(${unsent.toString()})(document)`;
@@ -17,8 +18,13 @@ export const UNSENT_PROBE = `(${unsent.toString()})(document)`;
 /** What a build is: the page that names its hashed assets, and the main bundle. Null while a build is half written. */
 export function buildId(files: { page: string; main: string }): string | null {
   try {
-    return createHash('sha1').update(fs.readFileSync(files.page)).update(String(fs.statSync(files.main).mtimeMs)).digest('hex');
-  } catch { return null; }
+    return createHash('sha1')
+      .update(fs.readFileSync(files.page))
+      .update(String(fs.statSync(files.main).mtimeMs))
+      .digest('hex');
+  } catch {
+    return null;
+  }
 }
 
 export interface UpdatePorts {
@@ -35,7 +41,10 @@ export class Updater {
   private running: string | null;
   private declined: string | null = null;
   private asking = false;
-  constructor(ports: UpdatePorts) { this.ports = ports; this.running = ports.build(); }
+  constructor(ports: UpdatePorts) {
+    this.ports = ports;
+    this.running = ports.build();
+  }
 
   async check(): Promise<void> {
     if (this.asking) return;
@@ -48,6 +57,8 @@ export class Updater {
       if (!(await this.ports.idle())) return; // owed: the next check asks again
       if (await this.ports.ask()) this.ports.restart();
       else this.declined = now;
-    } finally { this.asking = false; }
+    } finally {
+      this.asking = false;
+    }
   }
 }

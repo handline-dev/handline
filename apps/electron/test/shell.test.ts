@@ -9,7 +9,18 @@ import { Desk, type Feed, type Ports } from '../src/desk.ts';
 import { agentOfHash, badgeText, hashOfAgent, noticeFor, suppressed } from '../src/notices.ts';
 import { serveDir } from '../src/serve.ts';
 
-const ev = (over: Partial<Event>): Event => ({ cursor: 1, topic: 'notifications', type: 'stall', at: '2026-01-01T00:00:00Z', actor: null, agent: 'handline.architect', title: null, target: null, data: {}, ...over });
+const ev = (over: Partial<Event>): Event => ({
+  cursor: 1,
+  topic: 'notifications',
+  type: 'stall',
+  at: '2026-01-01T00:00:00Z',
+  actor: null,
+  agent: 'handline.architect',
+  title: null,
+  target: null,
+  data: {},
+  ...over,
+});
 
 test('the badge shows the unread count, nothing for none, and 99+ past two digits', () => {
   assert.deepEqual([0, 1, 12, 99, 100, -1].map(badgeText), ['', '1', '12', '99', '99+', '']);
@@ -34,10 +45,19 @@ test('a notice is held back only while the window is focused on that agent', () 
 });
 
 function ports() {
-  const log = { badge: [] as string[], notices: [] as string[], clicks: [] as (() => void)[], opened: [] as (string | null)[], screen: { focused: false, hash: '' } };
+  const log = {
+    badge: [] as string[],
+    notices: [] as string[],
+    clicks: [] as (() => void)[],
+    opened: [] as (string | null)[],
+    screen: { focused: false, hash: '' },
+  };
   const p: Ports = {
     setBadge: (t) => log.badge.push(t),
-    notify: (n, click) => { log.notices.push(n.title); log.clicks.push(click); },
+    notify: (n, click) => {
+      log.notices.push(n.title);
+      log.clicks.push(click);
+    },
     screen: () => log.screen,
     open: (a) => log.opened.push(a),
   };
@@ -59,34 +79,51 @@ test('the desk raises one notice per event, none on screen, and a click opens th
   assert.deepEqual(log.notices, ['handline.architect is stalled', 'Task 7 done']);
   log.clicks[0]!();
   assert.deepEqual(log.opened, ['handline.architect']);
-  desk.stop(); client.close();
+  desk.stop();
+  client.close();
 });
 
 test('the badge follows the daemon status count on start, on inbox events and on reconnect', async () => {
   let unread = 3;
   const handlers: { event?: (e: Event) => void; state?: (s: string) => void } = {};
   const feed = {
-    onEvent: (f: (e: Event) => void) => { handlers.event = f; return () => {}; },
+    onEvent: (f: (e: Event) => void) => {
+      handlers.event = f;
+      return () => {};
+    },
     onGap: () => () => {},
-    onState: (f: (s: string) => void) => { handlers.state = f; return () => {}; },
+    onState: (f: (s: string) => void) => {
+      handlers.state = f;
+      return () => {};
+    },
     subscribe: async () => {},
     call: async () => ({ inbox: { unread } }),
   } as unknown as Feed;
   const { log, p } = ports();
   await new Desk(feed, p).start();
   assert.deepEqual(log.badge, ['3']);
-  unread = 5; handlers.event!(ev({ topic: 'inbox', type: 'inbox.added', cursor: 2 }));
+  unread = 5;
+  handlers.event!(ev({ topic: 'inbox', type: 'inbox.added', cursor: 2 }));
   await until(() => log.badge.length === 2);
-  unread = 0; handlers.state!('open');
+  unread = 0;
+  handlers.state!('open');
   await until(() => log.badge.length === 3);
   assert.deepEqual(log.badge, ['3', '5', '']);
 });
 
 test('a desk whose subscribe failed once subscribes on the next start, with its handlers added once', async () => {
-  let fails = 1, listeners = 0;
+  let fails = 1,
+    listeners = 0;
   const feed = {
-    onEvent: () => { listeners++; return () => {}; }, onGap: () => () => {}, onState: () => () => {},
-    subscribe: async () => { if (fails-- > 0) throw new Error('refused'); },
+    onEvent: () => {
+      listeners++;
+      return () => {};
+    },
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async () => {
+      if (fails-- > 0) throw new Error('refused');
+    },
     call: async () => ({ inbox: { unread: 2 } }),
   } as unknown as Feed;
   const { log, p } = ports();
@@ -117,5 +154,8 @@ test('the built web app is served from a loopback port, any route falling back t
     // A malformed escape is answered, not thrown: the server keeps serving.
     assert.equal((await fetch(`${web.url}%E0%A4%A`)).status, 400);
     assert.equal((await fetch(web.url)).status, 200);
-  } finally { web.close(); fs.rmSync(dir, { recursive: true }); }
+  } finally {
+    web.close();
+    fs.rmSync(dir, { recursive: true });
+  }
 });
