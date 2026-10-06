@@ -10,7 +10,8 @@
     "ios": "expo run:ios",
     "fake-listener": "node scripts/fake-listener.ts",
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@handline/app-core": "workspace:*",

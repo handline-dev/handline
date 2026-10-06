@@ -13,7 +13,11 @@ export function PromptCard({ agent, prompt: p }: { agent: string; prompt: Prompt
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       <div className="card-actions">
         {offered(p).map((o) => (
-          <button key={o.key} className={`btn${o.answer === 'yes' ? ' primary' : ''}`} onClick={() => void store.act('answer', () => store.client.answerPrompt(agent, p.id, o.key))}>
+          <button
+            key={o.key}
+            className={`btn${o.answer === 'yes' ? ' primary' : ''}`}
+            onClick={() => void store.act('answer', () => store.client.answerPrompt(agent, p.id, o.key))}
+          >
             {o.label} <kbd>{o.key}</kbd>
           </button>
         ))}
@@ -26,12 +30,23 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   return (
     <section className="chat">
       <div className="stream">
-        <div className="empty"><strong>No chat yet</strong><p>This daemon does not serve the conversation. Use the terminal tab to work with the agent.</p></div>
+        <div className="empty">
+          <strong>No chat yet</strong>
+          <p>This daemon does not serve the conversation. Use the terminal tab to work with the agent.</p>
+        </div>
       </div>
       <div className="cards">{detail.prompt ? <PromptCard agent={agent} prompt={detail.prompt} /> : null}</div>
       <div className="compose-row">
-        <textarea className="compose" rows={2} placeholder="Chat is not available from this daemon yet" disabled aria-label="Message to the agent" />
-        <button className="btn" disabled>Send ↵</button>
+        <textarea
+          className="compose"
+          rows={2}
+          placeholder="Chat is not available from this daemon yet"
+          disabled
+          aria-label="Message to the agent"
+        />
+        <button className="btn" disabled>
+          Send ↵
+        </button>
       </div>
     </section>
   );

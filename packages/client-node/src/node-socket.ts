@@ -5,12 +5,19 @@ import { LineSplitter, type Transport } from '@handline/client';
 export function wrapSocket(sock: net.Socket): Transport {
   const split = new LineSplitter();
   const t: Transport = {
-    onmessage: null, onclose: null,
-    send: (m) => { sock.write(m + '\n'); },
-    close: () => { sock.destroy(); },
+    onmessage: null,
+    onclose: null,
+    send: (m) => {
+      sock.write(m + '\n');
+    },
+    close: () => {
+      sock.destroy();
+    },
   };
   sock.setEncoding('utf8');
-  sock.on('data', (d: string) => { for (const line of split.push(d)) t.onmessage?.(line); });
+  sock.on('data', (d: string) => {
+    for (const line of split.push(d)) t.onmessage?.(line);
+  });
   sock.on('close', () => t.onclose?.());
   sock.on('error', () => {});
   return t;

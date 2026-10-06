@@ -13,11 +13,25 @@ import { usePalette } from './theme.ts';
 export default function App() {
   const c = usePalette();
   const [pairing, setPairing] = useState<Pairing | null | undefined>(undefined); // undefined: still reading
-  useEffect(() => { void loadPairing().then(setPairing); }, []);
+  useEffect(() => {
+    void loadPairing().then(setPairing);
+  }, []);
   const store = useMemo(() => (pairing ? storeFor(pairing) : null), [pairing]); // one store per pairing: a theme change re-renders App
-  const body = pairing === undefined ? <ActivityIndicator style={{ marginTop: 80 }} />
-    : !store ? <PairScreen onPaired={setPairing} />
-    : <DaemonProvider store={store}><Home store={store} onUnpair={() => { void forgetPairing().then(() => setPairing(null)); }} /></DaemonProvider>;
+  const body =
+    pairing === undefined ? (
+      <ActivityIndicator style={{ marginTop: 80 }} />
+    ) : !store ? (
+      <PairScreen onPaired={setPairing} />
+    ) : (
+      <DaemonProvider store={store}>
+        <Home
+          store={store}
+          onUnpair={() => {
+            void forgetPairing().then(() => setPairing(null));
+          }}
+        />
+      </DaemonProvider>
+    );
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBar style="auto" />

@@ -8,11 +8,36 @@ import path from 'node:path';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { serveWs } from '@handline/fake-daemon/serve';
 
-const arg = (n: string, d: string) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1]! : d; };
-const host = arg('host', '127.0.0.1'), port = Number(arg('port', '7788'));
+const arg = (n: string, d: string) => {
+  const i = process.argv.indexOf(`--${n}`);
+  return i > 0 ? process.argv[i + 1]! : d;
+};
+const host = arg('host', '127.0.0.1'),
+  port = Number(arg('port', '7788'));
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-listener-'));
-execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '2', '-subj', '/CN=handline-fake',
-  '-addext', `subjectAltName=IP:${host}`, '-keyout', `${dir}/k.pem`, '-out', `${dir}/c.pem`], { stdio: 'ignore' });
+execFileSync(
+  'openssl',
+  [
+    'req',
+    '-x509',
+    '-newkey',
+    'ec',
+    '-pkeyopt',
+    'ec_paramgen_curve:prime256v1',
+    '-nodes',
+    '-days',
+    '2',
+    '-subj',
+    '/CN=handline-fake',
+    '-addext',
+    `subjectAltName=IP:${host}`,
+    '-keyout',
+    `${dir}/k.pem`,
+    '-out',
+    `${dir}/c.pem`,
+  ],
+  { stdio: 'ignore' },
+);
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.autoplay(Number(arg('autoplay', '1500')));

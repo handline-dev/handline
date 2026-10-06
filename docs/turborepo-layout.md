@@ -58,10 +58,10 @@ decided in `app-core`; CSS only decides how they are laid out. Electron (design:
 
 ## 4. Tasks and tests
 
-Root `turbo.json` has `test`, `typecheck` and `build`; `test` and `typecheck` depend on the same task of the packages they use
+Root `turbo.json` has `test`, `typecheck`, `lint` and `build`; `test` and `typecheck` depend on the same task of the packages they use
 (`^test`). Package tests keep `node --test` on `.ts` (workspace links resolve outside `node_modules`, so type stripping still
 applies). Apps add their own: `apps/web` Vite build and a DOM smoke test; `apps/mobile` `tsc` and Jest on pure modules.
-The merge gate is `pnpm turbo test typecheck` from the root. It also runs the data-layer guard tests of §8.7, and the auditor's list in §9 applies to every unit that shows daemon data.
+The merge gate is `pnpm turbo test typecheck lint` plus `pnpm format:check` from the root. Lint rules and size limits live in `packages/config/eslint`. It also runs the data-layer guard tests of §8.7, and the auditor's list in §9 applies to every unit that shows daemon data.
 
 Today's 46 tests: client 17, transports 2, ui-model 9, ui-store 4, serve-ui 4, mobile 10. Where each goes is in §5.
 
