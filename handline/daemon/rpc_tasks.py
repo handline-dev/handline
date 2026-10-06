@@ -1,9 +1,11 @@
-"""task.new, task.edit, task.withdraw and task.cancel: a task opened, reshaped or ended through the daemon. They
+"""task.new, task.edit, task.withdraw, task.cancel and task.memo.add, edit and delete: a task opened, reshaped or ended through the daemon. They
 wrap the actions the commands call; each records its result in `write_effects` inside the transaction of its
 effect, so a retry after a crash between the two answers instead of repeating (`rpc._write`).
 
 task.new and task.edit serve `hl task new` and `hl task edit`. task.withdraw is an opener throwing its own task
 away and task.cancel the founder ending one with its open requests, both `hl task discard`'s two callers.
+task.memo.add, edit and delete serve `hl task memo add`, `edit` and `delete`: the memo and its `write_effects` row are one transaction, and the
+holder of a doing task is told after it commits (a crash between loses the telling, never the memo or its answer).
 `relation`, `response`, `reply` (task.new) and `waits_on` (task.edit) have no action behind them yet and are refused."""
 from __future__ import annotations
 
@@ -160,7 +162,81 @@ def _cancel(ctx, params) -> dict:
     return _end(ctx, params, reason, True, "task.cancel")
 
 
+def _memo_write(ctx, params, name: str, run) -> dict:
+    """One memo change in one transaction with its answer; `run(con, me)` returns (ok, message, result extras, what to tell, text)."""
+    tid = _task_id(params)
+    me = ctx.caller.actor
+    con = db.connect()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if db.get_task(con, tid) is None:
+                raise _fail(f"no task T{tid}")
+            ok, msg, more, told = run(con, me)
+            if not ok:
+                raise _fail(msg)
+            result = _accepted(msg, **more)
+            db.record_effect(con, me, params["request_id"], name, result)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+        actions.tell_memo_holder(con, tid, me, *told)
+    finally:
+        con.close()
+    return result
+
+
+def _memo_id(params) -> int:
+    mid = params.get("memo")
+    if isinstance(mid, bool) or not isinstance(mid, int):
+        raise rpc.bad_request("memo is a memo number", "memo", rpc.INVALID_PARAMS)
+    return mid
+
+
+def _memo_row(con, params, tid: int):
+    mid = _memo_id(params)
+    row = db.get_memo(con, mid)
+    if row is None or row["task_id"] != tid:
+        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"T{tid} has no memo {mid}", what="memo", name=str(mid))
+    return mid
+
+
+def _memo_add(ctx, params) -> dict:
+    text = _text(params, "text")
+
+    def run(con, me):
+        ok, msg, mid = actions.memo_add(con, params["task"], me, text, tell=False)
+        return ok, msg, {"memo": mid}, ("added", text)
+    return _memo_write(ctx, params, "task.memo.add", run)
+
+
+def _memo_edit(ctx, params) -> dict:
+    text = _text(params, "text")
+    _memo_id(params)
+
+    def run(con, me):
+        mid = _memo_row(con, params, params["task"])
+        ok, msg = actions.memo_edit(con, mid, me, text, tell=False)
+        return ok, msg, {}, ("edited", text)
+    return _memo_write(ctx, params, "task.memo.edit", run)
+
+
+def _memo_delete(ctx, params) -> dict:
+    _memo_id(params)
+
+    def run(con, me):
+        mid = _memo_row(con, params, params["task"])
+        ok, msg = actions.memo_delete(con, mid, me, tell=False)
+        return ok, msg, {}, ("deleted", "")
+    return _memo_write(ctx, params, "task.memo.delete", run)
+
+
 rpc.METHODS["task.new"] = rpc.Method(_new, "agent", write=True)
 rpc.METHODS["task.edit"] = rpc.Method(_edit, "agent", write=True)
 rpc.METHODS["task.withdraw"] = rpc.Method(_withdraw, "agent", write=True)
 rpc.METHODS["task.cancel"] = rpc.Method(_cancel, "member", write=True)
+rpc.METHODS["task.memo.add"] = rpc.Method(_memo_add, "agent", write=True)
+rpc.METHODS["task.memo.edit"] = rpc.Method(_memo_edit, "agent", write=True)
+rpc.METHODS["task.memo.delete"] = rpc.Method(_memo_delete, "agent", write=True)

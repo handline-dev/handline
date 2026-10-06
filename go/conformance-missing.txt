@@ -10,7 +10,10 @@ agents.list
 daemon.status
 events.feed
 hr.decide
+inbox.answer
 inbox.list
+inbox.mark_read
+inbox.reply
 input.ask
 input.release
 input.take
@@ -35,6 +38,9 @@ subscribe
 task.cancel
 task.edit
 task.get
+task.memo.add
+task.memo.delete
+task.memo.edit
 task.new
 task.withdraw
 tasks.list

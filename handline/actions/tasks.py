@@ -1435,6 +1435,10 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
               + (f": {textsafe.oneline(text)[:400]}" if text else ""), "task memo")
 
 
+def tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
+    _tell_memo_holder(con, tid, by, what, text)
+
+
 def _type_say(con, owner: str, body: str, why: str) -> None:
     """A say from the task board to `owner`, typed at once."""
     rid = db.add_request(con, _UNBLOCK_REQUESTER, owner, body, None, None,
@@ -1446,18 +1450,20 @@ def _type_say(con, owner: str, body: str, why: str) -> None:
     askmod.push(con, owner, rid)
 
 
-def memo_add(con, tid: int, by: str, body: str) -> tuple[bool, str, int | None]:
-    """Add `by`'s memo to task `tid`. (ok, message, memo id)."""
+def memo_add(con, tid: int, by: str, body: str, tell: bool = True) -> tuple[bool, str, int | None]:
+    """Add `by`'s memo to task `tid`. (ok, message, memo id). `tell` False leaves the holder untold, for a caller that
+    tells it once its own transaction has committed (`tell_memo_holder`)."""
     if db.get_task(con, tid) is None:
         return False, f"no task T{tid}", None
     if not body.strip():
         return False, "a memo needs some text", None
     mid = db.add_memo(con, tid, by, body)
-    _tell_memo_holder(con, tid, by, "added", body)
+    if tell:
+        _tell_memo_holder(con, tid, by, "added", body)
     return True, f"memo {mid} added to T{tid}", mid
 
 
-def memo_edit(con, mid: int, by: str, body: str) -> tuple[bool, str]:
+def memo_edit(con, mid: int, by: str, body: str, tell: bool = True) -> tuple[bool, str]:
     """Replace a memo's text and stamp `edited_at`; the same text is no edit."""
     row = db.get_memo(con, mid)
     if row is None:
@@ -1470,11 +1476,12 @@ def memo_edit(con, mid: int, by: str, body: str) -> tuple[bool, str]:
     if body == row["body"]:
         return False, f"memo {mid} already reads that way - nothing to edit"
     db.edit_memo(con, mid, body)
-    _tell_memo_holder(con, row["task_id"], by, "edited", body)
+    if tell:
+        _tell_memo_holder(con, row["task_id"], by, "edited", body)
     return True, f"memo {mid} on T{row['task_id']} edited"
 
 
-def memo_delete(con, mid: int, by: str) -> tuple[bool, str]:
+def memo_delete(con, mid: int, by: str, tell: bool = True) -> tuple[bool, str]:
     row = db.get_memo(con, mid)
     if row is None:
         return False, f"no memo {mid}"
@@ -1482,7 +1489,8 @@ def memo_delete(con, mid: int, by: str) -> tuple[bool, str]:
     if refusal:
         return False, refusal
     db.delete_memo(con, mid)
-    _tell_memo_holder(con, row["task_id"], by, "deleted", "")
+    if tell:
+        _tell_memo_holder(con, row["task_id"], by, "deleted", "")
     return True, f"memo {mid} deleted from T{row['task_id']}"
 
 
