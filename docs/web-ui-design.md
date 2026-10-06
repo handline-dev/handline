@@ -1,6 +1,6 @@
 # Handline web UI: screens and information architecture
 
-Request #14018 (founder-approved #13996/#14011). Founder's brief: base it on the Orca screenshots, fit it to our system, and let a person **control Claude Code directly**. Scope here is screen design and information architecture only. The API is drafted separately from orcapipe T1683; §8 is this document's input to it.
+Approved by the founder. Founder's brief: base it on the Orca screenshots, fit it to our system, and let a person **control Claude Code directly**. Scope here is screen design and information architecture only. The API is drafted separately from the orcapipe team; §8 is this document's input to it.
 
 Delivery order: **web first**, Electron wraps the same web app, mobile is design only (§7).
 Orca source: `docs/orca-feature-inventory.md` at 67fd404f (F01..F69, screenshots S01..S52). IDs below point at it.
@@ -58,7 +58,7 @@ One row per agent, grouped by team role (not by project; a project filter is a c
 
 ```
 ● handline.term-design     opus   alpha
-  working · T1684 · 3m           ▮▮▮▯ 41%
+  working · fix flaky test · 3m           ▮▮▮▯ 41%
 ```
 
 - State dot: running (green), idle (grey), waiting on you (amber, bell), stalled/blocked (red), parked/queued (hollow), no terminal (dashed). These are the daemon's states plus the *block* kinds (`no terminal`, `no session`, `stalled`, `host down`).
@@ -74,12 +74,12 @@ The page is a **chat** like the handline bridge's chat page, with a **pane area*
 
 ```
 ┌ header ────────────────────────────────────────────────────────────────┐
-│ ● handline.term-design   opus · alpha 41% · T1684 · worktree term-design│
+│ ● handline.term-design   opus · alpha 41% · fix flaky test · worktree term-design│
 │ [▶ Start] [■ Stop ▾] [⟳ Resume]                     input: daemon ▾     │
 ├ chat ──────────────────────────────┬ pane area ─────────────────────────┤
 │ you      fix the flaky test        │ [Claude Code ✕] [shell ✕] [＋]     │
 │ agent    delivered, not answered   │ ┌────────────────────────────────┐ │
-│ ─ T1684 done: evidence … ─         │ │ live text grid of the TUI     │ │
+│ ─ task done: evidence … ─         │ │ live text grid of the TUI     │ │
 │ ⚠ Permission: Bash `git push …`    │ │                                │ │
 │   [Yes y] [No n]                   │ └────────────────────────────────┘ │
 │ ▸ type a message…        [Send ↵]  │ keys: [Esc] [^C] [↵] [↑] [↓] [1][2][3]│
@@ -328,16 +328,16 @@ Cross-cutting needs for the contract:
 
 Worktree changes: changed files with status, and a unified diff per file on demand, read-only; a place to hang comments later. The UI shows Review only when the daemon's method list from `hello`/`whoami` includes the diff method; no separate flag.
 
-## 9. Decisions (founder, 10-06, T1686) and what is still open
+## 9. Decisions (founder) and what is still open
 
-Decided (memo 452):
+Decided:
 
 1. **Typing**: the target is several people typing; v1 has one input holder per session; the model stays open to many (§4.3).
 2. **Chat**: v1 has a chat UI like the bridge's, with Claude Code and shell terminals openable in a pane that docks to any side or merges into tabs (§3.2).
 3. **Reach**: LAN or Tailscale only in v1; no internet relay (§7, §8).
 4. **Diff review**: yes in this app, later; reserved in §3.7 and §8, not designed.
 
-Open, asks to the API (auditor memo 456 on T1712, sent to orcapipe):
+Open, asks to the API (from the audit of this document, sent to orcapipe):
 
 - **Chat methods (G1)**: the API has none for §8 "Chat data" (paged messages, landing state, transcript items, plain send, answer/dismiss/withdraw, search), and no `requests` topic in the web-UI event list.
 - **Holders as a list (G2)**: the API has one holder and no ask-for-input; the doc wants `holders: [{who, since}]` and a reserved request.
