@@ -254,6 +254,13 @@
     "applied_at": 1760000000,
     "name": "hook_applied",
     "version": 5
+   },
+   {
+    "__rowid": 6,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "write_effects",
+    "version": 6
    }
   ]
  },
