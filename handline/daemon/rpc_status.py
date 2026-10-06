@@ -27,11 +27,11 @@ def _status(ctx, params) -> dict:
     from .loop import _loaded_sha       # loop imports this module's server, so not at the top
     con = db.connect()
     try:
-        have = {v["name"]: agentview.on_the_wire(v)["state"] for v in agentview.stored_all(con)}
+        have = {v["name"]: v["state"] for v in agentview.stored_all(con)}
         names = paths.list_agents()
         by_state: dict[str, int] = {}
         for n in names:
-            state = have.get(n) or agentview.on_the_wire(agentview.compute(con, n))["state"]
+            state = have.get(n) or agentview.compute(con, n)["state"]
             by_state[state] = by_state.get(state, 0) + 1
         unread = len(actions.mailbox_rows(con))
     finally:

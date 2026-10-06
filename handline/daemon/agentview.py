@@ -32,17 +32,13 @@ def _role_line(name: str) -> str:
     return oneline(body)[:160]
 
 
-def on_the_wire(view: dict) -> dict:
-    """A stored view as the spec's AgentView: the screens' own word and detail (kept for them) become the lower-case state word and its
-    detail the contract names (x-state-words), and nothing else of the view changes."""
-    out = {k: v for k, v in view.items() if k != "wire"}
-    out.update(view.get("wire") or _LEGACY.get(view["state"], {"state": "idle", "state_detail": view.get("state_detail", "")}))
-    return out
-
-
-# A view stored before it carried its wire words (the tick makes a new one at once): the word alone says what it can.
-_LEGACY = {w: {"state": lower} for w, lower in (("RUNNING", "running"), ("IDLE", "idle"), ("PENDING", "queued"), ("MOVING", "parked"),
-                                                ("DIALOG", "waiting"), ("FATAL", "stalled"))}
+def screen_word(view: dict) -> tuple[str, str]:
+    """A view's state word and detail as the screens draw them (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL): the way back from the spec's
+    lower-case words, which are what the view holds."""
+    state, detail = view["state"], view.get("state_detail", "")
+    if state == "parked" and detail == "moving":
+        return "MOVING", ""
+    return {"running": "RUNNING", "queued": "PENDING", "parked": "PENDING", "waiting": "DIALOG", "stalled": "FATAL"}.get(state, "IDLE"), detail
 
 
 _READ = object()
@@ -55,7 +51,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         table = actions.routing()
     row = db.get_agent_state(con, name)
     word, detail = screen_state(con, row)
-    wire, wire_detail = wire_state(con, row, word, detail)
+    wire, detail = wire_state(con, row, word, detail)
     try:
         cfg = agents.read(name)
     except (OSError, ConfigError):
@@ -71,7 +67,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "role": _role_line(name),
         "model": model,
         "effort": effort,
-        "state": word,
+        "state": wire,
         "state_detail": detail,
         "state_since": _ts(row["updated"]) if row else None,
         "block": {"kind": shown["kind"], "since": _ts(shown["since"])} if shown else None,
@@ -83,7 +79,6 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
         "cache_until": None if left is None else _ts(now + left),
         "has_dialog": word == "DIALOG",
-        "wire": {"state": wire, "state_detail": wire_detail},
         "parent": actions.supervisor_of(table, name) if table else None,
     }
 

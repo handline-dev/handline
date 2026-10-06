@@ -33,7 +33,7 @@ def _drift(con, label: str, now: int) -> None:
     """The stored view agrees with the screen's own row and with the daemon's own deciders."""
     agentview.refresh(con, now)
     view, row, ui = agentview.stored(con, "backend"), db.get_agent_state(con, "backend"), _ui_row(con, "backend")
-    check(f"{label}: the state word and what is said beside it are the screen's", (view["state"], view["state_detail"]) == (ui.state, ui.until),
+    check(f"{label}: the state word and what is said beside it are the screen's", agentview.screen_word(view) == (ui.state, ui.until),
           f"{view['state']} {view['state_detail']!r} vs {ui.state} {ui.until!r}")
     check(f"{label}: the state column renders from the view alone",
           tui.state_cell_of_view(view) == tui.state_cell(ui.state, ui.until))
@@ -142,7 +142,7 @@ def test_one_agents_failure_does_not_stale_the_others(home: Path) -> None:
     finally:
         agentview.compute = real
     check("failure: the agent before it and the agent after it are refreshed",
-          agentview.stored(con, "backend")["state"] == "RUNNING" and agentview.stored(con, "marketing")["state"] == "RUNNING")
+          agentview.stored(con, "backend")["state"] == "running" and agentview.stored(con, "marketing")["state"] == "running")
     check("failure: the one that failed keeps its last view", agentview.stored(con, "frontend") == before)
     check("failure: and it is logged by name", any("frontend" in m and "unreadable" in m for m in logged), str(logged))
     con.close()

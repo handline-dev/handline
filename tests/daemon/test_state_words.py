@@ -33,7 +33,7 @@ def _set(con, name: str, state: str, terminal: str | None = "term_x", **kw) -> N
 
 
 def _wire_of(con, name: str) -> tuple[str, str]:
-    view = agentview.on_the_wire(agentview.compute(con, name))
+    view = agentview.compute(con, name)
     return view["state"], view["state_detail"]
 
 
@@ -74,7 +74,7 @@ def test_every_internal_state_goes_out_as_one_of_the_spec_words(home: Path) -> N
         _set(con, "backend", dmn_states.IDLE)
         con.execute("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, first_seen, last_seen) VALUES('backend','permission','fp','Run?',?,?,?,?)",
                     (json.dumps(["Run ls?"]), json.dumps({}), now, now))
-        view = agentview.on_the_wire(agentview.compute(con, "backend"))
+        view = agentview.compute(con, "backend")
         check("state words: an open prompt is waiting, with has_dialog", view["state"] == "waiting" and view["has_dialog"] is True, str(view["state"]))
         every = {dmn_states.IDLE, dmn_states.QUEUED, dmn_states.RUNNING, dmn_states.DONE, dmn_states.HANDOFF, dmn_states.DEGRADED, dmn_states.PARKED,
                  dmn_states.THROTTLED, dmn_states.STALLED}
