@@ -122,6 +122,16 @@ def test_a_service_that_is_installed_and_not_loaded_is_loaded_then_started(home:
     finally:
         f.restore()
     check("ensure: a kickstart that fails for another reason is never answered with a bootstrap", [c[0] for c in f.calls] == ["kickstart"], str(f.calls))
+    f = FakeLaunchd(installed=None)
+    try:
+        try:
+            client.ensure_daemon()
+            err = None
+        except client.DaemonDown as e:
+            err = e
+    finally:
+        f.restore()
+    check("ensure: a sandbox that cannot see the plist falls through at once, asking launchd nothing", err is not None and f.calls == [], str(f.calls))
     f = FakeLaunchd(after=1)
     try:
         client.START_POLL_S, real = 0.01, client.START_POLL_S
