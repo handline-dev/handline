@@ -194,7 +194,7 @@ def test_inbox_reply_sends_a_settling_message_to_whoever_sent_the_item(home: Pat
           and _count("SELECT COUNT(*) FROM requests WHERE requester = 'human' AND target = 'worker' AND parent_id = ?", report) == 1, str(r))
 
 
-def test_the_commands_these_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
+def test_the_memo_and_inbox_commands_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _task()
     rc, out = support._cli(["task", "memo", f"T{tid}", "add", "by the command"])
@@ -243,7 +243,7 @@ def main() -> int:
         run(lambda: test_inbox_mark_read_reads_what_the_caller_may_and_keeps_what_is_owed(Path(td) / "m3"))
         run(lambda: test_inbox_answer_settles_what_the_founder_was_asked(Path(td) / "m4"))
         run(lambda: test_inbox_reply_sends_a_settling_message_to_whoever_sent_the_item(Path(td) / "m5"))
-        run(lambda: test_the_commands_these_methods_serve_still_work_from_an_agent_session(Path(td) / "m6"))
+        run(lambda: test_the_memo_and_inbox_commands_still_work_from_an_agent_session(Path(td) / "m6"))
         run(lambda: test_the_memo_and_inbox_fixtures_pass_against_this_daemon(Path(td) / "m7"))
     return run_area(tests)
 
