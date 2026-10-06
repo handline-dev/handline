@@ -81,6 +81,13 @@ describe('loading', () => {
     expect($('.workspace-loading')).toBeNull();
   });
 
+  it('before hello answers the sidebar is loading, never "does not serve"', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    expect(text($('.rail-list'))).not.toContain('does not serve');
+    await until(() => $$('.row-wrap').length === 3, 'the rows');
+  });
+
   it('a daemon that does not list the agent list says so instead of loading forever', async () => {
     const s = setup();
     s.daemon.knobs.refuse('agents.list', 'unsupported', 'not served');

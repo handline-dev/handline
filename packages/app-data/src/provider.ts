@@ -64,7 +64,8 @@ export function useData(): Data {
 
 /** Whether a view may read or write `method` now: the connection is open and the daemon lists the method for this caller. */
 export function useServes(method: string): { served: boolean; open: boolean } {
-  const served = useSelector((s) => s.can(method));
+  // Until hello has told us what the daemon lists, a view is loading, not "not served".
+  const served = useSelector((s) => s.served.size === 0 || s.can(method));
   const open = useSelector((s) => s.conn === 'open');
   return { served, open };
 }
