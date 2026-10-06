@@ -82,10 +82,9 @@ describe('with the shell', () => {
   it('says unsent while a field holds text and again, false, when it is empty; it says nothing while the value is the same', async () => {
     const sh = stubShell();
     await mount(ARCH);
-    await until(() => box.querySelector('.chat textarea') || box.querySelector('textarea'), 'a text box');
     await until(() => sh.log.unsent.length > 0, 'the first value');
     expect(sh.log.unsent).toEqual([false]);
-    const field = box.querySelector<HTMLTextAreaElement>('.chat textarea') ?? box.querySelector<HTMLTextAreaElement>('textarea')!;
+    const field = box.appendChild(document.createElement('textarea')); // any compose box: the check is on the page, not on one view
     await act(async () => {
       field.value = 'half a message';
       field.dispatchEvent(new Event('input', { bubbles: true }));

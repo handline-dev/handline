@@ -407,6 +407,11 @@ kbd {
   display: flex;
   background: var(--bg);
 }
+.workspace-loading {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+}
 .workspace {
   position: relative;
   flex: 1;

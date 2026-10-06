@@ -1,17 +1,23 @@
 // The frame: the sidebar with every agent control, and the selected agent's workspace at full height.
 import { useEffect, useState } from 'react';
 import { dotOf, type KV, type Store } from '@handline/app-core';
-import { DaemonProvider, useAgents, useError, useStore } from '@handline/app-react';
+import { DaemonProvider, useError, useStore } from '@handline/app-react';
+import { DataProvider, SKELETON_CSS, useAgents, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { useSelectedAgent } from './route.ts';
 import { useShell } from './shell.ts';
 import { Sidebar } from './Sidebar.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
+const Box: BoxComponent = (p) => <div {...p} />;
+
 export function App(props: { store: Store; daemon: string; storage: KV | null; connect?: boolean }) {
   return (
     <DaemonProvider store={props.store} where={props.daemon} connect={props.connect}>
-      <Frame daemon={props.daemon} storage={props.storage} />
+      <DataProvider daemonId={props.daemon} box={Box}>
+        <style>{SKELETON_CSS}</style>
+        <Frame daemon={props.daemon} storage={props.storage} />
+      </DataProvider>
     </DaemonProvider>
   );
 }
@@ -19,7 +25,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
   useShell(agent);
-  const waiting = useAgents().filter((a) => dotOf(a) === 'waiting').length;
+  const waiting = (useAgents().data?.agents ?? []).filter((a) => dotOf(a) === 'waiting').length;
   const error = useError();
   const store = useStore();
   const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
