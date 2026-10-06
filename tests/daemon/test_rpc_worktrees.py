@@ -129,9 +129,22 @@ def test_the_diff_is_read_only_bounded_and_never_leaves_a_known_worktree(home: P
         check(f"worktree.diff: file {bad!r} is bad_request naming file", _code(r) == "bad_request" and r["error"]["data"]["field"] == "file", str(r))
     for bad in ({}, {"path": ""}, {"path": 3}):
         check(f"worktree.diff: {bad} is bad_request naming path", _code(_call("worktree.diff", bad)) == "bad_request")
-    (wkr / "link").symlink_to("/etc/passwd")
-    r = _call("worktree.diff", {"path": path, "file": "link"})["result"]
-    check("worktree.diff: a symlink inside the worktree is not followed to what it points at", "root:" not in r["diff"], str(r))
+    outside = home.parent / (home.name + "-outside")
+    outside.mkdir()
+    (outside / "key").write_text("SECRET\n")
+    (wkr / "linkdir").symlink_to(outside)
+    (wkr / "linkfile").symlink_to(outside / "key")
+    ran_before = []
+    real_run = gitrun.run
+    gitrun.run = lambda cwd, *a, **k: (ran_before.append(a), real_run(cwd, *a, **k))[1]
+    try:
+        for bad in ("linkdir/key", "linkdir", "linkfile", "linkdir/../key"):
+            r = _call("worktree.diff", {"path": path, "file": bad})
+            check(f"worktree.diff: {bad!r} goes through a link and is bad_request naming file, with no git run for it",
+                  _code(r) == "bad_request" and r["error"]["data"]["field"] == "file" and "SECRET" not in json.dumps(r), str(r))
+        check("(and not a single git was run for any of them, the known-worktree lookup apart)", not [a for a in ran_before if "diff" in a], str(ran_before))
+    finally:
+        gitrun.run = real_run
     # it cannot write: every git it runs is read-only
     ran: list = []
     real_run = gitrun.run
@@ -146,6 +159,28 @@ def test_the_diff_is_read_only_bounded_and_never_leaves_a_known_worktree(home: P
     check("read-only: every git run takes no optional locks", ran and all(a[0] == "--no-optional-locks" for a in ran), str(ran[:3]))
     check("read-only: and only reads", verbs <= {"diff", "status", "rev-parse", "ls-files", "symbolic-ref"}, str(verbs))
     check("read-only: diff never asks for an external diff or a text conversion", all("--no-ext-diff" in a and "--no-textconv" in a for a in ran if len(a) > 1 and a[1] == "diff" and "--numstat" not in a), str([a for a in ran if len(a) > 1 and a[1] == "diff"]))
+
+
+def test_names_with_spaces_and_non_ascii_carry_their_line_counts_and_the_team_is_read_once(home: Path) -> None:
+    from handline import actions as act
+    repo, mgr, wkr = _world(home)
+    for name in ("a b.txt", "caf\u00e9.txt"):
+        (wkr / name).write_text("one\n")
+        _git(wkr, "add", name)
+    _git(wkr, "commit", "-q", "-m", "names")
+    (wkr / "a b.txt").write_text("one\ntwo\nthree\n")
+    (wkr / "caf\u00e9.txt").write_text("")
+    calls = {"n": 0}
+    real = act.routing
+    act.routing = lambda: (calls.__setitem__("n", calls["n"] + 1), real())[1]
+    try:
+        w = {x["owner"]: x for x in _call("worktrees.list")["result"]["worktrees"]}["worker"]
+    finally:
+        act.routing = real
+    got = {c["path"]: c for c in w["changed"]}
+    check("worktrees.list: a name with a space keeps its status and line counts", got["a b.txt"]["status"] == "M" and got["a b.txt"]["added"] == 2, str(got))
+    check("worktrees.list: and so does a non-ASCII one", got["caf\u00e9.txt"]["status"] == "M" and got["caf\u00e9.txt"]["deleted"] == 1, str(got))
+    check("worktrees.list: team.yaml is read once for the call, not once per pair of worktrees", calls["n"] == 1, str(calls))
 
 
 def test_agent_options_offers_what_exists(home: Path) -> None:
@@ -211,6 +246,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_repos_and_worktrees_list_what_the_agents_record_with_the_real_git_state(Path(td) / "w0"))
         run(lambda: test_the_diff_is_read_only_bounded_and_never_leaves_a_known_worktree(Path(td) / "w1"))
+        run(lambda: test_names_with_spaces_and_non_ascii_carry_their_line_counts_and_the_team_is_read_once(Path(td) / "w5"))
         run(lambda: test_agent_options_offers_what_exists(Path(td) / "w2"))
         run(lambda: test_these_methods_are_a_persons_and_an_agent_session_is_refused(Path(td) / "w3"))
         run(lambda: test_the_worktree_fixtures_pass_against_this_daemon(Path(td) / "w4"))

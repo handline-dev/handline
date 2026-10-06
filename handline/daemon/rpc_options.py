@@ -1,7 +1,9 @@
 """agent.options: what the new-agent form offers, read from what exists: the repos the agents work in, the roles of the
 agents already on the team (a name and the first line of its ROLE.md, to start a new one from), the models and efforts
 `hl agent set` accepts, the accounts and whether each is logged in, and the names team.yaml declares that no agent has yet.
-No hl command serves it."""
+No hl command serves it. What the spec leaves open is read as: `roles` is one entry per registered agent (its name, and the first
+line of its ROLE.md that is not its own title), `free_names` the names team.yaml declares that no agent has yet, `models` and
+`efforts` what `hl agent set` accepts, `login_state` `ok`, `needs_login` or `unknown` as the account's credential reads."""
 from __future__ import annotations
 
 from ..infra import paths
