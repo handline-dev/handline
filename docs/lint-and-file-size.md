@@ -194,7 +194,7 @@ Splits, in order of need:
   `DaemonClient` stays. Below 250 after that.
 - **`app-core/src/workspace.ts` (274).** Tree helpers (`groupsOf`, `mapNode`, `detach`, `replaceGroup`) to `layout-tree.ts`; tab operations
   (`openTab`, `closeTab`, `activate`, `tabId`) stay. Test file follows the same cut.
-- Nothing else is over the warning line. `Sidebar.tsx` (147) and the CSS are fine.
+- Nothing else is over the 250 aim. `Sidebar.tsx` (147) and the CSS are fine.
 
 Each split is a pure move: same exports through the package entry, tests unchanged, one commit per file so a reviewer sees "moved, not edited".
 The terminal pane work (`docs/terminal-pane.md`) touches `TerminalTab.tsx` and `packages/client`; do the `client.ts` split first so that
