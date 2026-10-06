@@ -4,49 +4,18 @@
 import crypto from 'node:crypto';
 import {
   METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
-  type Actor, type AgentDetail, type AgentView, type Caller, type ErrorCode, type Event as WireEvent,
-  type InputHolder, type MethodName, type Notifications, type Prompt, type Role, type Row, type Timestamp, type Topic,
+  type Actor, type Caller, type Event as WireEvent,
+  type MethodName, type Notifications, type Prompt, type Role, type Timestamp, type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS, BANNER, PROMPT_LINES, type AgentFixture } from './fixtures.ts';
+import { AGENTS, BANNER, PROMPT_LINES } from './fixtures.ts';
+import { Failure, badRequest, refused } from './errors.ts';
+import { DAEMON_HOLDER, detail, newSession, row, scrolledOff, tid, view, visible, type Session } from './session.ts';
 
-const ROWS = 24, COLS = 80;
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
-const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
-const row = (text: string): Row => ({ text });
 
-/** A refusal or error the caller gets as a JSON-RPC error. */
-class Failure extends Error {
-  code: ErrorCode;
-  data: Record<string, unknown>;
-  constructor(code: ErrorCode, message: string, data: Record<string, unknown> = {}) {
-    super(message); this.code = code; this.data = { code, ...data };
-  }
-}
-const refused = (gate: string, reason: string, hint?: string) => new Failure('refused', reason, { reason, gate, hint });
-const badRequest = (message: string, field?: string) => new Failure('bad_request', message, { field });
-
-interface Session {
-  fx: AgentFixture;
-  state: string;
-  since: Timestamp;
-  sessionId: string | null;
-  open: boolean;
-  hasTerminal: boolean;
-  lines: string[];
-  seq: number;
-  cols: number;
-  rows: number;
-  buffer: string; // typed, Enter not yet pressed
-  composing: boolean; // the last line shows the buffer
-  holder: InputHolder;
-  prompt: Prompt | null;
-  queue: (() => void)[]; // the scripted turn, one step per tick
-  counter: number;
-  received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
-}
 
 interface Conn {
   transport: Transport;
@@ -83,19 +52,10 @@ export class FakeDaemon {
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
-    for (const fx of AGENTS) this.sessions.set(fx.name, this.newSession(fx));
+    for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
   }
 
   private iso(): Timestamp { return this.now().toISOString(); }
-
-  private newSession(fx: AgentFixture): Session {
-    const open = fx.session !== null;
-    return {
-      fx, state: fx.state, since: this.iso(), sessionId: fx.session, open, hasTerminal: fx.state !== 'no_terminal',
-      lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [], seq: 0, cols: COLS, rows: ROWS,
-      buffer: '', composing: false, holder: DAEMON_HOLDER, prompt: null, queue: [], counter: 0, received: [],
-    };
-  }
 
   // ---- hosting ----
 
@@ -155,17 +115,11 @@ export class FakeDaemon {
   }
   private record(s: Session, kind: 'text' | 'key', value: string, actor: string) { s.received.push({ kind, value, actor }); }
 
-  private visible(s: Session): string[] {
-    const tail = s.lines.slice(-s.rows);
-    return [...tail, ...Array(s.rows - tail.length).fill('')];
-  }
-  private scrolledOff(s: Session): number { return Math.max(0, s.lines.length - s.rows); }
-
   /** Applies a change to the screen text and sends the changed rows to everyone attached. */
   private edit(s: Session, change: () => void): void {
-    const before = this.visible(s);
+    const before = visible(s);
     change();
-    const changed = this.visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
+    const changed = visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
     if (changed.length) this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
   }
   private pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
@@ -173,27 +127,9 @@ export class FakeDaemon {
     for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
   }
 
-  private view(s: Session): AgentView {
-    return {
-      name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, state_since: s.since, state_detail: '',
-      block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
-      wall_reason: s.fx.wall ? 'usage limit' : null,
-      account: s.fx.account, task: s.fx.task,
-      cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
-      has_dialog: s.prompt !== null, parent: s.fx.parent,
-    };
-  }
-  private detail(s: Session): AgentDetail {
-    return {
-      ...this.view(s), worktree: { path: s.fx.worktree, branch: s.fx.branch }, terminal: s.hasTerminal ? tid(s) : null,
-      session_id: s.sessionId, session_open: s.open, input_holders: [s.holder],
-      account_pick: { account: s.fx.account, reason: 'fixture' }, prompt: s.prompt,
-    };
-  }
-
   private setState(s: Session, state: string, actor?: Actor) {
     s.state = state; s.since = this.iso();
-    this.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: this.view(s) as unknown as Record<string, unknown> });
+    this.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
   }
   private control(s: Session, actor: Actor, kind: string, text: string) {
     this.emit('agents', 'agent.control', { agent: s.fx.name, actor,
@@ -368,8 +304,8 @@ export class FakeDaemon {
         return { alive: true, version: 'fake0000', protocol: PROTOCOL, schema: 1, started_at: this.iso(),
           terminal_host: { name: 'fake', health: 'ok' }, agents: { total: this.sessions.size, by_state }, inbox: { unread: 0 } };
       }
-      case 'agents.list': return { agents: [...this.sessions.values()].map((s) => this.view(s)) };
-      case 'agent.get': return this.detail(agent());
+      case 'agents.list': return { agents: [...this.sessions.values()].map((s) => view(s)) };
+      case 'agent.get': return detail(agent());
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
         c.topics = new Set(p.topics as Topic[]);
@@ -424,14 +360,14 @@ export class FakeDaemon {
         if (!s.hasTerminal) throw refused('state', 'the agent has no terminal');
         c.attached.add(tid(s));
         const want = typeof p.history === 'number' ? p.history : 100;
-        const off = this.scrolledOff(s), first = Math.max(0, off - want);
-        return { terminal: tid(s), format: 'text', seq: s.seq, cols: s.cols, rows: s.rows, lines: this.visible(s).map(row), cursor: null,
+        const off = scrolledOff(s), first = Math.max(0, off - want);
+        return { terminal: tid(s), format: 'text', seq: s.seq, cols: s.cols, rows: s.rows, lines: visible(s).map(row), cursor: null,
           history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 }, holder: s.holder };
       }
       case 'terminal.detach': c.attached.delete(String(p.terminal)); return {};
       case 'terminal.history': {
         const s = this.byTerminal(p.terminal);
-        const end = Math.min(Number(p.before), this.scrolledOff(s)), first = Math.max(0, end - Number(p.limit));
+        const end = Math.min(Number(p.before), scrolledOff(s)), first = Math.max(0, end - Number(p.limit));
         return { first, lines: s.lines.slice(first, end).map(row), more: first > 0 };
       }
       case 'terminal.resize': {
@@ -518,5 +454,3 @@ export class FakeDaemon {
     return this.accepted('Keys sent.');
   }
 }
-
-const tid = (s: Session) => `term:${s.fx.name}`;
