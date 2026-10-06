@@ -159,8 +159,8 @@ def test_the_watcher_sees_a_change_another_process_made(home: Path) -> None:
     watcher.close()
     check("watcher: a view changed by another connection is an agent.changed event", got["method"] == "event"
           and got["params"]["type"] == "agent.changed" and got["params"]["data"]["name"] == "backend"
-          and got["params"]["data"]["state"] == "RUNNING" and got["params"]["target"] == {"screen": "agent", "id": "backend"}, str(got))
-    check("watcher: the first look at the table said nothing", got["params"]["data"]["state"] == "RUNNING")
+          and got["params"]["data"]["state"] == "running" and got["params"]["target"] == {"screen": "agent", "id": "backend"}, str(got))
+    check("watcher: the first look at the table said nothing", got["params"]["data"]["state"] == "running")
     w.close()
     con.close()
 
