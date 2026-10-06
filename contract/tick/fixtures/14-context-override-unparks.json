@@ -313,6 +313,13 @@
     "applied_at": 1760000000,
     "name": "operations",
     "version": 8
+   },
+   {
+    "__rowid": 9,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "devices",
+    "version": 9
    }
   ]
  },

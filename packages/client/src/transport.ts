@@ -21,17 +21,33 @@ export class LineSplitter {
 /** Two linked in-memory ends; messages arrive on a later tick like a real socket. */
 export function memoryPair(): [Transport, Transport] {
   const make = (): Transport & { peer?: Transport; closed: boolean } => ({
-    closed: false, onmessage: null, onclose: null,
-    send(m) { const p = this.peer; if (!this.closed && p) queueMicrotask(() => { if (!this.closed) p.onmessage?.(m); }); },
+    closed: false,
+    onmessage: null,
+    onclose: null,
+    send(m) {
+      const p = this.peer;
+      if (!this.closed && p)
+        queueMicrotask(() => {
+          if (!this.closed) p.onmessage?.(m);
+        });
+    },
     close() {
       if (this.closed) return;
       this.closed = true;
       const p = this.peer as (Transport & { closed: boolean }) | undefined;
-      queueMicrotask(() => { this.onclose?.(); if (p && !p.closed) { p.closed = true; p.onclose?.(); } });
+      queueMicrotask(() => {
+        this.onclose?.();
+        if (p && !p.closed) {
+          p.closed = true;
+          p.onclose?.();
+        }
+      });
     },
   });
-  const a = make(), b = make();
-  a.peer = b; b.peer = a;
+  const a = make(),
+    b = make();
+  a.peer = b;
+  b.peer = a;
   return [a, b];
 }
 
@@ -40,7 +56,8 @@ export function webSocketTransport(url: string): Promise<Transport> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     const t: Transport = {
-      onmessage: null, onclose: null,
+      onmessage: null,
+      onclose: null,
       send: (m) => ws.send(m),
       close: () => ws.close(),
     };

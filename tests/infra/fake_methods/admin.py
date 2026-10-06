@@ -51,7 +51,8 @@ def admin(role, method, params):
     if method == "hr.decide":
         if params.get("decision") not in ("approve", "reject"):
             return _bad("decision")
-        return _not_found("proposal")
+        from . import hr
+        return hr.decide(params) or _not_found("proposal")
     if method == "schedule.add":
         if params.get("target") not in AGENTS:
             return _not_found("agent")

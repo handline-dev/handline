@@ -1127,10 +1127,11 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
                      reset_5h=now + 1800)
         db.set_cursor(con, "notify:backend", head)
         dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("nudge: supervise tells the next task past the idle head instead, and nudges nothing that tick",
-              len(sent) == 1 and "#2 from" in sent[0] and "sat idle" in sent[0], str(sent))
+        check("nudge: supervise tells the tasks behind the open head, as one batch, and nudges nothing that tick",
+              len(sent) == 1 and "#2 from" in sent[0] and "#3 from" in sent[0]
+              and "queued behind #1" in sent[0], str(sent))
         # Back to the queue the stuck checks below were written against.
-        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL WHERE id = 2")
+        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL WHERE id IN (2, 3)")
         idle_for(dmn_delivery.NUDGE_AFTER_S + 60)
         nudge(int(time.time()))
         sent.clear()
@@ -1214,17 +1215,18 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         check("blocked: effective_head is the first request behind it, not the true head",
               dmn_delivery.effective_head(con, "backend")["id"] == first)
 
-        check("blocked: delivered the ordinary way - its own cursor, not the head's",
+        db.set_cursor(con, "batch:backend", 0)            # the minute is up
+        check("blocked: delivered the ordinary way - its own cursor, not the head's, with the one behind it",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and "first thing" in sent[-1] and f"#{first}" in sent[-1], str(sent))
+              and "first thing" in sent[-1] and f"#{first}" in sent[-1]
+              and "second thing" in sent[-1], str(sent))
         check("blocked: the notify cursor moved to it, not the blocked head",
               db.get_cursor(con, "notify:backend") == first)
         sent.clear()
 
-        # Auditor #2028 finding 1: the second must wait for the first, the
-        # same as it would behind an ordinary head - not typed on the next
-        # tick just because the true head is out of the way.
-        check("blocked: not told twice, and the second waits for the first",
+        # the second is told once, with the first, and
+        # is not typed again on the next tick.
+        check("blocked: not told twice",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
         check("blocked: the true head is untouched underneath it all - still "
               "queued, still what head_of_queue finds",
@@ -1247,9 +1249,8 @@ def test_an_idle_agent_delivers_past_a_head_whose_task_is_blocked(home: Path) ->
         sent.clear()
 
         _set_request_state(con, first, "landed", verdict="did it")
-        check("blocked: the second is delivered once the first resolves",
-              dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and "second thing" in sent[-1] and f"#{second}" in sent[-1], str(sent))
+        check("blocked: the second, told with the first, is not told again once the first resolves",
+              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         db.remove_block(con, tid, t_blocker)
         check("blocked: clearing the block is read immediately",
@@ -1292,7 +1293,7 @@ def test_a_landed_task_delivery_is_the_task_the_agent_holds(home: Path) -> None:
         check("landed task: it is the inbox head, not the task waiting behind it",
               (db.head_of_queue(con, "backend") or {})["id"] == rid1 and dmn_delivery.effective_head(con, "backend")["id"] == rid1,
               str(db.head_of_queue(con, "backend") and db.head_of_queue(con, "backend")["id"]))
-        check("landed task: the next is not told while it is held",
+        check("landed task: the next is collected, not told inside the minute",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
 
         now = int(time.time())
@@ -1311,6 +1312,7 @@ def test_a_landed_task_delivery_is_the_task_the_agent_holds(home: Path) -> None:
         check("landed task: it is not on the stuck list - it reached its agent",
               not any(r["what"].startswith(f"#{rid1} ") for r in actions.stuck(con)), str(actions.stuck(con)))
         db.mark_task_done(con, first, "finished")
+        db.set_cursor(con, "batch:backend", 0)            # the minute is up
         check("landed task: once it is done the next is told",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and "second waits" in sent[-1], str(sent))
     finally:

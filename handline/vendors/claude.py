@@ -77,7 +77,12 @@ class Claude:
         return model or self.DEFAULT_HEADLESS_MODEL
 
     def is_session(self, command: str) -> bool:
-        """`claude` in the command line, headless runs excluded. Headless here
+        """The command starts with `claude` or with an absolute path ending in
+        /claude (spaces allowed: the Claude.app helper lives under
+        "Application Support"; node-run installs pass too), headless runs
+        excluded. A `claude` elsewhere on the line (a script under the
+        session's /tmp/claude-<uid> scratchpad) is not a session, nor is a
+        resolved versions/<n> path, which `hl launch` never produces. Headless here
         is `-p`, which is claude's spelling and nobody else's.
 
         Only the options up to the first one that carries free text are
@@ -85,7 +90,7 @@ class Claude:
         handoff note included, and a ` -p ` in that (`mkdir -p`, `git log -p`)
         made a live session read as a headless run and vanish from the table.
         A headless run's `-p` comes before its prompt."""
-        if "claude" not in command:
+        if not re.match(r"(?:/[^\n]*?/)?claude(?=\s|$)", command):
             return False
         head = re.split(r" --(?:append-system-prompt|settings)\b", command, maxsplit=1)[0]
         return " -p " not in head and not head.endswith(" -p")
@@ -431,6 +436,9 @@ class Claude:
 # claude's folder-trust screen ("Quick safety check: Is this a project you
 # created or one you trust?").
 TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+# The variant for a folder whose settings pre-approve tools (Claude Code 2.1.291): the same
+# workspace line and the same two options under a different question.
+TRUST_PROMPT_MARKERS = (TRUST_PROMPT_MARKER, "This folder pre-approves")
 # The line the prompt names its folder under. Wrapped at terminal width with
 # no separator, so its continuation lines are joined bare, not with a space.
 WORKSPACE_MARKER = "Accessing workspace:"
@@ -467,7 +475,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
     missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
     text = "\n".join(str(x) for x in tail)
-    if TRUST_PROMPT_MARKER not in text:
+    if not any(m in text for m in TRUST_PROMPT_MARKERS):
         return None
     lines = text.split("\n")
     try:
@@ -477,7 +485,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     parts = []
     for ln in lines[start:]:
         stripped = ln.strip()
-        if not stripped or TRUST_PROMPT_MARKER in stripped:
+        if not stripped or any(m in stripped for m in TRUST_PROMPT_MARKERS):
             break
         parts.append(stripped)
     return "".join(parts)

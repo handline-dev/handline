@@ -8,12 +8,15 @@
 # only ever moves by a fast-forward to a commit that is already finished.
 #
 #   tools/land.sh [--test] [--note <text>] <sha> <merge message>
-#   tools/land.sh --check <sha>
+#   tools/land.sh --check [--passed] <sha>
 #
 # --check is the merger's own test, run in its sandbox: it merges <sha> into main in a throwaway
 # clone (reads main's repo, writes only $TMPDIR), runs the suite, and prints the tree of the merge it
 # tested. Exit 1 on a conflict, personal data or a local id in the merge (tools/localrefs.py), or a
 # red suite. The daemon lands only a merge with that tree, and checks the message it was given itself.
+# --passed says the auditor recorded a PASS for <sha>: when the merge's tree is then <sha>'s own tree
+# (main has not moved past it), the suite the auditor ran is the suite of this merge and is not rerun;
+# when main moved, the merge is a new tree and the suite runs once on it.
 #
 # --test runs tools/suite.sh on the merge result first; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one
@@ -25,8 +28,11 @@
 set -euo pipefail
 
 if [ "${1:-}" = "--check" ]; then
-    [ $# -eq 2 ] || { echo "usage: land.sh --check <sha>" >&2; exit 2; }
-    sha="$(git rev-parse --verify "$2^{commit}")"
+    shift
+    passed=0
+    if [ "${1:-}" = "--passed" ]; then passed=1; shift; fi
+    [ $# -eq 1 ] || { echo "usage: land.sh --check [--passed] <sha>" >&2; exit 2; }
+    sha="$(git rev-parse --verify "$1^{commit}")"
     main_dir="$(git worktree list --porcelain | awk '/^worktree /{d=substr($0,10)} /^branch refs\/heads\/main$/{print d; exit}')"
     [ -n "$main_dir" ] || { echo "no worktree has main checked out" >&2; exit 1; }
     work="$(mktemp -d "${TMPDIR:-/tmp}/landcheck.XXXXXX")"
@@ -44,8 +50,13 @@ if [ "${1:-}" = "--check" ]; then
             exit 1
         fi
     fi
-    "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }
-    git -C "$work" rev-parse 'HEAD^{tree}'
+    tree="$(git -C "$work" rev-parse 'HEAD^{tree}')"
+    if [ "$passed" = 1 ] && [ "$tree" = "$(git -C "$work" rev-parse "$sha^{tree}")" ]; then
+        echo "land.sh: the merge is the tree the auditor passed; the suite is not rerun" >&2
+    else
+        "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }
+    fi
+    echo "$tree"
     exit 0
 fi
 

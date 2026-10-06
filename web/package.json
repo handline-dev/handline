@@ -11,9 +11,11 @@
     "mobile": "node mobile/server.ts",
     "fake-daemon": "pnpm --filter @handline/fake-daemon serve",
     "ui": "node serve-ui.ts --fake",
-    "typecheck": "tsc -p ui"
+    "typecheck": "tsc -p ui",
+    "lint": "eslint ."
   },
   "dependencies": {
+    "@handline/app-core": "workspace:*",
     "@handline/client": "workspace:*"
   },
   "devDependencies": {
