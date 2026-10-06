@@ -36,14 +36,18 @@ def _agents_list(ctx, params) -> dict:
         con.close()
 
 
-def _prompt(con, name: str) -> dict | None:
-    block = actions.open_block_of(con, name)
-    if not block:
-        return None
+def prompt_of(block: dict) -> dict:
+    """An open prompt as the spec's `Prompt`; `options` wait for prompt.list's parser."""
+    name = block["agent"]
     detail = block.get("detail") or {}
     return {"id": block["fingerprint"], "agent": name, "kind": block["kind"], "tool": detail.get("tool") or None,
             "command": detail.get("command") or None, "reason": detail.get("reason") or None,
             "lines": list(block["panel"]), "options": [], "since": agentview._ts(block.get("first_seen") or block["last_seen"])}
+
+
+def _prompt(con, name: str) -> dict | None:
+    block = actions.open_block_of(con, name)
+    return prompt_of(block) if block else None
 
 
 def _agent_get(ctx, params) -> dict:

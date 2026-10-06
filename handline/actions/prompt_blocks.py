@@ -54,6 +54,11 @@ def _row_dict(row) -> dict:
     return out
 
 
+def of_row(row) -> dict:
+    """A `prompt_blocks` row as the dict the rest of this module hands out."""
+    return _row_dict(row)
+
+
 def open_blocks(con, now: float | None = None) -> list[dict]:
     """Every prompt on an agent's screen now, oldest first, for the screen to show: an open
     row the watch has refreshed within `STALE_S`."""

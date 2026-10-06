@@ -162,6 +162,10 @@ class Connection:
         self.caller = Caller(self.peer)
         self.said_hello = False
         self._buf = b""
+        self._send_lock = threading.Lock()      # replies and event notices are written by different threads
+        self.subs: list = []
+        self.on_close: list = []
+        self.after_reply: list = []             # run once the reply to the call in hand is sent
 
     def _line(self) -> bytes | None:
         """The next line, or what is left at EOF; None at a clean EOF. A line past the limit is bad_request."""
@@ -181,12 +185,30 @@ class Connection:
 
     def _send(self, obj: dict) -> bool:
         try:
-            self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+            self.send_line(obj)
             return True
         except OSError:
             return False        # the client is gone; nothing left to tell it
 
+    def send_line(self, obj: dict) -> None:
+        with self._send_lock:
+            self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
+
+    def hang_up(self) -> None:
+        """End the connection from another thread: the read in `serve` then returns."""
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
     def serve(self) -> None:
+        try:
+            self._serve()
+        finally:
+            for fn in self.on_close:
+                fn()
+
+    def _serve(self) -> None:
         while True:
             try:
                 raw = self._line()
@@ -222,7 +244,11 @@ class Connection:
         else:
             if isinstance(msg, dict) and "id" not in msg:
                 return True     # a notification is never answered
-            return self._send({"jsonrpc": "2.0", "id": rid, "result": result})
+            sent = self._send({"jsonrpc": "2.0", "id": rid, "result": result})
+            todo, self.after_reply = self.after_reply, []
+            for fn in todo:
+                fn()
+            return sent
         return self._send({"jsonrpc": "2.0", "id": rid, "error": error.wire()})
 
     def _dispatch(self, msg) -> dict:

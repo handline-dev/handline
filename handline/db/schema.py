@@ -629,10 +629,29 @@ def _agent_view(con) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS agent_view (agent TEXT PRIMARY KEY, view TEXT NOT NULL, updated INTEGER NOT NULL)")
 
 
+def _stream_log(con) -> None:
+    """The event stream's log; its id is the cursor (daemon/stream.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS stream_log (
+          id     INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts     INTEGER NOT NULL,
+          topic  TEXT    NOT NULL,
+          type   TEXT    NOT NULL,
+          agent  TEXT,
+          actor  TEXT,
+          title  TEXT,
+          target TEXT,
+          data   TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS stream_log_topic ON stream_log(topic, id);
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
     (3, "agent_view", _agent_view, True),
+    (4, "stream_log", _stream_log, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

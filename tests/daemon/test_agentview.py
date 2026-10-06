@@ -189,7 +189,7 @@ def test_a_database_made_before_the_view_gets_it_from_a_plain_connect(home: Path
     dbschema.connect(p).close()
     raw = __import__("sqlite3").connect(p)
     raw.execute("DROP TABLE agent_view")
-    raw.execute("DELETE FROM schema_version WHERE version = 3")
+    raw.execute("DELETE FROM schema_version WHERE version > 2")
     raw.commit()
     raw.close()
     con = dbschema.connect(p)
