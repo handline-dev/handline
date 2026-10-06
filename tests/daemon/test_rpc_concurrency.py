@@ -125,6 +125,41 @@ def test_a_client_that_hangs_up_ends_its_waiting_calls(home: Path) -> None:
         sessiontoken.agent_of = real
 
 
+def test_a_client_that_shuts_its_write_side_still_gets_its_replies(home: Path) -> None:
+    _world(home)
+    real = sessiontoken.agent_of
+    sessiontoken.agent_of = lambda pid: "manager"
+    try:
+        with Held() as h:
+            w = Wire()
+            try:
+                w.call("hello", {"client": "t", "protocol": 1})
+                w.send({"jsonrpc": "2.0", "id": 2, "method": "t.held", "params": {"n": 2}})
+                h.entered.acquire(timeout=10)
+                w.a.shutdown(socket.SHUT_WR)
+                time.sleep(0.2)
+                h.release.set()
+                got = w.read()
+                check("half-close: a slow call's reply still arrives after SHUT_WR", got.get("id") == 2 and got.get("result") == {"done": 2}, str(got))
+                w.a.settimeout(5)
+                check("half-close: and then the connection ends", w.a.recv(1) == b"")
+            finally:
+                w.close()
+        w = Wire()
+        try:
+            w.call("hello", {"client": "t", "protocol": 1})
+            w.send({"jsonrpc": "2.0", "id": 3, "method": "inbox.list", "params": {"wait_s": 600}})
+            time.sleep(0.2)
+            t0 = time.time()
+            w.a.shutdown(socket.SHUT_WR)
+            got = w.read()
+            check("half-close: a waiting inbox.list is answered at once", got.get("id") == 3 and "result" in got and time.time() - t0 < 5, str(got))
+        finally:
+            w.close()
+    finally:
+        sessiontoken.agent_of = real
+
+
 def test_a_connection_has_a_bounded_number_of_calls_in_flight(home: Path) -> None:
     _world(home)
     real = rpc.MAX_INFLIGHT
@@ -239,6 +274,7 @@ def main() -> int:
         run(lambda: test_a_waiting_call_does_not_hold_up_the_calls_behind_it(Path(td) / "n1"))
         run(lambda: test_replies_come_in_the_order_the_calls_finish_matched_by_id(Path(td) / "n2"))
         run(lambda: test_a_client_that_hangs_up_ends_its_waiting_calls(Path(td) / "n3"))
+        run(lambda: test_a_client_that_shuts_its_write_side_still_gets_its_replies(Path(td) / "n8"))
         run(lambda: test_a_connection_has_a_bounded_number_of_calls_in_flight(Path(td) / "n4"))
         run(lambda: test_the_daemon_serves_a_bounded_number_of_connections(Path(td) / "n5"))
         run(lambda: test_hello_comes_first_and_alone_and_a_write_with_one_request_id_runs_once(Path(td) / "n6"))

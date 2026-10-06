@@ -192,7 +192,8 @@ class Connection:
         self.on_close: list = []
         self._call = threading.local()          # the call this thread is serving: what it asks to run once its reply is sent
         self._slots = threading.BoundedSemaphore(MAX_INFLIGHT)
-        self.closed = threading.Event()         # set when the connection ends
+        self.eof = threading.Event()            # set when the client sends no more calls (EOF, a bad frame, a hang-up)
+        self.closed = threading.Event()         # set when the connection ends, once every call in flight has been answered
 
     @property
     def after_reply(self) -> list:
@@ -229,8 +230,8 @@ class Connection:
             self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
 
     def hung_up(self) -> bool:
-        """Whether the client is gone, for a call that waits to stop waiting."""
-        return self.closed.is_set()
+        """Whether the client will send no more, for a call that waits to stop waiting; its reply is still sent."""
+        return self.eof.is_set()
 
     def hang_up(self) -> None:
         """End the connection from another thread: the read in `serve` then returns."""
@@ -243,6 +244,9 @@ class Connection:
         try:
             self._serve()
         finally:
+            self.eof.set()
+            for _ in range(MAX_INFLIGHT):       # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight
+                self._slots.acquire()
             self.closed.set()
             for fn in self.on_close:
                 fn()

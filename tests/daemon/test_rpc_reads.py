@@ -252,6 +252,7 @@ def test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_
 def test_what_a_call_asks_to_run_after_its_reply_runs_after_its_own_reply_and_no_other(home: Path) -> None:
     support._board_world(home)
     from handline.daemon import rpc
+    import time as _t
     ran: list = []
     slow_in, release = threading.Event(), threading.Event()
 
@@ -272,6 +273,9 @@ def test_what_a_call_asks_to_run_after_its_reply_runs_after_its_own_reply_and_no
         slow_in.wait(10)
         first = w.call("t.quick", id=2)
         check("framing: the quick call is answered while the slow one is held", first["id"] == 2 and "result" in first, str(first))
+        t0 = _t.time()
+        while not ran and _t.time() - t0 < 5:       # it runs just after the reply is sent, on the call's own thread
+            _t.sleep(0.01)
         check("framing: and ran what it asked to run after its reply, not the slow call's", ran == ["quick's"], str(ran))
         release.set()
         second = w.read()
