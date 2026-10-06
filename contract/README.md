@@ -6,9 +6,9 @@
 
 `fixtures/*.json` are scripted exchanges that any daemon (Python, Go) or fake daemon must satisfy. They are the behaviour; prose follows them.
 
-    python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [--allow-missing METHOD ...] [--allow-missing-file PATH] [FILE ...]
+    python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [--allow-missing METHOD ...] [--allow-missing-file PATH] [--allow-needvar-file PATH] [FILE ...]
 
-Prints PASS, FAIL or SKIP per fixture. Exit 0: all passed. 1: a fixture failed, or was not run for want of a method or a `--var` that no `--allow-missing` names. 2: usage. 3: nothing else is wrong but a role had no socket (`--allow-skip` makes that 0; it covers nothing else). The summary counts passed, failed, skipped by role, not implemented, and needing a var, apart. Every reply must be JSON-RPC 2.0 with exactly one of `result` and `error`, every notice `jsonrpc` 2.0 with a `method`; otherwise the fixture fails. Unix sockets only for now.
+Prints PASS, FAIL or SKIP per fixture. Exit 0: all passed. 1: a fixture failed, or was not run for want of a method or a `--var` that no `--allow-missing` names. `--allow-needvar-file PATH` names fixtures (one per line) that may lack their `--var`; a name there that passed or does not exist is an error, so the list cannot rot. 2: usage. 3: nothing else is wrong but a role had no socket (`--allow-skip` makes that 0; it covers nothing else). The summary counts passed, failed, skipped by role, not implemented, and needing a var, apart. Every reply must be JSON-RPC 2.0 with exactly one of `result` and `error`, every notice `jsonrpc` 2.0 with a `method`; otherwise the fixture fails. Unix sockets only for now.
 
 A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, steps}`:
 

@@ -2,11 +2,12 @@
 """Run the conformance fixtures in contract/fixtures against a daemon's Unix socket.
 
   python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip]
-      [--allow-missing METHOD ...] [--allow-missing-file PATH] [FILE ...]
+      [--allow-missing METHOD ...] [--allow-missing-file PATH] [--allow-needvar-file PATH] [FILE ...]
 
 The format is in contract/README.md. Exit 0 when everything passed, 1 when a fixture failed or one was not run for want of
 a method or a --var (unless its method is named by --allow-missing, repeatable, or in --allow-missing-file, one method per
-line), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
+line; a fixture named in --allow-needvar-file, one per line, may lack its --var, but a name there that passed or does
+not exist is an error, so the list cannot rot), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
 nothing else). The same fixtures run against the Python daemon, the Go
 one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
@@ -426,7 +427,7 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     """`connectors` (role -> function returning a connected socket) stands in for the socket paths: tests only."""
     sockets: dict = {}
     vars_: dict = {}
-    only, files, rest, i, allow_skip, allow_missing = None, [], [], 0, False, set()
+    only, files, rest, i, allow_skip, allow_missing, allow_needvar = None, [], [], 0, False, set(), set()
     while i < len(argv):
         a = argv[i]
         if a in ("--as", "--var") and i + 1 < len(argv) and "=" in argv[i + 1]:
@@ -441,6 +442,13 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
         elif a == "--allow-missing-file" and i + 1 < len(argv):
             try:
                 allow_missing |= read_methods(argv[i + 1])
+            except OSError as e:
+                print(f"cannot read {argv[i + 1]}: {e}", file=sys.stderr)
+                return 2
+            i += 2
+        elif a == "--allow-needvar-file" and i + 1 < len(argv):
+            try:
+                allow_needvar |= read_methods(argv[i + 1])
             except OSError as e:
                 print(f"cannot read {argv[i + 1]}: {e}", file=sys.stderr)
                 return 2
@@ -463,15 +471,21 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     spec_of = {fx["name"]: fx.get("spec") for fx in load(files)}
     counts = {"pass": 0, "fail": 0, "skip": 0, "missing": 0, "needvar": 0}
     unallowed = 0
+    stale = {n for n in allow_needvar if not only and n not in spec_of}
     for status, why, name in run_all(files, sockets, vars_, only):
         counts[status] += 1
-        if status in ("missing", "needvar") and spec_of[name] not in allow_missing:
+        if name in allow_needvar and status != "needvar":
+            stale.add(name)
+        allowed = status == "needvar" and name in allow_needvar
+        if status in ("missing", "needvar") and not allowed and spec_of[name] not in allow_missing:
             unallowed += 1
             why += f" (not in --allow-missing: {spec_of[name]})"
         print(f"{status.upper():4}  {name}" + (f"  - {why}" if why else ""))
     print(f"{counts['pass']} passed, {counts['fail']} failed, {counts['skip']} skipped by role, "
           f"{counts['missing']} not implemented, {counts['needvar']} needing a var ({unallowed} of those not allowed)")
-    if counts["fail"] or unallowed:
+    for name in sorted(stale):
+        print(f"STALE {name}  - in --allow-needvar-file but it did not need a var (passed, failed, or no such fixture): delete the line")
+    if counts["fail"] or unallowed or stale:
         return 1
     return 3 if counts["skip"] and not allow_skip else 0
 
