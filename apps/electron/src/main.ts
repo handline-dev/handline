@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, Notification } from 'electron';
+import { app, BrowserWindow, Notification, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
@@ -31,6 +31,12 @@ if (!app.requestSingleInstanceLock()) {
     const web = await serveDir(dist);
     win = new BrowserWindow({ width: 1280, height: 860, title: 'Handline', show: false });
     win.once('ready-to-show', show);
+    // The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback origin.
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== new URL(web.url).origin) e.preventDefault(); });
     await win.loadURL(ws ? `${web.url}?daemon=${encodeURIComponent(ws)}` : web.url);
     app.on('activate', show);
     app.on('window-all-closed', () => app.quit());
@@ -56,7 +62,10 @@ if (!app.requestSingleInstanceLock()) {
         try { await client.start(); break; }
         catch { await new Promise((r) => setTimeout(r, 2000)); }
       }
-      await desk.start().catch(() => undefined);
+      for (;;) {
+        try { await desk.start(); return; }
+        catch { await new Promise((r) => setTimeout(r, 2000)); }
+      }
     })();
   });
 }

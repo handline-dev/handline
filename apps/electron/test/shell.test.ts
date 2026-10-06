@@ -82,6 +82,22 @@ test('the badge follows the daemon status count on start, on inbox events and on
   assert.deepEqual(log.badge, ['3', '5', '']);
 });
 
+test('a desk whose subscribe failed once subscribes on the next start, with its handlers added once', async () => {
+  let fails = 1, listeners = 0;
+  const feed = {
+    onEvent: () => { listeners++; return () => {}; }, onGap: () => () => {}, onState: () => () => {},
+    subscribe: async () => { if (fails-- > 0) throw new Error('refused'); },
+    call: async () => ({ inbox: { unread: 2 } }),
+  } as unknown as Feed;
+  const { log, p } = ports();
+  const desk = new Desk(feed, p);
+  await assert.rejects(desk.start());
+  assert.deepEqual(log.badge, []);
+  await desk.start();
+  assert.deepEqual(log.badge, ['2']);
+  assert.equal(listeners, 1);
+});
+
 test('the built web app is served from a loopback port, any route falling back to the page', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-electron-'));
   fs.mkdirSync(path.join(dir, 'assets'));
@@ -98,5 +114,8 @@ test('the built web app is served from a loopback port, any route falling back t
     assert.match(js.headers.get('content-type') ?? '', /javascript/);
     assert.equal(await (await fetch(`${web.url}agents/x`)).text(), '<div id="root"></div>');
     assert.equal(await (await fetch(`${web.url}..%2f..%2fetc/passwd`)).text(), '<div id="root"></div>');
+    // A malformed escape is answered, not thrown: the server keeps serving.
+    assert.equal((await fetch(`${web.url}%E0%A4%A`)).status, 400);
+    assert.equal((await fetch(web.url)).status, 200);
   } finally { web.close(); fs.rmSync(dir, { recursive: true }); }
 });
