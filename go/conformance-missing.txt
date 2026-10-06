@@ -46,3 +46,5 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+chat.send_now
+stats.outlook

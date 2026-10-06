@@ -14,7 +14,8 @@ def inputs(role, method, params):
     if method == "prompt.answer":
         if not isinstance(params.get("prompt"), str) or not params["prompt"]:
             return "fail", err(-32602, "bad_request", field="prompt")
-        if not isinstance(params.get("choice"), (str, dict)):
+        choice = params.get("choice")
+        if not isinstance(choice, (str, dict, list)) or (isinstance(choice, list) and not all(isinstance(k, str) for k in choice)):
             return "fail", err(-32602, "bad_request", field="choice")
     if params.get("agent") not in KNOWN:
         return "fail", NOT_FOUND

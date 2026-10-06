@@ -363,8 +363,13 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
         return a
     results = conformance.run_all(FILES, {"founder": connect, "anonymous": connect}, {"founder_key": key})
     by = {n: (s, why) for s, why, n in results}
-    failed = {n: why for n, (s, why) in by.items() if s == "fail"}
+    # A fixture whose `about` starts NOT_YET_IN_PYTHON pins what the spec added and the Python daemon has not got: it may fail
+    # (or be missing, for a new method) here, and is a stale marker once it passes.
+    not_yet = {f["name"] for p in FILES for f in json.loads(p.read_text())["fixtures"] if f["about"].startswith("NOT_YET_IN_PYTHON")}
+    failed = {n: why for n, (s, why) in by.items() if s == "fail" and n not in not_yet}
     check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
+    stale = sorted(n for n in not_yet if by.get(n, ("",))[0] == "pass")
+    check("conformance: a NOT_YET_IN_PYTHON fixture that passes has its marker removed", not stale, str(stale))
     check("conformance: the Python daemon passes the hello, whoami and error fixtures it can",
           all(by[n][0] == "pass" for n in ("hello.ok", "hello.must_come_first", "whoami.founder", "errors.parse_error")), str(by))
     check("conformance: the terminal channel it now has reports the text format, and passes", by["terminal.format_is_text"][0] == "pass", str(by))
