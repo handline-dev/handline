@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -166,18 +167,51 @@ func listenNetwork(cfg Config, d *Daemon) (*networkListener, error) {
 // plain is Tailscale mode: a gateway given no certificate serves plain HTTP/ws, and only on a Tailscale or loopback address.
 func (c Config) plain() bool { return c.Gateway && c.CertFile == "" && c.KeyFile == "" }
 
-// tailscaleAddr is this machine's Tailscale IPv4 address; a variable so a test can name one.
-var tailscaleAddr = func() (net.IP, error) {
-	addrs, err := net.InterfaceAddrs()
+// ifaceAddr is one IPv4 address of one network interface.
+type ifaceAddr struct {
+	Name string
+	IP   net.IP
+}
+
+// interfaceAddrs lists the machine's interface addresses; a variable so a test can name some.
+var interfaceAddrs = func() ([]ifaceAddr, error) {
+	ifs, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range addrs {
-		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && tailscaleV4.Contains(n.IP) {
-			return n.IP, nil
+	var out []ifaceAddr
+	for _, i := range ifs {
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil {
+				out = append(out, ifaceAddr{i.Name, n.IP})
+			}
 		}
 	}
-	return nil, errors.New("this machine has no Tailscale address (100.64.0.0/10); Tailscale mode serves nowhere else")
+	return out, nil
+}
+
+// tailscaleIPs are the addresses held by the Tailscale interface itself (utun* on macOS, tailscale* elsewhere) in
+// 100.64.0.0/10. The range alone is not enough: carrier-grade NAT hands it out on ordinary LAN and Wi-Fi interfaces.
+func tailscaleIPs() ([]net.IP, error) {
+	all, err := interfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	for _, a := range all {
+		name := strings.ToLower(a.Name)
+		if (strings.HasPrefix(name, "utun") || strings.HasPrefix(name, "tailscale")) && tailscaleV4.Contains(a.IP) {
+			ips = append(ips, a.IP)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, errors.New("this machine's Tailscale interface has no address (100.64.0.0/10); Tailscale mode serves nowhere else")
+	}
+	return ips, nil
 }
 
 // plainAddr completes ":PORT" with the Tailscale address; a given host is left for checkPlainBind to judge.
@@ -189,23 +223,31 @@ func plainAddr(listen string) (string, error) {
 	if host != "" {
 		return listen, nil
 	}
-	ip, err := tailscaleAddr()
+	ips, err := tailscaleIPs()
 	if err != nil {
 		return "", err
 	}
-	return net.JoinHostPort(ip.String(), port), nil
+	return net.JoinHostPort(ips[0].String(), port), nil
 }
 
-// checkPlainBind admits only a Tailscale address, or loopback for a local proxy such as `tailscale serve`.
+// checkPlainBind admits only an address of the Tailscale interface, or loopback for a local proxy such as `tailscale serve`.
 func checkPlainBind(addr string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return err
 	}
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || tailscaleV4.Contains(ip)) {
-		return nil
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			return nil
+		}
+		ips, _ := tailscaleIPs()
+		for _, t := range ips {
+			if t.Equal(ip) {
+				return nil
+			}
+		}
 	}
-	return fmt.Errorf("network listener address %q: without -cert and -key the listener serves plain HTTP, which only a Tailscale (100.64.0.0/10) or loopback address may; any other address needs -cert and -key", addr)
+	return fmt.Errorf("network listener address %q: without -cert and -key the listener serves plain HTTP, which only an address of the Tailscale interface or loopback may; any other address needs -cert and -key", addr)
 }
 
 // sameOrigin lets a call without an Origin through (a native client) and a browser's only from the page this

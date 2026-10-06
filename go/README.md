@@ -50,9 +50,9 @@ in the first `hello` message. A browser's WebSocket is accepted only from the pa
 A gateway given no `-cert` and `-key` serves plain HTTP and WebSocket, because a tailnet is already encrypted end to end by WireGuard.
 There is nothing to install and a browser shows no warning.
 
-- `-listen :PORT` binds the machine's Tailscale address (the one in 100.64.0.0/10) only. If there is none, the gateway refuses to start; it
-  never falls back to `0.0.0.0` or to another interface. `-listen 100.x.y.z:PORT` names the address yourself.
-- Plain HTTP is served only on a Tailscale address or on loopback (for the proxy below). Any other address, a LAN address for example, is refused
+- `-listen :PORT` binds the address of the machine's Tailscale interface (`utun*` on macOS, `tailscale*` elsewhere; an address in 100.64.0.0/10 on any other interface does not count, since some networks hand that range out on the LAN) only. If there is none, the gateway refuses to start; it
+  never falls back to `0.0.0.0` or to another interface. `-listen 100.x.y.z:PORT` names the address yourself, and it must be that interface's.
+- Plain HTTP is served only on a Tailscale interface address or on loopback (for the proxy below). Any other address, a LAN address for example, is refused
   at start (`-cert` and `-key` are needed there). There is no way to serve plain HTTP on the LAN.
 - The pairing code carries the address and a one-time secret, and no fingerprint (there is no certificate). Pairing secrets and tokens are
   never logged. A caller no device token has opened still gets no data.

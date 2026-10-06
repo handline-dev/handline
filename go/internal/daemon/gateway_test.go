@@ -652,10 +652,20 @@ func TestWithoutACertificateTheGatewayServesPlainHTTPAndWebSocketWithNothingToPi
 	}
 }
 
-func TestThePlainListenerRefusesEveryAddressButTailscaleAndLoopback(t *testing.T) {
+func fakeInterfaces(t *testing.T, as ...ifaceAddr) {
+	was := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = was })
+	interfaceAddrs = func() ([]ifaceAddr, error) { return as, nil }
+}
+
+func ia(name, ip string) ifaceAddr { return ifaceAddr{name, net.ParseIP(ip)} }
+
+func TestThePlainListenerRefusesEveryAddressButTheTailscaleInterfaceAndLoopback(t *testing.T) {
+	// 100.64.9.9 on en0 is carrier-grade NAT on an ordinary interface: in the range, not Tailscale.
+	fakeInterfaces(t, ia("utun4", "100.64.0.1"), ia("tailscale0", "100.127.255.254"), ia("en0", "100.64.9.9"), ia("en0", "192.168.1.5"))
 	for addr, ok := range map[string]bool{"100.64.0.1:1": true, "100.127.255.254:1": true, "127.0.0.1:1": true, "[::1]:1": true,
-		"192.168.1.5:1": false, "10.0.0.2:1": false, "172.16.0.1:1": false, "169.254.1.1:1": false, "100.128.0.1:1": false, "100.63.255.255:1": false,
-		"0.0.0.0:1": false, "8.8.8.8:1": false, "host.ts.net:1": false} {
+		"100.64.9.9:1": false, "192.168.1.5:1": false, "10.0.0.2:1": false, "172.16.0.1:1": false, "169.254.1.1:1": false,
+		"100.128.0.1:1": false, "100.63.255.255:1": false, "100.64.0.2:1": false, "0.0.0.0:1": false, "8.8.8.8:1": false, "host.ts.net:1": false} {
 		if err := checkPlainBind(addr); (err == nil) != ok {
 			t.Errorf("%s: %v", addr, err)
 		}
@@ -676,17 +686,16 @@ func TestThePlainListenerRefusesEveryAddressButTailscaleAndLoopback(t *testing.T
 	}
 }
 
-func TestTailscaleModeBindsTheTailscaleAddressAndNeverFallsBack(t *testing.T) {
-	was := tailscaleAddr
-	defer func() { tailscaleAddr = was }()
-	tailscaleAddr = func() (net.IP, error) { return net.ParseIP("100.101.102.103"), nil }
+func TestTailscaleModeBindsTheTailscaleInterfaceAndNeverFallsBack(t *testing.T) {
+	fakeInterfaces(t, ia("en0", "100.64.9.9"), ia("en1", "192.168.1.5"), ia("utun3", "100.101.102.103"))
 	if a, err := plainAddr(":7443"); err != nil || a != "100.101.102.103:7443" {
 		t.Fatalf("%q %v", a, err)
 	}
 	if a, err := plainAddr("127.0.0.1:7443"); err != nil || a != "127.0.0.1:7443" {
 		t.Fatalf("%q %v", a, err)
 	}
-	tailscaleAddr = func() (net.IP, error) { return nil, errors.New("no tailscale") }
+	// the only 100.64/10 address is on a LAN interface: no Tailscale, no fallback to it
+	fakeInterfaces(t, ia("en0", "100.64.9.9"), ia("en1", "192.168.1.5"))
 	if a, err := plainAddr(":7443"); err == nil {
 		t.Fatalf("fell back to %q", a)
 	}
