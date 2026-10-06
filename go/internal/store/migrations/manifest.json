@@ -8,5 +8,20 @@
   "version": 2,
   "name": "rpc_replies",
   "additive": true
+ },
+ {
+  "version": 3,
+  "name": "agent_view",
+  "additive": true
+ },
+ {
+  "version": 4,
+  "name": "stream_log",
+  "additive": true
+ },
+ {
+  "version": 5,
+  "name": "hook_applied",
+  "additive": true
  }
 ]
