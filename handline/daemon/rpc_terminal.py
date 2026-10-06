@@ -5,7 +5,8 @@ serve the IDE and the web UI, which no longer read terminals themselves; no hl c
 pushed `frame`, `resize`, `marker` and `holder` notices until it detaches or hangs up. Many connections watch one terminal with
 one poller, which stops with the last of them. `resize` is the input holder's alone, by the holder gate (the daemon holding
 is refused too: nobody holds it to resize it), and where the host cannot resize it says so (gate `unsupported`); the size
-before it is given back when the holder leaves."""
+before it is given back when the holder leaves. A terminal `account.login` opened belongs to no agent: it can be watched,
+has no holder, and is not resized; the daemon forgets it when it restarts."""
 from __future__ import annotations
 
 from .. import db
@@ -13,6 +14,7 @@ from ..infra import paths
 from . import inputhold, rpc, termchannel
 
 DEFAULT_HISTORY, MAX_HISTORY, MAX_COLS, MAX_ROWS = 100, 2000, 500, 200
+LOGIN_TERMINALS: set[str] = set()       # handles of the terminals account.login opened
 
 
 def _int(params, key, lo, hi):
@@ -23,7 +25,7 @@ def _int(params, key, lo, hi):
 
 
 def _handle(con, params) -> tuple[str, str | None]:
-    """(terminal handle, the agent that has it) for `agent` or `terminal`, never both; not_found for one nobody has."""
+    """(terminal handle, the agent that has it, None for a login terminal) for `agent` or `terminal`, never both; not_found for one nobody has."""
     agent, handle = params.get("agent"), params.get("terminal")
     if (agent is None) == (handle is None):
         raise rpc.bad_request("give agent or terminal, not both", "agent", rpc.INVALID_PARAMS)
@@ -41,6 +43,8 @@ def _handle(con, params) -> tuple[str, str | None]:
     for name in paths.list_agents():
         if db.get_terminal(con, name) == handle:
             return handle, name
+    if handle in LOGIN_TERMINALS:
+        return handle, None
     raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no terminal {handle}", what="terminal", name=handle)
 
 
@@ -51,7 +55,7 @@ def _attach(ctx, params) -> dict:
     con = db.connect()
     try:
         handle, agent = _handle(con, params)
-        holders = inputhold.view(con, agent)
+        holders = inputhold.view(con, agent) if agent else []
     finally:
         con.close()
     client = termchannel.Client(ctx.send_line, ctx.hang_up)
@@ -90,6 +94,8 @@ def _resize(ctx, params) -> dict:
     con = db.connect()
     try:
         handle, agent = _handle(con, {"terminal": params.get("terminal")})
+        if agent is None:
+            raise rpc.refused("a login terminal has no input holder to resize it", gate="input_holder")
         holder = inputhold.holder(con, agent)
         if holder is None or holder["name"] != ctx.caller.info["name"]:
             raise rpc.refused("only whoever holds the terminal's input may resize it" + (f"; {holder['name']} does" if holder else "; the daemon does"),

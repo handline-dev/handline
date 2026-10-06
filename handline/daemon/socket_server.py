@@ -32,18 +32,22 @@ from ..team import agent_settings
 
 from . import landauth, lands, messaging, rpc, sends, stream
 from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
+    rpc_accounts,
     rpc_agents,
     rpc_hooks,
     rpc_inbox,
     rpc_options,
     rpc_input,
     rpc_prompts,
+    rpc_schedules,
     rpc_session,
+    rpc_settings,
     rpc_status,
     rpc_stream,
     rpc_taskview,
     rpc_tasks,
     rpc_worktrees,
+    rpc_team,
     rpc_terminal,
     rpc_typing,
 )
