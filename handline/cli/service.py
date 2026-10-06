@@ -11,7 +11,7 @@ from ..infra import venv as venvmod
 # ---------------------------------------------------------------- service
 def cmd_service_install(args) -> int:
     pid = dmn_locks.running_elsewhere()
-    if pid:
+    if pid and pid != service.status()["pid"]:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
               f"refuse to start (it cannot have the daemon lock) until it exits")
     ok, msg = service.install()
