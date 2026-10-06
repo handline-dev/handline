@@ -1,5 +1,5 @@
 """Tests: the schema is versioned. An old database migrates once, however many processes open it; a
-newer one is refused; one the current code made is accepted untouched; `connect` migrates nothing that
+newer one is refused unless every step it has that this code lacks only added; one the current code made is accepted untouched; `connect` migrates nothing that
 has data.
 
 Run on its own: tools/test.sh tests/infra/test_schema_versions.py   (all areas: tools/suite.sh)
@@ -169,6 +169,108 @@ def test_a_newer_database_is_refused_by_connect_and_by_migrate(home: Path) -> No
         check(f"newer: {label} refuses it, naming both versions", "newer" in msg and str(dbschema.LATEST_VERSION + 1) in msg, msg)
 
 
+def _stamp_future(p: Path, additive: bool) -> None:
+    """What code one step ahead leaves behind: a step this code does not know, with its column."""
+    raw = sqlite3.connect(p)
+    dbschema._mark_additive_column(raw)
+    raw.execute("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(?, 'ahead', 0, ?)",
+                (dbschema.LATEST_VERSION + 1, int(additive)))
+    raw.commit()
+    raw.close()
+
+
+def test_a_database_an_additive_step_ahead_is_used_as_it_is(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "ahead.db"
+    dbschema.connect(p).close()
+    _stamp_future(p, additive=True)
+    for label, opener in (("connect", lambda: dbschema.connect(p)),
+                          ("the daemon's connect", lambda: dbschema.connect(p, migrating=True))):
+        try:
+            opener().close()
+            msg = ""
+        except dbschema.SchemaError as e:
+            msg = str(e)
+        check(f"ahead: {label} accepts a step that only added", not msg, msg)
+    check("ahead: and nothing was stamped or removed", _versions(p) == list(range(1, dbschema.LATEST_VERSION + 2)))
+
+
+def test_a_database_a_step_ahead_that_is_not_additive_is_refused(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "ahead2.db"
+    dbschema.connect(p).close()
+    _stamp_future(p, additive=False)
+    try:
+        dbschema.connect(p)
+        msg = ""
+    except dbschema.SchemaError as e:
+        msg = str(e)
+    check("ahead: a step that was not additive is refused", "newer" in msg, msg)
+
+
+def test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "mark.db"
+    dbschema.connect(p).close()
+    marks = lambda: dict(sqlite3.connect(p).execute("SELECT version, additive FROM schema_version"))
+    check("mark: a step is stamped with whether it is additive",
+          marks() == {v: int(a) for v, _n, _s, a in dbschema.MIGRATIONS}, str(marks()))
+    raw = sqlite3.connect(p)
+    raw.execute("ALTER TABLE schema_version DROP COLUMN additive")
+    raw.commit()
+    raw.close()
+    dbschema.connect(p).close()
+    check("mark: a database stamped before the column is not touched by a connect that has nothing to run",
+          "additive" not in {r[1] for r in sqlite3.connect(p).execute("PRAGMA table_info(schema_version)")})
+    raw = sqlite3.connect(p)
+    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+    raw.commit()
+    raw.close()
+    dbschema.connect(p).close()
+    check("mark: the next step run fills it in for the steps before",
+          marks() == {v: int(a) for v, _n, _s, a in dbschema.MIGRATIONS}, str(marks()))
+
+
+def test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(home: Path) -> None:
+    from handline.infra import paths
+    home.mkdir(parents=True, exist_ok=True)
+    live = home / "live"
+    live.mkdir()
+    p = live / "db.sqlite"
+    dbschema.connect(p).close()
+    raw = sqlite3.connect(p)
+    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+    raw.commit()
+    raw.close()
+    real = paths.live_homes, paths.is_installed_checkout
+    paths.live_homes = lambda: [live.resolve()]
+    try:
+        paths.is_installed_checkout = lambda: False
+        try:
+            dbschema.connect(p)
+            msg = ""
+        except dbschema.SchemaError as e:
+            msg = str(e)
+        check("branch: a checkout that is not the installed main is refused, in one line naming why",
+              "installed main" in msg and "\n" not in msg, msg)
+        check("branch: and nothing was stamped", _versions(p) == list(range(1, dbschema.LATEST_VERSION)))
+        paths.live_homes = lambda: []
+        dbschema.connect(p).close()
+        check("branch: a home that is not the live one migrates from a branch",
+              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
+        paths.live_homes = lambda: [live.resolve()]
+        raw = sqlite3.connect(p)
+        raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+        raw.commit()
+        raw.close()
+        paths.is_installed_checkout = lambda: True
+        dbschema.connect(p).close()
+        check("installed: the installed main migrates the live home",
+              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
+    finally:
+        paths.live_homes, paths.is_installed_checkout = real
+
+
 def test_two_processes_opening_an_old_database_at_once_migrate_it_once(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     p = home / "race.db"
@@ -204,6 +306,10 @@ def main() -> int:
         run(lambda: test_the_daemon_migrates_a_database_waiting_for_a_step_once(Path(td) / "v2c"))
         run(lambda: test_a_migrator_that_holds_the_lock_too_long_is_named(Path(td) / "v2d"))
         run(lambda: test_a_newer_database_is_refused_by_connect_and_by_migrate(Path(td) / "v3"))
+        run(lambda: test_a_database_an_additive_step_ahead_is_used_as_it_is(Path(td) / "v3a"))
+        run(lambda: test_a_database_a_step_ahead_that_is_not_additive_is_refused(Path(td) / "v3b"))
+        run(lambda: test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(Path(td) / "v3c"))
+        run(lambda: test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(Path(td) / "v3d"))
         run(lambda: test_two_processes_opening_an_old_database_at_once_migrate_it_once(Path(td) / "v4"))
     return run_area(tests)
 
