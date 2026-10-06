@@ -46,3 +46,9 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+accounts.list
+team.get
+hr.list
+schedules.list
+stats.get
+settings.get

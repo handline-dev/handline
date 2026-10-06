@@ -4987,7 +4987,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "hr.decide",
@@ -5671,7 +5676,12 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "settings.get",
@@ -5695,7 +5705,15 @@
    },
    "x-role": "founder",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
   },
   {
    "name": "settings.set",
@@ -7595,7 +7613,7 @@
      },
      "diff": {
       "type": "string",
-      "description": "Unified diff."
+      "description": "What approving does, in words, one change per line."
      },
      "state": {
       "type": "string",

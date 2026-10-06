@@ -321,7 +321,7 @@ export type Proposal = {
   id: number;
   agent: AgentName;
   title: string;
-  /** Unified diff. */
+  /** What approving does, in words, one change per line. */
   diff: string;
   state: "open" | "approved" | "rejected";
   created: Timestamp;
