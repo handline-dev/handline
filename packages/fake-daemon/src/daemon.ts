@@ -5,14 +5,14 @@ import crypto from 'node:crypto';
 import {
   METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
   type Actor, type Caller, type Event as WireEvent,
-  type MethodName, type Notifications, type Prompt, type Role, type Timestamp, type Topic,
+  type MethodName, type Notifications, type Role, type Timestamp, type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS, BANNER, PROMPT_LINES } from './fixtures.ts';
+import { AGENTS } from './fixtures.ts';
+import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { DAEMON_HOLDER, detail, newSession, row, scrolledOff, tid, view, visible, type Session } from './session.ts';
 
-const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
 
@@ -45,8 +45,12 @@ export class FakeDaemon {
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
-  private timelineId = 0;
   private codes = new Set<string>();
+  private script = new Script({
+    iso: () => this.iso(),
+    emit: (topic, type, f) => this.emit(topic, type, f),
+    broadcast: (s, method, params) => { for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params); },
+  });
   private tokens = new Map<string, { id: string; name: string }>();
 
   constructor(opts: FakeDaemonOptions = {}) {
@@ -102,9 +106,9 @@ export class FakeDaemon {
   daemonTypes(agent: string, text: string): void {
     const s = this.session(agent);
     if (s.holder.kind !== 'daemon') throw refused('input_holder', `${s.holder.name} holds the input`);
-    this.record(s, 'text', text, 'daemon');
-    this.edit(s, () => { s.lines.push(`> ${text}`); });
-    this.pushTerminal(s, 'marker', (seq): Notifications['marker'] => ({
+    this.script.record(s, 'text', text, 'daemon');
+    this.script.edit(s, () => { s.lines.push(`> ${text}`); });
+    this.script.pushTerminal(s, 'marker', (seq): Notifications['marker'] => ({
       terminal: tid(s), seq, at: this.iso(), kind: 'daemon_typed', actor: { kind: 'daemon', name: 'daemon' }, text }));
   }
 
@@ -113,99 +117,6 @@ export class FakeDaemon {
     if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
     return s;
   }
-  private record(s: Session, kind: 'text' | 'key', value: string, actor: string) { s.received.push({ kind, value, actor }); }
-
-  /** Applies a change to the screen text and sends the changed rows to everyone attached. */
-  private edit(s: Session, change: () => void): void {
-    const before = visible(s);
-    change();
-    const changed = visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
-    if (changed.length) this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
-  }
-  private pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
-    const params = build(++s.seq);
-    for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
-  }
-
-  private setState(s: Session, state: string, actor?: Actor) {
-    s.state = state; s.since = this.iso();
-    this.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
-  }
-  private control(s: Session, actor: Actor, kind: string, text: string) {
-    this.emit('agents', 'agent.control', { agent: s.fx.name, actor,
-      data: { id: ++this.timelineId, at: this.iso(), kind, actor, text } });
-  }
-
-  private write(s: Session, line: string) { this.edit(s, () => { s.lines.push(line); }); }
-
-  private setComposeLine(s: Session) {
-    this.edit(s, () => {
-      const line = `> ${s.buffer}`;
-      if (s.composing) s.lines[s.lines.length - 1] = line; else s.lines.push(line);
-      s.composing = true;
-    });
-  }
-
-  private submit(s: Session, actor: Actor) {
-    const text = s.buffer;
-    this.edit(s, () => {
-      const line = `> ${text}`;
-      if (s.composing) s.lines[s.lines.length - 1] = line; else s.lines.push(line);
-      s.composing = false; s.buffer = '';
-    });
-    if (s.state === 'idle') this.startTurn(s, actor);
-  }
-
-  private startTurn(s: Session, actor: Actor) {
-    this.setState(s, 'running', actor);
-    s.queue = [
-      () => this.write(s, '● Thinking…'),
-      () => this.write(s, '● I will push the branch.'),
-      () => this.openPrompt(s),
-    ];
-  }
-
-  private openPrompt(s: Session) {
-    const lines = PROMPT_LINES.map((l) => l.replace('{branch}', s.fx.branch));
-    const prompt: Prompt = {
-      id: `p${++s.counter}-${s.fx.name}`, agent: s.fx.name, kind: 'permission', tool: 'Bash',
-      command: `git push origin ${s.fx.branch}`, reason: null, lines, since: this.iso(),
-      options: [{ key: '1', label: 'Yes', answer: 'yes', highlighted: true }, { key: '2', label: 'No', answer: 'no' }],
-    };
-    s.prompt = prompt;
-    for (const l of lines) this.write(s, l);
-    this.setState(s, 'waiting');
-    this.emit('notifications', 'prompt_asked', { agent: s.fx.name, title: 'Permission: Bash', data: prompt as unknown as Record<string, unknown> });
-  }
-
-  private answer(s: Session, key: string, actor: Actor) {
-    s.prompt = null;
-    if (key === '1') {
-      s.queue = [
-        () => { this.setState(s, 'running'); this.write(s, `● Ran git push origin ${s.fx.branch}`); },
-        () => this.write(s, '● Pushed. Done.'),
-        () => this.setState(s, 'idle'),
-      ];
-    } else {
-      s.queue = [() => { this.write(s, '● Understood, I will not push.'); this.setState(s, 'idle'); }];
-    }
-    this.setState(s, 'running', actor);
-  }
-
-  private interruptTurn(s: Session, actor: Actor) {
-    if (s.state === 'idle') return;
-    s.prompt = null; s.queue = [];
-    this.write(s, '● Interrupted · What should Claude do instead?');
-    this.setState(s, 'idle', actor);
-  }
-
-  private pressKey(s: Session, key: string, actor: Actor) {
-    this.record(s, 'key', key, actor.name);
-    if (key === 'esc' || key === 'ctrl-c') this.interruptTurn(s, actor);
-    else if (key === 'enter') { if (s.buffer) this.submit(s, actor); }
-    else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
-  }
-
   // ---- events ----
 
   /** Public so a test can make changes while no client is connected. */
@@ -272,7 +183,6 @@ export class FakeDaemon {
     for (const e of this.events) if (e.cursor > since && c.topics?.has(e.topic)) this.notify(c, 'event', e);
   }
 
-  private accepted(said: string, extra: Record<string, unknown> = {}) { return { accepted: true, said, ...extra }; }
   private actor(c: Conn): Actor { return { kind: c.caller.kind === 'device' ? 'device' : c.caller.kind === 'agent' ? 'agent' : 'user', name: c.caller.name }; }
 
   private dispatch(c: Conn, method: string, p: Record<string, unknown>): unknown {
@@ -316,43 +226,43 @@ export class FakeDaemon {
         return {};
       }
       case 'prompt.list': { const s = agent(); return { prompts: s.prompt ? [s.prompt] : [] }; }
-      case 'session.start': return this.startSession(agent(), false, actor);
-      case 'session.wake': return this.startSession(agent(), true, actor);
-      case 'session.restart': return this.restartSession(agent(), p.fresh === true, actor);
-      case 'session.park': return this.stopSession(agent(), 'close', actor);
-      case 'session.stop': return this.stopSession(agent(), p.mode, actor);
-      case 'session.input': return this.input(agent(), p, c, actor);
-      case 'session.keys': return this.keys(agent(), p.keys, c, actor);
+      case 'session.start': return this.script.startSession(agent(), false, actor);
+      case 'session.wake': return this.script.startSession(agent(), true, actor);
+      case 'session.restart': return this.script.restartSession(agent(), p.fresh === true, actor);
+      case 'session.park': return this.script.stopSession(agent(), 'close', actor);
+      case 'session.stop': return this.script.stopSession(agent(), p.mode, actor);
+      case 'session.input': return this.script.input(agent(), p, c, actor);
+      case 'session.keys': return this.script.keys(agent(), p.keys, c, actor);
       case 'session.interrupt': {
-        const s = agent(); this.gate(s, c);
-        this.record(s, 'key', 'esc', actor.name);
-        this.control(s, actor, 'interrupt', `${actor.name} interrupted`); this.interruptTurn(s, actor);
-        return this.accepted('Interrupted.');
+        const s = agent(); this.script.gate(s, c);
+        this.script.record(s, 'key', 'esc', actor.name);
+        this.script.control(s, actor, 'interrupt', `${actor.name} interrupted`); this.script.interruptTurn(s, actor);
+        return this.script.accepted('Interrupted.');
       }
       case 'prompt.answer': {
-        const s = agent(); this.gate(s, c);
+        const s = agent(); this.script.gate(s, c);
         const open = s.prompt;
         if (!open || open.id !== p.prompt) throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
         if (typeof p.choice !== 'string') throw badRequest('this prompt takes one of its option keys', 'choice');
         const key = p.choice;
         if (!open.options.some((o) => o.key === key)) throw badRequest(`${key} is not offered by this prompt`, 'choice');
-        this.record(s, 'key', key, actor.name);
-        this.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`); this.answer(s, key, actor);
-        return this.accepted('Answered.');
+        this.script.record(s, 'key', key, actor.name);
+        this.script.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`); this.script.answer(s, key, actor);
+        return this.script.accepted('Answered.');
       }
       case 'input.take': {
         const s = agent();
         if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
         if (s.holder.kind === 'daemon') s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: this.iso() };
-        this.control(s, actor, 'input.take', `${actor.name} took the input`);
-        return this.accepted('You hold the input.', { holder: s.holder });
+        this.script.control(s, actor, 'input.take', `${actor.name} took the input`);
+        return this.script.accepted('You hold the input.', { holder: s.holder });
       }
       case 'input.release': {
         const s = agent();
         if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'you do not hold the input');
         s.holder = DAEMON_HOLDER;
-        this.control(s, actor, 'input.release', `${actor.name} released the input`);
-        return this.accepted('The daemon holds the input again.');
+        this.script.control(s, actor, 'input.release', `${actor.name} released the input`);
+        return this.script.accepted('The daemon holds the input again.');
       }
       case 'terminal.attach': {
         const s = p.terminal !== undefined ? this.byTerminal(p.terminal) : agent();
@@ -374,12 +284,12 @@ export class FakeDaemon {
         const s = this.byTerminal(p.terminal);
         if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'only the input holder may resize');
         s.cols = Number(p.cols); s.rows = Number(p.rows);
-        this.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
-        return this.accepted('Resized.');
+        this.script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
+        return this.script.accepted('Resized.');
       }
       case 'device.pair': {
         const code = this.issueCode();
-        return this.accepted('Pairing code made.', { code, expires_at: new Date(this.now().getTime() + 300_000).toISOString(), fingerprint: 'fa'.repeat(32),
+        return this.script.accepted('Pairing code made.', { code, expires_at: new Date(this.now().getTime() + 300_000).toISOString(), fingerprint: 'fa'.repeat(32),
           uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}` });
       }
       case 'device.redeem': {
@@ -388,7 +298,7 @@ export class FakeDaemon {
         if (!this.codes.delete(p.code.trim().toUpperCase())) throw refused('pairing_code', 'that pairing code is not valid');
         const token = 'hld_' + crypto.randomBytes(32).toString('hex'), id = 'dev_' + crypto.randomBytes(6).toString('hex');
         this.tokens.set(token, { id, name: p.name });
-        return this.accepted('Paired.', { token, device: id });
+        return this.script.accepted('Paired.', { token, device: id });
       }
       default: throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
@@ -401,56 +311,4 @@ export class FakeDaemon {
   }
 
   private mayCall(role: Role, lowest: Role): boolean { return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(lowest); }
-
-  /** The gates every typing method passes: a session to type at, and nobody else holding the input. */
-  private gate(s: Session, c: Conn) {
-    if (!s.open) throw refused('state', 'the agent has no open session');
-    if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
-  }
-
-  /** Opens a session; the new screen follows the old text, as a terminal's scrollback would. */
-  private startSession(s: Session, wake: boolean, actor: Actor) {
-    if (s.open) throw refused('state', 'the session is already open');
-    if (wake && !s.sessionId) throw refused('state', 'there is no closed session to resume');
-    s.open = true; s.hasTerminal = true;
-    s.sessionId ??= `s-${s.fx.name}-${++s.counter}`;
-    this.edit(s, () => { s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree))); });
-    this.setState(s, 'idle', actor);
-    return this.accepted('Session started.');
-  }
-
-  private restartSession(s: Session, fresh: boolean, actor: Actor) {
-    if (s.open) this.stopSession(s, 'close', actor);
-    if (fresh) s.sessionId = null;
-    return this.startSession(s, false, actor);
-  }
-
-  private stopSession(s: Session, mode: unknown, actor: Actor) {
-    if (mode !== 'exit' && mode !== 'close' && mode !== 'kill') throw badRequest('mode must be exit, close or kill', 'mode');
-    if (!s.open) throw refused('state', 'the agent has no open session');
-    s.prompt = null; s.queue = []; s.open = false;
-    if (mode === 'kill') s.hasTerminal = false; else this.write(s, '(session ended)');
-    this.setState(s, mode === 'kill' ? 'no_terminal' : 'parked', actor);
-    return this.accepted('Session ended.');
-  }
-
-  private input(s: Session, p: Record<string, unknown>, c: Conn, actor: Actor) {
-    if (typeof p.text !== 'string') throw badRequest('input needs text', 'text');
-    this.gate(s, c);
-    if (s.fx.wall) throw refused('wall', 'the account is at its usage limit; typing would only spend quota');
-    if (s.prompt) throw refused('screen_blocker', 'a dialog is open, so a typed line would answer it', 'use keys or prompt.answer');
-    this.record(s, 'text', p.text, actor.name);
-    this.control(s, actor, 'input', `${actor.name} typed`);
-    s.buffer += p.text;
-    if (p.enter !== false) this.submit(s, actor); else this.setComposeLine(s);
-    return this.accepted('Typed.');
-  }
-
-  private keys(s: Session, keys: unknown, c: Conn, actor: Actor) {
-    if (!Array.isArray(keys) || !keys.length || !keys.every((k) => KEYS.has(k))) throw badRequest('keys must be named keys', 'keys');
-    this.gate(s, c);
-    this.control(s, actor, 'keys', `${actor.name} pressed ${keys.join(' ')}`);
-    for (const k of keys as string[]) this.pressKey(s, k, actor);
-    return this.accepted('Keys sent.');
-  }
 }
