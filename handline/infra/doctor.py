@@ -670,6 +670,26 @@ def _check_leftover_deliveries(r: Report) -> None:
         con.close()
 
 
+def _check_rejected_hook_lines(r: Report) -> None:
+    """Hook lines the daemon could not apply are set aside whole in a file of their own, where they would
+    otherwise pile up unseen. Their events were not recorded."""
+    from ..daemon import spool
+    f = spool.path().with_name(spool.REJECTED)
+    try:
+        lines = [ln for ln in f.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+        size = f.stat().st_size
+    except OSError:
+        return
+    if not lines:
+        return
+    try:
+        oldest = f", the oldest set aside {timefmt.stamp(json.loads(lines[0])['rejected_at'])}"
+    except (ValueError, KeyError, TypeError):
+        oldest = ""
+    r.add(WARN, f"{len(lines)} hook line(s) the daemon could not apply, {size} bytes{oldest}",
+          f"{f}: each line says what went wrong; fix that, then delete the file (what is in it was never recorded)")
+
+
 def run() -> Report:
     with sealed.observing():
         return _run()
@@ -695,6 +715,7 @@ def _run() -> Report:
     _check_protected(r)
     _check_stuck_running(r)
     _check_leftover_deliveries(r)
+    _check_rejected_hook_lines(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
     _check_one_daemon(r)

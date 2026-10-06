@@ -140,15 +140,21 @@ def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int)
 
     An event older than the newest already applied for this agent is recorded but moves nothing: it arrived late
     (a kept spool line, two hooks that raced), and acting on it would put the agent back where a newer event has
-    already taken it. On equal times the one that arrives later wins: hook times are whole seconds and the
+    already taken it. "Newest" is never later than now, so a hook with a clock set ahead cannot make every
+    real event after it look late. On equal times the one that arrives later wins: hook times are whole seconds and the
     daemon's order of arrival is the only order left to go by."""
     con.execute("BEGIN IMMEDIATE")
     try:
         now = int(time.time())
         from ..daemon import spool
         if not spool.pending():         # a file left by a crash may still replay lines older than a day
-            con.execute("DELETE FROM hook_applied WHERE ts < ?", (now - HOOK_KEEP_S,))
+            # Ids older than a day go, except each agent's newest row: the lateness check below reads it.
+            con.execute("DELETE FROM hook_applied WHERE ts < ? AND rowid NOT IN "
+                        "(SELECT rowid FROM hook_applied WHERE agent IS NOT NULL AND at IS NOT NULL "
+                        "GROUP BY agent HAVING at = MAX(at))", (now - HOOK_KEEP_S,))
         newest = con.execute("SELECT MAX(at) FROM hook_applied WHERE agent = ?", (agent,)).fetchone()[0]
+        if newest is not None:
+            newest = min(newest, now)   # one hook stamped in the future must not make every real event late
         if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts, agent, at) VALUES(?, ?, ?, ?)",
                        (request_id, now, agent, at)).rowcount == 0:
             con.execute("ROLLBACK")
