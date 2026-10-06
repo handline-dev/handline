@@ -12,6 +12,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 
@@ -59,6 +60,8 @@ class PinnedSocketModule : Module() {
       val client = OkHttpClient.Builder()
         .sslSocketFactory(ssl.socketFactory, trust)
         .hostnameVerifier { _, _ -> true }
+        // A ping every 15s; a missing pong by the next ping fails the socket, which reaches JS as close.
+        .pingInterval(15, TimeUnit.SECONDS)
         .build()
       val c = Conn(client)
       conns[id] = c
