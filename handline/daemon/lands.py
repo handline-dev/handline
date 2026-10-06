@@ -4,7 +4,7 @@ The daemon is outside every agent's sandbox, so it alone can write main's checko
 runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py on the message it is
 given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check`), and it names the
 tree it tested. A sha lands when
-  - the auditor recorded a PASS for that exact sha (`hl land --pass`), and
+  - an auditor (any agent named `<team>.auditor`) recorded a PASS for that exact sha (`hl land --pass`), and
   - the merger recorded it with the tree its test saw (`hl land <sha> <message> --tree <tree>`).
 Both are accepted only from a process of the session `hl launch` recorded for that agent (found by
 the socket's peer pid, infra/sessiontoken.py), never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
@@ -27,7 +27,7 @@ from ..team import ask as askmod, team
 
 REQUESTER = "land"
 MERGER = "orcapipe.merger"
-AUDITOR = "orcapipe.auditor"
+AUDITOR_ROLE = "auditor"
 OUTPUT_KEPT = 1500
 
 _worker: dict = {"thread": None, "swept": False}
@@ -63,9 +63,16 @@ def _message_refusal(message: str) -> str | None:
     return None if r.returncode == 0 else textsafe.oneline(r.stderr)[:400]
 
 
+def is_auditor(agent: str | None) -> bool:
+    """Whether `agent` holds the auditor role: a name's last part is its role (`orcapipe.auditor`,
+    `handline.auditor`), and the roster the founder approves is the only place such a name comes from. Who
+    is calling is not this name's claim: the daemon has already matched it to the session `hl launch` recorded."""
+    return bool(agent) and team.parent_name(agent) is not None and agent.rpartition(".")[2] == AUDITOR_ROLE
+
+
 def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
-    """The auditor's PASS for `sha`."""
-    if caller != AUDITOR:
+    """The auditor's PASS for `sha`, from the auditor of any team."""
+    if not is_auditor(caller):
         return False, f"{caller or 'someone else'} may not record a PASS; the auditor does"
     full, why = _commit(sha)
     if full is None:
