@@ -225,11 +225,9 @@ function Detail({ agent: a, account, setAccount }: { agent: AgentView; account: 
           </select>
         </div>
       ) : null}
-      {d ? null : (
-        <View q={q} served={served} shape="agentDetail" what={`${a.name} details`}>
-          {null}
-        </View>
-      )}
+      <View q={q} served={served} shape="agentDetail" what={`${a.name} details`}>
+        {null}
+      </View>
       {row('task', a.task ? `#${a.task.id} ${a.task.title}` : null)}
       {row('worktree', d?.worktree?.branch)}
       {row('session', d?.session_id)}
