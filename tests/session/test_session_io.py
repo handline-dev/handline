@@ -1253,6 +1253,12 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
               str(dict(row)))
         check("restart: its start is recorded as a restart that resumed", "--why restart" in launched[0], launched[0])
 
+        db.set_closed(con, "backend", "sess-1")
+        table.pop("backend", None)
+        sent.clear()
+        ok, said = control.restart_result(con, "backend")
+        check("restart: an agent already closed is started again, not crashed on", ok, said)
+
         support.something_waiting(con, "backend")
         ok, said, launched, row = restart()
         told = launched_prompt(launched[0])
