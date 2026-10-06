@@ -245,6 +245,40 @@ def test_the_chat_topic_says_what_changes_once(home: Path) -> None:
     con.close()
 
 
+def test_the_chat_detector_reads_only_what_was_touched_since_and_remembers_prompts_across_a_restart(home: Path) -> None:
+    support._board_world(home)
+    _quiet_world()
+    con = db.connect()
+    plan = " | ".join(r["detail"] for r in con.execute("EXPLAIN QUERY PLAN " + stream.CHAT_TOUCHED_SQL, {"last": 5}))
+    check("chat topic: the touched-since query searches an index and never scans the requests", "SEARCH" in plan and "SCAN requests" not in plan
+          and "SCAN TABLE requests" not in plan, plan)
+    for n in range(300):
+        _send(db.HUMAN, "worker", f"old {n}")
+    con.execute("UPDATE requests SET ts = ts - 1000, state_at = NULL")
+    rid = _send(db.HUMAN, "worker", "now")
+    done = _send("worker", db.HUMAN, "answered", "ask")
+    db.add_answer(con, done, "an answer")
+    last = int(time.time()) - 5
+    got = [r["id"] for r in con.execute(stream.CHAT_TOUCHED_SQL, {"last": last})]
+    check("chat topic: it gives the requests changed or answered since, and the old ones are not read", rid in got and done in got and len(got) == 2, str(got))
+    now = int(time.time())
+    con.execute("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, first_seen, last_seen) VALUES(?,?,?,?,?,?,?,?)",
+                ("worker", "permission", "fpr", "Run?", json.dumps(["Run ls?"]), json.dumps({"tool": "Bash"}), now, now))
+    stream.HUB.subs.clear()
+    first = stream.Watcher(lambda m: None)
+    first.scan(con)             # a daemon that starts with the prompt open: not news
+    second = stream.Watcher(lambda m: None)         # and one that starts again (a restart): the prompt is still open
+    second.scan(con)
+    con.execute("UPDATE prompt_blocks SET gone_at = ? WHERE fingerprint = 'fpr'", (now + 1,))
+    second.scan(con)
+    prompts = [e for e in stream.since(con, 0, ["chat"]) if e["type"] == "chat.transcript" and e["data"]["kind"] == "prompt"]
+    check("chat topic: a prompt open before a restart is told closed when it closes", len(prompts) == 1 and prompts[0]["data"]["open"] is False, str(prompts))
+    for word, expect in (("running", True), ("RUNNING", True), ("idle", False), ("IDLE", False)):
+        from handline.daemon import rpc_chat
+        check(f"chat working: the stored state word {word} gives turn_running {expect}", rpc_chat.working_from({"state": word})["turn_running"] is expect)
+    con.close()
+
+
 def test_the_chat_fixtures_pass_against_this_daemon(home: Path) -> None:
     import socket
     import threading
@@ -280,6 +314,7 @@ def main() -> int:
         run(lambda: test_search_finds_text_and_says_where_each_hit_is_drawn(Path(td) / "c4"))
         run(lambda: test_the_transcript_is_the_agents_side_as_ordered_items(Path(td) / "c5"))
         run(lambda: test_the_chat_topic_says_what_changes_once(Path(td) / "c6"))
+        run(lambda: test_the_chat_detector_reads_only_what_was_touched_since_and_remembers_prompts_across_a_restart(Path(td) / "c8"))
         run(lambda: test_the_chat_fixtures_pass_against_this_daemon(Path(td) / "c7"))
     return run_area(tests)
 

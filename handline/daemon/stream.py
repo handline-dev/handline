@@ -255,17 +255,22 @@ def _notifications(con, state: dict) -> None:
         db.set_cursor(con, "stream:prompts", row["id"])
 
 
+CHAT_TOUCHED_SQL = ("SELECT id, MAX(t) AS touched FROM (SELECT id, COALESCE(state_at, ts) AS t FROM requests WHERE settles IS NULL AND COALESCE(state_at, ts) >= :last "
+                    "UNION ALL SELECT settles, ts FROM requests WHERE settles IS NOT NULL AND ts >= :last) GROUP BY id ORDER BY touched, id")
+
+
 def _chat(con, state: dict) -> None:
     """The chat topic: a request of a chat that appeared or changed (chat.message), what an agent said, a prompt it opened or closed and
     a task event of a task it owns (chat.transcript), and an agent's working state (chat.working). Each is said once, to the chat of
     every agent it belongs to. The places reached are cursors in the database, as `_notifications` keeps."""
     from . import rpc_chat
     from ..actions import chatreads
-    touched_sql = f"MAX(COALESCE(state_at, ts), COALESCE((SELECT MAX(a.ts) FROM requests a WHERE a.settles = requests.id), 0))"
-    last = _cursor_or_prime(con, "stream:chat_touched", f"SELECT COALESCE(MAX({touched_sql}), 0) FROM requests")
+    last = _cursor_or_prime(con, "stream:chat_touched", "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests WHERE settles IS NULL "
+                                                         "UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)")
     done = state.setdefault("done", {})         # request -> the message as last said, for the ones touched in the second the cursor is at
-    for row in con.execute(f"SELECT id, {touched_sql} AS touched FROM requests WHERE settles IS NULL AND {touched_sql} >= ? ORDER BY touched, id",
-                           (last,)).fetchall():
+    # A request is touched when it changed (state_at, else its own ts) or an answer to it was said (a row with settles = its id); each is
+    # looked up by its own index (requests_touched, requests_settles_ts), so a pass reads the rows since `last` and no more.
+    for row in con.execute(CHAT_TOUCHED_SQL, {"last": last}).fetchall():
         r = chatreads.request_row(con, row["id"])
         message = rpc_chat.message_of(con, r)
         if done.get(row["id"]) == message:
@@ -288,8 +293,10 @@ def _chat(con, state: dict) -> None:
         if owner and owner["owner"] != db.HUMAN:
             emit(con, "chat", "chat.transcript", item, agent=owner["owner"], target={"screen": "agent", "id": owner["owner"]})
         db.set_cursor(con, "stream:chat_events", row["id"])
-    opened = state.setdefault("open", set())
     shown = _cursor_or_prime(con, "stream:chat_prompts", "SELECT COALESCE(MAX(id), 0) FROM prompt_blocks")
+    if "open" not in state:         # a prompt open before this daemon started is told closed when it closes
+        state["open"] = {r["id"] for r in con.execute("SELECT id FROM prompt_blocks WHERE gone_at IS NULL AND id <= ?", (shown,))}
+    opened = state["open"]
     for row in con.execute("SELECT * FROM prompt_blocks WHERE id > ? ORDER BY id", (shown,)).fetchall():
         emit(con, "chat", "chat.transcript", rpc_chat.prompt_item_of(row), agent=row["agent"], target={"screen": "agent", "id": row["agent"]})
         if row["gone_at"] is None:

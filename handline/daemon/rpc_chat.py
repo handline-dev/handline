@@ -226,8 +226,9 @@ def _task_items(con, agent: str) -> list[dict]:
 
 
 def working_from(view: dict) -> dict:
-    """An agent's view (`agentview.compute`, or the stored one) as the spec's Working."""
-    return {"turn_running": view["state"] == "RUNNING", "line": view.get("blocker") or view.get("state_detail") or None,
+    """An agent's view (`agentview.compute`, or the stored one) as the spec's Working. The state word is read in either case: the stored view
+    says RUNNING today and `running` once the spec's lower-case words are stored."""
+    return {"turn_running": str(view["state"]).upper() == "RUNNING", "line": view.get("blocker") or view.get("state_detail") or None,
             "since": view.get("state_since")}
 
 
