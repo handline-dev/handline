@@ -56,6 +56,7 @@ class Screen:
             return True, ""
         termchannel.read_rows, termchannel.read_size, termchannel.do_resize = read, lambda handle: self.size, resize
         termchannel.HUB.channels.clear()
+        termchannel.HUB.restore.clear()
         con = db.connect()
         db.set_terminal(con, "worker", "t-worker", None)
         db.set_agent_state(con, "worker", "IDLE")
@@ -219,8 +220,7 @@ def test_a_slow_client_is_sent_a_fresh_frame_and_no_backlog(home: Path) -> None:
             got.append(msg)
             time.sleep(0.3)
         client = termchannel.Client(slow, lambda: None)
-        ch = termchannel.HUB.channel("t-worker")
-        ch.attach(client)
+        ch = termchannel.HUB.attach("t-worker", client)
         ch.begin(client)
         for i in range(12):
             s.rows = [f"state {i}", "second row", "third row"]
@@ -332,13 +332,13 @@ def test_resize_is_the_input_holders_alone_and_is_given_back_when_they_leave(hom
         check("resize: the holder is accepted, the host resized, and every client told", r["result"]["accepted"] and s.resized == [(100, 30)]
               and n is not None and (n["params"]["cols"], n["params"]["rows"]) == (100, 30), str((r, n)))
         r = w.call("terminal.resize", {**ask, "cols": 120, "request_id": "z5"})
-        check("resize: and again, the size before the first is the one kept", r["result"]["accepted"] and termchannel.HUB.channels["t-worker"].restore == (80, 24))
+        check("resize: and again, the size before the first is the one kept", r["result"]["accepted"] and termchannel.HUB.restore.get("t-worker") == (80, 24))
         w.call("input.release", {"agent": "worker", "request_id": "z6"})
         back = _next(w, "resize")
         while back is not None and back["params"]["cols"] != 80:
             back = _next(w, "resize")
         check("resize: when the holder leaves the terminal is given back its size and the clients told", s.resized[-1] == (80, 24)
-              and back is not None and (back["params"]["cols"], back["params"]["rows"]) == (80, 24) and termchannel.HUB.channels["t-worker"].restore is None, str((s.resized, back)))
+              and back is not None and (back["params"]["cols"], back["params"]["rows"]) == (80, 24) and "t-worker" not in termchannel.HUB.restore, str((s.resized, back)))
         w.call("input.take", {"agent": "worker", "request_id": "z7"})
         s.can_resize = False
         r = w.call("terminal.resize", {**ask, "request_id": "z8"})
@@ -394,6 +394,66 @@ def test_markers_say_when_the_daemon_typed_and_when_a_person_did(home: Path) -> 
         w.close()
 
 
+def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_serves_racing_attaches(home: Path) -> None:
+    support._board_world(home)
+    with Screen() as s:
+        hung: list = []
+        stuck = threading.Event()
+        client = termchannel.Client(lambda msg: stuck.wait(5), lambda: hung.append(1))
+        ch = termchannel.HUB.attach("t-worker", client)
+        ch.begin(client)
+        for i in range(termchannel.CLIENT_QUEUE + 20):       # holders change faster than a stuck client reads
+            ch.notify("holder", holders=[{"kind": "person", "name": f"p{i}", "since": None}])
+        time.sleep(0.2)
+        check("overflow: a client that fell CLIENT_QUEUE notices behind is hung up, not left with a stale holder", hung == [1] and client.dead and not client.notices, str(hung))
+        check("overflow: it is no longer served, and the poller is not held by it", client not in ch.clients or client.dead)
+        stuck.set()
+        con = db.connect()
+        inputhold.take(con, "worker", "person", "latest.holder")
+        con.close()
+        w = _wire()
+        snap = w.call("terminal.attach", {"agent": "worker"})["result"]
+        check("overflow: and attaching again gives a snapshot with the holder as it is now", snap["holders"][0]["name"] == "latest.holder", str(snap["holders"]))
+        w.close()
+        # racing attaches leave one poller
+        termchannel.HUB.channels.clear()
+        c1, c2 = termchannel.Client(lambda m: None, lambda: None), termchannel.Client(lambda m: None, lambda: None)
+        ch2 = termchannel.HUB.attach("t-race", c1)
+        termchannel.HUB.attach("t-race", c2)
+        gate = threading.Barrier(2)
+
+        def begin(c):
+            gate.wait()
+            ch2.begin(c)
+        ts = [threading.Thread(target=begin, args=(c,)) for c in (c1, c2)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        time.sleep(0.1)
+        check("one poller: two attaches beginning at once leave one poller thread", sum(1 for t in threading.enumerate() if t.name == "ocp-terminal-poll") == 1)
+        for c in (c1, c2):
+            ch2.detach(c)
+
+
+def test_a_channel_goes_with_its_last_client_and_history_of_an_unwatched_terminal_is_empty(home: Path) -> None:
+    support._board_world(home)
+    with Screen() as s:
+        w = _wire()
+        w.call("terminal.attach", {"agent": "worker"})
+        check("channels: one while someone watches", "t-worker" in termchannel.HUB.channels)
+        w.close()
+        for _ in range(40):
+            if "t-worker" not in termchannel.HUB.channels:
+                break
+            time.sleep(0.05)
+        check("channels: and gone, scrollback with it, once the last client has left and the poll has ended", "t-worker" not in termchannel.HUB.channels, str(list(termchannel.HUB.channels)))
+        h = _wire()
+        r = h.call("terminal.history", {"terminal": "t-worker", "before": 5, "limit": 5})["result"]
+        check("history: of a terminal nobody watches is an empty page, and makes no channel", r == {"first": 0, "lines": [], "more": False} and "t-worker" not in termchannel.HUB.channels, str(r))
+        h.close()
+
+
 def test_the_terminal_fixtures_pass_against_this_daemon(home: Path) -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
     import conformance
@@ -428,6 +488,8 @@ def main() -> int:
         run(lambda: test_scrollback_is_kept_under_absolute_indexes_and_paged(Path(td) / "m5"))
         run(lambda: test_resize_is_the_input_holders_alone_and_is_given_back_when_they_leave(Path(td) / "m6"))
         run(lambda: test_markers_say_when_the_daemon_typed_and_when_a_person_did(Path(td) / "m7"))
+        run(lambda: test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_serves_racing_attaches(Path(td) / "m9"))
+        run(lambda: test_a_channel_goes_with_its_last_client_and_history_of_an_unwatched_terminal_is_empty(Path(td) / "m10"))
         run(lambda: test_the_terminal_fixtures_pass_against_this_daemon(Path(td) / "m8"))
     return run_area(tests)
 

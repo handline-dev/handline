@@ -54,9 +54,8 @@ def _attach(ctx, params) -> dict:
         holders = inputhold.view(con, agent)
     finally:
         con.close()
-    ch = termchannel.HUB.channel(handle)
     client = termchannel.Client(ctx.send_line, ctx.hang_up)
-    ch.attach(client)
+    ch = termchannel.HUB.attach(handle, client)
     ctx.after_reply.append(lambda: ch.begin(client))
     ctx.on_close.append(lambda: ch.detach(client))
     ctx.terminals = getattr(ctx, "terminals", {})
@@ -82,7 +81,8 @@ def _history(ctx, params) -> dict:
         handle, _ = _handle(con, {"terminal": params.get("terminal")})
     finally:
         con.close()
-    return termchannel.HUB.channel(handle).history_page(before, limit)
+    ch = termchannel.HUB.open_for(handle)       # scrollback is kept while someone watches: none for a terminal nobody does
+    return ch.history_page(before, limit) if ch else {"first": 0, "lines": [], "more": False}
 
 
 def _resize(ctx, params) -> dict:
@@ -94,15 +94,15 @@ def _resize(ctx, params) -> dict:
         if holder is None or holder["name"] != ctx.caller.info["name"]:
             raise rpc.refused("only whoever holds the terminal's input may resize it" + (f"; {holder['name']} does" if holder else "; the daemon does"),
                               gate="input_holder")
-        ch = termchannel.HUB.channel(handle)
         before = termchannel.read_size(handle)
         ok, why = termchannel.do_resize(handle, cols, rows)
         if not ok:
             raise rpc.refused(f"{agent}'s terminal host cannot resize it: {why}", gate="unsupported")
-        if ch.restore is None and before:
-            ch.restore = before
-        ch.cols, ch.rows = cols, rows
-        if ch.clients:
+        if before:
+            termchannel.HUB.restore.setdefault(handle, before)
+        ch = termchannel.HUB.open_for(handle)
+        if ch is not None:
+            ch.cols, ch.rows = cols, rows
             ch.notify("resize", cols=cols, rows=rows)
         inputhold.touch(con, agent, ctx.caller.info["name"])
         return {"accepted": True, "said": f"{agent}: terminal is {cols} by {rows}"}
