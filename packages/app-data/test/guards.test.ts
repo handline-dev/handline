@@ -59,7 +59,9 @@ function sources(dir: string): string[] {
 }
 
 describe('guard 1: no hand-made data calls in an app', () => {
+  // The desktop shell reads the daemon in its main process, on its own connection, with no screen and no cache to keep.
   const offenders = sources(path.join(repo, 'apps'))
+    .filter((f) => !f.includes(`${path.sep}apps${path.sep}electron${path.sep}`))
     .filter((f) => BY_HAND.test(fs.readFileSync(f, 'utf8')))
     .map((f) => path.relative(repo, f));
   it('only the files not yet moved to app-data call the daemon or write through the store', () => {
