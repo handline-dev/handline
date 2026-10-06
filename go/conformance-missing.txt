@@ -13,10 +13,14 @@ input.release
 input.take
 prompt.answer
 prompt.list
+session.input
+session.interrupt
+session.keys
 session.park
 session.restart
 session.start
 session.stop
+session.type
 session.wake
 subscribe
 task.cancel
