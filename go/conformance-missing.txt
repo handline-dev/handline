@@ -49,3 +49,7 @@ unsubscribe
 worktree.diff
 worktree.set_status
 worktrees.list
+device.pair
+device.redeem
+device.revoke
+devices.list
