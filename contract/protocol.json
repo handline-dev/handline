@@ -5005,6 +5005,14 @@
      }
     },
     {
+     "name": "subject",
+     "required": false,
+     "schema": {
+      "type": "string"
+     },
+     "description": "Required for approve: the proposal's `subject` from hr.list. Refused if the proposal changed since."
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -5027,6 +5035,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -5514,6 +5525,9 @@
     },
     {
      "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
     }
    ]
   },
@@ -5768,6 +5782,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -7556,6 +7576,10 @@
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
+     },
+     "subject": {
+      "type": "string",
+      "description": "Digest of what the proposal changes as drawn; hr.decide's approve hands it back."
      }
     },
     "required": [
@@ -7563,6 +7587,7 @@
      "agent",
      "title",
      "diff",
+     "subject",
      "state",
      "created"
     ]

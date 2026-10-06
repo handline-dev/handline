@@ -325,6 +325,8 @@ export type Proposal = {
   diff: string;
   state: "open" | "approved" | "rejected";
   created: Timestamp;
+  /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
+  subject: string;
 };
 
 export type Repo = {
@@ -1302,6 +1304,7 @@ export interface Methods {
   proposal: number;
   decision: "approve" | "reject";
   note?: string;
+  subject?: string;
   request_id: RequestId;
 }; result: Accepted };
   "accounts.list": { params: { [key: string]: unknown }; result: {

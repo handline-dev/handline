@@ -1,8 +1,8 @@
 """hr.decide and worktree.set_status: the founder's decision on an HR proposal, and a worktree's status on the terminal host.
 hr.decide serves the HR card's Approve and Reject (`hl hr` only proposes); worktree.set_status serves no hl command.
 
-A proposal's id on the wire is the integer its hex id reads as. An approve is for the proposal as it reads now: the digest
-the legacy decide asks for (`subject`) is taken when the call arrives, so a call is for what hr.list showed last. The decision
+A proposal's id on the wire is the integer its hex id reads as. An approve names the `subject` hr.list showed (the digest
+hr.decide checks), so an edit to the proposal file made after the card was drawn is refused, never approved unseen. The decision
 and the change it makes are `hr.decide`'s own, recorded in the protected store; the daemon writes them as the founder's, which
 the method's role proves. A worktree is one an agent's record names; the status is the host's workspace status, which the host
 keeps and git does not (worktrees.list's `status` is git's), so a host that keeps none refuses. Each result is recorded in
@@ -55,9 +55,14 @@ def _decide(ctx, params) -> dict:
         raise rpc.bad_request("decision is approve or reject", "decision", rpc.INVALID_PARAMS)
     if note is not None and not isinstance(note, str):
         raise rpc.bad_request("note is text", "note", rpc.INVALID_PARAMS)
+    subject = params.get("subject")
+    if subject is not None and not isinstance(subject, str):
+        raise rpc.bad_request("subject is the digest hr.list showed", "subject", rpc.INVALID_PARAMS)
     prop = _proposal(params)
+    if decision == "approve" and not subject:
+        raise rpc.bad_request("an approve names the subject hr.list showed", "subject", rpc.INVALID_PARAMS)
     ok, said = hr.decide(prop["id"], "approved" if decision == "approve" else "rejected", askmod.HUMAN, note or "",
-                         hr.subject_of(prop))
+                         subject or hr.subject_of(prop))
     if not ok:
         raise rpc.refused(said.strip())
     return _wrote(ctx, params, "hr.decide", said)

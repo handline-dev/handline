@@ -212,12 +212,21 @@ def test_hr_decide_rejects_and_approves_the_proposal_it_names(home: Path) -> Non
     r = _call("hr.decide", {"proposal": n, "decision": "reject", "note": "not now", "request_id": "h1"})
     check("hr.decide: a reject is recorded with its note", r["result"]["accepted"] and hr.load_proposal(p["id"])["state"] == "rejected"
           and hr.load_proposal(p["id"])["verdict"] == "not now", str(r))
-    r = _call("hr.decide", {"proposal": n, "decision": "approve", "request_id": "h2"})
+    r = _call("hr.decide", {"proposal": n, "decision": "approve", "subject": "x", "request_id": "h2"})
     check("hr.decide: a proposal already decided is refused", _code(r) == "refused", str(r))
     p = _proposal()
-    r = _call("hr.decide", {"proposal": int(p["id"], 16), "decision": "approve", "request_id": "h3"})
+    r = _call("hr.decide", {"proposal": int(p["id"], 16), "decision": "approve", "request_id": "h3a"})
+    check("hr.decide: an approve without the subject is bad_request and applies nothing",
+          _code(r) == "bad_request" and hr.load_proposal(p["id"])["state"] == "proposed", str(r))
+    shown = hr.subject_of(hr.load_proposal(p["id"]))
+    edited = {**hr.load_proposal(p["id"]), "set.effort": "max"}
+    hr.save(edited)
+    r = _call("hr.decide", {"proposal": int(p["id"], 16), "decision": "approve", "subject": shown, "request_id": "h3b"})
+    check("hr.decide: an approve of the subject drawn before the proposal was edited is refused and applies nothing",
+          _code(r) == "refused" and hr.load_proposal(p["id"])["state"] == "proposed" and agents.read("worker").get("effort") != "max", str(r))
+    r = _call("hr.decide", {"proposal": int(p["id"], 16), "decision": "approve", "subject": hr.subject_of(edited), "request_id": "h3"})
     check("hr.decide: an approve is applied", r["result"]["accepted"] and hr.load_proposal(p["id"])["state"] == "applied"
-          and agents.read("worker").get("effort") == "high", str((r, hr.load_proposal(p["id"]))))
+          and agents.read("worker").get("effort") == "max", str((r, hr.load_proposal(p["id"]))))
     for params, code in (({"proposal": 1, "decision": "approve"}, "not_found"), ({"proposal": n, "decision": "maybe"}, "bad_request"),
                          ({"proposal": "1", "decision": "approve"}, "bad_request"), ({"proposal": n, "decision": "reject", "note": 5}, "bad_request")):
         r = _call("hr.decide", {**params, "request_id": f"h-{params}"})
