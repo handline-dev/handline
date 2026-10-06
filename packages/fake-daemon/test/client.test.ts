@@ -191,6 +191,23 @@ test('a retried write with the same request_id is not repeated and says so', asy
   client.close();
 });
 
+test('a remounted terminal keeps the shared view until its last holder lets go', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  await client.startSession(A);
+  const attached = () => [...(daemon as any).conns].reduce((n: number, c: any) => n + c.attached.size, 0);
+  const first = client.attachTerminal(A), second = client.attachTerminal(A); // remount before the first answer
+  const [v1, v2] = await Promise.all([first, second]);
+  assert.equal(v1, v2);
+  await client.detachTerminal(A); // the cancelled mount lets go
+  assert.equal(attached(), 1);
+  await client.sendInput(A, 'still live');
+  await until(() => v2.text().some((l) => l.includes('still live')), 'frames reach the remaining holder');
+  await client.detachTerminal(A);
+  assert.equal(attached(), 0);
+  client.close();
+});
+
 test('a restart appends to the screen an attached client already shows', async () => {
   const { client, daemon } = setup();
   await client.start();
