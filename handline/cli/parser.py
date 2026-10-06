@@ -215,6 +215,14 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--base-file", default=None, help="a file holding the whole new base.md")
     q.add_argument("--why", required=True, help="what the founder is deciding")
     q.set_defaults(team=None, repo=None, model=None, effort=None, vendor=None)
+    q = hrsub.add_parser("diff", help="propose a whole change to the team in one approval: a file "
+                                      "listing the changes, applied together or not at all")
+    q.add_argument("--file", required=True, metavar="PATH",
+                   help="yaml with `changes:`, each a map of `kind` (add, retire, rename, link, unlink, team, "
+                        "settings, context), `name`, and that kind's arguments (`to`, `team`, `repo`, `model`, "
+                        "`members`, `sets`, `role_file`, `base_file`...)")
+    q.add_argument("--why", required=True, help="what the founder is deciding")
+    q.set_defaults(name=None, team=None, repo=None, model=None, effort=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
     q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as cards")
     q.add_argument("--all", action="store_true", help="with --json: the settled ones too")
@@ -239,10 +247,14 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("id")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
-    q = hrsub.add_parser("approve", help="the founder approves a proposal; it is applied now")
-    q.add_argument("id")
+    q = hrsub.add_parser("approve", help="the founder approves proposals - one, several or --all - "
+                                         "and they are applied now; each proposer is told once")
+    q.add_argument("ids", nargs="*", metavar="id", help="the proposals; none with --all")
+    q.add_argument("--all", action="store_true", help="every proposal waiting on you")
+    q.add_argument("--yes", action="store_true",
+                   help="with several: do not ask (they are read as they are when you run this)")
     q.add_argument("--subject", default="",
-                   help="the digest of the proposal as read (`hl hr list --json`); without it the "
+                   help="with one id: the digest of the proposal as read (`hl hr list --json`); without it the "
                         "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)

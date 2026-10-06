@@ -3655,6 +3655,20 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
         await pilot.pause(0.8)
         check("hr card: a on the HR page approves it through the card", agents.read("backend")["effort"] == "high",
               str(agents.read("backend")))
+        agents.register("analytics")
+        hr.propose("settings", "analytics", requester="analytics", why="w", sets={"effort": "high"})
+        hr.propose("settings", "backend", requester="backend", why="w", sets={"model": "haiku"})
+        app.screen.query_one("#hr_table", DataTable).focus()
+        await pilot.pause(2.5)
+        await pilot.press("A")
+        await pilot.pause(0.4)
+        check("hr card: A asks once before approving everything waiting", isinstance(app.screen, Confirm)
+              and agents.read("analytics").get("effort") != "high")
+        await pilot.press("y")
+        await pilot.pause(1.0)
+        check("hr card: confirming applies every waiting proposal in one action",
+              agents.read("analytics")["effort"] == "high" and agents.read("backend")["model"] == "haiku"
+              and not hr.pending(), str(hr.pending()))
 
 
 async def test_every_dialog_opens_on_its_field_and_leaves_once() -> None:

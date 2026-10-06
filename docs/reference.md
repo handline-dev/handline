@@ -58,8 +58,9 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 |---|---|
 | `hl team` | Who you may reach, and what each is doing. |
 | `hl hr team` / `add` / `retire` / `rename` / `link` / `unlink` | Propose a roster change. |
+| `hl hr diff --file F --why W` | Propose several roster changes as one: the founder decides once, they apply in order or not at all, you get one message. |
 | `hl hr links [--apply]` | Move team.yaml onto the name links (founder). |
-| `hl hr list [--json]` / `approve <id>` / `reject <id> [reason]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
+| `hl hr list [--json]` / `approve <id>… \| --all [--yes]` / `reject <id> [reason]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
 | `hl memory status` | Size of each agent's `ROLE.md` and `base.md` against its limit. |
 | `hl schedule` | Messages the daemon types at an agent on a cron schedule. |
 | `hl fold [agent]` | Fold recorded events into the digest. The only command that calls a model. |

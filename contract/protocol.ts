@@ -1217,7 +1217,7 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "hr.propose": { params: {
-  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "settings" | "context";
+  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "settings" | "context" | "bundle";
   args: HrArgs;
   why?: string;
   request_id: RequestId;

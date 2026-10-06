@@ -484,7 +484,7 @@ A hook records an event; the spool replays it with the same request_id.
 
 ### `hr.propose`
 
-Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context).
+Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).
 
 ### `hr.withdraw`
 
@@ -663,6 +663,7 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl resume` | `session.wake` |
 | `hl wake` | `session.wake` |
 | `hl hr add|retire|rename|link|unlink|team|context` | `hr.propose` |
+| `hl hr diff` | `hr.propose` |
 | `hl hr withdraw` | `hr.withdraw` |
 | `hl hr list` | `hr.list` |
 | `hl trust add` | `trust.propose` |
