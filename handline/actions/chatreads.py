@@ -14,8 +14,10 @@ _GONE = "(" + ", ".join(repr(x) for x in db.NEVER_REACHED_TARGET) + ")"
 
 # Requests read per page. The newest page is what opens; older ones are read when the
 # chat is scrolled to within a screen of its top. Small, because drawing what is not in
-# view is most of what a page costs (founder #5425).
+# view is most of what a page costs.
 PAGE = 10
+
+
 def _scope(agent: str, everyone: bool) -> tuple[str, tuple]:
     """Which requests a chat is made of: the ones between the human and `agent`,
     or, for `everyone`, every one `agent` sent or received."""
