@@ -2,15 +2,22 @@
   "name": "handline-web",
   "private": true,
   "type": "module",
-  "description": "Shared daemon client and fake daemon for the web, Electron and mobile UIs",
+  "description": "The current web UI and phone app, until apps/web replaces them",
   "engines": {
     "node": ">=22.18"
   },
   "scripts": {
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "mobile": "node mobile/server.ts",
-    "fake-daemon": "node fake-daemon/serve.ts",
+    "fake-daemon": "pnpm --filter @handline/fake-daemon serve",
     "ui": "node serve-ui.ts --fake",
-    "typecheck-ui": "tsc -p ui"
+    "typecheck": "tsc -p ui"
+  },
+  "dependencies": {
+    "@handline/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@handline/fake-daemon": "workspace:*",
+    "@handline/config": "workspace:*"
   }
 }

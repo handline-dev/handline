@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentView, Prompt } from '../src/protocol.ts';
+import type { AgentView, Prompt } from '@handline/client';
 import {
   controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, railGroups, saveLayout, keyFrom, DEFAULT_LAYOUT, DAEMON_KEYS, type KV,
 } from '../ui/model.ts';

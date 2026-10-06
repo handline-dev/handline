@@ -73,6 +73,7 @@ def test_clean_text_and_look_alikes_pass() -> None:
         "write to user@example.com or <user>@example.org",
         "Co-Authored-By: Claude <noreply@anthropic.com>",
         "git clone git@github.com:org/repo.git",
+        "pnpm@10.33.0 and turbo@2.11.7 and a lock line \"@types/node@22.1.0\"",
         "a path /Users/<name>/x and /Users/you/x and /home/runner/work",
         "the orcapipe project, ocp, orcapipe.yaml and dev.orcapipe.backup",
         "pytest.mark.parametrize and @property and 5 > 3",

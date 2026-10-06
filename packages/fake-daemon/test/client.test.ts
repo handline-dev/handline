@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RpcError } from '../src/client.ts';
-import type { Event } from '../src/protocol.ts';
-import { flush, second, setup, until } from './helpers.ts';
+import { RpcError, type Event } from '@handline/client';
+import { flush, second, setup, until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
 const W = 'handline.auditor'; // its account is at the wall
@@ -141,7 +140,7 @@ test('the input holder: others are refused, release hands back to the daemon', a
   await b.start();
   const taken = await a.takeInput(A);
   assert.equal(taken.holder.name, 'web-a');
-  assert.deepEqual((await b.call('agent.get', { agent: A })).input_holders.map((h) => h.name), ['web-a']);
+  assert.deepEqual((await b.call('agent.get', { agent: A })).input_holders!.map((h) => h.name), ['web-a']);
   await assert.rejects(b.sendInput(A, 'hi'), (e: RpcError) => e.gate === 'input_holder' && /web-a holds/.test(e.message));
   assert.throws(() => daemon.daemonTypes(A, 'task'), /holds the input/);
   await a.releaseInput(A);

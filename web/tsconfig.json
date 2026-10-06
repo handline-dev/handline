@@ -1,8 +1,4 @@
 {
-  "compilerOptions": {
-    "target": "es2022", "module": "nodenext", "moduleResolution": "nodenext", "lib": ["es2022", "dom"],
-    "strict": true, "noEmit": true, "allowImportingTsExtensions": true, "erasableSyntaxOnly": true,
-    "noUncheckedIndexedAccess": false, "skipLibCheck": true, "types": ["node"]
-  },
-  "include": ["src", "fake-daemon", "test", "../contract/protocol.ts"]
+  "extends": "../packages/config/tsconfig.node.json",
+  "include": ["test", "serve-ui.ts"]
 }

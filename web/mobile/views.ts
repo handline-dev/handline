@@ -1,6 +1,6 @@
 // Pure drawing: state in, HTML string out. Controls carry data-act (and data-* arguments) that app.ts
 // delegates, so nothing here touches the DOM and tests read the strings.
-import type { AgentDetail, AgentView, Prompt } from '../src/protocol.ts';
+import type { AgentDetail, AgentView, Prompt } from '@handline/client';
 import { KEY_STRIP, type State } from './store.ts';
 
 export const esc = (s: unknown): string =>

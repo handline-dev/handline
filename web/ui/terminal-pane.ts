@@ -1,5 +1,5 @@
 // The live text-grid terminal pane: renders a TerminalView, and sends what the person types once they hold the input.
-import type { TerminalView } from '../src/client.ts';
+import type { TerminalView } from '@handline/client';
 import { h } from './dom.ts';
 import { keyFrom } from './model.ts';
 import type { Store } from './store.ts';
