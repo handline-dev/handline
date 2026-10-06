@@ -166,7 +166,8 @@ atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
 # the real one.
 ORCA_CHILD_TESTS = {"test_launch", "test_launch_refuses_stale",
                     "test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run",
-                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run"}
+                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run",
+                    "test_the_handline_command_runs_the_same_program_as_ocp"}
 
 
 def calls_that_reached_the_stand_in_orca() -> dict[str, list[str]]:
@@ -246,8 +247,13 @@ def restore_world() -> None:
     blockedmod._checked.clear()
     dmn_login_expired._checked.clear()
     accounts._modified.clear()
+    # The machine's process table is not the test world: with the real reading, whether a doctor or a task
+    # check goes on to ask Orca for its terminals depends on what happens to be running. "Could not look" is
+    # the answer the world gives; a test about sessions sets its own, or takes REAL_OBSERVE's.
+    obsmod.live_sessions = lambda: None
     for n, f in REAL_OBSERVE.items():
-        setattr(obsmod, n, f)
+        if n != "live_sessions":
+            setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
     dmn_delivery._seen.clear()
