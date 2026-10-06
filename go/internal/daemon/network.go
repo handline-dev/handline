@@ -71,13 +71,22 @@ func listenNetwork(cfg Config, d *Daemon) (*networkListener, error) {
 			return
 		}
 		defer d.untrack(ws.UnderlyingConn())
-		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		host := remoteHost(r.RemoteAddr)
 		rs.ServeNet(rpc.NewWSTransport(ws), host, func() { ws.Close() })
 	})
 	nl.srv = &http.Server{Handler: mux, ReadHeaderTimeout: rpc.RecvTimeout}
 	go nl.srv.Serve(ln)
 	cfg.Log("network listener on %s, certificate %s", ln.Addr(), nl.Fingerprint)
 	return nl, nil
+}
+
+// remoteHost is the peer's address without its port: a device that reconnects gets a new port each time.
+func remoteHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
 }
 
 func (d *Daemon) trackWS(c net.Conn) bool { return d.track(c) }

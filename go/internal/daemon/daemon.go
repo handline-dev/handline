@@ -66,7 +66,7 @@ func Start(cfg Config) (*Daemon, error) {
 		hooks: &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}}
 	d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	if cfg.Listen != "" {
-		d.dev = devices.New(devices.NewMemStore()) // until the database has its devices table
+		d.dev = devices.New(devices.SQLStore{DB: db})
 	}
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
