@@ -183,7 +183,7 @@ def _memo_write(ctx, params, name: str, run) -> dict:
             if not ok:
                 raise _fail(msg)
             result = _accepted(msg, **more)
-            db.record_effect(con, me, params["request_id"], name, result)
+            db.record_effect(con, ctx.caller.writer, params["request_id"], name, result)
             con.execute("COMMIT")
         except BaseException:
             if con.in_transaction:
@@ -242,7 +242,7 @@ def _memo_delete(ctx, params) -> dict:
 
 def _recorded(ctx, params, name: str):
     """What an action calls inside its write's transaction: the answer kept under this request_id."""
-    me, rid = ctx.caller.actor, params["request_id"]
+    me, rid = ctx.caller.writer, params["request_id"]
     return lambda con, msg: db.record_effect(con, me, rid, name, _accepted(msg))
 
 
