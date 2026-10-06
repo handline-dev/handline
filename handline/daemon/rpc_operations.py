@@ -74,9 +74,13 @@ def _run(op: str, name: str, repo: str, base: str, kw: dict) -> None:
     except Exception as e:  # noqa: BLE001 - whatever stopped it is the operation's message, never a dead thread
         _progress(op, state="failed", message=f"{step} failed: {e}", result={"agent": name, "registered": step == STEPS[1]})
     finally:
-        with _live_lock:
-            LIVE.discard(op)
-            _idle.notify_all()
+        _leave(op)
+
+
+def _leave(op: str) -> None:
+    with _live_lock:
+        LIVE.discard(op)
+        _idle.notify_all()
 
 
 def wait_idle(timeout: float = 10.0) -> bool:
@@ -140,8 +144,7 @@ def _create(ctx, params) -> dict:
             raise
         stream.emit(con, "operations", "operation.progress", _load(con, op), agent=name)
     except BaseException:
-        with _live_lock:
-            LIVE.discard(op)
+        _leave(op)
         raise
     finally:
         con.close()
