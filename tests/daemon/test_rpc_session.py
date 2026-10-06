@@ -346,7 +346,7 @@ def test_the_session_fixtures_pass_against_this_daemon(home: Path) -> None:
             check("(the test holds the terminal lock)", mine)
             for role in ("founder", "agent"):
                 sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
-                results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/session.json")], {role: connector()},
+                results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/session.json"), Path("contract/fixtures/session_stop.json")], {role: connector()},
                                                                      {"founder_key": _hp()["key"], "running_agent": "worker",
                                                                       "locked_agent": "manager"}) if r[0] != "skip"]
     finally:

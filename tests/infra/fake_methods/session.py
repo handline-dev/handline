@@ -12,10 +12,10 @@ def session(role, method, params):
         return "fail", err(-32602, "bad_request", field="mode")
     if method == "session.stop" and params.get("fresh") and params.get("mode") != "close":
         return "fail", err(-32602, "bad_request", field="fresh")
+    if method == "session.stop" and params.get("mode") == "kill" and role == "agent":
+        return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "kill is not for an agent session"}}
     if method == "session.start" and params.get("account") is not None:
         return "fail", err(-32602, "bad_request", field="account")
-    if method == "session.stop" and params.get("mode") == "kill" and role == "agent":
-        return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role"}}
     if params.get("agent") == "a.locked":
         return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "terminal_lock"}}
     if params.get("agent") == "a.running":
