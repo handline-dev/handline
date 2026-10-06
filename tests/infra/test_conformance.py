@@ -23,6 +23,8 @@ from support import *  # noqa: E402,F401,F403
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "contract"))
 import conformance  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fake_methods import HANDLERS  # noqa: E402
 
 SPEC = json.loads((ROOT / "contract" / "protocol.json").read_text())
 METHODS = {m["name"]: m for m in SPEC["methods"]}
@@ -134,6 +136,12 @@ class FakeDaemon:
         if method == "whoami":
             return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
                        "methods": self._methods()}), said_hello
+        handler = HANDLERS.get(method)
+        if handler is not None:
+            result = handler(self.role, method, params)
+            if result is not None:      # a handler that has nothing to say about the call (None) leaves it to the daemon's own branches below
+                kind, payload = result
+                return (ok if kind == "ok" else fail)(payload), said_hello
         if method == "inbox.list":
             items = [i for i in self._inbox() if (not params.get("unread") or not i["read"]) and params.get("kind", i["kind"]) == i["kind"]
                      and (params.get("before") is None or i["id"] < params["before"])]
@@ -157,18 +165,6 @@ class FakeDaemon:
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
             return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
-        if method in ("task.new", "task.edit", "task.withdraw", "task.cancel"):
-            if not isinstance(params.get("request_id"), str) or not params["request_id"]:
-                return fail(_err(-32600, "bad_request", field="request_id")), said_hello
-            if params.get("waits_on") is not None:
-                return fail(_err(-32602, "bad_request", field="waits_on")), said_hello
-            if method == "task.new":
-                if self.role != "agent":
-                    return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}), said_hello
-                if params.get("time_box") not in ("30m", "1h", "2h"):
-                    return fail(_err(-32602, "bad_request", field="time_box")), said_hello
-                return ok({"accepted": True, "said": "opened", "task": 1}), said_hello
-            return fail({"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}), said_hello
         if method == "events.feed":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -272,7 +268,9 @@ def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
 def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     from handline.daemon import socket_server
     from handline.infra import sessiontoken
+    from handline.session import term
     use_home(home)
+    term.live_terminals = lambda: None      # daemon.status asks the host; a test reaches no real one
     sessiontoken.ensure_founder_key()
     key = sessiontoken.founder_key_held()
 

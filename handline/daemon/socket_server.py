@@ -30,7 +30,16 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, rpc_agents, rpc_hooks, rpc_stream, rpc_tasks, sends, stream  # noqa: F401 - the rpc_ modules register their methods
+from . import landauth, lands, messaging, rpc, sends, stream
+from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
+    rpc_agents,
+    rpc_hooks,
+    rpc_inbox,
+    rpc_status,
+    rpc_stream,
+    rpc_taskview,
+    rpc_tasks,
+)
 
 
 
