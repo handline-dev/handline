@@ -1,0 +1,831 @@
+{
+ "fixtures": [
+  {
+   "name": "devices.unpaired_gets_nothing",
+   "spec": "x-framing",
+   "about": "On the network transport a connection with no valid device token is refused every call but device.redeem, hello and an unknown method included: gate unpaired, and the error holds only code, gate and reason (no data, no method list, no hint). One step per method of protocol.json.",
+   "as": "unpaired",
+   "for_each": "method",
+   "except": [
+    "device.redeem"
+   ],
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "not-a-token"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "unpaired",
+       "reason": {
+        "$regex": "."
+       },
+       "$exact": true
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "@method",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "unpaired",
+       "reason": {
+        "$regex": "."
+       },
+       "$exact": true
+      }
+     },
+     "each": true
+    }
+   ]
+  },
+  {
+   "name": "devices.pair_and_redeem_once",
+   "spec": "device.redeem",
+   "about": "A code from device.pair redeems once for a token; a second redeem of the same code is refused (pairing_code); the token's hello is a member device; devices.list shows it.",
+   "as": "unpaired",
+   "with": {
+    "admin": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.pair",
+      "params": {
+       "name": "conformance phone",
+       "request_id": "conf-dev-p2"
+      }
+     },
+     "result": {
+      "code": {
+       "$type": "string",
+       "$save": "code"
+      },
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r3"
+      }
+     },
+     "result": {
+      "token": {
+       "$type": "string",
+       "$save": "token"
+      },
+      "device": {
+       "$type": "string",
+       "$save": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "pairing_code",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "{{token}}"
+      }
+     },
+     "result": {
+      "role": "member",
+      "caller": {
+       "kind": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "role": "member"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "devices.list",
+      "params": {}
+     },
+     "result": {
+      "devices": {
+       "$contains": {
+        "name": "conformance phone",
+        "role": "member"
+       }
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "device.revoke",
+      "params": {
+       "device": "{{device}}",
+       "request_id": "conf-dev-v6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "admin"
+    }
+   ]
+  },
+  {
+   "name": "devices.wrong_code_refused",
+   "spec": "device.redeem",
+   "about": "A code that was never issued is refused, gate pairing_code, as an expired or used one is.",
+   "as": "unpaired",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "device.redeem",
+      "params": {
+       "code": "000000-never-issued",
+       "name": "conformance phone",
+       "request_id": "conf-dev-w1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "pairing_code",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "devices.expired_code_refused",
+   "spec": "device.redeem",
+   "about": "A code is refused after its ttl_s, gate pairing_code, the same refusal as a wrong one.",
+   "as": "unpaired",
+   "with": {
+    "admin": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.pair",
+      "params": {
+       "name": "conformance phone",
+       "request_id": "conf-dev-p2",
+       "ttl_s": 1
+      }
+     },
+     "result": {
+      "code": {
+       "$type": "string",
+       "$save": "code"
+      },
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "pairing_code",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     },
+     "sleep_s": 1.5
+    }
+   ]
+  },
+  {
+   "name": "devices.member_is_refused_above_member",
+   "spec": "device.revoke",
+   "about": "A paired device is a member: the founder's methods (devices.list, device.pair, device.revoke) are refused, gate role.",
+   "as": "unpaired",
+   "with": {
+    "admin": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.pair",
+      "params": {
+       "name": "conformance phone",
+       "request_id": "conf-dev-p2"
+      }
+     },
+     "result": {
+      "code": {
+       "$type": "string",
+       "$save": "code"
+      },
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r3"
+      }
+     },
+     "result": {
+      "token": {
+       "$type": "string",
+       "$save": "token"
+      },
+      "device": {
+       "$type": "string",
+       "$save": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "{{token}}"
+      }
+     },
+     "result": {
+      "role": "member",
+      "caller": {
+       "kind": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "devices.list",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "method": "device.pair",
+      "params": {
+       "request_id": "conf-dev-m1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "method": "device.revoke",
+      "params": {
+       "device": "{{device}}",
+       "request_id": "conf-dev-m2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "device.revoke",
+      "params": {
+       "device": "{{device}}",
+       "request_id": "conf-dev-v6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "admin"
+    }
+   ]
+  },
+  {
+   "name": "devices.revoke_closes_the_connection",
+   "spec": "device.revoke",
+   "about": "Revoking a device closes its open connection at once, and its token is refused afterwards, gate unpaired, the same as an unknown one.",
+   "as": "unpaired",
+   "with": {
+    "admin": "founder",
+    "again": "unpaired"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.pair",
+      "params": {
+       "name": "conformance phone",
+       "request_id": "conf-dev-p2"
+      }
+     },
+     "result": {
+      "code": {
+       "$type": "string",
+       "$save": "code"
+      },
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r3"
+      }
+     },
+     "result": {
+      "token": {
+       "$type": "string",
+       "$save": "token"
+      },
+      "device": {
+       "$type": "string",
+       "$save": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "{{token}}"
+      }
+     },
+     "result": {
+      "role": "member",
+      "caller": {
+       "kind": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "role": "member"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "device.revoke",
+      "params": {
+       "device": "{{device}}",
+       "request_id": "conf-dev-v6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "admin"
+    },
+    {
+     "closed": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 20,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "{{token}}"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "unpaired",
+       "reason": {
+        "$regex": "."
+       }
+      }
+     },
+     "on": "again"
+    }
+   ]
+  },
+  {
+   "name": "devices.revoke_closes_a_terminal_attach",
+   "spec": "device.revoke",
+   "about": "A device that has terminal.attach'ed loses the attach with its connection when it is revoked: the connection is closed, which is how a client sees it (frames stop and the socket ends). Needs --var terminal_agent.",
+   "as": "unpaired",
+   "with": {
+    "admin": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.pair",
+      "params": {
+       "name": "conformance phone",
+       "request_id": "conf-dev-p2"
+      }
+     },
+     "result": {
+      "code": {
+       "$type": "string",
+       "$save": "code"
+      },
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
+      }
+     },
+     "on": "admin"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "device.redeem",
+      "params": {
+       "code": "{{code}}",
+       "name": "conformance phone",
+       "request_id": "conf-dev-r3"
+      }
+     },
+     "result": {
+      "token": {
+       "$type": "string",
+       "$save": "token"
+      },
+      "device": {
+       "$type": "string",
+       "$save": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "token": "{{token}}"
+      }
+     },
+     "result": {
+      "role": "member",
+      "caller": {
+       "kind": "device"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{terminal_agent}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "device.revoke",
+      "params": {
+       "device": "{{device}}",
+       "request_id": "conf-dev-v6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "admin"
+    },
+    {
+     "closed": true
+    }
+   ]
+  },
+  {
+   "name": "devices.revoke_unknown_is_not_found",
+   "spec": "device.revoke",
+   "about": "A device that is not paired is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "device.revoke",
+      "params": {
+       "device": "no-such-device",
+       "request_id": "conf-dev-n1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
