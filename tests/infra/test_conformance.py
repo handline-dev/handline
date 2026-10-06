@@ -26,6 +26,7 @@ import conformance  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fake_methods import HANDLERS  # noqa: E402
 
+STATE_WORDS = ("running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal")
 SPEC = json.loads((ROOT / "contract" / "protocol.json").read_text())
 METHODS = {m["name"]: m for m in SPEC["methods"]}
 RANK = {r: i for i, r in enumerate(SPEC["x-roles"]["order"])}
@@ -46,12 +47,13 @@ def _method_of(line: bytes):
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
-    def __init__(self, role: str, mutate=None, lacks=(), broken=(), serial=False, unread=False):
+    def __init__(self, role: str, mutate=None, lacks=(), broken=(), serial=False, unread=False, upper_case=False):
         """`lacks`: methods this daemon does not have (not listed, -32601). `broken`: listed, yet answered -32601.
         `serial`: serve a connection's calls one at a time, so a waiting inbox.list holds the ones behind it.
+        `upper_case`: send the state words in upper case, as the Python daemon did before the vocabulary was fixed.
         `unread`: the inbox holds an unread item (id 5), so an inbox.list that its filters do not exclude returns at once."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
-        self.serial, self.unread = serial, unread
+        self.serial, self.unread, self.upper_case = serial, unread, upper_case
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -101,6 +103,12 @@ class FakeDaemon:
                         continue
                     reply, said_hello = self._answer(line, said_hello)
                     send(reply)
+
+    def state_word(self, word: str) -> str:
+        return word.upper() if self.upper_case else word
+
+    def _view(self, name: str) -> dict:
+        return {"name": name, "role": "", "state": self.state_word(name[4:]), "state_detail": ""}
 
     def _inbox(self) -> list:
         return [{"id": 5, "kind": "say", "read": False}] if self.unread else []
@@ -157,9 +165,12 @@ class FakeDaemon:
         if method == "agent.get":
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
+            if str(params["agent"]).startswith("a.s."):
+                return ok(self._view(params["agent"])), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
         if method == "agents.list":
-            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": "IDLE", "state_detail": "3m"}]}), said_hello
+            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": self.state_word("idle"), "state_detail": "3m"},
+                                  *(self._view(f"a.s.{w}") for w in STATE_WORDS)]}), said_hello
         if method == "agent.timeline":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -260,9 +271,9 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
-KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
+KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
        "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp"}
-KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
+KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp"]
 
@@ -434,6 +445,14 @@ def test_the_device_fixtures_pass_against_a_fake_network_and_catch_a_leak() -> N
     check("conformance: a network that answers an unpaired caller fails the unpaired fixture", dict((n, s) for s, _, n in results)["devices.unpaired_gets_nothing"] == "fail", str(results))
 
 
+def test_state_words_in_upper_case_fail_the_fixtures() -> None:
+    path = [ROOT / "contract" / "fixtures" / "state_words.json"]
+    results = conformance.run_all(path, {"founder": FakeDaemon("founder").connect}, KEY)
+    check("conformance: the state word fixtures pass for lower-case words", [s for s, _, _ in results] == ["pass"] * len(results) and len(results) == 1 + len(STATE_WORDS), str(results))
+    results = conformance.run_all(path, {"founder": FakeDaemon("founder", upper_case=True).connect}, KEY)
+    check("conformance: a daemon that sends IDLE and RUNNING fails every one of them", all(s == "fail" for s, _, _ in results) and results, str(results))
+
+
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
     _first_fixture_fails(lambda r: {**r, "jsonrpc": "1.0"}, "jsonrpc", "conformance: a reply with jsonrpc 1.0 fails")
     _first_fixture_fails(lambda r: {k: v for k, v in r.items() if k != "jsonrpc"}, "jsonrpc", "conformance: a reply without jsonrpc fails")
@@ -555,6 +574,7 @@ def main() -> int:
         run(lambda: test_skips_for_a_missing_var_and_a_method_the_daemon_lacks())
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
         run(lambda: test_the_device_fixtures_pass_against_a_fake_network_and_catch_a_leak())
+        run(lambda: test_state_words_in_upper_case_fail_the_fixtures())
         run(lambda: test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture())
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))

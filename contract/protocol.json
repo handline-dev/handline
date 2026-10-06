@@ -225,6 +225,29 @@
    }
   }
  },
+ "x-state-words": {
+  "rule": "AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it.",
+  "words": {
+   "running": "A turn is running (a hand-off in progress counts: moving is working).",
+   "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
+   "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
+   "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
+   "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
+   "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
+   "blocked": "Reserved: waiting on a blocker the view names in `block`. The daemon does not send it today; a client draws it as blocked.",
+   "no_terminal": "Registered but with no terminal to show: never started, or its terminal closed."
+  },
+  "from_daemon": {
+   "RUNNING, HANDOFF": "running",
+   "IDLE, DONE, PARKED with no work behind it": "idle",
+   "QUEUED, a restart retry (PENDING with no clock)": "queued",
+   "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
+   "DIALOG (an open prompt or modal)": "waiting",
+   "STALLED (FATAL)": "stalled",
+   "no terminal": "no_terminal"
+  },
+  "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
+ },
  "x-notifications": {
   "event": {
    "params": "Event",
@@ -6476,7 +6499,7 @@
      },
      "state": {
       "type": "string",
-      "description": "The daemon's state word; open set, clients ignore unknown."
+      "description": "One of x-state-words, lower case; an open set, clients treat an unknown word as idle."
      },
      "state_since": {
       "$ref": "#/components/schemas/Timestamp"

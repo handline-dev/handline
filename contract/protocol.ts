@@ -95,7 +95,7 @@ export type AgentView = {
   role: string;
   model: string | null;
   effort: string | null;
-  /** The daemon's state word; open set, clients ignore unknown. */
+  /** One of x-state-words, lower case; an open set, clients treat an unknown word as idle. */
   state: string;
   state_since: Timestamp;
   block?: Block | null;
@@ -1616,5 +1616,8 @@ export interface Notifications {
   holders: InputHolder[];
 };
 }
+
+/** The state words the daemon sends; an open set, so a client keeps a fallback. */
+export const STATE_WORDS = ["running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
