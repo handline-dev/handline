@@ -4,8 +4,28 @@
   "cacheDir": ".turbo/cache",
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
-    "test": { "dependsOn": ["^test"] },
-    "typecheck": { "dependsOn": ["^typecheck"] },
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] }
+    "test": {
+      "dependsOn": ["^test"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "inputs": [
+        "src/**",
+        "test/**",
+        "ui/**",
+        "mobile/**",
+        "*.ts",
+        "*.tsx",
+        "eslint.config.js",
+        "tsconfig*.json",
+        "$TURBO_ROOT$/packages/config/**"
+      ]
+    }
   }
 }

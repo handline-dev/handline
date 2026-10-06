@@ -43,6 +43,8 @@ Legend (the daemon team's plan groups): D1 chat reads and the `chat` topic; D2 c
 
 Numbered on from `docs/turborepo-layout.md` §6 (units 1–7). Each needs unit 4a's responsive shell and ends with the root gate green, a test against the fake daemon, and the auditor. A unit builds only what `hello.methods` lists and shows "this daemon does not serve <thing>" otherwise (as `web-main-view.md` §3 does for tabs), so none waits for a daemon task to start.
 
+**Data layer first.** Every unit reads and writes through `@handline/app-data` (React Query; `docs/turborepo-layout.md` §8), and every unit's *done when* includes that document's §9 checklist for its views: skeleton on first load, empty and error states, an optimistic or pending write for each action, rollback on refusal. Units Q1 (the package) and Q2 (`apps/web`'s existing reads and writes onto it) are in that document's §6 and **come before U8**; Q3 (mobile onto the same layer) follows Q1, and Q4 (removing what the cache replaced in the store) waits for both apps.
+
 | Unit | Builds (web) | Done when | Needs | Can start |
 |---|---|---|---|---|
 | U8 | Chat tab (G1, G12): message list with landing state and *mine* / *all*, send box with draft kept per agent, reply, withdraw, send now, paging, transcript items, working line, topic updates; session marks | the Chat tab renders the contract fixtures for each message state and transcript kind; a reload keeps the draft; two tabs agree through the `chat` topic; the card for an open prompt is U9's | D1, D2; N1, N7 | reads now, against the fake daemon |
@@ -55,7 +57,22 @@ Numbered on from `docs/turborepo-layout.md` §6 (units 1–7). Each needs unit 4
 | U15 | HR and Team (G8, G9) | approve / reject round trip; the tab dot matches the pending count | D7 | with D7 |
 | U16 | Stats and Home settings (G10, G11) | counts of 24 h and 7 d; default cap, idle close and standing answers edit and save; the outlook graph only with N5 | D7, D6; N5 | with D7 |
 
-Order: **U8 + U9, then U10, then U11**, because that is the order of use in §2 and of the daemon plan (chat comes after the task verbs). U12 and U14 next, U13, U15, U16 last. U8, U9 and U10 can run in parallel (separate files; one store).
+
+Skeleton and writes per unit (the shape is a spec in `app-data`, shared with mobile; the rules are in `turborepo-layout.md` §8.5–8.6; **authored** writes show at once, **decided** ones show a pending mark):
+
+| Unit | Skeleton on first load | Writes |
+|---|---|---|
+| U8 Chat | as the Chat tab in `web-main-view.md` §9: three message blocks, then the box | send, withdraw, dismiss, answer: authored; `chat.send_now`: decided |
+| U9 Prompt cards | none (a card exists only for a reported prompt) | `prompt.answer`: decided; `answer.add`: authored |
+| U10 Inbox | 4 cards: a title line, two body lines, an action row | mark read, answer, reply: authored (the bell count drops at once) |
+| U11 Tasks | table of 10 rows (id, from → to, a wide title, a state chip, age); detail: title, a meta row, three body paragraphs, a history list | new, edit, done, reopen, queue, draft, merge, memo: authored; discard keeps its confirmation and is decided, as is a transition the app does not know |
+| U12 Agent verbs | the sidebar's (`web-main-view.md` §9) | park, wake, restart, fold, move, clear stall: decided |
+| U13 Agent settings | a form: 8 label and input rows; schedules: 3 rows | `agent.set`, schedules add / edit / remove: authored |
+| U14 Accounts | 3 gauge cards (name, two bars, a reset line); account page: overview block, agents list, settings form | alias, cap, recovery, cycle: authored; login, remove: decided |
+| U15 HR and Team | proposal cards with a diff block; team table of 8 rows | approve, reject: decided |
+| U16 Stats and Home settings | 4 count tiles and a chart area; settings rows; answers list of 4 rows | settings, standing answers: authored |
+
+Order: **Q1, Q2, then U8 + U9, then U10, then U11**, because that is the order of use in §2 and of the daemon plan (chat comes after the task verbs). U12 and U14 next, U13, U15, U16 last. U8, U9 and U10 can run in parallel (separate files; one cache).
 
 | Unit | Electron | Done when |
 |---|---|---|

@@ -1,0 +1,5 @@
+{
+  "extends": "@handline/config/tsconfig.node.json",
+  "compilerOptions": { "allowImportingTsExtensions": true, "jsx": "react-jsx" },
+  "include": ["scripts", "test", "src", "modules"]
+}
