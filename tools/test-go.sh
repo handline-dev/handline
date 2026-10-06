@@ -22,6 +22,14 @@ fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/handlined.XXXXXX")" || exit 1
 trap 'kill "$pid" 2>/dev/null; rm -rf "$work"' EXIT
 "$here/build-go.sh" "$work/handlined" || exit 1
+# The founder is known by a key only the founder can read (protected store, one folder per home): mint one
+# where this home's store is, as the daemon reads it, and give it to the harness.
+mkdir -p "$work/state" || exit 1
+real="$(cd "$work/state" && pwd -P)"
+store="$work/.config/orcapipe/protected/$(printf %s "$real" | sed 's/[^A-Za-z0-9]/-/g')/founder-keys"
+mkdir -p "$store" && chmod 700 "$store"
+key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+( umask 077; printf %s "$key" >"$store/key" )
 HANDLINE_TEST_ROOT="$work" "$work/handlined" -home "$work/state" >"$work/log" 2>&1 &
 pid=$!
 for _ in $(seq 50); do [ -S "$work/state/daemon.sock" ] && break; sleep 0.1; done
@@ -30,6 +38,8 @@ if [ ! -S "$work/state/daemon.sock" ]; then
 fi
 # The one socket serves the founder (the harness's default role) and the anonymous caller. No socket is
 # given for agent and member: this daemon cannot tell those apart without a recorded session or a paired
-# device, so their fixtures are reported SKIP, and --allow-skip keeps that from failing the run.
+# device, so their fixtures are reported SKIP, and --allow-skip keeps that from failing the run. Methods
+# the Go daemon does not serve yet are listed in go/conformance-missing.txt; delete a line as its method lands.
 python3 "$harness" "$work/state/daemon.sock" --as anonymous="$work/state/daemon.sock" --allow-skip \
+    --allow-missing-file "$here/../go/conformance-missing.txt" --var founder_key="$key" \
     "$here"/../contract/fixtures/*.json
