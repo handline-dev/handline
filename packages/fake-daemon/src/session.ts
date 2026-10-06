@@ -26,6 +26,12 @@ export interface Session {
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
+/** How one connection watches a terminal: the format it asked for, and its own notice counter when that is bytes. */
+export interface Attach {
+  format: 'text' | 'bytes';
+  seq: number;
+}
+
 export const tid = (s: Session) => `term:${s.fx.name}`;
 
 export function newSession(fx: AgentFixture, since: Timestamp): Session {

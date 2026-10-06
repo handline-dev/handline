@@ -18,7 +18,8 @@ test('the store lists the agents and keeps a watched agent current from events',
   const { store, client, daemon } = await open();
   assert.equal(store.agents.size, 3);
   assert.equal(store.me, 'web-test');
-  assert.equal(store.chat, false);
+  assert.ok(store.can('agents.list'));
+  assert.ok(!store.can('no.such.method'));
   await store.watch(ARCH);
   assert.equal(store.details.get(ARCH)!.session_open, true);
   await store.act('type', () => client.takeInput(ARCH));

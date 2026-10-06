@@ -233,6 +233,21 @@ def test_the_standing_answer_fixtures_pass_against_this_daemon(home: Path) -> No
     check("fixtures: every standing-answer fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 8, str(bad))
 
 
+def test_a_devices_answer_writes_are_kept_under_the_device(home: Path) -> None:
+    import types
+    from handline.daemon import rpc, rpc_answers
+    support._board_world(home)
+    ctx = types.SimpleNamespace(caller=rpc.DeviceCaller("dev_a", "phone"))
+    other = types.SimpleNamespace(caller=rpc.DeviceCaller("dev_b", "tablet"))
+    check("device retry: the intent key of a device's write names the device, and another device's is not the same",
+          "device:dev_a" in rpc_answers._intent(ctx, {"request_id": "x"}, "answer.add") and rpc_answers._intent(ctx, {"request_id": "x"}, "answer.add") != rpc_answers._intent(other, {"request_id": "x"}, "answer.add"))
+    rpc_answers._finish(ctx, {"request_id": "da1"}, "answer.add", "added")
+    con = db.connect()
+    rows = [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = 'da1'")]
+    con.close()
+    check("device retry: the finished write is recorded under device:<id>, so its retry finds it", rows == ["device:dev_a"], str(rows))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_founders_saved_answers_are_listed_and_only_theirs(Path(td) / "n1"))
@@ -242,6 +257,7 @@ def main() -> int:
         run(lambda: test_inbox_get_waits_for_the_answer_without_holding_up_the_connection(Path(td) / "n5"))
         run(lambda: test_hl_read_still_works_from_an_agent_session(Path(td) / "n6"))
         run(lambda: test_the_standing_answer_fixtures_pass_against_this_daemon(Path(td) / "n7"))
+        run(lambda: test_a_devices_answer_writes_are_kept_under_the_device(Path(td) / "da"))
     return run_area(tests)
 
 

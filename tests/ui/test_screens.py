@@ -1622,6 +1622,8 @@ edges:
         check("team: a supervisor is given the manager rules, a report is not",
               all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
               and "--blocked-by" not in dev, mgr)
+        check("team: a supervisor is told finding the bottleneck is its job, a report without reports is not",
+              "Finding the bottleneck is your job" in mgr and "bottleneck" not in dev, mgr)
         check("team: a report is told who it reports to",
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",

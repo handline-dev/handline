@@ -16,7 +16,7 @@ _ADD_FIELDS = ("folder", "vendor", "title", "label")
 
 
 def _intent(ctx, params, name: str) -> str:
-    return f"intent:{name}:{ctx.caller.actor}:{params['request_id']}"
+    return f"intent:{name}:{ctx.caller.writer}:{params['request_id']}"
 
 
 def _begun(ctx, params, name: str) -> bool:
@@ -36,7 +36,7 @@ def _finish(ctx, params, name: str, said: str, *, ok: bool = True) -> None:
     con = db.connect()
     try:
         if ok:
-            db.record_effect(con, ctx.caller.actor, params["request_id"], name, {"accepted": True, "said": said})
+            db.record_effect(con, ctx.caller.writer, params["request_id"], name, {"accepted": True, "said": said})
         db.clear_cursor(con, _intent(ctx, params, name))
     finally:
         con.close()

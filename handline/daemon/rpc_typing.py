@@ -63,7 +63,7 @@ def _act(ctx, name: str, params, send, wall: bool = False) -> dict:
             delivery._mark_typed(con, agent, ctx.caller.actor_info)
             inputhold.touch(con, agent, ctx.caller.info["name"])
             result = {"accepted": True, "said": f"{agent}: {name} sent"}
-            db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
+            db.record_effect(con, ctx.caller.writer, params["request_id"], name, result)
             return result
     finally:
         con.close()

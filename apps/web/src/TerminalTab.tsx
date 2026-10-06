@@ -2,22 +2,19 @@
 // type, Take control and Release, and the key chips; Start, Stop and Resume are in the sidebar.
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
-import { controlsOf, holderLabel, keyFrom } from '@handline/app-core';
+import { controlsOf, keyFrom } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
+import { Skeleton, useWrite } from '@handline/app-data';
+import { Chips, TermBar } from './TermBar.tsx';
 
-const CHIPS: [string, string][] = [
-  ['esc', 'Esc'],
-  ['ctrl-c', '^C'],
-  ['enter', '↵'],
-  ['up', '↑'],
-  ['down', '↓'],
-  ['tab', 'Tab'],
-  ['shift-tab', '⇧Tab'],
-  ['1', '1'],
-  ['2', '2'],
-  ['3', '3'],
-];
 const TAKE = 'Press "Take control" to type here; the daemon stops typing while you hold the keyboard.';
+
+/** A write's outcome as a flag: a refusal is already shown by the write (the toast), so the caller only needs to know whether to go on. */
+const done = (write: Promise<unknown>) =>
+  write.then(
+    () => true,
+    () => false,
+  );
 
 export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const store = useStore();
@@ -25,6 +22,10 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   const input = useRef<HTMLTextAreaElement>(null);
   const view = useRef<TerminalView | null>(null);
   const [status, setStatus] = useState('');
+  const [attaching, setAttaching] = useState(false); // the grid's skeleton shows until the terminal is attached or refused
+  const take = useWrite('input.take', agent);
+  const typing = useWrite('session.input', agent);
+  const keys = useWrite('session.keys', agent);
   const latest = useRef(detail);
   latest.current = detail; // handlers read the current detail without re-binding
   const hasTerminal = !!detail.terminal;
@@ -35,12 +36,14 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
     const g = grid.current!;
     if (!hasTerminal) {
       g.textContent = '';
+      setAttaching(false);
       setStatus('No terminal. Start the agent to open one.');
       return;
     }
     let cancelled = false,
       off: (() => void) | null = null,
       frame = 0;
+    setAttaching(true);
     const paint = (stick = false) => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
@@ -60,12 +63,15 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
           return;
         }
         view.current = v;
+        setAttaching(false);
         setStatus('');
         off = v.subscribe(() => paint());
         paint(true);
       },
       (e) => {
-        if (!cancelled) setStatus((e as { reason?: string }).reason ?? (e as Error).message);
+        if (cancelled) return;
+        setAttaching(false);
+        setStatus((e as { reason?: string }).reason ?? (e as Error).message);
       },
     );
     return () => {
@@ -90,7 +96,7 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
       text = el.value;
     el.value = '';
     if (!text || dialogOpen || !holding()) return; // a dialog is a menu: only keys pass
-    await store.act('typing', () => store.client.sendInput(agent, text, false));
+    await done(typing.mutateAsync({ agent, text, enter: false }));
   };
   const onKey = async (e: React.KeyboardEvent) => {
     const k = keyFrom(e.nativeEvent, dialogOpen);
@@ -102,32 +108,18 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
       return;
     }
     await drain();
-    await store.act('key', () => store.client.sendKeys(agent, k.name));
+    await done(keys.mutateAsync({ agent, keys: [k.name] }));
   };
   /** A chip is typing, so it takes the keyboard first, then sends the key. */
   const press = async (key: string) => {
-    if (!controlsOf(latest.current, store.me).typing && !(await store.act('take control', () => store.client.takeInput(agent)))) return;
-    await store.act('key', () => store.client.sendKeys(agent, key));
+    if (!controlsOf(latest.current, store.me).typing && !(await done(take.mutateAsync({ agent })))) return;
+    await done(keys.mutateAsync({ agent, keys: [key] }));
   };
   const chipsOn = detail.session_open && (c.typing || c.take);
 
   return (
     <div className="terminal-tab">
-      <div className="term-bar">
-        <span className="holder" title="Who may type now">
-          input: {holderLabel(detail.input_holders?.[0], store.me)}
-        </span>
-        {c.take ? (
-          <button className="btn" onClick={() => void store.act('take control', () => store.client.takeInput(agent))}>
-            Take control
-          </button>
-        ) : null}
-        {c.release ? (
-          <button className="btn" onClick={() => void store.act('release', () => store.client.releaseInput(agent))}>
-            Release
-          </button>
-        ) : null}
-      </div>
+      <TermBar agent={agent} detail={detail} />
       <div className="terminal">
         <pre
           className="grid"
@@ -156,15 +148,12 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
           }}
           onCompositionEnd={() => void drain()}
         />
+        <div className="grid-skeleton">
+          <Skeleton shape="terminalGrid" loading={attaching} label="the terminal" />
+        </div>
         <div className="grid-status">{status}</div>
       </div>
-      <div className="chips">
-        {CHIPS.map(([key, label]) => (
-          <button key={key} className="chip" disabled={!chipsOn} title={`Send ${label}`} onClick={() => void press(key)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <Chips enabled={chipsOn} onPress={(key) => void press(key)} />
     </div>
   );
 }

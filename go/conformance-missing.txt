@@ -50,3 +50,4 @@ answers.list
 answer.add
 answer.remove
 inbox.get
+hr.list
