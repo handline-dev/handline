@@ -369,6 +369,7 @@ export const writes: Record<string, WriteSpec> = {
       if ((e as { code?: string }).code !== 'stale_prompt') return false;
       const agent = as<{ agent: string }>(p).agent;
       c.qc.setQueryData(qk.prompts(c.d, agent), { prompts: current ? [current] : [] });
+      edit<{ prompt: unknown }>(c.qc, qk.agent(c.d, agent), (d) => ({ ...d, prompt: current ?? null }));
       return true;
     },
   },

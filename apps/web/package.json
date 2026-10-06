@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@handline/app-core": "workspace:*",
+    "@handline/app-data": "workspace:*",
     "@handline/app-react": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
