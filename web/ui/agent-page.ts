@@ -208,31 +208,9 @@ export class AgentPage {
     );
   }
 
-  private render(): void {
-    const a = this.store.agents.get(this.agent),
-      d = this.store.details.get(this.agent);
-    if (!a) {
-      keyed(this.title, this.store.conn, () => [
-        h('p', { class: 'muted' }, this.store.conn === 'open' ? `No agent named ${this.agent}.` : 'Connecting…'),
-      ]);
-      this.actions.replaceChildren();
-      this.actions.dataset.sig = '';
-      return;
-    }
-    const c = d ? controlsOf(d, this.store.me) : null;
-    const accounts = [...new Set([...this.store.agents.values()].map((x) => x.account).filter((x): x is string => !!x))];
-    // Each part is rebuilt only when what it shows changed, so an open Stop menu or account list survives other agents' events.
-    keyed(this.title, [a.state, a.state_since, a.model, a.account, a.task, a.role, d?.worktree?.branch, dotOf(a)], () => [
-      h('span', { class: `dot ${dotOf(a)}`, title: a.state }),
-      h('strong', null, a.name),
-      h(
-        'span',
-        { class: 'muted' },
-        [a.model, a.account, a.task?.title, d?.worktree ? `worktree ${d.worktree.branch}` : null].filter(Boolean).join(' · '),
-      ),
-      h('span', { class: 'state' }, `${a.state} ${ago(a.state_since)}`),
-    ]);
-    keyed(this.actions, [c, accounts, d?.account_pick, d?.input_holders, this.store.me, this.layout.open, this.account], () => [
+  /** The action row: start, resume, stop, input and layout controls, each shown only when the daemon allows it. */
+  private actionItems(c: ReturnType<typeof controlsOf> | null, d: AgentDetail | undefined, accounts: string[]) {
+    return [
       c?.start
         ? h(
             'button',
@@ -305,7 +283,36 @@ export class AgentPage {
           )
         : null,
       !this.layout.open ? h('button', { class: 'btn', onclick: () => this.setLayout({ open: true }) }, 'Show pane') : null,
+    ];
+  }
+
+  private render(): void {
+    const a = this.store.agents.get(this.agent),
+      d = this.store.details.get(this.agent);
+    if (!a) {
+      keyed(this.title, this.store.conn, () => [
+        h('p', { class: 'muted' }, this.store.conn === 'open' ? `No agent named ${this.agent}.` : 'Connecting…'),
+      ]);
+      this.actions.replaceChildren();
+      this.actions.dataset.sig = '';
+      return;
+    }
+    const c = d ? controlsOf(d, this.store.me) : null;
+    const accounts = [...new Set([...this.store.agents.values()].map((x) => x.account).filter((x): x is string => !!x))];
+    // Each part is rebuilt only when what it shows changed, so an open Stop menu or account list survives other agents' events.
+    keyed(this.title, [a.state, a.state_since, a.model, a.account, a.task, a.role, d?.worktree?.branch, dotOf(a)], () => [
+      h('span', { class: `dot ${dotOf(a)}`, title: a.state }),
+      h('strong', null, a.name),
+      h(
+        'span',
+        { class: 'muted' },
+        [a.model, a.account, a.task?.title, d?.worktree ? `worktree ${d.worktree.branch}` : null].filter(Boolean).join(' · '),
+      ),
+      h('span', { class: 'state' }, `${a.state} ${ago(a.state_since)}`),
     ]);
+    keyed(this.actions, [c, accounts, d?.account_pick, d?.input_holders, this.store.me, this.layout.open, this.account], () =>
+      this.actionItems(c, d, accounts),
+    );
     keyed(this.narrow, this.layout.tab, () =>
       (['chat', 'claude'] as const).map((t) =>
         h(

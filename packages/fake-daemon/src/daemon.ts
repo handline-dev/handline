@@ -18,9 +18,10 @@ import {
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import { AGENTS } from './fixtures.ts';
+import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
-import { DAEMON_HOLDER, detail, newSession, row, scrolledOff, tid, view, visible, type Session } from './session.ts';
+import { detail, newSession, tid, view, type Session } from './session.ts';
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
@@ -292,6 +293,9 @@ export class FakeDaemon {
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
+    const handler = HANDLERS[method];
+    if (handler)
+      return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
     switch (method as MethodName) {
       case 'whoami':
         return {
@@ -331,96 +335,6 @@ export class FakeDaemon {
       case 'prompt.list': {
         const s = agent();
         return { prompts: s.prompt ? [s.prompt] : [] };
-      }
-      case 'session.start':
-        return this.script.startSession(agent(), false, actor);
-      case 'session.wake':
-        return this.script.startSession(agent(), true, actor);
-      case 'session.restart':
-        return this.script.restartSession(agent(), p.fresh === true, actor);
-      case 'session.park':
-        return this.script.stopSession(agent(), 'close', actor);
-      case 'session.stop':
-        return this.script.stopSession(agent(), p.mode, actor);
-      case 'session.input':
-        return this.script.input(agent(), p, c, actor);
-      case 'session.keys':
-        return this.script.keys(agent(), p.keys, c, actor);
-      case 'session.interrupt': {
-        const s = agent();
-        this.script.gate(s, c);
-        this.script.record(s, 'key', 'esc', actor.name);
-        this.script.control(s, actor, 'interrupt', `${actor.name} interrupted`);
-        this.script.interruptTurn(s, actor);
-        return this.script.accepted('Interrupted.');
-      }
-      case 'prompt.answer': {
-        const s = agent();
-        this.script.gate(s, c);
-        const open = s.prompt;
-        if (!open || open.id !== p.prompt)
-          throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
-        if (typeof p.choice !== 'string') throw badRequest('this prompt takes one of its option keys', 'choice');
-        const key = p.choice;
-        if (!open.options.some((o) => o.key === key)) throw badRequest(`${key} is not offered by this prompt`, 'choice');
-        this.script.record(s, 'key', key, actor.name);
-        this.script.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`);
-        this.script.answer(s, key, actor);
-        return this.script.accepted('Answered.');
-      }
-      case 'input.take': {
-        const s = agent();
-        if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name)
-          throw refused('input_holder', `${s.holder.name} holds the input`);
-        if (s.holder.kind === 'daemon')
-          s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: this.iso() };
-        this.script.control(s, actor, 'input.take', `${actor.name} took the input`);
-        return this.script.accepted('You hold the input.', { holder: s.holder });
-      }
-      case 'input.release': {
-        const s = agent();
-        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'you do not hold the input');
-        s.holder = DAEMON_HOLDER;
-        this.script.control(s, actor, 'input.release', `${actor.name} released the input`);
-        return this.script.accepted('The daemon holds the input again.');
-      }
-      case 'terminal.attach': {
-        const s = p.terminal !== undefined ? this.byTerminal(p.terminal) : agent();
-        if (p.terminal !== undefined && p.agent !== undefined) throw badRequest('give agent or terminal, not both', 'terminal');
-        if (!s.hasTerminal) throw refused('state', 'the agent has no terminal');
-        c.attached.add(tid(s));
-        const want = typeof p.history === 'number' ? p.history : 100;
-        const off = scrolledOff(s),
-          first = Math.max(0, off - want);
-        return {
-          terminal: tid(s),
-          format: 'text',
-          seq: s.seq,
-          cols: s.cols,
-          rows: s.rows,
-          lines: visible(s).map(row),
-          cursor: null,
-          history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 },
-          holder: s.holder,
-        };
-      }
-      case 'terminal.detach':
-        c.attached.delete(String(p.terminal));
-        return {};
-      case 'terminal.history': {
-        const s = this.byTerminal(p.terminal);
-        const end = Math.min(Number(p.before), scrolledOff(s)),
-          first = Math.max(0, end - Number(p.limit));
-        return { first, lines: s.lines.slice(first, end).map(row), more: first > 0 };
-      }
-      case 'terminal.resize': {
-        const s = this.byTerminal(p.terminal);
-        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon')
-          throw refused('input_holder', 'only the input holder may resize');
-        s.cols = Number(p.cols);
-        s.rows = Number(p.rows);
-        this.script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
-        return this.script.accepted('Resized.');
       }
       case 'device.pair': {
         const code = this.issueCode();

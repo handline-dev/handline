@@ -10,6 +10,8 @@
     "./prettier.json": "./prettier.json"
   },
   "scripts": {
-    "lint": "eslint ."
+    "test": "node --test --test-timeout=60000 --test-reporter=spec test/*.test.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p ."
   }
 }
