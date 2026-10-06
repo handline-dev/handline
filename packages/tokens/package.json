@@ -1,0 +1,12 @@
+{
+  "name": "@handline/tokens",
+  "private": true,
+  "type": "module",
+  "description": "Colors, spacing, type scale and breakpoints as TypeScript constants, for the web (as CSS variables) and the mobile app (used directly)",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": { "@handline/config": "workspace:*" }
+}

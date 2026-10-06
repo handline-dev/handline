@@ -1,5 +1,6 @@
 // What the screens decide from daemon facts. Pure: no DOM, so tests run it in Node.
 import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
+import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 
 export type Dot = 'running' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
@@ -85,14 +86,6 @@ export function offered(p: Prompt): PromptOption[] {
 
 export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };
 
-/** The key names `session.keys` takes (contract/protocol.json). Add the editing keys here when the contract names them. */
-export const DAEMON_KEYS: ReadonlySet<string> = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', ...'0123456789']);
-
-const NAMED: Record<string, string> = {
-  Escape: 'esc', Enter: 'enter', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
-  Backspace: 'backspace', Delete: 'delete', Home: 'home', End: 'end',
-};
-
 /**
  * What a keydown in the terminal sends: a named key the daemon takes, or null to leave the event alone. Printable text
  * is not read here: it arrives through the input and compositionend events of the focused textarea, which is what makes
@@ -102,7 +95,7 @@ export function keyFrom(e: KeyEvent, dialogOpen: boolean, keys: ReadonlySet<stri
   if (e.isComposing || e.key === 'Process' || e.key === 'Dead') return null;
   if (e.metaKey || e.altKey) return null;
   if (e.ctrlKey) return e.key.toLowerCase() === 'c' ? { name: 'ctrl-c' } : null;
-  const name = e.key === 'Tab' ? (e.shiftKey ? 'shift-tab' : 'tab') : NAMED[e.key];
+  const name = e.key === 'Tab' ? (e.shiftKey ? 'shift-tab' : 'tab') : NAMED_KEYS[e.key];
   if (name) return keys.has(name) ? { name } : { unavailable: e.key };
   if (e.key.length !== 1) return null;
   if (!dialogOpen) return null; // printable text comes from the textarea's input event
