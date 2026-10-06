@@ -1,0 +1,4 @@
+{
+  "extends": "@handline/config/tsconfig.react.json",
+  "include": ["src", "test", "vitest.config.ts"]
+}
