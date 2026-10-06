@@ -3518,6 +3518,14 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
               len(list(page.query(cp.SessionMark))) == 3, str(len(list(page.query(cp.SessionMark)))))
 
 
+async def _until(pilot, cond, seconds: float = 15.0) -> None:
+    """Wait for `cond` itself, polling, instead of a sleep a loaded machine can overrun."""
+    for _ in range(int(seconds / 0.05)):
+        if cond():
+            return
+        await pilot.pause(0.05)
+
+
 async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_the_hr_page() -> None:
     from textual.app import App
     from textual.widgets import Button, DataTable, Input
@@ -3552,24 +3560,27 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
               and "rejected" in str(cards["rejected"]._head.render()))
         card = cards["proposed"]
         await pilot.click(card.query_one(".hr_reject", Button))
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: card.has_class("rejecting"))
         why = card.query_one(".hr_why", Input)
         check("hr card: Reject asks why, and nothing is decided yet", card.has_class("rejecting") and not calls)
         await pilot.press("enter")
+        await pilot.pause()
         check("hr card: an empty reason rejects nothing", not calls and card.has_class("rejecting"))
         await pilot.press("escape")
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: not card.has_class("rejecting"))
         check("hr card: Esc takes the question back", not card.has_class("rejecting") and not calls)
         verdicts[0] = (False, "refused")
         await pilot.click(card.query_one(".hr_approve", Button))
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: calls)
+        await pilot.pause()
         check("hr card: a refused decision leaves the card waiting",
               calls == [("proposed", "approved", "")] and card.p["state"] == "proposed" and shown(card))
         verdicts[0] = (True, "ok")
         await pilot.click(card.query_one(".hr_reject", Button))
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: card.has_class("rejecting"))
+        await pilot.pause()
         await pilot.press(*"too wide", "enter")
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: card.p["state"] == "rejected")
         check("hr card: the reason is the rejection", calls[-1] == ("proposed", "rejected", "too wide")
               and card.p["state"] == "rejected" and not shown(card))
 
@@ -3582,17 +3593,19 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
     async with app.run_test(size=(110, 40)) as pilot:
         page = cp.ChatPage("backend")
         await app.push_screen(page)
-        await pilot.pause(0.5)
+        await _until(pilot, lambda: list(page.query(hr_card.HrCard)))
+        await pilot.pause()
         cards = list(page.query(hr_card.HrCard))
         check("hr card: the chat of the agent that asked shows one card for it",
               len(cards) == 1 and cards[0].p["state"] == "proposed", str(len(cards)))
         await pilot.click(cards[0].query_one(".hr_approve", Button))
-        await pilot.pause(0.8)
+        await _until(pilot, lambda: "docs.example.org" in str(agents.read("backend").get("mcp_config")))
+        await pilot.pause()
         check("hr card: Approve in the chat decides it - the settings are applied, no HR page opened",
               "docs.example.org" in str(agents.read("backend").get("mcp_config"))
               and app.screen is page, str(agents.read("backend")))
         page.refresh_view()
-        await pilot.pause(0.5)
+        await _until(pilot, lambda: any(c.p["state"] == "applied" for c in page.query(hr_card.HrCard)))
         kept = list(page.query(hr_card.HrCard))
         check("hr card: after a refresh the approved request keeps its card, drawn with its outcome",
               len(kept) == 1 and kept[0].p["state"] == "applied" and not kept[0].decidable
@@ -3600,16 +3613,17 @@ async def test_an_hr_request_is_a_card_the_founder_answers_in_the_chat_and_on_th
         ok, said = hr.propose("settings", "backend", requester="backend", why="too eager",
                               sets={"effort": "low"})
         page.refresh_view()
-        await pilot.pause(0.5)
+        await _until(pilot, lambda: len(list(page.query(hr_card.HrCard))) == 2)
         waiting = [c for c in page.query(hr_card.HrCard) if c.decidable]
         check("hr card: a second request is a second card, the first still there",
               len(waiting) == 1 and len(list(page.query(hr_card.HrCard))) == 2)
         waiting[0].reject()
-        await pilot.pause(0.2)
+        await _until(pilot, lambda: waiting[0].has_class("rejecting"))
+        await pilot.pause()
         await pilot.press(*"no", "enter")
-        await pilot.pause(0.8)
+        await _until(pilot, lambda: waiting[0].p["state"] == "rejected")
         page.refresh_view()
-        await pilot.pause(0.5)
+        await _until(pilot, lambda: sorted(c.p["state"] for c in page.query(hr_card.HrCard)) == ["applied", "rejected"])
         states = sorted(c.p["state"] for c in page.query(hr_card.HrCard))
         check("hr card: a rejected one stays too, and nothing was applied",
               states == ["applied", "rejected"] and agents.read("backend")["effort"] != "low", str(states))
@@ -4777,7 +4791,13 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
               type(app.screen).__name__)
         await pilot.press("escape")
         await pilot.pause()
-        page.agent_state = ("RUNNING", "")
+        con = db.connect()                  # the page's 2s poll re-reads the state: set it where it reads
+        try:
+            db.set_agent_state(con, "reviewer", "RUNNING")
+            con.commit()
+        finally:
+            con.close()
+        page.refresh_agent_state()
         page._sig = None
         page.refresh_conversation()
         await pilot.pause()
