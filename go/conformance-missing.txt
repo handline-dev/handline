@@ -46,3 +46,7 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+answers.list
+answer.add
+answer.remove
+inbox.get
