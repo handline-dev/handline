@@ -32,36 +32,44 @@ test('a pairing uri names the listener, its certificate fingerprint and the code
   assert.throws(() => parsePairingUri('https://example.com/?code=1'), /not a handline pairing uri/);
 });
 
-test('a code is redeemed once for a token; with it hello makes the caller a member, without it nothing is served', async (t) => {
+test('a code is redeemed once for a token; with it hello makes the caller a member', async (t) => {
   const l = await listener(t); if (!l) return;
   const { token, device } = await redeemPairing(l.connect, l.daemon.issueCode(), 'phone');
-  assert.equal(device, 'phone');
+  assert.match(token, /^hld_[0-9a-f]{64}$/); assert.match(device, /^dev_[0-9a-f]+$/);
 
   const paired = new DaemonClient({ connect: l.connect, client: 'web', token, reconnect: false });
   const hello = await paired.start();
-  assert.equal(hello.role, 'member'); assert.equal(hello.transport, 'network'); assert.deepEqual(hello.caller, { kind: 'device', name: 'phone' });
+  assert.equal(hello.role, 'member'); assert.equal(hello.transport, 'network'); assert.deepEqual(hello.caller, { kind: 'device', device, name: 'phone' });
   assert.ok((await paired.call('agents.list', {})).agents.length > 0);
   paired.close();
-
-  const anon = new DaemonClient({ connect: l.connect, client: 'web', reconnect: false });
-  assert.equal((await anon.start()).role, 'anonymous');
-  await assert.rejects(anon.call('agents.list', {}), (e: RpcError) => e.gate === 'role');
-  anon.close();
 });
 
-test('a wrong, used or unknown code or token is refused', async (t) => {
+test('an unpaired connection is refused every call but device.redeem, in the same words, and stays open', async (t) => {
+  const l = await listener(t); if (!l) return;
+  const raw = await l.connect();
+  const ask = (id: number, method: string, params: object) => new Promise<{ error: { code: number; message: string; data: object } }>((ok) => {
+    raw.onmessage = (m) => ok(JSON.parse(m)); raw.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+  });
+  const unpaired = { code: -32002, message: 'refused', data: { code: 'refused', gate: 'unpaired', reason: 'not paired' } };
+  assert.deepEqual((await ask(1, 'hello', { client: 'c', protocol: 1 })).error, unpaired);
+  assert.deepEqual((await ask(2, 'hello', { client: 'c', protocol: 1, token: 'hld_forged' })).error, unpaired);
+  assert.deepEqual((await ask(3, 'agents.list', {})).error, unpaired);
+  assert.deepEqual((await ask(4, 'no.such_method', {})).error, unpaired);
+  raw.close();
+});
+
+test('a wrong, used or malformed redeem is refused', async (t) => {
   const l = await listener(t); if (!l) return;
   const code = l.daemon.issueCode();
   await redeemPairing(l.connect, code, 'phone');
   await assert.rejects(redeemPairing(l.connect, code, 'tablet'), (e: RpcError) => e.gate === 'pairing_code');
   await assert.rejects(redeemPairing(l.connect, 'NOPE', 'tablet'), (e: RpcError) => e.gate === 'pairing_code');
-  const bad = new DaemonClient({ connect: l.connect, client: 'web', token: 'forged', reconnect: false });
-  await assert.rejects(bad.start(), (e: RpcError) => e.gate === 'device_token');
-  bad.close();
+  await assert.rejects(redeemPairing(l.connect, l.daemon.issueCode(), ''), (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'name');
 });
 
-test('a listener whose certificate is not the paired one is not connected to', async (t) => {
+test('a listener whose certificate is not the paired one, or a path other than /rpc, is not connected to', async (t) => {
   const l = await listener(t); if (!l) return;
   await assert.rejects(pinnedWebSocketTransport(listenerUrl(l.host), 'ab'.repeat(32)), /not the one that was paired/);
-  await assert.rejects(pinnedWebSocketTransport(`ws://${l.host}`, l.fingerprint), /wss/);
+  await assert.rejects(pinnedWebSocketTransport(`wss://${l.host}/`, l.fingerprint), /did not accept|cannot connect|closed/);
+  await assert.rejects(pinnedWebSocketTransport(`ws://${l.host}/rpc`, l.fingerprint), /wss/);
 });

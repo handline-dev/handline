@@ -31,7 +31,7 @@ export function pinnedWebSocketTransport(url: string, fingerprint: string): Prom
       if (got !== normalize(fingerprint)) { fail(`the certificate of ${u.host} is not the one that was paired (fingerprint ${got})`); return; }
       const key = crypto.randomBytes(16).toString('base64');
       sock.write(`GET ${u.pathname}${u.search} HTTP/1.1\r\nHost: ${u.host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
-      let buf = Buffer.alloc(0), upgraded = false, text = '';
+      let buf = Buffer.alloc(0), upgraded = false, parts: Buffer[] = [];
       const t: Transport = {
         onmessage: null, onclose: null,
         send: (m) => { sock.write(maskedFrame(1, Buffer.from(m))); },
@@ -56,12 +56,12 @@ export function pinnedWebSocketTransport(url: string, fingerprint: string): Prom
           if (buf.length < off + len) return;
           const payload = buf.subarray(off, off + len);
           buf = buf.subarray(off + len);
-          if (op === 1 || op === 0) { text += payload.toString(); if (fin) { const m = text; text = ''; t.onmessage?.(m); } }
+          if (op === 1 || op === 0) { parts.push(Buffer.from(payload)); if (fin) { const m = Buffer.concat(parts).toString(); parts = []; t.onmessage?.(m); } }
           else if (op === 9) sock.write(maskedFrame(10, payload));
           else if (op === 8) { sock.end(); return; }
         }
       });
-      sock.on('close', () => t.onclose?.());
+      sock.on('close', () => { if (upgraded) t.onclose?.(); else reject(new Error(`${u.host} closed the connection before the WebSocket upgrade`)); });
     });
   });
 }

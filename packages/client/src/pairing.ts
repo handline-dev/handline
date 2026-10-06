@@ -2,7 +2,8 @@
 // `handline://pair?host=&fp=&code=` uri (a QR on a phone); `redeemPairing` trades the code for a token that
 // later hellos carry. The uri's fingerprint is the SHA-256 of the listener's certificate, which the
 // transport must check: the certificate is self-signed.
-import { DaemonClient } from './client.ts';
+import { RpcError } from './client.ts';
+import type { ErrorCode } from './protocol.ts';
 import type { Transport } from './transport.ts';
 
 export interface PairingOffer {
@@ -18,14 +19,20 @@ export function parsePairingUri(uri: string): PairingOffer {
   return { host, fingerprint: fp.toLowerCase(), code };
 }
 
-export const listenerUrl = (host: string): string => `wss://${host}`;
+/** Where the listener serves its WebSocket. */
+export const listenerUrl = (host: string): string => `wss://${host}/rpc`;
 
-/** Trades a pairing code for a device token. `connect` must verify the listener's fingerprint. */
+/**
+ * Trades a pairing code for a device token. `connect` must verify the listener's fingerprint. An unpaired
+ * connection may call nothing but device.redeem, hello included, so this is the first and only message sent.
+ */
 export async function redeemPairing(connect: () => Promise<Transport>, code: string, deviceName: string): Promise<{ token: string; device: string }> {
-  const client = new DaemonClient({ connect, client: deviceName, reconnect: false });
-  try {
-    await client.start();
-    const r = await client.call('device.redeem', { code, name: deviceName });
-    return { token: r.token, device: r.device };
-  } finally { client.close(); }
+  const t = await connect();
+  const reply = await new Promise<{ result?: { token: string; device: string }; error?: { message: string; data?: { code?: string; gate?: string; reason?: string } } }>((ok, fail) => {
+    t.onmessage = (m) => ok(JSON.parse(m));
+    t.onclose = () => fail(new RpcError('transport', 'the listener closed the connection'));
+    t.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'device.redeem', params: { code, name: deviceName, request_id: `pair-${crypto.randomUUID()}` } }));
+  }).finally(() => { t.onclose = null; t.close(); });
+  if (reply.error) throw new RpcError((reply.error.data?.code ?? 'refused') as ErrorCode, reply.error.data?.reason ?? reply.error.message, reply.error.data);
+  return { token: reply.result!.token, device: reply.result!.device };
 }

@@ -9,6 +9,8 @@ The client and the fake daemon now live in `packages/` (see `docs/turborepo-layo
   runs a socket and a WebSocket with a scripted session per agent. Its tests run the client against it.
 - The browser has no build step, so `ui/index.html` and `mobile/index.html` carry an import map for `@handline/client` and `@handline/contract`.
 
+The fake also plays the paired-device listener (`acceptNetwork`, wss on `/rpc`): unpaired connections get the one `unpaired` refusal, `device.pair` and `device.redeem` work, and a token's hello makes a member. Not modelled: attempt limits, code expiry, `devices.list`, `device.revoke`, so fixtures that need them are not run against it (`serve.ts --network-socket PATH` serves the unpaired socket for `contract/conformance.py --as unpaired=PATH`).
+
 The fake serves the session screen's methods (hello, subscribe, agents, `session.*`, `prompt.*`, `input.*`, `terminal.*`);
 any other method is refused as `unsupported`, and `capabilities.chat` is false until it serves `chat.*`.
 
