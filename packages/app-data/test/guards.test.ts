@@ -46,7 +46,7 @@ describe('guard 3: every read has a key', () => {
 });
 
 /** Files that still call the daemon by hand. Q2 and Q3 move them; this list may only get shorter. */
-const STILL_BY_HAND = ['apps/mobile/src/screens/AgentPage.tsx'];
+const STILL_BY_HAND: string[] = [];
 const BY_HAND =
   /\bclient\.call\(|\.act\(|\bclient\.(startSession|restartSession|parkSession|stopSession|sendInput|sendKeys|interrupt|answerPrompt|takeInput|releaseInput|openPrompts)\(|\bstore\.(startAgent|resume|stopAgent|send|key|interrupt|answer|take|release)\(/;
 
@@ -59,9 +59,9 @@ function sources(dir: string): string[] {
 }
 
 describe('guard 1: no hand-made data calls in an app', () => {
-  // The desktop shell reads the daemon in its main process, on its own connection, with no screen and no cache to keep.
+  // apps/electron is the main process: no UI cache, so nothing to move to app-data.
   const offenders = sources(path.join(repo, 'apps'))
-    .filter((f) => !f.includes(`${path.sep}apps${path.sep}electron${path.sep}`))
+    .filter((f) => !path.relative(repo, f).startsWith('apps/electron/'))
     .filter((f) => BY_HAND.test(fs.readFileSync(f, 'utf8')))
     .map((f) => path.relative(repo, f));
   it('only the files not yet moved to app-data call the daemon or write through the store', () => {
