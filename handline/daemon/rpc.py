@@ -43,6 +43,18 @@ class RpcError(Exception):
         return {"code": self.rpc_code, "message": self.message, "data": {"code": self.code, **self.data}}
 
 
+def schema_said(e: "db.SchemaError") -> str:
+    """What to tell a caller whose request the daemon cannot serve for the database's sake: which side is old,
+    and the one command that fixes it."""
+    if e.kind == "newer":
+        return (f"the database schema is newer than this daemon ({e.have} vs {e.latest}): the daemon is running old "
+                f"code, restart it with `{db.schema.RESTART_COMMAND}`")
+    if e.kind == "older":
+        return (f"the database schema is older than this daemon needs ({e.have} vs {e.latest}): it is migrated when "
+                f"the daemon starts; restart it with `{db.schema.RESTART_COMMAND}`")
+    return str(e)
+
+
 def bad_request(message: str, field: str | None = None, rpc_code: int = BAD_REQUEST) -> RpcError:
     return RpcError(rpc_code, "bad_request", message, **({"field": field} if field else {}))
 
@@ -240,6 +252,8 @@ class Connection:
             result = self._dispatch(msg)
         except RpcError as e:
             error = e
+        except db.SchemaError as e:
+            error = refused(schema_said(e), gate="schema", hint=db.schema.RESTART_COMMAND)
         except Exception as e:  # noqa: BLE001 - a call that breaks must reply, not kill the connection
             self.log(f"  rpc: {type(e).__name__}: {e}")
             error = RpcError(INTERNAL, "internal", "internal error")

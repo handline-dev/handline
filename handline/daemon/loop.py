@@ -17,13 +17,24 @@ from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_s
 
 
 # ---------------------------------------------------------------- loop
-def _loaded_sha() -> str:
-    """The checkout's HEAD at the moment this process imported its code."""
+_loaded: list[str] = []
+
+
+def _head_sha() -> str:
     rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
     return out.strip() if rc == 0 and out.strip() else "unknown"
 
 
+def _loaded_sha() -> str:
+    """The checkout's HEAD when this process started, read once: what the daemon runs, however far the
+    checkout has moved since."""
+    if not _loaded:
+        _loaded.append(_head_sha())
+    return _loaded[0]
+
+
 def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) -> int:
+    _loaded_sha()       # before anything else, so a checkout that moves during startup is not what is reported
     """`max_ticks` counts this process's own ticks. A dev-mode restart
     (task #64) execs a fresh process, so a run that restarts mid-way starts
     its count over at 0 and runs past `max_ticks` overall."""

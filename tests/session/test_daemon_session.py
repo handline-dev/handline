@@ -358,6 +358,8 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
     one import check per new fingerprint, `seen` set only after it passes, a decline (the caller takes
     `seen` as its baseline) quiet until the fingerprint moves, and turning dev mode off forgets `seen`."""
     use_home(home)
+    real_quiet = (dmn_devmode.QUIET_S, dmn_devmode._changed_since_start)
+    dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = 0, lambda root: False       # these tests are about the decision, not the wait
     code, checks, on = {"fp": "v1", "ok": True}, [], {"on": True}
     real = (dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled)
     dmn_devmode._code_fingerprint = lambda root: code["fp"]
@@ -394,6 +396,7 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
         check("dev-mode seen: turning it off forgets it", state == {"fp": None, "warned": None, "seen": None}, str(state))
     finally:
         dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled = real
+        dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
 def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -> None:
@@ -403,6 +406,8 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     to restart only when the import check passes, and remembers a broken
     version so it is not re-logged every tick."""
     use_home(home)
+    real_quiet = (dmn_devmode.QUIET_S, dmn_devmode._changed_since_start)
+    dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = 0, lambda root: False       # these tests are about the decision, not the wait
     root = tmp_path / "repo"
     (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
@@ -458,6 +463,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     finally:
         paths.repo_root = real_repo_root
         dmn_devmode.set_dev_mode(False)
+        dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
 def test_dev_mode_watches_subpackages(tmp_path: Path) -> None:

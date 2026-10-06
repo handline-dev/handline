@@ -4,8 +4,10 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
+from .. import STARTED
 from ..usage import load
 from ..infra import paths
 from ..infra import service
@@ -57,6 +59,27 @@ def _code_fingerprint(root: Path) -> tuple:
     return tuple(sorted(found))
 
 
+# How long the tree must stand unchanged before the daemon restarts onto it. A merge writes files over minutes;
+# a restart in the middle imports half old and half new code, and an import check that happens to pass proves
+# nothing about a tree still being written. Long enough to outlast a pause between a merge's writes, short
+# enough that a merged change is live within the minute.
+QUIET_S = 30.0
+_STALE = ("code newer than this process",)      # a baseline no fingerprint equals
+_now = time.monotonic
+
+
+def _changed_since_start(root: Path) -> bool:
+    """Whether any watched file was written after this process began to load the code, so that what it
+    imported may not be what is on disk now, however the tree looked when it first checked."""
+    for f in _watched_files(root):
+        try:
+            if f.stat().st_mtime > STARTED:
+                return True
+        except FileNotFoundError:
+            continue
+    return False
+
+
 def _dev_import_check(log) -> bool:
     """Whether the code on disk right now would still start: `bin/ocp
     --help`, the same entrypoint a restart execs, so this exercises the real
@@ -88,13 +111,25 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
         state["fp"] = None
         state["warned"] = None
         state["seen"] = None
+        state.pop("pending", None)
+        state.pop("pending_since", None)
         return False
     root = paths.repo_root()
     fp = _code_fingerprint(root)
     if state["fp"] is None:
-        state["fp"] = fp  # dev mode just turned on, or the daemon just started - this is the baseline
-        return False
+        # The baseline is the tree this process loaded. Taken now it would be the tree as of the first tick,
+        # which a merge still writing when the process started has changed since: a file written after the
+        # process began to load is newer than what it runs, so the baseline is stale and the tree is a change.
+        state["fp"] = _STALE if _changed_since_start(root) else fp
+        if state["fp"] is not _STALE:
+            return False
     if fp == state["fp"] or fp == state["warned"]:
+        state.pop("pending", None)
+        return False
+    # A tree still changing is not restarted onto: wait until it has stood still for QUIET_S.
+    if state.get("pending") != fp:
+        state["pending"], state["pending_since"] = fp, _now()
+    if _now() - state["pending_since"] < QUIET_S:
         return False
     if fp == state.get("seen"):
         return True             # already found to import, and not asked again

@@ -440,7 +440,12 @@ CREATE INDEX IF NOT EXISTS session_starts_agent ON session_starts(agent, id);
 
 
 class SchemaError(RuntimeError):
-    """The database cannot be used by this code as it stands."""
+    """The database cannot be used by this code as it stands. `kind` is "newer", "older" or "busy"; `have`
+    and `latest` are the database's version and the code's, when it is about versions."""
+
+    def __init__(self, message: str, kind: str = "busy", have: int | None = None, latest: int | None = None) -> None:
+        super().__init__(message)
+        self.kind, self.have, self.latest = kind, have, latest
 
 
 def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Connection:
@@ -466,10 +471,10 @@ def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Con
             have = schema_version(con)
         if have > LATEST_VERSION and not _newer_steps_only_add(con):
             raise SchemaError(f"{p} is at schema version {have}, newer than the {LATEST_VERSION} this code "
-                              f"knows: update handline before using it")
+                              f"knows: update handline before using it", "newer", have, LATEST_VERSION)
         if have < LATEST_VERSION:
             raise SchemaError(f"{p} is at schema version {have}, older than the {LATEST_VERSION} this code "
-                              f"needs: run `{RESTART_COMMAND}` to restart the daemon, which brings it up")
+                              f"needs: run `{RESTART_COMMAND}` to restart the daemon, which brings it up", "older", have, LATEST_VERSION)
     except BaseException:
         con.close()
         raise
@@ -516,7 +521,7 @@ def migrate(con, additive_only: bool = False) -> None:
         have = schema_version(con)
         if have > LATEST_VERSION and not _newer_steps_only_add(con):
             raise SchemaError(f"{file} is at schema version {have}, newer than the {LATEST_VERSION} this code "
-                              f"knows: update handline before using it")
+                              f"knows: update handline before using it", "newer", have, LATEST_VERSION)
         for version, name, step, additive in MIGRATIONS:
             if version <= have:
                 continue

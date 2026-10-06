@@ -144,14 +144,19 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
             return {"ok": False, "said": f"{verb} is accepted only from the session's own `hl land` command, "
                     f"not from other code it runs (a test run, a script)"}
         kw["caller"] = agent
-    con = db.connect()
+    con = None
     try:
+        con = db.connect()
         ok, said = fn(con, log, **kw)
         return {"ok": bool(ok), "said": str(said)}
+    except db.SchemaError as e:     # an empty reply would read to the caller as "the daemon is not running"
+        log(f"  {verb}: {e}")
+        return {"ok": False, "said": rpc.schema_said(e)}
     except Exception as e:  # noqa: BLE001 - a bad request must reply, not kill the thread
         return {"ok": False, "said": f"{verb}: {e}"}
     finally:
-        con.close()
+        if con is not None:
+            con.close()
 
 
 def _serve_one(conn: socket.socket, log) -> None:
