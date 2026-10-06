@@ -418,7 +418,7 @@ def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_se
         ch.begin(client)
         for i in range(termchannel.CLIENT_QUEUE + 20):       # holders change faster than a stuck client reads
             ch.notify("holder", holders=[{"kind": "person", "name": f"p{i}", "since": None}])
-        time.sleep(0.2)
+        _until(lambda: hung == [1] and client not in ch.clients, 10)
         check("overflow: a client that fell CLIENT_QUEUE notices behind is hung up, not left with a stale holder", hung == [1] and client.dead and not client.notices, str(hung))
         check("overflow: it is no longer served, and the poller is not held by it", client not in ch.clients)
         stuck.set()
@@ -444,8 +444,9 @@ def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_se
             t.start()
         for t in ts:
             t.join()
-        time.sleep(0.1)
-        check("one poller: two attaches beginning at once leave one poller thread", sum(1 for t in threading.enumerate() if t.name == "ocp-terminal-poll") == 1)
+        pollers = lambda: sum(1 for t in threading.enumerate() if t.name == "ocp-terminal-poll")
+        _until(lambda: pollers() <= 1, 10)      # the earlier channel's poller is still on its way out; a second one here never goes
+        check("one poller: two attaches beginning at once leave one poller thread", pollers() == 1)
         for c in (c1, c2):
             ch2.detach(c)
 
