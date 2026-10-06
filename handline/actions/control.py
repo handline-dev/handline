@@ -73,7 +73,11 @@ def unstall(con, agent: str) -> str:
 
 
 def park(con, agent: str) -> str:
-    """Record a handoff, clear the context, and park until the window rolls over.
+    return park_result(con, agent)[1]
+
+
+def park_result(con, agent: str) -> tuple[bool, str]:
+    """Record a handoff, clear the context, and park until the window rolls over: whether it did, and what it says.
 
     `perform_handoff` returns True for three things that are not a handoff -
     merged into one already in flight, too soon after the last, and deferred
@@ -85,10 +89,10 @@ def park(con, agent: str) -> str:
     said: list[str] = []
     ok = dmn_handoff.perform_handoff(con, agent, t, said.append)
     if said:
-        return said[-1].strip()
+        return ok, said[-1].strip()
     row = db.get_agent_state(con, agent)
     state = row["state"] if row else "?"
-    return f"{agent}: {state}" if ok else f"{agent}: handoff degraded ({state})"
+    return ok, f"{agent}: {state}" if ok else f"{agent}: handoff degraded ({state})"
 
 
 def fold(con, agent: str) -> str:
@@ -98,7 +102,11 @@ def fold(con, agent: str) -> str:
 
 
 def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
-    """Give an agent a worktree and start it there.
+    return start_result(con, agent, repo, base)[1]
+
+
+def start_result(con, agent: str, repo: str | None = None, base: str = "main") -> tuple[bool, str]:
+    """Give an agent a worktree and start it there: whether it did, and what it says.
 
     The one thing the daemon cannot do for an agent with no terminal: there is
     nothing to type into, so work queued for it waits forever. Everything else
@@ -112,20 +120,19 @@ def start(con, agent: str, repo: str | None = None, base: str = "main") -> str:
     """
     with lock.terminal(agent) as mine:
         if not mine:
-            return f"{agent}: someone else is starting or waking it; try again"
+            return False, f"{agent}: {dmn_lifecycle.TYPING_ELSEWHERE}; not starting twice"
         row = db.get_agent_state(con, agent)
         if row and row["terminal"]:
-            return f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
+            return False, f"{agent}: already has a terminal ({row['terminal']}) - wake it instead"
         if dmn_lifecycle.resumable_without_terminal(row):
             # Its window closed with its session (T407): resume it, whether or not anything waits.
-            return f"{agent}: {dmn_lifecycle._wake_agent(con, agent, lambda _m: None, force=True)[1]}"
+            ok, why = dmn_lifecycle._wake_agent(con, agent, lambda _m: None, force=True)
+            return ok, f"{agent}: {why}"
         wt = spawnmod.worktree_path(row["worktree"] if row else None)
         if wt:
             # It has somewhere to run already; it lost the window it ran in.
-            _, msg = spawnmod.start_in(agent, wt)
-        else:
-            _, msg = spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
-        return msg
+            return spawnmod.start_in(agent, wt)
+        return spawnmod.spawn(agent, Path(repo or os.getcwd()).resolve(), base=base)
 
 
 def terminal(con, agent: str, repo: str | None = None) -> str:

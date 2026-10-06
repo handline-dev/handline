@@ -1,0 +1,583 @@
+{
+ "fixtures": [
+  {
+   "name": "session.start.unknown_agent_is_not_found",
+   "spec": "session.start",
+   "about": "An agent the team does not have is not_found; nothing is started, woken or closed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.start",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.start.needs_a_request_id",
+   "spec": "session.start",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.start",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.wake.unknown_agent_is_not_found",
+   "spec": "session.wake",
+   "about": "An agent the team does not have is not_found; nothing is started, woken or closed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.wake",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.wake.needs_a_request_id",
+   "spec": "session.wake",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.wake",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.unknown_agent_is_not_found",
+   "spec": "session.stop",
+   "about": "An agent the team does not have is not_found; nothing is started, woken or closed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-1",
+       "mode": "close"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.needs_a_request_id",
+   "spec": "session.stop",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "nobody.here",
+       "mode": "close"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.restart.unknown_agent_is_not_found",
+   "spec": "session.restart",
+   "about": "An agent the team does not have is not_found; nothing is started, woken or closed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.restart",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.restart.needs_a_request_id",
+   "spec": "session.restart",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.restart",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.park.unknown_agent_is_not_found",
+   "spec": "session.park",
+   "about": "An agent the team does not have is not_found; nothing is started, woken or closed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.park",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.park.needs_a_request_id",
+   "spec": "session.park",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.park",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.close.unknown_agent_is_not_found",
+   "spec": "terminal.close",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.close",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-s-2"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.close.an_agent_session_is_refused_by_role",
+   "spec": "terminal.close",
+   "about": "Closing a terminal is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.close",
+      "params": {
+       "agent": "a.one",
+       "request_id": "conf-s-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.mode_is_exit_close_or_kill",
+   "spec": "session.stop",
+   "about": "A mode that is none of exit, close and kill is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "a.one",
+       "mode": "halt",
+       "request_id": "conf-s-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "mode"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.stop.fresh_is_for_close",
+   "spec": "session.stop",
+   "about": "fresh with exit is bad_request: only a close forgets the conversation.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.stop",
+      "params": {
+       "agent": "a.one",
+       "mode": "exit",
+       "fresh": true,
+       "request_id": "conf-s-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "fresh"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "session.start.a_named_account_is_not_served",
+   "spec": "session.start",
+   "about": "An account named for the start is refused as bad_request, never dropped.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.start",
+      "params": {
+       "agent": "a.one",
+       "account": "main",
+       "request_id": "conf-s-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "account"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

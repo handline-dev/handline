@@ -36,6 +36,7 @@ from . import (  # noqa: F401 - importing a module registers its methods; one pe
     rpc_hooks,
     rpc_inbox,
     rpc_options,
+    rpc_session,
     rpc_status,
     rpc_stream,
     rpc_taskview,

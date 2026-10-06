@@ -8,6 +8,11 @@ daemon.status
 events.feed
 inbox.list
 repos.list
+session.park
+session.restart
+session.start
+session.stop
+session.wake
 subscribe
 task.cancel
 task.edit
@@ -16,6 +21,7 @@ task.new
 task.withdraw
 tasks.list
 terminal.attach
+terminal.close
 unsubscribe
 worktree.diff
 worktrees.list
