@@ -325,7 +325,7 @@ export type Proposal = {
   agent: string;
   /** One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text. */
   title: string;
-  /** Unified diff. */
+  /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
   /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
   state: string;
@@ -350,8 +350,8 @@ export type Proposal = {
   };
   error?: string | null;
   settled?: Timestamp | null;
-  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. */
-  kind: string;
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
+  kind?: string;
 };
 
 export type Repo = {

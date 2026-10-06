@@ -7620,7 +7620,7 @@
      },
      "diff": {
       "type": "string",
-      "description": "Unified diff."
+      "description": "What approving does, in words, one change per line. Not a unified diff."
      },
      "state": {
       "type": "string",
@@ -7697,13 +7697,12 @@
      },
      "kind": {
       "type": "string",
-      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text."
+      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`."
      }
     },
     "required": [
      "id",
      "agent",
-     "kind",
      "title",
      "diff",
      "subject",
