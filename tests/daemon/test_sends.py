@@ -62,7 +62,7 @@ def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: P
 
 def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(home: Path) -> None:
     sent = _world(home)
-    termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+    termmod.screen_blocker = lambda h: types.SimpleNamespace(kind="permission", reason=lambda: "a permission prompt")
     reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
                    "target": "backend", "body": "when you are free"})
     con = db.connect()
@@ -127,7 +127,8 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
 
         # A handoff held back at a blocked screen is typed by the tick once the screen clears.
         sent.clear()
-        termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a permission prompt")
+        termmod.typeable_now = lambda h: False          # a screen with a prompt open is not idle
+        termmod.screen_blocker = lambda h: types.SimpleNamespace(kind="permission", reason=lambda: "a permission prompt")
         t2 = db.new_task(con, "handed in later", "product", "product")
         actions.task_handoff(con, "product", t2, "backend", "second one")
         check("handoff: at a blocked screen it waits", sent == [], str(sent))
@@ -466,48 +467,65 @@ def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> Non
         con.close()
 
 
-def test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(home: Path) -> None:
-    """T459 (founder, from #5744/#5787/#5806): three auditor PASS handbacks sat for hours behind an
-    open head orcapipe was told about and left open. A told head keeps what is behind it back while the
-    agent is busy, says why once, and lets the next one through once the agent has been idle on it."""
+def test_queued_tasks_go_out_as_one_batch_a_minute_and_an_urgent_one_flushes_it(home: Path) -> None:
+    """What is queued for an agent is told together once a minute, busy or idle, and
+    at once when the batch holds the founder's request. The minute is read from the db, so a restart
+    neither loses an item nor tells one twice."""
     sent = _world(home)
     termmod.typeable_now = lambda h: True
     con = db.connect()
     lines: list[str] = []
+    every = dmn_delivery.BATCH_EVERY_S
+
+    def tick() -> bool:
+        return dmn_delivery.deliver_queued(con, "backend", lines.append)
+
+    def add(who: str, body: str) -> int:
+        return db.add_request(con, who, "backend", body, None, "peer", "async", "task", 0, None)
+
+    def minute_up() -> None:
+        db.set_cursor(con, "batch:backend", int(time.time()) - every - 1)
     try:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE)
-        first = db.add_request(con, "product", "backend", "the work it is on", None, "peer", "async", "task", 0, None)
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        second = db.add_request(con, "orcapipe.auditor", "backend", "PASS handback", None, "peer", "async", "task", 0, None)
-        db.add_event(con, "backend", "task_note", {})
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("open head: a busy agent is not told the next task, and the hold is said once with its reason",
-              len(sent) == 1 and len([m for m in lines if f"#{second} is held" in m and f"#{first}" in m]) == 1,
-              str((sent, lines)))
+        first = add("product", "the work it is on")
+        tick()
+        check("batch: the first task after a quiet spell is told at once",
+              len(sent) == 1 and f"#{first}" in sent[0][1] and db.get_cursor(con, "batch:backend"), str(sent))
 
-        old = int(time.time()) - dmn_delivery.NUDGE_AFTER_S - 5
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?", (old, first))
-        con.execute("DELETE FROM events WHERE agent = 'backend'")
-        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
-        row = db.get_request(con, second)
-        check("open head: an agent idle on it is told the next task, marked as told ahead of it",
-              told and len(sent) == 2 and f"#{second}" in sent[1][1] and f"#{first}" in sent[1][1]
-              and row["delivered_at"] and db.get_cursor(con, "notify:backend") == first
-              and not dmn_delivery._HELD.get("backend"), str((told, sent)))
+        b, c = add("reviewer", "PASS handback"), add("product", "one more")
+        tick()
+        tick()
+        check("batch: tasks queued within the minute wait, and nothing is said of a hold",
+              len(sent) == 1 and not db.get_request(con, b)["delivered_at"]
+              and not dmn_delivery._HELD.get("backend"), str((sent, lines)))
 
-        third = db.add_request(con, "product", "backend", "one more", None, "peer", "async", "task", 0, None)
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("open head: telling one restarts the wait, so the next is not typed on the following tick",
-              len(sent) == 2 and not db.get_request(con, third)["delivered_at"], str(sent))
-        con.execute("UPDATE requests SET delivered_at = delivered_at - ? WHERE delivered_at IS NOT NULL",
-                    (dmn_delivery.NUDGE_AFTER_S + 5,))
-        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("open head: once idle again for the whole wait, the one after it goes out",
-              told and len(sent) == 3 and f"#{third}" in sent[2][1]
-              and any(f"told about #{third} (ahead of #{first}, idle)" in m for m in lines), str((sent, lines)))
+        minute_up()
+        told = tick()
+        both = [r for r in (b, c) if f"#{r}" in sent[-1][1]]
+        check("batch: once the minute is up they arrive as one message, behind the open head",
+              told and len(sent) == 2 and len(both) == 2 and f"#{first}" in sent[1][1]
+              and db.get_request(con, b)["delivered_at"] and db.get_request(con, c)["delivered_at"]
+              and db.get_cursor(con, "notify:backend") == first, str((told, sent)))
+        tick()
+        check("batch: and the next tick tells nothing again", len(sent) == 2, str(sent))
+
+        d = add("product", "a later one")
+        urgent = add(db.HUMAN, "founder: stop and look at this")
+        tick()
+        check("batch: the founder's request flushes the whole batch at once, inside the minute",
+              len(sent) == 3 and f"#{d}" in sent[2][1] and f"#{urgent}" in sent[2][1], str(sent))
+
+        e = add("product", "after the flush")
+        minute_up()
+        con.close()                      # a restart: only the db is left
+        con = db.connect()
+        tick()
+        told_ids = [r for r in (first, b, c, d, urgent, e) for m in sent if f"#{r} from" in m[1]]
+        check("batch: after a restart each task has been told exactly once",
+              sorted(told_ids) == sorted([first, b, c, d, urgent, e]) and len(sent) == 4, str(sent))
+        check("batch: the idle wait before a task behind an open one is gone",
+              not hasattr(dmn_delivery, "_idle_on"))
     finally:
         con.close()
 
@@ -751,7 +769,7 @@ def main() -> int:
         run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
         run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
         run(lambda: test_a_hold_on_a_task_is_always_said_once_with_its_reason(Path(td) / 'bgtask'))
-        run(lambda: test_a_task_waits_behind_an_open_head_only_until_the_agent_sits_idle_on_it(Path(td) / 'openhead'))
+        run(lambda: test_queued_tasks_go_out_as_one_batch_a_minute_and_an_urgent_one_flushes_it(Path(td) / 'openhead'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
         run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))

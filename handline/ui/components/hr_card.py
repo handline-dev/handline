@@ -88,12 +88,13 @@ class HrCard(Vertical):
         self._head, self._body = Static(classes="hr_head"), Static(classes="hr_body")
         self._approve = Button("Approve", variant="success", classes="hr_approve", compact=True)
         self._reject = Button("Reject", variant="error", classes="hr_reject", compact=True)
+        self._buttons = Horizontal(self._approve, self._reject, classes="hr_buttons")
         self._why = Input(placeholder="why - Enter rejects, Esc cancels", classes="hr_why")
 
     def compose(self) -> ComposeResult:
         yield self._head
         yield self._body
-        yield Horizontal(self._approve, self._reject, classes="hr_buttons")
+        yield self._buttons
         yield self._why
 
     def on_mount(self) -> None:
@@ -108,7 +109,7 @@ class HrCard(Vertical):
         self._head.update(head(p))
         self._body.update(body(p))
         self.set_classes(p["state"])
-        self.query_one(".hr_buttons").display = self.decidable
+        self._buttons.display = self.decidable
         if not self.decidable:
             self.remove_class("rejecting")
 

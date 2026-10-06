@@ -278,7 +278,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
     _record(agent, event, raw)
     if event in COLLECT_EVENTS:
         try:
-            collect.collect(agent, raw.get("cwd") or os.getcwd())
+            collect.collect(agent, raw.get("cwd") or os.getcwd(), session_id=raw.get("session_id"))
         except Exception:  # noqa: BLE001 - same: a snapshot is not worth a session
             pass
     print("{}")

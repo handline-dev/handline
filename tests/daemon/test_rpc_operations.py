@@ -8,6 +8,7 @@ Run on its own: python3 tests/daemon/test_rpc_operations.py   (all areas: python
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -196,6 +197,7 @@ def test_a_get_that_races_the_final_write_never_turns_done_into_failed(home: Pat
         rpc_operations._get(None, {"operation": "racing"})
     finally:
         rpc_operations._load = real
+        rpc_operations._leave("racing")
     got = _call("operation.get", {"operation": "racing"})["result"]
     check("operation.get: a read that the final write lands in the middle of leaves the operation done", got["state"] == "done"
           and got["steps_done"] == 2 and got["result"] == {"agent": "x.y"}, str(got))
@@ -219,6 +221,23 @@ def test_two_creates_of_one_name_run_once(home: Path) -> None:
             check("agent.create: the first ends done and the agent was started once", got["state"] == "done" and len(sp.calls) == 1, str((got, sp.calls)))
     finally:
         agents.register = real
+
+
+def test_wait_idle_returns_only_when_no_operation_thread_is_running(home: Path) -> None:
+    support._board_world(home)
+    held = threading.Event()
+    with Spawn() as sp:
+        real = rpc_operations.spawnmod.spawn
+        rpc_operations.spawnmod.spawn = lambda *a, **kw: (held.wait(10), real(*a, **kw))[1]
+        try:
+            op = _create("worker.idle", home, "i1")["result"]["operation"]
+            check("wait_idle: it times out while an operation's thread is held in its start", rpc_operations.wait_idle(0.2) is False)
+            held.set()
+            check("wait_idle: and returns True once the thread has made its last write", rpc_operations.wait_idle() is True
+                  and _call("operation.get", {"operation": op})["result"]["state"] == "done")
+        finally:
+            held.set()
+            rpc_operations.spawnmod.spawn = real
 
 
 def test_a_name_that_is_not_plain_text_is_bad_request_up_front(home: Path) -> None:
@@ -260,17 +279,21 @@ def test_the_operations_fixtures_pass_against_this_daemon(home: Path) -> None:
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_agent_create_registers_starts_and_reports_each_step_on_the_operations_topic(Path(td) / "d0"))
-        run(lambda: test_a_start_that_fails_leaves_the_agent_registered_and_says_so(Path(td) / "d1"))
-        run(lambda: test_a_registration_that_fails_ends_the_operation_before_any_start(Path(td) / "d2"))
-        run(lambda: test_a_retry_after_a_lost_reply_answers_the_first_operation_and_starts_nothing_again(Path(td) / "d3"))
-        run(lambda: test_an_operation_the_daemon_died_in_is_reported_failed(Path(td) / "d4"))
-        run(lambda: test_agent_create_refuses_what_it_cannot_do_and_starts_nothing(Path(td) / "d5"))
-        run(lambda: test_operation_get_is_refused_to_an_agent_session(Path(td) / "d6"))
-        run(lambda: test_a_get_that_races_the_final_write_never_turns_done_into_failed(Path(td) / "d8"))
-        run(lambda: test_two_creates_of_one_name_run_once(Path(td) / "d9"))
-        run(lambda: test_a_name_that_is_not_plain_text_is_bad_request_up_front(Path(td) / "d10"))
-        run(lambda: test_the_operations_fixtures_pass_against_this_daemon(Path(td) / "d7"))
+        def run_each(test):     # an operation thread outliving its test would write into the next test's home, and into the directory as it goes
+            run(test)
+            check("operations: no agent.create thread is still writing when the test ends", rpc_operations.wait_idle())
+        run_each(lambda: test_agent_create_registers_starts_and_reports_each_step_on_the_operations_topic(Path(td) / "d0"))
+        run_each(lambda: test_a_start_that_fails_leaves_the_agent_registered_and_says_so(Path(td) / "d1"))
+        run_each(lambda: test_a_registration_that_fails_ends_the_operation_before_any_start(Path(td) / "d2"))
+        run_each(lambda: test_a_retry_after_a_lost_reply_answers_the_first_operation_and_starts_nothing_again(Path(td) / "d3"))
+        run_each(lambda: test_an_operation_the_daemon_died_in_is_reported_failed(Path(td) / "d4"))
+        run_each(lambda: test_agent_create_refuses_what_it_cannot_do_and_starts_nothing(Path(td) / "d5"))
+        run_each(lambda: test_operation_get_is_refused_to_an_agent_session(Path(td) / "d6"))
+        run_each(lambda: test_a_get_that_races_the_final_write_never_turns_done_into_failed(Path(td) / "d8"))
+        run_each(lambda: test_two_creates_of_one_name_run_once(Path(td) / "d9"))
+        run_each(lambda: test_a_name_that_is_not_plain_text_is_bad_request_up_front(Path(td) / "d10"))
+        run_each(lambda: test_wait_idle_returns_only_when_no_operation_thread_is_running(Path(td) / "d11"))
+        run_each(lambda: test_the_operations_fixtures_pass_against_this_daemon(Path(td) / "d7"))
     return run_area(tests)
 
 

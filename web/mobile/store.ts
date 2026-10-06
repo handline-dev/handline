@@ -16,7 +16,10 @@ export interface State {
 export function toState(s: Store): State {
   const detail = s.page && s.details.get(s.page.agent);
   return {
-    connection: s.conn, chat: s.chat, agents: [...s.agents.values()], error: s.error,
+    connection: s.conn,
+    chat: s.chat,
+    agents: [...s.agents.values()],
+    error: s.error,
     page: s.page && detail ? { ...s.page, detail } : null,
   };
 }

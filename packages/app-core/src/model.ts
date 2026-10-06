@@ -17,15 +17,21 @@ export function dotOf(a: AgentView): Dot {
 const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, idle: 3, parked: 4, none: 5 };
 export type GroupBy = 'role' | 'state' | 'account';
 
-export interface RailGroup { title: string; rows: { agent: AgentView; depth: number }[] }
+export interface RailGroup {
+  title: string;
+  rows: { agent: AgentView; depth: number }[];
+}
 
 /** Groups agents; waiting ones sort up, and a child nests under the parent that spawned it. */
 export function railGroups(agents: AgentView[], by: GroupBy, opts: { hideParked?: boolean; search?: string } = {}): RailGroup[] {
   const q = (opts.search ?? '').trim().toLowerCase();
-  const shown = agents.filter((a) => !(opts.hideParked && dotOf(a) === 'parked')
-    && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)));
+  const shown = agents.filter(
+    (a) =>
+      !(opts.hideParked && dotOf(a) === 'parked') &&
+      (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
+  );
   const names = new Set(shown.map((a) => a.name));
-  const key = (a: AgentView) => by === 'role' ? a.role : by === 'account' ? a.account ?? 'no account' : dotOf(a);
+  const key = (a: AgentView) => (by === 'role' ? a.role : by === 'account' ? (a.account ?? 'no account') : dotOf(a));
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const groups = new Map<string, AgentView[]>();
   for (const a of shown) if (!a.parent || !names.has(a.parent)) (groups.get(key(a)) ?? groups.set(key(a), []).get(key(a))!).push(a);
@@ -49,7 +55,14 @@ export function ago(iso: string | null | undefined, now = Date.now()): string {
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 }
 
-export interface Controls { start: boolean; resume: boolean; stop: boolean; take: boolean; release: boolean; typing: boolean }
+export interface Controls {
+  start: boolean;
+  resume: boolean;
+  stop: boolean;
+  take: boolean;
+  release: boolean;
+  typing: boolean;
+}
 
 /** Which header buttons apply to this agent and this viewer. */
 export function controlsOf(d: AgentDetail, me: string): Controls {
@@ -91,7 +104,11 @@ export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaK
  * is not read here: it arrives through the input and compositionend events of the focused textarea, which is what makes
  * IME composition and paste work. `unavailable` is set when the person pressed a key the daemon cannot take yet.
  */
-export function keyFrom(e: KeyEvent, dialogOpen: boolean, keys: ReadonlySet<string> = DAEMON_KEYS): { name: string } | { unavailable: string } | { swallow: true } | null {
+export function keyFrom(
+  e: KeyEvent,
+  dialogOpen: boolean,
+  keys: ReadonlySet<string> = DAEMON_KEYS,
+): { name: string } | { unavailable: string } | { swallow: true } | null {
   if (e.isComposing || e.key === 'Process' || e.key === 'Dead') return null;
   if (e.metaKey || e.altKey) return null;
   if (e.ctrlKey) return e.key.toLowerCase() === 'c' ? { name: 'ctrl-c' } : null;
@@ -103,19 +120,32 @@ export function keyFrom(e: KeyEvent, dialogOpen: boolean, keys: ReadonlySet<stri
 }
 
 export type Dock = 'right' | 'left' | 'bottom' | 'full';
-export interface PaneLayout { dock: Dock; open: boolean; tab: 'claude' | 'chat' }
+export interface PaneLayout {
+  dock: Dock;
+  open: boolean;
+  tab: 'claude' | 'chat';
+}
 export const DEFAULT_LAYOUT: PaneLayout = { dock: 'right', open: true, tab: 'claude' };
 
-export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void }
+export interface KV {
+  getItem(k: string): string | null;
+  setItem(k: string, v: string): void;
+}
 
 /** The pane layout is remembered per agent in the browser; storage that throws or is empty gives the default. */
 export function loadLayout(store: KV | null, agent: string): PaneLayout {
   try {
     const v = JSON.parse(store?.getItem(`layout:${agent}`) ?? 'null');
     if (v && ['right', 'left', 'bottom', 'full'].includes(v.dock)) return { ...DEFAULT_LAYOUT, ...v };
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return { ...DEFAULT_LAYOUT };
 }
 export function saveLayout(store: KV | null, agent: string, l: PaneLayout): void {
-  try { store?.setItem(`layout:${agent}`, JSON.stringify(l)); } catch { /* storage may be blocked */ }
+  try {
+    store?.setItem(`layout:${agent}`, JSON.stringify(l));
+  } catch {
+    /* storage may be blocked */
+  }
 }

@@ -74,6 +74,7 @@ def test_clean_text_and_look_alikes_pass() -> None:
         "Co-Authored-By: Claude <noreply@anthropic.com>",
         "git clone git@github.com:org/repo.git",
         "pnpm@10.33.0 and turbo@2.11.7 and a lock line \"@types/node@22.1.0\"",
+        "  next@15.0.0-canary.abc: and '@scope/pkg@1.0.0-beta.next(react@19.0.0-rc.abc)':",
         "a path /Users/<name>/x and /Users/you/x and /home/runner/work",
         "the orcapipe project, ocp, orcapipe.yaml and dev.orcapipe.backup",
         "pytest.mark.parametrize and @property and 5 > 3",
@@ -102,6 +103,12 @@ def test_a_diff_is_read_for_its_added_lines_only() -> None:
     check("localrefs: a glob in the allowlist matches", lr.scan_diff(_diff("tests/x/f.py", bad), ["tests/x/*.py"]) == [])
     check("localrefs: the marker skips one line and only that line",
           len(lr.scan_diff(_diff("a.py", bad + "  # local-ref-ok", bad), [])) == 1)
+    lock = lr.scan_diff(_diff("pnpm-lock.yaml", "  '@types/node@20.1.0':", "      vite: 6.3.5(@types/node@20.1.0)",
+                                      "  next@15.0.0-canary.abc:", "    author: jo" + "@" + "gmail.com"), [])
+    check("localrefs: lockfile package pins are not emails, a real address in a lockfile is",
+          lock == ["pnpm-lock.yaml:13: email: jo" + "@" + "gmail.com"], str(lock))
+    check("localrefs: a mail domain that starts with a number is still one",
+          kinds("write to jo" + "@" + "163.com") == ["email"])
     check("localrefs: the allowlist file itself lists the check's own test",
           lr.is_allowed("tests/infra/test_local_refs.py", lr.allowed_paths()))
 

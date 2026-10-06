@@ -98,13 +98,17 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
-  tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); run the whole
-  suite once, right before you hand the task to `orcapipe.auditor`, with `tools/suite.sh`, in
-  the foreground with a 600000 ms Bash timeout, never in the background. The
-  auditor reruns it at the exact sha; a count you quote is not a verdict.
+  tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
+  whole suite before you hand the task to the auditor. The auditor runs it once at the
+  exact sha (`tools/suite.sh`, in the foreground with a 600000 ms Bash timeout, never in the
+  background); a count you quote is not a verdict.
 - Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
   venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
   print nothing without them, and a hang looks like a stall).
+- TypeScript: run `pnpm turbo test typecheck lint` before you hand a task over. Aim for files under 250 lines and
+  functions under 60; lint fails at 400 and 120 (tests 600, components 250), counted without blank or comment lines.
+  A `max-lines` error means split the file by responsibility, not raise the limit or add a disable. The numbers are in
+  `packages/config/eslint/limits.js`.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
