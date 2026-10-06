@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, offered, type StopMode } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, Prompt } from '@handline/client';
@@ -14,12 +14,22 @@ export function AgentPage() {
   const detail = useSelector((s) => (s.page ? s.details.get(s.page.agent) : undefined));
   const agent = useSelector((s) => (s.page ? s.agents.get(s.page.agent) : undefined));
   const me = useSelector((s) => s.me);
+  const goBack = useRef<() => void>(() => void store.closeAgent());
+  // The Android back button goes from the agent page to the list; the list leaves the app.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      goBack.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
   if (!page || !detail) return null;
   const ctl = controlsOf(detail, me);
   const back = () => {
     if (ctl.release) void store.release(page.agent);
     void store.closeAgent();
   };
+  goBack.current = back;
   const stop = (mode: StopMode) => {
     const run = () => (mode === 'interrupt' ? store.interrupt(page.agent) : store.stopAgent(page.agent, mode));
     if (agent && needsConfirm(mode, agent))
