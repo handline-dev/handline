@@ -75,6 +75,11 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
                         continue
                 else:
                     raise Mismatch(f"{at}: no element matches {json.dumps(arg)}")
+            elif op == "$each":
+                if not isinstance(got, list):
+                    raise Mismatch(f"{at}: wanted an array, got {json.dumps(got)}")
+                for i, item in enumerate(got):
+                    matches(arg, item, saved, f"{at}[{i}]")
             elif op == "$regex":
                 if not (isinstance(got, str) and re.search(arg, got)):
                     raise Mismatch(f"{at}: wanted /{arg}/, got {json.dumps(got)}")

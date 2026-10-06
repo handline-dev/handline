@@ -241,7 +241,7 @@
      "cursor"
     ]
    },
-   "note": "retention: refetch the topic's snapshot and resubscribe from the cursor. slow_client: the daemon then closes the connection."
+   "note": "retention: the resume cannot be served (the cursor is older than the daemon keeps, or more than 5000 of the subscribed events behind); refetch the topic's snapshot; the connection stays open and the cursor is the newest. slow_client: more than 1000 live events were waiting to be written to this client; the daemon sends this and then closes the connection. A resume up to 5000 behind is replayed in full and does not count toward the 1000. The daemon sets no `topic` in v1."
   },
   "frame": {
    "params": {
@@ -553,7 +553,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "Last cursor seen. Absent: live only."
+      "description": "Last cursor seen. Absent: live only. A cursor older than the daemon keeps, or with more than 5000 subscribed events after it, is answered by a `gap` notice (reason retention) instead of a replay; the connection stays open. Up to 5000 events behind, every missed event is replayed in full, in cursor order, before any live one."
      }
     },
     {
@@ -561,7 +561,7 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName",
-      "description": "Only events of this agent (events carry `agent`); events with no agent are not sent. Meant for the chat topic."
+      "description": "Only events of this agent, plus events that carry no agent. Meant for the chat topic."
      }
     }
    ],
@@ -582,11 +582,17 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent."
   },
   {
    "name": "unsubscribe",
-   "summary": "Stop some topics.",
+   "summary": "Stop some topics; a subscription with no topics left ends. Result {}.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -609,7 +615,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "daemon.status",
@@ -628,7 +639,7 @@
   },
   {
    "name": "events.feed",
-   "summary": "Resumable feed of events with their deep-link targets.",
+   "summary": "Resumable feed of events with their deep-link targets; the polling twin of subscribe.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -684,7 +695,13 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "topics defaults to [notifications]; limit defaults to 50, at most 200. Without `since`: the newest events, oldest first. With `since`: the events after it; if `since` is older than retention the feed starts at the oldest kept event and `gap` is true. cursor is the newest cursor in the reply, or the current newest when there are no events.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "operation.get",
@@ -770,7 +787,7 @@
   },
   {
    "name": "agent.timeline",
-   "summary": "State changes, deliveries, handoffs, key presses; newest first.",
+   "summary": "The agent's recorded events, newest first.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -825,7 +842,8 @@
     {
      "$ref": "#/components/errors/not_found"
     }
-   ]
+   ],
+   "description": "Today this is the agent's generic recorded events (the daemon's events table, rows of that agent): id is the event's id and `before` an event id; kind is the recorded kind; actor is the payload's `actor` when it is an object, else null; text is the payload's `text`, else `detail`, else `method`, else the kind; data is the whole payload ({} when it has none). State changes, deliveries and key presses appear only once they are recorded as events, which a later task does; clients must not expect them, and must treat kind as an open set."
   },
   {
    "name": "agent.options",
@@ -6285,7 +6303,7 @@
     "properties": {
      "id": {
       "type": "string",
-      "description": "Opaque; changes whenever the open prompt changes."
+      "description": "Opaque; changes whenever the open prompt changes (the daemon uses the screen block's fingerprint)."
      },
      "agent": {
       "$ref": "#/components/schemas/AgentName"
@@ -6297,7 +6315,8 @@
      "tool": {
       "oneOf": [
        {
-        "type": "string"
+        "type": "string",
+        "description": "The tool asking, when the dialog names one."
        },
        {
         "type": "null"
@@ -6307,7 +6326,8 @@
      "command": {
       "oneOf": [
        {
-        "type": "string"
+        "type": "string",
+        "description": "The command or action it wants to run."
        },
        {
         "type": "null"
@@ -6317,7 +6337,8 @@
      "reason": {
       "oneOf": [
        {
-        "type": "string"
+        "type": "string",
+        "description": "Why it asks, when it says."
        },
        {
         "type": "null"
@@ -6328,16 +6349,19 @@
       "type": "array",
       "items": {
        "type": "string"
-      }
+      },
+      "description": "The dialog's panel as it is on screen, one string per line."
      },
      "options": {
       "type": "array",
       "items": {
        "$ref": "#/components/schemas/PromptOption"
-      }
+      },
+      "description": "The choices, parsed from the dialog. Empty until the session-control task fills it; a client falls back to lines."
      },
      "since": {
-      "$ref": "#/components/schemas/Timestamp"
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When the daemon first saw this prompt open."
      }
     },
     "required": [
@@ -6371,7 +6395,8 @@
       "$ref": "#/components/schemas/AgentName"
      },
      "role": {
-      "type": "string"
+      "type": "string",
+      "description": "The first line of the agent's ROLE.md that is not blank and not a heading, as one line, at most 160 characters; empty when there is none."
      },
      "model": {
       "oneOf": [
@@ -6505,6 +6530,10 @@
        "$ref": "#/components/schemas/InputHolder"
       },
       "description": "Who holds the input; one in v1, a list so more can later."
+     },
+     "state_detail": {
+      "type": "string",
+      "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
      }
     },
     "required": [
@@ -6513,6 +6542,7 @@
      "model",
      "effort",
      "state",
+     "state_detail",
      "state_since",
      "account",
      "task",
@@ -6607,7 +6637,8 @@
          {
           "type": "null"
          }
-        ]
+        ],
+        "description": "The agent's open prompt, or null."
        },
        "settings": {
         "$ref": "#/components/schemas/AgentSettingValues"
@@ -6636,7 +6667,7 @@
      },
      "kind": {
       "type": "string",
-      "description": "state, task_delivered, handoff, key, input, interrupt, start, stop, ...; open set."
+      "description": "The recorded event kind; open set. state, task_delivered, handoff, key, input, interrupt, start and stop are expected once those are recorded."
      },
      "actor": {
       "oneOf": [
@@ -6649,11 +6680,13 @@
       ]
      },
      "text": {
-      "type": "string"
+      "type": "string",
+      "description": "One line to show; falls back to the kind."
      },
      "data": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "description": "The event's whole payload."
      }
     },
     "required": [
@@ -6996,7 +7029,8 @@
     "type": "object",
     "properties": {
      "cursor": {
-      "type": "integer"
+      "type": "integer",
+      "description": "Opaque, increasing integer: the daemon's own stream position, not the id of any other table's row. A client keeps the newest one it saw and resumes from it."
      },
      "topic": {
       "$ref": "#/components/schemas/Topic"

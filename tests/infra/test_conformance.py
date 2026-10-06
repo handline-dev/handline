@@ -112,6 +112,23 @@ class FakeDaemon:
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
+        if method == "agents.list":
+            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": "IDLE", "state_detail": "3m"}]}), said_hello
+        if method == "agent.timeline":
+            limit = params.get("limit", 50)
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+                return fail(_err(-32602, "bad_request", field="limit")), said_hello
+            return fail({"code": -32001, "message": "not_found", "data": params.get("agent")}), said_hello
+        if method in ("subscribe", "unsubscribe"):
+            topics = params.get("topics")
+            if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
+                return fail(_err(-32602, "bad_request", field="topics")), said_hello
+            return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
+        if method == "events.feed":
+            limit = params.get("limit", 50)
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+                return fail(_err(-32602, "bad_request", field="limit")), said_hello
+            return ok({"events": [], "cursor": 7, "gap": False}), said_hello
         return fail(_err(-32600, "bad_request")), said_hello
 
 
@@ -285,6 +302,8 @@ def test_matchers() -> None:
           and ok({"$oneOf": ["a", "b"]}, "b") and ok({"$regex": "^ab"}, "abc") and ok({"k": {"$absent": True}}, {}) and not ok({"k": {"$absent": True}}, {"k": 1}))
     check("conformance: $save keeps the value for {{name}}", ok({"$save": "x", "$type": "integer"}, 7, saved) and
           conformance.substitute({"id": "{{x}}", "s": "n{{x}}"}, saved) == {"id": 7, "s": "n7"})
+    check("conformance: $each needs every element to match", ok({"$each": {"n": 1}}, [{"n": 1}, {"n": 1}]) and ok({"$each": {"n": 1}}, [])
+          and not ok({"$each": {"n": 1}}, [{"n": 1}, {"n": 2}]))
     check("conformance: $exact refuses extra keys, beside plain keys", ok({"$exact": True, "a": 1}, {"a": 1})
           and not ok({"$exact": True, "a": 1}, {"a": 1, "b": 2}) and ok({"$type": "object", "a": 1}, {"a": 1, "b": 2}))
     check("conformance: timestamps are RFC 3339 UTC", ok({"$type": "timestamp"}, "2026-10-06T09:00:00Z") and not ok({"$type": "timestamp"}, "yesterday"))

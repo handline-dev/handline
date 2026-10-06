@@ -1,0 +1,268 @@
+{
+ "fixtures": [
+  {
+   "name": "subscribe.returns_the_cursor",
+   "spec": "subscribe",
+   "about": "The reply carries the newest cursor, an integer.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "agents"
+       ]
+      }
+     },
+     "result": {
+      "$exact": true,
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "subscribe.refuses_an_unknown_topic",
+   "spec": "subscribe",
+   "about": "A topic that does not exist is invalid params naming topics.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "no-such-topic"
+       ]
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "topics"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "subscribe.needs_topics",
+   "spec": "subscribe",
+   "about": "An empty topics list is invalid params.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": []
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "topics"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "unsubscribe.replies_empty",
+   "spec": "unsubscribe",
+   "about": "Stopping topics replies {}.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "agents"
+       ]
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "unsubscribe",
+      "params": {
+       "topics": [
+        "agents"
+       ]
+      }
+     },
+     "result": {
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "events.feed.shape",
+   "spec": "events.feed",
+   "about": "events, cursor and gap; each event carries an integer cursor.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "events.feed",
+      "params": {
+       "limit": 5
+      }
+     },
+     "result": {
+      "$exact": true,
+      "events": {
+       "$each": {
+        "cursor": {
+         "$type": "integer"
+        },
+        "topic": "notifications",
+        "at": {
+         "$type": "timestamp"
+        }
+       }
+      },
+      "cursor": {
+       "$type": "integer"
+      },
+      "gap": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "events.feed.limit_is_a_positive_integer",
+   "spec": "events.feed",
+   "about": "limit 0 is invalid params naming limit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "events.feed",
+      "params": {
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
