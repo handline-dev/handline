@@ -124,6 +124,18 @@ class FakeDaemon:
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
             return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
+        if method in ("task.new", "task.edit", "task.withdraw", "task.cancel"):
+            if not isinstance(params.get("request_id"), str) or not params["request_id"]:
+                return fail(_err(-32600, "bad_request", field="request_id")), said_hello
+            if params.get("waits_on") is not None:
+                return fail(_err(-32602, "bad_request", field="waits_on")), said_hello
+            if method == "task.new":
+                if self.role != "agent":
+                    return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}), said_hello
+                if params.get("time_box") not in ("30m", "1h", "2h"):
+                    return fail(_err(-32602, "bad_request", field="time_box")), said_hello
+                return ok({"accepted": True, "said": "opened", "task": 1}), said_hello
+            return fail({"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}), said_hello
         if method == "events.feed":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:

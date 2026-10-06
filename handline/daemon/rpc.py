@@ -157,11 +157,18 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
                 if row["method"] != name or row["params"] != pkey:
                     raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
                 return {**json.loads(row["reply"]), "replayed": True}
+            fx = con.execute("SELECT method, result_json FROM write_effects WHERE caller = ? AND request_id = ? AND created_at > ?",
+                             (*key, int(time.time()) - REPLY_KEEP_S)).fetchone()
+            if fx:      # the write landed and the daemon died before its reply was kept: answer, repeat nothing
+                if fx["method"] != name:
+                    raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
+                return {**json.loads(fx["result_json"]), "replayed": True}
             result = m.handler(ctx, params)
             if not m.own_event:
                 db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.actor_info})
             now = int(time.time())
             con.execute("DELETE FROM rpc_replies WHERE ts <= ?", (now - REPLY_KEEP_S,))
+            con.execute("DELETE FROM write_effects WHERE created_at <= ?", (now - REPLY_KEEP_S,))
             con.execute("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",
                         (*key, name, pkey, json.dumps(result), now))
             return result
