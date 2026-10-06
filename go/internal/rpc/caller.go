@@ -46,3 +46,15 @@ func (c Caller) Actor() string {
 }
 
 func (c Caller) Allows(role string) bool { return roleIndex(c.Role) >= roleIndex(role) }
+
+// ActorInfo is the spec's Actor for an event: a person is a user there.
+func (c Caller) ActorInfo() map[string]any {
+	out := map[string]any{}
+	for k, v := range c.Info {
+		out[k] = v
+	}
+	if out["kind"] == "person" {
+		out["kind"] = "user"
+	}
+	return out
+}
