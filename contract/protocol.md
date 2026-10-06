@@ -68,7 +68,7 @@ A method marked write takes a required `request_id`.
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
 | `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
-| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {operation}` | `refused`, `not_found` |  |
+| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {operation}` | `refused`, `not_found`, `bad_request` |  |
 | `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | not_self |
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |

@@ -183,10 +183,10 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
 
 
 KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp"}
 KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched"]
+          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp"]
 
 
 def _count(results, status: str) -> int:

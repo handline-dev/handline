@@ -3,6 +3,7 @@
 account.login
 account.set
 account.set_cap
+agent.create
 agent.get
 agent.options
 agent.timeline
@@ -14,6 +15,7 @@ inbox.list
 input.ask
 input.release
 input.take
+operation.get
 prompt.answer
 prompt.list
 repos.list
