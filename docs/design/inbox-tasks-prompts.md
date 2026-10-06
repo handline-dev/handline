@@ -24,7 +24,7 @@ Disconnected is the app's, not the page's: the status bar says it, the page keep
 - **Authored** (the cache is patched at once): the new value shows in `--muted` italics with a hollow dot `○` before the changed cell until the daemon settles it, then `--ink` without animation. On refusal the value reverts, the cell shows `--block` text "not changed" for 6 s, and a toast gives the daemon's reason with the call's name. The person's text stays in its box.
 - **Decided** (the cache is not changed): the pending mark: the clicked button reads "…" and the other options of that card or row are disabled; on error the mark goes and the reason shows. A reply slower than 10 s adds "still waiting" in `--muted`; nothing is abandoned.
 
-Kinds used here, from the §8.5 table: authored are `task.done` `task.reopen` `task.queue` `task.draft` `task.discard` `task.withdraw` `task.cancel` `task.edit` `task.new` `task.merge`, the memo writes, `inbox.mark_read` `inbox.answer` `inbox.reply`; decided is `prompt.answer`. A task transition the client cannot compute (`taskAfter` returns nothing) is decided. A change made from another tab or device arrives through the topic and replaces the row without a mark.
+Kinds used here, from the §8.5 table: authored are `task.done` `task.reopen` `task.queue` `task.draft` `task.withdraw` `task.cancel` `task.edit` `task.new` `task.merge`, the memo writes, `inbox.mark_read` `inbox.answer` `inbox.reply`; decided are `prompt.answer` and `task.discard`, which keeps its reason prompt as the confirmation. A task transition the client cannot compute (`taskAfter` returns nothing) is decided. A change made from another tab or device arrives through the topic and replaces the row without a mark.
 
 **Keys.** Every key works only when no text field has focus. `?` opens the key sheet (the bridge's `question_mark`), listing exactly this page's keys. Arrow keys and `j` `k` move the row cursor; Escape leaves a detail, closes a sheet, then clears marks. Every key is also a visible button (the bridge's action bar), because phones have none. A confirmation is a small inline sheet under the row, not a modal: it names the thing, the verb, and takes Enter or Escape.
 
@@ -166,7 +166,7 @@ A verb that does not apply is hidden, not greyed, and its key says the bridge's 
 - **Loading**: 8 row skeletons with the real column widths; the filter bar is shown at once (its controls work on arrival).
 - **Empty**: "No tasks in these states." with the states chip and "Show closed" if closed ones exist; with no task at all, "Nothing has been asked yet." and New task.
 - **Error / not served**: §1. A detail whose task is gone: "This task no longer exists" and a Back link.
-- **Pending marks** (§1): every task write here is authored, so the row changes at once with the hollow dot and reverts on refusal; where the client cannot compute the new state, the write is decided and the row shows "…" in its state cell. Merge removes the merged rows at once and restores them on refusal.
+- **Pending marks** (§1): every task write here is authored and changes the row at once with the hollow dot, reverting on refusal, except discard, which is decided: its state cell shows "…" and the row does not change until the daemon replies; where the client cannot compute the new state, the write is decided and the row shows "…" in its state cell. Merge removes the merged rows at once and restores them on refusal.
 - A row under a bulk write shows its pending mark; a partial failure leaves the refused rows marked, "2 of 3 changed", with the reasons in the toast.
 - Marks survive a refetch; a task that changes under the pointer keeps its row position until the pointer leaves.
 
@@ -183,7 +183,6 @@ The table becomes cards in the list's sort order: line one `#number`, state chip
 
 ## 6. Assumptions to confirm
 
-1. Discard: the layout design's rules line calls a destructive write decided, its table lists `task.discard` as authored. This page follows the table and keeps the reason prompt as the confirmation; change the page if the design changes.
 2. The founder's "skeleton loading, no spinners" also covers buttons: a pending write shows "…" in place of the label.
 3. Decisions with N6 absent: multi-select shows as single choice. Alternative: hide the question's card and say "answer in the terminal".
 4. Dismiss in Inbox: the bridge's `x` is final; here it folds with a 6 s Undo that only delays the write. Decide whether to delay it.
