@@ -37,6 +37,7 @@ terminal.attach
 terminal.close
 terminal.detach
 terminal.history
+terminal.input
 terminal.resize
 unsubscribe
 worktree.diff
