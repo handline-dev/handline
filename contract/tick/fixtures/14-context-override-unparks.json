@@ -1,0 +1,325 @@
+{
+ "clock": {
+  "start": 1760000000,
+  "step_s": 30,
+  "ticks": 1
+ },
+ "commands": [
+  {
+   "argv": [
+    "claude",
+    "auth",
+    "status",
+    "--json"
+   ],
+   "err": "not logged in",
+   "rc": 1
+  },
+  {
+   "argv": [
+    "claude",
+    "--model",
+    "haiku",
+    "-p",
+    "hi"
+   ],
+   "err": "scripted: no model call",
+   "rc": 1
+  },
+  {
+   "argv": [
+    "git",
+    "rev-parse",
+    "--abbrev-ref"
+   ],
+   "out": "topic\n",
+   "rc": 0
+  },
+  {
+   "argv": [
+    "git",
+    "rev-parse",
+    "--short"
+   ],
+   "out": "abc1234\n",
+   "rc": 0
+  },
+  {
+   "argv": [
+    "git",
+    "rev-parse"
+   ],
+   "out": "0000000000000000000000000000000000000000\n",
+   "rc": 0
+  },
+  {
+   "argv": [
+    "git",
+    "rev-list"
+   ],
+   "out": "0\t0\n",
+   "rc": 0
+  },
+  {
+   "argv": [
+    "git",
+    "status"
+   ],
+   "out": "",
+   "rc": 0
+  },
+  {
+   "argv": [
+    "git",
+    "fetch"
+   ],
+   "rc": 0
+  }
+ ],
+ "db": {
+  "agent_state": [
+   {
+    "__rowid": 1,
+    "account": "alpha",
+    "account_source": "recorded",
+    "agent": "backend",
+    "closed_at": null,
+    "continuations": 0,
+    "current_task": null,
+    "detail": null,
+    "failed_attempts": 0,
+    "handoff": null,
+    "launch_fingerprint": null,
+    "launch_parts": null,
+    "notified_session": null,
+    "resume_session": null,
+    "state": "IDLE",
+    "task": null,
+    "terminal": "term_x",
+    "throttle_count": 0,
+    "updated": 1760000000,
+    "wake_at": null,
+    "wake_failures": 0,
+    "worktree": "wt"
+   },
+   {
+    "__rowid": 2,
+    "account": "alpha",
+    "account_source": "recorded",
+    "agent": "parkctl",
+    "closed_at": null,
+    "continuations": 0,
+    "current_task": null,
+    "detail": "usage; wakes at 23:00",
+    "failed_attempts": 0,
+    "handoff": null,
+    "launch_fingerprint": null,
+    "launch_parts": null,
+    "notified_session": null,
+    "resume_session": null,
+    "state": "PARKED",
+    "task": null,
+    "terminal": "term_y",
+    "throttle_count": 0,
+    "updated": 1760000000,
+    "wake_at": 1760003600,
+    "wake_failures": 0,
+    "worktree": "{HOME}/wt"
+   }
+  ],
+  "cursors": [
+   {
+    "__rowid": 1,
+    "name": "legacy_request_columns_dropped",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 2,
+    "name": "migrated:human_name",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 3,
+    "name": "migrated:english_digests",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 4,
+    "name": "migrated:escalations_are_tasks",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 5,
+    "name": "migrated:notes_are_memos",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 6,
+    "name": "migrated:handed_to_founder_queued",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 7,
+    "name": "migrated:task_deliveries_settled",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 8,
+    "name": "migrated:task_sent_at_events",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 9,
+    "name": "migrated:task_leftovers_settled",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 10,
+    "name": "migrated:kinds_are_say",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 11,
+    "name": "migrated:moot_trust_proposals",
+    "row_id": 1,
+    "updated": 1760000000
+   },
+   {
+    "__rowid": 12,
+    "name": "migrated:hr_proposals_leave_tasks",
+    "row_id": 1,
+    "updated": 1760000000
+   }
+  ],
+  "events": [
+   {
+    "__rowid": 1,
+    "account": null,
+    "agent": "backend",
+    "dedup_key": null,
+    "id": 1,
+    "kind": "Stop",
+    "payload": null,
+    "ts": 1760000000
+   }
+  ],
+  "handoff": [
+   {
+    "__rowid": 1,
+    "agent": "parkctl",
+    "deadline": 1760000090,
+    "detail": null,
+    "id": "hoff-usage",
+    "session_id": null,
+    "state": "done",
+    "step": "released",
+    "trigger_kind": "usage",
+    "updated": 1760000000
+   }
+  ],
+  "requests": [
+   {
+    "__rowid": 1,
+    "body": "carry on",
+    "chain_depth": 0,
+    "chain_id": "1",
+    "delivered_at": null,
+    "edge_ok": 1,
+    "files": null,
+    "id": 1,
+    "kind": null,
+    "landed_at": null,
+    "moot_by": null,
+    "notice": null,
+    "parent_id": null,
+    "queue_order": 1.0,
+    "read_at": null,
+    "relation": "peer",
+    "requester": "marina",
+    "response": "async",
+    "send_now": null,
+    "settles": null,
+    "state": "queued",
+    "state_at": 1760000000,
+    "target": "parkctl",
+    "ts": 1760000000,
+    "typed_at": null,
+    "typed_session": null
+   }
+  ],
+  "schema_version": [
+   {
+    "__rowid": 1,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "baseline",
+    "version": 1
+   },
+   {
+    "__rowid": 2,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "rpc_replies",
+    "version": 2
+   }
+  ]
+ },
+ "dirs": [
+  "agents/backend/inbox",
+  "agents/backend/journal",
+  "agents/backend/memory",
+  "agents/parkctl/inbox",
+  "agents/parkctl/journal",
+  "agents/parkctl/memory",
+  "hr",
+  "trust_proposals",
+  "wt"
+ ],
+ "files": {
+  "accounts/alpha/status.json": "{\"account\": \"alpha\", \"collected_at\": 1760000000, \"session_id\": \"s\", \"windows\": [{\"minutes\": 300, \"used_percent\": 5, \"resets_at\": 1760001800, \"observed_at\": null, \"carried\": false, \"lost\": false}, {\"minutes\": 10080, \"used_percent\": 10, \"resets_at\": null, \"observed_at\": null, \"carried\": false, \"lost\": false}]}",
+  "agents/backend/ROLE.md": "# backend\n\n(describe the role, under 1KB)\n",
+  "agents/backend/agent.yaml": "name: backend\nmodel: sonnet\neffort: medium\nweight: light\nenabled: true\n",
+  "agents/backend/base.md": "# base - backend\n\n(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n",
+  "agents/parkctl/ROLE.md": "# parkctl\n\n(describe the role, under 1KB)\n",
+  "agents/parkctl/agent.yaml": "name: parkctl\nmodel: sonnet\neffort: medium\nweight: light\nenabled: true\ncontext_tokens: 10000000\n",
+  "agents/parkctl/base.md": "# base - parkctl\n\n(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n",
+  "agents/parkctl/status.json": "{\"account\": \"alpha\", \"collected_at\": 1760000000, \"ctx_used\": 200000, \"model_id\": \"claude-sonnet-5\"}",
+  "config.yaml": "handoff_note: false\n",
+  "team.yaml": "\nteams:\n  product: [product]\n  eng:     [backend, frontend]\n  growth:  [marketing, analytics]\n  ops:     [archivist]\n\nagents:\n  product:    { model: mid,   weight: light }\n  backend:    { model: high,  weight: heavy }\n  frontend:   { model: high,  weight: heavy }\n  marketing:  { model: mid,   weight: light }\n  analytics:  { model: mid,   weight: light }\n  archivist:  { model: cheap, weight: light }\n  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }\n\nedges:\n  - { from: \"*\",         to: \"reviewer\",     relation: peer,  response: async }\n  - { from: \"reviewer\",  to: \"*\",            kind: verdict,   response: async }\n  - { from: \"product\",   to: \"eng.*\",        relation: peer,  response: async }\n  - { from: \"product\",   to: \"growth.*\",     relation: peer,  response: async }\n  - { from: \"analytics\", to: \"product\",      relation: peer,  response: async }\n  - { from: \"*\",         to: \"archivist\",    relation: peer,  response: fire_and_forget }\n  - { from: \"*\",         to: \"human\", kind: task }\n\ndeny:\n  - { from: \"eng.*\",    to: \"growth.*\",  reason: \"go through product\" }\n  - { from: \"growth.*\", to: \"eng.*\",     reason: \"same\" }\n\nlimits:\n  max_chain_depth: 4\n  ask_rate_per_hour: 20\n"
+ },
+ "format": 1,
+ "host_up": true,
+ "name": "14-context-override-unparks",
+ "processes": [
+  {
+   "account": "alpha",
+   "agent": "parkctl",
+   "command": "claude",
+   "pid": 4200,
+   "terminal": "term_y"
+  }
+ ],
+ "source": "tests/session/test_daemon_session.py::test_a_parked_agent_is_unparked_by_its_own_context_limit",
+ "terminals": {
+  "term_y": {
+   "screen": [
+    "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "\u276f",
+    "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "  delta \u00b7 5h 68% \u00b7 7d 67%",
+    "  \u23f5\u23f5 auto mode on (shift+tab to cycle) \u00b7 \u2190 for agents"
+   ]
+  }
+ },
+ "what": "The same agent with its own context_tokens override of 10M is under its limit and un-parks."
+}
