@@ -150,6 +150,18 @@ def verify(agent: str | None, pid: int | None) -> bool:
     return False
 
 
+def agent_of(pid: int | None) -> str | None:
+    """The agent whose recorded session process `pid` is, or descends from; None for any other process."""
+    if not pid:
+        return None
+    folder = protected.root() / NS
+    try:
+        names = sorted(p.name for p in folder.iterdir())
+    except OSError:
+        return None
+    return next((n for n in names if verify(n, pid)), None)
+
+
 def key_folder():
     return protected.root() / KEY_NS
 
