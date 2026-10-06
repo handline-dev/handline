@@ -1,0 +1,1453 @@
+{
+ "fixtures": [
+  {
+   "name": "account.set_cap.unknown_account_is_not_found",
+   "spec": "account.set_cap",
+   "about": "An account the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set_cap",
+      "params": {
+       "account": "no.such.account",
+       "cap": 2,
+       "request_id": "conf-w2-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set_cap.a_cap_below_one_is_bad_request",
+   "spec": "account.set_cap",
+   "about": "A cap is a whole number, at least 1.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set_cap",
+      "params": {
+       "account": "{{account}}",
+       "cap": 0,
+       "request_id": "conf-w2-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cap"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set_cap.is_refused_to_an_agent_session",
+   "spec": "account.set_cap",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set_cap",
+      "params": {
+       "account": "{{account}}",
+       "cap": 2,
+       "request_id": "conf-w2-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set_cap.sets_the_cap_and_a_retry_is_replayed",
+   "spec": "account.set_cap",
+   "about": "The cap is set; the same request_id again answers the first reply, marked replayed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set_cap",
+      "params": {
+       "account": "{{account}}",
+       "cap": 3,
+       "request_id": "conf-w2-cap"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.set_cap",
+      "params": {
+       "account": "{{account}}",
+       "cap": 3,
+       "request_id": "conf-w2-cap"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      },
+      "replayed": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set.unknown_account_is_not_found",
+   "spec": "account.set",
+   "about": "An account the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set",
+      "params": {
+       "account": "no.such.account",
+       "cap": 2,
+       "request_id": "conf-w2-4"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set.a_label_that_is_not_one_plain_line_is_bad_request",
+   "spec": "account.set",
+   "about": "An alias is one line of at most 40 characters; nothing is written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set",
+      "params": {
+       "account": "{{account}}",
+       "cap": 2,
+       "label": "two\nlines",
+       "request_id": "conf-w2-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "label"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set.a_cycle_end_that_is_not_a_date_is_bad_request",
+   "spec": "account.set",
+   "about": "cycle_end is a YYYY-MM-DD date or null.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set",
+      "params": {
+       "account": "{{account}}",
+       "cycle_end": "2026-13-45",
+       "request_id": "conf-w2-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cycle_end"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set.is_refused_to_an_agent_session",
+   "spec": "account.set",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set",
+      "params": {
+       "account": "{{account}}",
+       "cap": 2,
+       "request_id": "conf-w2-7"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.set.sets_the_fields_it_is_given",
+   "spec": "account.set",
+   "about": "Alias and cap in one call; the fields not given are left alone.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.set",
+      "params": {
+       "account": "{{account}}",
+       "label": "Main",
+       "cap": 2,
+       "request_id": "conf-w2-8"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.login.unknown_account_is_not_found",
+   "spec": "account.login",
+   "about": "An account the home does not have is not_found; no terminal is opened.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.login",
+      "params": {
+       "account": "no.such.account",
+       "request_id": "conf-w2-9"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.login.is_refused_to_an_agent_session",
+   "spec": "account.login",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.login",
+      "params": {
+       "account": "{{account}}",
+       "request_id": "conf-w2-10"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.decide.unknown_proposal_is_not_found",
+   "spec": "hr.decide",
+   "about": "A proposal nobody made is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.decide",
+      "params": {
+       "proposal": 1,
+       "decision": "approve",
+       "request_id": "conf-w2-11"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "proposal"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.decide.a_decision_other_than_approve_or_reject_is_bad_request",
+   "spec": "hr.decide",
+   "about": "decision is approve or reject.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.decide",
+      "params": {
+       "proposal": 1,
+       "decision": "maybe",
+       "request_id": "conf-w2-12"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "decision"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.decide.is_refused_to_an_agent_session",
+   "spec": "hr.decide",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.decide",
+      "params": {
+       "proposal": 1,
+       "decision": "reject",
+       "request_id": "conf-w2-13"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.add.unknown_target_is_not_found",
+   "spec": "schedule.add",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.add",
+      "params": {
+       "target": "nobody.here",
+       "cron": "0 9 * * *",
+       "message": "stand up",
+       "request_id": "conf-w2-14"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.add.a_cron_that_does_not_parse_is_bad_request",
+   "spec": "schedule.add",
+   "about": "The cron is checked as the daemon reads it; nothing is written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.add",
+      "params": {
+       "target": "{{schedule_agent}}",
+       "cron": "not a cron",
+       "message": "stand up",
+       "request_id": "conf-w2-15"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cron"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.add.is_refused_to_an_agent_session",
+   "spec": "schedule.add",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.add",
+      "params": {
+       "target": "{{schedule_agent}}",
+       "cron": "0 9 * * *",
+       "message": "stand up",
+       "request_id": "conf-w2-16"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.edit.unknown_schedule_is_not_found",
+   "spec": "schedule.edit",
+   "about": "A schedule no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.edit",
+      "params": {
+       "schedule": 1,
+       "cron": "0 10 * * *",
+       "request_id": "conf-w2-17"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "schedule"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.edit.is_refused_to_an_agent_session",
+   "spec": "schedule.edit",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.edit",
+      "params": {
+       "schedule": 1,
+       "cron": "0 10 * * *",
+       "request_id": "conf-w2-18"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.remove.unknown_schedule_is_not_found",
+   "spec": "schedule.remove",
+   "about": "A schedule no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.remove",
+      "params": {
+       "schedule": 1,
+       "request_id": "conf-w2-19"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "schedule"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.remove.is_refused_to_an_agent_session",
+   "spec": "schedule.remove",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.remove",
+      "params": {
+       "schedule": 1,
+       "request_id": "conf-w2-20"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedule.add.then_edit_then_remove",
+   "spec": "schedule.add",
+   "about": "A schedule is added and gets an id; edited, it answers its new id; removed, it is gone and removing it again is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedule.add",
+      "params": {
+       "target": "{{schedule_agent}}",
+       "cron": "0 9 * * *",
+       "message": "conformance",
+       "request_id": "conf-w2-21"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      },
+      "schedule": {
+       "$type": "integer",
+       "$save": "sid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "schedule.add",
+      "params": {
+       "target": "{{schedule_agent}}",
+       "cron": "0 9 * * *",
+       "message": "conformance",
+       "request_id": "conf-w2-22"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "schedule.edit",
+      "params": {
+       "schedule": "{{sid}}",
+       "cron": "0 10 * * *",
+       "request_id": "conf-w2-23"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      },
+      "schedule": {
+       "$type": "integer",
+       "$save": "sid2"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "schedule.remove",
+      "params": {
+       "schedule": "{{sid2}}",
+       "request_id": "conf-w2-24"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "schedule.remove",
+      "params": {
+       "schedule": "{{sid2}}",
+       "request_id": "conf-w2-25"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "schedule"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.an_unknown_setting_is_bad_request",
+   "spec": "settings.set",
+   "about": "Only the keys of SettingsValues are settings.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "no_such_setting": 1
+       },
+       "request_id": "conf-w2-26"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.a_value_of_the_wrong_kind_is_bad_request",
+   "spec": "settings.set",
+   "about": "A key takes its own kind of value; nothing is written if any is refused.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "input_hold_idle_s": 900,
+        "dev_mode": "yes"
+       },
+       "request_id": "conf-w2-27"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "dev_mode"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.a_key_without_a_per_agent_value_is_bad_request",
+   "spec": "settings.set",
+   "about": "With `agent`, only the per-agent keys may be given.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "agent": "{{schedule_agent}}",
+       "changes": {
+        "active_cap": 2
+       },
+       "request_id": "conf-w2-28"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.is_refused_to_an_agent_session",
+   "spec": "settings.set",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "input_hold_idle_s": 900
+       },
+       "request_id": "conf-w2-29"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.sets_a_key_and_null_removes_it",
+   "spec": "settings.set",
+   "about": "A key is set, then null puts it back to its default.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "input_hold_idle_s": 900
+       },
+       "request_id": "conf-w2-30"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "input_hold_idle_s": null
+       },
+       "request_id": "conf-w2-31"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.trust.unknown_account_is_not_found",
+   "spec": "settings.trust",
+   "about": "An account the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.trust",
+      "params": {
+       "account": "no.such.account",
+       "worktrees": [
+        {
+         "agent": "{{schedule_agent}}",
+         "path": "/nowhere"
+        }
+       ],
+       "request_id": "conf-w2-32"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.trust.a_worktree_the_agent_does_not_have_is_refused",
+   "spec": "settings.trust",
+   "about": "Only an agent's own worktree under a declared root is trusted; no session is started for any other.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.trust",
+      "params": {
+       "account": "{{account}}",
+       "worktrees": [
+        {
+         "agent": "{{schedule_agent}}",
+         "path": "/nowhere"
+        }
+       ],
+       "request_id": "conf-w2-33"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.trust.is_refused_to_an_agent_session",
+   "spec": "settings.trust",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.trust",
+      "params": {
+       "account": "{{account}}",
+       "worktrees": [
+        {
+         "agent": "{{schedule_agent}}",
+         "path": "/nowhere"
+        }
+       ],
+       "request_id": "conf-w2-34"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.a_path_no_agent_works_in_is_not_found",
+   "spec": "worktree.set_status",
+   "about": "Only the worktrees the agents' records name are touched.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/nowhere",
+       "status": "in-review",
+       "request_id": "conf-w2-35"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "worktree"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.an_empty_status_is_bad_request",
+   "spec": "worktree.set_status",
+   "about": "A status is one plain line.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/nowhere",
+       "status": "",
+       "request_id": "conf-w2-36"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "status"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.is_refused_to_an_agent_session",
+   "spec": "worktree.set_status",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/nowhere",
+       "status": "in-review",
+       "request_id": "conf-w2-37"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

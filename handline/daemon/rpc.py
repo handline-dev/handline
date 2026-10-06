@@ -23,6 +23,7 @@ MAX_LINE_BYTES = 1 << 20
 ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
+STALE_PROMPT = -32003
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
 # A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
 # calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.
@@ -105,7 +106,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     ctx.caller = caller = Caller(ctx.peer, params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": []},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
             "transport": "local",
             "methods": _methods(caller)}
 

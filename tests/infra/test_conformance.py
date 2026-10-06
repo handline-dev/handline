@@ -182,8 +182,11 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: FakeDaemon(r, mutate, **kw).connect for r in roles}
 
 
-KEY = {"founder_key": "k"}
-KEYARG = ["--var", "founder_key=k"]
+KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "account": "acct.one", "schedule_agent": "a.sched"}
+KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
+          "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "account=acct.one",
+          "--var", "schedule_agent=a.sched"]
 
 
 def _count(results, status: str) -> int:
@@ -286,7 +289,7 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
     check("conformance: the Python daemon passes the hello, whoami and error fixtures it can",
           all(by[n][0] == "pass" for n in ("hello.ok", "hello.must_come_first", "whoami.founder", "errors.parse_error")), str(by))
-    check("conformance: what it lacks is reported missing, not passed", by["terminal.format_is_text"][0] == "missing", str(by))
+    check("conformance: the terminal channel it now has reports the text format, and passes", by["terminal.format_is_text"][0] == "pass", str(by))
     print("python daemon:", ", ".join(f"{s.upper()} {n}" for n, (s, _) in sorted(by.items())))
 
 

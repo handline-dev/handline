@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 from .. import db
+from ..daemon import inputhold
 from ..infra import paths
 from ..team import dialog_rules
 from . import idle_close, term, waiting
@@ -66,7 +67,7 @@ def _accept(con, agent: str, row, now: int, log) -> bool:
     tool = (held or {}).get("tool") or ""
     if not tool or row["closed_at"] or row["state"] != "RUNNING":
         return False
-    if _stuck(con, agent, now):
+    if _stuck(con, agent, now) or inputhold.held_by_other(con, agent):      # nothing is pressed at a held terminal
         return False
     with term.driver_scope():
         if not term.accepts_tool(row["terminal"], tool):

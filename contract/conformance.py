@@ -239,6 +239,15 @@ def names_used(node) -> set:
     return set()
 
 
+def saved_names(node) -> set:
+    """The names a fixture's own steps `$save`, which a later request may use without a --var."""
+    if isinstance(node, dict):
+        return ({node["$save"]} if isinstance(node.get("$save"), str) else set()).union(*(saved_names(v) for v in node.values()), set())
+    if isinstance(node, list):
+        return set().union(*(saved_names(v) for v in node), set())
+    return set()
+
+
 def spec_methods() -> set:
     return {m["name"] for m in json.loads((HERE / "protocol.json").read_text())["methods"]}
 
@@ -267,7 +276,7 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
     role = fx.get("as", "founder")
     if role not in sockets:
         return "skip", f"no socket for role {role} (pass --as {role}=SOCKET)"
-    missing = sorted(names_used(fx["steps"]) - set(vars_))
+    missing = sorted(names_used(fx["steps"]) - set(vars_) - saved_names(fx["steps"]))
     if missing:
         return "needvar", f"needs --var {missing[0]}=..."
     if methods is not None and fx.get("spec") in spec_methods() and fx["spec"] not in methods:

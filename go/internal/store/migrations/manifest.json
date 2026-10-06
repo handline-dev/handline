@@ -28,5 +28,10 @@
   "version": 6,
   "name": "write_effects",
   "additive": true
+ },
+ {
+  "version": 7,
+  "name": "input_holders",
+  "additive": true
  }
 ]

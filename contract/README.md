@@ -21,7 +21,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
   - `closed`: true or false, whether the daemon closes the connection.
   - A step with `send` and no `result`, `error` or `closed` only sends: the call is pipelined, and a later step `{"await": id, "result"|"error": ...}` reads its reply, whatever order the replies came in. `within_s` on a step bounds how long its reply may take (default 5), which is how a fixture shows a waiting call did not hold up the one behind it. `at_least_s` is the reverse: the reply must take at least that long from its send, which shows a wait really waited.
 - Matching: an object matches if every key in it matches (extra keys in the reply are fine), an array must match element by element, anything else must be equal. Matchers: `{"$type": string|integer|number|boolean|object|array|null|timestamp}`, `{"$any": true}`, `{"$oneOf": [m, ...]}`, `{"$contains": m}` (some element of an array matches), `{"$each": m}` (every element matches; an empty array does), `{"$regex": r}`, `{"$absent": true}` (the key is missing), `"$exact": true` beside plain keys (the object has no other keys, for closed shapes such as an error's `data`), `{"$save": name}` (keep the value; alone or beside `$type`).
-- `{{name}}` in a request string is replaced by a `--var` or a saved value.
+- `{{name}}` in a request string is replaced by a `--var` or a saved value (a name a step of the same fixture saves needs no `--var`).
 - Every method that gets fixtures has at least one refusal or error case.
 
 ## Running them
