@@ -6,6 +6,7 @@ Run on its own: python3 tests/daemon/test_rpc_chatwrites.py   (all areas: python
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -243,6 +244,28 @@ def test_the_chat_write_fixtures_pass_against_this_daemon(home: Path) -> None:
     check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 9, str(bad))
 
 
+def test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(home: Path) -> None:
+    from test_relay import Relay, _record_gateway
+    _world(home)
+    _record_gateway(os.getpid())
+    a = Relay()
+    a.open("dev_a", "phone")
+    params = {"agent": "worker", "body": "hello from the phone", "request_id": "cs1"}
+    first = a.call("chat.send", params)
+    check("device retry: the send is accepted", first.get("result", {}).get("accepted") is True, str(first))
+    con = db.connect()
+    con.execute("DELETE FROM rpc_replies")          # the reply kept for the retry is gone: only the effect's own record is left
+    rows = [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = 'cs1'")]
+    con.close()
+    check("device retry: its record is under device:<id>", rows == ["device:dev_a"], str(rows))
+    again = a.call("chat.send", params, id=2)
+    con = db.connect()
+    sent = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND body = ?", (db.HUMAN, "hello from the phone")).fetchone()[0]
+    con.close()
+    check("device retry: the retry is answered from that record and sends nothing twice", again.get("result", {}).get("replayed") is True and sent == 1, str((again, sent)))
+    a.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_send_is_the_persons_message_to_an_agent_through_delivery(Path(td) / "w1"))
@@ -252,6 +275,7 @@ def main() -> int:
         run(lambda: test_withdraw_takes_back_ones_own_request_before_it_was_delivered(Path(td) / "w5"))
         run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
         run(lambda: test_the_chat_write_fixtures_pass_against_this_daemon(Path(td) / "w7"))
+        run(lambda: test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(Path(td) / "wd"))
     return run_area(tests)
 
 

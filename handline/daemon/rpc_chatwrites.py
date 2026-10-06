@@ -18,7 +18,7 @@ _ASKED = "no such message"
 
 def _record(ctx, params, name: str, **more):
     """What an action calls in its transaction: the answer kept under this request_id."""
-    me, rid = ctx.caller.actor, params["request_id"]
+    me, rid = ctx.caller.writer, params["request_id"]
     return lambda con, said, *_: db.record_effect(con, me, rid, name, {"accepted": True, "said": said, **more})
 
 
@@ -62,7 +62,7 @@ def _send(ctx, params) -> dict:
     if task is not None:
         def effect(con, tid: int) -> None:
             first = db.first_linked_request(con, tid)
-            db.record_effect(con, ctx.caller.actor, params["request_id"], "chat.send",
+            db.record_effect(con, ctx.caller.writer, params["request_id"], "chat.send",
                              {"accepted": True, "said": f"task T{tid} opened for {agent}", "request": int(first["id"])})
         ok, msg, tid = actions.task_new(me, agent, textsafe.oneline(title).strip(), textsafe.text(body).strip(), timeout_s=secs, effect=effect)
         if not ok:
@@ -77,7 +77,7 @@ def _send(ctx, params) -> dict:
 
     def within(con, note, rid=None):
         sent.append(rid)
-        db.record_effect(con, ctx.caller.actor, params["request_id"], "chat.send", {"accepted": True, "said": note, "request": rid})
+        db.record_effect(con, ctx.caller.writer, params["request_id"], "chat.send", {"accepted": True, "said": note, "request": rid})
     ok, msg, rid = askmod.say(agent, textsafe.text(body).strip(), requester=me, within=within)
     if not ok:
         raise rpc.refused(msg)
