@@ -15,6 +15,7 @@
   "lines": "UTF-8 JSON, terminated by \\n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.",
   "ids": "Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.",
   "concurrency": "Calls on one connection are served concurrently: a call that waits (inbox.list or inbox.get with wait_s, up to 600 s) does not hold up the calls after it, and replies come in the order they finish, matched by id. Calls on one connection that touch the same thing are not ordered by the connection: a client that needs the order waits for the first reply. Stream notifications are never held behind a waiting call.",
+  "network": "The network listener is the only way in for a phone, a browser or another machine, and only a paired device may use it. A connection on it is unpaired until its hello carries a valid device `token`. An unpaired connection may call device.redeem and nothing else: every other call, hello and an unknown method name included, is refused before any handler runs with the one reply `{code: -32002, message: \"refused\", data: {code: \"refused\", gate: \"unpaired\", reason: \"not paired\"}}`, the same words every time: no method list, no state, no version, no hint, nothing that says why. A token that is revoked or was never issued is the same refusal, so a reply does not say which. The Unix socket is not the network: its roles are proven as below. Conformance: the network transport is the WebSocket over TLS the listener speaks, and a client pins the certificate fingerprint from the pairing uri; fixtures with `as: unpaired` or `as: member` over the network are run against it with `--as unpaired=...` and `--as member=...` sockets that are already past TLS and the pinned check (a socket the harness is given, or a connector function); contract/README.md says what that does and does not show.",
   "params": "By name only.",
   "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
   "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.",
@@ -29,7 +30,7 @@
    "member",
    "founder"
   ],
-  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous and may call only hello (and device.redeem on the network listener). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
+  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
  },
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
@@ -41,6 +42,8 @@
   "unsupported": "Reserved and not implemented.",
   "not_self": "The agent named is not the caller's own session.",
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
+  "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
+  "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
   "session_token": "Session token and peer-pid check, unchanged."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.",
@@ -212,6 +215,13 @@
    "snapshot": "operation.get",
    "data": {
     "operation.progress": "Operation"
+   }
+  },
+  "devices": {
+   "snapshot": "devices.list",
+   "data": {
+    "device.paired": "Device",
+    "device.revoked": "{device}"
    }
   }
  },
@@ -498,7 +508,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request. Role by proof: a matching `key` gives founder; with no key, a peer pid that verifies against a recorded session gives agent; a device token (network listener) gives member; anything else is anonymous and every method but hello is refused until a later hello proves more."
+   "description": "A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request. Role by proof: a matching `key` gives founder; with no key, a peer pid that verifies against a recorded session gives agent; a device token (network listener) gives member; anything else is anonymous and every method but hello is refused until a later hello proves more. On the network listener a hello without a valid `token` is refused, gate `unpaired`, with no data; with one it is member."
   },
   {
    "name": "whoami",
@@ -1439,7 +1449,7 @@
     "wall",
     "screen_blocker"
    ],
-   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way."
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
   },
   {
    "name": "session.keys",
@@ -1496,7 +1506,8 @@
     "role",
     "terminal_lock",
     "input_holder"
-   ]
+   ],
+   "description": " Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
   },
   {
    "name": "session.type",
@@ -1551,7 +1562,7 @@
     "terminal_lock",
     "input_holder"
    ],
-   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog."
+   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
   },
   {
    "name": "session.interrupt",
@@ -5941,7 +5952,7 @@
   },
   {
    "name": "devices.list",
-   "summary": "Paired devices with last seen.",
+   "summary": "Paired devices with last seen and whether each is connected.",
    "paramStructure": "by-name",
    "params": [],
    "result": {
@@ -5975,6 +5986,16 @@
      "required": false,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "ttl_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600,
+      "description": "Seconds the code lives; default 300."
      }
     },
     {
@@ -6027,11 +6048,13 @@
     {
      "$ref": "#/components/errors/refused"
     }
-   ]
+   ],
+   "description": "Founder only. The code is single use and expires: `ttl_s` seconds (default 300, at most 600). The reply carries the listener certificate fingerprint and the address in `uri`, which is what the QR holds; a client pins that fingerprint and refuses any other certificate.",
+   "x-note": "The code is shown once and kept only as a hash; a second call makes a new code and leaves the first valid until it expires or is used."
   },
   {
    "name": "device.redeem",
-   "summary": "Trade a pairing code for a device token. Allowed before hello auth on the network listener; wrong, expired or used codes and too many tries are refused (gate attempt_limit).",
+   "summary": "Trade a pairing code for a device token.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6090,8 +6113,10 @@
     }
    ],
    "x-gates": [
+    "pairing_code",
     "attempt_limit"
-   ]
+   ],
+   "description": "The only method an unpaired network caller may call. A code that is wrong, expired or already used is refused, gate `pairing_code`, without saying which; too many wrong tries are refused, gate `attempt_limit`. A code redeems once: the token is in this one reply and never again, and the daemon keeps only its hash. `name` is how the device is listed."
   },
   {
    "name": "device.revoke",
@@ -6129,7 +6154,8 @@
     {
      "$ref": "#/components/errors/not_found"
     }
-   ]
+   ],
+   "description": "Cancels the device's token. Its open connections and terminal attaches are closed at once, its next call is refused (gate `unpaired`), and a device.revoked event is sent on the devices topic. Revoking a device that is not paired is not_found."
   }
  ],
  "components": {
@@ -6163,9 +6189,10 @@
      "tasks",
      "notifications",
      "operations",
-     "chat"
+     "chat",
+     "devices"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices."
    },
    "Caller": {
     "type": "object",

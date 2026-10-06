@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -1424,6 +1424,8 @@ export interface Methods {
   } };
   "device.pair": { params: {
   name?: string;
+  /** Seconds the code lives; default 300. */
+  ttl_s?: number;
   request_id: RequestId;
 }; result: Accepted & {
     code: string;
