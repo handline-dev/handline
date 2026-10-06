@@ -73,7 +73,7 @@ def _set(ctx, params) -> dict:
               + (f" for {agent}" if agent else "")}
     con = db.connect()
     try:
-        db.record_effect(con, ctx.caller.actor, params["request_id"], "settings.set", result)
+        db.record_effect(con, ctx.caller.writer, params["request_id"], "settings.set", result)
     finally:
         con.close()
     return result
@@ -98,7 +98,7 @@ def _trust(ctx, params) -> dict:
     result = {"accepted": True, "said": said}
     con = db.connect()
     try:
-        db.record_effect(con, ctx.caller.actor, params["request_id"], "settings.trust", result)
+        db.record_effect(con, ctx.caller.writer, params["request_id"], "settings.trust", result)
     finally:
         con.close()
     return result

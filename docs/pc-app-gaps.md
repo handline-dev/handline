@@ -65,7 +65,7 @@ Skeleton and writes per unit (the shape is a spec in `app-data`, shared with mob
 | U8 Chat | as the Chat tab in `web-main-view.md` §9: three message blocks, then the box | send, withdraw, dismiss, answer: authored; `chat.send_now`: decided |
 | U9 Prompt cards | none (a card exists only for a reported prompt) | `prompt.answer`: decided; `answer.add`: authored |
 | U10 Inbox | 4 cards: a title line, two body lines, an action row | mark read, answer, reply: authored (the bell count drops at once) |
-| U11 Tasks | table of 10 rows (id, from → to, a wide title, a state chip, age); detail: title, a meta row, three body paragraphs, a history list | new, edit, done, reopen, queue, draft, discard, merge, memo: authored; a transition the app does not know is decided |
+| U11 Tasks | table of 10 rows (id, from → to, a wide title, a state chip, age); detail: title, a meta row, three body paragraphs, a history list | new, edit, done, reopen, queue, draft, merge, memo: authored; discard keeps its confirmation and is decided, as is a transition the app does not know |
 | U12 Agent verbs | the sidebar's (`web-main-view.md` §9) | park, wake, restart, fold, move, clear stall: decided |
 | U13 Agent settings | a form: 8 label and input rows; schedules: 3 rows | `agent.set`, schedules add / edit / remove: authored |
 | U14 Accounts | 3 gauge cards (name, two bars, a reset line); account page: overview block, agents list, settings form | alias, cap, recovery, cycle: authored; login, remove: decided |
