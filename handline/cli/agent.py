@@ -49,7 +49,8 @@ def _propose_register(args) -> int:
         print("a role is proposed with `hl hr context <name> --role-file FILE --why ...`", file=sys.stderr)
         return 1
     if not (args.why or "").strip():
-        print("from an agent's session registering asks the founder: say why with --why", file=sys.stderr)
+        print("from an agent's session registering is the founder's to approve: say why with --why, "
+              "and it is raised as a proposal", file=sys.stderr)
         return 1
     me, new = askmod.asking_agent(), args.name not in paths.list_agents()
     sets = {k: v for k, v in (("skip_permissions", args.skip_permissions), ("weight", args.weight),
