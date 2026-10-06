@@ -274,6 +274,19 @@ kbd {
   white-space: pre;
   outline-offset: -2px;
 }
+.grid-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+.grid-skeleton .sk {
+  background: color-mix(in srgb, var(--term-ink) 16%, transparent);
+}
+.grid-skeleton:empty {
+  display: none;
+}
 .grid-input {
   position: absolute;
   left: 0;
