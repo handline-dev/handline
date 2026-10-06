@@ -229,7 +229,7 @@ class Connection:
         got = self.notices.pop(0)
         matches(want, got, saved)
 
-    def notice(self, want: dict, saved: dict, wait: float = NOTICE_WAIT_S) -> None:
+    def notice(self, want: dict, saved: dict, wait: float = NOTICE_WAIT_S, any_order: bool = False) -> None:
         deadline = time.time() + wait
         while True:
             for i, n in enumerate(self.notices):
@@ -237,7 +237,7 @@ class Connection:
                     matches(want, n, saved)
                 except Mismatch:
                     continue
-                del self.notices[: i + 1]
+                del self.notices[(i if any_order else 0):i + 1]
                 return
             left = deadline - time.time()
             if left <= 0:
@@ -368,7 +368,7 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                 if "notice_next" in step:
                     conn.next_notice(step["notice_next"], saved, step.get("notices_within_s", NOTICE_WAIT_S))
                 for want in step.get("notices", []):
-                    conn.notice(want, saved, step.get("notices_within_s", NOTICE_WAIT_S))
+                    conn.notice(want, saved, step.get("notices_within_s", NOTICE_WAIT_S), step.get("notices_any_order", False))
             except (Mismatch, socket.timeout, ConnectionError, json.JSONDecodeError) as e:
                 return "fail", f"step {n}: {type(e).__name__ + ': ' if not isinstance(e, Mismatch) else ''}{e}"
         return "pass", ""

@@ -1031,6 +1031,8 @@ export interface Methods {
 }; result: Accepted };
   "terminal.detach": { params: {
   terminal: string;
+  /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
+  format?: "text" | "bytes";
 }; result: { [key: string]: unknown } };
   "inbox.list": { params: {
   unread?: boolean;
@@ -1654,11 +1656,15 @@ export interface Notifications {
   kind: "daemon_typed" | "control";
   actor: Actor | null;
   text?: string;
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   holder: {
   terminal: string;
   seq: number;
   holders: InputHolder[];
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   output: {
   terminal: string;
