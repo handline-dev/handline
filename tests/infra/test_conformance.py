@@ -4,6 +4,8 @@ Run on its own: python3 tests/infra/test_conformance.py   (all areas: python3 te
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import socket
@@ -33,8 +35,8 @@ def _err(code, message, **data):
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
-    def __init__(self, role: str):
-        self.role = role
+    def __init__(self, role: str, mutate=None):
+        self.role, self.mutate = role, mutate or (lambda reply: reply)
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -69,7 +71,7 @@ class FakeDaemon:
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     reply, said_hello = self._answer(line, said_hello)
-                    conn.sendall(json.dumps(reply).encode() + b"\n")
+                    conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
 
     def _answer(self, line: bytes, said_hello: bool):
         try:
@@ -111,8 +113,8 @@ class FakeDaemon:
 FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
 
 
-def _fakes(*roles: str) -> dict:
-    return {r: FakeDaemon(r).connect for r in roles}
+def _fakes(*roles: str, mutate=None) -> dict:
+    return {r: FakeDaemon(r, mutate).connect for r in roles}
 
 
 def _count(results, status: str) -> int:
@@ -158,6 +160,43 @@ def test_the_command_line_runs_against_a_socket_path(td) -> None:
     check("conformance: no socket is a usage error", r.returncode == 2)
 
 
+def _first_fixture_fails(mutate, needle: str, name: str) -> None:
+    [(status, why, _)] = conformance.run_all(FILES, _fakes("founder", mutate=mutate), {}, "hello.ok")
+    check(name, status == "fail" and needle in why, f"{status}: {why}")
+
+
+def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
+    _first_fixture_fails(lambda r: {**r, "jsonrpc": "1.0"}, "jsonrpc", "conformance: a reply with jsonrpc 1.0 fails")
+    _first_fixture_fails(lambda r: {k: v for k, v in r.items() if k != "jsonrpc"}, "jsonrpc", "conformance: a reply without jsonrpc fails")
+    _first_fixture_fails(lambda r: {**r, "error": {"code": -32603, "message": "internal"}}, "exactly one", "conformance: a reply with both result and error fails")
+    _first_fixture_fails(lambda r: {k: v for k, v in r.items() if k not in ("result", "error")}, "exactly one", "conformance: a reply with neither fails")
+    a, b = socket.socketpair()
+    b.sendall(b'{"jsonrpc": "1.0", "method": "event", "params": {}}\n')
+    conn = conformance.Connection(lambda: a)
+    try:
+        conn.reply_to(1)
+        bad = False
+    except conformance.Mismatch:
+        bad = True
+    check("conformance: a notice with jsonrpc 1.0 fails", bad)
+
+
+def test_a_run_that_skipped_is_not_green(td) -> None:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        only_founder = conformance.main([], _fakes("founder"))
+        allowed = conformance.main(["--allow-skip"], _fakes("founder"))
+        all_roles = conformance.main([], _fakes("founder", "agent", "anonymous"))
+    check("conformance: a run with only the founder socket exits 3, not 0", only_founder == 3, out.getvalue())
+    check("conformance: --allow-skip makes the same run exit 0", allowed == 0)
+    check("conformance: a run with every role passes with exit 0", all_roles == 0)
+    path = Path(td) / "all_skipped.json"
+    path.write_text(json.dumps({"fixtures": [{"name": "s.one", "as": "member", "steps": [{"raw": "{", "error": {}}]}]}))
+    with contextlib.redirect_stdout(io.StringIO()):
+        skipped_all = conformance.main([str(path)], _fakes("founder"))
+    check("conformance: a run where everything skipped exits 3", skipped_all == 3)
+
+
 def test_matchers() -> None:
     def ok(want, got, saved=None):
         try:
@@ -174,6 +213,8 @@ def test_matchers() -> None:
           and ok({"$oneOf": ["a", "b"]}, "b") and ok({"$regex": "^ab"}, "abc") and ok({"k": {"$absent": True}}, {}) and not ok({"k": {"$absent": True}}, {"k": 1}))
     check("conformance: $save keeps the value for {{name}}", ok({"$save": "x", "$type": "integer"}, 7, saved) and
           conformance.substitute({"id": "{{x}}", "s": "n{{x}}"}, saved) == {"id": 7, "s": "n7"})
+    check("conformance: $exact refuses extra keys, beside plain keys", ok({"$exact": True, "a": 1}, {"a": 1})
+          and not ok({"$exact": True, "a": 1}, {"a": 1, "b": 2}) and ok({"$type": "object", "a": 1}, {"a": 1, "b": 2}))
     check("conformance: timestamps are RFC 3339 UTC", ok({"$type": "timestamp"}, "2026-10-06T09:00:00Z") and not ok({"$type": "timestamp"}, "yesterday"))
 
 
@@ -200,6 +241,8 @@ def main() -> int:
         run(lambda: test_a_role_without_a_socket_is_skipped_not_passed())
         run(lambda: test_a_wrong_reply_fails_that_fixture(td))
         run(lambda: test_the_command_line_runs_against_a_socket_path(td))
+        run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
+        run(lambda: test_a_run_that_skipped_is_not_green(td))
         run(lambda: test_matchers())
         run(lambda: test_fixtures_follow_the_format_and_the_spec())
     return run_area(tests)

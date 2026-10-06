@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run the conformance fixtures in contract/fixtures against a daemon's Unix socket.
 
-  python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [FILE ...]
+  python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [FILE ...]
 
-The format is in contract/README.md. Exit 0 when nothing failed (skips are reported, not failures),
-1 when a fixture failed, 2 on a usage error. The same fixtures run against the Python daemon, the Go
+The format is in contract/README.md. Exit 0 when everything passed, 1 when a fixture failed, 2 on a usage error, 3 when
+nothing failed but something was skipped (a run that skipped is not green; --allow-skip says it is meant). The same fixtures run against the Python daemon, the Go
 one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
 from __future__ import annotations
@@ -31,7 +31,14 @@ class Mismatch(Exception):
 def matches(want, got, saved: dict, at: str = "$") -> None:
     """Raise Mismatch unless `got` satisfies `want`. Objects match as subsets, arrays element by element."""
     if isinstance(want, dict) and any(k.startswith("$") for k in want):
+        rest = {k: v for k, v in want.items() if not k.startswith("$")}
+        if rest:
+            matches(rest, got, saved, at)
+            if want.get("$exact") and isinstance(got, dict) and set(got) - set(rest):
+                raise Mismatch(f"{at}: unexpected keys {sorted(set(got) - set(rest))}")
         for op, arg in want.items():
+            if not op.startswith("$"):
+                continue
             if op == "$any":
                 pass
             elif op == "$type":
@@ -70,8 +77,8 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
                     raise Mismatch(f"{at}: wanted /{arg}/, got {json.dumps(got)}")
             elif op == "$save":
                 saved[arg] = got
-            elif op == "$absent":
-                pass            # handled by the object case below
+            elif op in ("$absent", "$exact"):
+                pass            # $absent is handled by the object case below, $exact above
             else:
                 raise Mismatch(f"{at}: unknown matcher {op}")
         return
@@ -115,6 +122,17 @@ def substitute(node, vars_: dict):
     return node
 
 
+def check_envelope(msg, notice: bool) -> None:
+    """Every line the daemon sends is JSON-RPC 2.0: a reply has exactly one of result and error, a notice a method."""
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+        raise Mismatch(f"not a JSON-RPC 2.0 message (jsonrpc must be \"2.0\"): {json.dumps(msg)}")
+    if notice:
+        if not isinstance(msg.get("method"), str):
+            raise Mismatch(f"a notice needs a method: {json.dumps(msg)}")
+    elif ("result" in msg) == ("error" in msg):
+        raise Mismatch(f"a reply has exactly one of result and error: {json.dumps(msg)}")
+
+
 class Connection:
     def __init__(self, target):
         """`target` is a socket path, or a function returning a connected socket (a test's in-process fake)."""
@@ -147,9 +165,11 @@ class Connection:
             msg = self.read_line()
             if msg is None:
                 return None
-            if "method" in msg and "id" not in msg:
+            if isinstance(msg, dict) and "method" in msg and "id" not in msg:
+                check_envelope(msg, True)
                 self.notices.append(msg)
                 continue
+            check_envelope(msg, False)
             if msg.get("id") == rid:
                 return msg
             raise Mismatch(f"a reply for id {json.dumps(msg.get('id'))} while waiting for {json.dumps(rid)}")
@@ -173,6 +193,7 @@ class Connection:
                 continue
             if msg is None:
                 raise Mismatch("the connection closed while waiting for a notice")
+            check_envelope(msg, True)
             self.notices.append(msg)
 
     def closed(self) -> bool:
@@ -242,16 +263,19 @@ def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = No
     return [(*run_fixture(fx, sockets, vars_), fx["name"]) for fx in load(files) if not only or only in fx["name"]]
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], connectors: dict | None = None) -> int:
+    """`connectors` (role -> function returning a connected socket) stands in for the socket paths: tests only."""
     sockets: dict = {}
     vars_: dict = {}
-    only, files, rest, i = None, [], [], 0
+    only, files, rest, i, allow_skip = None, [], [], 0, False
     while i < len(argv):
         a = argv[i]
         if a in ("--as", "--var") and i + 1 < len(argv) and "=" in argv[i + 1]:
             k, v = argv[i + 1].split("=", 1)
             (sockets if a == "--as" else vars_)[k] = v
             i += 2
+        elif a == "--allow-skip":
+            allow_skip, i = True, i + 1
         elif a == "--only" and i + 1 < len(argv):
             only, i = argv[i + 1], i + 2
         elif a.startswith("-"):
@@ -260,17 +284,21 @@ def main(argv: list[str]) -> int:
         else:
             rest.append(a)
             i += 1
-    if not rest:
+    sockets.update(connectors or {})
+    if not rest and "founder" not in sockets:
         print(__doc__, file=sys.stderr)
         return 2
-    sockets.setdefault("founder", rest[0])
-    files = [Path(p) for p in rest[1:]] or sorted(FIXTURES.glob("*.json"))
+    if "founder" not in sockets:
+        sockets["founder"], rest = rest[0], rest[1:]
+    files = [Path(p) for p in rest] or sorted(FIXTURES.glob("*.json"))
     counts = {"pass": 0, "fail": 0, "skip": 0}
     for status, why, name in run_all(files, sockets, vars_, only):
         counts[status] += 1
         print(f"{status.upper():4}  {name}" + (f"  - {why}" if why else ""))
     print(f"{counts['pass']} passed, {counts['fail']} failed, {counts['skip']} skipped")
-    return 1 if counts["fail"] else 0
+    if counts["fail"]:
+        return 1
+    return 3 if counts["skip"] and not allow_skip else 0
 
 
 if __name__ == "__main__":
