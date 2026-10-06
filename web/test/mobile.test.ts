@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../mobile/store.ts';
 import http from 'node:http';
-import { handler } from '../mobile/server.ts';
+import { handler, listenOptions } from '../mobile/server.ts';
 import { app, esc, pageKey } from '../mobile/views.ts';
 import { setup, until } from './helpers.ts';
 
@@ -155,4 +155,13 @@ test('the static server answers a malformed or directory URL with an error, not 
   assert.equal(await status('/'), 200);
   assert.equal(await status('/web/mobile/icon-192.png'), 200);
   server.close();
+});
+
+test('plain http is refused on any host but loopback', () => {
+  assert.equal(listenOptions([]).host, '127.0.0.1');
+  assert.equal(listenOptions(['--host', 'localhost']).host, 'localhost');
+  assert.throws(() => listenOptions(['--host', '0.0.0.0']), /refusing plain http/);
+  assert.throws(() => listenOptions(['--host', '192.168.1.5', '--port', '80']), /refusing plain http/);
+  assert.deepEqual(listenOptions(['--cert', 'c.pem', '--key', 'k.pem']), { host: '0.0.0.0', port: 8443, cert: 'c.pem', key: 'k.pem' });
+  assert.throws(() => listenOptions(['--cert', 'c.pem']), /go together/);
 });

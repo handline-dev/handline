@@ -35,11 +35,21 @@ export function handler(req: http.IncomingMessage, res: http.ServerResponse): vo
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]!).href) {
-  const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : undefined; };
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/** Where and how to listen. Plain http may only be reached from this machine; anything wider needs TLS. */
+export function listenOptions(argv: string[]): { host: string; port: number; cert?: string; key?: string } {
+  const arg = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined; };
   const cert = arg('cert'), key = arg('key');
-  if (!!cert !== !!key) { console.error('--cert and --key go together'); process.exit(2); }
-  const host = arg('host') ?? (cert ? '0.0.0.0' : '127.0.0.1'), port = Number(arg('port') ?? (cert ? 8443 : 8080));
-  const server = cert ? https.createServer({ cert: fs.readFileSync(cert), key: fs.readFileSync(key!) }, handler) : http.createServer(handler);
-  server.listen(port, host, () => console.log(`mobile app on ${cert ? 'https' : 'http'}://${host}:${port}/`));
+  if (!!cert !== !!key) throw new Error('--cert and --key go together');
+  const host = arg('host') ?? (cert ? '0.0.0.0' : '127.0.0.1');
+  if (!cert && !LOOPBACK.has(host)) throw new Error(`refusing plain http on ${host}: give --cert and --key, or use a loopback host`);
+  return { host, port: Number(arg('port') ?? (cert ? 8443 : 8080)), cert, key };
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]!).href) {
+  let o;
+  try { o = listenOptions(process.argv); } catch (e) { console.error((e as Error).message); process.exit(2); }
+  const server = o.cert ? https.createServer({ cert: fs.readFileSync(o.cert), key: fs.readFileSync(o.key!) }, handler) : http.createServer(handler);
+  server.listen(o.port, o.host, () => console.log(`mobile app on ${o.cert ? 'https' : 'http'}://${o.host}:${o.port}/`));
 }
