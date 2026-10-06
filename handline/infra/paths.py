@@ -137,12 +137,6 @@ def live_homes() -> list[Path]:
     return [(_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")]
 
 
-def is_installed_checkout() -> bool:
-    """Whether this code is the main checkout the daemon runs from: the repo's own working tree, whose
-    .git is a folder. A worktree (where an agent's branch lives) has a .git file."""
-    return (repo_root() / ".git").is_dir()
-
-
 def ocp_exe() -> str:
     """The command a hook or launch line should call `hl` with."""
     return names.getenv("OCP_BIN") or next(filter(None, map(shutil.which, names.COMMANDS)), None) or str(repo_root() / "bin" / "hl")

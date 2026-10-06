@@ -231,44 +231,55 @@ def test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(home: Path
           marks() == {v: int(a) for v, _n, _s, a in dbschema.MIGRATIONS}, str(marks()))
 
 
-def test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(home: Path) -> None:
-    from handline.infra import paths
+def test_only_the_checkout_the_service_runs_may_migrate_the_live_home(home: Path) -> None:
+    import plistlib
+    from handline.infra import paths, service
     home.mkdir(parents=True, exist_ok=True)
     live = home / "live"
     live.mkdir()
     p = live / "db.sqlite"
-    dbschema.connect(p).close()
-    raw = sqlite3.connect(p)
-    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
-    raw.commit()
-    raw.close()
-    real = paths.live_homes, paths.is_installed_checkout
-    paths.live_homes = lambda: [live.resolve()]
-    try:
-        paths.is_installed_checkout = lambda: False
-        try:
-            dbschema.connect(p)
-            msg = ""
-        except dbschema.SchemaError as e:
-            msg = str(e)
-        check("branch: a checkout that is not the installed main is refused, in one line naming why",
-              "installed main" in msg and "\n" not in msg, msg)
-        check("branch: and nothing was stamped", _versions(p) == list(range(1, dbschema.LATEST_VERSION)))
-        paths.live_homes = lambda: []
-        dbschema.connect(p).close()
-        check("branch: a home that is not the live one migrates from a branch",
-              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
-        paths.live_homes = lambda: [live.resolve()]
+    plist = home / "service.plist"
+
+    def owed() -> None:
+        """The database one step short, as a checkout with a newer step finds it."""
         raw = sqlite3.connect(p)
         raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
         raw.commit()
         raw.close()
-        paths.is_installed_checkout = lambda: True
-        dbschema.connect(p).close()
-        check("installed: the installed main migrates the live home",
-              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
+
+    def tried() -> str:
+        try:
+            dbschema.connect(p).close()
+            return ""
+        except dbschema.SchemaError as e:
+            return str(e)
+
+    dbschema.connect(p).close()
+    real = paths.live_homes, service.plist_path
+    paths.live_homes = lambda: [live.resolve()]
+    service.plist_path = lambda: plist
+    try:
+        for label, program, want in [
+                ("the checkout it runs", paths.repo_root() / "bin" / "hl", True),
+                ("a second clone", home / "clone" / "bin" / "hl", False)]:
+            owed()
+            plist.write_bytes(plistlib.dumps({"ProgramArguments": [str(program), "daemon"]}))
+            msg = tried()
+            check(f"service: {label} {'migrates the live home' if want else 'is refused, in one line naming why'}",
+                  (not msg) if want else ("installed main" in msg and "\n" not in msg), msg)
+            check(f"service: {label}: the database is {'brought up' if want else 'left as it was'}",
+                  _versions(p) == list(range(1, dbschema.LATEST_VERSION + (1 if want else 0))))
+        owed()
+        plist.write_bytes(b"not a plist")
+        check("service: a plist that cannot be read refuses", "installed main" in tried())
+        plist.unlink()
+        check("service: no service installed, nothing to protect: it migrates", not tried())
+        owed()
+        plist.write_bytes(plistlib.dumps({"ProgramArguments": [str(home / "clone" / "bin" / "hl")]}))
+        paths.live_homes = lambda: []
+        check("service: a home that is not the live one migrates from any checkout", not tried())
     finally:
-        paths.live_homes, paths.is_installed_checkout = real
+        paths.live_homes, service.plist_path = real
 
 
 def test_two_processes_opening_an_old_database_at_once_migrate_it_once(home: Path) -> None:
@@ -309,7 +320,7 @@ def main() -> int:
         run(lambda: test_a_database_an_additive_step_ahead_is_used_as_it_is(Path(td) / "v3a"))
         run(lambda: test_a_database_a_step_ahead_that_is_not_additive_is_refused(Path(td) / "v3b"))
         run(lambda: test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(Path(td) / "v3c"))
-        run(lambda: test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(Path(td) / "v3d"))
+        run(lambda: test_only_the_checkout_the_service_runs_may_migrate_the_live_home(Path(td) / "v3d"))
         run(lambda: test_two_processes_opening_an_old_database_at_once_migrate_it_once(Path(td) / "v4"))
     return run_area(tests)
 

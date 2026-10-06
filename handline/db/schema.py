@@ -8,7 +8,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from ..infra import paths
+from ..infra import paths, service
 
 from .cursors import get_cursor, set_cursor
 
@@ -522,7 +522,7 @@ def migrate(con, additive_only: bool = False) -> None:
                 continue
             if additive_only and not additive:
                 break
-            if Path(file).resolve().parent in paths.live_homes() and not paths.is_installed_checkout():
+            if Path(file).resolve().parent in paths.live_homes() and not service.is_installed_checkout():
                 raise SchemaError(f"{file} needs step {version} ({name}), which only the installed main checkout "
                                   f"may apply to the live home: this is {paths.repo_root()}; merge it, or point "
                                   f"HANDLINE_HOME at a scratch folder")
