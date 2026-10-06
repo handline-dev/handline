@@ -3,17 +3,8 @@ draws (`actions.mailbox_rows`: decisions, replies owed, reports, answers), for a
 It serves `hl inbox` and the bridge's FOR YOU list. `options` and `prompt` are empty until a decision card
 stores its options and a screen prompt is an inbox row.
 
-inbox.mark_read, inbox.answer and inbox.reply are its writes; none has an hl command of its own (the screen and the IDE call
-them), so they stand outside the spec's agent-command table, except that an agent's inbox.reply is `hl say --parent` and its
-inbox.mark_read is what `hl inbox` does to the head of its own queue. Each records its answer in `write_effects` once its
-effect is done (the effects send and settle, which are not one transaction), so a retry answers instead of repeating.
-- mark_read: for the founder, every message of an agent up to the newest one named is read (the list forgets by high-water mark, as
-  `actions.mark_read` does); a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread and the
-  reply says so. For an agent, only the head of its own queue can be read, as `hl inbox` reads it; another id of its own is refused.
-- answer: the founder's answer to an item of the mailbox, which is a verdict (`actions.answer_ok`: a decision's, a question's, or a
-  reply to an answer). No item carries options yet, so `option` is refused and `text` is the answer.
-- reply: a message to whoever sent the item (`hl say --parent`), settling it. An agent replies to its own incoming items; the founder
-  to a mailbox item that is not a decision (a decision is answered, not replied to)."""
+inbox.mark_read, inbox.answer and inbox.reply are its writes (the rules are in the spec). Each records its answer in
+`write_effects` in the transaction of its effect, so a retry after a crash answers instead of repeating."""
 from __future__ import annotations
 
 import time
@@ -117,14 +108,10 @@ def _not_found(i) -> rpc.RpcError:
     return rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no item {i} in this inbox", what="item", name=str(i))
 
 
-def _done(ctx, params, name: str, said: str) -> dict:
-    result = {"accepted": True, "said": said}
-    con = db.connect()
-    try:
-        db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
-    finally:
-        con.close()
-    return result
+def _recorded(ctx, params, name: str):
+    """What a write calls in the transaction of its effect: the answer kept under this request_id."""
+    me, rid = ctx.caller.actor, params["request_id"]
+    return lambda con, said: db.record_effect(con, me, rid, name, {"accepted": True, "said": said})
 
 
 def _mailbox(con) -> dict[int, dict]:
@@ -133,6 +120,7 @@ def _mailbox(con) -> dict[int, dict]:
 
 def _mark_read(ctx, params) -> dict:
     ids = _ids(params)
+    record = _recorded(ctx, params, "inbox.mark_read")
     con = db.connect()
     try:
         if ctx.caller.role == "agent":
@@ -144,9 +132,8 @@ def _mark_read(ctx, params) -> dict:
             head = db.head_of_queue(con, me)
             if len(ids) != 1 or not head or int(head["id"]) != ids[0]:
                 raise rpc.refused("an agent reads its queue in order: only the item `hl inbox` shows can be read", gate="state")
-            db.mark_delivered(con, ids[0])
-            db.mark_landed(con, ids[0])
             said = f"item {ids[0]} read"
+            reads = []
         else:
             box = _mailbox(con)
             for i in ids:
@@ -157,21 +144,34 @@ def _mark_read(ctx, params) -> dict:
             by_agent: dict[str, list[dict]] = {}
             for m in unseen.values():
                 by_agent.setdefault(m["from"], []).append(m)
-            read = 0
+            reads, read = [], 0
             for agent in {box[i]["from"] for i in ids}:
                 rows = by_agent.get(agent, [])
                 upto = max((box[i]["seq"] for i in ids if box[i]["from"] == agent), default=0)
                 owed = min((m["seq"] for m in rows if m["gate"] or m["waiting"]), default=None)
                 readable = [m for m in rows if m["seq"] <= upto and not (m["gate"] or m["waiting"]) and (owed is None or m["seq"] < owed)]
                 if readable:
-                    actions.for_you_seen(con, agent, max(m["seq"] for m in readable))
+                    reads.append((agent, max(m["seq"] for m in readable)))
                     read += len(readable)
             if not read and any(i in unseen for i in ids):
                 raise rpc.refused("a decision or a reply owed is answered, never read away", gate="state")
             said = f"{read} read"
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if ctx.caller.role == "agent":
+                db.mark_delivered(con, ids[0])
+                db.mark_landed(con, ids[0])
+            for agent, upto in reads:
+                actions.for_you_seen(con, agent, upto)
+            record(con, said)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
     finally:
         con.close()
-    return _done(ctx, params, "inbox.mark_read", said)
+    return {"accepted": True, "said": said}
 
 
 def _text(params, key: str) -> str:
@@ -193,12 +193,12 @@ def _answer(ctx, params) -> dict:
     try:
         if rid not in _mailbox(con):
             raise _not_found(rid)
-        ok, msg = actions.answer_ok(con, rid, text)
+        ok, msg = actions.answer_ok(con, rid, text, effect=_recorded(ctx, params, "inbox.answer"))
     finally:
         con.close()
     if not ok:
         raise (_not_found(rid) if msg.endswith("is gone") else rpc.refused(msg))
-    return _done(ctx, params, "inbox.answer", msg)
+    return {"accepted": True, "said": msg}
 
 
 def _reply(ctx, params) -> dict:
@@ -221,10 +221,10 @@ def _reply(ctx, params) -> dict:
             target = box[rid]["from"]
     finally:
         con.close()
-    ok, msg, _ = askmod.say(target, text, requester=me, parent_id=rid)
+    ok, msg, _ = askmod.say(target, text, requester=me, parent_id=rid, within=_recorded(ctx, params, "inbox.reply"))
     if not ok:
         raise rpc.refused(msg)
-    return _done(ctx, params, "inbox.reply", msg)
+    return {"accepted": True, "said": msg}
 
 
 rpc.METHODS["inbox.mark_read"] = rpc.Method(_mark_read, "agent", write=True)

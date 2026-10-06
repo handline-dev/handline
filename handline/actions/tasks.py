@@ -325,7 +325,7 @@ def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
     return True, msg, card
 
 
-def decide(con, tid: int, text: str) -> tuple[bool, str]:
+def decide(con, tid: int, text: str, effect=None) -> tuple[bool, str]:
     """The founder's decision on a task they own (a decision card): the text is
     recorded as the task's evidence, the task is done, and the opener is told
     it - one act, however it was typed (a card's reply, a command). Nothing
@@ -333,6 +333,7 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
 
     The request that delivered the card is settled with the same text, which
     is what tells the asker and takes the card off the founder's screen.
+    `effect(con, message)` is the daemon's record of the write, made in the transaction of the one that ends the task.
     """
     text = (text or "").strip()
     if not text:
@@ -352,13 +353,14 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
     card = db.decision_card_of(con, tid)
     cards = [card] if card is not None and card["state"] == "queued" and card["target"] == HUMAN else []
     for r in cards:
-        ok, msg = askmod.resolve(r["id"], text)
+        ok, msg = askmod.resolve(r["id"], text, effect=effect)
         if not ok:
             return False, msg
+        effect = None
     # Settling the card settled the task too (`db.settle_decision_tasks`); only a
     # card that was already closed some other way leaves it here to be decided.
     if not db.task_ended(db.get_task(con, tid)):
-        ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
+        ok, msg = mark_task_done(con, tid, HUMAN, reason=text, effect=effect)
         if not ok:
             return False, msg
     return True, f"T{tid} decided"
@@ -1488,7 +1490,7 @@ def _memo_guard(row, by: str) -> str | None:
     return f"memo {row['id']} is {row['author']}'s: only its author or the founder edits or deletes it"
 
 
-def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
+def tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     """T493: a memo changing on a task that is doing is told to its holder at once, typed like
     a say; on any other task, or when the holder made the change, nothing is sent."""
     row = db.get_task(con, tid)
@@ -1496,10 +1498,6 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
         return
     _type_say(con, row["owner"], f"T{tid} memo {what} by {by}"
               + (f": {textsafe.oneline(text)[:400]}" if text else ""), "task memo")
-
-
-def tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
-    _tell_memo_holder(con, tid, by, what, text)
 
 
 def _type_say(con, owner: str, body: str, why: str) -> None:
@@ -1522,7 +1520,7 @@ def memo_add(con, tid: int, by: str, body: str, tell: bool = True) -> tuple[bool
         return False, "a memo needs some text", None
     mid = db.add_memo(con, tid, by, body)
     if tell:
-        _tell_memo_holder(con, tid, by, "added", body)
+        tell_memo_holder(con, tid, by, "added", body)
     return True, f"memo {mid} added to T{tid}", mid
 
 
@@ -1540,7 +1538,7 @@ def memo_edit(con, mid: int, by: str, body: str, tell: bool = True) -> tuple[boo
         return False, f"memo {mid} already reads that way - nothing to edit"
     db.edit_memo(con, mid, body)
     if tell:
-        _tell_memo_holder(con, row["task_id"], by, "edited", body)
+        tell_memo_holder(con, row["task_id"], by, "edited", body)
     return True, f"memo {mid} on T{row['task_id']} edited"
 
 
@@ -1553,7 +1551,7 @@ def memo_delete(con, mid: int, by: str, tell: bool = True) -> tuple[bool, str]:
         return False, refusal
     db.delete_memo(con, mid)
     if tell:
-        _tell_memo_holder(con, row["task_id"], by, "deleted", "")
+        tell_memo_holder(con, row["task_id"], by, "deleted", "")
     return True, f"memo {mid} deleted from T{row['task_id']}"
 
 
