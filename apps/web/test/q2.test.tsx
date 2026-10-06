@@ -175,3 +175,58 @@ describe('read errors', () => {
     expect($$('.row-wrap').length).toBe(3);
   });
 });
+
+describe('terminal tab', () => {
+  const bar = () => $$('.term-bar .btn');
+  const barButton = (label: string) => bar().find((b) => text(b) === label);
+
+  it('shows its skeleton while the terminal attaches, then the grid', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => $('.term-bar'), 'the terminal tab');
+    s.daemon.knobs.latency(500);
+    await act(async () => {
+      location.hash = `#/agents/handline.auditor`;
+      dispatchEvent(new Event('hashchange'));
+    });
+    await until(() => $('.workspace-loading'), 'the other agent loading');
+    await until(() => $('.grid-skeleton .skeleton'), 'the grid skeleton', 200);
+    expect($('.grid-skeleton .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await until(() => text($('.grid')).includes('Claude Code') && !$('.grid-skeleton .skeleton'), 'the grid, the skeleton gone', 200);
+  }, 15000);
+
+  it('Take control and Release are decided writes: a pending mark, then the holder changes', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => barButton('Take control'), 'Take control');
+    s.daemon.knobs.latency(300);
+    await click(barButton('Take control')!);
+    await until(() => barButton('taking…'), 'the pending mark');
+    expect(barButton('taking…')!.hasAttribute('disabled')).toBe(true);
+    expect(text($('.term-bar'))).toContain('input: daemon');
+    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input', 600);
+    await until(() => barButton('Release'), 'Release');
+    await click(barButton('Release')!);
+    await until(() => barButton('releasing…'), 'the pending mark');
+    await until(() => text($('.term-bar')).includes('input: daemon'), 'released', 600);
+  });
+
+  it("a refused Take control shows the daemon's sentence and the button is back", async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => barButton('Take control'), 'Take control');
+    s.daemon.knobs.refuse('input.take', 'input_holder', 'Someone else holds the keyboard', 'ask them to release');
+    await click(barButton('Take control')!);
+    await until(() => $('.toast'), 'the toast');
+    expect(text($('.toast'))).toContain('Someone else holds the keyboard (ask them to release)');
+    expect(barButton('Take control')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('a key chip takes the keyboard first, then sends the key', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => $$('.chip').length && !$('.chip')!.hasAttribute('disabled'), 'chips on');
+    await click($$('.chip').find((b) => text(b) === 'Esc')!);
+    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input');
+  });
+});
