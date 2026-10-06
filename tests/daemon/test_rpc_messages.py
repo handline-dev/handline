@@ -254,6 +254,19 @@ def test_the_messaging_fixtures_pass_against_this_daemon(home: Path) -> None:
     check("fixtures: every messaging fixture passes against this daemon", not bad and len({n for _, _, n in results}) == 8, str(bad))
 
 
+def test_a_devices_message_is_recorded_under_the_device_so_its_retry_finds_it(home: Path) -> None:
+    import types
+    from handline.daemon import rpc, rpc_messages
+    support._board_world(home)
+    ctx = types.SimpleNamespace(caller=rpc.DeviceCaller("dev_a", "phone"))
+    con = db.connect()
+    rpc_messages._record(ctx, {"request_id": "dm1"}, "say")(con, "said")
+    rows = [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = 'dm1'")]
+    con.close()
+    check("device retry: a message a device sends is recorded under device:<id>, not as human, so its retry finds the record and sends nothing twice",
+          rows == ["device:dev_a"], str(rows))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_say_is_a_message_from_the_caller_and_is_written_once(Path(td) / "g1"))
@@ -262,6 +275,7 @@ def main() -> int:
         run(lambda: test_push_nudges_what_is_already_written_and_only_once(Path(td) / "g4"))
         run(lambda: test_push_cancelled_tells_only_of_what_was_closed_after_delivery(Path(td) / "g5"))
         run(lambda: test_the_messaging_fixtures_pass_against_this_daemon(Path(td) / "g6"))
+        run(lambda: test_a_devices_message_is_recorded_under_the_device_so_its_retry_finds_it(Path(td) / "dv"))
     return run_area(tests)
 
 

@@ -34,7 +34,6 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
         autoCapitalize="none"
         autoCorrect={false}
         multiline
-        selectTextOnFocus
         placeholder="handline://pair?host=…&fp=…&code=…"
         placeholderTextColor={c.muted}
         style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.md, minHeight: 90 }}

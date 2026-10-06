@@ -11,7 +11,7 @@ only when it is the caller's own."""
 from __future__ import annotations
 
 from .. import db
-from ..infra import paths, textsafe
+from ..infra import textsafe
 from ..team import ask as askmod
 from . import rpc, sends
 
@@ -23,7 +23,7 @@ def _sender(ctx) -> tuple[str, str | None]:
 
 
 def _record(ctx, params, name: str, **more):
-    me, rid = ctx.caller.actor, params["request_id"]
+    me, rid = ctx.caller.writer, params["request_id"]
     return lambda con, said, request=None: db.record_effect(con, me, rid, name, {"accepted": True, "said": said,
                                                                                    **({"request": request} if request is not None else {}), **more})
 

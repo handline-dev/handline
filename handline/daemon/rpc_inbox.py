@@ -110,7 +110,7 @@ def _not_found(i) -> rpc.RpcError:
 
 def _recorded(ctx, params, name: str):
     """What a write calls in the transaction of its effect: the answer kept under this request_id."""
-    me, rid = ctx.caller.actor, params["request_id"]
+    me, rid = ctx.caller.writer, params["request_id"]
     return lambda con, said, _rid=None: db.record_effect(con, me, rid, name, {"accepted": True, "said": said})
 
 

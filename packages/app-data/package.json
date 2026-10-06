@@ -1,0 +1,39 @@
+{
+  "name": "@handline/app-data",
+  "private": true,
+  "type": "module",
+  "description": "The apps' shared server state: React Query over the daemon client, the event bridge, optimistic writes with rollback, and the loading skeleton",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@handline/app-core": "workspace:*",
+    "@handline/app-react": "workspace:*",
+    "@handline/client": "workspace:*",
+    "@handline/tokens": "workspace:*",
+    "@tanstack/react-query": "^5.104.1"
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*",
+    "@handline/fake-daemon": "workspace:*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "happy-dom": "^18",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "vitest": "^3"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

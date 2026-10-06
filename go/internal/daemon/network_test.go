@@ -121,7 +121,7 @@ func TestPairingMakesAMemberWhoseRevocationClosesTheConnection(t *testing.T) {
 	token, id := pair(t, d, "phone")
 	c := dialNet(t, d)
 	r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `","key":"k"}}`)["result"].(map[string]any)
-	if r["role"] != "member" || r["transport"] != "network" || r["caller"].(map[string]any)["id"] != id {
+	if r["role"] != "member" || r["transport"] != "network" || r["caller"].(map[string]any)["device"] != id {
 		t.Fatalf("%v", r)
 	}
 	// a member is refused what is above it, by role

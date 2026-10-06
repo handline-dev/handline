@@ -92,7 +92,7 @@ def _new(ctx, params) -> dict:
     def effect(con, tid: int) -> None:
         if blocker is not None:
             actions.add_block(con, tid, blocker, me)
-        db.record_effect(con, me, params["request_id"], "task.new", _accepted(f"task T{tid} opened for {owner}", task=tid))
+        db.record_effect(con, ctx.caller.writer, params["request_id"], "task.new", _accepted(f"task T{tid} opened for {owner}", task=tid))
 
     ok, msg, tid = actions.task_new(me, owner, textsafe.oneline(title).strip(), textsafe.text(body).strip(), parent=parent,
                                     expects=expects, priority=prio, timeout_s=secs, effect=effect)
@@ -118,7 +118,7 @@ def _edit(ctx, params) -> dict:
         try:
             ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, timeout_s=secs, body=body)
             if ok:
-                db.record_effect(con, me, params["request_id"], "task.edit", _accepted(msg))
+                db.record_effect(con, ctx.caller.writer, params["request_id"], "task.edit", _accepted(msg))
             con.execute("COMMIT" if ok else "ROLLBACK")
         except BaseException:
             if con.in_transaction:
@@ -141,7 +141,7 @@ def _end(ctx, params, reason: str, stop: bool, name: str) -> dict:
     con = db.connect()
     try:
         ok, msg = actions.discard_task(con, tid, me, reason, stop=stop,
-                                       effect=lambda c: db.record_effect(c, me, params["request_id"], name, _accepted(msg_of(tid, me, reason))))
+                                       effect=lambda c: db.record_effect(c, ctx.caller.writer, params["request_id"], name, _accepted(msg_of(tid, me, reason))))
     finally:
         con.close()
     if not ok:

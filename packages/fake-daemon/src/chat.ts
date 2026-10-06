@@ -1,0 +1,219 @@
+// The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
+// A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
+import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
+
+type Emit = (
+  type: 'chat.message' | 'chat.transcript' | 'chat.working',
+  agent: string,
+  data: ChatMessage | TranscriptItem | Working,
+) => void;
+export class ChatFailure extends Error {
+  code: 'not_found' | 'refused' | 'bad_request';
+  gate?: string;
+  constructor(code: 'not_found' | 'refused' | 'bad_request', message: string, gate?: string) {
+    super(message);
+    this.code = code;
+    this.gate = gate;
+  }
+}
+
+interface Thread {
+  items: TranscriptItem[];
+  working: Working;
+  nextItem: number;
+}
+const IDLE: Working = { turn_running: false, line: null, since: null };
+
+export class FakeChat {
+  private messages: (ChatMessage & { agent: string })[] = [];
+  private threads = new Map<string, Thread>();
+  private steps: (() => void)[] = [];
+  private nextId = 100;
+
+  private emit: Emit;
+  private now: () => string;
+  private isAgent: (name: string) => boolean;
+  private isOpen: (agent: string) => boolean;
+
+  constructor(emit: Emit, now: () => string, isAgent: (name: string) => boolean, isOpen: (agent: string) => boolean) {
+    this.emit = emit;
+    this.now = now;
+    this.isAgent = isAgent;
+    this.isOpen = isOpen;
+  }
+
+  private thread(agent: string): Thread {
+    let t = this.threads.get(agent);
+    if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE }, nextItem: 1 }));
+    return t;
+  }
+  private find(id: unknown): ChatMessage & { agent: string } {
+    const m = this.messages.find((x) => x.id === id);
+    if (!m) throw new ChatFailure('not_found', `no message ${String(id)}`);
+    return m;
+  }
+  private change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
+    Object.assign(m, patch, { state_at: this.now() });
+    this.emit('chat.message', m.agent, this.view(m));
+  }
+  private view({ agent: _agent, ...m }: ChatMessage & { agent: string }): ChatMessage {
+    return { ...m, tasks: [...m.tasks] };
+  }
+
+  /** Adds a message without events: history that was there before any client connected. */
+  seed(agent: string, m: Partial<ChatMessage> & { body: string; from: string; to: string }): number {
+    const at = m.at ?? this.now();
+    const msg = {
+      id: this.nextId++,
+      at,
+      state_at: at,
+      state: m.landing ?? 'delivered',
+      landing: 'delivered' as Landing,
+      sending_reason: null,
+      answer: null,
+      dismissed: false,
+      delivered_at: at,
+      typed_at: at,
+      landed_at: at,
+      parent: null,
+      kind: 'message',
+      tasks: [],
+      is_task_question: false,
+      ...m,
+      agent,
+    } as ChatMessage & { agent: string };
+    msg.state = msg.landing;
+    this.messages.push(msg);
+    return msg.id;
+  }
+  seedItem(agent: string, item: Omit<TranscriptItem, 'id' | 'at'> & { at?: string }) {
+    const t = this.thread(agent);
+    t.items.push({ id: t.nextItem++, at: item.at ?? this.now(), ...item });
+  }
+  /** A question from the agent to the person, waiting for chat.answer. */
+  ask(agent: string, body: string, person: string): number {
+    const at = this.now();
+    const id = this.seed(agent, {
+      body,
+      from: agent,
+      to: person,
+      at,
+      kind: 'question',
+      is_task_question: true,
+      landing: 'delivered_unanswered',
+    });
+    this.emit('chat.message', agent, this.view(this.find(id)));
+    return id;
+  }
+
+  // ---- methods ----
+
+  messagesOf(p: Record<string, unknown>) {
+    const agent = String(p.agent);
+    const mine = p.scope === 'mine';
+    const limit = typeof p.limit === 'number' ? p.limit : 50;
+    let list = this.messages.filter((m) => m.agent === agent && (!mine || !this.isAgent(m.from) || !this.isAgent(m.to)));
+    if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
+    if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
+    list = list.sort((a, b) => b.id - a.id);
+    return { messages: list.slice(0, limit).map((m) => this.view(m)), more: list.length > limit };
+  }
+
+  transcriptOf(p: Record<string, unknown>) {
+    const t = this.thread(String(p.agent));
+    const limit = typeof p.limit === 'number' ? p.limit : 50;
+    let items = t.items;
+    if (typeof p.before === 'number') items = items.filter((i) => i.id < (p.before as number));
+    if (typeof p.since === 'number') items = items.filter((i) => i.id > (p.since as number));
+    return { items: items.slice(-limit), more: items.length > limit, working: t.working };
+  }
+
+  send(p: Record<string, unknown>, person: string) {
+    const agent = String(p.agent),
+      body = p.body;
+    if (typeof body !== 'string' || !body.trim()) throw new ChatFailure('bad_request', 'a message needs a body');
+    const open = this.isOpen(agent);
+    const at = this.now();
+    const id = this.seed(agent, {
+      body,
+      from: person,
+      to: agent,
+      at,
+      landing: 'queued',
+      delivered_at: null,
+      typed_at: null,
+      landed_at: null,
+      sending_reason: open ? null : 'the agent has no open session',
+    });
+    this.emit('chat.message', agent, this.view(this.find(id)));
+    if (open)
+      this.steps.push(
+        () => this.type(id),
+        () => this.land(id),
+        () => this.think(id),
+        () => this.reply(id),
+      );
+    return { request: id };
+  }
+  private live(id: number) {
+    const m = this.messages.find((x) => x.id === id);
+    return m && m.landing !== 'withdrawn' ? m : undefined;
+  }
+  private type(id: number) {
+    const m = this.live(id);
+    if (m) this.change(m, { landing: 'typed', state: 'typed', typed_at: this.now() });
+  }
+  private land(id: number) {
+    const m = this.live(id);
+    if (m) this.change(m, { landing: 'delivered', state: 'delivered', landed_at: this.now(), delivered_at: this.now() });
+  }
+  /** The agent starts its turn: the working line shows and a tool runs. */
+  private think(id: number) {
+    const m = this.live(id);
+    if (!m) return;
+    const t = this.thread(m.agent);
+    t.working = { turn_running: true, line: 'Reading the code', since: this.now() };
+    this.emit('chat.working', m.agent, t.working);
+    this.item(m.agent, { kind: 'tool', tool: 'Read', text: 'src/main.ts' });
+  }
+  /** The turn ends with a reply, and the message counts as answered. */
+  private reply(id: number) {
+    const m = this.live(id);
+    if (!m) return;
+    this.item(m.agent, { kind: 'reply', text: `Got it: "${m.body}"` });
+    const t = this.thread(m.agent);
+    t.working = { ...IDLE };
+    this.emit('chat.working', m.agent, t.working);
+    this.change(m, { landing: 'answered', state: 'answered' });
+  }
+  private item(agent: string, item: Omit<TranscriptItem, 'id' | 'at'>) {
+    const t = this.thread(agent);
+    const full: TranscriptItem = { id: t.nextItem++, at: this.now(), ...item };
+    t.items.push(full);
+    this.emit('chat.transcript', agent, full);
+  }
+
+  answer(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
+    if (typeof p.text !== 'string' || !p.text.trim()) throw new ChatFailure('bad_request', 'an answer needs text');
+    this.change(m, { landing: 'answered', state: 'answered', answer: { id: this.nextId++, text: p.text, at: this.now() } });
+  }
+  dismiss(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
+    this.change(m, { landing: 'dismissed', state: 'dismissed', dismissed: true });
+  }
+  withdraw(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    if (m.landing !== 'queued' && m.landing !== 'typed') throw new ChatFailure('refused', 'that message already landed', 'state');
+    this.change(m, { landing: 'withdrawn', state: 'withdrawn' });
+  }
+
+  /** One scripted step; false when none is waiting. */
+  tick(): boolean {
+    const s = this.steps.shift();
+    if (s) s();
+    return !!s;
+  }
+}

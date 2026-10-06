@@ -31,7 +31,8 @@ export class Store {
   notes = new Map<string, Note[]>(); // what happened to each agent while this page watched
   conn: ConnectionState = 'connecting';
   me = '';
-  chat = false;
+  /** The methods this caller may use, from hello; a screen shows only what the daemon serves. */
+  served = new Set<string>();
   error: string | null = null;
   page: Page | null = null;
   /** Counts changes; a UI binding reads it as the snapshot that tells it to draw again. */
@@ -57,6 +58,11 @@ export class Store {
     for (const fn of this.listeners) fn();
   }
 
+  /** Whether the daemon lets this caller use the method; false for a daemon that does not serve it. */
+  can(method: string): boolean {
+    return this.served.has(method);
+  }
+
   /** Connects and loads; safe to call again after a failure to reach the daemon. */
   async start(): Promise<void> {
     if (!this.wired) {
@@ -78,7 +84,8 @@ export class Store {
     const hello = await this.client.start();
     this.conn = this.client.state;
     this.me = hello.caller.name;
-    this.chat = hello.capabilities.chat;
+    this.served = new Set(hello.methods.filter((m) => m.allowed).map((m) => m.name));
+    this.emit();
     await this.client.subscribe(['agents', 'notifications']);
     await this.refresh();
   }
@@ -168,17 +175,24 @@ export class Store {
       this.error = null;
       return r;
     } catch (e) {
-      if (e instanceof RpcError) {
-        if (e.code === 'transport') return undefined;
-        this.error = `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`;
-        if (e.code === 'stale_prompt') {
-          const a = (e.data?.current as { agent?: string } | null)?.agent;
-          if (a) void this.loadDetail(a).then(() => this.emit());
-        }
-      } else this.error = `${what}: ${(e as Error).message}`;
-      this.emit();
+      this.reportError(what, e);
       return undefined;
     }
+  }
+  /** Says why a call the person asked for failed, as `act` does; for writes that run elsewhere (a mutation that rolls back). */
+  reportError(what: string, e: unknown): void {
+    if (e instanceof RpcError) {
+      if (e.code === 'transport') return;
+      this.error = `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`;
+      if (e.code === 'stale_prompt') {
+        const a = (e.data?.current as { agent?: string } | null)?.agent;
+        if (a)
+          void this.loadDetail(a)
+            .then(() => this.emit())
+            .catch(() => {});
+      }
+    } else this.error = `${what}: ${(e as Error).message}`;
+    this.emit();
   }
 
   dismissError(): void {

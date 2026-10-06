@@ -345,6 +345,7 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
     if live and row["state"] == RUNNING and not force:
         return False, "it is mid-turn (--force waits for the turn to end first)"
     pane_closed_before = db.last_event_id(con, agent, "terminal_closed")
+    by_pane = False
     if live or fresh:
         close = close_fresh if fresh else close_agent
         # A restart asked for by name is not left standing at a screen that cannot be read: past every
