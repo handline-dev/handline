@@ -1,0 +1,48 @@
+{
+ "fixtures": [
+  {
+   "name": "session.input.shell_prompt_gate",
+   "spec": "session.input",
+   "about": "A line sent where the pane is a shell prompt (the session has exited) is refused, gate state, and nothing is typed. Needs --var shell_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session.input",
+      "params": {
+       "agent": "{{shell_agent}}",
+       "text": "ls",
+       "enter": true,
+       "request_id": "conf-shell-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state",
+       "reason": {
+        "$regex": "shell prompt"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
