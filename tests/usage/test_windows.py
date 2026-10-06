@@ -152,7 +152,7 @@ def test_an_old_usage_row_reads_and_the_column_is_added_without_losing_it(home: 
               "windows" not in {r[1] for r in con.execute("PRAGMA table_info(usage_samples)")})
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         cols = {r[1] for r in con.execute("PRAGMA table_info(usage_samples)")}
         rows = db.usage_samples(con)

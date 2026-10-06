@@ -1,7 +1,8 @@
 """The daemon's control socket (T351): a local Unix socket, mode 0600, the
-only way in to type at an agent's terminal or touch its session. One JSON
-request per connection, one JSON `{ok, said}` reply, then the connection
-closes - no polling, no second message on the same connection.
+only way in to type at an agent's terminal or touch its session. A connection
+carries JSON-RPC calls (`rpc.py`); a legacy `{verb}` request still gets its one
+`{ok, said}` reply and a hangup, as it always did - no polling, no second
+message on that connection.
 
 Every verb here runs on a connection of its own (`db.connect()` per request,
 the same rule `control.perform` already follows) and, where it touches an
@@ -29,15 +30,8 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, sends
+from . import landauth, lands, messaging, rpc, rpc_agents, rpc_hooks, rpc_stream, rpc_tasks, sends, stream  # noqa: F401 - the rpc_ modules register their methods
 
-# A request this old with nothing read yet is not going to finish reading;
-# closed rather than left to hold a thread forever on a client that connected
-# and stalled.
-RECV_TIMEOUT_S = 30
-# One request line, bounded so a runaway or hostile client cannot grow a
-# thread's buffer without limit - every real payload here is well under 64K.
-MAX_REQUEST_BYTES = 1 << 20
 
 
 def _wake(con, log, **kw) -> tuple[bool, str]:
@@ -150,50 +144,26 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
             return {"ok": False, "said": f"{verb} is accepted only from the session's own `hl land` command, "
                     f"not from other code it runs (a test run, a script)"}
         kw["caller"] = agent
-    con = db.connect()
+    con = None
     try:
+        con = db.connect()
         ok, said = fn(con, log, **kw)
         return {"ok": bool(ok), "said": str(said)}
+    except db.SchemaError as e:     # an empty reply would read to the caller as "the daemon is not running"
+        log(f"  {verb}: {e}")
+        return {"ok": False, "said": rpc.schema_said(e)}
     except Exception as e:  # noqa: BLE001 - a bad request must reply, not kill the thread
         return {"ok": False, "said": f"{verb}: {e}"}
     finally:
-        con.close()
-
-
-def _read_line(conn: socket.socket) -> bytes | None:
-    """One request: bytes up to the first newline, or up to
-    MAX_REQUEST_BYTES/EOF without one - a client that shuts its write side
-    after one JSON object needs no trailing newline."""
-    buf = bytearray()
-    while len(buf) < MAX_REQUEST_BYTES:
-        chunk = conn.recv(4096)
-        if not chunk:
-            break
-        nl = chunk.find(b"\n")
-        if nl != -1:
-            buf += chunk[:nl]
-            return bytes(buf)
-        buf += chunk
-    return bytes(buf) if buf else None
+        if con is not None:
+            con.close()
 
 
 def _serve_one(conn: socket.socket, log) -> None:
     try:
-        conn.settimeout(RECV_TIMEOUT_S)
-        raw = _read_line(conn)
-        if not raw:
-            return
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError) as e:
-            reply = {"ok": False, "said": f"bad request: {e}"}
-        else:
-            reply = _handle_request(payload, log, sessiontoken.peer_pid(conn)) if isinstance(payload, dict) \
-                else {"ok": False, "said": "a request is a JSON object"}
-        try:
-            conn.sendall(json.dumps(reply).encode("utf-8") + b"\n")
-        except OSError:
-            pass  # the client is gone; nothing left to tell it
+        rpc.Connection(conn, log, _handle_request).serve()
+    except OSError:
+        pass        # the client went away or stalled past the timeout
     finally:
         conn.close()
 
@@ -208,6 +178,7 @@ class SocketServer:
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._watcher = stream.Watcher(log)
 
     def start(self) -> None:
         path = paths.socket_file()
@@ -237,6 +208,7 @@ class SocketServer:
         self._thread = threading.Thread(target=self._accept_loop, daemon=True,
                                         name="ocp-daemon-socket")
         self._thread.start()
+        self._watcher.start()
 
     def _accept_loop(self) -> None:
         while not self._stop.is_set():
@@ -250,6 +222,7 @@ class SocketServer:
 
     def stop(self) -> None:
         self._stop.set()
+        self._watcher.close()
         if self._sock is not None:
             try:
                 self._sock.close()

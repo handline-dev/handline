@@ -223,6 +223,19 @@ def test_a_github_link_excuses_only_its_own_number() -> None:
           kinds(n + " [docs](https://github.com/o/r)") == ["message number"])
 
 
+def test_a_css_hex_colour_is_not_a_message_number() -> None:
+    css = lambda *lines: lr.scan_diff(_diff("web/style.css", *lines), [])        # noqa: E731
+    check("localrefs: #000 and #0003 in a stylesheet are colours, not message numbers",
+          css("a { color: #000; box-shadow: 0 0 1px #0003; }", "b { background: #0004 }") == [])
+    check("localrefs: so are they in a style attribute, but not beside it",
+          lr.scan_diff(_diff("a.html", '<p style="color:#000">'), []) == []
+          and len(lr.scan_diff(_diff("a.html", '<p style="color:#000"> see #' + '1234'), [])) == 1)
+    check("localrefs: a message number in a .md line still hits, and so does a 5-digit one in a stylesheet",
+          len(lr.scan_diff(_diff("a.md", "fixed in #" + "14477"), [])) == 1
+          and len(lr.scan_diff(_diff("a.md", "colour #000"), [])) == 1
+          and len(css("/* see #" + "14477 */")) == 1)
+
+
 def test_an_added_line_that_looks_like_a_file_header_is_still_a_line() -> None:
     diff = ("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1,0 +5,3 @@\n"
             "+ok\n++ looks like a header\n+# T" + "123\n"
@@ -280,6 +293,7 @@ def main() -> int:
         run(lambda: test_the_products_own_ocp_syntax_in_a_doc_is_not_a_local_id())
         run(lambda: test_a_github_link_excuses_only_its_own_number())
         run(lambda: test_an_added_line_that_looks_like_a_file_header_is_still_a_line())
+        run(lambda: test_a_css_hex_colour_is_not_a_message_number())
         run(lambda: test_the_email_a_commit_carries_is_checked_as_well_as_its_message(Path(td) / "h3"))
     return run_area(tests)
 

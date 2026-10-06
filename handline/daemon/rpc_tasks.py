@@ -1,0 +1,166 @@
+"""task.new, task.edit, task.withdraw and task.cancel: a task opened, reshaped or ended through the daemon. They
+wrap the actions the commands call; each records its result in `write_effects` inside the transaction of its
+effect, so a retry after a crash between the two answers instead of repeating (`rpc._write`).
+
+task.new and task.edit serve `hl task new` and `hl task edit`. task.withdraw is an opener throwing its own task
+away and task.cancel the founder ending one with its open requests, both `hl task discard`'s two callers.
+`relation`, `response`, `reply` (task.new) and `waits_on` (task.edit) have no action behind them yet and are refused."""
+from __future__ import annotations
+
+from .. import actions, db
+from ..infra import paths, textsafe
+from ..team import ask as askmod
+from . import rpc
+
+_NOT_SERVED = ("relation", "response", "reply", "waits_on")
+
+
+def _task_id(params, key: str = "task") -> int:
+    v = params.get(key)
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise rpc.bad_request(f"{key} is a task number", key, rpc.INVALID_PARAMS)
+    return v
+
+
+def _text(params, key: str, required: bool = True) -> str | None:
+    v = params.get(key)
+    if v is None and not required:
+        return None
+    if not isinstance(v, str) or (required and not v.strip()):
+        raise rpc.bad_request(f"{key} is text" + (" and not empty" if required else ""), key, rpc.INVALID_PARAMS)
+    return v
+
+
+def _span(params, key: str = "time_box") -> int | None:
+    v = _text(params, key, required=False)
+    if v is None:
+        return None
+    try:
+        return actions.parse_task_timeout(v)
+    except ValueError as e:
+        raise rpc.bad_request(str(e), key, rpc.INVALID_PARAMS) from None
+
+
+def _unserved(params) -> None:
+    for k in _NOT_SERVED:
+        if params.get(k) is not None:
+            raise rpc.bad_request(f"{k} is not served yet", k, rpc.INVALID_PARAMS)
+
+
+def _fail(msg: str) -> rpc.RpcError:
+    """A refusal of an action, as the wire says it: a missing task is not_found, anything else refused."""
+    if msg.startswith("no task T"):
+        return rpc.RpcError(rpc.NOT_FOUND, "not_found", msg, what="task")
+    return rpc.refused(msg)
+
+
+def _accepted(said: str, **more) -> dict:
+    return {"accepted": True, "said": said, **more}
+
+
+def _new(ctx, params) -> dict:
+    _unserved(params)
+    if ctx.caller.role != "agent":
+        raise rpc.refused("a task is opened by an agent, never in the founder's name")
+    owner, title, body = _text(params, "owner"), _text(params, "title"), _text(params, "body")
+    secs = _span(params)
+    if secs is None:
+        raise rpc.bad_request("time_box is required", "time_box", rpc.INVALID_PARAMS)
+    if owner != db.HUMAN and owner not in paths.list_agents():
+        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
+    prio, expects, parent, blocker = params.get("priority"), params.get("expects"), params.get("parent"), params.get("blocked_by")
+    try:
+        prio = None if prio is None else actions.parse_priority(prio)
+        expects = None if expects is None else actions.parse_expects(expects)
+    except ValueError as e:
+        raise rpc.bad_request(str(e), None, rpc.INVALID_PARAMS) from None
+    for k, v in (("parent", parent), ("blocked_by", blocker)):
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
+            raise rpc.bad_request(f"{k} is a task number", k, rpc.INVALID_PARAMS)
+    if blocker is not None:         # refused before anything is opened, as the command does
+        con = db.connect()
+        try:
+            why = actions._blocker_refusal(con, blocker)
+        finally:
+            con.close()
+        if why:
+            raise _fail(why)
+    me = ctx.caller.actor
+
+    def effect(con, tid: int) -> None:
+        if blocker is not None:
+            actions.add_block(con, tid, blocker, me)
+        db.record_effect(con, me, params["request_id"], "task.new", _accepted(f"task T{tid} opened for {owner}", task=tid))
+
+    ok, msg, tid = actions.task_new(me, owner, textsafe.oneline(title).strip(), textsafe.text(body).strip(), parent=parent,
+                                    expects=expects, priority=prio, timeout_s=secs, effect=effect)
+    if not ok:
+        raise _fail(msg)
+    return _accepted(msg, task=tid)
+
+
+def _edit(ctx, params) -> dict:
+    _unserved(params)
+    tid = _task_id(params)
+    owner, title, body = (_text(params, k, required=False) for k in ("owner", "title", "body"))
+    secs = _span(params)
+    if owner is None and title is None and body is None and secs is None:
+        raise rpc.bad_request("edit needs an owner, a title, a body or a time_box", None, rpc.INVALID_PARAMS)
+    if owner is not None and owner != db.HUMAN and owner not in paths.list_agents():
+        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
+    me = ctx.caller.actor
+    con = db.connect()
+    try:
+        was_owner = (db.get_task(con, tid) or {"owner": None})["owner"]
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, timeout_s=secs, body=body)
+            if ok:
+                db.record_effect(con, me, params["request_id"], "task.edit", _accepted(msg))
+            con.execute("COMMIT" if ok else "ROLLBACK")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+        if not ok:
+            raise _fail(msg)
+        if body is not None:
+            actions.tell_body_edited(con, tid, me)
+        if owner is not None:       # the task goes to its new owner now, outside the transaction
+            actions.send_moved_task(con, tid, was_owner, me)
+    finally:
+        con.close()
+    return _accepted(msg)
+
+
+def _end(ctx, params, reason: str, stop: bool, name: str) -> dict:
+    tid = _task_id(params)
+    me = ctx.caller.actor
+    con = db.connect()
+    try:
+        ok, msg = actions.discard_task(con, tid, me, reason, stop=stop,
+                                       effect=lambda c: db.record_effect(c, me, params["request_id"], name, _accepted(msg_of(tid, me, reason))))
+    finally:
+        con.close()
+    if not ok:
+        raise _fail(msg)
+    return _accepted(msg)
+
+
+def msg_of(tid: int, by: str, reason: str) -> str:
+    return f"task T{tid} discarded by {by}: {textsafe.oneline(reason).strip()}"
+
+
+def _withdraw(ctx, params) -> dict:
+    return _end(ctx, params, "withdrawn by whoever opened it", False, "task.withdraw")
+
+
+def _cancel(ctx, params) -> dict:
+    reason = _text(params, "reason", required=False) or "cancelled by the founder"
+    return _end(ctx, params, reason, True, "task.cancel")
+
+
+rpc.METHODS["task.new"] = rpc.Method(_new, "agent", write=True)
+rpc.METHODS["task.edit"] = rpc.Method(_edit, "agent", write=True)
+rpc.METHODS["task.withdraw"] = rpc.Method(_withdraw, "agent", write=True)
+rpc.METHODS["task.cancel"] = rpc.Method(_cancel, "member", write=True)

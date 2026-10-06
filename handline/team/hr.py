@@ -24,18 +24,29 @@ journal and handoffs are the record of work that was actually done.
 """
 from __future__ import annotations
 
+import difflib
+import json
 import re
+import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
 
 from . import agent_settings, agents, ask as askmod, decisions, team
 from .. import db, vendors
-from ..infra import atomic, paths, sealed, textsafe
+from ..infra import atomic, paths, protected, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
-KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings")
+ITEM_KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings", "context")
+BUNDLE = "bundle"
+KINDS = ITEM_KINDS + (BUNDLE,)
+# The order a team diff is applied in: agents exist before anything names them, links come before
+# an agent is retired, and the standing context of what is left is last.
+STEP_ORDER = ("team", "add", "rename", "settings", "link", "unlink", "retire", "context")
+# What a `context` proposal may replace: the files injected into every session, and their budgets.
+CONTEXT_FILES = {"ROLE.md": agents.ROLE_BUDGET_BYTES, "base.md": agents.BASE_BUDGET_BYTES}
 EDGE_KINDS = ("link", "unlink")
 
 
@@ -97,12 +108,15 @@ def _draft(kind: str, name: str, requester: str, why: str,
            vendor: str | None = None, response: str | None = None,
            relation: str | None = None, members: list[str] | None = None,
            repos: dict[str, str] | None = None,
-           sets: dict[str, str] | None = None) -> tuple[dict, str]:
+           sets: dict[str, str] | None = None, registered: list[str] | None = None,
+           coming: set[str] | None = None) -> tuple[dict, str]:
     """Check what was asked for and write it down. Returns (proposal, refusal).
     A `team` is `name` (its manager and the team's name) with `members`, each a
-    suffix (`sea` is `name.sea`) or a full name, and `repos` by member."""
-    if kind not in KINDS:
-        return {}, f"kind must be one of {', '.join(KINDS)}"
+    suffix (`sea` is `name.sea`) or a full name, and `repos` by member. `registered` is the roster
+    the change is judged against when it is not today's (a step of a team diff, after the ones
+    before it); `coming` are agents an earlier step makes, which have no files to read yet."""
+    if kind not in ITEM_KINDS:
+        return {}, f"kind must be one of {', '.join(ITEM_KINDS)}"
     if not name or "/" in name or name.startswith("."):
         return {}, f"bad agent name: {name!r}"
     if not is_plain_text(name):
@@ -110,7 +124,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
     if not (why or "").strip():
         return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
 
-    registered = paths.list_agents()
+    registered = paths.list_agents() if registered is None else registered
+    coming = coming or set()
     full: list[str] = []
     if kind == "team":
         full, err = _team_names(name, members or [], repos or {}, registered)
@@ -118,10 +133,10 @@ def _draft(kind: str, name: str, requester: str, why: str,
             return {}, err
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename", "settings") + EDGE_KINDS and name not in registered:
+    if kind in ("retire", "rename", "settings", "context") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
     if kind in EDGE_KINDS:
-        err = _edge_refusal(kind, name, to, response, relation, registered)
+        err = _edge_refusal(kind, name, to, response, relation, registered, coming)
         if err:
             return {}, err
     if kind == "rename":
@@ -144,9 +159,15 @@ def _draft(kind: str, name: str, requester: str, why: str,
     if kind == "settings":
         if not sets:
             return {}, "name at least one setting to change"
-        _, problem = agent_settings.changes_for(name, sets)
-        if problem:
-            return {}, problem
+        if name not in coming:
+            _, problem = agent_settings.changes_for(name, sets)
+            if problem:
+                return {}, problem
+    if kind == "context":
+        err = _context_problem(sets)
+        if err:
+            return {}, err
+        sets = {fn: json.dumps(text) for fn, text in sets.items()}     # a proposal file holds no line break
     if kind == "add":
         repo = repo or _team_repo(team_name)
         if not repo:
@@ -181,6 +202,23 @@ def _draft(kind: str, name: str, requester: str, why: str,
             if (repos or {}).get(n):
                 prop[f"repo.{n}"] = repos[n]
     return prop, ""
+
+
+def _context_problem(texts: dict[str, str] | None) -> str | None:
+    """Why `texts` (file name -> the whole new file) cannot be proposed, or None."""
+    if not texts:
+        return "name ROLE.md or base.md, with the whole new text"
+    for fn, text in texts.items():
+        if fn not in CONTEXT_FILES:
+            return f"only {' and '.join(CONTEXT_FILES)} can be changed this way, not {fn!r}"
+        if not str(text).strip():
+            return f"{fn} cannot be empty"
+        if (textsafe.UNSAFE_IN_VALUE - {"\t", "\n"}) & set(str(text)):
+            return f"{fn} carries a control character"
+        size = len(str(text).encode())
+        if size > CONTEXT_FILES[fn]:
+            return f"{fn} is {size} bytes, over its {CONTEXT_FILES[fn]}-byte budget: it is paid for in every session"
+    return None
 
 
 def _team_repo(team_name: str | None) -> str | None:
@@ -276,9 +314,8 @@ def enact(kind: str, name: str, why: str,
     own = con is None
     con = con or db.connect()
     try:
-        doer = _DOERS[kind]
         try:
-            ok, said = doer(prop, con)
+            ok, said = _run(prop, con)
         except Exception as e:  # noqa: BLE001 - recorded, then raised on
             prop["state"] = "failed"
             prop["error"] = f"{type(e).__name__}: {e}"
@@ -299,14 +336,258 @@ def enact(kind: str, name: str, why: str,
             con.close()
 
 
-def _decision_text(prop: dict, caveat: bool = True) -> str:
-    """What the founder reads. It says what will happen and how to decide.
-    `caveat=False` leaves out the unlink caveat, which reads the live team.yaml
-    and so differs from one moment to the next (see `answered`)."""
-    lines = [f"[roster] {prop['kind']} {prop['agent']}"
-             + (f" -> {prop['to']}" if prop["kind"] in EDGE_KINDS else "")
-             + f" - asked by {prop['requested_by']}",
-             "", prop["why"], ""]
+_ITEM_KEY = re.compile(r"i(\d+)\.(.+)")
+
+
+def _items_of(prop: dict) -> list[dict]:
+    """The steps of a team diff, which the proposal file holds as flat `i<n>.<field>` keys (it holds no
+    nested values), as the maps the one-change drafts are."""
+    grouped: dict[int, dict] = {}
+    for key, value in prop.items():
+        m = _ITEM_KEY.fullmatch(key)
+        if m:
+            grouped.setdefault(int(m.group(1)), {})[m.group(2)] = value
+    return [grouped[n] for n in sorted(grouped)]
+
+
+def _flat_items(items: list[dict]) -> dict:
+    return {f"i{n}.{k}": v for n, item in enumerate(items, 1) for k, v in item.items()}
+
+
+def _ordered(items: list[dict]) -> list[dict]:
+    """The steps of a team diff in the order they are applied (the order given, within a kind)."""
+    return sorted(items, key=lambda it: STEP_ORDER.index(it["kind"]))
+
+
+def _roster_after(registered: list[str], item: dict) -> list[str]:
+    """The roster once `item` has been applied."""
+    names = set(registered)
+    if item["kind"] == "add":
+        names.add(item["agent"])
+    elif item["kind"] == "team":
+        names |= {item["agent"], *_members_of(item)}
+    elif item["kind"] == "retire":
+        names.discard(item["agent"])
+    elif item["kind"] == "rename":
+        names.discard(item["agent"])
+        names.add(item["to"])
+    return sorted(names)
+
+
+def _bundle_draft(changes: list[dict], requester: str, why: str) -> tuple[dict, str]:
+    """Check a whole team diff and write it down as one proposal. `changes` are maps of the
+    arguments the one-change drafts take (`kind`, `name`, and `team`, `repo`, `model`, `to`, `effort`,
+    `vendor`, `response`, `relation`, `members`, `repos`, `sets`). Each is judged against the roster
+    the steps before it leave, in the order they are applied. Returns (proposal, refusal)."""
+    if not (why or "").strip():
+        return {}, "say why: the founder is being asked to decide, not to rubber-stamp"
+    if not isinstance(changes, list) or not changes:
+        return {}, "a team diff needs at least one change"
+    if len(changes) > MAX_STEPS:
+        return {}, f"a team diff is at most {MAX_STEPS} changes; split it"
+    known = {"kind", "name", "team", "repo", "model", "to", "effort", "vendor", "response", "relation",
+             "members", "repos", "sets"}
+    for i, ch in enumerate(changes, 1):
+        if not isinstance(ch, dict) or not ch.get("kind") or not ch.get("name"):
+            return {}, f"change {i} needs a kind and a name"
+        if ch["kind"] not in ITEM_KINDS:
+            return {}, f"change {i}: kind must be one of {', '.join(ITEM_KINDS)}"
+        extra = sorted(set(ch) - known)
+        if extra:
+            return {}, f"change {i}: not an argument: {', '.join(map(str, extra))}"
+    registered = paths.list_agents()
+    coming: set[str] = set()
+    items: list[dict] = []
+    for i, ch in sorted(enumerate(changes, 1), key=lambda t: STEP_ORDER.index(t[1]["kind"])):
+        draft, err = _draft(ch["kind"], ch["name"], requester, why, ch.get("team"), ch.get("repo"), ch.get("model"),
+                            ch.get("to"), ch.get("effort"), ch.get("vendor"), ch.get("response"), ch.get("relation"),
+                            ch.get("members"), ch.get("repos"), ch.get("sets"), registered=registered, coming=coming)
+        if err:
+            return {}, f"change {i} ({ch['kind']} {ch['name']}): {err}"
+        item = {k: v for k, v in draft.items() if k not in ("id", "requested_by", "why", "created", "state")}
+        items.append(item)
+        registered = _roster_after(registered, item)
+        coming |= set(registered) - set(paths.list_agents())
+    prop = {"id": uuid.uuid4().hex[:8], "kind": BUNDLE, "agent": f"{len(items)} changes", "requested_by": requester,
+            "why": why.strip(), "created": int(time.time()), "state": "proposed", **_flat_items(items)}
+    return prop, ""
+
+
+MAX_STEPS = 40
+
+
+def propose_bundle(changes: list[dict], requester: str, why: str) -> tuple[bool, str]:
+    """Write a whole team diff down for the founder to decide once. Nothing changes yet."""
+    prop, err = _bundle_draft(changes, requester, why)
+    if err:
+        return False, err
+    try:
+        dump(prop)
+    except ConfigError as e:
+        return False, f"could not write the proposal down, so nothing was raised: {e}"
+    save(prop)
+    return True, (f"proposal {prop['id']} raised: {len(_items_of(prop))} changes, decided once and applied together "
+                  f"or not at all. Nothing changes until the founder decides it; you are told how it went.")
+
+
+def enact_bundle(changes: list[dict], why: str, con=None) -> tuple[bool, str]:
+    """The founder making a whole team diff directly: the same all-or-nothing apply, no approval."""
+    prop, err = _bundle_draft(changes, "human", why)
+    if err:
+        return False, err
+    prop["state"] = "enacting"
+    save(prop)
+    own = con is None
+    con = con or db.connect()
+    try:
+        try:
+            ok, said = _run(prop, con)
+        except Exception as e:  # noqa: BLE001 - recorded, then raised on
+            prop["state"] = "failed"
+            prop["error"] = f"{type(e).__name__}: {e}"
+            save(prop)
+            raise
+        prop["state"] = "applied" if ok else "failed"
+        if ok:
+            prop["applied"] = int(time.time())
+            prop["verdict"] = "enacted by the founder"
+        else:
+            prop["error"] = said
+        save(prop)
+        return ok, said
+    finally:
+        if own:
+            con.close()
+
+
+class _Snapshot:
+    """What a change to the roster can touch, kept so a step that fails puts all of it back: the routing
+    table and its backup, the config, the folder of each agent a step names (and what lands in the
+    archive), the seals and grants kept for them in the protected store. The database is put back by
+    the savepoint the steps run in. Orca (a repo, a label) is done after the last step, so a failure
+    never reaches it."""
+
+    GRANTS = (agents._SKIP_NS, agents._SANDBOX_NS)
+
+    def __init__(self, names: set[str]):
+        self.dir = Path(tempfile.mkdtemp(prefix="hr-snapshot-", dir=paths.home()))
+        self.files = {p: (p.read_bytes() if p.exists() else None)
+                      for p in (paths.team_file(), paths.team_file().with_suffix(".yaml.bak"), paths.config_file())}
+        self.names = sorted(names)
+        self.folders = {}
+        for i, n in enumerate(self.names):
+            d = paths.agent_dir(n)
+            if d.is_dir():
+                shutil.copytree(d, self.dir / str(i), symlinks=True)
+                self.folders[n] = self.dir / str(i)
+        archive = paths.home() / "agents" / "archive"
+        self.archived = {c.name for c in archive.iterdir()} if archive.is_dir() else set()
+        self.kept = {(ns, key): self._get(ns, key)
+                     for ns, key in [(sealed.NS, sealed.TEAM), *((sealed.NS, sealed.agent_key(n)) for n in self.names),
+                                     *((g, n) for g in self.GRANTS for n in self.names)]}
+
+    @staticmethod
+    def _get(ns: str, key: str):
+        try:
+            return protected.get(ns, key)
+        except (ValueError, OSError):
+            return None
+
+    def restore(self) -> None:
+        for p, data in self.files.items():
+            if data is None:
+                p.unlink(missing_ok=True)
+            elif not p.exists() or p.read_bytes() != data:
+                p.write_bytes(data)
+        archive = paths.home() / "agents" / "archive"
+        if archive.is_dir():
+            for c in archive.iterdir():
+                if c.name not in self.archived:
+                    shutil.rmtree(c, ignore_errors=True)
+        for n in self.names:
+            d = paths.agent_dir(n)
+            if d.exists():
+                shutil.rmtree(d)
+            if n in self.folders:
+                shutil.copytree(self.folders[n], d, symlinks=True)
+        for (ns, key), value in self.kept.items():
+            try:
+                if value is None:
+                    protected.delete(ns, key)
+                else:
+                    protected.put(ns, key, value)
+            except (ValueError, OSError):
+                pass
+
+    def drop(self) -> None:
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def _names_of(items: list[dict]) -> set[str]:
+    """The agents whose folders and grants a step may change."""
+    out: set[str] = set()
+    for it in items:
+        out.add(it["agent"])
+        if it["kind"] == "rename":
+            out.add(it["to"])
+        if it["kind"] == "team":
+            out |= set(_members_of(it))
+    return out
+
+
+def _later(prop: dict, fn) -> str:
+    """Run `fn` (Orca's, which may call back into the database) now, or after the last step of a
+    team diff, which has the database locked until then. Returns what it says, "" when it is deferred."""
+    if "_after" in prop:
+        prop["_after"].append(fn)
+        return ""
+    return fn()
+
+
+def _run(prop: dict, con) -> tuple[bool, str]:
+    """Carry out a proposal: one change, or every step of a team diff, in order. A step that is
+    refused or raises puts back everything the steps before it did, and nothing of the diff stays.
+    A diff says which step and why."""
+    items = _ordered(_items_of(prop)) if prop["kind"] == BUNDLE else [prop]
+    snap = _Snapshot(_names_of(items))
+    after: list = []
+    said: list[str] = []
+    con.execute("SAVEPOINT hr_apply")
+    try:
+        for n, item in enumerate(items, 1):
+            step = {**item, "_after": after}
+            if prop["kind"] == BUNDLE:
+                step |= {"id": prop["id"], "requested_by": prop["requested_by"], "why": prop["why"],
+                         "created": prop.get("created")}
+            ok, text = _DOERS[item["kind"]](step, con)
+            if not ok:
+                con.execute("ROLLBACK TO hr_apply")
+                con.execute("RELEASE hr_apply")
+                snap.restore()
+                if prop["kind"] != BUNDLE:
+                    return False, text
+                return False, (f"step {n} of {len(items)} ({item['kind']} {item['agent']}) failed: {text} "
+                               f"Nothing was changed: the steps before it were put back.")
+            said.append(text)
+        con.execute("RELEASE hr_apply")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK TO hr_apply")
+            con.execute("RELEASE hr_apply")
+        snap.restore()
+        raise
+    finally:
+        snap.drop()
+    notes = [t for t in (fn() for fn in after) if t]
+    if prop["kind"] != BUNDLE:
+        return True, said[0] + "".join(notes)
+    return True, (f"team diff applied, {len(items)} changes:\n"
+                  + "\n".join(f"  {n}. {t}" for n, t in enumerate(said, 1)) + "".join(notes))
+
+
+def _body(prop: dict, caveat: bool) -> list[str]:
+    """What applying one change does, in words."""
+    lines: list[str] = []
     if prop["kind"] == "link":
         lines += [f"{prop['agent']} would be allowed to ask {prop['to']} "
                   f"(response {prop.get('response') or 'async'}"
@@ -347,6 +628,14 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
         lines += [f"  {k}: {v or '(none)'}" for k, v in _sets_of(prop).items()]
         lines += ["Written as the founder's own change, from its next launch; a running "
                   "session is not restarted."]
+    elif prop["kind"] == "context":
+        lines += [f"{prop['agent']}'s standing context would be replaced, as a diff of what is there now:"]
+        for fn, text in _context_texts(prop).items():
+            now = (paths.agent_dir(prop["agent"]) / fn)
+            was = now.read_text() if now.exists() else ""
+            lines += list(difflib.unified_diff(was.splitlines(), text.splitlines(), f"{fn} (now)", f"{fn} (proposed)",
+                                               lineterm="", n=2)) or [f"{fn}: no change"]
+        lines += ["Written from the next launch; a running session is not restarted."]
     elif prop["kind"] == "rename":
         lines += [f"{prop['agent']} would become {prop.get('to')}"
                   + (f" in team {prop['team']}" if prop.get("team") else "")
@@ -359,6 +648,28 @@ def _decision_text(prop: dict, caveat: bool = True) -> str:
         lines += [f"{prop['agent']} would be taken out of team.yaml and its folder "
                   f"moved to agents/archive/. Its journal and handoffs are kept.",
                   "Anything still queued for it stays queued and undeliverable."]
+    return lines
+
+
+def _decision_text(prop: dict, caveat: bool = True) -> str:
+    """What the founder reads. It says what will happen and how to decide.
+    `caveat=False` leaves out the unlink caveat, which reads the live team.yaml
+    and so differs from one moment to the next (see `answered`)."""
+    if prop["kind"] == BUNDLE:
+        items = _ordered(_items_of(prop))
+        lines = [f"[roster] team diff, {len(items)} changes - asked by {prop['requested_by']}", "", prop["why"], "",
+                 "Applied in this order, all or none: a step that fails puts every earlier one back.", ""]
+        for n, item in enumerate(items, 1):
+            lines.append(f"{n}. {item['kind']} {item['agent']}" + (f" -> {item['to']}" if item["kind"] in EDGE_KINDS else ""))
+            lines += ["   " + ln if ln else "" for ln in _body({**item, "created": prop.get("created")}, caveat)]
+            lines.append("")
+        lines += [f"Approve or reject: `hl hr approve {prop['id']}` / `hl hr reject {prop['id']}`."]
+        return "\n".join(lines)
+    lines = [f"[roster] {prop['kind']} {prop['agent']}"
+             + (f" -> {prop['to']}" if prop["kind"] in EDGE_KINDS else "")
+             + f" - asked by {prop['requested_by']}",
+             "", prop["why"], ""]
+    lines += _body(prop, caveat)
     lines += ["", f"Approve or reject: `hl hr approve {prop['id']}` / `hl hr reject {prop['id']}`."]
     return "\n".join(lines)
 
@@ -371,6 +682,11 @@ def _sets_of(prop: dict) -> dict[str, str]:
     return {k[4:]: str(v) for k, v in prop.items() if k.startswith("set.")}
 
 
+def _context_texts(prop: dict) -> dict[str, str]:
+    """The files a `context` proposal replaces, as the whole new text of each."""
+    return {fn: json.loads(v) for fn, v in _sets_of(prop).items()}
+
+
 def _members_of(prop: dict) -> list[str]:
     return [m for m in str(prop.get("members") or "").split(",") if m]
 
@@ -379,7 +695,8 @@ def subject_of(prop: dict) -> str:
     """What the founder is deciding on: every field of the draft that changes
     what applying it does, as a digest."""
     return decisions.digest({**{k: prop.get(k) for k in _SUBJECT_FIELDS},
-                             **{k: v for k, v in prop.items() if k.startswith(("repo.", "set."))}})
+                             **{k: v for k, v in prop.items() if k.startswith(("repo.", "set."))},
+                             **{k: v for k, v in prop.items() if _ITEM_KEY.fullmatch(k)}})
 
 
 def card(prop: dict) -> dict:
@@ -430,7 +747,7 @@ def _tell(prop: dict, text: str) -> None:
         askmod.say(who, text, requester=askmod.HUMAN)
 
 
-def decide(pid: str, call: str, by: str, note: str = "", subject: str = "") -> tuple[bool, str]:
+def decide(pid: str, call: str, by: str, note: str = "", subject: str = "", tell: bool = True) -> tuple[bool, str]:
     """The founder's decision on a proposal: `call` is "approved" or "rejected". An approve is
     applied now and the proposer is told the outcome; a reject is recorded and told.
 
@@ -467,7 +784,7 @@ def decide(pid: str, call: str, by: str, note: str = "", subject: str = "") -> t
             if (prop.get("state") == "approved" and call == "approved" and got
                     and got.get("call") == "approved" and got.get("subject") == subject_of(prop)):
                 con.execute("ROLLBACK")
-                return apply(pid)
+                return apply(pid, tell=tell)
             try:
                 decisions.record("hr", pid, 0, call, subject_of(prop))
             except PermissionError as e:
@@ -485,12 +802,42 @@ def decide(pid: str, call: str, by: str, note: str = "", subject: str = "") -> t
     finally:
         con.close()
     if call == "rejected":
-        _tell(prop, f"proposal {pid} was rejected" + (f": {note}" if note else "."))
+        if tell:
+            _tell(prop, f"proposal {pid} was rejected" + (f": {note}" if note else "."))
         return True, f"proposal {pid} rejected"
-    return apply(pid)
+    return apply(pid, tell=tell)
 
 
-def apply(pid: str, con=None) -> tuple[bool, str]:
+def decide_many(entries: list[tuple[str, str]], call: str, by: str, note: str = "") -> tuple[bool, list[str]]:
+    """The founder's one decision on several proposals, each (id, subject): every one is decided and,
+    on an approve, applied with no agent in the way, in the order given. Each proposer is told once, with
+    every result that concerns them: applied, or failed and why. Returns (all went through, one line each)."""
+    results: list[tuple[dict, str, bool, str]] = []
+    lines: list[str] = []
+    for pid, subject in entries:
+        prop, _ = _open(pid)
+        ok, said = decide(pid, call, by, note, subject, tell=False)
+        lines.append(f"{pid}: {said.splitlines()[0] if said else ''}")
+        if prop:
+            results.append((prop, pid, ok, said))
+    by_who: dict[str, list[str]] = {}
+    for prop, pid, ok, said in results:
+        who = prop.get("requested_by")
+        if not who or who == askmod.HUMAN:
+            continue
+        head = f"{pid} ({prop['kind']} {prop['agent']})"
+        if call == "rejected":
+            word = "rejected" if ok else f"not rejected: {said}"
+        else:
+            word = f"applied: {said}" if ok else f"not applied: {said}"
+        by_who.setdefault(who, []).append(f"- {head} {word}")
+    for who, rows in by_who.items():
+        askmod.say(who, f"The founder decided {len(rows)} of your roster proposals:\n" + "\n".join(rows),
+                   requester=askmod.HUMAN)
+    return all(ok for _, _, ok, _ in results) and len(results) == len(entries), lines
+
+
+def apply(pid: str, con=None, tell: bool = True) -> tuple[bool, str]:
     """Carry out a proposal the founder approved. Refuses anything else, and anything whose
     recorded approval is not for the draft as it is now."""
     prop, err = _open(pid)
@@ -513,17 +860,19 @@ def apply(pid: str, con=None) -> tuple[bool, str]:
     own = con is None
     con = con or db.connect()
     try:
-        ok, said = _DOERS[prop["kind"]](prop, con)
+        ok, said = _run(prop, con)
         if not ok:
             prop["error"] = said
             save(prop)
-            _tell(prop, f"proposal {pid} was approved but could not be applied: {said}")
+            if tell:
+                _tell(prop, f"proposal {pid} was approved but could not be applied: {said}")
             return False, said
         prop["state"] = "applied"
         prop["applied"] = int(time.time())
         prop.pop("error", None)
         save(prop)
-        _tell(prop, f"proposal {pid} applied: {said}")
+        if tell:
+            _tell(prop, f"proposal {pid} applied: {said}")
         return True, said
     finally:
         if own:
@@ -611,7 +960,7 @@ def _add(prop: dict, con) -> tuple[bool, str]:
                          f"{prop['requested_by']}'s request: {prop['why']}")
     return True, (f"{name} is an agent"
                   + (f", team {prop['team']}" if prop.get("team") else "")
-                  + f". {said}" + register_repo(prop.get("repo")))
+                  + f". {said}" + _later(prop, lambda: register_repo(prop.get("repo"))))
 
 
 def _team(prop: dict, con) -> tuple[bool, str]:
@@ -641,7 +990,7 @@ def _team(prop: dict, con) -> tuple[bool, str]:
     repos = sorted({r for n in everyone
                     if (r := prop.get("repo") if n == name else prop.get(f"repo.{n}"))})
     return True, (f"team {name}: {', '.join(everyone)} are agents. {said}"
-                  + "".join(register_repo(r) for r in repos))
+                  + "".join(_later(prop, lambda r=r: register_repo(r)) for r in repos))
 
 
 def _still_allowed_by(t, frm: str, to: str) -> str:
@@ -664,7 +1013,7 @@ def _unlink_caveat(t, frm: str, to: str) -> str:
 
 
 def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
-                  relation: str | None, registered: list[str]) -> str:
+                  relation: str | None, registered: list[str], coming: set[str] = frozenset()) -> str:
     """Why this edge cannot be added or removed, or "" when it can. Read against
     the team.yaml as it is now; the write checks again, on the text it edits."""
     if not to or to not in registered:
@@ -682,7 +1031,7 @@ def _edge_refusal(kind: str, frm: str, to: str | None, response: str | None,
     exact = [e for e in t.edges if str(e.get("from")) == frm and str(e.get("to")) == to]
     if kind == "link":
         for end in (frm, to):
-            if end not in t.agents:
+            if end not in t.agents and end not in coming:
                 return f"{end} is not in team.yaml agents - add it there first"
         if exact:
             return f"team.yaml already has the edge {frm} -> {to}"
@@ -868,9 +1217,12 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
     con.execute("UPDATE handoff SET agent = ? WHERE agent = ?", (new, old))
     con.execute("UPDATE cursors SET name = REPLACE(name, ?, ?) WHERE name LIKE ?",
                 (old, new, f"%{old}%"))
-    _, labelled = label(con, new)
+    def labelled() -> str:
+        said = label(con, new)[1]
+        return f" {said}" if said else ""
+
     return True, (f"{old} is now {new}: folder, team.yaml, and every row that named it. "
-                  f"{said2}" + (f" {labelled}" if labelled else ""))
+                  f"{said2}" + _later(prop, labelled))
 
 
 # How long Orca gets to answer about a label: a rename must not wait on it the
@@ -914,7 +1266,21 @@ def _settings(prop: dict, con) -> tuple[bool, str]:
         else agent_settings.save_settings(prop["agent"], changes)
 
 
-_DOERS = {"add": _add, "settings": _settings, "retire": _retire, "rename": _rename,
+def _context(prop: dict, con) -> tuple[bool, str]:
+    """Exactly the files that were proposed, as the founder's own change."""
+    texts = _context_texts(prop)
+    problem = _context_problem(texts)
+    if problem:
+        return False, problem
+    d = paths.agent_dir(prop["agent"])
+    if not d.is_dir():
+        return False, f"{prop['agent']} is not an agent"
+    for fn, text in texts.items():
+        atomic.write_text(d / fn, text)
+    return True, f"{prop['agent']}: {', '.join(texts)} replaced, from its next launch"
+
+
+_DOERS = {"add": _add, "settings": _settings, "context": _context, "retire": _retire, "rename": _rename,
           "link": _link, "unlink": _unlink, "team": _team}
 
 

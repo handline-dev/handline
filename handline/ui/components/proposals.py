@@ -62,7 +62,8 @@ class ProposalsView(Vertical):
     """A table of the proposals awaiting a decision, the selected one in full, and
     Approve / Reject. `refresh_rows` redraws it and is called on the page's tick."""
 
-    BINDINGS = [Binding("a", "approve", "approve"), Binding("r", "reject", "reject"),
+    BINDINGS = [Binding("a", "approve", "approve"), Binding("A", "approve_all", "approve all"),
+                Binding("r", "reject", "reject"),
                 Binding("w", "withdraw", "withdraw"), Binding("e", "edit", "edit settings")]
     DEFAULT_CSS = """
     ProposalsView { height: 1fr; }
@@ -82,6 +83,7 @@ class ProposalsView(Vertical):
         yield SectionHead("agents", "Enter or e edits one's settings")
         yield DataTable(id="hr_agents", cursor_type="row", zebra_stripes=True)
         with ActionBar():
+            yield Button("Approve all  A", id="hr_approve_all", compact=True)
             yield Button("Withdraw  w", id="hr_withdraw", compact=True)
             yield Button("Edit settings  e", id="hr_edit", compact=True)
 
@@ -140,6 +142,7 @@ class ProposalsView(Vertical):
             detail.remove_children()
             detail.mount(hr_card.HrCard(entry))
         self.query_one("#hr_withdraw", Button).disabled = p is None
+        self.query_one("#hr_approve_all", Button).disabled = not self.cards
 
     @property
     def card(self) -> hr_card.HrCard | None:
@@ -162,6 +165,23 @@ class ProposalsView(Vertical):
     def action_approve(self) -> None:
         if self.card is not None:
             self.card.approve()
+
+    def action_approve_all(self) -> None:
+        """Every proposal waiting on the founder, read as the cards show them now, in one decision: they
+        are applied one after another with no agent in the way, and each proposer is told once."""
+        entries = [(c["id"], c["subject"]) for c in hr.pending()]
+        if not entries:
+            self.app.notify("nothing is waiting for your decision", timeout=5, markup=False)
+            return
+        self.app.push_screen(
+            Confirm(f"Approve all {len(entries)}",
+                    "Each is applied as the card shows it; one that fails stays waiting, and every proposer "
+                    "gets one message with the results.", yes="Approve all"),
+            lambda yes: yes and self._approve_all(entries))
+
+    def _approve_all(self, entries: list[tuple[str, str]]) -> None:
+        ok, lines = hr.decide_many(entries, "approved", actions.HUMAN)
+        self._say(ok, f"{len(entries)} approved" if ok else "; ".join(lines))
 
     def action_withdraw(self) -> None:
         p = self.current
@@ -201,4 +221,5 @@ class ProposalsView(Vertical):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        {"hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit}[event.button.id]()
+        {"hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit,
+         "hr_approve_all": self.action_approve_all}[event.button.id]()

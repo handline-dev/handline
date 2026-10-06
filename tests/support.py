@@ -275,6 +275,21 @@ def _snap(*_geometry, **_cursor) -> str:
     return tui.snapshot()
 
 
+def upgrade(path: Path | None = None):
+    """Connect as the daemon does at start, after a test has put the database back in an older shape:
+    the version is forgotten first, so the migrations run again."""
+    from handline.db import schema as dbschema
+    import sqlite3
+    raw = sqlite3.connect(path or dbschema.paths.db_file())
+    try:
+        raw.execute("DELETE FROM schema_version")
+        raw.commit()
+    except sqlite3.OperationalError:        # never versioned
+        pass
+    raw.close()
+    return dbschema.connect(path, migrating=True)
+
+
 def legacy_shape(con) -> None:
     """Setup for a test of an upgrade from before the answers-to-says work (T835): the legacy
     request columns are back and the database is no longer marked as having dropped them, so a
@@ -1475,11 +1490,22 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     return con, term
 
 
+def drain_spool() -> None:
+    """What a hook left in the spool while no daemon was running, applied as the daemon does at start."""
+    from handline.daemon import spool
+    con = db.connect()
+    try:
+        spool.ingest(con, lambda m: None)
+    finally:
+        con.close()
+
+
 def _fire_hook(event: str, **fields) -> None:
     real_in = sys.stdin
     sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
     try:
         evmod.record_from_stdin([event])
+        drain_spool()
     finally:
         sys.stdin = real_in
 
@@ -2004,6 +2030,7 @@ def orca_settled() -> None:
 
 __all__ = [
     'approve_hr',
+    'drain_spool',
     'answer_card',
     '_ask_row',
     'hand_edit_team',

@@ -1769,6 +1769,7 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
                                             "cwd": str(cwd), **fields}))
         try:
             evmod.record_from_stdin([event])
+            drain_spool()
         finally:
             sys.stdin = real_in
 
@@ -2843,6 +2844,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "settle_decision_task",     # the founder's task following its request out of the queue
                     "task_question",            # the founder's question on a task, recorded so the chat can tell it
                     "nested_claude_refused", "verb_chain",   # a command's caller chain, recorded for audit
+                    "rpc_write",                # a write made over the socket, under its actor: the caller's act, not its work
                     "plan_changed"}             # T743: an account's plan, asked again, is not the one recorded
     # login_expired is an account's login found expired on an agent's screen, recorded
     # under the agent that showed it, not anything that agent did.
@@ -4927,6 +4929,7 @@ def test_a_turn_that_ends_on_the_usage_limit_is_at_the_wall(home: Path) -> None:
                  "transcript_path": str(transcript)}, **fields)))
             try:
                 evmod.record_from_stdin(["StopFailure"])
+                drain_spool()
             finally:
                 sys.stdin = real_in
 

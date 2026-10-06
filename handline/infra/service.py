@@ -106,6 +106,20 @@ def read_plist(path: Path | None = None) -> dict:
         return plistlib.load(f)
 
 
+def is_installed_checkout() -> bool:
+    """Whether this code is the checkout the launchd service runs, by the program path in its plist. True
+    when no service is installed (a first setup has nothing to protect); False when the plist is there
+    and names another checkout, or cannot be read: a second clone, a worktree and a sandbox that cannot
+    see the plist all refuse."""
+    try:
+        program = Path(read_plist()["ProgramArguments"][0])
+    except FileNotFoundError:
+        return True
+    except Exception:  # noqa: BLE001 - unreadable, or not a plist this code wrote: not the installed one
+        return False
+    return program.resolve().parent.parent == paths.repo_root().resolve()
+
+
 # ---------------------------------------------------------------- launchctl
 def run_launchctl(args: list[str]) -> subprocess.CompletedProcess:
     """The only place that shells out to launchctl - tests replace this name."""

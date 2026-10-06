@@ -275,6 +275,7 @@ def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: 
         try:
             with contextlib.redirect_stdout(buf):
                 evmod.record_from_stdin(["Stop"])
+            drain_spool()
         finally:
             sys.stdin = real_in
         check("warn-only: lets the stop through", buf.getvalue().strip() == "{}", buf.getvalue())

@@ -132,6 +132,11 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def live_homes() -> list[Path]:
+    """The real user's homes, whatever OCP_HOME or the test root says."""
+    return [(_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")]
+
+
 def ocp_exe() -> str:
     """The command a hook or launch line should call `hl` with."""
     return names.getenv("OCP_BIN") or next(filter(None, map(shutil.which, names.COMMANDS)), None) or str(repo_root() / "bin" / "hl")

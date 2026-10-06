@@ -358,6 +358,8 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
     one import check per new fingerprint, `seen` set only after it passes, a decline (the caller takes
     `seen` as its baseline) quiet until the fingerprint moves, and turning dev mode off forgets `seen`."""
     use_home(home)
+    real_quiet = (dmn_devmode.QUIET_S, dmn_devmode._changed_since_start)
+    dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = 0, lambda root: False       # these tests are about the decision, not the wait
     code, checks, on = {"fp": "v1", "ok": True}, [], {"on": True}
     real = (dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled)
     dmn_devmode._code_fingerprint = lambda root: code["fp"]
@@ -394,6 +396,7 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
         check("dev-mode seen: turning it off forgets it", state == {"fp": None, "warned": None, "seen": None}, str(state))
     finally:
         dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled = real
+        dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
 def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -> None:
@@ -403,6 +406,8 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     to restart only when the import check passes, and remembers a broken
     version so it is not re-logged every tick."""
     use_home(home)
+    real_quiet = (dmn_devmode.QUIET_S, dmn_devmode._changed_since_start)
+    dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = 0, lambda root: False       # these tests are about the decision, not the wait
     root = tmp_path / "repo"
     (root / "handline").mkdir(parents=True)
     (root / "bin").mkdir()
@@ -458,6 +463,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
     finally:
         paths.repo_root = real_repo_root
         dmn_devmode.set_dev_mode(False)
+        dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
 def test_dev_mode_watches_subpackages(tmp_path: Path) -> None:
@@ -534,7 +540,7 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         # tick and release the lock before this fires.
         return True
 
-    def fake_restart():
+    def fake_restart(*_tree):
         calls.append(lock.holder(dmn_locks.DAEMON_LOCK) is not None)
 
     dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = fake_should, fake_restart
@@ -594,7 +600,7 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
         os.kill(os.getpid(), signal.SIGTERM)
         return True
 
-    def fake_restart():
+    def fake_restart(*_tree):
         restart_calls.append(True)
 
     dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = should_but_signal_first, fake_restart
@@ -1793,16 +1799,19 @@ def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
     from handline.infra import gitrun
     _daemon_home(home, 20)
     _, head, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    dmn_loop._loaded.clear()        # the sha is read once per process; each run here stands for a new process
     out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
     check("daemon: the start line names the checkout's HEAD",
           head.strip() != "" and f"  code: {head.strip()}\n" in out, out[:300])
 
     real = dmn_loop.gitrun.run
     dmn_loop.gitrun.run = lambda *a, **k: (None, "", "git is not there")
+    dmn_loop._loaded.clear()
     try:
         out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
     finally:
         dmn_loop.gitrun.run = real
+        dmn_loop._loaded.clear()
     check("daemon: when git fails the start line says unknown, not an empty sha",
           "  code: unknown\n" in out, out[:300])
 

@@ -268,14 +268,17 @@ def main_ref_files(worktree: Path) -> list[str]:
 
 
 def roster_files() -> list[str]:
-    """The files that say who the agents are and who may ask whom, which only the founder's path
-    writes: team.yaml and its backup, and every agent.yaml. Home is writable to a session (the db and
-    the inboxes live there), so these are denied by name, plus one glob so an agent made after this
-    launch is covered too. A session that edits one is caught by its seal; this stops the write."""
+    """The files that say who the agents are, who may ask whom and what each is told, which only the
+    founder's path writes: team.yaml and its backup, and every agent's agent.yaml, ROLE.md and base.md
+    (a change to the last two is an `hl hr context` proposal). Home is writable to a session (the db
+    and the inboxes live there), so these are denied by name, plus one glob each so an agent made after
+    this launch is covered too. A session that edits agent.yaml or team.yaml is caught by its seal;
+    this stops the write."""
     agents_dir = paths.agents_dir()
+    per_agent = ("agent.yaml", "ROLE.md", "base.md")
     return [str(paths.team_file()), f"{paths.team_file()}.bak",
-            *(str(agents_dir / n / "agent.yaml") for n in paths.list_agents()),
-            str(agents_dir / "*" / "agent.yaml")]
+            *(str(agents_dir / n / f) for n in paths.list_agents() for f in per_agent),
+            *(str(agents_dir / "*" / f) for f in per_agent)]
 
 
 def hidden_memories(agent: str) -> list[str]:
@@ -466,7 +469,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     approved = trust.mcp_approved(Path.cwd())
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
-                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(sessiontoken.key_folder())],
+                           hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(f) for f in sessiontoken.hidden_folders()],
                            no_write=main_ref_files(Path.cwd()) + roster_files(),
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,

@@ -21,6 +21,13 @@ if [ $# -gt 0 ] && [ -f "$1" ]; then
     target=("$1"); shift
 else
     target=(tests/test_ocp.py)
+    [ $# -eq 0 ] && whole=1
 fi
 echo "tools/test.sh: $py -u ${target[*]} $*" >&2
 env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@"
+status=$?
+# The whole suite includes the Go daemon's required check (go test -race ./...).
+if [ -n "$whole" ]; then
+    tools/test-go.sh || status=1
+fi
+exit $status

@@ -1377,37 +1377,6 @@ def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home:
         con.close()
 
 
-def test_two_connects_migrating_one_old_database_both_succeed(home: Path) -> None:
-    """The column check and the ALTER are two statements, so a second connect can add a column between
-    them: the first then fails with "duplicate column name". Here a nested connect does exactly that."""
-    from handline.db import schema
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["OCP_HOME"] = str(home)
-    db.connect().close()
-    con = db.connect()
-    con.execute("ALTER TABLE session_starts DROP COLUMN actor")
-    con.close()
-    real, state = schema._cols, {"nested": False}
-
-    def racing(c, table):
-        seen = real(c, table)
-        if table == "session_starts" and "actor" not in seen and not state["nested"]:
-            state["nested"] = True
-            schema.connect().close()        # the other process: migrates to the end before this one alters
-        return seen
-    schema._cols = racing
-    label = "migration: a connect that loses the race for a column goes on, and the column is there"
-    try:
-        con = db.connect()
-        cols = {r["name"] for r in con.execute("PRAGMA table_info(session_starts)")}
-        con.close()
-        check(label, state["nested"] and "actor" in cols, str(cols))
-    except Exception as e:  # noqa: BLE001
-        check(label, False, f"{type(e).__name__}: {e}")
-    finally:
-        schema._cols = real
-
-
 def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
     """A prompt typed at a busy session is run inside its turn with no UserPromptSubmit, so the row
     stayed QUEUED (PENDING) until the turn ended; a tool call is the sign it is working."""
@@ -1428,6 +1397,7 @@ def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
             con.close()
         subprocess.run([str(ROOT / "bin" / "hl"), "hook", "PostToolUse"], input=payload,
                        capture_output=True, text=True, env=env)
+        drain_spool()
         con = db.connect()
         try:
             return db.get_agent_state(con, "toolish")["state"]
@@ -1713,7 +1683,7 @@ def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Pat
     db.note_session_start(con, "backend", "wake", True, "s-1", "", "p")
     con.execute("ALTER TABLE session_starts DROP COLUMN actor")
     con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         cols = {r["name"] for r in con.execute("PRAGMA table_info(session_starts)")}
         row = db.session_starts(con, "backend")[0]
@@ -4241,6 +4211,7 @@ def test_hooks_report_activity(home: Path) -> None:
                           "prompt": "do the thing"})
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
+    drain_spool()
 
     con = db.connect()
     try:
@@ -4255,6 +4226,7 @@ def test_hooks_report_activity(home: Path) -> None:
         con.close()
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
                    input=payload, capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("hooks: activity does not clear STALLED",
@@ -4271,6 +4243,7 @@ def test_hooks_report_activity(home: Path) -> None:
     subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
                    input=json.dumps({"hook_event_name": "SessionStart", "session_id": "s"}),
                    capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("hooks: activity does not interrupt a handoff",
@@ -4286,6 +4259,7 @@ def test_hooks_report_activity(home: Path) -> None:
         subprocess.run([str(ROOT / "bin" / "ocp"), "hook", name],
                        input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
                        capture_output=True, text=True, env=env)
+        drain_spool()
 
     con = db.connect()
     try:
@@ -4364,6 +4338,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
         subprocess.run([str(ROOT / "bin" / "ocp"), "hook", event],
                        input=json.dumps({"hook_event_name": event, "session_id": "new"}),
                        capture_output=True, text=True, env=env)
+        drain_spool()
     con = db.connect()
     try:
         row = db.get_agent_state(con, "loopy")
@@ -4378,6 +4353,7 @@ def test_clear_does_not_look_like_waking(home: Path) -> None:
                    input=json.dumps({"hook_event_name": "UserPromptSubmit",
                                      "session_id": "new", "prompt": "do it"}),
                    capture_output=True, text=True, env=env)
+    drain_spool()
     con = db.connect()
     try:
         check("clear: a prompt still marks the agent as working",
@@ -4810,7 +4786,6 @@ def main() -> int:
         run(lambda: test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(Path(td) / 'restartretry'))
         run(lambda: test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(Path(td) / 'restartpane'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
-        run(lambda: test_two_connects_migrating_one_old_database_both_succeed(Path(td) / 'migrace'))
         run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
         run(lambda: test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(Path(td) / 'applyset'))
         run(lambda: test_a_launch_records_the_settings_it_read(Path(td) / 'recparts'))

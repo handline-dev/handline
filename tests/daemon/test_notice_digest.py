@@ -35,6 +35,7 @@ def _world(home: Path) -> list:
     termmod.screen_blocker = lambda h: None
     termmod.typeable_now = lambda h: True
     termmod.live_terminals = lambda: {"term_x"}
+    db.set_agent_state(db.connect(), "backend", dmn_states.RUNNING)      # busy unless a test frees it
     sent: list[tuple[str, str]] = []
 
     def send(handle, text, enter=True):
@@ -52,6 +53,15 @@ def _finish(con, result: str) -> int:
     return tid
 
 
+def _notice(con, result: str) -> int:
+    """A result waiting in the digest, written as the task board writes one. An opener is told its
+    own done at once, so a real done never waits; the digest holds what is left."""
+    tid = 100 + len(con.execute("SELECT id FROM requests WHERE notice = 1").fetchall())
+    db.add_request(con, db.NOTICE_REQUESTER, "backend", f"T{tid} done by worker: {result}", None, None,
+                   "fire_and_forget", "say", 0, None, notice=True)
+    return tid
+
+
 def _notices(con) -> list:
     return con.execute("SELECT * FROM requests WHERE notice = 1 AND target = 'backend' ORDER BY id").fetchall()
 
@@ -60,8 +70,8 @@ def test_results_wait_then_arrive_in_one_digest(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
     try:
-        t1 = _finish(con, "PASS one")
-        t2 = _finish(con, "PASS two")
+        t1 = _notice(con, "PASS one")
+        t2 = _notice(con, "PASS two")
         first = int(_notices(con)[0]["landed_at"])
         check("digest: a result is a notice and types nothing", len(_notices(con)) == 2 and sent == [], str(sent))
         noticedigest.sweep(con, lambda _m: None, first + idle_close.NOTICE_DIGEST_S - 1)
@@ -79,11 +89,39 @@ def test_results_wait_then_arrive_in_one_digest(home: Path) -> None:
         con.close()
 
 
+def test_an_idle_agent_is_told_at_once_and_a_busy_one_waits_for_the_digest(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        _notice(con, "PASS one")
+        now = int(_notices(con)[0]["landed_at"])
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: working a turn, it waits for the digest", sent == [] and len(db.pending_notices(con, "backend")) == 1, str(sent))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: at its prompt, the same tick types it, well before the window",
+              len(sent) == 1 and "PASS one" in sent[0][1] and not db.pending_notices(con, "backend"), str(sent))
+        _notice(con, "PASS two")
+        db.set_cursor(con, "bgwork:backend", 1)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: with background work running it is still busy", len(sent) == 1, str(sent))
+        db.set_cursor(con, "bgwork:backend", 0)
+        db.set_closed(con, "backend", None)
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: a closed agent keeps the clock, a result is not worth waking it for",
+              len(sent) == 1 and len(db.pending_notices(con, "backend")) == 1, str(sent))
+        db.clear_closed(con, "backend")
+        noticedigest.sweep(con, lambda _m: None, now)
+        check("idle: once its session is back at the prompt, it is told", len(sent) == 2 and "PASS two" in sent[1][1], str(sent))
+    finally:
+        con.close()
+
+
 def test_a_tell_that_raises_does_not_build_a_second_digest(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
     try:
-        _finish(con, "PASS one")
+        _notice(con, "PASS one")
         first = int(_notices(con)[0]["landed_at"])
         real = noticedigest.messaging.tell_now
 
@@ -129,7 +167,7 @@ def test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothin
     sent = _world(home)
     con = db.connect()
     try:
-        _finish(con, "PASS one")
+        _notice(con, "PASS one")
         first = int(_notices(con)[0]["landed_at"])
         askmod.ask("backend", "please look", requester="worker")
         check("carry: a message typed sooner carries the result", len(sent) == 1 and "Also: T" in sent[0][1], str(sent))
@@ -140,7 +178,7 @@ def test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothin
         con.close()
 
 
-def test_a_failure_or_a_block_is_told_at_once_not_held(home: Path) -> None:
+def test_every_done_is_told_to_its_opener_at_once_not_held(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
     try:
@@ -150,8 +188,29 @@ def test_a_failure_or_a_block_is_told_at_once_not_held(home: Path) -> None:
         _finish(con, "blocked: needs the founder")
         check("urgent: and so is one that ends blocked", len(sent) == 2 and "blocked: needs" in sent[1][1], str(sent))
         _finish(con, "PASS and unblocked the failing build")
-        check("urgent: a PASS that mentions failure later in its words is still a result", len(sent) == 2
-              and len(_notices(con)) == 1, str(sent))
+        check("urgent: a PASS, even one that mentions failure later, is typed to its opener at once too",
+              len(sent) == 3 and "PASS and unblocked" in sent[2][1] and not _notices(con), str(sent))
+    finally:
+        con.close()
+
+
+def test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(home: Path) -> None:
+    sent = _world(home)
+    con = db.connect()
+    try:
+        ok, msg, tid = actions.task_new("backend", "worker", "work to drop", "do it")
+        check("setup: the task opens", ok, msg)
+        for r in db.task_requests(con, tid):
+            db.close_if_queued(con, int(r["id"]), "withdrawn", None, announced=True, settle=False)
+        ok, msg = actions.discard_task(con, tid, actions.HUMAN, "not needed")
+        check("setup: the founder discards it", ok, msg)
+        told = db.pending_notices(con, "worker")
+        check("end: the owner, who is not the opener, gets a notice that waits for the digest",
+              len(told) == 1 and f"T{tid} discarded by the founder" in told[0]["body"]
+              and told[0]["delivered_at"] is None, str([dict(r) for r in told]))
+        typed = [m for m in sent if f"T{tid} discarded by the founder" in m[1]]
+        check("end: the opener in the same end is typed its own message at once, not a notice",
+              len(typed) == 1 and not _notices(con), str(sent))
     finally:
         con.close()
 
@@ -216,7 +275,7 @@ def test_the_wait_is_a_common_setting_with_a_per_agent_override(home: Path) -> N
     try:
         termmod.send = lambda handle, text, enter=True: (sent.append(text) or (True, ""))
         idle_close.set_notice_digest_s(60, "backend")
-        _finish(con, "PASS soon")
+        _notice(con, "PASS soon")
         first = int(_notices(con)[0]["landed_at"])
         noticedigest.sweep(con, lambda _m: None, first + 60)
         check("settings: the sweep uses the agent's own wait", len(sent) == 1, str(sent))
@@ -239,10 +298,12 @@ def test_ocp_notice_digest_shows_and_sets_the_wait(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_results_wait_then_arrive_in_one_digest(Path(td) / 'n0'))
+        run(lambda: test_an_idle_agent_is_told_at_once_and_a_busy_one_waits_for_the_digest(Path(td) / 'n20'))
         run(lambda: test_a_tell_that_raises_does_not_build_a_second_digest(Path(td) / 'n7'))
         run(lambda: test_only_a_digest_is_shown_whole_when_typed(Path(td) / 'n8'))
         run(lambda: test_a_message_before_the_wait_carries_the_results_and_the_digest_has_nothing_left(Path(td) / 'n1'))
-        run(lambda: test_a_failure_or_a_block_is_told_at_once_not_held(Path(td) / 'n2'))
+        run(lambda: test_every_done_is_told_to_its_opener_at_once_not_held(Path(td) / 'n2'))
+        run(lambda: test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(Path(td) / 'n2b'))
         run(lambda: test_an_agent_going_fatal_is_told_once_to_whoever_waits_on_it(Path(td) / 'n3'))
         run(lambda: test_work_that_cannot_be_given_is_told_once_it_is_on_the_founders_list(Path(td) / 'n5'))
         run(lambda: test_the_wait_is_a_common_setting_with_a_per_agent_override(Path(td) / 'n4'))

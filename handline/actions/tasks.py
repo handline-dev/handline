@@ -450,7 +450,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     return True, f"task T{tid} done ({mark})"
 
 
-def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tuple[bool, str]:
+def discard_task(con, tid: int, by: str, reason: str, stop: bool = False, effect=None) -> tuple[bool, str]:
     """Throw a task away before it is done (task #85) - the asker's or the founder's call
     (see `task_asker`), in one step with a one-line reason. It is recorded as
     discarded (who, why and when), never as finished work: no board or list
@@ -520,6 +520,8 @@ def discard_task(con, tid: int, by: str, reason: str, stop: bool = False) -> tup
             db.remove_block(con, tid, b["id"])
         db.reparent_children(con, tid)
         notices, freed_owners = _clear_blocks_on(con, tid, by, "discarded")
+        if effect:
+            effect(con)         # the daemon's record of the write, in the same transaction
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -1039,7 +1041,8 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
     never answered with a verdict; whoever opened it, whoever asked through a linked delivery, and
     `also` are told in one say each, from the task board - "T<n> done by <by>: <evidence>" - as rows
     written in this same transaction, so a crash or a tick between the end and the notice cannot
-    lose it. Not the closer; not the owner of a parent task, which hears of a child from
+    lose it. The opener is the one waiting, so its say is typed at once; the others' is a notice
+    for the digest. Not the closer; not the owner of a parent task, which hears of a child from
     `_child_result_notice`. The caller delivers the returned `(rid, to, text)` after COMMIT
     (`_deliver_unblocked`). The notices are not linked to the task: a task that ended must not read
     as sent because of a say."""
@@ -1062,7 +1065,7 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
         if to in skip or to not in known:
             continue
         rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
-                             notice=not urgent_result(done_text))
+                             notice=to != row["opened_by"] and not urgent_result(done_text))
         db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
         told.append((rid, to, text))
     return told
@@ -1071,7 +1074,7 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
 def task_new(me: str, owner: str, title: str, body: str | None = None,
             parent: int | None = None, expects: str | None = None,
             priority: int | None = None,
-            timeout_s: int | None = None) -> tuple[bool, str, int | None]:
+            timeout_s: int | None = None, effect=None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
@@ -1110,12 +1113,21 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         return False, msg, None
     con = db.connect()
     try:
-        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects,
-                          timeout_s=timeout_s)
-        _link_delivery(con, tid, owner, rid)
-        db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
-                                           "expects": expects})
-        _block_parent_on_child(con, parent, tid, me)
+        con.execute("BEGIN IMMEDIATE")      # the task, its link and `effect` (the daemon's record of the write) land together
+        try:
+            tid = db.new_task(con, title, owner, me, parent, priority, expects=expects,
+                              timeout_s=timeout_s)
+            _link_delivery(con, tid, owner, rid)
+            db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
+                                               "expects": expects})
+            _block_parent_on_child(con, parent, tid, me)
+            if effect:
+                effect(con, tid)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
     finally:
         con.close()
     limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""

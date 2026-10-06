@@ -1,0 +1,143 @@
+{
+ "fixtures": [
+  {
+   "name": "framing.waiting_call_does_not_block",
+   "spec": "inbox.list",
+   "about": "A call that waits (inbox.list with wait_s) does not hold up a later call on the same connection; its own reply still comes. Meaningful when the founder's inbox has nothing unread (else the first call returns at once).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder",
+      "methods": {
+       "$contains": {
+        "name": "hello",
+        "role": "anonymous",
+        "allowed": true
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {
+       "wait_s": 3
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "whoami",
+      "params": {}
+     },
+     "within_s": 1.5,
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "await": 2,
+     "result": {
+      "items": {
+       "$type": "array"
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "framing.replies_matched_by_id",
+   "spec": "inbox.list",
+   "about": "Calls sent without waiting are each answered, and a reply is matched by its id (string or integer) whatever order they come in.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder",
+      "methods": {
+       "$contains": {
+        "name": "hello",
+        "role": "anonymous",
+        "allowed": true
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "inbox.list",
+      "params": {
+       "wait_s": 1
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": "b",
+      "method": "whoami",
+      "params": {}
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "method": "whoami",
+      "params": {}
+     }
+    },
+    {
+     "await": 12,
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "await": "b",
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "await": 10,
+     "result": {
+      "items": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

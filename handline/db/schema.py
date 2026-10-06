@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import time
 from pathlib import Path
 
-from ..infra import paths
+from ..infra import paths, service
 
 from .cursors import get_cursor, set_cursor
 
@@ -438,7 +439,20 @@ CREATE INDEX IF NOT EXISTS session_starts_agent ON session_starts(agent, id);
 """
 
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
+class SchemaError(RuntimeError):
+    """The database cannot be used by this code as it stands. `kind` is "newer", "older" or "busy"; `have`
+    and `latest` are the database's version and the code's, when it is about versions."""
+
+    def __init__(self, message: str, kind: str = "busy", have: int | None = None, latest: int | None = None) -> None:
+        super().__init__(message)
+        self.kind, self.have, self.latest = kind, have, latest
+
+
+def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Connection:
+    """Open the database. A step marked additive is one a connect may run itself (it only adds, and the
+    baseline is the pass every connect used to run), so deploying one has no window; a database waiting for a
+    step not so marked is refused until the daemon (which passes `migrating`) has run it. A newer database is
+    refused for good. A file with no tables yet is set up whole."""
     p = path or paths.db_file()
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p, timeout=10.0, isolation_level=None)
@@ -447,21 +461,106 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
-    # Two processes opening one older database at once both see a column missing and both add it: the
-    # second fails with "duplicate column name". Every step looks at the columns it needs again, so
-    # running the migration again finds that column there and goes on.
-    for attempt in range(4):
-        try:
-            _migrate(con)
-            break
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e) or attempt == 3:
-                raise
+    try:
+        have = schema_version(con)
+        if have < LATEST_VERSION:
+            if migrating or not con.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
+                migrate(con)
+            else:
+                migrate(con, additive_only=True)
+            have = schema_version(con)
+        if have > LATEST_VERSION and not _newer_steps_only_add(con):
+            raise SchemaError(f"{p} is at schema version {have}, newer than the {LATEST_VERSION} this code "
+                              f"knows: update handline before using it", "newer", have, LATEST_VERSION)
+        if have < LATEST_VERSION:
+            raise SchemaError(f"{p} is at schema version {have}, older than the {LATEST_VERSION} this code "
+                              f"needs: run `{RESTART_COMMAND}` to restart the daemon, which brings it up", "older", have, LATEST_VERSION)
+    except BaseException:
+        con.close()
+        raise
     return con
 
 
-def _migrate(con) -> None:
-    """Bring the database up to the current schema; safe to run again."""
+def schema_version(con) -> int:
+    """The newest migration this database has had; 0 for one that has had none."""
+    try:
+        return con.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
+    except sqlite3.OperationalError:        # no such table yet
+        return 0
+
+
+MIGRATE_WAIT_S = 60.0
+RESTART_COMMAND = "hl service install"
+
+
+def migrate(con, additive_only: bool = False) -> None:
+    """Apply every migration the database has not had, in order, or with `additive_only` up to the first that
+    is not marked additive. Processes
+    serialize on a lock file, and each takes the version again once it holds it, so a migration runs once
+    however many open at the same time. A step that dies midway is run again, so a step must be safe to
+    run again. A lock held past MIGRATE_WAIT_S is an error that names its holder."""
+    import fcntl
+    file = next(r[2] for r in con.execute("PRAGMA database_list") if r[1] == "main")
+    with open(file + ".migrate-lock", "a+") as lock:
+        deadline = time.monotonic() + MIGRATE_WAIT_S
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    lock.seek(0)
+                    holder = lock.read().strip() or "another process"
+                    raise SchemaError(f"{file} has been busy migrating for {MIGRATE_WAIT_S:.0f}s, held by pid "
+                                      f"{holder}: wait for it, or end it and try again") from None
+                time.sleep(0.05)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(os.getpid()))
+        lock.flush()
+        have = schema_version(con)
+        if have > LATEST_VERSION and not _newer_steps_only_add(con):
+            raise SchemaError(f"{file} is at schema version {have}, newer than the {LATEST_VERSION} this code "
+                              f"knows: update handline before using it", "newer", have, LATEST_VERSION)
+        for version, name, step, additive in MIGRATIONS:
+            if version <= have:
+                continue
+            if additive_only and not additive:
+                break
+            if Path(file).resolve().parent in paths.live_homes() and not service.is_installed_checkout():
+                raise SchemaError(f"{file} needs step {version} ({name}), which only the installed main checkout "
+                                  f"may apply to the live home: this is {paths.repo_root()}; merge it, or point "
+                                  f"HANDLINE_HOME at a scratch folder")
+            step(con)
+            con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, "
+                        "name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)")
+            _mark_additive_column(con)
+            con.execute("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(?, ?, ?, ?)",
+                        (version, name, int(time.time()), int(additive)))
+
+
+def _mark_additive_column(con) -> None:
+    """A database stamped before steps said whether they only add: give it the column, filled from the
+    steps this code knows."""
+    if "additive" in _cols(con, "schema_version"):
+        return
+    con.execute("ALTER TABLE schema_version ADD COLUMN additive INTEGER NOT NULL DEFAULT 0")
+    for version, _name, _step, additive in MIGRATIONS:
+        con.execute("UPDATE schema_version SET additive = ? WHERE version = ?", (int(additive), version))
+
+
+def _newer_steps_only_add(con) -> bool:
+    """True when every step this code does not know was recorded as additive: it only added tables and
+    columns, so this code, which names none of them, runs on the database as it is. A daemon started
+    before a merge keeps running after another process applies a step the merge brought."""
+    if "additive" not in _cols(con, "schema_version"):
+        return False
+    return not con.execute("SELECT 1 FROM schema_version WHERE version > ? AND additive = 0 LIMIT 1",
+                           (LATEST_VERSION,)).fetchone()
+
+
+def _baseline(con) -> None:
+    """Migration 1: everything done before versions existed, as one pass that is safe to run again."""
     # The legacy request columns (`_LEGACY_REQUEST_COLUMNS`): a database that was dropped of them by
     # the doctor, or made without them, never grows them back and runs no migration that names them.
     fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'requests'").fetchone() is None
@@ -509,6 +608,84 @@ def _migrate(con) -> None:
     _hr_proposals_leave_tasks(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
+
+
+# Ordered and numbered; a step is appended, never edited or reordered, and none may drop or reshape a
+# column (the doctor drops dead ones). A database that is not at the last number is not current. A step is
+# additive when a plain connect may run it under the lock: it is safe to run again and only adds.
+def _rpc_replies(con) -> None:
+    """The daemon's reply store: a write's reply, kept a day under its request_id (daemon/rpc.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS rpc_replies (
+          caller     TEXT    NOT NULL,
+          request_id TEXT    NOT NULL,
+          method     TEXT    NOT NULL,
+          params     TEXT    NOT NULL,
+          reply      TEXT    NOT NULL,
+          ts         INTEGER NOT NULL,
+          PRIMARY KEY (caller, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS rpc_replies_ts ON rpc_replies(ts);
+    """)
+
+
+def _agent_view(con) -> None:
+    """The daemon's stored view of each agent (daemon/agentview.py)."""
+    con.execute("CREATE TABLE IF NOT EXISTS agent_view (agent TEXT PRIMARY KEY, view TEXT NOT NULL, updated INTEGER NOT NULL)")
+
+
+def _stream_log(con) -> None:
+    """The event stream's log; its id is the cursor (daemon/stream.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS stream_log (
+          id     INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts     INTEGER NOT NULL,
+          topic  TEXT    NOT NULL,
+          type   TEXT    NOT NULL,
+          agent  TEXT,
+          actor  TEXT,
+          title  TEXT,
+          target TEXT,
+          data   TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS stream_log_topic ON stream_log(topic, id);
+    """)
+
+
+def _hook_applied(con) -> None:
+    """The request ids of hook events already applied, kept a day, with whose and when they ran: the newest
+    `at` of an agent is what an older event must not move its state back past (session/events.py `apply_hook`)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS hook_applied (request_id TEXT PRIMARY KEY, ts INTEGER NOT NULL, agent TEXT, at INTEGER);
+        CREATE INDEX IF NOT EXISTS hook_applied_agent ON hook_applied(agent, at);
+    """)
+
+
+def _write_effects(con) -> None:
+    """What a write did, recorded in the same transaction as the write: a retry of its request_id after a crash
+    between the effect and the reply finds this and answers with it, repeating nothing (daemon/rpc.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS write_effects (
+          caller      TEXT    NOT NULL,
+          request_id  TEXT    NOT NULL,
+          method      TEXT    NOT NULL,
+          result_json TEXT    NOT NULL,
+          created_at  INTEGER NOT NULL,
+          PRIMARY KEY (caller, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS write_effects_created ON write_effects(created_at);
+    """)
+
+
+MIGRATIONS = [
+    (1, "baseline", _baseline, True),
+    (2, "rpc_replies", _rpc_replies, True),
+    (3, "agent_view", _agent_view, True),
+    (4, "stream_log", _stream_log, True),
+    (5, "hook_applied", _hook_applied, True),
+    (6, "write_effects", _write_effects, True),
+]
+LATEST_VERSION = MIGRATIONS[-1][0]
 
 
 def _write_if_any(con, table: str, where: str, sql: str, params: tuple = ()) -> None:

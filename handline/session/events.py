@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+import uuid
 
 from ..usage import collect
 from .. import db
 from ..infra import names, sessiontoken
+from ..team import agents
 from . import bgjobs, memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
@@ -108,6 +111,94 @@ def at_limit(con, agent: str) -> dict | None:
     return dict(data, at=int(row["ts"]))
 
 
+def _record(agent: str, event: str, raw: dict) -> None:
+    """Hand the event to the daemon, which writes it down and decides what it means for the agent's state. With
+    the daemon down it goes to the spool, which only records. A hook never fails its session over this."""
+    try:
+        from ..daemon import client, spool
+        request_id = uuid.uuid4().hex
+        at = int(time.time())
+        try:
+            sock = client.connect(2.0)
+            if sock is None:
+                raise OSError("no daemon")
+            client.call(sock, "hook.record", {"agent": agent, "kind": event, "at": at, "data": raw,
+                                              "request_id": request_id}, client_name="hook")
+        except (OSError, client.RpcError):
+            spool.append(agent, event, raw, request_id, at)
+    except Exception:  # noqa: BLE001 - a hook must never break the session
+        pass
+
+
+HOOK_KEEP_S = 24 * 3600
+
+
+def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
+    """What the daemon does with a hook event: the one writer of what a hook records. Once per request id: the id
+    is taken first, in the same transaction as every effect, so a line already applied does nothing at all and a
+    crash part-way leaves nothing applied for the retry to repeat or to skip.
+
+    An event older than the newest already applied for this agent is recorded but moves nothing: it arrived late
+    (a kept spool line, two hooks that raced), and acting on it would put the agent back where a newer event has
+    already taken it. A time ahead of the daemon's clock is taken as the time of arrival, so a hook with a clock set
+    ahead makes late only what was stamped before it arrived. On equal times the one that arrives later wins: hook
+    times are whole seconds and the daemon's order of arrival is the only order left to go by."""
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        now = int(time.time())
+        at = min(at, now)               # an event cannot have happened after it arrived
+        from ..daemon import spool
+        if not spool.pending():         # a file left by a crash may still replay lines older than a day
+            # Ids older than a day go, except each agent's newest row: the lateness check below reads it.
+            con.execute("DELETE FROM hook_applied WHERE ts < ? AND rowid NOT IN "
+                        "(SELECT rowid FROM hook_applied WHERE agent IS NOT NULL AND at IS NOT NULL "
+                        "GROUP BY agent HAVING at = MAX(at))", (now - HOOK_KEEP_S,))
+        newest = con.execute("SELECT MAX(at) FROM hook_applied WHERE agent = ?", (agent,)).fetchone()[0]
+        if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts, agent, at) VALUES(?, ?, ?, ?)",
+                       (request_id, now, agent, at)).rowcount == 0:
+            con.execute("ROLLBACK")
+            return
+        _apply(con, agent, event, raw, request_id, at, late=newest is not None and at < newest)
+        con.execute("COMMIT")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK")
+        raise
+
+
+def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int, late: bool = False) -> None:
+    if event in ANSWERS:
+        if not late:
+            _note_tool_use(agent, con)
+    if event not in CAPTURED:
+        return
+    account = agents.current_account(agent, con)
+    payload = _slim(raw)
+    if event == "StopFailure":
+        lim = limit_reason(raw)
+        if lim:
+            payload["limit"], payload["limit_source"] = lim
+    if event == "PermissionRequest":
+        payload["command"] = waiting.summary(raw.get("tool_input"))
+        # Observation only: what a permission hook is told, so a later hook that answers can be designed on
+        # it. Key names, no values.
+        if isinstance(raw.get("permission_mode"), str):
+            payload["permission_mode"] = raw["permission_mode"][:40]
+        payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
+    elif event in ENDS_WAIT and not late:
+        waiting.clear(agent)
+    eid = db.add_event(con, agent, event, payload, account=account, ts=at)
+    if late:
+        return              # recorded, and nothing it would change is changed: a newer event has been applied
+    if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
+        db.bind_session_start(con, agent, str(raw["session_id"]))
+    if event == "PermissionRequest":
+        # After its own row exists, so the id `of()` later compares other activity against is this exact
+        # prompt's, not the one before it.
+        waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
+    _mark_activity(con, agent, event, payload)
+
+
 def record_from_stdin(argv: list[str] | None = None) -> int:
     """Entry point for `hl hook <event>`. Always exits 0.
 
@@ -156,10 +247,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             pass
-        try:
-            _note_tool_use(agent)
-        except Exception:  # noqa: BLE001 - same
-            pass
+        _record(agent, event, raw)
         if event == "PostToolUse":
             try:
                 memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
@@ -187,36 +275,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         print("{}")
         return 0
 
-    try:
-        con = db.connect()
-        try:
-            payload = _slim(raw)
-            if event == "StopFailure":
-                lim = limit_reason(raw)
-                if lim:
-                    payload["limit"], payload["limit_source"] = lim
-            if event == "PermissionRequest":
-                payload["command"] = waiting.summary(raw.get("tool_input"))
-                # T648, observation only: what a permission hook is told, so a
-                # later hook that answers can be designed on it. Key names, no values.
-                if isinstance(raw.get("permission_mode"), str):
-                    payload["permission_mode"] = raw["permission_mode"][:40]
-                payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
-            elif event in ENDS_WAIT:
-                waiting.clear(agent)
-            eid = db.add_event(con, agent, event, payload, account=account)
-            if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
-                db.bind_session_start(con, agent, str(raw["session_id"]))
-            if event == "PermissionRequest":
-                # After its own row exists, so the id `of()` later compares
-                # other activity against is this exact prompt's, not the one
-                # before it.
-                waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
-            _mark_activity(con, agent, event, payload)
-        finally:
-            con.close()
-    except Exception:  # noqa: BLE001 - a hook must never break the session
-        pass
+    _record(agent, event, raw)
     if event in COLLECT_EVENTS:
         try:
             collect.collect(agent, raw.get("cwd") or os.getcwd())
@@ -303,22 +362,18 @@ def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> 
                            detail="finished its turn")
 
 
-def _note_tool_use(agent: str) -> None:
+def _note_tool_use(agent: str, con) -> None:
     """A tool just ran, so the agent is mid-turn. A prompt the daemon typed while it was busy is
     queued by the session and run inside the same turn: no UserPromptSubmit fires for it and no Stop
     until the whole turn ends, so the row stayed QUEUED (drawn PENDING) or IDLE for as long as that
     turn lasted - an hour for an agent that kept finding more work. Only a row the daemon is not
     steering (QUEUED not moving, IDLE, session not closed) is moved; the turn's Stop sets IDLE again."""
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, agent)
-        if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
-            return
-        if (row["detail"] or "").startswith("moving"):
-            return
-        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
-    finally:
-        con.close()
+    row = db.get_agent_state(con, agent)
+    if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
+        return
+    if (row["detail"] or "").startswith("moving"):
+        return
+    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

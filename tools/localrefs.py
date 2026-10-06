@@ -58,6 +58,8 @@ HINT = ("say what changed and why in words; task and chat ids stay on the task b
 
 # The text of a link into someone else's tracker, and any URL: a number in either is theirs, not ours.
 _EXTERNAL = re.compile(r"\[[^\]]*\]\(https?://github\.com/[^)\s]*\)|https?://[^\s)>\]]+")
+_STYLE_ATTR = re.compile(r"""\bstyle\s*=\s*(?:"[^"]*"|'[^']*')""")
+_HEX_COLOUR = re.compile(r"#(?:\d{3}|\d{4})$")
 _OCP_COMMAND = re.compile(r"\b(?:hl|handline|ocp)\s+[a-z][\w-]*")
 
 
@@ -76,13 +78,15 @@ def _in_ocp_command(text: str, pos: int) -> bool:
     return False
 
 
-def find(text: str, words: tuple[str, ...] = (), doc: bool = False) -> list[tuple[str, str]]:
+def find(text: str, words: tuple[str, ...] = (), doc: bool = False, css: bool = False) -> list[tuple[str, str]]:
     """(kind, matched text) for everything in one line of text. `words` are this machine's own
     names (login, git user); they count as personal data wherever they stand alone. `doc` is a line
-    of a Markdown file, where an id in an `ocp` command is an example of the product's syntax."""
+    of a Markdown file, where an id in an `ocp` command is an example of the product's syntax. `css` is a
+    line of a stylesheet, where a short hex colour is a colour; elsewhere a style attribute holds the same."""
     if MARKER in text:
         return []
     external = [m.span() for m in _EXTERNAL.finditer(text)]
+    styled = [m.span() for m in _STYLE_ATTR.finditer(text)]
     out: list[tuple[str, str]] = []
     for kind, rx in PATTERNS:
         for m in rx.finditer(text):
@@ -97,6 +101,8 @@ def find(text: str, words: tuple[str, ...] = (), doc: bool = False) -> list[tupl
                     continue
             elif kind == "message number" and _inside(external, m.start()):
                 continue                  # the number of an issue in someone else's tracker
+            elif kind == "message number" and _HEX_COLOUR.fullmatch(s) and (css or _inside(styled, m.start())):
+                continue                  # a three- or four-digit hex colour
             if doc and kind in ("task id", "message number") and _in_ocp_command(text, m.start()):
                 continue
             out.append((kind, s))
@@ -140,7 +146,7 @@ def scan_diff(diff: str, allow: list[str], words: tuple[str, ...] = ()) -> list[
             if raw.startswith("+") and adds:
                 adds -= 1
                 if path and not is_allowed(path, allow):
-                    for kind, s in find(raw[1:], words, doc=path.endswith(".md")):
+                    for kind, s in find(raw[1:], words, doc=path.endswith(".md"), css=path.endswith(".css")):
                         out.append(f"{path}:{lineno}: {kind}: {s}")
                 lineno += 1
                 continue
