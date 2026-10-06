@@ -200,3 +200,18 @@ test('property: after any run of random operations, Chat is there and every inva
     }
   }
 });
+
+test('the default layout is Chat on the left and the session terminal on the right, each in its own pane; no session, Chat alone', () => {
+  const ws = two();
+  assert.equal(ws.root.type, 'split');
+  if (ws.root.type !== 'split') return;
+  assert.equal(ws.root.dir, 'row');
+  assert.equal(ws.root.at, 0.5);
+  assert.deepEqual([ws.root.a, ws.root.b].map((n) => n.type === 'group' && n.tabs), [[CHAT], ['terminal:term:a']]);
+  assert.equal(ws.tabs['terminal:term:a']!.params.handle, 'term:a');
+  assert.equal(ws.active, 'g2');
+  const none = defaultWorkspace();
+  assert.equal(none.root.type, 'group');
+  assert.deepEqual(ids(none), [CHAT]);
+  invariants(ws); invariants(none);
+});
