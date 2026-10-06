@@ -117,6 +117,54 @@ def _check(main: Path, sha: str) -> str:
     return r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else f"rc={r.returncode} {r.stderr}"
 
 
+def test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(home: Path) -> None:
+    """The suite the auditor ran on <sha> is the suite of the merge when main has not moved past it
+    (the merge's tree is <sha>'s own); once main moved the merge is a new tree and the suite runs.
+    The suite here is red whenever RED is in the tree, so a rerun shows as a failure."""
+    main = _repo(home)
+    red = _branch(main, "red", "RED", "x\n")
+
+    def check_run(*flags: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", *flags, red], cwd=main, capture_output=True, text=True,
+                              env=ENV, timeout=60)
+    r = check_run()
+    check("check: without a PASS the suite runs, and red stops it", r.returncode == 1, r.stdout + r.stderr)
+    r = check_run("--passed")
+    check("check: with a PASS and main not moved the suite is not rerun, and the tree is printed",
+          r.returncode == 0 and r.stdout.strip() == _git(main, "rev-parse", f"{red}^{{tree}}"), r.stdout + r.stderr)
+    (main / "later.py").write_text("v = 1\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "main moved")
+    r = check_run("--passed")
+    check("check: once main moved, the merge is a new tree and the suite runs once on it",
+          r.returncode == 1, r.stdout + r.stderr)
+
+
+def test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(home: Path) -> None:
+    """--passed and a train together: the train's last merge holds every branch, so it is never the
+    passed sha's own tree and the suite runs on it, unless what the train changes is only docs."""
+    main = _repo(home)
+    runs = home / "runs"
+    red = _branch(main, "red", "RED", "x\n")
+    other = _branch(main, "other", "b.py", "z = 3\n")
+
+    def check_run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", *args], cwd=main, capture_output=True, text=True,
+                              env={**ENV, "SUITE_RUNS": str(runs)}, timeout=60)
+    r = check_run("--passed", red)
+    check("passed: one passed sha with main not moved skips the suite", r.returncode == 0 and _runs(runs) == 0,
+          r.stdout + r.stderr)
+    r = check_run("--passed", red, other)
+    check("passed: a train with --passed still runs the suite on its last merge, and red stops it",
+          r.returncode == 1 and _runs(runs) == 1, r.stdout + r.stderr)
+    r = check_run("--passed", other, red)
+    check("passed: in either order", r.returncode == 1 and _runs(runs) == 1, r.stdout + r.stderr)
+    d1, d2 = _branch(main, "d1", "docs/a.md", "# a\n"), _branch(main, "d2", "docs/b.md", "# b\n")
+    r = check_run("--passed", d1, d2)
+    check("passed: a docs-only train runs none, and prints a tree for each",
+          r.returncode == 0 and _runs(runs) == 0 and len(r.stdout.split()) == 2, r.stdout + r.stderr)
+
+
 def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(home: Path) -> None:
     """The merger tests in its own sandbox (`land.sh --check`) and records the tree it saw; the auditor
     records a PASS; both only from the process of that agent's session. The daemon merges with git alone
@@ -577,6 +625,8 @@ def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
+        run(lambda: test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(Path(td) / "l2b"))
+        run(lambda: test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(Path(td) / "l2c"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))

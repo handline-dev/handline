@@ -20,7 +20,7 @@ async function until(cond: () => unknown, what: string, tries = 300) {
   throw new Error(`timed out waiting for ${what}`);
 }
 const memory = (): KV => {
-  const data = new Map<string, string>();
+  const data = new Map<string, string>([['terminal', 'text']]); // these tests drive the text tab
   return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
 };
 

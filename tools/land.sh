@@ -8,7 +8,7 @@
 # only ever moves by a fast-forward to a commit that is already finished.
 #
 #   tools/land.sh [--test] [--note <text>] <sha> <merge message>
-#   tools/land.sh --check <sha> [<sha>...]
+#   tools/land.sh --check [--passed] <sha> [<sha>...]
 #
 # --check is the merger's own test, run in its sandbox: it merges each <sha> in turn into main in a
 # throwaway clone (reads main's repo, writes only $TMPDIR), runs the suite once on the result, and prints
@@ -17,6 +17,9 @@
 # the message it was given itself. A merge's tree does not depend on its message, so the daemon landing
 # the shas in this order reaches the same trees. When every path the merges change is documentation
 # (docs-only below), the suite is not run.
+# --passed says the auditor recorded a PASS for a single <sha>: when the merge's tree is then <sha>'s own
+# tree (main has not moved past it), the suite the auditor ran is the suite of this merge and is not
+# rerun. A train's last merge is never one sha's tree, so --passed changes nothing there.
 #
 # --test runs tools/suite.sh on the merge result first; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one
@@ -43,7 +46,9 @@ docs_only() {
 
 if [ "${1:-}" = "--check" ]; then
     shift
-    [ $# -ge 1 ] || { echo "usage: land.sh --check <sha> [<sha>...]" >&2; exit 2; }
+    passed=0
+    if [ "${1:-}" = "--passed" ]; then passed=1; shift; fi
+    [ $# -ge 1 ] || { echo "usage: land.sh --check [--passed] <sha> [<sha>...]" >&2; exit 2; }
     shas=()
     for s in "$@"; do shas+=("$(git rev-parse --verify "$s^{commit}")"); done
     main_dir="$(git worktree list --porcelain | awk '/^worktree /{d=substr($0,10)} /^branch refs\/heads\/main$/{print d; exit}')"
@@ -68,7 +73,9 @@ if [ "${1:-}" = "--check" ]; then
         fi
         trees+=("$(git -C "$work" rev-parse 'HEAD^{tree}')")
     done
-    if git -C "$work" diff --name-only "$base" HEAD | docs_only; then
+    if [ "$passed" = 1 ] && [ ${#shas[@]} -eq 1 ] && [ "${trees[0]}" = "$(git -C "$work" rev-parse "${shas[0]}^{tree}")" ]; then
+        echo "land.sh: the merge is the tree the auditor passed; the suite is not rerun" >&2
+    elif git -C "$work" diff --name-only "$base" HEAD | docs_only; then
         echo "documentation only: the suite is not run" >&2
     else
         "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }

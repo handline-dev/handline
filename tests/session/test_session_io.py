@@ -1016,6 +1016,10 @@ def test_a_dialog_ocp_cannot_decline_is_reported_not_pressed(home: Path) -> None
             blockedmod.sweep(con, lines.append, t0 + step)
         check("cannot: nothing is pressed, however long it stands", term.sent == [], str(term.sent))
         check("cannot: the block stands", db.block_get(con, "backend") is not None)
+        told = [r for r in con.execute("SELECT body FROM requests WHERE target = ? AND body LIKE ?",
+                                       (db.HUMAN, "%is at a dialog ocp did not press%"))]
+        check("cannot: the founder is told once, at the first sweep, what the dialog offers",
+              len(told) == 1 and "1. Yes, proceed" in told[0]["body"], str([dict(r) for r in told]))
         check("cannot: the reason is logged once, not every sweep",
               sum("did not press" in m for m in lines) == 1, str(lines))
         esc = _decisions(con)

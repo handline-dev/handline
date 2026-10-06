@@ -28,6 +28,7 @@ from . import rpc, stream
 
 LIVE: set[str] = set()
 _live_lock = threading.Lock()
+_idle = threading.Condition(_live_lock)
 STEPS = ("register", "start")
 KEEP_S = 7 * 24 * 3600
 
@@ -73,8 +74,19 @@ def _run(op: str, name: str, repo: str, base: str, kw: dict) -> None:
     except Exception as e:  # noqa: BLE001 - whatever stopped it is the operation's message, never a dead thread
         _progress(op, state="failed", message=f"{step} failed: {e}", result={"agent": name, "registered": step == STEPS[1]})
     finally:
-        with _live_lock:
-            LIVE.discard(op)
+        _leave(op)
+
+
+def _leave(op: str) -> None:
+    with _live_lock:
+        LIVE.discard(op)
+        _idle.notify_all()
+
+
+def wait_idle(timeout: float = 10.0) -> bool:
+    """Wait until no agent.create thread is running; False if one still is after `timeout` seconds."""
+    with _live_lock:
+        return _idle.wait_for(lambda: not LIVE, timeout)
 
 
 def _text(params: dict, key: str, required: bool = False) -> str | None:
@@ -132,8 +144,7 @@ def _create(ctx, params) -> dict:
             raise
         stream.emit(con, "operations", "operation.progress", _load(con, op), agent=name)
     except BaseException:
-        with _live_lock:
-            LIVE.discard(op)
+        _leave(op)
         raise
     finally:
         con.close()

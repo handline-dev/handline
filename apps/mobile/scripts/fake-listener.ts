@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -41,6 +41,14 @@ execFileSync(
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.autoplay(Number(arg('autoplay', '1500')));
+// For watching the loading and refusal states on a device: `--latency 800` and `--refuse agents.list:state:the daemon is resting`
+// (method:gate:reason; repeat the flag for more). Both apply to calls after the pairing hello.
+daemon.knobs.latency(Number(arg('latency', '0')));
+process.argv.forEach((a, i) => {
+  if (a !== '--refuse') return;
+  const [method = '', gate = 'state', ...reason] = process.argv[i + 1]!.split(':');
+  daemon.knobs.refuse(method, gate, reason.join(':') || 'refused');
+});
 serveWs(daemon, port, host, { cert, key: fs.readFileSync(`${dir}/k.pem`) }, true);
 const fp = crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('hex');
 const uri = `handline://pair?${new URLSearchParams({ host: `${host}:${port}`, fp, code: daemon.issueCode() })}`;

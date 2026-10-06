@@ -23,7 +23,9 @@ import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { Knobs } from './knobs.ts';
-import { detail, newSession, tid, view, type Session } from './session.ts';
+import { detail, newSession, tid, view, type Attach, type Session } from './session.ts';
+
+const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
@@ -34,7 +36,7 @@ interface Conn {
   caller: Caller;
   helloed: boolean;
   topics: Set<Topic> | null;
-  attached: Set<string>; // terminal ids
+  attached: Map<string, Attach>; // terminal id -> how this connection watches it
   network: boolean; // came in through the paired-device listener
   paired: boolean; // a local connection always; a network one once hello carried a known token
 }
@@ -66,7 +68,18 @@ export class FakeDaemon {
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
     broadcast: (s, method, params) => {
-      for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'text') this.notify(c, method, params);
+        // Bytes watchers get the same markers and holders in their own counter, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder')) this.notify(c, method, { ...(params as object), seq: ++a.seq });
+      }
+    },
+    broadcastBytes: (s, method, build) => {
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'bytes') this.notify(c, method, { ...build(), seq: ++a.seq });
+      }
     },
   });
   private tokens = new Map<string, { id: string; name: string }>();
@@ -100,7 +113,7 @@ export class FakeDaemon {
       caller: { kind, name },
       helloed: false,
       topics: null,
-      attached: new Set(),
+      attached: new Map(),
       network,
       paired: !network,
     };
@@ -175,6 +188,11 @@ export class FakeDaemon {
     }));
   }
 
+  /** Makes the bytes watchers of an agent fall behind: they are told to repaint, as the daemon does past 1 MiB unsent. */
+  slowClient(agent: string): void {
+    this.script.snapshotBytes(this.session(agent), 'slow_client');
+  }
+
   private session(agent: unknown): Session {
     const s = typeof agent === 'string' ? this.sessions.get(agent) : undefined;
     if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
@@ -192,7 +210,7 @@ export class FakeDaemon {
       actor: f.actor ?? null,
       agent: f.agent ?? null,
       title: f.title ?? null,
-      target: f.agent ? { screen: 'session', id: f.agent } : null,
+      target: f.agent ? { screen: 'agent', id: f.agent } : null,
       data: f.data ?? {},
     };
     this.events.push(e);
@@ -300,7 +318,7 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: this.serveChat, review: false, input_ask: false, terminal_format: ['text'] },
+        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
           .filter(([name]) => this.serveChat || !name.startsWith('chat.'))
