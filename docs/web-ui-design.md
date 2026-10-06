@@ -2,6 +2,9 @@
 
 Request #14018 (founder-approved #13996/#14011). Founder's brief: base it on the Orca screenshots, fit it to our system, and let a person **control Claude Code directly**. Scope here is screen design and information architecture only. The API is drafted separately from orcapipe T1683; §8 is this document's input to it.
 
+Founder decisions of 10-06 (T1686, memo 452) are applied throughout and listed in §9:
+chat first with a movable terminal pane, one input holder per session in v1 but open to many, LAN/Tailscale reach only, diff review reserved for later.
+
 Delivery order: **web first**, Electron wraps the same web app, mobile is design only (§7).
 Orca source: `docs/orca-feature-inventory.md` at 67fd404f (F01..F69, screenshots S01..S52). IDs below point at it.
 
@@ -19,7 +22,7 @@ Orca is a place to run agents by hand. Handline is a place where a daemon runs a
 ┌ top bar ───────────────────────────────────────────────────────────────┐
 │ ◀ ▶  [⌕ search ⌘K]            Inbox ③   Tasks   Team   Accounts   ⚙     │
 ├ rail ──┬ main ─────────────────────────────────────────────┬ side ─────┤
-│ agents │  tabs: [handline.term-design ▸ Session] [Task 14020] [+]     │ context  │
+│ agents │  tabs: [handline.term-design ▸ Agent] [Task 14020] [+]     │ context  │
 │ (§3)   │                                                              │ panel    │
 │        │                    (the screen)                              │ (§4.5)   │
 ├ status bar ────────────────────────────────────────────────────────────┤
@@ -39,7 +42,7 @@ Orca is a place to run agents by hand. Handline is a place where a daemon runs a
 | # | Screen | Purpose | Orca ancestor |
 |---|---|---|---|
 | A | Agent rail | find an agent, see its state at a glance | F01 F03 F05 |
-| B | **Session** | live Claude Code terminal and its controls | F16 F39, S11 |
+| B | **Agent page** | chat with the agent, plus a movable pane holding its Claude Code terminal or a shell | F16 F39, S11 |
 | C | Inbox | what waits on the founder: results, decisions, permission asks, blocks | none (our `hl inbox`, bridge) |
 | D | Tasks | requests between agents and people, with their state | F48 (loosely), S06 |
 | E | Task detail | one request whole, with its answer and evidence | none |
@@ -68,37 +71,48 @@ One row per agent, grouped by team role (not by project; a project filter is a c
 - Rail options (kept, simplified from F06): group by role / state / account, hide parked, search. No card layout choices.
 - Row menu: Open session, Start, Stop, Resume, Rename, Move account, Close.
 
-### 3.2 B. Session (the screen that matters most)
+### 3.2 B. Agent page (the screen that matters most)
+
+The page is a **chat** like the handline bridge's chat page, with a **pane area** beside it. The chat is the default way to work with an agent; the terminal is one step away when a person wants the real Claude Code TUI.
 
 ```
 ┌ header ────────────────────────────────────────────────────────────────┐
 │ ● handline.term-design   opus · alpha 41% · T1684 · worktree term-design│
-│ [▶ Start] [■ Stop ▾] [⟳ Resume]            input: YOU ▾  (daemon paused)│
-├ banner (only when needed) ─────────────────────────────────────────────┤
-│ ⚠ Permission: Bash  `git push origin buddyron/…`   [Yes y] [No n] [Esc]│
-├ terminal ──────────────────────────────────────────────────────────────┤
-│  live xterm: the real Claude Code TUI, rendered, scrollback             │
-│                                                                         │
-├ compose ───────────────────────────────────────────────────────────────┤
-│ ▸ type a message…                         [Send ↵] [Send, no Enter]    │
-│ keys: [Esc] [^C] [↵] [↑] [↓] [⇥] [1] [2] [3] [Shift+⇥]     [clear line]│
-└────────────────────────────────────────────────────────────────────────┘
+│ [▶ Start] [■ Stop ▾] [⟳ Resume]                     input: daemon ▾     │
+├ chat ──────────────────────────────┬ pane area ─────────────────────────┤
+│ you      fix the flaky test        │ [Claude Code ✕] [shell ✕] [＋]     │
+│ agent    delivered, not answered   │ ┌────────────────────────────────┐ │
+│ ─ T1684 done: evidence … ─         │ │ live xterm (the real TUI)      │ │
+│ ⚠ Permission: Bash `git push …`    │ │                                │ │
+│   [Yes y] [No n]                   │ └────────────────────────────────┘ │
+│ ▸ type a message…        [Send ↵]  │ keys: [Esc] [^C] [↵] [↑] [↓] [1][2][3]│
+└────────────────────────────────────┴────────────────────────────────────┘
 ```
 
-Controls and what each means:
+**Chat (left).** The conversation between the person and the agent, as the bridge draws it: messages with their landing state (sending, delivered, delivered not answered), task events inline (opened, done with evidence, withdrawn), a working/waiting line, and older messages loaded when scrolled to the top. The agent's reply and tool activity come from the transcript (§8, chat data). Two tabs as on the bridge: *mine* (person and this agent) and *all* (everything this agent sent or received). A permission or question prompt is drawn as a card in the stream with its buttons; it is also the Inbox card (§3.3).
+
+**Pane area (right).** Holds panes of kinds: **Claude Code** (this agent's own terminal, live), **Shell** (a plain terminal in its worktree), and, reserved, **Review** (§3.7). Like tmux or Orca:
+
+- Open from `＋` or the header: Claude Code, Shell.
+- Dock to the right (default), left, bottom, or fill the page; drag a pane's tab to another edge to move it.
+- Several panes can sit side by side as splits, or be **merged into one tabbed group** by dropping one onto another's tab strip; drag out to split again.
+- The layout is remembered per agent in the browser; closing a pane never stops the agent (closing the Claude Code pane detaches only).
+- On narrow screens the pane area becomes a second tab beside Chat (§7).
+
+Controls (header and Claude Code pane):
 
 | Control | Does | Notes |
 |---|---|---|
 | **Start** | create a terminal in the agent's worktree and launch `hl launch <agent>`; or, if a closed session exists, resume it | shows the account that will be used (the daemon's `pick`) and lets the person override it once |
 | **Stop ▾** | *Interrupt* (Esc, ends the turn), *Exit* (`/exit`, keeps terminal, worktree, account), *Close terminal*, *Kill* (confirm) | mirrors the daemon's own close vs. handoff; Close frees memory, Exit keeps the session id |
 | **Resume** | wake the same session | enabled when the session is closed and exists |
-| **Compose** | send text and press Enter after it | Enter is a separate keystroke, not part of the text; multi-line draft kept locally; Shift+Enter is a newline in the box |
-| **Key chips** | send one raw key: Esc, Ctrl-C, Enter, arrows, Tab, Shift+Tab (mode cycle), 1/2/3 (menu pick) | the answer to dialogs, which are menus. Chips are always present; on mobile they are the primary input (§7) |
-| **Permission banner** | Yes / No on a detected Claude permission prompt | appears only when the daemon *detected* one (tool, command, reason, the prompt's own lines); never offers "always" (a prompt has no standing rule to save). Esc closes it without answering |
-| **Other dialogs** | trust-folder, `/exit` over background work, login expired, unknown dialog | shown as a banner with the dialog's lines and the key chips; the daemon names what it cannot decide and never picks for the person |
-| **Terminal pane** | the live stream, selectable, copyable, scrollback, resize follows the pane | keystrokes typed directly in the pane are sent too, once the person *takes the keyboard* (§4.3) |
+| **Chat box** | sends a message to the agent as a request, the way the bridge does | goes through the daemon's delivery (queued, typed, landed), not raw keystrokes; Shift+Enter is a newline |
+| **Key chips** | send one raw key to the terminal: Esc, Ctrl-C, Enter, arrows, Tab, Shift+Tab (mode cycle), 1/2/3 (menu pick) | the answer to dialogs, which are menus; primary input on mobile (§7) |
+| **Permission card** | Yes / No on a detected Claude permission prompt | appears only when the daemon *detected* one (tool, command, reason, the prompt's own lines); never offers "always". Same card in Inbox |
+| **Other dialogs** | trust-folder, `/exit` over background work, login expired, unknown dialog | card with the dialog's lines and key chips; the daemon names what it cannot decide and never picks for the person |
+| **Terminal pane** | the live stream, selectable, copyable, scrollback | keystrokes typed directly in the pane are sent once the person *takes the keyboard* (§4.3) |
 
-The terminal pane and compose box are two ways to type, deliberately: the pane for a person who knows the TUI, the box for sending a message without fighting cursor position, and for phones.
+Chat box and terminal are two ways to speak: the chat box for a message to the agent (queued, tracked, safe while the agent works), the terminal for a person who needs the TUI itself (menus, `/` commands, a dialog).
 
 ### 3.3 C. Inbox
 
@@ -126,7 +140,7 @@ Per account: login state, 5-hour window used and reset time, weekly use, cap on 
 
 ### 3.7 H. Worktrees
 
-Table/board of worktrees: repo, branch, owner agent, parent/child, status (todo/in progress/in review/done, as the daemon already sets with `worktree set`), changed files count. Board view kept from Orca (F09, S45) because the status field already exists on the host. Opening a worktree shows file diff (read-only) and a "Open session" link. No editor.
+Table/board of worktrees: repo, branch, owner agent, parent/child, status (todo/in progress/in review/done, as the daemon already sets with `worktree set`), changed files count. Board view kept from Orca (F09, S45) because the status field already exists on the host. Opening a worktree shows its branch, changed-file count and an "Open agent" link. **Diff review is wanted but later**: the place is reserved (a `Review` pane kind in the pane area, a Changes tab on this screen and a Review tab in the right panel §4.5) and not designed now. v1 builds nothing there; the API only needs to leave room (§8). No editor.
 
 ### 3.8 I. New agent / new worktree
 
@@ -160,13 +174,21 @@ The pane attaches to the terminal and receives rendered output continuously, wit
 
 ### 4.3 Who may type
 
-A terminal has one **input holder**: `daemon` (default) or a named person/device. Taking the keyboard is explicit (button "Take control", or first keystroke in the pane after a confirm), and while held:
+**Target: several people typing in one session. v1: one input holder per session**, with the model written so that many is a change of limit, not of design.
+
+A terminal has an **input holder**: `daemon` (default) or a named person/device. Taking the keyboard is explicit (button "Take control", or first keystroke in the pane after a confirm), and while held:
 
 - the daemon does not deliver tasks or press keys there; work stays queued with the existing "held" mark and shows as such in D;
-- the header shows `input: YOU` and a timer; releasing, or idle for N minutes, hands back to the daemon;
+- the header shows who holds (`input: YOU`) and a timer; releasing, or idle for N minutes, hands back to the daemon;
 - the daemon's own typing in the stream is shown in a faint marker line so the person can tell it from the agent's output.
 
-Without holding, compose and key chips still work for a single send (they are a short hold: the daemon is told, waits for the line to land, then continues). This is the one new rule the API must carry (§8).
+Chat messages are not typing: they go through the daemon's delivery and need no hold. Key chips and typing in the pane are typing.
+
+Kept open for many (not built in v1):
+- the holder is a *list* in the data model (`holders: [{who, since}]`, length 1 in v1); the UI always renders a row of avatars, with one in v1;
+- a second person who asks gets "held by X" with a *Request* button; the holder's UI shows the ask and may hand over. v1 stops there;
+- multi-typing later adds cursor/attribution in the stream and a conflict rule (last key wins vs. turns); the daemon-pause rule stays as is while any person holds.
+- all viewers already see the same stream (§4.2), so watching with several people needs nothing new.
 
 ### 4.4 Safety
 
@@ -176,14 +198,14 @@ Without holding, compose and key chips still work for a single send (they are a 
 
 ### 4.5 Right panel (context for the selected agent)
 
-Tabs: **Timeline** (state changes, tasks delivered, handoffs, key presses by the daemon and by people), **Task** (current request and its time box), **Worktree** (branch, changed files), **Notes** (agent memory index, read-only). Keeps the Session screen free of everything that is not the terminal.
+Tabs: **Timeline** (state changes, tasks delivered, handoffs, key presses by the daemon and by people), **Task** (current request and its time box), **Worktree** (branch, changed files), **Notes** (agent memory index, read-only). Keeps the agent page free of everything that is not the conversation and the terminal. It can be closed, and its **Review** tab is reserved for diff review (§3.7).
 
 ## 5. Information architecture
 
 ```
 /                          redirect to /inbox if anything waits, else /agents
 /agents                    rail + welcome (team overview)
-/agents/:name              Session (B)         ?tab=timeline|task|worktree|notes
+/agents/:name              Agent page (B)      ?tab=timeline|task|worktree|notes
 /agents/:name/terminal     fullscreen pane (also the mobile landscape view)
 /inbox                     C
 /tasks   /tasks/:id        D, E
@@ -218,7 +240,7 @@ Navigation depth is two: destination, then item. Modals: new agent (I), new task
 | F20 palette | **kept** | |
 | F21 shortcut editor | **dropped** for v1; fixed keys | cost vs. value |
 | F22 F23 input, tab behaviour | partly kept | |
-| F24 floating workspace | **dropped** | Session pane suffices; reconsider with Electron |
+| F24 floating workspace | **dropped** | Agent page pane area suffices; reconsider with Electron |
 | F25 appearance | **kept** (theme, zoom, terminal theme) | |
 | F26 built-in browser, F27 agent browser use | **dropped** | web app lives in a browser; agents' browser use is the host's |
 | F28 emulator, F29 Computer Use, F30 macOS permissions | **dropped** | out of the supervising job |
@@ -227,8 +249,8 @@ Navigation depth is two: destination, then item. Modals: new agent (I), new task
 | F35 Codex server | **dropped** | Claude only |
 | F36 tab titles from prompt | **dropped** | agent names are stable |
 | F37 keep awake | **kept** as a status-bar item | useful on a Mac host |
-| F38 prompt-cache timer | **kept** on the rail row and Session header | tells when a resume is warm |
-| F39 native chat UI | **deferred** (phase 2) | founder asked to control Claude Code itself: the TUI pane first; a read-only transcript view is the cheap next step |
+| F38 prompt-cache timer | **kept** on the rail row and agent-page header | tells when a resume is warm |
+| F39 native chat UI | **kept for v1**, as the bridge's chat (§3.2) | founder decision 2: chat first, Claude Code terminal openable beside it |
 | F40 agent sleep | **shown**: idle-close state | daemon already does it |
 | F41 dashboard, pet | **dropped**; Inbox and rail serve | |
 | F42 orchestration | **replaced** by Tasks and Team | ours is `hl task` |
@@ -239,8 +261,8 @@ Navigation depth is two: destination, then item. Modals: new agent (I), new task
 | F48 F49 F50 task sources, integrations | **dropped** | no trackers |
 | F51 F52 F53 automations | **adapted** to Schedules (J) | `hl schedule` |
 | F54 AI commit/PR text | **dropped** | agents do it |
-| F55 SSH hosts, F56 remote servers | **deferred** | design 05 says another machine needs a filesystem story first |
-| F57 Orca Mobile pairing | **adapted**: paired devices in Settings (§7) | |
+| F55 SSH hosts, F56 remote servers | **deferred** | design 05 says another machine needs a filesystem story first; v1 reach is LAN/Tailscale to one daemon (§7, §8) |
+| F57 Orca Mobile pairing | **adapted**: paired devices in Settings (§7); **no relay** in v1 | LAN/Tailscale only (founder decision 3) |
 | F58 F59 F60 account, artifacts, share skills | **dropped** | |
 | F61..F63 status bar, resources, ports | **kept**: status bar, resources popup; ports **dropped** | |
 | F64 notifications | **kept** | |
@@ -252,25 +274,26 @@ Same destinations, one column, bottom tab bar: **Inbox · Agents · Tasks · Acc
 
 1. **Inbox**: cards with inline Yes/No for permission asks, which is the main reason to open the phone. Push notification opens the exact card.
 2. **Agents**: list rows as in §3.1, state first, swipe for Stop/Resume.
-3. **Session** (portrait): header (name, state, account) · status line · terminal pane showing the bottom rows (read-focused, pinch to zoom, horizontal pan off) · compose box · a **key strip** above the keyboard: Esc, ^C, ↵, ↑ ↓, ⇥, ⇧⇥, 1 2 3. Banner for permission/dialog sits above the terminal and is the first thing reachable.
-4. **Session** (landscape): the terminal fullscreen (`/agents/:name/terminal`), controls on a collapsible edge.
+3. **Agent page** (portrait): header (name, state, account) · two tabs, **Chat** and **Terminal**. Chat is the default: messages, cards with inline Yes/No, the message box. Terminal shows the bottom rows (read-focused, pinch to zoom) with the **key strip** above the keyboard: Esc, ^C, ↵, ↑ ↓, ⇥, ⇧⇥, 1 2 3. A permission card also sits on the Chat tab, so it is reachable without opening the terminal.
+4. **Agent page** (landscape): the Terminal tab fullscreen (`/agents/:name/terminal`), controls on a collapsible edge.
 5. **Task**: list and detail, New task with voice dictation later.
 6. **Accounts**: window gauges with reset time; cap and re-login are desktop-only (the login needs a terminal).
-7. **Pair device**: QR from Settings on desktop, device list with revoke; shows the connection path (LAN/relay). Input holder is shown as `PHONE` while held; taking control from a phone requires a confirm.
+7. **Pair device**: QR from Settings on desktop, device list with revoke; shows the connection path (LAN or Tailscale; there is no relay in v1). Input holder is shown as `PHONE` while held; taking control from a phone requires a confirm.
 8. **More**: Team (read), Schedules (read), Stats, Settings subset (notifications, theme).
 
 Not on mobile: Worktrees board, diffs, New agent. Terminal resize for the phone follows §4.2 and is restored on leaving.
 
 ## 8. Data each screen needs from the daemon (input for the API contract)
 
-Names are descriptive, not final. **Live** = pushed as it changes; **Snapshot** = fetched.
+Names are descriptive, not final. Screen B's chat needs its own list, below the table. **Live** = pushed as it changes; **Snapshot** = fetched.
 
 | Screen | Needs | Kind |
 |---|---|---|
 | Frame / status bar | daemon alive, version; per-account window use, reset, source mark; counts of agents by state; terminal host name and health; inbox count | Live |
 | A Rail | per agent: name, role, model, effort, state, state-since, block kind and since, account, current task id and title, window use of its account, prompt-cache deadline, has-dialog flag, parent agent | Live |
-| B Session | agent detail (above plus worktree path/branch, terminal handle, session id, session open/closed); **terminal stream** (snapshot of screen and scrollback on attach, then output chunks, resize events); **parsed prompt** (kind, id, tool, command, reason, lines, offered keys); input holder and since; recent timeline | Live |
-| B actions | start (agent, optional account), stop (interrupt / exit / close / kill), resume, send text (with or without Enter), send key (named key), answer prompt (prompt id, yes/no), take / release input, resize; each returns accepted/refused with the reason, and carries a request id for safe retry | Command |
+| B Agent page: terminal | agent detail (above plus worktree path/branch, terminal handle, session id, session open/closed); **terminal stream** (snapshot of screen and scrollback on attach, then output chunks, resize events); **parsed prompt** (kind, id, tool, command, reason, lines, offered keys); input holders (list; one in v1) and since; recent timeline | Live |
+| B Agent page: chat | see "Chat data" below | Live + Command |
+| B actions | start (agent, optional account), stop (interrupt / exit / close / kill), resume, send text (with or without Enter), send key (named key), answer prompt (prompt id, yes/no), take / release input, ask for input (reserved), resize; each returns accepted/refused with the reason, and carries a request id for safe retry | Command |
 | C Inbox | items: kind, id, agent, title, body, evidence, task id, created, read/answered, options for a decision, prompt payload; actions: mark read, answer, reply | Live + Command |
 | D E Tasks | tasks: id, from, to, title, body, state, relation, response mode, time box, created/delivered/done times, evidence, hold or block reason, delivery history, linked events; actions: new, withdraw, cancel, edit | Snapshot + Live |
 | F Team | agents with roles, allowed edges, ROLE.md and base.md metadata, HR proposals with diff; actions: approve / reject proposal | Snapshot |
@@ -285,7 +308,7 @@ Names are descriptive, not final. **Live** = pushed as it changes; **Snapshot** 
 
 Cross-cutting needs for the contract:
 
-1. **Authentication and device identity**: the web app is a remote surface on a daemon that today answers on a local unix socket; it needs a login, per-device tokens, and revocation.
+1. **Authentication and device identity**: the web app is a remote surface on a daemon that today answers on a local unix socket; it needs a login, per-device tokens, and revocation. **Reach in v1: LAN or Tailscale only**: the daemon listens on a chosen interface (default loopback, opt-in for LAN or the Tailscale address), uses TLS or relies on Tailscale's encryption and says which, and has no relay and no public endpoint.
 2. **One event stream with resume**: a client that reconnects asks for events after an id and does not miss a prompt.
 3. **Terminal stream as a separate channel** from state events (high volume, per terminal, with backpressure).
 4. **Input holder rule** (§4.3), with the daemon refusing to type while a person holds.
@@ -293,9 +316,28 @@ Cross-cutting needs for the contract:
 6. **Idempotent commands** (request id), as the host CLI already does.
 7. **Permissions by role**: some actions are the founder's only (schedules, ROLE changes, roster); the API must say who may do what, and the UI greys the rest.
 
-## 9. Open questions for the founder
+### Chat data (screen B, from the bridge's chat model)
 
-1. **Multiple viewers typing**: is one input holder at a time (above) acceptable, or must two people type at once?
-2. **Chat view**: is the TUI pane enough for v1, or is a structured chat view (Orca F39) wanted at once?
-3. **Reach**: same machine/LAN first (cheap), or over the internet in v1 (needs a relay and stronger auth, Orca's F57)?
-4. **Worktrees/diff**: does a person review code here, or only elsewhere? It decides whether H grows into a review screen.
+1. **Messages of a chat**, paged: per request id, time, state-at time, requester, target, state, body, answer (id, text, time), dismissed flag, `delivered_at`/`typed_at`/`landed_at`, parent id, kind, linked task ids and title, whether it is a task question. Scopes: *mine* (person and agent) and *all* (everything the agent sent or received). Paging: newest N, older before id, newer since id.
+2. **Landing state per message** (queued, typed, delivered, delivered-not-answered) with the reason a message is still sending.
+3. **The agent's side of the conversation and its work**: reply text and tool activity from the transcript, as ordered items with ids, so a client can append and not redraw; a working/waiting line (what it waits for or is blocked by); whether a turn is running.
+4. **Prompt cards in the stream**: the permission or question prompt (id, tool, command, reason, options) and whether it is still open, answerable through the same call as in §3.2.
+5. **Task events inline**: task opened, changed, done with evidence, withdrawn, with their request ids.
+6. **Live updates**: new messages, landing-state changes and working-state changes pushed on the event stream with a resume id, so a chat open on two devices agrees.
+7. **Send**: a message to an agent (body, optional task fields: title, time box), idempotent by request id, and answer, dismiss, withdraw on a message.
+8. **Search and jump**: locate a message number to the chat and tab that shows it.
+
+### Reserved for diff review (not designed)
+
+Worktree changes: changed files with status, and a unified diff per file on demand, read-only; a place to hang comments later. v1 may answer "not supported"; the contract only needs a capability flag so the UI can hide the Review tab.
+
+## 9. Decisions (founder, 10-06, T1686) and what is still open
+
+Closed (the questions this section asked before):
+
+1. **Typing**: the target is several people typing; v1 has one input holder per session; the model stays open to many (§4.3).
+2. **Chat**: v1 has a chat UI like the bridge's, with Claude Code and shell terminals openable in a pane that docks to any side or merges into tabs (§3.2).
+3. **Reach**: LAN or Tailscale only in v1; no internet relay (§7, §8).
+4. **Diff review**: yes in this app, later; the place is reserved (§3.7, §4.5, §8), not designed.
+
+Still open (smaller, for the API/implementation stage): where the Electron wrapper differs (native notifications, open-in-editor); whether a person's chat messages should be able to carry a task as the bridge's can (§8 chat data 7 assumes yes); how long a hold lasts idle before it returns to the daemon.
