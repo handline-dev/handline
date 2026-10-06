@@ -1,0 +1,48 @@
+# The loading states: run against `node scripts/fake-listener.ts --latency 3000`, with the link as URI.
+appId: dev.handline.mobile
+---
+- launchApp:
+    stopApp: false
+- runFlow:
+    when: { visible: Continue }
+    commands: [{ tapOn: Continue }]
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- runFlow:
+    when: { visible: Unpair this phone }
+    commands: [{ tapOn: Unpair this phone }]
+- tapOn:
+    id: pair-uri
+- inputText: ${URI}
+- tapOn: Pair with a daemon
+- tapOn:
+    id: pair-go
+# the list's skeleton, then the rows
+- extendedWaitUntil:
+    visible:
+      id: skeleton-agents
+    timeout: 15000
+- takeScreenshot: shots/skeleton-1-list
+- extendedWaitUntil:
+    visible:
+      id: agent-handline.architect
+    timeout: 15000
+- assertNotVisible:
+    id: skeleton-agents
+- takeScreenshot: shots/skeleton-2-list-loaded
+# the page's skeleton, with the way back kept, then the page
+- tapOn:
+    id: agent-handline.architect
+- extendedWaitUntil:
+    visible:
+      id: skeleton-agentDetail
+    timeout: 15000
+- assertVisible:
+    id: back
+- takeScreenshot: shots/skeleton-3-page
+- extendedWaitUntil:
+    visible:
+      id: tab-terminal
+    timeout: 15000
+- takeScreenshot: shots/skeleton-4-page-loaded
