@@ -1,6 +1,6 @@
 # Web main view: sidebar-only agent controls, tabs and split panes
 
-Founder's rule: agent controls live **only in the left sidebar**, none at the top. The main view's top is a tab strip: **Chat** (cannot be closed),
+Founder's rule: agent controls live **only in the left sidebar**, none at the top. Each pane of the main view has a tab strip at its top, holding: **Chat** (cannot be closed),
 the agent's **Claude Code / Codex terminal**, **simulator / emulator**, **web**, **markdown file** and so on. Any tab can be dragged to the **right or below**
 to split the view, up to **four** panes; every tab but Chat can be closed.
 
@@ -11,7 +11,8 @@ This replaces the agent page of `docs/web-ui-design.md` §3.2 (header controls, 
 
 | Design today | Now |
 |---|---|
-| Agent page header with Start / Stop / Resume, model, account, task, worktree, input holder (§3.2) | **No header.** Controls move to the sidebar row (§2). The main view starts with the tab strip. |
+| Agent page header with Start / Stop / Resume, model, account, task, worktree, input holder (§3.2) | **No header.** Controls move to the sidebar row (§2). Each pane starts with its own tab strip. |
+| One tab row across the top of the main view, one tab per opened agent or task (§2 frame, §3.2) | **No per-agent tab row.** Switching agent is the sidebar only. **Every pane has its own tab strip**: split the view and each part carries the tabs that sit in it (Chat in one, Claude Code in another). |
 | Chat on the left, one pane area on the right holding terminals (§3.2) | Chat is **a tab like the others**, pinned first and unclosable; it can sit in any pane. |
 | Pane kinds: Claude Code, Shell, reserved Review | Tab kinds: Chat, Terminal (Claude Code, Codex, shell), Emulator, Web, Markdown, reserved Review (§3). |
 | §6: F16 "no browser/emulator tabs", F26 browser dropped, F28 emulator dropped ("out of the supervising job") | **Reversed by this brief** for the tab kinds in §3. Confirm: they were dropped on purpose. |
@@ -29,7 +30,7 @@ A row is the agent's only control surface. Row text stays as in design §3.1 (st
 - On narrow widths the sidebar is a drawer and holds the same controls.
 
 What stays out of the sidebar: controls that act on a tab's content. A terminal tab's own strip carries **Take control / Release**, who holds the input and the key chips;
-a markdown tab carries Reload. **No tab carries Start, Stop or Resume**, and the top of the main view carries nothing but tabs. The permission card remains a card in the Chat tab and in Inbox.
+a markdown tab carries Reload. **No tab carries Start, Stop or Resume**, and the top of a pane carries nothing but its tabs. The permission card remains a card in the Chat tab and in Inbox.
 
 ## 3. Tab kinds
 
@@ -62,6 +63,9 @@ Node       = Group { id, tabs: TabId[], activeTab }  |  Split { dir: 'row' | 'co
 Tab        { id, kind: 'chat' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review', params }
              params: terminal {handle}, markdown {path}, web {port | url}, emulator {device}
 ```
+
+A pane **is** a tab group: each has its own strip at its top, and nothing sits above the panes but the app's top bar. Today's look (chat beside Claude Code under one row of tabs) becomes the **default layout**:
+two groups side by side, Chat in the left one and the agent's session terminal in the right one, each with its own strip; an agent with no session opens one group holding Chat.
 
 Rules, each a test:
 
