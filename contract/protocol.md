@@ -253,7 +253,7 @@ Park an agent.
 
 ### `session.input`
 
-Type text at the prompt; Enter optional.
+Type text at the prompt; Enter optional. Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way.
 
 ### `session.keys`
 

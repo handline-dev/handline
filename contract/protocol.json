@@ -1435,7 +1435,8 @@
     "input_holder",
     "wall",
     "screen_blocker"
-   ]
+   ],
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way."
   },
   {
    "name": "session.keys",

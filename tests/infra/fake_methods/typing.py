@@ -3,7 +3,8 @@ from . import err, fake
 
 KNOWN = ("a.one",)
 KEYS = ("esc", "enter", "up", "down", "tab", "shift-tab", "ctrl-c", *"0123456789")
-GATES = {"a.locked": "terminal_lock", "a.held": "input_holder", "a.walled": "wall", "a.dialog": "screen_blocker"}
+REASONS = {"state": "a.shell: nothing sent - a shell prompt is showing"}
+GATES = {"a.locked": "terminal_lock", "a.held": "input_holder", "a.walled": "wall", "a.dialog": "screen_blocker", "a.shell": "state"}
 
 
 @fake("session.input", "session.keys", "session.type", "session.interrupt")
@@ -21,7 +22,7 @@ def typing(role, method, params):
     agent = params.get("agent")
     gate = GATES.get(agent)
     if gate and (gate in ("terminal_lock", "input_holder") or method == "session.input"):
-        return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": gate}}
+        return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": gate, "reason": REASONS.get(gate, gate)}}
     if agent not in KNOWN and agent not in GATES:
         return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "agent"}}
     return "ok", {"accepted": True, "said": "sent"}

@@ -272,13 +272,18 @@ def test_the_typing_fixtures_pass_against_this_daemon(home: Path) -> None:
         db.set_agent_state(con, a, "IDLE")
     inputhold.take(con, "worker", "person", "someone.else", int(time.time()))
     con.close()
-    real = (sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker)
+    real = (sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail)
+    sent = []
+    termmod.send = lambda handle, text, enter=True: (sent.append((handle, text)) or (True, ""))
+    termmod._screen_tail = lambda handle: ["Resume this session with:", "user@host ~ % "] if handle == "t-shelled" else None
     delivery.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit" if agent == "walled" else None
     termmod.available = lambda: True
     termmod.screen_blocker = lambda handle: termmod.Blocker(termmod.MODAL, "a dialog") if handle == "t-manager" else None
     agents.register("walled")
     agents.register("backend")
+    agents.register("shelled")
     con = db.connect()
+    db.set_terminal(con, "shelled", "t-shelled", None)
     db.set_terminal(con, "walled", "t-walled", None)
     db.set_terminal(con, "backend", "t-backend", None)
     con.close()
@@ -289,13 +294,15 @@ def test_the_typing_fixtures_pass_against_this_daemon(home: Path) -> None:
             for role in ("founder", "agent"):
                 sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
                 results += [(*r, role) for r in conformance.run_all(
-                    [Path("contract/fixtures/typing.json")], {role: connect},
+                    [Path("contract/fixtures/typing.json"), Path("contract/fixtures/shell_input.json")], {role: connect},
                     {"founder_key": _hp()["key"], "locked_agent": "backend", "held_agent": "worker", "walled_agent": "walled",
-                     "dialog_agent": "manager"}) if r[0] != "skip"]
+                     "dialog_agent": "manager", "shell_agent": "shelled"}) if r[0] != "skip"]
     finally:
-        sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker = real
+        sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
     check("fixtures: every typing fixture passes against this daemon, each as its own role", not bad and results, str(bad))
+    check("fixtures: nothing is typed at the agent whose pane is a shell prompt", not [s for s in sent if s[0] == "t-shelled"], str(sent))
+    check("fixtures: the shell prompt fixture ran, as the founder", any(n == "session.input.shell_prompt_gate" and r == "founder" for _, _, n, r in results), str(results))
 
 
 def main() -> int:
