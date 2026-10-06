@@ -183,9 +183,9 @@ The table becomes cards in the list's sort order: line one `#number`, state chip
 
 ## 6. Assumptions to confirm
 
-2. The founder's "skeleton loading, no spinners" also covers buttons: a pending write shows "…" in place of the label.
-3. Decisions with N6 absent: multi-select shows as single choice. Alternative: hide the question's card and say "answer in the terminal".
-4. Dismiss in Inbox: the bridge's `x` is final; here it folds with a 6 s Undo that only delays the write. Decide whether to delay it.
-5. `n` for New task is new; the bridge has no key for it.
-6. The detail pane beside the list at 1100 px follows the bridge's `TaskPane.fit`; the exact breakpoint is a guess.
-7. The pending-mark glyph `○` is a proposal; any marker that is not colour alone will do.
+1. The founder's "skeleton loading, no spinners" also covers buttons: a pending write shows "…" in place of the label.
+2. Decisions with N6 absent: multi-select shows as single choice. Alternative: hide the question's card and say "answer in the terminal".
+3. Dismiss in Inbox: the bridge's `x` is final; here it folds with a 6 s Undo that only delays the write. Decide whether to delay it.
+4. `n` for New task is new; the bridge has no key for it.
+5. The detail pane beside the list at 1100 px follows the bridge's `TaskPane.fit`; the exact breakpoint is a guess.
+6. The pending-mark glyph `○` is a proposal; any marker that is not colour alone will do.
