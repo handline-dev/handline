@@ -708,7 +708,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 
 ## State words
 
-AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it.
+AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it. The mapping is made from the source facts (the state row, its wake time, the screen), never by reading state_detail text.
 
 | Word | Meaning |
 |---|---|
@@ -719,7 +719,7 @@ AgentView.state is one of these lower-case words. The set is open: a client trea
 | `waiting` | A person must answer: a dialog or a prompt is open (has_dialog is true). |
 | `stalled` | Stopped until a person unstalls it (the daemon will not wake it). |
 | `blocked` | Reserved: waiting on a blocker the view names in `block`. The daemon does not send it today; a client draws it as blocked. |
-| `no_terminal` | Registered but with no terminal to show: never started, or its terminal closed. |
+| `no_terminal` | Registered but with no terminal to show: never started or its terminal closed, and nothing waits for it. Checked before idle; a closed agent with work waiting is queued or parked. |
 
 What the daemon sends for each of its own states:
 
@@ -731,7 +731,7 @@ What the daemon sends for each of its own states:
 | PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING | `parked` |
 | DIALOG (an open prompt or modal) | `waiting` |
 | STALLED (FATAL) | `stalled` |
-| no terminal | `no_terminal` |
+| no state row or no terminal, and nothing waiting for it (checked before IDLE) | `no_terminal` |
 
 PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`.
 
