@@ -1,0 +1,14 @@
+dist
+.turbo
+node_modules
+.pnpm-store
+pnpm-lock.yaml
+contract/protocol.ts
+contract/fixtures
+contract/prompts
+*.py
+go
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/assets
+tsconfig*.json
