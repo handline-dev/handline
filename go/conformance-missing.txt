@@ -11,3 +11,4 @@ task.new
 task.edit
 task.withdraw
 task.cancel
+inbox.list
