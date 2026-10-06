@@ -1125,7 +1125,7 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
         check("is_session: a bare claude on PATH is",
               obsmod.is_session("claude --resume abc123"))
         check("is_session: the Claude.app helper, its path holding a space, is",
-              obsmod.is_session("/Users/x/Library/Application Support/Claude/claude-code/2.1.288/abc/claude.app/Contents/MacOS/claude --verbose"))
+              obsmod.is_session("/Users/<user>/Library/Application Support/Claude/claude-code/2.1.288/abc/claude.app/Contents/MacOS/claude --verbose"))
         check("is_session: an npm install run by node is",
               obsmod.is_session("/opt/homebrew/bin/node /opt/homebrew/bin/claude --model opus"))
     check("is_session: with that driver gone its command line is not a session",
