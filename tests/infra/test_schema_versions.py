@@ -231,6 +231,46 @@ def test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(home: Path
           marks() == {v: int(a) for v, _n, _s, a in dbschema.MIGRATIONS}, str(marks()))
 
 
+def test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(home: Path) -> None:
+    from handline.infra import paths
+    home.mkdir(parents=True, exist_ok=True)
+    live = home / "live"
+    live.mkdir()
+    p = live / "db.sqlite"
+    dbschema.connect(p).close()
+    raw = sqlite3.connect(p)
+    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+    raw.commit()
+    raw.close()
+    real = paths.live_homes, paths.is_installed_checkout
+    paths.live_homes = lambda: [live.resolve()]
+    try:
+        paths.is_installed_checkout = lambda: False
+        try:
+            dbschema.connect(p)
+            msg = ""
+        except dbschema.SchemaError as e:
+            msg = str(e)
+        check("branch: a checkout that is not the installed main is refused, in one line naming why",
+              "installed main" in msg and "\n" not in msg, msg)
+        check("branch: and nothing was stamped", _versions(p) == list(range(1, dbschema.LATEST_VERSION)))
+        paths.live_homes = lambda: []
+        dbschema.connect(p).close()
+        check("branch: a home that is not the live one migrates from a branch",
+              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
+        paths.live_homes = lambda: [live.resolve()]
+        raw = sqlite3.connect(p)
+        raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+        raw.commit()
+        raw.close()
+        paths.is_installed_checkout = lambda: True
+        dbschema.connect(p).close()
+        check("installed: the installed main migrates the live home",
+              _versions(p) == list(range(1, dbschema.LATEST_VERSION + 1)))
+    finally:
+        paths.live_homes, paths.is_installed_checkout = real
+
+
 def test_two_processes_opening_an_old_database_at_once_migrate_it_once(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     p = home / "race.db"
@@ -269,6 +309,7 @@ def main() -> int:
         run(lambda: test_a_database_an_additive_step_ahead_is_used_as_it_is(Path(td) / "v3a"))
         run(lambda: test_a_database_a_step_ahead_that_is_not_additive_is_refused(Path(td) / "v3b"))
         run(lambda: test_the_additive_mark_is_stamped_and_an_older_stamp_is_filled_in(Path(td) / "v3c"))
+        run(lambda: test_a_branch_checkout_cannot_migrate_the_live_home_but_the_installed_main_can(Path(td) / "v3d"))
         run(lambda: test_two_processes_opening_an_old_database_at_once_migrate_it_once(Path(td) / "v4"))
     return run_area(tests)
 

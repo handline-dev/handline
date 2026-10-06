@@ -522,6 +522,10 @@ def migrate(con, additive_only: bool = False) -> None:
                 continue
             if additive_only and not additive:
                 break
+            if Path(file).resolve().parent in paths.live_homes() and not paths.is_installed_checkout():
+                raise SchemaError(f"{file} needs step {version} ({name}), which only the installed main checkout "
+                                  f"may apply to the live home: this is {paths.repo_root()}; merge it, or point "
+                                  f"HANDLINE_HOME at a scratch folder")
             step(con)
             con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, "
                         "name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)")
