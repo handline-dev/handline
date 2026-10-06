@@ -101,6 +101,8 @@ export class Store {
   }
 
   dismissError(): void { this.error = null; this.emit(); }
+  /** Shows a sentence the store itself did not produce, such as an unreachable daemon. */
+  fail(message: string): void { this.error = message; this.emit(); }
 
   // ---- the open agent page (one-page apps) ----
 
