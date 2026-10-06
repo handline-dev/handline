@@ -8,6 +8,8 @@ if ! command -v go >/dev/null; then
     exit 1
 fi
 . "$here/go-env.sh"
+# The whole run also checks go.mod and go.sum are tidy (a run with go test args does not).
+[ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
 echo "tools/test-go.sh: go test -race ${*:-./...}" >&2
 go test -race "${@:-./...}" || exit 1
 [ $# -gt 0 ] && exit 0
