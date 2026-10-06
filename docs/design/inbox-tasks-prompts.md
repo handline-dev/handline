@@ -6,7 +6,7 @@ Layout, states and keys for units U9 (prompt cards), U10 (Inbox) and U11 (Tasks)
 
 **Tokens.** Page `--bg`, cards and table `--panel`, rules `--line`, text `--ink`, secondary `--muted`, focus ring and primary button `--accent`. State colour reuses the dot palette: running `--run`, waiting `--wait`, blocked or failed `--block`, idle or done `--idle`. Ids, times and commands in `--mono`. A state is never colour alone: each carries its word (see §3.3).
 
-**Skeleton, never a spinner.** First load of a list or a detail draws grey bars (`--line` at 60% over `--panel`) in the exact row height and column widths of the loaded view, so nothing jumps when data lands. Row count: as many as fit, capped at 8. A slow pulse (opacity .6 to 1, 1.6 s) runs only under `prefers-reduced-motion: no-preference`; otherwise the bars are still. A skeleton shows only while there is no data at all; a refetch with data on screen keeps the data (no skeleton, no dimming). Buttons never show a spinner either: a write shows its pending mark (§2).
+**Skeleton, never a spinner.** First load of a list or a detail draws grey bars (`--line` at 60% over `--panel`) in the exact row height and column widths of the loaded view, so nothing jumps when data lands. Row count: as many as fit, capped at 8. A slow pulse (opacity .6 to 1, 1.6 s) runs only under `prefers-reduced-motion: no-preference`; otherwise the bars are still. Timing and size follow `docs/turborepo-layout.md` §8.6: the skeleton appears after 150 ms (a fast answer shows none) and stays at least 300 ms once shown; row heights and gaps come from the same token constants the real row uses; `aria-busy` on the region. A skeleton shows only while there is no data at all; a refetch with data on screen keeps the data (no skeleton, no dimming). Buttons never show a spinner either: a write shows its pending mark (§2).
 
 **The four states of every list**, in one block with the page title kept:
 
@@ -19,13 +19,12 @@ Layout, states and keys for units U9 (prompt cards), U10 (Inbox) and U11 (Tasks)
 
 Disconnected is the app's, not the page's: the status bar says it, the page keeps its rows, and writes are disabled with the reason as the tooltip, "daemon not connected".
 
-**Pending marks for writes.** The app writes optimistically only where the outcome is decided by the call alone (mark read, withdraw, queue and draft, owner and priority change, discard); anything the daemon may refuse for a state we cannot see (answering a prompt, done, reopen, merge) waits for the reply. Looks:
+**Writes follow `docs/turborepo-layout.md` §8.5**, which is the authority; this page only says how each kind looks. Two kinds:
 
-- *Optimistic, in flight*: the row shows the new value in `--muted` italics with a small hollow dot `○` in front of the changed cell; the row's controls stay usable except the one in flight.
-- *Settled*: the dot goes and the value turns `--ink`, without animation.
-- *Refused or failed*: the value reverts, the cell shows `--block` text "not changed" for 6 s and the reason from the daemon sits in a toast with the call's name ("owner: <reason>"). Never silent.
-- *Waits for reply*: the clicked button reads "…" in place of its label and is disabled; its row is not dimmed. A reply slower than 10 s adds "still waiting" in `--muted` beside it; nothing is abandoned automatically, because a write may have landed.
-- A change made from another tab or device arrives through the topic and replaces the row without a mark.
+- **Authored** (the cache is patched at once): the new value shows in `--muted` italics with a hollow dot `○` before the changed cell until the daemon settles it, then `--ink` without animation. On refusal the value reverts, the cell shows `--block` text "not changed" for 6 s, and a toast gives the daemon's reason with the call's name. The person's text stays in its box.
+- **Decided** (the cache is not changed): the pending mark: the clicked button reads "…" and the other options of that card or row are disabled; on error the mark goes and the reason shows. A reply slower than 10 s adds "still waiting" in `--muted`; nothing is abandoned.
+
+Kinds used here, from the §8.5 table: authored are `task.done` `task.reopen` `task.queue` `task.draft` `task.discard` `task.withdraw` `task.cancel` `task.edit` `task.new` `task.merge`, the memo writes, `inbox.mark_read` `inbox.answer` `inbox.reply`; decided is `prompt.answer`. A task transition the client cannot compute (`taskAfter` returns nothing) is decided. A change made from another tab or device arrives through the topic and replaces the row without a mark.
 
 **Keys.** Every key works only when no text field has focus. `?` opens the key sheet (the bridge's `question_mark`), listing exactly this page's keys. Arrow keys and `j` `k` move the row cursor; Escape leaves a detail, closes a sheet, then clears marks. Every key is also a visible button (the bridge's action bar), because phones have none. A confirmation is a small inline sheet under the row, not a modal: it names the thing, the verb, and takes Enter or Escape.
 
@@ -46,9 +45,9 @@ One component, in the Chat tab and in Inbox, for the daemon's `Prompt` (`prompt.
 
 **States.**
 - *Loading*: a card-shaped skeleton: title bar, three body bars, two button bars. Only for an item opened from a link before its data is here.
-- *Sending*: waits for the reply (§1); the other options disable.
+- *Sending*: decided write (§1): "…" on the clicked option, the others disabled.
 - *Stale* (the daemon says "the dialog is gone or changed"): nothing was sent; the card shows "This prompt changed" in `--wait`, refreshes to the new prompt in place, and keeps focus. If there is none, the card collapses to "Answered elsewhere" in `--muted` for 4 s, then goes.
-- *Error* (network): the options come back with "Not sent. Retry" under them; the same key resends once the connection is back, never automatically, because an old answer to a new prompt is the harm.
+- *Reconnect*: a dropped connection is not an error here. The client re-sends the pending answer with its request id after it reconnects (§8.2 of the same design), so the card keeps "…". It is safe because the answer carries the prompt id, and a prompt that changed meanwhile comes back as stale (above). "Not sent. Retry" shows only when the client gives up (a closed client or a protocol error).
 - *Answered*: the card folds to one line "Yes · <tool> · by <who>" in `--muted`; in Chat it stays as a transcript line.
 
 Phone: full-width card; options stack as full-width 48 px buttons, the primary last (nearest the thumb); the command block scrolls sideways inside its own box, the page does not.
@@ -87,8 +86,8 @@ A card's "open" jumps to the task or chat it came from (`task` or `agent` on the
 | Enter | open | the task or chat the item came from |
 | `a` | answer | focuses the answer field or the first option |
 | `e` | answer in editor | desktop wrapper only (E3); hidden in the browser |
-| `x` | dismiss | optimistic, with a pending mark; the card folds with "Undo" for 6 s |
-| `m` | mark read | optimistic |
+| `x` | dismiss | authored (`chat.dismiss`), pending dot; the card folds with "Undo" for 6 s |
+| `m` | mark read | authored (`inbox.mark_read`) |
 | `M` | mark all read | confirm inline when more than 10 are unread |
 | `?` | key sheet | |
 
@@ -98,7 +97,7 @@ A card's "open" jumps to the task or chat it came from (`task` or `agent` on the
 - **Empty**: "Nothing waits on you." and under it, in `--muted`, "Results, questions and blocks from your agents land here." With a filter on and no match: "No items match" with a "Clear filters" button.
 - **Error**: the strip of §1; cached cards stay.
 - **Not served**: `inbox.list` missing, §1.
-- **Pending marks**: mark read flips the dot at once (hollow `○`, §1); dismiss folds with Undo; answer shows "Sending…" on the answered option only (it waits for the reply, since the item may have been answered by someone else) and a refusal shows "Already answered by <who>" and folds.
+- **Pending marks**: mark read flips the dot at once (hollow `○`, §1); dismiss folds with Undo; answer is authored: the item shows its answer at once with the pending dot, and a refusal reverts it and shows "Already answered by <who>".
 - **A new item** arrives at the top with a 2 s `--accent` left rule that fades (none under reduced motion), without moving the card under the pointer: if the list is scrolled, new items collect behind a "2 new" pill at the top instead of pushing.
 
 ### 3.4 Phone
@@ -160,14 +159,14 @@ A verb that does not apply is hidden, not greyed, and its key says the bridge's 
 
 ### 4.4 New task
 
-"New task" button and `n` (new in the web; the bridge makes tasks from chat): a sheet with owner, title, body, time box and, with N2, priority. Created as a draft or queued, the choice shown as two buttons; the row appears optimistically with the pending mark until the daemon returns its number.
+"New task" button and `n` (new in the web; the bridge makes tasks from chat): a sheet with owner, title, body, time box and, with N2, priority. Created as a draft or queued, the choice shown as two buttons; the row appears as an authored write, with the dot with the pending mark until the daemon returns its number.
 
 ### 4.5 States
 
 - **Loading**: 8 row skeletons with the real column widths; the filter bar is shown at once (its controls work on arrival).
 - **Empty**: "No tasks in these states." with the states chip and "Show closed" if closed ones exist; with no task at all, "Nothing has been asked yet." and New task.
 - **Error / not served**: §1. A detail whose task is gone: "This task no longer exists" and a Back link.
-- **Pending marks** (§1): owner, priority, queue/draft and discard are optimistic (the cell changes at once, hollow dot); done, reopen and merge wait for the reply because the daemon may refuse for a state the page cannot see; withdraw and cancel from `task.withdraw` and `task.cancel` are optimistic.
+- **Pending marks** (§1): every task write here is authored, so the row changes at once with the hollow dot and reverts on refusal; where the client cannot compute the new state, the write is decided and the row shows "…" in its state cell. Merge removes the merged rows at once and restores them on refusal.
 - A row under a bulk write shows its pending mark; a partial failure leaves the refused rows marked, "2 of 3 changed", with the reasons in the toast.
 - Marks survive a refetch; a task that changes under the pointer keeps its row position until the pointer leaves.
 
@@ -179,14 +178,15 @@ The table becomes cards in the list's sort order: line one `#number`, state chip
 
 - U9: every kind renders from its fixture; a stale answer sends nothing and refreshes; "always" appears only for dialogs; screenshots at 375 and 1280.
 - U10: every kind of item from fixtures, in loading, empty, error and not-served states; each key; a new item arriving while scrolled does not move the list.
-- U11: each key of the two tables has a control and a test; the confirmation text equals the bridge's; skeleton row widths equal loaded widths; pending marks in the three outcomes of §1.
+- U11: each key of the two tables has a control and a test; the confirmation text equals the bridge's; skeleton row widths equal loaded widths; pending marks in the outcomes of §1 for authored and decided writes.
 - All: no spinner in the DOM (a test greps for `role="progressbar"` and animated rotation), focus ring visible, light and dark, `prefers-reduced-motion` stills the pulse.
 
 ## 6. Assumptions to confirm
 
-1. The founder's "skeleton loading, no spinners" also covers buttons: a pending write shows "…" in place of the label.
-2. Decisions with N6 absent: multi-select shows as single choice. Alternative: hide the question's card and say "answer in the terminal".
-3. Dismiss in Inbox: the bridge's `x` is final; here it folds with a 6 s Undo that only delays the write. Decide whether to delay it.
-4. `n` for New task is new; the bridge has no key for it.
-5. The detail pane beside the list at 1100 px follows the bridge's `TaskPane.fit`; the exact breakpoint is a guess.
-6. The pending-mark glyph `○` is a proposal; any marker that is not colour alone will do.
+1. Discard: the layout design's rules line calls a destructive write decided, its table lists `task.discard` as authored. This page follows the table and keeps the reason prompt as the confirmation; change the page if the design changes.
+2. The founder's "skeleton loading, no spinners" also covers buttons: a pending write shows "…" in place of the label.
+3. Decisions with N6 absent: multi-select shows as single choice. Alternative: hide the question's card and say "answer in the terminal".
+4. Dismiss in Inbox: the bridge's `x` is final; here it folds with a 6 s Undo that only delays the write. Decide whether to delay it.
+5. `n` for New task is new; the bridge has no key for it.
+6. The detail pane beside the list at 1100 px follows the bridge's `TaskPane.fit`; the exact breakpoint is a guess.
+7. The pending-mark glyph `○` is a proposal; any marker that is not colour alone will do.
