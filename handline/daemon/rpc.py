@@ -106,7 +106,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     ctx.caller = caller = Caller(ctx.peer, params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": []},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
             "transport": "local",
             "methods": _methods(caller)}
 

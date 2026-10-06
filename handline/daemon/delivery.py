@@ -19,7 +19,7 @@ from ..session import term
 from ..usage import status
 from ..infra import textsafe
 
-from . import handoff, inputhold, screensamples
+from . import handoff, inputhold, screensamples, termchannel
 from .states import HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S
 
 
@@ -383,10 +383,12 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
     return None
 
 
-def _mark_typed(con, agent: str) -> None:
+def _mark_typed(con, agent: str, by: dict | None = None) -> None:
     """Called after every successful type at `agent`'s terminal - the other
-    half of `_type_gate`'s settle window."""
+    half of `_type_gate`'s settle window. Whoever watches the terminal is told, as
+    the daemon typing unless `by` names the person whose control call it was."""
     db.set_cursor(con, f"typed_at:{agent}", int(time.time()))
+    termchannel.marker(con, agent, "control" if by else "daemon_typed", by or {"kind": "daemon", "name": "daemon"})
 
 
 def enforce_edges(con, agent: str, log) -> bool:

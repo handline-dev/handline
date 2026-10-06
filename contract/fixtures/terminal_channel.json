@@ -1,0 +1,703 @@
+{
+ "fixtures": [
+  {
+   "name": "terminal.attach.an_agent_session_is_refused_by_role",
+   "spec": "terminal.attach",
+   "about": "The channel is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "a.one"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.detach.an_agent_session_is_refused_by_role",
+   "spec": "terminal.detach",
+   "about": "The channel is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "%1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.history.an_agent_session_is_refused_by_role",
+   "spec": "terminal.history",
+   "about": "The channel is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.history",
+      "params": {
+       "terminal": "%1",
+       "before": 1,
+       "limit": 1
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.resize.an_agent_session_is_refused_by_role",
+   "spec": "terminal.resize",
+   "about": "The channel is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "%1",
+       "cols": 80,
+       "rows": 24,
+       "request_id": "conf-tc-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.unknown_agent_is_not_found",
+   "spec": "terminal.attach",
+   "about": "An agent the team does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "nobody.here"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.unknown_terminal_is_not_found",
+   "spec": "terminal.attach",
+   "about": "A handle no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "terminal": "no-such-terminal"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.agent_or_terminal_not_both",
+   "spec": "terminal.attach",
+   "about": "Both agent and terminal, or neither, is bad_request.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "a.one",
+       "terminal": "%1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.one_of_agent_or_terminal",
+   "spec": "terminal.attach",
+   "about": "Neither agent nor terminal is bad_request.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.history_is_a_count",
+   "spec": "terminal.attach",
+   "about": "A history that is not a count from 0 is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "a.one",
+       "history": -1
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "history"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.history.unknown_terminal_is_not_found",
+   "spec": "terminal.history",
+   "about": "A handle no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.history",
+      "params": {
+       "terminal": "no-such-terminal",
+       "before": 1,
+       "limit": 1
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.history.limit_is_a_positive_count",
+   "spec": "terminal.history",
+   "about": "A limit of 0 is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.history",
+      "params": {
+       "terminal": "%1",
+       "before": 1,
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.detach.needs_a_terminal",
+   "spec": "terminal.detach",
+   "about": "No terminal is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.detach",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "terminal"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.resize.needs_a_request_id",
+   "spec": "terminal.resize",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "%1",
+       "cols": 80,
+       "rows": 24
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.resize.unknown_terminal_is_not_found",
+   "spec": "terminal.resize",
+   "about": "A handle no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "no-such-terminal",
+       "cols": 80,
+       "rows": 24,
+       "request_id": "conf-tc-2"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.resize.cols_are_bounded",
+   "spec": "terminal.resize",
+   "about": "A size outside what a terminal is is bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "%1",
+       "cols": 5,
+       "rows": 24,
+       "request_id": "conf-tc-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cols"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.resize.only_the_input_holder_may",
+   "spec": "terminal.resize",
+   "about": "While the daemon holds the input nobody may resize: refused, gate input_holder. Needs --var terminal_handle: the handle of an agent's terminal nobody holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{terminal_handle}}",
+       "cols": 100,
+       "rows": 30,
+       "request_id": "conf-tc-4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.snapshot_shape",
+   "spec": "terminal.attach",
+   "about": "The snapshot: the terminal, its text format, size, rows, a history page and the holders. Needs --var terminal_agent: an agent whose terminal shows something.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{terminal_agent}}"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "text",
+      "seq": {
+       "$type": "integer"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "lines": {
+       "$each": {
+        "text": {
+         "$type": "string"
+        }
+       }
+      },
+      "cursor": {
+       "$type": "null"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$type": "array"
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": "daemon",
+       "name": "daemon"
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

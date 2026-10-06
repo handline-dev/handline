@@ -31,6 +31,9 @@ task.withdraw
 tasks.list
 terminal.attach
 terminal.close
+terminal.detach
+terminal.history
+terminal.resize
 unsubscribe
 worktree.diff
 worktrees.list

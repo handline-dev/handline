@@ -21,7 +21,7 @@ from ..actions import control
 from ..infra import lock, paths
 from ..session import observe as obs
 from ..session import term
-from . import delivery, inputhold, lifecycle, rpc, rpc_gates, states
+from . import delivery, inputhold, lifecycle, rpc, rpc_gates, states, termchannel
 
 
 def _noop(_m: str) -> None:
@@ -76,6 +76,7 @@ def _run(ctx, name: str, params, fn, hold: bool = False) -> dict:
             if not hold:
                 result = fn(con, agent)
         db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
+        termchannel.marker(con, agent, "control", ctx.caller.actor_info, text=name)
         return result
     finally:
         con.close()

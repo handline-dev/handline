@@ -43,7 +43,10 @@ def _ts(t) -> str | None:
 
 
 def _changed(con, agent: str) -> None:
-    db.add_event(con, agent, "input_holder", {"holders": view(con, agent)})
+    from . import termchannel
+    holders = view(con, agent)
+    db.add_event(con, agent, "input_holder", {"holders": holders})
+    termchannel.holders_changed(con, agent, holders)
 
 
 def holder(con, agent: str, now: int | None = None) -> dict | None:
