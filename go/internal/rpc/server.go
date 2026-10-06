@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os/user"
@@ -38,6 +39,9 @@ type Method struct {
 	// Waits marks a method that may hold its call for a long time: it runs beside the connection's other calls
 	// and stops when the client hangs up (Conn.Done).
 	Waits bool
+	// Write marks a method that changes something: it takes a request_id and runs once per id (runWrite).
+	// OwnEvent says it writes its own event, so the generic rpc_write one is not added.
+	Write, OwnEvent bool
 }
 
 // Server holds what every connection shares.
@@ -47,6 +51,7 @@ type Server struct {
 	Schema    int
 	Transport string // "local" or "network"
 	Log       func(format string, args ...any)
+	DB        *sql.DB // the database the write methods keep their replies in
 	methods   map[string]Method
 	order     []string
 	founder   string
@@ -246,7 +251,13 @@ func (c *Conn) route(msg any) (routed, error) {
 		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
 	}
 	return routed{waits: m.Waits, run: func() (any, error) {
-		result, err := m.Handler(at, params)
+		var result any
+		var err error
+		if m.Write {
+			result, err = at.runWrite(name, m, params)
+		} else {
+			result, err = m.Handler(at, params)
+		}
 		if err != nil {
 			return nil, err
 		}
