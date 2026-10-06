@@ -48,6 +48,13 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 			"request_id", BadRequest)
 	}
 	db, actor := c.srv.DB, c.Caller.Actor()
+	if m.Unkept {
+		out, err := m.Handler(c, params)
+		if err == nil && !m.OwnEvent {
+			err = writeEvent(db, actor, c.Caller, name, rid, time.Now().Unix())
+		}
+		return out, err
+	}
 	mu := requestKey(actor, rid)
 	mu.Lock()
 	defer mu.Unlock()
@@ -83,8 +90,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 	}
 	now := time.Now().Unix()
 	if !m.OwnEvent {
-		payload := PyJSON(map[string]any{"method": name, "request_id": rid, "actor": c.Caller.ActorInfo()}, false, false)
-		if _, err := db.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'rpc_write', ?)", now, actor, payload); err != nil {
+		if err := writeEvent(db, actor, c.Caller, name, rid, now); err != nil {
 			return nil, err
 		}
 	}
@@ -111,4 +117,11 @@ func replayed(kept string) (any, error) {
 	}
 	m["replayed"] = true
 	return m, nil
+}
+
+// writeEvent is the generic event a write leaves when it writes none of its own.
+func writeEvent(db *sql.DB, actor string, caller Caller, name, rid string, now int64) error {
+	payload := PyJSON(map[string]any{"method": name, "request_id": rid, "actor": caller.ActorInfo()}, false, false)
+	_, err := db.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'rpc_write', ?)", now, actor, payload)
+	return err
 }

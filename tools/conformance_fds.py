@@ -3,7 +3,9 @@
 
 A sandbox may refuse to bind a socket, so the daemon (`-serve-fds`) serves connections this script made as socketpairs and
 passes to it, one per fixture. It starts on a scratch home with a founder key minted where it reads it, which is given to
-the harness as --var founder_key. Roles with no connection of their own (agent, member) are reported SKIP, as in a real run."""
+the harness as --var founder_key. The network listener is on (loopback, port 0) and `-serve-net-fds` serves a second set of
+socketpairs as its connections: the role `unpaired`. Roles with no connection of their own (agent, member) are reported
+SKIP, as in a real run."""
 import os
 import re
 import secrets
@@ -35,22 +37,29 @@ def main(argv: list[str]) -> int:
         (store / "key").write_text(key)
         (store / "key").chmod(0o600)
         pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
+        net_pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
         theirs = [b.fileno() for _a, b in pairs]
-        daemon = subprocess.Popen([binary, "-home", str(home), "-serve-fds", ",".join(map(str, theirs))], pass_fds=theirs,
+        net_theirs = [b.fileno() for _a, b in net_pairs]
+        daemon = subprocess.Popen([binary, "-home", str(home), "-listen", "127.0.0.1:0", "-serve-fds", ",".join(map(str, theirs)),
+                                   "-serve-net-fds", ",".join(map(str, net_theirs))], pass_fds=theirs + net_theirs,
                                   stderr=subprocess.PIPE, env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root)})
-        for _a, b in pairs:
+        for _a, b in pairs + net_pairs:
             b.close()
-        near = [a for a, _b in pairs]
 
-        def connect():
-            if not near:
-                raise RuntimeError("out of connections: raise PAIRS")
-            return near.pop(0)
+        def taker(pool):
+            near = [a for a, _b in pool]
 
+            def connect():
+                if not near:
+                    raise RuntimeError("out of connections: raise PAIRS")
+                return near.pop(0)
+            return connect
+
+        local = taker(pairs)
         rc = 1
         try:
             rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}", *rest],
-                                  connectors={"founder": connect, "anonymous": connect})
+                                  connectors={"founder": local, "anonymous": local, "unpaired": taker(net_pairs)})
             return rc
         finally:
             daemon.terminate()
