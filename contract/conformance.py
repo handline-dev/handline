@@ -153,6 +153,7 @@ class Connection:
         self.buf = b""
         self.notices: list[dict] = []
         self.sent: set = set()  # ids sent and not yet answered
+        self.sent_at: dict = {}  # id -> when it was sent
         self.early: dict = {}  # replies read while waiting for another id
 
     def send_line(self, text: str) -> None:
@@ -288,6 +289,7 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                     req = substitute(step["send"], saved)
                     conn.send_line(json.dumps(req))
                     rid = req.get("id")
+                    conn.sent_at[rid] = time.time()
                     if "result" not in step and "error" not in step and rid is not None:
                         conn.sent.add(rid)
                 if "closed" in step:
@@ -297,6 +299,9 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                     reply = conn.reply_to(rid, step.get("within_s", TIMEOUT_S))
                     if reply is None:
                         raise Mismatch("the connection closed without a reply")
+                    took = time.time() - conn.sent_at[rid] if rid in conn.sent_at else None
+                    if "at_least_s" in step and (took is None or took < step["at_least_s"]):
+                        raise Mismatch(f"the reply came after {took or 0:.1f} s, wanted at least {step['at_least_s']} s")
                     if "result" in step:
                         if "result" not in reply:
                             raise Mismatch(f"wanted a result, got {json.dumps(reply)}")

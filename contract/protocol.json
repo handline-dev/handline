@@ -2604,7 +2604,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 600,
-      "description": "Hold the call up to this many seconds while nothing unread exists, and return when something arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle."
+      "description": "Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle."
      }
     }
    ],
