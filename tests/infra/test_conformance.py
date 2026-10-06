@@ -142,6 +142,8 @@ class FakeDaemon:
             if result is not None:      # a handler that has nothing to say about the call (None) leaves it to the daemon's own branches below
                 kind, payload = result
                 return (ok if kind == "ok" else fail)(payload), said_hello
+        if method == "session.stop" and params.get("mode") == "kill" and self.role == "agent":
+            return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "kill is for a person"}}), said_hello
         if method == "inbox.list":
             items = [i for i in self._inbox() if (not params.get("unread") or not i["read"]) and params.get("kind", i["kind"]) == i["kind"]
                      and (params.get("before") is None or i["id"] < params["before"])]
