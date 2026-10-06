@@ -53,13 +53,14 @@ type Manager struct {
 	store Store
 	now   func() time.Time
 
-	mu          sync.Mutex
-	addr, print string
-	codes       map[string]*code // by the hash of the code
-	wrongs      map[string][]time.Time
-	lockedTill  map[string]time.Time
-	conns       map[string]map[int]func() // by device id: what closes each open connection
-	next        int
+	mu         sync.Mutex
+	addr       string
+	print      func() string
+	codes      map[string]*code // by the hash of the code
+	wrongs     map[string][]time.Time
+	lockedTill map[string]time.Time
+	conns      map[string]map[int]func() // by device id: what closes each open connection
+	next       int
 }
 
 func New(store Store) *Manager {
@@ -68,7 +69,7 @@ func New(store Store) *Manager {
 }
 
 // Listening records where the listener is and the fingerprint of its certificate, which a pairing uri carries.
-func (m *Manager) Listening(addr, fingerprint string) {
+func (m *Manager) Listening(addr string, fingerprint func() string) {
 	m.mu.Lock()
 	m.addr, m.print = addr, fingerprint
 	m.mu.Unlock()
@@ -109,8 +110,12 @@ func (m *Manager) Pair(ttl time.Duration) (c string, expires time.Time, fingerpr
 	defer m.mu.Unlock()
 	expires = m.now().Add(ttl)
 	m.codes[hashOf(c)] = &code{expires: expires}
-	q := url.Values{"host": {m.addr}, "fp": {m.print}, "code": {c}}
-	return c, expires, m.print, "handline://pair?" + q.Encode()
+	var fp string
+	if m.print != nil {
+		fp = m.print()
+	}
+	q := url.Values{"host": {m.addr}, "fp": {fp}, "code": {c}}
+	return c, expires, fp, "handline://pair?" + q.Encode()
 }
 
 func pairingRefused() *rpc.Error {

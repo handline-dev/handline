@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/user"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -56,9 +57,14 @@ type Server struct {
 	Log       func(format string, args ...any)
 	DB        *sql.DB // the database the write methods keep their replies in
 	Net       NetGate // the paired devices of a network server; nil on the local one
-	methods   map[string]Method
-	order     []string
-	founder   string
+	// Relay is set on a gateway's network server: a paired device's call for a method this server does not have, and
+	// the contract lets a member call, is sent to the daemon behind it.
+	Relay *Relay
+	// NoEvents keeps a write from leaving the generic event: a gateway writes nothing but its devices.
+	NoEvents bool
+	methods  map[string]Method
+	order    []string
+	founder  string
 }
 
 func NewServer(auth authority.Authority, sha string, schema int, transport string, log func(string, ...any)) *Server {
@@ -69,6 +75,19 @@ func NewServer(auth authority.Authority, sha string, schema int, transport strin
 	s.Register("hello", Method{Role: "anonymous", Handler: hello})
 	s.Register("whoami", Method{Role: "agent", Handler: whoami})
 	return s
+}
+
+// Restrict drops every method keep says no to: a gateway serves natively only what it is told to.
+func (s *Server) Restrict(keep func(name string) bool) {
+	var order []string
+	for _, n := range s.order {
+		if keep(n) {
+			order = append(order, n)
+		} else {
+			delete(s.methods, n)
+		}
+	}
+	s.order = order
 }
 
 // Register adds a method. Every method a later task adds is a line in the table.
@@ -87,13 +106,16 @@ type Conn struct {
 	Caller    Caller
 	saidHello bool
 	// Remote is the peer's host on the network listener, "" elsewhere.
-	Remote  string
-	closeFn func()
-	device  string // the paired device this connection hello'd with
-	release func()
-	wmu     sync.Mutex
-	done    chan struct{} // closed when the client is gone
-	waiting sync.WaitGroup
+	Remote     string
+	closeFn    func()
+	device     string // the paired device this connection hello'd with
+	deviceName string
+	release    func()
+	rmu        sync.Mutex
+	rs         *relaySession
+	wmu        sync.Mutex
+	done       chan struct{} // closed when the client is gone
+	waiting    sync.WaitGroup
 }
 
 // NetGate is what a network server knows of paired devices: a call from a connection that no device token
@@ -127,6 +149,7 @@ func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
 	defer func() {
 		close(c.done)
 		c.waiting.Wait()
+		c.closeRelay()
 		if c.release != nil {
 			c.release()
 		}
@@ -262,11 +285,17 @@ func (c *Conn) one(raw []byte) bool {
 			rid = v
 		}
 	}
-	call, err := c.route(msg)
+	call, err := c.route(msg, raw)
 	if err != nil {
 		return c.fail(rid, err)
 	}
 	_, hasID := obj["id"]
+	if call.relay != nil {
+		if err := call.relay(rid, hasID); err != nil {
+			return c.fail(rid, err)
+		}
+		return true
+	}
 	answer := func() bool {
 		result, err := call.run()
 		if err != nil {
@@ -301,9 +330,10 @@ func (c *Conn) fail(rid any, err error) bool {
 type routed struct {
 	waits bool
 	run   func() (any, error)
+	relay func(id any, hasID bool) error // a call for the daemon behind a gateway: nothing is answered here
 }
 
-func (c *Conn) route(msg any) (routed, error) {
+func (c *Conn) route(msg any, raw []byte) (routed, error) {
 	if _, batch := msg.([]any); batch {
 		return routed{}, BadRequestError("batches are not accepted", "", BadRequest)
 	}
@@ -335,6 +365,9 @@ func (c *Conn) route(msg any) (routed, error) {
 	}
 	m, found := c.srv.methods[name]
 	if !found {
+		if c.srv.Relay != nil && c.device != "" {
+			return c.routeRelay(name, raw)
+		}
 		return routed{}, BadRequestError("no such method: "+name, "method", NoSuchMethod)
 	}
 	if !c.Caller.Allows(m.Role) {
@@ -364,6 +397,19 @@ func (c *Conn) route(msg any) (routed, error) {
 	}}, nil
 }
 
+// routeRelay checks a call this gateway does not serve against the contract, here, before anything is sent on: a
+// method the contract lacks is unknown, one above a member's reach is refused.
+func (c *Conn) routeRelay(name string, raw []byte) (routed, error) {
+	known, allowed := memberMay(name)
+	if !known {
+		return routed{}, BadRequestError("no such method: "+name, "method", NoSuchMethod)
+	}
+	if !allowed {
+		return routed{}, Refused(fmt.Sprintf("%s is not for a paired device", name), "role", "")
+	}
+	return routed{relay: func(id any, hasID bool) error { return c.relay(raw, id, hasID) }}, nil
+}
+
 // RequireSelf is for the methods that act as the caller's own session: an agent that is not the caller is refused.
 func (c *Conn) RequireSelf(agent string) error {
 	if c.Caller.Role == "agent" && agent != c.Caller.Info["name"] {
@@ -377,6 +423,20 @@ func (c *Conn) methodList() []map[string]any {
 	for _, n := range c.srv.order {
 		m := c.srv.methods[n]
 		out = append(out, map[string]any{"name": n, "since": 1, "role": m.Role, "allowed": c.Caller.Allows(m.Role)})
+	}
+	if c.srv.Relay != nil {
+		var rest []string
+		for n := range contract {
+			if _, own := c.srv.methods[n]; !own {
+				rest = append(rest, n)
+			}
+		}
+		sort.Strings(rest)
+		for _, n := range rest {
+			_, ok := memberMay(n)
+			out = append(out, map[string]any{"name": n, "since": 1, "role": contract[n].Role,
+				"allowed": ok && c.device != ""})
+		}
 	}
 	return out
 }
@@ -413,7 +473,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		if c.release != nil {
 			c.release()
 		}
-		c.device, c.release = id, release
+		c.device, c.deviceName, c.release = id, name, release
 		c.Caller = Caller{"member", map[string]any{"kind": "device", "id": id, "name": name}}
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
