@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,9 +36,11 @@ def _err(code, message, **data):
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
-    def __init__(self, role: str, mutate=None, lacks=(), broken=()):
-        """`lacks`: methods this daemon does not have (not listed, -32601). `broken`: listed, yet answered -32601."""
+    def __init__(self, role: str, mutate=None, lacks=(), broken=(), serial=False):
+        """`lacks`: methods this daemon does not have (not listed, -32601). `broken`: listed, yet answered -32601.
+        `serial`: serve a connection's calls one at a time, so a waiting inbox.list holds the ones behind it."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
+        self.serial = serial
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -59,7 +62,15 @@ class FakeDaemon:
         threading.Thread(target=accept, daemon=True).start()
 
     def _serve(self, conn):
-        said_hello, buf = False, b""
+        said_hello, buf, out = False, b"", threading.Lock()
+
+        def send(reply):
+            with out:
+                conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
+
+        def answer_later(line):
+            reply, _ = self._answer(line, True)
+            send(reply)
         with conn:
             while True:
                 try:
@@ -71,8 +82,11 @@ class FakeDaemon:
                 buf += chunk
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
+                    if said_hello and b'"inbox.list"' in line and not self.serial:
+                        threading.Thread(target=answer_later, args=(line,), daemon=True).start()
+                        continue
                     reply, said_hello = self._answer(line, said_hello)
-                    conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
+                    send(reply)
 
     def _methods(self) -> list:
         return [{"name": n, "since": 1, "role": m["x-role"], "allowed": RANK[m["x-role"]] <= RANK[self.role]}
@@ -108,6 +122,9 @@ class FakeDaemon:
         if method == "whoami":
             return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
                        "methods": self._methods()}), said_hello
+        if method == "inbox.list":
+            time.sleep(min(params.get("wait_s", 0), 3))
+            return ok({"items": [], "more": False}), said_hello
         if method == "agent.get":
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
@@ -257,6 +274,16 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     print("python daemon:", ", ".join(f"{s.upper()} {n}" for n, (s, _) in sorted(by.items())))
 
 
+def test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture() -> None:
+    names = ("framing.waiting_call_does_not_block", "framing.replies_matched_by_id")
+    results = conformance.run_all(FILES, {"founder": FakeDaemon("founder").connect}, KEY, "framing.")
+    check("conformance: a daemon that serves calls concurrently passes the pipelined fixtures",
+          [(s, n) for s, _, n in results] == [("pass", n) for n in names], str(results))
+    results = conformance.run_all(FILES, {"founder": FakeDaemon("founder", serial=True).connect}, KEY, "framing.waiting")
+    check("conformance: a daemon that answers a waiting call first fails the pipelined fixture",
+          results[0][0] == "fail" and "timed out" in results[0][1], str(results))
+
+
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
     _first_fixture_fails(lambda r: {**r, "jsonrpc": "1.0"}, "jsonrpc", "conformance: a reply with jsonrpc 1.0 fails")
     _first_fixture_fails(lambda r: {k: v for k, v in r.items() if k != "jsonrpc"}, "jsonrpc", "conformance: a reply without jsonrpc fails")
@@ -350,7 +377,8 @@ def test_fixtures_follow_the_format_and_the_spec() -> None:
           str([f["name"] for f in fixtures if f.get("spec") not in spec_keys]))
     check("conformance: every fixture has a role, an about line and steps that expect something",
           all(f.get("as", "founder") in RANK and f.get("about") and f["steps"] and all(
-              ("send" in s) != ("raw" in s) and ("result" in s or "error" in s or "closed" in s) for s in f["steps"]) for f in fixtures))
+              sum(k in s for k in ("send", "raw", "await")) == 1 and (
+                  "result" in s or "error" in s or "closed" in s or ("send" in s and "await" not in s)) for s in f["steps"]) for f in fixtures))
     sent = {s["send"]["method"] for f in fixtures for s in f["steps"] if "send" in s}
     check("conformance: every method a fixture sends is in the spec", sent <= set(METHODS), str(sent - set(METHODS)))
     refused = {f["spec"] for f in fixtures for s in f["steps"] if "error" in s}
@@ -366,6 +394,7 @@ def main() -> int:
         run(lambda: test_the_command_line_arguments_over_socketpairs())
         run(lambda: test_skips_for_a_missing_var_and_a_method_the_daemon_lacks())
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
+        run(lambda: test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture())
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))
         run(lambda: test_only_role_skips_are_covered_by_allow_skip(td))

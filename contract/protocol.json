@@ -14,6 +14,7 @@
   ],
   "lines": "UTF-8 JSON, terminated by \\n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.",
   "ids": "Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.",
+  "concurrency": "Calls on one connection are served concurrently: a call that waits (inbox.list or inbox.get with wait_s, up to 600 s) does not hold up the calls after it, and replies come in the order they finish, matched by id. Calls on one connection that touch the same thing are not ordered by the connection: a client that needs the order waits for the first reply. Stream notifications are never held behind a waiting call.",
   "params": "By name only.",
   "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
   "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.",
@@ -6854,7 +6855,7 @@
        "events": {
         "type": "array",
         "items": {
-         "$ref": "#/components/schemas/Event"
+         "$ref": "#/components/schemas/TaskEvent"
         }
        },
        "memos": {
@@ -7114,6 +7115,90 @@
      "target",
      "data"
     ]
+   },
+   "TaskEvent": {
+    "type": "object",
+    "properties": {
+     "topic": {
+      "$ref": "#/components/schemas/Topic"
+     },
+     "type": {
+      "type": "string",
+      "description": "See x-topics for each topic's types."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "actor": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Actor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "title": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "target": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "screen": {
+          "type": "string"
+         },
+         "id": {
+          "type": "string",
+          "description": "Agent name, task or item id."
+         }
+        },
+        "required": [
+         "screen",
+         "id"
+        ],
+        "description": "Deep link."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "data": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "required": [
+     "topic",
+     "type",
+     "at",
+     "actor",
+     "agent",
+     "title",
+     "target",
+     "data"
+    ],
+    "description": "An event as task.get lists it: the fields of Event but no cursor, because task events are not on the stream and have no position in it."
    },
    "Window": {
     "type": "object",

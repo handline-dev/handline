@@ -175,7 +175,7 @@ export type TaskDetail = Task & {
     how: string;
     outcome: string;
   }[];
-  events: Event[];
+  events: TaskEvent[];
   memos: Memo[];
   blockers: {
     task: number;
@@ -213,6 +213,23 @@ export type InboxItem = {
 export type Event = {
   /** Opaque, increasing integer: the daemon's own stream position, not the id of any other table's row. A client keeps the newest one it saw and resumes from it. */
   cursor: number;
+  topic: Topic;
+  /** See x-topics for each topic's types. */
+  type: string;
+  at: Timestamp;
+  actor: Actor | null;
+  agent: AgentName | null;
+  title: string | null;
+  target: {
+    screen: string;
+    /** Agent name, task or item id. */
+    id: string;
+  } | null;
+  data: { [key: string]: unknown };
+};
+
+/** An event as task.get lists it: the fields of Event but no cursor, because task events are not on the stream and have no position in it. */
+export type TaskEvent = {
   topic: Topic;
   /** See x-topics for each topic's types. */
   type: string;
