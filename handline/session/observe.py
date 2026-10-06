@@ -46,18 +46,49 @@ def is_session(command: str) -> bool:
     return any(drv.is_session(command) for drv in vendors.known())
 
 
+# Why the last reading came back None: which call, how it failed, the first line of its stderr. Never an environment
+# value - the output of `ps eww` is not read into it, only its exit status and error line.
+_why: str | None = None
+_failing = False
+report = None       # the daemon's log, set when it starts: told once when readings begin to fail and once when they recover
+
+
+def _miss(why: str) -> None:
+    global _why
+    _why = why
+
+
+def _ps_failed(call: str, out) -> str:
+    """How a `ps` call failed, from its exit status and the first line of what it said on stderr."""
+    first = textsafe.oneline((out.stderr or "").strip().splitlines()[0] if (out.stderr or "").strip() else "")[:120]
+    return f"{call} exited {out.returncode}" + (f": {first}" if first else "")
+
+
+def _run_ps(argv: list[str], timeout: int):
+    """`ps` with `argv`, or None with the cause noted when it could not run or timed out."""
+    call = " ".join(argv[:2])
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _miss(f"{call} timed out after {timeout}s")
+    except OSError as e:
+        _miss(f"{call} could not run: {type(e).__name__} {e.errno}")
+    except subprocess.SubprocessError as e:
+        _miss(f"{call} failed: {type(e).__name__}")
+    return None
+
+
 def process_table() -> list[tuple[int, str]] | None:
-    """(pid, command) for everything running, or None if we could not look.
+    """(pid, command) for everything running, or None if we could not look (the cause is in `_why`).
 
     None is not an empty machine: a caller that treats the two alike concludes
     every session is gone the one time `ps` fails.
     """
-    try:
-        out = subprocess.run(["ps", "-Ao", "pid=,command="],
-                             capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
+    out = _run_ps(["ps", "-Ao", "pid=,command="], 20)
+    if out is None:
         return None
     if out.returncode != 0:
+        _miss(_ps_failed("ps -Ao", out))
         return None
     rows = []
     for line in out.stdout.splitlines():
@@ -72,19 +103,29 @@ def process_table() -> list[tuple[int, str]] | None:
 
 
 def _ps_command(pid: int, flags: str) -> str | None:
-    try:
-        r = subprocess.run(["ps", flags, "-o", "command=", "-p", str(pid)],
-                           capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
+    r = _run_ps(["ps", flags, "-o", "command=", "-p", str(pid)], 10)
+    if r is None:
         return None
-    return r.stdout if r.returncode == 0 and r.stdout.strip() else None
+    if r.returncode != 0:
+        _miss(_ps_failed(f"ps {flags}", r))
+        return None
+    if not r.stdout.strip():
+        _miss(f"ps {flags} gave nothing: the process is gone")
+        return None
+    return r.stdout
 
 
 def _owner_uid(pid: int) -> int | None:
+    r = _run_ps(["ps", "-o", "uid=", "-p", str(pid)], 10)
+    if r is None:
+        return None
+    if r.returncode != 0:
+        _miss(_ps_failed("ps -o uid", r))
+        return None
     try:
-        r = subprocess.run(["ps", "-o", "uid=", "-p", str(pid)], capture_output=True, text=True, timeout=10)
-        return int(r.stdout.strip()) if r.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError):
+        return int(r.stdout.strip())
+    except ValueError:
+        _miss("ps -o uid gave no number")
         return None
 
 
@@ -117,6 +158,7 @@ def _env_or_reason(pid: int) -> tuple[str | None, bool]:
             return None, True
     prefix = argv.rstrip("\n")
     if not with_env.startswith(prefix):
+        _miss("ps eww did not begin with ps ww's argv")
         return None, False
     return with_env[len(prefix):], False
 
@@ -178,6 +220,21 @@ def account_of_process(pid: int) -> str | None:
 
 
 def live_sessions() -> dict[str, int] | None:
+    """`_live_sessions`, and the cause of a failed reading said once to `report` (and its end, once)."""
+    global _failing
+    found = _live_sessions()
+    if found is None and not _failing:
+        _failing = True
+        if report:
+            report(f"process table could not be read: {_why or 'no cause noted'}")
+    elif found is not None and _failing:
+        _failing = False
+        if report:
+            report("process table readable again")
+    return found
+
+
+def _live_sessions() -> dict[str, int] | None:
     """agent -> pid for every agent session that is actually running, whatever
     vendor it runs in (`is_session`).
 
@@ -203,6 +260,8 @@ def live_sessions() -> dict[str, int] | None:
         if env is None:
             if not_ours:
                 continue
+            sessions = sum(1 for _, c in table if is_session(c))
+            _miss(f"pid {pid}, one of {sessions} session processes of {len(table)}: its environment could not be read ({_why or 'no cause noted'})")
             return None
         name = _extract(env, "HANDLINE_AGENT") or _extract(env, "OCP_AGENT")
         if name:
