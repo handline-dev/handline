@@ -110,6 +110,9 @@ def _park(ctx, params) -> dict:
 
 
 def _exit(con, agent: str) -> dict:
+    held = inputhold.held_by_other(con, agent)      # None for a person's own call, which runs under controlling()
+    if held:
+        raise rpc.refused(inputhold.held_why(agent, held), gate="input_holder")
     handle = db.get_terminal(con, agent)
     if not handle or not term.available():
         raise rpc.refused(f"{agent} has no terminal to ask to quit", gate="state")

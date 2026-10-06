@@ -385,6 +385,25 @@ def test_an_agents_session_call_is_held_back_by_a_hold_as_its_verb_is(home: Path
         check("session.restart: an agent's call is refused by the hold, gate input_holder", _gate(r) == "input_holder" and ME in r["error"]["message"], str(r))
         r = _call("session.restart", {"agent": "worker", "request_id": "ah2"})
         check("session.restart: the founder's call goes through the hold, as a person's own call", "result" in r and seen[-1] is None, str((r, seen)))
+        closed: list = []
+        real_close = termmod.close_session
+        real_present, real_avail = delivery.session_present, termmod.available
+        termmod.close_session = lambda handle, **k: (closed.append(handle), (True, "typed"))[1]
+        delivery.session_present, termmod.available = (lambda agent: True), (lambda: True)
+        con = db.connect()
+        db.set_terminal(con, "worker", "t1", None)
+        con.close()
+        try:
+            r = _call("session.stop", {"agent": "worker", "mode": "exit", "request_id": "ah-exit"}, as_agent="manager")
+            check("session.stop exit: an agent's call is refused by the hold, gate input_holder, and /exit is not typed",
+                  _gate(r) == "input_holder" and not closed, str((r, closed)))
+            r = _call("session.stop", {"agent": "worker", "mode": "exit", "request_id": "ah-exit2"})
+            check("session.stop exit: the founder's own call goes through the hold", "result" in r and closed == ["t1"], str((r, closed)))
+            _hold("worker", ME)
+            r = _call("session.stop", {"agent": "worker", "mode": "exit", "request_id": "ah-exit3"}, as_agent="manager")
+            check("session.stop exit: and an agent's is refused while the founder holds it", _gate(r) == "input_holder", str(r))
+        finally:
+            termmod.close_session, delivery.session_present, termmod.available = real_close, real_present, real_avail
         con = db.connect()
         inputhold.release(con, "worker")
         con.close()
