@@ -8,7 +8,7 @@ Under each is the bridge's own code to reuse, so what the daemon does is what th
 
 ## N1 · `chat.send_now`
 
-**Why.** The ⚡ button on a queued message (`chat_page.py:826`) tells the agent now instead of when its queue reaches it. **Reuse.** `actions.send_now` (`actions/requests.py:163`): `db.mark_send_now`, then `ask.push` for the agent.
+**Why.** The ⚡ button on a queued message (`chat_page.py:826`) tells the agent now instead of when its queue reaches it. **Reuse.** `actions.send_now` (`actions/requests.py`): `db.mark_send_now`, then `ask.push` for the agent.
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
@@ -90,7 +90,7 @@ Under each is the bridge's own code to reuse, so what the daemon does is what th
 
 ## N2 · `Task.priority` and `task.edit` priority
 
-**Why.** The `p` key and the priority column of the task table (`tasks_view.py:158`, `:191`). **Reuse.** `actions.edit_task(priority=)` (`actions/tasks.py:1489`) changes it, the CLI's `--priority` calls it, and `tasks.priority` holds it (default 2, `db/tasks.py:25`). The daemon's `task.edit` handler (`daemon/rpc_tasks.py`) does not pass it on yet. `task.new` and `task.begin` already take it.
+**Why.** The `p` key and the priority column of the task table (`tasks_view.py:158`, `:191`). **Reuse.** `actions.edit_task(priority=)` (`actions/tasks.py`) changes it, the CLI's `--priority` calls it, and `tasks.priority` holds it (default 2, `DEFAULT_PRIORITY` in `db/tasks.py`). The daemon's `task.edit` handler (`daemon/rpc_tasks.py`) does not pass it on yet. `task.new` and `task.begin` already take it.
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
@@ -150,7 +150,7 @@ Append to `contract/fixtures/tasks.json`:
 
 ## N5 · `stats.outlook`
 
-**Why.** The outlook graph and the cost-per-day view (`outlook_view.py`); `stats.get` has 24 h and 7 d counts and two percentages, no curve. **Reuse.** `actions.weekly_outlook`, `agent_use`, `agent_overlay` and `daily_agent_cost` (`actions/details.py:451`), `usage.status.runway` and `describe_runway` (`usage/status.py:796`).
+**Why.** The outlook graph and the cost-per-day view (`outlook_view.py`); `stats.get` has 24 h and 7 d counts and two percentages, no curve. **Reuse.** `actions.weekly_outlook`, `agent_use`, `agent_overlay` and `daily_agent_cost` (`actions/details.py`), `usage.status.runway` and `describe_runway` (`usage/status.py`).
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
@@ -258,8 +258,8 @@ Only `choice` changes; it gains a shape:
 
 > A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one, or, on a prompt with `multi`, {keys, text?}; a text answer passes the same gates and the prompt check.
 
-- `Prompt.multi` is true on a `question` whose screen is a multi-select, absent or false on every other prompt. On such a prompt `PromptOption.checked` says whether the box is checked on the screen now. The daemon sets `highlighted` from the checked box today and keeps doing so; `checked` is the field a client reads.
-- `{keys, text?}` is the final state: the boxes named are checked, any other box that is checked on the screen is unchecked, and `text` fills Other as well (`choices` and `text` of `prompt_blocks.answer`). `keys` empty with no `text` submits with nothing checked, which is a real answer. A key is an option key of this prompt, named once; `esc` is not one (cancel stays the bare string `"esc"`).
+- `Prompt.multi` is true on a `question` whose screen is a multi-select, absent or false on every other prompt. On such a prompt `PromptOption.checked` says whether the box is checked on the screen now. On a multi prompt the daemon sets `highlighted` from the checked box today and keeps doing so (the contract's description of it is edited below); `checked` is the field a client reads.
+- `{keys, text?}` is the final state: the boxes named are checked, any other box that is checked on the screen is unchecked, and `text` fills Other as well (`choices` and `text` of `prompt_blocks.answer`). This holds for `keys` empty with `text` too: `question_keys` alone, given no choices and a text, toggles nothing and leaves checked boxes checked, so the daemon sends that answer through the two-stage path (stage one with no choices unchecks every checked box, then Other and the text). `keys` empty with no `text` submits with nothing checked, which is a real answer. A key is an option key of this prompt, named once; `esc` is not one (cancel stays the bare string `"esc"`).
 - `bad_request`, field `choice`, and nothing sent: `{keys}` on a prompt whose `multi` is not true; a key the prompt does not offer, one named twice, or `esc`. A bare option key on a multi prompt is what it is today: that box only, then submit.
 - Everything else is as for any answer: the prompt id is checked first (`stale_prompt` with the current prompt, nothing sent), then the three gates.
 - **Events.** None new: the answered prompt's `chat.transcript` card turns `open: false`, as for any answer.
@@ -270,6 +270,9 @@ Only `choice` changes; it gains a shape:
  "type": "boolean",
  "description": "A question that takes several choices: pick any number of options, then submit once (prompt.answer {keys}). Absent or false: one choice."
 }
+
+// components.schemas.PromptOption.properties.highlighted, gains a description
+{"type": "boolean", "description": "The option the screen highlights. On a multi question the daemon sets it from the box too: read `checked`."}
 
 // components.schemas.PromptOption.properties.checked, optional
 {"type": "boolean", "description": "Multi question only: the box is checked on the screen now."}
@@ -288,7 +291,7 @@ Only `choice` changes; it gains a shape:
 "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one, or, on a prompt with `multi`, {keys, text?}; a text answer passes the same gates and the prompt check."
 ```
 
-`contract/prompts/question_multi_select.json` (new; the screen is the one `tests/session/test_ask_question.py` holds, and the daemon's screen watch reads it as `expect` says). `tests/daemon/test_prompt_fields.py` compares only kind, tool, command, reason and option keys: it also compares `multi` and `checked` for a capture that states them.
+`contract/prompts/question_multi_select.json` (new; the screen is the one `tests/session/test_ask_question.py` holds, and the daemon's screen watch reads it as `expect` says). `tests/daemon/test_prompt_fields.py` compares only kind, tool, command, reason and option keys: it also compares `multi` and `checked` for a capture that states them. The final-state rule is a screen effect no conformance fixture can see, so it is pinned by a case in `tests/session/test_ask_question.py` on this same screen: `{keys: [], text: "x"}` sends the keys that uncheck 1 and 3, then Other and the text, then submit; `{keys: ["2"]}` unchecks 1 and 3 and checks 2.
 
 ```json
 {
@@ -350,7 +353,7 @@ Only `choice` changes; it gains a shape:
 
 ## N7 · a `session` transcript item
 
-**Why.** `SessionMark` and `HandoffModal` (`chat_page.py:718`, `:734`): a line where each session began, and the handoff it was given, read whole on a click. **Reuse.** `db.session_starts` (`db/handoff.py:58`; `ts`, `session_id`, `cause`, `resumed`, `text`, `actor`) and `session_marks` (`chat_page.py:277`).
+**Why.** `SessionMark` and `HandoffModal` (`chat_page.py:718`, `:734`): a line where each session began, and the handoff it was given, read whole on a click. **Reuse.** `db.session_starts` (`db/handoff.py`; `ts`, `session_id`, `cause`, `resumed`, `text`, `actor`) and `session_marks` (`chat_page.py:277`).
 
 `chat.transcript` already returns `TranscriptItem`s; no new method and no new param.
 
