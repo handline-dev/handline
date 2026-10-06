@@ -89,10 +89,10 @@ A method marked write takes a required `request_id`.
 | `input.take` | member | yes | `agent`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder |
 | `input.ask` | member | yes | `agent`, `request_id` | `Accepted` | `refused` | unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
-| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found` |  |
-| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found` |  |
-| `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
-| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
+| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
+| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
+| `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found`, `bad_request` |  |
+| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -296,11 +296,11 @@ Messages of an agent's chat, newest first. Page with before (older) or since (ne
 
 ### `chat.transcript`
 
-The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state.
+The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state. Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet.
 
 ### `chat.locate`
 
-Where a message number sits: its conversation, scope, and the page of messages around it.
+Where a message number sits: its conversation, scope, and the page of messages around it. not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for.
 
 ### `chat.search`
 

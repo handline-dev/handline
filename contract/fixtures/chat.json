@@ -1,0 +1,317 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.search.shape",
+   "spec": "chat.search",
+   "about": "Messages that hold the text, possibly none.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.search",
+      "params": {
+       "query": "zzz-nothing-says-this-zzz"
+      }
+     },
+     "result": {
+      "messages": {
+       "$type": "array",
+       "$each": {
+        "id": {
+         "$type": "integer"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.messages.no_such_agent",
+   "spec": "chat.messages",
+   "about": "An agent that is not registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "no.such.agent",
+       "scope": "mine"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.messages.scope_is_mine_or_all",
+   "spec": "chat.messages",
+   "about": "Any other scope is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "x",
+       "scope": "everyone"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "scope"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.messages.an_agent_session_is_refused",
+   "spec": "chat.messages",
+   "about": "An agent session may not read a chat: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "x",
+       "scope": "mine"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.transcript.no_such_agent",
+   "spec": "chat.transcript",
+   "about": "An agent that is not registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.locate.no_such_message",
+   "spec": "chat.locate",
+   "about": "A message number nothing has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.locate",
+      "params": {
+       "request": 999999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.search.query_is_not_empty",
+   "spec": "chat.search",
+   "about": "A query of nothing is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.search",
+      "params": {
+       "query": " "
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "query"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.transcript.limit_is_bounded",
+   "spec": "chat.transcript",
+   "about": "A limit past the maximum is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "x",
+       "limit": 201
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -523,10 +523,14 @@ export type ChatMessage = {
     title: string;
   }[];
   is_task_question: boolean;
+  /** Only in chat.search hits: the agent whose chat shows the message. */
+  agent?: string;
+  /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
+  scope?: "mine" | "all";
 };
 
 export type TranscriptItem = {
-  /** Ordered and stable, so a client appends and never redraws. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. */
   id: number;
   at: Timestamp;
   kind: "reply" | "tool" | "prompt" | "task_event";

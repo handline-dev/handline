@@ -46,3 +46,7 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+chat.messages
+chat.transcript
+chat.locate
+chat.search

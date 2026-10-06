@@ -1931,6 +1931,9 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -1999,8 +2002,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet."
   },
   {
    "name": "chat.locate",
@@ -2081,8 +2088,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for."
   },
   {
    "name": "chat.search",
@@ -2142,7 +2153,15 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
   },
   {
    "name": "chat.send",
@@ -8502,6 +8521,18 @@
      },
      "is_task_question": {
       "type": "boolean"
+     },
+     "agent": {
+      "type": "string",
+      "description": "Only in chat.search hits: the agent whose chat shows the message."
+     },
+     "scope": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate)."
      }
     },
     "required": [
@@ -8531,7 +8562,7 @@
     "properties": {
      "id": {
       "type": "integer",
-      "description": "Ordered and stable, so a client appends and never redraws."
+      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds."
      },
      "at": {
       "$ref": "#/components/schemas/Timestamp"
