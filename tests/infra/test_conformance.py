@@ -163,10 +163,29 @@ def test_the_command_line_runs_against_a_socket_path(td) -> None:
     except PermissionError:
         print("note: this run may not bind a socket; the command line check was not run")
         return
-    r = subprocess.run([sys.executable, str(ROOT / "contract" / "conformance.py"), path, "--only", "hello"], capture_output=True, text=True)
+    cli = [sys.executable, str(ROOT / "contract" / "conformance.py")]
+    r = subprocess.run([*cli, path, *KEYARG, "--only", "hello"], capture_output=True, text=True)
     check("conformance: the command line reports per fixture and exits 0", r.returncode == 0 and "PASS  hello.ok" in r.stdout and "0 failed" in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([*cli, path, "--only", "hello"], capture_output=True, text=True)
+    check("conformance: the same command line without the founder key exits 1 and says it needs a var",
+          r.returncode == 1 and "NEEDVAR  hello.ok" in r.stdout and "needing a var" in r.stdout, r.stdout + r.stderr)
     r = subprocess.run([sys.executable, str(ROOT / "contract" / "conformance.py")], capture_output=True, text=True)
     check("conformance: no socket is a usage error", r.returncode == 2)
+
+
+def test_the_command_line_arguments_over_socketpairs() -> None:
+    """What the socket-path test above checks, through conformance.main with the same arguments, for a run that may not bind."""
+    founder = _fakes("founder")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        with_key = conformance.main([*KEYARG, "--only", "hello"], founder)
+    check("conformance: the command line arguments with the founder key report per fixture and exit 0",
+          with_key == 0 and "PASS  hello.ok" in out.getvalue() and "0 failed" in out.getvalue(), out.getvalue())
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        without = conformance.main(["--only", "hello"], founder)
+    check("conformance: the same arguments without the key exit 1 and say they need a var",
+          without == 1 and "NEEDVAR  hello.ok" in out.getvalue() and "needing a var" in out.getvalue(), out.getvalue())
 
 
 def _first_fixture_fails(mutate, needle: str, name: str) -> None:
@@ -313,6 +332,7 @@ def main() -> int:
         run(lambda: test_a_role_without_a_socket_is_skipped_not_passed())
         run(lambda: test_a_wrong_reply_fails_that_fixture(td))
         run(lambda: test_the_command_line_runs_against_a_socket_path(td))
+        run(lambda: test_the_command_line_arguments_over_socketpairs())
         run(lambda: test_skips_for_a_missing_var_and_a_method_the_daemon_lacks())
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
