@@ -148,3 +148,30 @@ describe('writes', () => {
     expect(text($('.toast'))).toContain('no longer the open one');
   });
 });
+
+describe('read errors', () => {
+  it("a refused read shows the daemon's sentence and hint with Retry, and Retry reads again", async () => {
+    const s = setup();
+    s.daemon.knobs.refuse('agent.get', 'cap', 'The detail is closed for now', 'try again soon');
+    await mount(ARCH, s);
+    await until(() => $('.row-detail .banner'), 'the error banner');
+    expect(text($('.row-detail .banner'))).toContain('The detail is closed for now (try again soon)');
+    s.daemon.knobs.clear();
+    await click($$('.row-detail .banner button').find((b) => text(b) === 'Retry')!);
+    await until(() => !$('.row-detail .banner'), 'the banner gone');
+    expect(text($('.row-detail'))).toContain('architect');
+  });
+
+  it('a read refused after the data came keeps what it had under the banner', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => $('.row-detail') && !$('.row-detail .banner') && text($('.row-detail')).includes('architect'), 'the detail');
+    const before = text($('.row-detail'));
+    s.daemon.knobs.refuse('agent.get', 'cap', 'The detail is closed for now');
+    await act(async () => void (await s.client.call('session.stop', { agent: ARCH, mode: 'exit' }))); // the change makes the open detail read again
+    await until(() => $('.row-detail .banner'), 'the error banner');
+    expect(text($('.row-detail .banner'))).toContain('The detail is closed for now');
+    expect(text($('.row-detail'))).toContain(before.slice(0, 20));
+    expect($$('.row-wrap').length).toBe(3);
+  });
+});
