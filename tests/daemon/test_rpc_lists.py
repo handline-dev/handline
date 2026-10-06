@@ -221,7 +221,7 @@ def test_settings_say_where_every_setting_stands(home: Path) -> None:
     check("settings.get: an agent that is not a name is bad_request", _code(r) == "bad_request", str(r))
 
 
-def test_the_commands_these_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
+def test_the_commands_the_list_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
     _world(home)
     actions.schedule_add("worker", "0 9 * * *", "check the board")
     for argv, want in ((["status"], "picked"), (["account", "list"], None), (["team"], "manager"), (["hr", "list"], None),
@@ -267,7 +267,7 @@ def main() -> int:
         run(lambda: test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(Path(td) / "l6"))
         run(lambda: test_stats_count_a_window(Path(td) / "l7"))
         run(lambda: test_settings_say_where_every_setting_stands(Path(td) / "l8"))
-        run(lambda: test_the_commands_these_methods_serve_still_work_from_an_agent_session(Path(td) / "l9"))
+        run(lambda: test_the_commands_the_list_methods_serve_still_work_from_an_agent_session(Path(td) / "l9"))
         run(lambda: test_the_list_fixtures_pass_against_this_daemon(Path(td) / "l10"))
     return run_area(tests)
 
