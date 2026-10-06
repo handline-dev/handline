@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 
@@ -48,14 +49,18 @@ def is_session(command: str) -> bool:
 
 # Why the last reading came back None: which call, how it failed, the first line of its stderr. Never an environment
 # value - the output of `ps eww` is not read into it, only its exit status and error line.
-_why: str | None = None
+_here = threading.local()       # `why`: per thread, so a reading is never given the cause another thread's noted
+_state_lock = threading.Lock()
 _failing = False
 report = None       # the daemon's log, set when it starts: told once when readings begin to fail and once when they recover
 
 
 def _miss(why: str) -> None:
-    global _why
-    _why = why
+    _here.why = why
+
+
+def _why() -> str | None:
+    return getattr(_here, "why", None)
 
 
 def _ps_failed(call: str, out) -> str:
@@ -224,14 +229,12 @@ def live_sessions() -> dict[str, int] | None:
     """`_live_sessions`, and the cause of a failed reading said once to `report` (and its end, once)."""
     global _failing
     found = _live_sessions()
-    if found is None and not _failing:
-        _failing = True
-        if report:
-            report(f"process table could not be read: {_why or 'no cause noted'}")
-    elif found is not None and _failing:
-        _failing = False
-        if report:
-            report("process table readable again")
+    with _state_lock:
+        was, _failing = _failing, found is None
+    if found is None and not was and report:
+        report(f"process table could not be read: {_why() or 'no cause noted'}")
+    elif found is not None and was and report:
+        report("process table readable again")
     return found
 
 
@@ -262,7 +265,7 @@ def _live_sessions() -> dict[str, int] | None:
             if not_ours:
                 continue
             sessions = sum(1 for _, c in table if is_session(c))
-            _miss(f"pid {pid}, one of {sessions} session processes of {len(table)}: its environment could not be read ({_why or 'no cause noted'})")
+            _miss(f"pid {pid}, one of {sessions} session processes of {len(table)}: its environment could not be read ({_why() or 'no cause noted'})")
             return None
         name = _extract(env, "HANDLINE_AGENT") or _extract(env, "OCP_AGENT")
         if name:

@@ -1816,6 +1816,28 @@ def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
           "  code: unknown\n" in out, out[:300])
 
 
+_REAL_LIVE_SESSIONS = obsmod.live_sessions      # before any test's world stands a stub in its place
+
+
+def test_a_process_table_the_daemon_cannot_read_is_said_in_its_log_with_the_cause(home: Path) -> None:
+    """T1916: `loop.run` hands the daemon's log to observe, so the reason a reading failed is in the log a person tails."""
+    import types
+    _daemon_home(home, 20)
+
+    def no_ps(cmd, **kw):
+        raise FileNotFoundError(2, "no ps")
+    real = (obsmod.live_sessions, obsmod.subprocess, obsmod.report, obsmod._failing)
+    obsmod.live_sessions = _REAL_LIVE_SESSIONS
+    obsmod.subprocess = types.SimpleNamespace(run=no_ps, TimeoutExpired=real[1].TimeoutExpired, SubprocessError=real[1].SubprocessError)
+    obsmod._failing = False
+    try:
+        out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    finally:
+        obsmod.live_sessions, obsmod.subprocess, obsmod.report, obsmod._failing = real
+    check("daemon log: a process table that cannot be read is said with its cause", "process table could not be read: ps -Ao could not run: FileNotFoundError 2" in out, out[-600:])
+    check("daemon log: once for the episode, however many ticks and readers asked", out.count("process table could not be read") == 1, out[-600:])
+
+
 def test_service_log_rotation(tmp: Path) -> None:
     tmp.mkdir(parents=True, exist_ok=True)
     log = tmp / "daemon.out.log"
@@ -5478,6 +5500,7 @@ def main() -> int:
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))
+        run(lambda: test_a_process_table_the_daemon_cannot_read_is_said_in_its_log_with_the_cause(Path(td) / 'ptlog'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))
