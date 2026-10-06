@@ -154,7 +154,12 @@ func (m *Manager) wrongTry(remote string, now time.Time) {
 			delete(m.codes, h)
 		}
 	}
-	recent := m.wrongs[remote][:0:0]
+	for h, ts := range m.wrongs {
+		if now.Sub(ts[len(ts)-1]) >= hostWindow {
+			delete(m.wrongs, h) // a host that has been quiet a whole window starts over
+		}
+	}
+	var recent []time.Time
 	for _, t := range m.wrongs[remote] {
 		if now.Sub(t) < hostWindow {
 			recent = append(recent, t)

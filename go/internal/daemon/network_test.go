@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/handline/handline/go/internal/rpc"
 )
 
 // startNet is a daemon with only the network door: no unix socket, so this runs where a sandbox will not bind one.
@@ -97,7 +101,8 @@ func TestAnUnpairedConnectionReadsNothingForAnyMethodOfTheSpec(t *testing.T) {
 		}
 	}
 	for i, name := range names {
-		for _, params := range []string{`{}`, `{"client":"t","protocol":1,"key":"k","token":"nope","agent":"a"}`} {
+		for _, params := range []string{`{}`, `{"client":"t","protocol":1,"key":"k","token":"nope","agent":"a"}`,
+			`{"token":"nope"}`, `{"client":"t","protocol":0,"token":"nope"}`} {
 			r := c.ask(`{"jsonrpc":"2.0","id":` + string(rune('1'+i%9)) + `,"method":"` + name + `","params":` + params + `}`)
 			if !reflect.DeepEqual(r["error"], unpaired) || r["result"] != nil {
 				t.Fatalf("%q with %s: %v", name, params, r)
@@ -139,6 +144,57 @@ func TestPairingMakesAMemberWhoseRevocationClosesTheConnection(t *testing.T) {
 	// the token is now what a never issued one is
 	if r := dialNet(t, d).ask(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`); !reflect.DeepEqual(r["error"], unpaired) {
 		t.Fatalf("%v", r)
+	}
+}
+
+func TestARevokedConnectionThatStaysOpenIsRefusedAndEnds(t *testing.T) {
+	d := startNet(t)
+	token, id := pair(t, d, "phone")
+	srvEnd, cli := net.Pipe()
+	defer cli.Close()
+	ended := make(chan struct{})
+	go func() {
+		d.net.rs.ServeNet(rpc.NewLineTransport(srvEnd), "10.0.0.9", func() {}) // a closer that closes nothing
+		close(ended)
+	}()
+	r := bufio.NewReader(cli)
+	say := func(line string) map[string]any {
+		cli.SetDeadline(time.Now().Add(5 * time.Second))
+		cli.Write([]byte(line + "\n"))
+		b, err := r.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		return m
+	}
+	if say(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`)["result"] == nil {
+		t.Fatal("hello")
+	}
+	d.dev.Revoke(id)
+	if got := say(`{"jsonrpc":"2.0","id":2,"method":"whoami"}`); !reflect.DeepEqual(got["error"], unpaired) {
+		t.Fatalf("%v", got)
+	}
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection of a revoked device kept being served")
+	}
+}
+
+func TestWrongCodesFromOneHostLockItOutWhateverPortItComesFrom(t *testing.T) {
+	d := startNet(t)
+	for i := 0; i < 5; i++ {
+		c := dialNet(t, d) // a connection of its own each time: its source port differs
+		if e := c.ask(`{"jsonrpc":"2.0","id":1,"method":"device.redeem","params":{"code":"WRONG","name":"p","request_id":"w` + string(rune('a'+i)) + `"}}`)["error"].(map[string]any); e["data"].(map[string]any)["gate"] != "pairing_code" {
+			t.Fatalf("%v", e)
+		}
+	}
+	code, _, _, _ := d.dev.Pair(time.Minute)
+	e := dialNet(t, d).ask(`{"jsonrpc":"2.0","id":1,"method":"device.redeem","params":{"code":"` + code + `","name":"p","request_id":"late"}}`)["error"].(map[string]any)
+	if e["data"].(map[string]any)["gate"] != "attempt_limit" {
+		t.Fatalf("%v", e)
 	}
 }
 
