@@ -1,0 +1,10 @@
+{
+  "name": "@handline/app-react",
+  "private": true,
+  "type": "module",
+  "description": "React bindings for @handline/app-core: DaemonProvider and hooks that read the store",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@handline/app-core": "workspace:*", "@handline/client": "workspace:*" },
+  "peerDependencies": { "react": ">=18" },
+  "peerDependenciesMeta": { "react": { "optional": true } }
+}
