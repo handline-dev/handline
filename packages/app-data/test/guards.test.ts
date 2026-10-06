@@ -59,7 +59,9 @@ function sources(dir: string): string[] {
 }
 
 describe('guard 1: no hand-made data calls in an app', () => {
+  // apps/electron is the main process: no UI cache, so nothing to move to app-data.
   const offenders = sources(path.join(repo, 'apps'))
+    .filter((f) => !path.relative(repo, f).startsWith('apps/electron/'))
     .filter((f) => BY_HAND.test(fs.readFileSync(f, 'utf8')))
     .map((f) => path.relative(repo, f));
   it('only the files not yet moved to app-data call the daemon or write through the store', () => {
