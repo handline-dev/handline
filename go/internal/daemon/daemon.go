@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
@@ -36,6 +37,8 @@ type Config struct {
 type Daemon struct {
 	cfg     Config
 	db      *sql.DB
+	hooks   *hooks.Recorder
+	stop    chan struct{} // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
 	local   *rpc.Server
@@ -57,7 +60,9 @@ func Start(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}}
+	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{}),
+		hooks: &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}}
+	d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -77,6 +82,8 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.net = nl
 	}
+	d.wg.Add(1)
+	go d.spoolLoop()
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
 }
@@ -84,8 +91,33 @@ func Start(cfg Config) (*Daemon, error) {
 // newServer is a connection server on one transport, with the methods this daemon serves.
 func (d *Daemon) newServer(transport string) *rpc.Server {
 	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
+	s.DB = d.db
+	if d.hooks != nil {
+		d.hooks.Register(s)
+	}
 	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 	return s
+}
+
+func (d *Daemon) ingestSpool() {
+	if _, err := d.hooks.Ingest(); err != nil {
+		d.cfg.Log("  spool: %v", err)
+	}
+}
+
+// spoolLoop reads the hook spool every SpoolEvery, the work the Python daemon does each tick.
+func (d *Daemon) spoolLoop() {
+	defer d.wg.Done()
+	t := time.NewTicker(hooks.SpoolEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-t.C:
+			d.ingestSpool()
+		}
+	}
 }
 
 // listenUnix binds the socket, 0600, replacing a stale file but never one a live daemon answers on.
@@ -170,6 +202,9 @@ func (d *Daemon) ServeFile(f *os.File) error {
 // Close stops listening, drops every connection and waits for their goroutines.
 func (d *Daemon) Close() {
 	d.mu.Lock()
+	if !d.closing && d.stop != nil {
+		close(d.stop)
+	}
 	d.closing = true
 	for c := range d.conns {
 		c.Close()
