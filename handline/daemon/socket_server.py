@@ -30,7 +30,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, sends
+from . import landauth, lands, messaging, rpc, rpc_agents, sends  # noqa: F401 - rpc_agents registers its methods
 
 
 

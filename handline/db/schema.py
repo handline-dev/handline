@@ -624,9 +624,15 @@ def _rpc_replies(con) -> None:
     """)
 
 
+def _agent_view(con) -> None:
+    """The daemon's stored view of each agent (daemon/agentview.py)."""
+    con.execute("CREATE TABLE IF NOT EXISTS agent_view (agent TEXT PRIMARY KEY, view TEXT NOT NULL, updated INTEGER NOT NULL)")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
+    (3, "agent_view", _agent_view, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

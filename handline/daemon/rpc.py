@@ -71,6 +71,11 @@ class Caller:
         """The name a write is made under: an agent's own, else `human` (the founder and any device)."""
         return self.info["name"] if self.role == "agent" else db.HUMAN
 
+    @property
+    def actor_info(self) -> dict:
+        """The spec's `Actor` for an event: a person is a `user` there."""
+        return {**self.info, "kind": "user" if self.info["kind"] == "person" else self.info["kind"]}
+
     def allows(self, role: str) -> bool:
         return ROLES.index(self.role) >= ROLES.index(role)
 
@@ -140,7 +145,7 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
                     raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
                 return {**json.loads(row["reply"]), "replayed": True}
             result = m.handler(ctx, params)
-            db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.info})
+            db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.actor_info})
             now = int(time.time())
             con.execute("DELETE FROM rpc_replies WHERE ts <= ?", (now - REPLY_KEEP_S,))
             con.execute("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",
