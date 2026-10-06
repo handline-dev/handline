@@ -20,6 +20,31 @@ importers:
 
   contract: {}
 
+  packages/app-core:
+    dependencies:
+      '@handline/client':
+        specifier: workspace:*
+        version: link:../client
+      '@handline/tokens':
+        specifier: workspace:*
+        version: link:../tokens
+    devDependencies:
+      '@handline/config':
+        specifier: workspace:*
+        version: link:../config
+      '@handline/fake-daemon':
+        specifier: workspace:*
+        version: link:../fake-daemon
+
+  packages/app-react:
+    dependencies:
+      '@handline/app-core':
+        specifier: workspace:*
+        version: link:../app-core
+      '@handline/client':
+        specifier: workspace:*
+        version: link:../client
+
   packages/client:
     dependencies:
       '@handline/contract':
@@ -58,8 +83,17 @@ importers:
         specifier: workspace:*
         version: link:../config
 
+  packages/tokens:
+    devDependencies:
+      '@handline/config':
+        specifier: workspace:*
+        version: link:../config
+
   web:
     dependencies:
+      '@handline/app-core':
+        specifier: workspace:*
+        version: link:../packages/app-core
       '@handline/client':
         specifier: workspace:*
         version: link:../packages/client
