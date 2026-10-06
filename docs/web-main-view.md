@@ -5,7 +5,7 @@ the agent's **Claude Code / Codex terminal**, **simulator / emulator**, **web**,
 to split the view, up to **four** panes; every tab but Chat can be closed.
 
 This replaces the agent page of `docs/web-ui-design.md` §3.2 (header controls, one pane area beside the chat) and feeds units 3 and 4 of
-`docs/turborepo-layout.md` (§7). Written against main @2f7de798 and the API spec in `contract/`.
+`docs/turborepo-layout.md` (§6). Written against main @2f7de798 and the API spec in `contract/`.
 
 ## 1. What changes from the approved design
 
@@ -48,7 +48,7 @@ A tab whose kind the daemon does not serve is not offered in `＋`; one restored
 
 Notes per kind:
 - **Terminal**: attached only while rendered. A hidden tab, or a tab of an agent that is not selected, detaches and reattaches with a fresh snapshot (the daemon polls once per terminal and stops when the last viewer leaves). The text-grid limit and the input-holder rule (design §4.3) are unchanged.
-- **Web**: an iframe of a page that refuses framing (`X-Frame-Options`) shows "open in a new tab" instead; there is no scraping or rewriting. This tab is for the person; agents driving a browser stays out of scope.
+- **Web**: an iframe of a page that refuses framing (`X-Frame-Options`) shows "open in a new tab" instead; there is no scraping or rewriting. The iframe is sandboxed **without `allow-same-origin` toward the app** and the proxied page is served from a different origin than the app (R4), because the app's origin holds the paired-daemon token. This tab is for the person; agents driving a browser stays out of scope.
 - **Markdown**: sanitized rendering (no raw HTML, no scripts); relative images and links resolve through the same file-read call, confined to the worktree. Files open from `＋ → Markdown file` (a name search over the worktree) and from file paths in chat. No editing.
 - **Emulator**: a media stream, not JSON-RPC lines; it needs its own channel with backpressure, like the terminal stream (design §8 cross-cutting 3).
 
@@ -97,17 +97,14 @@ None blocks unit 3; they gate the tab kinds in §3. Each is a new method or fiel
 | R1 | Vendor of an agent's session | `vendor` (`claude`, `codex`, open set) on `AgentView` or `AgentDetail`; the UI labels the tab from it |
 | R2 | Terminals of an agent | `AgentDetail.terminals: [{ handle, kind: 'session' \| 'shell' \| 'login', title }]`; `terminal.open { agent, kind: 'shell' }` returns a handle for `terminal.attach` (`web/README.md` lists the shell pane as waiting on shell terminals) |
 | R3 | Emulators | `emulator.list`, `emulator.start` / `stop { device }`, a screen channel (JPEG frames over a binary WebSocket, rate-limited, one producer per device) and `emulator.input { tap, swipe, text, key }`; capability `emulator`. The host is the daemon's machine, so it also needs the SDK tools there |
-| R4 | Web proxy | `web.ports { agent }` lists listening ports of the worktree's processes; `web.open { agent, port }` returns a path on the daemon's own TLS port that proxies to it, role-checked and closed when the last viewer leaves. Without it a remote viewer cannot reach `localhost:3000` on the host |
+| R4 | Web proxy | `web.ports { agent }` lists listening ports of the worktree's processes; `web.open { agent, port }` returns an address on the daemon's TLS **on a different origin from the app** (another port or host, never the app's origin, so the proxied page cannot read the app's storage or call the daemon as the viewer) that proxies to it, role-checked and closed when the last viewer leaves. Without it a remote viewer cannot reach `localhost:3000` on the host |
 | R5 | Files | `worktree.file { agent, path }` (text, size limit, path confined to the worktree, symlinks resolved first), `worktree.files { agent, query }` for the picker, and a `file.changed` notice on a topic or an `etag` for cheap polling |
 
 R4 and R5 widen what a viewer can read on the host beyond the terminal, so the daemon team decides roles and confinement (design §8 cross-cutting 7); the UI assumes member-or-founder and greys the tab otherwise.
 
 ## 7. Units 3 and 4
 
-Units 2, 3 and 4a–4e of `docs/turborepo-layout.md` §6 are written to match this document: unit 2 adds `app-core/workspace.ts` with the tests of §5; unit 3 builds the sidebar of §2,
-the tab strip and the split panes with the Chat and Terminal tabs on today's API; unit 4a makes them responsive and removes `web/ui` and `web/mobile`;
-4b–4e add the Shell, Markdown, Web and Emulator tabs as R2, R5, R4 and R3 land, and the Claude Code / Codex label waits on R1.
-The mobile app (unit 5) is unaffected: it shows Chat and Terminal as two screens and never splits.
+The units are in `docs/turborepo-layout.md` §6 (units 2, 3 and 4a–4e) and follow this document. The mobile app (unit 5) shows Chat and Terminal as two screens and never splits.
 
 ## 8. Assumptions to confirm
 

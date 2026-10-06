@@ -64,7 +64,7 @@ Today's 46 tests: client 17, transports 2, ui-model 9, ui-store 4, serve-ui 4, m
 ## 5. Migration order
 
 Every step ends with the root gate green, and the tests of code that has not moved yet still run from `web/`
-(`web` is a temporary workspace member until step 5). Moves are `git mv`, in commits that change no behavior. What each step must show is in the §6 table.
+(`web` is a temporary workspace member until step 6). Moves are `git mv`, in commits that change no behavior. What each step must show is in the §6 table.
 
 1. **Scaffold.** Root `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `turbo.json`, `packages/config`, `contract/package.json`;
    `.gitignore` for `node_modules`, `.turbo`, `dist`. No code moves.
