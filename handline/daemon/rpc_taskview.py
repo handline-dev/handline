@@ -68,23 +68,26 @@ def task_of(con, row, state: str) -> dict:
     }
 
 
-def _scope(ctx, params) -> str | None:
-    """Whose tasks an agent sees unless it asks for everyone's; a person sees all."""
-    return ctx.caller.info["name"] if ctx.caller.role == "agent" and not _flag(params, "everyone") else None
+def _scope(ctx, params) -> set[str] | None:
+    """The owners whose tasks this call shows, as `hl task list` scopes them: an agent sees itself and its reports,
+    unless it asks for everyone's; a person sees all."""
+    everyone = _flag(params, "everyone")
+    return None if everyone or ctx.caller.role != "agent" else actions.reach(ctx.caller.info["name"])
 
 
 def _tasks_list(ctx, params) -> dict:
     owner, opener, state = _str(params, "owner"), _str(params, "from"), _str(params, "state")
     parent, before, limit, ended = _int(params, "parent"), _int(params, "before"), _limit(params), _flag(params, "all")
-    mine = _scope(ctx, params)
+    owners = _scope(ctx, params)
+    if owner is not None and owners is not None and owner not in owners:
+        raise rpc.refused(f"{owner} is not you or one of your reports: everyone shows every team's tasks")
     con = db.connect()
     try:
-        rows = actions.task_rows(con, owner=owner, state=state, include_ended=ended)
+        rows = actions.task_rows(con, owner=owner, state=state, include_ended=ended, owners=owners)
         rows = [r for r in rows
                 if (opener is None or r["opened_by"] == opener)
                 and (parent is None or r["parent_task"] == parent)
-                and (before is None or r["id"] < before)
-                and (mine is None or mine in (r["owner"], r["opened_by"]))]
+                and (before is None or r["id"] < before)]
         rows.sort(key=lambda r: -r["id"])
         page = rows[:limit]
         return {"items": [task_of(con, r["row"], r["state"]) for r in page], "more": len(rows) > limit}

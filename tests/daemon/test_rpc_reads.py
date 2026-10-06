@@ -5,6 +5,7 @@ Run on its own: python3 tests/daemon/test_rpc_reads.py   (all areas: python3 tes
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -47,6 +48,14 @@ def _to_founder(body: str, who: str = "worker", kind: str = "say") -> int:
 
 
 def test_daemon_status_says_what_runs_and_what_it_holds(home: Path) -> None:
+    real = termmod.live_terminals
+    try:
+        _status_body(home)
+    finally:
+        termmod.live_terminals = real
+
+
+def _status_body(home: Path) -> None:
     support._board_world(home)
     termmod.live_terminals = lambda: {"t1", "t2"}
     _to_founder("a report")
@@ -112,6 +121,29 @@ def test_tasks_list_pages_filters_and_shows_each_caller_its_own(home: Path) -> N
     for bad in ({"limit": 0}, {"limit": 201}, {"limit": "x"}, {"before": "x"}, {"all": "yes"}, {"owner": 3}):
         r = _call("tasks.list", bad)
         check(f"tasks.list: {bad} is bad_request", _code(r) == "bad_request", str(r))
+
+
+def test_tasks_list_scopes_an_agent_as_the_command_does(home: Path) -> None:
+    support._board_world(home)
+    opened_by_founder = _task("opened by the founder")
+    con = db.connect()
+    con.execute("UPDATE tasks SET opened_by = ? WHERE id = ?", (db.HUMAN, opened_by_founder))
+    con.close()
+    opened_by_manager = _task("opened by the manager")
+    own = _task("the manager's own", owner="manager", by="worker")
+    ids = lambda r: sorted(t["id"] for t in r["result"]["items"])  # noqa: E731
+    rc, out = support._cli(["task", "list"])
+    shown = sorted(int(m) for m in re.findall(r"\bT(\d+)\b", out))
+    check("tasks.list: a manager sees what hl task list shows it, same world",
+          rc == 0 and shown == ids(_call("tasks.list")) == sorted([opened_by_founder, opened_by_manager, own]), f"{shown} / {out}")
+    check("tasks.list: a report's task opened by the founder is in it", opened_by_founder in ids(_call("tasks.list")))
+    check("tasks.list: a report sees only its own and not the manager's", ids(_call("tasks.list", as_agent="worker")) == sorted([opened_by_founder, opened_by_manager]))
+    r = _call("tasks.list", {"owner": "manager"}, as_agent="worker")
+    rc, out = support._cli(["task", "list", "--owner", "manager"], as_agent="worker")
+    check("tasks.list: an owner outside the reach is refused, as the command refuses it",
+          _code(r) == "refused" and rc == 1 and "is not you or one of your reports" in out
+          and "is not you or one of your reports" in r["error"]["message"], f"{r} / {out}")
+    check("tasks.list: everyone lifts the scope", len(ids(_call("tasks.list", {"everyone": True}, as_agent="worker"))) == 3)
 
 
 def test_task_get_is_one_task_whole(home: Path) -> None:
@@ -201,6 +233,7 @@ def main() -> int:
         run(lambda: test_daemon_status_says_what_runs_and_what_it_holds(Path(td) / "r1"))
         run(lambda: test_tasks_list_pages_filters_and_shows_each_caller_its_own(Path(td) / "r2"))
         run(lambda: test_task_get_is_one_task_whole(Path(td) / "r3"))
+        run(lambda: test_tasks_list_scopes_an_agent_as_the_command_does(Path(td) / "r7"))
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))
         run(lambda: test_the_commands_these_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
