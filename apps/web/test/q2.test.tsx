@@ -96,6 +96,7 @@ describe('writes', () => {
     await until(() => button('Start'), 'Start');
     s.daemon.knobs.latency(300);
     await click(button('Start')!);
+    await until(() => button('starting'), 'the pending mark');
     expect(text(button('starting')!)).toBe('starting…');
     expect(button('starting')!.hasAttribute('disabled')).toBe(true);
     expect(s.daemon.sessions.get(TB)!.state).toBe('parked');
