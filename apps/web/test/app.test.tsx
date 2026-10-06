@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, activate, applyPreset, defaultWorkspace, openTab, saveWorkspace, storageKey, type KV } from '@handline/app-core';
+import { Store, applyPreset, defaultWorkspace, openTab, saveWorkspace, storageKey, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
@@ -40,14 +40,7 @@ const click = (el: Element) =>
 const text = (el: Element | null) => el?.textContent ?? '';
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
 
-// The text grid is what these tests drive; the xterm pane has its own file.
-const textGrid = (): KV & { data: Map<string, string> } => {
-  const m = memory();
-  m.setItem('terminal', 'text');
-  return m;
-};
-
-async function mount(agent: string, storage: KV = textGrid(), s = setup()) {
+async function mount(agent: string, storage: KV = memory(), s = setup()) {
   const store = new Store(s.client);
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
@@ -223,24 +216,5 @@ describe('the sidebar', () => {
     await until(() => $('[data-tab="terminal:term:handline.term-build"]'), 'term-build terminal tab');
     expect($(termTab)).toBeNull();
     expect($$('[data-tab="chat"]')).toHaveLength(1);
-  });
-});
-
-describe('badges', () => {
-  it('say a stall in the rail, and a dialog on the rail row and on the terminal tab, with a dot while that tab is hidden', async () => {
-    const storage = textGrid();
-    const ws = activate(applyPreset(defaultWorkspace({ terminal: `term:${ARCH}` }), 'single'), 'chat'); // one pane, Chat showing
-    saveWorkspace(storage, storageKey('test', ARCH), ws);
-    const m = await mount(ARCH, storage);
-    await until(() => $(termTab), 'the terminal tab');
-    expect($('[data-agent="handline.auditor"] .badge.stalled')?.title).toMatch(/^wall since/);
-    expect($(`${termTab} .badge`)).toBeNull();
-    await m.store.client.sendInput(ARCH, 'push it');
-    m.daemon.settle(); // the scripted turn ends at a permission dialog
-    await until(() => $(`${termTab} .badge.dialog`), 'the dialog badge on the tab');
-    expect($(`[data-agent="${ARCH}"] .badge.dialog`)).not.toBeNull();
-    expect($(`${termTab} .unread-dot`)).not.toBeNull(); // the terminal is behind Chat
-    await click($(termTab)!);
-    expect($(`${termTab} .unread-dot`)).toBeNull(); // showing it clears the dot
   });
 });

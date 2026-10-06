@@ -47,6 +47,79 @@ test('a notice is held back only while the window is focused on that agent', () 
   );
 });
 
+const hr = (over: Partial<Event> = {}): Event =>
+  ev({ topic: 'hr', type: 'hr.raised', title: 'Add a reviewer', target: { screen: 'hr', id: '5' }, ...over });
+
+test('hr.raised raises a notice with the proposal title as plain text; hr.settled and other hr events raise none', () => {
+  const n = noticeFor(hr())!;
+  assert.deepEqual([n.title, n.body, n.target, n.event], ['HR proposal', 'Add a reviewer', { screen: 'hr', id: '5' }, 'hr.raised']);
+  assert.equal(noticeFor(hr({ title: 'a\u0007b\nc\u0000' }))!.body, 'abc');
+  assert.equal(noticeFor(hr({ title: 'x'.repeat(300) }))!.body.length, 200);
+  assert.equal(noticeFor(hr({ title: null }))!.body, 'A proposal is waiting');
+  assert.equal(noticeFor(hr({ type: 'hr.settled' })), null);
+});
+
+test('an HR notice is not held back by the agent on screen, even for a proposal of that agent', () => {
+  const n = noticeFor(hr({ agent: 'handline.architect' }))!;
+  assert.equal(suppressed(n, { focused: true, agent: 'handline.architect' }), false);
+});
+
+test('the desk subscribes to hr and raises a notice for hr.raised only', async () => {
+  const handlers: { event?: (e: Event) => void } = {};
+  const asked: string[][] = [];
+  const feed = {
+    onEvent: (f: (e: Event) => void) => {
+      handlers.event = f;
+      return () => {};
+    },
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async (t: string[]) => void asked.push(t),
+    call: async () => ({ inbox: { unread: 0 } }),
+  } as unknown as Feed;
+  const { log, p } = ports();
+  await new Desk(feed, p).start();
+  assert.deepEqual(asked, [['inbox', 'status', 'notifications'], ['hr']]);
+  handlers.event!(hr({ cursor: 2 }));
+  handlers.event!(hr({ cursor: 3, type: 'hr.settled' }));
+  handlers.event!(hr({ cursor: 2 })); // a replayed cursor is not raised twice
+  assert.deepEqual(log.notices, ['HR proposal']);
+  log.clicks[0]!();
+  assert.deepEqual(
+    log.opened.map((n) => n.target),
+    [{ screen: 'hr', id: '5' }],
+  );
+});
+
+test('a daemon that refuses the hr topic still gives the badge and the other notices', async () => {
+  const { daemon, client } = setup();
+  const { log, p } = ports();
+  await client.start();
+  const desk = new Desk(client, p);
+  await desk.start(); // the fake refuses hr as the daemon does until it serves it
+  daemon.emit('notifications', 'stall', { agent: 'handline.architect' });
+  await until(() => log.notices.length === 1, 'a notice');
+  assert.deepEqual(log.badge, ['']);
+  // The refused topic is not kept: a later subscribe or a reconnect would send it again and be refused whole.
+  await client.subscribe(['agents']);
+  desk.stop();
+  client.close();
+});
+
+test('a daemon that serves hr raises the notice for hr.raised', async () => {
+  const { daemon, client } = setup();
+  const { log, p } = ports();
+  daemon.unservedTopics.clear();
+  await client.start();
+  const desk = new Desk(client, p);
+  await desk.start();
+  daemon.emit('hr', 'hr.raised', { title: 'Add a reviewer' });
+  await until(() => log.notices.length === 1, 'an HR notice');
+  assert.deepEqual(log.notices, ['HR proposal']);
+  desk.stop();
+  client.close();
+});
+
 function ports() {
   const log = {
     badge: [] as string[],

@@ -2,11 +2,22 @@
 // type, Take control and Release, and the key chips; Start, Stop and Resume are in the sidebar.
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
-import { controlsOf, keyFrom } from '@handline/app-core';
+import { controlsOf, holderLabel, keyFrom } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { Skeleton, useWrite } from '@handline/app-data';
-import { Chips, TermBar } from './TermBar.tsx';
 
+const CHIPS: [string, string][] = [
+  ['esc', 'Esc'],
+  ['ctrl-c', '^C'],
+  ['enter', '↵'],
+  ['up', '↑'],
+  ['down', '↓'],
+  ['tab', 'Tab'],
+  ['shift-tab', '⇧Tab'],
+  ['1', '1'],
+  ['2', '2'],
+  ['3', '3'],
+];
 const TAKE = 'Press "Take control" to type here; the daemon stops typing while you hold the keyboard.';
 
 /** A write's outcome as a flag: a refusal is already shown by the write (the toast), so the caller only needs to know whether to go on. */
@@ -24,6 +35,7 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   const [status, setStatus] = useState('');
   const [attaching, setAttaching] = useState(false); // the grid's skeleton shows until the terminal is attached or refused
   const take = useWrite('input.take', agent);
+  const release = useWrite('input.release', agent);
   const typing = useWrite('session.input', agent);
   const keys = useWrite('session.keys', agent);
   const latest = useRef(detail);
@@ -119,7 +131,21 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
 
   return (
     <div className="terminal-tab">
-      <TermBar agent={agent} detail={detail} />
+      <div className="term-bar">
+        <span className="holder" title="Who may type now">
+          input: {holderLabel(detail.input_holders?.[0], store.me)}
+        </span>
+        {c.take ? (
+          <button className="btn" disabled={take.isPending} onClick={() => void done(take.mutateAsync({ agent }))}>
+            {take.isPending ? 'taking…' : 'Take control'}
+          </button>
+        ) : null}
+        {c.release ? (
+          <button className="btn" disabled={release.isPending} onClick={() => void done(release.mutateAsync({ agent }))}>
+            {release.isPending ? 'releasing…' : 'Release'}
+          </button>
+        ) : null}
+      </div>
       <div className="terminal">
         <pre
           className="grid"
@@ -153,7 +179,13 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
         </div>
         <div className="grid-status">{status}</div>
       </div>
-      <Chips enabled={chipsOn} onPress={(key) => void press(key)} />
+      <div className="chips">
+        {CHIPS.map(([key, label]) => (
+          <button key={key} className="chip" disabled={!chipsOn} title={`Send ${label}`} onClick={() => void press(key)}>
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

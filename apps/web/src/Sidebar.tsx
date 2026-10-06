@@ -1,22 +1,10 @@
 // The agent list. A row is an agent's only control surface: Start or Resume on the selected row, a ⋯ menu for stopping,
 // and under the selected row the facts the old agent header showed.
 import { useRef, useState } from 'react';
-import {
-  ago,
-  controlsOf,
-  dotOf,
-  needsConfirm,
-  railGroups,
-  STOP_MODES,
-  badgesOf,
-  type GroupBy,
-  type KV,
-  type StopMode,
-} from '@handline/app-core';
+import { ago, controlsOf, dotOf, needsConfirm, railGroups, STOP_MODES, type GroupBy, type KV, type StopMode } from '@handline/app-core';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
-import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
 import { goAgent } from './route.ts';
 import { View } from './View.tsx';
@@ -114,7 +102,6 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
 }
 
 function Row({ agent: a, depth, selected }: { agent: AgentView; depth: number; selected: boolean }) {
-  const store = useStore();
   const dot = dotOf(a);
   const [account, setAccount] = useState(''); // for the next start only
   return (
@@ -125,7 +112,6 @@ function Row({ agent: a, depth, selected }: { agent: AgentView; depth: number; s
           <span className="row-text">
             <span className="name">{a.name}</span>
             <span className="sub">
-              <Badges badges={badgesOf(a, store.me)} />
               {a.state} · {ago(a.state_since)}
               {a.task ? ` · #${a.task.id} ${a.task.title}` : ''}
             </span>

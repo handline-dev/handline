@@ -2,12 +2,11 @@
 import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract';
 import { badRequest, Failure, refused } from './errors.ts';
 import type { Script } from './script.ts';
-import { coded, snapshotOf } from './bytes.ts';
-import { DAEMON_HOLDER, row, scrolledOff, tid, visible, type Attach, type Session } from './session.ts';
+import { DAEMON_HOLDER, row, scrolledOff, tid, visible, type Session } from './session.ts';
 
 export interface Who {
   caller: Caller;
-  attached: Map<string, Attach>;
+  attached: Set<string>;
 }
 export interface Call {
   c: Who;
@@ -17,13 +16,6 @@ export interface Call {
   agent(): Session;
   byTerminal(id: unknown): Session;
   iso(): Timestamp;
-}
-
-/** The format an attach or history call asks for: text unless it says bytes; anything else is a bad request. */
-function formatOf(p: Record<string, unknown>): 'text' | 'bytes' {
-  if (p.format === undefined || p.format === 'text') return 'text';
-  if (p.format === 'bytes') return 'bytes';
-  throw badRequest(`format is text or bytes, not ${String(p.format)}`, 'format');
 }
 
 export const HANDLERS: Record<string, (h: Call) => unknown> = {
@@ -101,16 +93,10 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     const s = p.terminal !== undefined ? byTerminal(p.terminal) : agent();
     if (p.terminal !== undefined && p.agent !== undefined) throw badRequest('give agent or terminal, not both', 'terminal');
     if (!s.hasTerminal) throw refused('state', 'the agent has no terminal');
-    const format = formatOf(p);
+    c.attached.add(tid(s));
     const want = typeof p.history === 'number' ? p.history : 100;
     const off = scrolledOff(s),
       first = Math.max(0, off - want);
-    if (format === 'bytes') {
-      const at = { format, seq: s.seq } satisfies Attach;
-      c.attached.set(tid(s), at);
-      return { ...snapshotOf(s, want, [s.holder]), seq: at.seq };
-    }
-    c.attached.set(tid(s), { format, seq: s.seq });
     return {
       terminal: tid(s),
       format: 'text',
@@ -133,8 +119,7 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     const s = byTerminal(p.terminal);
     const end = Math.min(Number(p.before), scrolledOff(s)),
       first = Math.max(0, end - Number(p.limit));
-    const lines = s.lines.slice(first, end);
-    return { first, lines: formatOf(p) === 'bytes' ? lines.map((l) => coded(l, s.cols)) : lines.map(row), more: first > 0 };
+    return { first, lines: s.lines.slice(first, end).map(row), more: first > 0 };
   },
   'terminal.resize': (h) => {
     const { c, p, script, byTerminal } = h;
@@ -143,11 +128,6 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     s.cols = Number(p.cols);
     s.rows = Number(p.rows);
     script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
-    script.snapshotBytes(s, 'resize');
     return script.accepted('Resized.');
-  },
-  'terminal.input': (h) => {
-    const { c, p, actor, script, byTerminal } = h;
-    return script.rawInput(byTerminal(p.terminal), p, c, actor);
   },
 };
