@@ -75,7 +75,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_tidy_check_fails_an_untidy_module_and_passes_a_tidy_one(Path(td) / "a"))
         run(lambda: test_the_tidy_check_skips_when_the_modules_cannot_be_fetched(Path(td) / "b"))
-        run(test_the_go_check_runs_it)
+        run(lambda: test_the_go_check_runs_it())
     return run_area(tests)
 
 
