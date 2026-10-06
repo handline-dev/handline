@@ -19,3 +19,4 @@ apps/mobile/ios/
 apps/mobile/android/
 apps/mobile/.expo/
 apps/mobile/modules/*/android/build/
+.DS_Store
