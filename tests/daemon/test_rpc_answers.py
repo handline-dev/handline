@@ -92,6 +92,13 @@ def test_adding_an_answer_is_checked_and_a_retry_adds_nothing_twice(home: Path) 
     check("answer.add: the retry finds it already so and accepts, adding nothing", retry["result"]["accepted"] is True and len(_answers()) == 2, str(retry))
     third = _call("answer.add", {"folder": str(other), "request_id": "a3"})
     check("answer.add: and the next retry is replayed", third["result"].get("replayed") is True, str(third))
+    _call("answer.add", {"vendor": "claude", "title": "Proceed?", "label": "Yes", "request_id": "a4"})
+    con = db.connect()
+    db.set_cursor(con, "intent:answer.add:human:a5", 1)     # an intent left behind: the first attempt died before it wrote anything, as far as the retry can tell
+    con.close()
+    refusal = _call("answer.add", {"vendor": "claude", "title": "Proceed?", "label": "No", "request_id": "a5"})
+    check("answer.add: a retry whose first attempt left an intent still judges by the store: a rule with another label is refused, not reported as saved",
+          _code(refusal) == "refused" and ["claude", "Proceed?", "Yes"] in [a["key"] for a in _answers()] and ["claude", "Proceed?", "No"] not in [a["key"] for a in _answers()], str(refusal))
     check("answer.add: no intent is left behind", db.connect().execute("SELECT COUNT(*) FROM cursors WHERE name LIKE 'intent:%'").fetchone()[0] == 0)
 
 
@@ -138,8 +145,8 @@ def test_inbox_get_reads_one_request_whole(home: Path) -> None:
           and item["answered"] is False, str(item))
     item = _call("inbox.get", {"id": rid}, as_agent="manager")["result"]
     check("inbox.get: the sender reads it too, and the agent is the other end", item["agent"] == "worker", str(item))
-    check("inbox.get: any agent may read any request, as hl read always allowed", _call("inbox.get", {"id": rid}, as_agent="stranger-agent").get("result", {}).get("id") == rid
-          or _code(_call("inbox.get", {"id": rid}, as_agent="stranger-agent")) == "not_found")
+    stranger = _call("inbox.get", {"id": rid}, as_agent="manager2")["result"]
+    check("inbox.get: any agent may read any request, as hl read always allowed", stranger["id"] == rid and stranger["agent"] == "worker", str(stranger))
     con = db.connect()
     db.add_answer(con, rid, "the plan is to ship")
     con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (rid,))
@@ -151,7 +158,13 @@ def test_inbox_get_reads_one_request_whole(home: Path) -> None:
     con.close()
     check("inbox.get: one its routing table has not passed is not the target's to read", _code(_call("inbox.get", {"id": hidden}, as_agent="worker")) == "not_found")
     founder = _call("inbox.get", {"id": rid})["result"]
-    check("inbox.get: the founder reads it as well", founder["id"] == rid and founder["agent"] in ("manager", "worker"), str(founder))
+    check("inbox.get: the founder reads it as well; neither end is theirs, so the agent is the target (the rule: the sender when the reader is the target, else the target)",
+          founder["id"] == rid and founder["agent"] == "worker", str(founder))
+    mine = _add(db.HUMAN, "worker", "from the person")
+    theirs = _add("worker", db.HUMAN, "to the person")
+    check("inbox.get: a request from the person, read by the agent it is for, names the person (as inbox.list does)", _call("inbox.get", {"id": mine}, as_agent="worker")["result"]["agent"] == db.HUMAN)
+    check("inbox.get: a request to the person, read by the agent that sent it, names the person", _call("inbox.get", {"id": theirs}, as_agent="worker")["result"]["agent"] == db.HUMAN)
+    check("inbox.get: and read by the person, each names the agent", _call("inbox.get", {"id": mine})["result"]["agent"] == "worker" and _call("inbox.get", {"id": theirs})["result"]["agent"] == "worker")
     for params, code in (({"id": 999999}, "not_found"), ({"id": "1"}, "bad_request"), ({}, "bad_request"), ({"id": rid, "wait_s": -1}, "bad_request"),
                          ({"id": rid, "wait_s": 601}, "bad_request")):
         check(f"inbox.get: {params} is {code}", _code(_call("inbox.get", params, as_agent="worker")) == code)

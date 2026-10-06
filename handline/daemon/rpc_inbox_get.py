@@ -17,9 +17,7 @@ POLL_S = 0.5
 
 
 def _item_of(con, row, viewer: str) -> dict:
-    other = row["requester"] if row["target"] == viewer else row["target"]
-    if viewer == db.HUMAN or other == db.HUMAN:
-        other = row["requester"] if row["target"] == db.HUMAN else row["target"]
+    other = row["requester"] if row["target"] == viewer else row["target"]       # the other end, as inbox.list names it: the sender of what came in
     full = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (row["id"],)).fetchone()
     shown = db.shown_verdict(full)
     return rpc_inbox._item(con, id=row["id"], kind=row["kind"] or "ask", agent=other, body=row["body"] or "", ts=row["ts"],

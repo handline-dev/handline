@@ -42,9 +42,28 @@ def _finish(ctx, params, name: str, said: str, *, ok: bool = True) -> None:
         con.close()
 
 
+def _keyed(answer: dict) -> list[str]:
+    key = answer["key"]
+    return list(key) if isinstance(key, (list, tuple)) else [key]
+
+
+def _held(kind: str, key: list[str]) -> bool:
+    """Whether the standing answer of this kind and key is saved now."""
+    return any(a["kind"] == kind and _keyed(a) == key for a in actions.standing_answers())
+
+
+def _folder_trusted(folder: str) -> bool:
+    from pathlib import Path
+    from ..team import trust
+    return trust.is_declared(str(Path(folder).expanduser()))
+
+
+def _absent_refusal(said: str) -> bool:
+    return "no rule" in said or "not a declared root" in said
+
+
 def _answers(ctx, params) -> dict:
-    return {"answers": [{"kind": a["kind"], "key": list(a["key"]) if isinstance(a["key"], (list, tuple)) else [a["key"]], "text": a["text"]}
-                        for a in actions.standing_answers()]}
+    return {"answers": [{"kind": a["kind"], "key": _keyed(a), "text": a["text"]} for a in actions.standing_answers()]}
 
 
 def _add(ctx, params) -> dict:
@@ -58,8 +77,11 @@ def _add(ctx, params) -> dict:
         raise rpc.bad_request("give a folder to trust, or the vendor, title and label of a rule", "folder", rpc.INVALID_PARAMS)
     retry = _begun(ctx, params, "answer.add")
     ok, said = actions.add_answer(**given)
-    if not ok and retry and ("already" in said):
-        ok = True       # what the first attempt wanted is so
+    if not ok and retry:
+        # judged by the store, never by the words of the refusal: what was asked is so only if it is there exactly
+        so = _folder_trusted(given["folder"]) if given["folder"] else _held("dialog", [given["vendor"], given["title"], given["label"]])
+        if so:
+            ok, said = True, f"{given['folder'] or ' / '.join((given['vendor'], given['title'], given['label']))} is already saved"
     if not ok:
         _finish(ctx, params, "answer.add", said, ok=False)
         raise rpc.refused(said)
@@ -75,9 +97,9 @@ def _remove(ctx, params) -> dict:
         raise rpc.bad_request("key is [folder] for trust and [vendor, title, label] for dialog", "key", rpc.INVALID_PARAMS)
     retry = _begun(ctx, params, "answer.remove")
     ok, said = actions.remove_answer(kind, key[0] if kind == dialogs.TRUST else key)
-    gone = not ok and ("no rule" in said or "not a declared root" in said)
-    if gone and retry:
-        ok, said = True, f"{' / '.join(key)} is already removed"
+    gone = not ok and not _held(kind, key) and _absent_refusal(said)
+    if not ok and retry and not _held(kind, key):
+        ok, said = True, f"{' / '.join(key)} is already removed"       # judged by the store: the key is not there
     if not ok:
         _finish(ctx, params, "answer.remove", said, ok=False)
         if gone:
