@@ -108,6 +108,9 @@ importers:
       '@handline/app-core':
         specifier: workspace:*
         version: link:../../packages/app-core
+      '@handline/app-data':
+        specifier: workspace:*
+        version: link:../../packages/app-data
       '@handline/app-react':
         specifier: workspace:*
         version: link:../../packages/app-react

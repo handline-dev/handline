@@ -1,10 +1,11 @@
 // Chat tab: the conversation, once the daemon serves it. Until then an empty state, and the permission card, which always shows.
 import type { AgentDetail, Prompt } from '@handline/client';
 import { offered } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { usePending, useWrite } from '@handline/app-data';
 
 export function PromptCard({ agent, prompt: p }: { agent: string; prompt: Prompt }) {
-  const store = useStore();
+  const answer = useWrite('prompt.answer', agent);
+  const answering = usePending('prompt.answer').some((v) => v.agent === agent);
   const what = p.kind === 'permission' ? `Permission: ${p.tool ?? ''}` : `Dialog: ${p.kind}`;
   return (
     <div className="card prompt" role="alert">
@@ -16,12 +17,14 @@ export function PromptCard({ agent, prompt: p }: { agent: string; prompt: Prompt
           <button
             key={o.key}
             className={`btn${o.answer === 'yes' ? ' primary' : ''}`}
-            onClick={() => void store.act('answer', () => store.client.answerPrompt(agent, p.id, o.key))}
+            disabled={answering}
+            onClick={() => answer.mutate({ agent, prompt: p.id, choice: o.key })}
           >
             {o.label} <kbd>{o.key}</kbd>
           </button>
         ))}
       </div>
+      {answering ? <p className="muted">answering…</p> : null}
     </div>
   );
 }

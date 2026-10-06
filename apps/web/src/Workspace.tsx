@@ -19,7 +19,9 @@ import {
   type Workspace,
 } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { useAgentDetail, useConnection, useSelector, useStore } from '@handline/app-react';
+import { useConnection, useStore } from '@handline/app-react';
+import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
+import { View } from './View.tsx';
 import { DropZones, Pane } from './Pane.tsx';
 
 export interface WorkspaceCtx {
@@ -40,22 +42,27 @@ export const useWorkspace = (): WorkspaceCtx => {
 };
 
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
-  const detail = useAgentDetail(agent);
-  const known = useSelector((s) => s.agents.has(agent));
+  const q = useAgentDetail(agent);
+  const list = useAgents();
+  const { served } = useServes('agent.get');
   const conn = useConnection();
-  if (!known)
+  const gone = (list.data && !list.data.agents.some((a) => a.name === agent)) || (q.isError && classify(q.error).kind === 'not_found');
+  if (gone)
     return (
       <div className="empty big">
-        <p className="muted">{conn === 'open' ? `No agent named ${agent}.` : 'Connecting…'}</p>
+        <p className="muted">No agent named {agent}.</p>
       </div>
     );
-  if (!detail)
+  if (!q.data)
     return (
-      <div className="empty big">
-        <p className="muted">Loading…</p>
+      <div className="workspace-loading">
+        {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
+        <View q={q} served={served} shape="terminal" what={`${agent}'s workspace`}>
+          {null}
+        </View>
       </div>
     );
-  return <Loaded agent={agent} detail={detail} daemon={daemon} storage={storage} />;
+  return <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} />;
 }
 
 function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: AgentDetail; daemon: string; storage: KV | null }) {

@@ -15,6 +15,8 @@ const rules: Record<string, Rule> = {
     const a = data<AgentView>(e);
     edit<{ agents: AgentView[] }>(qc, qk.agents(d), (l) => ({ ...l, agents: upsert(l.agents, a, (x) => x.name === a.name) }));
     edit<AgentDetail>(qc, qk.agent(d, a.name), (old) => ({ ...old, ...a }));
+    // The row does not carry what the detail adds (terminal, who may type, the open prompt), so an open detail is read again.
+    void qc.invalidateQueries({ queryKey: qk.agent(d, a.name) });
   },
   'agent.removed': ({ qc, d }, e) => {
     const name = e.agent ?? String(data<{ name: string }>(e).name);
