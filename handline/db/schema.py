@@ -444,10 +444,10 @@ class SchemaError(RuntimeError):
 
 
 def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Connection:
-    """Open the database. The baseline (migration 1) is the pass every connect used to run, so a database
-    that has none of the versions gets it here; a step above it needs the daemon (which passes `migrating`),
-    and a database waiting for one is refused. A newer database is refused for good. A file with no tables
-    yet is set up whole."""
+    """Open the database. A step marked additive is one a connect may run itself (it only adds, and the
+    baseline is the pass every connect used to run), so deploying one has no window; a database waiting for a
+    step not so marked is refused until the daemon (which passes `migrating`) has run it. A newer database is
+    refused for good. A file with no tables yet is set up whole."""
     p = path or paths.db_file()
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p, timeout=10.0, isolation_level=None)
@@ -461,8 +461,8 @@ def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Con
         if have < LATEST_VERSION:
             if migrating or not con.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
                 migrate(con)
-            elif have < BASELINE_VERSION:
-                migrate(con, up_to=BASELINE_VERSION)
+            else:
+                migrate(con, additive_only=True)
             have = schema_version(con)
         if have > LATEST_VERSION:
             raise SchemaError(f"{p} is at schema version {have}, newer than the {LATEST_VERSION} this code "
@@ -488,8 +488,9 @@ MIGRATE_WAIT_S = 60.0
 RESTART_COMMAND = "hl service install"
 
 
-def migrate(con, up_to: int | None = None) -> None:
-    """Apply every migration the database has not had, up to `up_to` (default all), in order. Processes
+def migrate(con, additive_only: bool = False) -> None:
+    """Apply every migration the database has not had, in order, or with `additive_only` up to the first that
+    is not marked additive. Processes
     serialize on a lock file, and each takes the version again once it holds it, so a migration runs once
     however many open at the same time. A step that dies midway is run again, so a step must be safe to
     run again. A lock held past MIGRATE_WAIT_S is an error that names its holder."""
@@ -516,9 +517,11 @@ def migrate(con, up_to: int | None = None) -> None:
         if have > LATEST_VERSION:
             raise SchemaError(f"{file} is at schema version {have}, newer than the {LATEST_VERSION} this code "
                               f"knows: update handline before using it")
-        for version, name, step in MIGRATIONS:
-            if version <= have or (up_to is not None and version > up_to):
+        for version, name, step, additive in MIGRATIONS:
+            if version <= have:
                 continue
+            if additive_only and not additive:
+                break
             step(con)
             con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, "
                         "name TEXT NOT NULL, applied_at INTEGER NOT NULL)")
@@ -578,11 +581,28 @@ def _baseline(con) -> None:
 
 
 # Ordered and numbered; a step is appended, never edited or reordered, and none may drop or reshape a
-# column (the doctor drops dead ones). A database that is not at the last number is not current.
+# column (the doctor drops dead ones). A database that is not at the last number is not current. A step is
+# additive when a plain connect may run it under the lock: it is safe to run again and only adds.
+def _rpc_replies(con) -> None:
+    """The daemon's reply store: a write's reply, kept a day under its request_id (daemon/rpc.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS rpc_replies (
+          caller     TEXT    NOT NULL,
+          request_id TEXT    NOT NULL,
+          method     TEXT    NOT NULL,
+          params     TEXT    NOT NULL,
+          reply      TEXT    NOT NULL,
+          ts         INTEGER NOT NULL,
+          PRIMARY KEY (caller, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS rpc_replies_ts ON rpc_replies(ts);
+    """)
+
+
 MIGRATIONS = [
-    (1, "baseline", _baseline),
+    (1, "baseline", _baseline, True),
+    (2, "rpc_replies", _rpc_replies, True),
 ]
-BASELINE_VERSION = 1
 LATEST_VERSION = MIGRATIONS[-1][0]
 
 

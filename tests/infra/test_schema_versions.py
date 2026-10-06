@@ -47,9 +47,9 @@ def test_a_new_database_is_stamped_and_a_second_connect_changes_nothing(home: Pa
 
 
 def _with_steps(*extra):
-    """The real migrations with `extra` steps after them; returns what to put back."""
+    """The real migrations with `extra` steps, not additive, after them; returns what to put back."""
     real = dbschema.MIGRATIONS, dbschema.LATEST_VERSION
-    dbschema.MIGRATIONS = list(dbschema.MIGRATIONS) + [(real[1] + 1 + i, f"fake{i}", fn) for i, fn in enumerate(extra)]
+    dbschema.MIGRATIONS = list(dbschema.MIGRATIONS) + [(real[1] + 1 + i, f"fake{i}", fn, False) for i, fn in enumerate(extra)]
     dbschema.LATEST_VERSION = dbschema.MIGRATIONS[-1][0]
     return real
 
@@ -58,11 +58,12 @@ def _restore(real) -> None:
     dbschema.MIGRATIONS, dbschema.LATEST_VERSION = real
 
 
-def test_a_plain_connect_gives_an_unstamped_database_the_baseline_and_nothing_more(home: Path) -> None:
+def test_a_plain_connect_runs_the_additive_steps_and_stops_at_one_that_is_not(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     p = home / "old.db"
     _old_database(p)
     check("old: it starts with no versions", not _has_table(p))
+    additive = dbschema.LATEST_VERSION
     ran = []
     real = _with_steps(lambda c: ran.append(1))
     try:
@@ -73,10 +74,27 @@ def test_a_plain_connect_gives_an_unstamped_database_the_baseline_and_nothing_mo
             refused = str(e)
     finally:
         _restore(real)
-    check("old: connect ran the baseline, stamped version 1 and no step above it", _versions(p) == [1] and not ran, str(_versions(p)))
+    check("old: connect ran every additive step, stamped them, and not the one that is not",
+          _versions(p) == list(range(1, additive + 1)) and not ran, str(_versions(p)))
     check("old: and its data is still there", sqlite3.connect(p).execute("SELECT COUNT(*) FROM requests").fetchone()[0] == 1)
-    check("old: a step above the baseline is refused, naming a command that exists",
+    check("old: the step that is not additive is refused, naming a command that exists",
           "older" in refused and f"`{dbschema.RESTART_COMMAND}`" in refused, refused)
+
+
+def test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "behind.db"
+    dbschema.connect(p).close()
+    raw = sqlite3.connect(p)
+    raw.execute("DROP TABLE rpc_replies")
+    raw.execute("DELETE FROM schema_version WHERE version = 2")
+    raw.commit()
+    raw.close()
+    con = dbschema.connect(p)
+    check("behind: a version-1 database with data ends at the latest step, with its table",
+          dbschema.schema_version(con) == dbschema.LATEST_VERSION
+          and con.execute("SELECT 1 FROM sqlite_master WHERE name = 'rpc_replies'").fetchone() is not None)
+    con.close()
 
 
 def test_the_command_a_refusal_names_parses(home: Path) -> None:
@@ -180,7 +198,8 @@ def test_two_processes_opening_an_old_database_at_once_migrate_it_once(home: Pat
 def main() -> int:
     def tests(td):
         run(lambda: test_a_new_database_is_stamped_and_a_second_connect_changes_nothing(Path(td) / "v1"))
-        run(lambda: test_a_plain_connect_gives_an_unstamped_database_the_baseline_and_nothing_more(Path(td) / "v2"))
+        run(lambda: test_a_plain_connect_runs_the_additive_steps_and_stops_at_one_that_is_not(Path(td) / "v2"))
+        run(lambda: test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(Path(td) / "v2a"))
         run(lambda: test_the_command_a_refusal_names_parses(Path(td) / "v2b"))
         run(lambda: test_the_daemon_migrates_a_database_waiting_for_a_step_once(Path(td) / "v2c"))
         run(lambda: test_a_migrator_that_holds_the_lock_too_long_is_named(Path(td) / "v2d"))

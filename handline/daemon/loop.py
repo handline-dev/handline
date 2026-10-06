@@ -8,7 +8,7 @@ from .. import db
 from ..infra import gitrun
 from ..infra import lock
 from ..infra import paths
-from ..infra import service
+from ..infra import service, sessiontoken
 from ..infra import textsafe
 from ..session import triggers
 from ..team import ask as askmod
@@ -77,6 +77,8 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         con = db.connect(migrating=True)
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
+        if not sessiontoken.ensure_founder_key():
+            log("founder key: could not make one - the socket will serve no founder call")
         srv = socket_server.SocketServer(log)
         askmod.IN_DAEMON = True     # T408: before the socket takes a verb - a push here starts the session itself
         try:
