@@ -52,7 +52,7 @@ class ControlLink:
         self.spawn = spawn or _spawn_tmux
         self.proc = None
         self.lock = threading.Lock()
-        self.pending: collections.deque = collections.deque()      # callbacks of the commands sent and not yet answered, in order
+        self.pending: collections.deque = collections.deque()      # (callback, group) of the commands sent and not yet answered, in order
         self.handlers: dict[str, list] = {}                       # pane -> callables taking the bytes of one %output
         self.reader: threading.Thread | None = None
         self.alive = False
@@ -87,17 +87,27 @@ class ControlLink:
     def command_async(self, command: str, callback) -> None:
         """Send `command`; `callback(lines)` is called on the reader thread, in order with every `%output`, with the reply's lines (None on an error or a
         dead link)."""
+        self.batch_async([command], [callback])
+
+    def batch_async(self, commands: list[str], callbacks: list) -> None:
+        """Send `commands` as one line (`a ; b ; c`), which tmux runs without taking any output between them: what they read is the pane at one place in
+        the stream. Each has its own reply, in order; when one fails tmux runs none of the rest, and each of those is answered None."""
+        group = object() if len(commands) > 1 else None
         with self.lock:
             if not self.alive:
-                callback(None)
-                return
-            self.pending.append(callback)
-            try:
-                self.proc.stdin.write((command + "\n").encode("utf-8"))
-                self.proc.stdin.flush()
-            except (OSError, ValueError):
-                self.pending.pop()
-                callback(None)
+                dead = list(callbacks)
+            else:
+                dead = []
+                self.pending.extend((cb, group) for cb in callbacks)
+                try:
+                    self.proc.stdin.write((" ; ".join(commands) + "\n").encode("utf-8"))
+                    self.proc.stdin.flush()
+                except (OSError, ValueError):
+                    for _ in callbacks:
+                        self.pending.pop()
+                    dead = list(callbacks)
+        for cb in dead:
+            cb(None)
 
     def command(self, command: str, timeout: float = COMMAND_TIMEOUT_S) -> list[str] | None:
         got: list = []
@@ -125,11 +135,17 @@ class ControlLink:
                 raw = raw.rstrip(b"\n")
                 if block is not None:
                     if raw.startswith(b"%end ") or raw.startswith(b"%error "):
+                        failed = raw.startswith(b"%error ")
                         with self.lock:
-                            cb = self.pending.popleft() if self.pending else None
+                            cb, group = self.pending.popleft() if self.pending else (None, None)
+                            skipped = []
+                            while failed and group is not None and self.pending and self.pending[0][1] is group:
+                                skipped.append(self.pending.popleft()[0])       # tmux ran none of the rest of the line
                         lines, block = block, None
                         if cb is not None:
-                            cb(lines if raw.startswith(b"%end ") else None)
+                            cb(None if failed else lines)
+                        for skip in skipped:
+                            skip(None)
                     else:
                         block.append(raw.decode("utf-8", "replace"))
                 elif raw.startswith(b"%begin "):
@@ -144,7 +160,7 @@ class ControlLink:
             with self.lock:
                 self.alive = False
                 pending, self.pending = list(self.pending), collections.deque()
-            for cb in pending:
+            for cb, _ in pending:
                 cb(None)
             for hs in list(self.handlers.values()):
                 for h in list(hs):
@@ -201,53 +217,64 @@ def snapshot_data(modes: dict, rows: list[str]) -> bytes:
     return data if len(data) <= SNAPSHOT_MAX else build([_SGR.sub("", r) for r in rows])
 
 
-def capture(link_: ControlLink, handle: str, history: int, on_ready) -> None:
+def capture(link_: ControlLink, handle: str, history: int, on_ready, on_live=None) -> None:
     """The screen of `handle` now, asked on the control link so that it stands in order among the output: `on_ready(snapshot dict or None)` runs on the
-    reader thread at that place. `history` is how many scrollback lines to include."""
-    def got_modes(lines):
-        modes = parse_modes(lines)
-        if modes is None:
+    reader thread. The modes, the screen and the scrollback are asked in one command line, so they are the pane at one place in the stream; `on_live()`
+    runs at the screen's reply, in order with the output, which is where a client owed the stream starts. `history` is how many scrollback lines to
+    ask for."""
+    commands = [f"display-message -p -t {handle} '{MODE_FORMAT}'", f"capture-pane -p -e -t {handle}"]
+    if history > 0:
+        commands.append(f"capture-pane -p -e -t {handle} -S -{history} -E -1")
+    got: dict = {}
+
+    def modes_reply(lines):
+        got["modes"] = parse_modes(lines)
+
+    def screen_reply(rows):
+        got["rows"] = rows
+        if rows is not None and got.get("modes") is not None and on_live is not None:
+            on_live()
+        if len(commands) == 2:
+            done(None)
+
+    def history_reply(lines):
+        done(lines)
+
+    def done(hist):
+        modes, rows = got.get("modes"), got.get("rows")
+        if modes is None or rows is None:
             on_ready(None)
             return
-
-        def got_screen(rows):
-            if rows is None:
-                on_ready(None)
-                return
-            screen = rows[-modes["rows"]:] if len(rows) >= modes["rows"] else rows + [""] * (modes["rows"] - len(rows))
-            snap = {"modes": modes, "data": snapshot_data(modes, screen)}
-            if history > 0 and not modes["alt_screen"] and modes["history_size"] > 0:
-                n = min(history, modes["history_size"])
-                link_.command_async(f"capture-pane -p -e -t {handle} -S -{n} -E -1", lambda hist: _with_history(snap, modes, hist, n, on_ready))
-            else:
-                snap["history"] = {"first": modes["history_size"], "lines": [], "more": modes["history_size"] > 0 and not modes["alt_screen"]}
-                on_ready(snap)
-        link_.command_async(f"capture-pane -p -e -t {handle}", got_screen)
-    link_.command_async(f"display-message -p -t {handle} '{MODE_FORMAT}'", got_modes)
-
-
-def _with_history(snap: dict, modes: dict, lines, n: int, on_ready) -> None:
-    lines = [] if lines is None else [ln + "\x1b[0m" for ln in lines]
-    total = modes["history_size"]
-    snap["history"] = {"first": total - len(lines), "lines": lines, "more": total - len(lines) > 0}
-    on_ready(snap)
+        screen = rows[-modes["rows"]:] if len(rows) >= modes["rows"] else rows + [""] * (modes["rows"] - len(rows))
+        snap = {"modes": modes, "data": snapshot_data(modes, screen)}
+        total = modes["history_size"]
+        n = 0 if modes["alt_screen"] else min(history, total)
+        lines = [ln + "\x1b[0m" for ln in (hist or [])][-n:] if n else []
+        snap["history"] = {"first": total - len(lines), "lines": lines, "more": total - len(lines) > 0 and not modes["alt_screen"]}
+        on_ready(snap)
+    link_.batch_async(commands, [modes_reply, screen_reply, history_reply][:len(commands)])
 
 
 def history_page(link_: ControlLink, handle: str, before: int, limit: int) -> dict | None:
     """Scrollback lines [before - limit, before) by absolute index (0 is the oldest line the pane keeps), as the host keeps them, trimmed to 1 MiB."""
-    modes = parse_modes(link_.command(f"display-message -p -t {handle} '{MODE_FORMAT}'"))
-    if modes is None:
+    # The size of the scrollback and the lines of it are read in one command line, at one place in the stream: the lines are indexed from the end, so
+    # output that scrolled between two reads would shift every index. The whole scrollback is read (tmux keeps at most its history-limit lines).
+    got: dict = {}
+    done = threading.Event()
+    link_.batch_async([f"display-message -p -t {handle} '{MODE_FORMAT}'", f"capture-pane -p -e -t {handle} -S - -E -1"],
+                      [lambda lines: got.__setitem__("modes", parse_modes(lines)), lambda lines: (got.__setitem__("lines", lines), done.set())])
+    if not done.wait(COMMAND_TIMEOUT_S) or got.get("modes") is None or got.get("lines") is None:
         return None
+    modes, scroll = got["modes"], got["lines"]
     if modes["alt_screen"]:
         return {"first": 0, "lines": [], "more": False}
     total = modes["history_size"]
+    scroll = scroll[-total:] if total else []
     end = max(min(before, total), 0)
     start = max(end - limit, 0)
     if end <= start:
         return {"first": start, "lines": [], "more": start > 0}
-    lines = link_.command(f"capture-pane -p -e -t {handle} -S {start - total} -E {end - total - 1}")
-    if lines is None:
-        return None
+    lines = scroll[start:end]
     out, used = [], 0
     for ln in reversed([ln + "\x1b[0m" for ln in lines]):      # the newest of the page first: a page trimmed to size keeps what is nearest `before`
         used += len(ln.encode("utf-8", "replace"))
@@ -392,13 +419,13 @@ class BytesChannel:
             self.clients.append(client)
             client.channel = self
 
+        def live():
+            client.live = True          # on the reader thread, in order with the output: from the screen's place the client is owed what comes next
+
         def ready(snap):
-            # on the reader thread, in order with the output: from here on the client is owed what comes next
-            if snap is not None:
-                client.live = True
             got.append(snap)
             done.set()
-        capture(self.link, self.handle, history, ready)
+        capture(self.link, self.handle, history, ready, live)
         if not done.wait(COMMAND_TIMEOUT_S) or got[0] is None:
             self.detach(client)
             return None

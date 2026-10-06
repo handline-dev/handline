@@ -66,13 +66,19 @@ class FakeProc:
         self.auto, self.hold = auto, hold
         self.stdin, self.stdout = _In(self), iter(self.q.get, _EOF)
         self.screen = ["$ ready"]
+        self.modes = MODES
+        self.scroll: list[str] = []
 
     def on_command(self, cmd: str) -> None:
+        """A line is one or more commands joined by ` ; `, each with its own reply, in order."""
         if self.auto and not cmd.startswith(self.hold):
-            self.answer(self.reply_for(cmd))
+            for sub in cmd.split(" ; "):
+                self.answer(self.reply_for(sub))
 
     def reply_for(self, cmd: str) -> list[str]:
-        return [MODES] if cmd.startswith("display-message") else list(self.screen)
+        if cmd.startswith("display-message"):
+            return [self.modes]
+        return list(self.scroll) if " -S " in cmd else list(self.screen)
 
     def answer(self, lines: list[str] | None) -> None:
         if lines is None:
@@ -247,28 +253,78 @@ def _failing():
 
 
 # ---------------------------------------------------------------- (3) the seam
+def _attach_in_thread(ch, c, history):
+    out: list = []
+    t = threading.Thread(target=lambda: out.append(ch.attach(c, history)), daemon=True)
+    t.start()
+    return t, out
+
+
 def test_output_before_the_screen_is_in_it_and_output_after_is_the_first_notice() -> None:
-    link, p = new_link(auto=True, hold=("capture-pane",))
+    link, p = new_link(auto=True, hold=("display-message",))
+    p.modes = "0 3 1 1 80 24 0 0 0 0 0 50"
+    p.scroll = [f"old {n}" for n in range(50)]
     ch = _channel(link)
     sink = Sink()
     c = termbytes.BytesClient(sink.send, sink.close)
-    snap: list = []
-    t = threading.Thread(target=lambda: snap.append(ch.attach(c, 0)), daemon=True)
     link.start()
-    t.start()
-    check("seam: the screen is asked for on the link", _until(lambda: any(x.startswith("capture-pane") for x in p.commands)), str(p.commands))
-    p.output("%1", b"BEFORE")                  # in the stream ahead of the capture's reply: the screen holds it already
+    t, snap = _attach_in_thread(ch, c, 10)
+    check("seam: the modes, the screen and the scrollback are asked in one command line, so they stand at one place", _until(lambda: len(p.commands) == 1)
+          and p.commands[0].count(" ; ") == 2 and p.commands[0].startswith("display-message") and "capture-pane" in p.commands[0], str(p.commands))
+    p.output("%1", b"BEFORE")                  # in the stream ahead of the replies: the screen holds it already
+    p.answer([p.modes])
     p.answer(["$ screen"])
+    p.output("%1", b"BETWEEN")                 # after the screen's reply and before the scrollback's: owed to the stream, once
+    p.answer(p.scroll[-10:])
     p.output("%1", b"AFTER")
     t.join(5)
-    check("seam: the attach returns a snapshot", bool(snap) and snap[0] is not None and snap[0]["data"].startswith(b"$ screen"), str(snap))
+    check("seam: the attach returns a snapshot with the screen, the cursor of the modes and the last 10 scrollback lines",
+          bool(snap) and snap[0] is not None and snap[0]["data"].startswith(b"$ screen") and snap[0]["modes"]["cursor"] == {"x": 3, "y": 1}
+          and [x.removesuffix("\x1b[0m") for x in snap[0]["history"]["lines"]] == p.scroll[-10:] and snap[0]["history"]["first"] == 40, str(snap))
     check("seam: the snapshot is seq 0 and nothing was sent yet", c.seq == 0 and not sink.msgs)
     ch.begin(c)
     p.output("%1", b"-1")
     p.output("%1", b"-2")
-    check("seam: what came after the screen is sent, nothing before it, nothing twice", _until(lambda: sink.data() == b"AFTER-1-2"), str(sink.data()))
+    check("seam: what came after the screen is sent once, in order, what came before is not", _until(lambda: sink.data() == b"BETWEENAFTER-1-2"), str(sink.data()))
     check("seam: seq goes up by one for each notice", sink.seqs() == list(range(1, len(sink.msgs) + 1)), str(sink.seqs()))
     ch.detach(c)
+    link.stop()
+
+
+def test_a_history_page_is_read_at_one_place_by_absolute_index() -> None:
+    link, p = new_link()
+    p.modes = "0 0 0 1 80 24 0 0 0 0 0 50"
+    p.scroll = [f"old {n}" for n in range(50)]
+    link.start()
+    page = termbytes.history_page(link, "%1", 30, 10)
+    check("history: lines [before - limit, before) by absolute index, from one command line", page is not None and page["first"] == 20 and page["more"] is True
+          and [x.removesuffix("\x1b[0m") for x in page["lines"]] == [f"old {n}" for n in range(20, 30)] and len(p.commands) == 1 and " ; " in p.commands[0], str((page, p.commands)))
+    page = termbytes.history_page(link, "%1", 500, 100)
+    check("history: a page past the end is cut to the scrollback", page["first"] == 0 and len(page["lines"]) == 50 and page["more"] is False, str(page))
+    link.stop()
+
+
+def test_a_failed_command_of_a_line_skips_the_rest_and_the_next_reply_is_still_the_next_command_s() -> None:
+    link, p = new_link(auto=False)
+    link.start()
+    got: list = []
+    link.batch_async(["a", "b", "c"], [lambda x: got.append(("a", x)), lambda x: got.append(("b", x)), lambda x: got.append(("c", x))])
+    link.command_async("next", lambda x: got.append(("next", x)))
+    p.answer(None)              # a failed: tmux runs neither b nor c, and gives them no reply
+    p.answer(["fine"])
+    check("link: when the first command of a line fails the rest are answered None and the next line's reply is its own",
+          _until(lambda: len(got) == 4) and got == [("a", None), ("b", None), ("c", None), ("next", ["fine"])], str(got))
+    link.stop()
+
+
+def test_a_pane_that_cannot_be_read_gives_no_snapshot_and_no_stream() -> None:
+    link, p = new_link(auto=False)
+    link.start()
+    got: list = []
+    link_live: list = []
+    termbytes.capture(link, "%1", 10, got.append, lambda: link_live.append(1))
+    p.answer(None)
+    check("seam: a failed first command is no snapshot, and the client is never owed the stream", _until(lambda: got == [None]) and not link_live, str((got, link_live)))
     link.stop()
 
 
@@ -535,6 +591,9 @@ def main() -> int:
         run(test_a_command_waits_for_its_reply_and_a_dead_link_releases_everything)
         run(lambda: test_a_bytes_attach_is_refused_when_the_link_is_dead_or_the_host_silent(Path(td) / "b1"))
         run(test_output_before_the_screen_is_in_it_and_output_after_is_the_first_notice)
+        run(test_a_history_page_is_read_at_one_place_by_absolute_index)
+        run(test_a_failed_command_of_a_line_skips_the_rest_and_the_next_reply_is_still_the_next_command_s)
+        run(test_a_pane_that_cannot_be_read_gives_no_snapshot_and_no_stream)
         run(test_a_screen_the_host_cannot_read_leaves_no_client_behind)
         run(test_notices_are_at_most_64_kib_and_at_most_one_every_50_ms)
         run(test_a_client_a_megabyte_behind_is_resynced_alone)
