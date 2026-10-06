@@ -11,12 +11,12 @@ daemon.status
 events.feed
 hr.decide
 inbox.list
-repos.list
 input.ask
 input.release
 input.take
 prompt.answer
 prompt.list
+repos.list
 schedule.add
 schedule.edit
 schedule.remove
@@ -45,5 +45,5 @@ terminal.history
 terminal.resize
 unsubscribe
 worktree.diff
-worktrees.list
 worktree.set_status
+worktrees.list
