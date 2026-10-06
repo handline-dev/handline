@@ -1,0 +1,388 @@
+{
+ "fixtures": [
+  {
+   "name": "daemon.status.shape",
+   "spec": "daemon.status",
+   "about": "The daemon says it is alive, what it runs, its terminal host, its agents and its inbox.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "daemon.status",
+      "params": {}
+     },
+     "result": {
+      "alive": true,
+      "version": {
+       "$type": "string"
+      },
+      "protocol": {
+       "$type": "integer"
+      },
+      "schema": {
+       "$type": "integer"
+      },
+      "started_at": {
+       "$type": "timestamp"
+      },
+      "terminal_host": {
+       "name": {
+        "$type": "string"
+       },
+       "health": {
+        "$oneOf": [
+         "ok",
+         "degraded",
+         "down"
+        ]
+       }
+      },
+      "agents": {
+       "total": {
+        "$type": "integer"
+       },
+       "by_state": {
+        "$type": "object"
+       }
+      },
+      "inbox": {
+       "unread": {
+        "$type": "integer"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.shape",
+   "spec": "tasks.list",
+   "about": "A page of tasks and whether there are more.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tasks.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$type": "array",
+       "$each": {
+        "id": {
+         "$type": "integer"
+        },
+        "from": {
+         "$type": "string"
+        },
+        "to": {
+         "$type": "string"
+        },
+        "title": {
+         "$type": "string"
+        },
+        "state": {
+         "$type": "string"
+        },
+        "relation": {
+         "$type": "string"
+        },
+        "response": {
+         "$type": "string"
+        },
+        "created": {
+         "$type": "timestamp"
+        }
+       }
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.limit_is_bounded",
+   "spec": "tasks.list",
+   "about": "A limit of zero is bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tasks.list",
+      "params": {
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.get.no_such_task",
+   "spec": "task.get",
+   "about": "A task that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.get",
+      "params": {
+       "task": 999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.get.needs_a_task_number",
+   "spec": "task.get",
+   "about": "A task that is not a number is bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.get",
+      "params": {
+       "task": "one"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.list.shape",
+   "spec": "inbox.list",
+   "about": "A page of inbox items and whether there are more.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$type": "array",
+       "$each": {
+        "id": {
+         "$type": "integer"
+        },
+        "kind": {
+         "$type": "string"
+        },
+        "title": {
+         "$type": "string"
+        },
+        "body": {
+         "$type": "string"
+        },
+        "created": {
+         "$type": "timestamp"
+        },
+        "read": {
+         "$type": "boolean"
+        },
+        "answered": {
+         "$type": "boolean"
+        },
+        "options": {
+         "$type": "array"
+        }
+       }
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.list.wait_is_bounded",
+   "spec": "inbox.list",
+   "about": "A wait_s past ten minutes is bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {
+       "wait_s": 601
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "wait_s"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.list.limit_is_bounded",
+   "spec": "inbox.list",
+   "about": "A limit of zero is bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
