@@ -377,6 +377,7 @@ export const writes: Record<string, WriteSpec> = {
   'session.input': uncached('type'),
   'session.keys': uncached('key'),
   'session.type': uncached('type'),
+  'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
 };
 
