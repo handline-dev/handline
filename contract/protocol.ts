@@ -994,7 +994,7 @@ export interface Methods {
   before?: number;
   /** Default 50, at most 200. */
   limit?: number;
-  /** Hold the call up to this many seconds while no unread item matches the other params (agent, before), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
+  /** Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
   wait_s?: number;
 }; result: {
     items: InboxItem[];
