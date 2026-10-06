@@ -29,6 +29,7 @@ export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed';
 export interface ClientOptions {
   connect: () => Promise<Transport>;
   client: string; // who is calling; the daemon names this actor on what it does
+  token?: string; // the device token from pairing; the network listener admits no one without it
   reconnect?: { minMs: number; maxMs: number } | false;
   newRequestId?: () => string;
 }
@@ -133,7 +134,7 @@ export class DaemonClient {
     this.transport = t;
     t.onmessage = (m) => this.receive(t, m);
     t.onclose = () => this.lost(t);
-    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL });
+    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null; t.close();
       this.setState('closed'); this.closing = true;
