@@ -7,3 +7,6 @@ handoff.md
 phase0/
 docs/phase-reports.md
 docs/vendor-extension-board.md
+
+# built Go daemon
+/go/handlined
