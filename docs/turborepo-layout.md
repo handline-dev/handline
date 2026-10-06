@@ -192,14 +192,14 @@ Rules for both: the write is idempotent through the `request_id` the client adds
 | `chat.send` | authored | a message row with `state: sending`, keyed by its `request_id`, at the top of *mine* | the row turns `failed` with **Retry** and **Discard**; the text is never lost |
 | `chat.withdraw` `chat.dismiss` `chat.answer` | authored | the message's flag or answer | restore the message |
 | `task.new` | authored | a provisional row (negative id, `pending`) | row removed, form refilled |
-| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.discard` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
+| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
 | `task.merge` | authored | merged rows leave the list | restore the list |
 | `task.memo.add` `task.memo.edit` `task.memo.delete` | authored | the memo in the list | restore |
 | `inbox.mark_read` `inbox.answer` `inbox.reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
 | `agent.set` `settings.set` `account.set` `account.set_cap` `schedule.add` `schedule.edit` `schedule.remove` `answer.add` `answer.remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
 | `session.start` `session.wake` `session.restart` `session.park` `session.stop` `session.interrupt` `agent.fold` `agent.move` `agent.create` | decided | pending mark on the row; `agent.create` follows its `operation.progress` | the mark goes, the reason shows |
 | `prompt.answer` | decided | the card shows "answering…" and keeps its buttons off; it leaves when the prompt's id changes by event | `stale_prompt`: refetch the prompt, the card refreshes; any other refusal: buttons back, reason shown |
-| `input.take` `input.release` `hr.decide` `account.login` `terminal.close` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke` keeps its confirmation) | the mark goes, the reason shows |
+| `input.take` `input.release` `hr.decide` `account.login` `terminal.close` `task.discard` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke`, `terminal.close` and `task.discard` keep their confirmation, and `task.discard` its reason) | the mark goes, the reason shows |
 | `settings.trust` | authored | the folder in the trusted list (G11) | restore the list |
 | `device.redeem` | pairing, before `hello` and outside the cache | the app's pair flow calls it, not a view | the flow shows the reason |
 | `session.input` `session.keys` `session.type` `terminal.resize` | **not cached** | none: the terminal stream is the answer, and the app draws no local echo | refusal shown in the terminal tab's status |

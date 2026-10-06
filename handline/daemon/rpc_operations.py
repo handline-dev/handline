@@ -124,7 +124,7 @@ def _create(ctx, params) -> dict:
                         "VALUES(?, 'agent.create', 'running', NULL, 0, ?, ?, ?, ?, ?)",
                         (op, len(STEPS), f"creating {name}", name, now, now))
             result = {"accepted": True, "said": f"creating {name}", "operation": op}
-            effects.record_effect(con, ctx.caller.actor, params["request_id"], "agent.create", result)
+            effects.record_effect(con, ctx.caller.writer, params["request_id"], "agent.create", result)
             con.execute("COMMIT")
         except BaseException:
             if con.in_transaction:
