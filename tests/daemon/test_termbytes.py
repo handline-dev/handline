@@ -575,6 +575,69 @@ def test_tmux_send_bytes_sends_hex_in_chunks_to_a_pane_only() -> None:
 
 
 # ---------------------------------------------------------------- (10) hello
+def _frames(w, wait: float = 0.6) -> list:
+    out = []
+    while True:
+        m = _next(w, "frame", wait)
+        if m is None:
+            return out
+        out.append(m)
+
+
+def test_a_connection_has_one_attach_per_terminal_and_format(home: Path) -> None:
+    support._board_world(home)
+    with Screen() as s, _Host() as h:
+        s.rows = ["row 0", "row 1", "row 2"]
+        w = _wire()
+        first = w.call("terminal.attach", {"agent": "worker"})["result"]
+        second = w.call("terminal.attach", {"agent": "worker"})
+        check("attach: a second text attach of the terminal is accepted, with its own snapshot", "result" in second and second["result"]["format"] == "text", str(second))
+        ch = termchannel.HUB.channels["t-worker"]
+        check("attach: and replaces the first: one client on the channel, not two", len(ch.clients) == 1, str(len(ch.clients)))
+        s.rows = ["row 0", "row 1 CHANGED", "row 2"]
+        frames = _frames(w)
+        check("attach: one frame for the change, never one per attach (no duplicate frames)", len(frames) == 1 and frames[0]["params"]["seq"] == second["result"]["seq"] + 1, str(frames))
+        w.call("terminal.detach", {"terminal": "t-worker"})
+        check("attach: one detach ends it", not ch.clients and "t-worker" not in termchannel.HUB.channels or not termchannel.HUB.channels["t-worker"].clients)
+        w.close()
+
+        w = _wire()
+        a = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})["result"]
+        b = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})["result"]
+        bch = termbytes.HUB.channels["t-worker"]
+        check("attach: a second bytes attach replaces the first, snapshot and counter its own", len(bch.clients) == 1 and b["seq"] == 0 and a["seq"] == 0, str(len(bch.clients)))
+        w.call("input.take", {"agent": "worker", "request_id": "q1"})
+        got = [m for m in (_next(w, "holder", 1.0), _next(w, "holder", 0.4)) if m]
+        check("attach: the holder change reaches the one bytes attach once, with its format", len(got) == 1 and got[0]["params"]["format"] == "bytes" and got[0]["params"]["seq"] == 1, str(got))
+        t = w.call("terminal.attach", {"agent": "worker"})["result"]
+        check("attach: text and bytes of one terminal on one connection are independent", len(bch.clients) == 1 and len(termchannel.HUB.channels["t-worker"].clients) == 1 and t["format"] == "text")
+        con = db.connect()
+        termchannel.marker(con, "worker", "person_typed", {"kind": "person", "name": "someone"}, "hi")
+        con.close()
+        seen = {}
+        for _ in range(2):
+            m = _next(w, "marker", 1.0)
+            if m:
+                seen[m["params"]["format"]] = m["params"]["seq"]
+        check("marker: each attach is sent it once, with its own format and counter", set(seen) == {"text", "bytes"} and seen["bytes"] == 2, str(seen))
+        text_clients = lambda: len(getattr(termchannel.HUB.channels.get("t-worker"), "clients", []))
+        r = w.call("terminal.detach", {"terminal": "t-worker", "format": "text"})
+        check("detach: with a format only that attach ends, the other goes on", r.get("result") == {} and len(bch.clients) == 1 and text_clients() == 0, str((r, text_clients())))
+        check("detach: ending what is not held is {} and not an error", "result" in w.call("terminal.detach", {"terminal": "t-worker", "format": "text"}))
+        r = w.call("terminal.detach", {"terminal": "t-worker", "format": "html"})
+        check("detach: a format that is not text or bytes is bad_request naming format", _code(r) == "bad_request" and r["error"]["data"]["field"] == "format", str(r))
+        check("detach: a handle that does not exist is not_found", _code(w.call("terminal.detach", {"terminal": "nope"})) == "not_found")
+        w.call("terminal.attach", {"agent": "worker"})
+        w.call("terminal.detach", {"terminal": "t-worker"})
+        check("detach: with no format, every attach of the terminal on the connection ends", not bch.clients and "t-worker" not in termbytes.HUB.channels
+              and text_clients() == 0)
+        w.call("terminal.attach", {"agent": "worker"})
+        w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
+        text_ch, bch = termchannel.HUB.channels["t-worker"], termbytes.HUB.channels["t-worker"]
+        w.close()
+        check("detach: closing the connection ends all of them", _until(lambda: not text_ch.clients and not bch.clients))
+
+
 def test_hello_says_which_hosts_serve_which_formats(home: Path) -> None:
     support.use_home(home)
     w = Wire()
@@ -601,6 +664,7 @@ def main() -> int:
         run(lambda: test_a_resize_snapshots_a_bytes_attach_and_sends_no_resize_notice(Path(td) / "b3"))
         run(lambda: test_detach_and_a_hung_up_connection_drop_the_client(Path(td) / "b4"))
         run(lambda: test_tmux_send_bytes_sends_hex_in_chunks_to_a_pane_only())
+        run(lambda: test_a_connection_has_one_attach_per_terminal_and_format(Path(td) / "b6"))
         run(lambda: test_hello_says_which_hosts_serve_which_formats(Path(td) / "b5"))
     return run_area(tests)
 
