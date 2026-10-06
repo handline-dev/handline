@@ -166,7 +166,8 @@ atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
 # the real one.
 ORCA_CHILD_TESTS = {"test_launch", "test_launch_refuses_stale",
                     "test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run",
-                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run"}
+                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run",
+                    "test_the_handline_command_runs_the_same_program_as_ocp"}
 
 
 def calls_that_reached_the_stand_in_orca() -> dict[str, list[str]]:
