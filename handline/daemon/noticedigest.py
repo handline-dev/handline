@@ -1,12 +1,13 @@
 """Results told to whoever opened the work reach them in one digest, not one wake each.
 
-A result notice (a task done or discarded, a child's result) is information: it rides on the
-target's next real delivery and never wakes anyone. Left at that, an opener that sits idle
-learns of a finished task only when something else happens to be typed at it. So the first
-notice starts a clock, and when it has run `idle_close.notice_digest_s` (15 minutes unless
-config.yaml's, or the agent's own, `notice_digest_s` says otherwise) the notices still waiting
-are typed once, as a single message of one line each. A message typed before then carries them
-and the clock has nothing left to run on.
+A result notice (a task done or discarded, a child's result) is information: it never wakes
+anyone. A target that is working a turn gets it folded: it rides on the target's next real
+delivery, and the first notice starts a clock, so when it has run `idle_close.notice_digest_s`
+(15 minutes unless config.yaml's, or the agent's own, `notice_digest_s` says otherwise) the
+notices still waiting are typed once, as a single message of one line each. A target with a live
+session that is not working (idle at its prompt, no background work) is told at once, in the
+tick: nothing it is doing is broken into, and waiting would only leave the result unread. A
+closed agent keeps the clock: a result is not worth waking it for.
 
 What goes wrong is not information. A task that ends FAIL, blocked or FATAL, and an agent the
 daemon finds FATAL or blocked, are told to the agents waiting on them at once, as their own
@@ -20,7 +21,7 @@ import time
 from .. import db
 from ..infra import paths, textsafe
 from ..session import idle_close
-from . import delivery, messaging
+from . import delivery, messaging, states
 
 DIGEST_MAX_LINES = 20
 RESULT_SHOWN = 80
@@ -66,11 +67,22 @@ def digest_text(rows) -> str:
     return "\n".join([head, *(digest_line(r) for r in shown), *([f"(+{left} more: `hl inbox --all`)"] if left else [])])
 
 
+def _idle_with_session(con, agent: str) -> bool:
+    """A live session at its prompt: not mid-turn, not closed, no background work running."""
+    row = db.get_agent_state(con, agent)
+    return bool(row and row["state"] == states.IDLE and not row["closed_at"]
+                and not delivery.has_background_work(con, agent)
+                and delivery.session_present(agent))
+
+
 def sweep_digests(con, log, now: int) -> None:
-    """Type one digest to each agent whose oldest waiting notice has waited its window out."""
+    """Type one digest to each idle agent with a notice waiting, and to a busy one whose oldest
+    notice has waited its window out."""
     registered = set(paths.list_agents())
     for agent, since in db.agents_with_notices(con):
-        if agent not in registered or now - since < idle_close.notice_digest_s(agent):
+        if agent not in registered:
+            continue
+        if now - since < idle_close.notice_digest_s(agent) and not _idle_with_session(con, agent):
             continue
         rows = db.pending_notices(con, agent)
         if not rows:
@@ -102,8 +114,6 @@ def _tell_waiting(con, agent: str, text: str, reason: str, log) -> None:
 def sweep_stopped(con, log, now: int) -> None:
     """An agent that is FATAL, or whose work cannot be given (it is on the founder's list), is
     told once per spell to whoever waits on it; the mark ends with the spell."""
-    from . import states
-
     stalled = {r["agent"]: r for r in db.all_agent_states(con) if r["state"] == states.STALLED}
     blocks = {b["agent"]: b for b in db.blocks(con) if now >= int(b["show_at"])}
     for kind, now_in in (("fatal", stalled), ("blocked", blocks)):
