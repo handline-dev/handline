@@ -118,7 +118,7 @@ func startGateway(t *testing.T, web string, native ...string) (*Daemon, *fakePyt
 	pre.Close()
 	crt, key := writeCert(t, dir)
 	cfg := Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Listen: "127.0.0.1:0", CertFile: crt, KeyFile: key, Gateway: true,
-		RelaySocket: filepath.Join(dir, "relay.sock"), PidFile: filepath.Join(dir, "gateway.pid"), Native: native, WebDir: web, Auth: fakeAuth{}}
+		RelaySocket: filepath.Join(dir, "relay.sock"), PidFile: filepath.Join(dir, "protected", "gateway", "pid"), Native: native, WebDir: web, Auth: fakeAuth{}}
 	d, err := Start(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -421,6 +421,9 @@ func TestAGatewayRefusesAConfigThatWouldMakeItSomethingElse(t *testing.T) {
 
 func TestThePidFileIsPrivateNamesTheGatewayAndGoesWithIt(t *testing.T) {
 	d, _, cfg := startGateway(t, "")
+	if st, err := os.Stat(filepath.Dir(cfg.PidFile)); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("the pid file's directory: %v %v", st, err)
+	}
 	st, err := os.Stat(cfg.PidFile)
 	b, _ := os.ReadFile(cfg.PidFile)
 	if err != nil || st.Mode().Perm() != 0o600 || strings.TrimSpace(string(b)) != fmt.Sprint(os.Getpid()) || !strings.HasSuffix(string(b), "\n") {
@@ -570,5 +573,30 @@ func TestNothingIsServedWithoutAWebDirectoryAndASocketFromAnotherPageIsRefused(t
 		if ws != nil {
 			ws.Close()
 		}
+	}
+}
+
+func TestTheRelaySocketIsTrustedOnlyWhenTheDaemonHoldingTheLockAnswersOnIt(t *testing.T) {
+	c, _ := net.Pipe()
+	defer c.Close()
+	asPid := func(pid int) func(net.Conn) int { return func(net.Conn) int { return pid } }
+	lock := filepath.Join(t.TempDir(), "daemon.lock")
+	for name, body := range map[string]string{"missing": "", "garbage": "x\n", "another process": fmt.Sprintf("%-16d\n", os.Getppid()), "zero": "0"} {
+		if body != "" {
+			os.WriteFile(lock, []byte(body), 0o600)
+		}
+		if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid())); err == nil {
+			t.Errorf("%s: trusted", name)
+		}
+	}
+	os.WriteFile(lock, []byte(fmt.Sprintf("%-16d\n", os.Getpid())), 0o600)
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid())); err != nil {
+		t.Fatal(err)
+	}
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()+1)); err == nil {
+		t.Fatal("a socket answered by another process was trusted")
+	}
+	if err := relayPeerIsTheDaemon(c, lock, asPid(0)); err == nil {
+		t.Fatal("a peer the kernel could not name was trusted")
 	}
 }

@@ -50,7 +50,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 			if err != nil {
 				return nil, err
 			}
-			if err := relayPeerIsTheDaemon(c, lock); err != nil {
+			if err := relayPeerIsTheDaemon(c, lock, peer.PID); err != nil {
 				c.Close()
 				return nil, err
 			}
@@ -63,7 +63,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 // relayPeerIsTheDaemon refuses a relay socket nobody but the Python daemon answers on: anyone can unlink and rebind
 // a path in the home, so what sits at it must be the process that holds the daemon's lock (the pid it wrote there)
 // before any device traffic is sent.
-func relayPeerIsTheDaemon(c net.Conn, lockFile string) error {
+func relayPeerIsTheDaemon(c net.Conn, lockFile string, pidOf func(net.Conn) int) error {
 	b, err := os.ReadFile(lockFile)
 	if err != nil {
 		return fmt.Errorf("the daemon's lock file: %w", err)
@@ -72,7 +72,7 @@ func relayPeerIsTheDaemon(c net.Conn, lockFile string) error {
 	if err != nil || want <= 0 {
 		return errors.New("the daemon's lock file names no process")
 	}
-	if got := peer.PID(c); got != want {
+	if got := pidOf(c); got != want {
 		return fmt.Errorf("the relay socket is answered by pid %d, not the daemon (pid %d)", got, want)
 	}
 	return nil

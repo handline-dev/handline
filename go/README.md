@@ -20,7 +20,9 @@ Without `-cert` and `-key` the listener keeps a self-signed certificate in the h
               -advertise HOST.TAILNET.ts.net:7443 -web /path/to/web/dist
 
 - It opens `db.sqlite` without creating or migrating it and refuses one the Python daemon has not brought to this schema.
-- It writes the `devices` table and its pid file (`gateway.pid`, mode 0600, removed at exit; one live gateway at a time), nothing else:
+- It writes the `devices` table and its pid file, nothing else. The pid file is in the founder's protected store, which no agent sandbox
+  can write (`~/.config/orcapipe/protected/<home slug>/gateway/pid`, directory 0700, file 0600, written atomically, removed at exit; one live
+  gateway at a time; `-pid-file` moves it, and only a test should):
   no hook spool, no `hook.record`, no generic write events. Its local socket is `gateway.sock`, for the founder's device commands, never `daemon.sock`.
 - It serves natively `hello`, `whoami`, the device methods and the methods named by `-native` (default: the area-1 reads
   `daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list`). Every other method is **relayed**: a method that
@@ -30,7 +32,8 @@ Without `-cert` and `-key` the listener keeps a self-signed certificate in the h
   above member or whose callers leave members out is refused (`gate: role`), and neither is sent on. The rest goes to `relay.sock`
   (`-relay-socket`) on a connection of its own for each device connection: the first line is
   `{"jsonrpc":"2.0","id":0,"method":"relay.open","params":{"device_id","name","role":"member"}}`, answered `{"result":{"ok":true}}`; after it every
-  line from the device goes to the relay as it is and every line the relay sends (replies and notifications) goes to the device as it is. A closed
+  line from the device goes to the relay as it is and every line the relay sends (replies and notifications) goes to the device as it is. Before it sends `relay.open` it checks that the process answering on `relay.sock` is the one named in `<home>/locks/daemon.lock`
+  (the peer pid of the connection), since anyone can rebind that path. A closed
   relay connection is how Python learns a device hung up or was revoked. If the relay is down, or drops with a call unanswered, the
   call fails with `daemon_busy` (retry after 2 s) and the next call opens a new connection.
 
