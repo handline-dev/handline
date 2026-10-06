@@ -217,7 +217,7 @@ def test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(home: Pa
     check("inbox.list: and returns as soon as something arrives", len(r["items"]) == 1 and _t.time() - t0 < 3, str(r))
 
 
-def test_the_commands_these_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
+def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _task("listed by the command")
     rc, out = support._cli(["task", "list"])
@@ -236,7 +236,7 @@ def main() -> int:
         run(lambda: test_tasks_list_scopes_an_agent_as_the_command_does(Path(td) / "r7"))
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))
-        run(lambda: test_the_commands_these_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
+        run(lambda: test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
     return run_area(tests)
 
 
