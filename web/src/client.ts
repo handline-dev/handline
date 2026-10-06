@@ -78,7 +78,7 @@ export class DaemonClient {
   private transport: Transport | null = null;
   private nextId = 1;
   private pending = new Map<number, Pending>();
-  private waitingForOpen: (() => void)[] = [];
+  private waitingForOpen: { ok: () => void; fail: (e: Error) => void }[] = [];
   private topics = new Set<Topic>();
   private cursor: number | undefined;
   private eventHandlers = new Set<Handler<EventNotice>>();
@@ -134,7 +134,7 @@ export class DaemonClient {
     await this.establish();
     this.setState('open');
     const waiters = this.waitingForOpen; this.waitingForOpen = [];
-    for (const w of waiters) w();
+    for (const w of waiters) w.ok();
   }
 
   private async establish(): Promise<void> {
@@ -169,7 +169,7 @@ export class DaemonClient {
   /** Calls a method. Writes get a request_id here unless the caller gave one. */
   async call<M extends MethodName>(method: M, params: Methods[M]['params']): Promise<Methods[M]['result']> {
     if (this.closing) throw new RpcError('transport', 'client closed');
-    if (this.state !== 'open') await new Promise<void>((res) => this.waitingForOpen.push(res));
+    if (this.state !== 'open') await new Promise<void>((ok, fail) => this.waitingForOpen.push({ ok, fail }));
     let p: Record<string, unknown> = params as Record<string, unknown>;
     if (WRITE_METHODS.has(method) && p.request_id === undefined) {
       p = { ...p, request_id: this.opts.newRequestId?.() ?? `${this.opts.client}-${Date.now().toString(36)}-${++this.requestCounter}` };
@@ -204,6 +204,8 @@ export class DaemonClient {
   }
 
   private failPending(e: Error): void {
+    const waiters = this.waitingForOpen; this.waitingForOpen = [];
+    for (const w of waiters) w.fail(e);
     for (const p of this.pending.values()) p.reject(e);
     this.pending.clear(); this.inflightInternal.clear();
   }
@@ -289,6 +291,8 @@ export class DaemonClient {
   // ---- session control ----
 
   startSession(agent: string, account?: string) { return this.call('session.start', { agent, account }); }
+  restartSession(agent: string, fresh = false) { return this.call('session.restart', { agent, fresh }); }
+  parkSession(agent: string) { return this.call('session.park', { agent }); }
   stopSession(agent: string, mode: SessionStopMode) { return this.call('session.stop', { agent, mode }); }
   /** `enter: false` types without pressing Enter; Enter is its own keystroke. */
   sendInput(agent: string, text: string, enter = true) { return this.call('session.input', { agent, text, enter }); }

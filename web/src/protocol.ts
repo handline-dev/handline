@@ -10,19 +10,14 @@ export type Role = 'founder' | 'member' | 'agent';
 export type ErrorCode =
   | 'not_found' | 'refused' | 'daemon_busy' | 'bad_request' | 'internal' | 'stale_prompt';
 
+// The plan's topic lists disagree (event stream vs UI table); ASSUMED: prompts open and close on `requests`.
 export type Topic = 'agents' | 'tasks' | 'requests' | 'usage';
-
-// Founder decision (T1686): v1 has a chat view beside the terminal. Its messages and methods are not
-// in the plan yet; this is the room left for them, to be filled from term-design's data list.
-export interface ChatMessage {
-  id: string; agent: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; time: string;
-  data?: Record<string, unknown>; // tool name, input, result, as the contract defines
-}
 
 export type NamedKey =
   | 'esc' | 'enter' | 'up' | 'down' | 'tab' | 'shift-tab' | 'ctrl-c' | '0' | '1' | '2' | '3' | '4' | '5'
   | '6' | '7' | '8' | '9';
 
+// ASSUMED: the plan names no state words; these follow the UI's rail dots.
 export type AgentState = 'running' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'no_terminal';
 
 // ---- JSON-RPC 2.0 framing: one JSON object per line (socket) or per message (WebSocket) ----
@@ -63,6 +58,8 @@ export interface AgentView {
   task: string | null;
   has_dialog: boolean;
   parent: string | null;
+  block: { kind: string; since: string } | null; // ASSUMED shape; kind e.g. wall, no_terminal, stalled
+  cache_until: string | null; // prompt-cache deadline, ISO time (ASSUMED shape)
 }
 // who: 'daemon' or a person/device. Carried as a list (length 1 in v1) so several holders need no protocol change.
 export interface InputHolder { who: string; since: string }
@@ -138,8 +135,10 @@ export interface Methods {
 
   'session.start': { params: WriteBase & { agent: string; account?: string }; result: { accepted: true } };
   'session.wake': { params: WriteBase & { agent: string }; result: { accepted: true } };
+  'session.restart': { params: WriteBase & { agent: string; fresh?: boolean }; result: { accepted: true } };
+  'session.park': { params: WriteBase & { agent: string }; result: { accepted: true } };
   'session.stop': { params: WriteBase & { agent: string; mode: SessionStopMode }; result: { accepted: true } };
-  'session.input': { params: WriteBase & { agent: string; text: string; enter: boolean; prompt?: never }; result: { accepted: true } };
+  'session.input': { params: WriteBase & { agent: string; text: string; enter: boolean }; result: { accepted: true } };
   'session.keys': { params: WriteBase & { agent: string; keys: NamedKey[] }; result: { accepted: true } };
   'session.interrupt': { params: WriteBase & { agent: string }; result: { accepted: true } };
   'prompt.list': { params: { agent: string }; result: { prompts: Prompt[] } };
@@ -156,11 +155,11 @@ export type MethodName = keyof Methods;
 
 // Methods that change something and so carry a request_id.
 export const WRITE_METHODS: ReadonlySet<string> = new Set([
-  'session.start', 'session.wake', 'session.stop', 'session.input', 'session.keys', 'session.interrupt',
+  'session.start', 'session.wake', 'session.restart', 'session.park', 'session.stop', 'session.input', 'session.keys', 'session.interrupt',
   'prompt.answer', 'input.take', 'input.release', 'terminal.resize',
 ]);
 
-// Lowest role allowed per method; agents are barred from the person-at-the-terminal methods.
+// Methods the agent role may not call: the person-at-the-terminal ones.
 export const BARRED_FOR_AGENT: ReadonlySet<string> = new Set([
   'session.input', 'session.keys', 'session.interrupt', 'prompt.answer', 'input.take', 'input.release',
   'terminal.attach', 'terminal.detach', 'terminal.history', 'terminal.resize',

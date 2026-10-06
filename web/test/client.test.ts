@@ -204,3 +204,54 @@ test('a cursor older than retention gets a gap, then the stream continues', asyn
   await until(() => got.length === 1 && got[0] === gaps[0] + 1, 'stream continues after the gap');
   client.close();
 });
+
+const W = 'handline.auditor'; // its account is at the wall
+
+test('at the wall keys and interrupt pass and typed input is refused', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  await assert.rejects(client.sendInput(W, 'x'), (e: RpcError) => e.code === 'refused' && /usage limit/.test(e.message));
+  await client.sendKeys(W, 'esc');
+  assert.deepEqual(daemon.sessions.get(W)!.received.map((r) => r.value), ['esc']);
+  assert.equal((await client.call('agents.list', {})).agents.find((a) => a.name === W)!.block?.kind, 'wall');
+  client.close();
+});
+
+test('stop, restart and park pass the lifecycle gates, not the holder gate', async () => {
+  const { client: a, daemon } = setup({ client: 'web-a' });
+  await a.start();
+  await a.startSession(A);
+  await a.takeInput(A);
+  const b = new (a.constructor as any)({ client: 'phone-b', reconnect: false, connect: async () => { const { memoryPair } = await import('../src/transport.ts'); const [x, y] = memoryPair(); daemon.accept(y); return x; } });
+  await b.start();
+  await b.restartSession(A);
+  await b.parkSession(A);
+  assert.equal((await a.call('agent.get', { agent: A })).state, 'parked');
+  await b.startSession(A);
+  await b.stopSession(A, 'exit');
+  assert.equal((await a.call('agent.get', { agent: A })).session_open, false);
+  a.close(); b.close();
+});
+
+test('a restart appends to the screen an attached client already shows', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  await client.startSession(A);
+  const view = await client.attachTerminal(A);
+  await client.sendInput(A, 'before');
+  await client.restartSession(A, true);
+  await until(() => view.text().filter((l) => l.startsWith('Claude Code')).length === 2, 'second banner');
+  assert.deepEqual(view.text(), daemon.sessions.get(A)!.lines.slice(0, -1)); // the view drops the trailing blank row
+  client.close();
+});
+
+test('close settles a call waiting for the connection to come back', async () => {
+  const { client, net } = setup();
+  await client.start();
+  net.down = true;
+  (client as any).transport.close();
+  await until(() => client.state === 'reconnecting', 'drop');
+  const waiting = client.call('daemon.status', {});
+  client.close();
+  await assert.rejects(waiting, (e: RpcError) => e.code === 'transport');
+});

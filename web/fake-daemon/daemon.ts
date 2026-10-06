@@ -14,7 +14,7 @@ const NAMED_KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'c
 // Every method and the protocol it appeared in.
 const METHODS: Record<MethodName, number> = {
   'hello': 1, 'whoami': 1, 'daemon.status': 1, 'agents.list': 1, 'agent.get': 1, 'subscribe': 1, 'unsubscribe': 1,
-  'session.start': 1, 'session.wake': 1, 'session.stop': 1, 'session.input': 1, 'session.keys': 1,
+  'session.start': 1, 'session.wake': 1, 'session.restart': 1, 'session.park': 1, 'session.stop': 1, 'session.input': 1, 'session.keys': 1,
   'session.interrupt': 1, 'prompt.list': 1, 'prompt.answer': 1, 'input.take': 1, 'input.release': 1,
   'terminal.attach': 1, 'terminal.detach': 1, 'terminal.history': 1, 'terminal.resize': 1,
 };
@@ -22,7 +22,8 @@ const METHODS: Record<MethodName, number> = {
 class Refusal extends Error {
   code: ErrorCode;
   reason?: string;
-  constructor(code: ErrorCode, message: string, reason?: string) { super(message); this.code = code; this.reason = reason; }
+  rpc: number; // -32601 only for an unknown method
+  constructor(code: ErrorCode, message: string, reason?: string, rpc = -32000) { super(message); this.code = code; this.reason = reason; this.rpc = rpc; }
 }
 const refused = (why: string) => new Refusal('refused', why, why);
 
@@ -43,6 +44,7 @@ interface Session {
   prompt: Prompt | null;
   queue: (() => void)[]; // the scripted turn, one step per tick
   promptCount: number;
+  sessionCount: number;
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
@@ -62,6 +64,7 @@ export interface FakeDaemonOptions {
 
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();
+  private promptAgent = new Map<string, string>(); // every prompt id issued -> its agent, so an old one is stale, not unknown
   private events: EventNotice[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
@@ -85,14 +88,14 @@ export class FakeDaemon {
       fx, state: fx.state, since: this.iso(), sessionId: fx.session, open, hasTerminal: fx.state !== 'no_terminal',
       lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [], seq: 0, cols: COLS, rows: ROWS,
       buffer: '', composing: false, holder: { who: 'daemon', since: this.iso() }, prompt: null,
-      queue: [], promptCount: 0, received: [],
+      queue: [], promptCount: 0, sessionCount: 0, received: [],
     };
     return s;
   }
 
   // ---- hosting ----
 
-  /** Serves one connection. Returns a handle the test can use to cut it. */
+  /** Serves one connection; `dropConnections` cuts them. */
   accept(transport: Transport, role: Role = 'founder'): void {
     const conn: Conn = { transport, role, client: 'unknown', helloed: false, topics: null, attached: new Set() };
     this.conns.add(conn);
@@ -201,6 +204,7 @@ export class FakeDaemon {
   private openPrompt(s: Session) {
     const id = `p${++s.promptCount}-${s.fx.name}`;
     const lines = PROMPT_LINES.map((l) => l.replace('{branch}', s.fx.branch));
+    this.promptAgent.set(id, s.fx.name);
     s.prompt = {
       id, kind: 'permission', agent: s.fx.name, tool: 'Bash', command: `git push origin ${s.fx.branch}`,
       reason: null, lines, options: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }],
@@ -283,7 +287,7 @@ export class FakeDaemon {
         body = { result };
       } catch (e) {
         if (!(e instanceof Refusal)) throw e;
-        body = { error: { code: e.code === 'not_found' ? -32601 : -32000, message: e.message, data: { code: e.code, reason: e.reason } } };
+        body = { error: { code: e.rpc, message: e.message, data: { code: e.code, reason: e.reason } } };
       }
       if (isWrite && rid) this.replies.set(rid, body);
     }
@@ -311,7 +315,7 @@ export class FakeDaemon {
       return { protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, methods };
     }
     if (!c.helloed) this.bad('say hello first');
-    if (!(method in METHODS)) throw new Refusal('not_found', `unknown method ${method}`);
+    if (!(method in METHODS)) throw new Refusal('not_found', `unknown method ${method}`, undefined, -32601);
     if (!this.mayCall(c.role, method)) throw refused(`the ${c.role} role may not call ${method}`);
     if (WRITE_METHODS.has(method) && typeof p.request_id !== 'string') this.bad(`${method} needs a request_id`);
     const actor = c.client;
@@ -334,6 +338,8 @@ export class FakeDaemon {
       case 'unsubscribe': c.topics = null; return {};
       case 'prompt.list': { const s = agent(); return { prompts: s.prompt ? [s.prompt] : [] }; }
       case 'session.start': case 'session.wake': return this.startSession(agent(), method === 'session.wake', actor);
+      case 'session.restart': return this.restartSession(agent(), p.fresh === true, actor);
+      case 'session.park': return this.stopSession(agent(), 'close', actor);
       case 'session.stop': return this.stopSession(agent(), p.mode as string, actor);
       case 'session.input': return this.input(agent(), p, actor);
       case 'session.keys': return this.keys(agent(), p.keys, actor);
@@ -344,8 +350,7 @@ export class FakeDaemon {
         return { accepted: true };
       }
       case 'prompt.answer': {
-        const s = [...this.sessions.values()].find((x) => x.prompt?.id === p.prompt)
-          ?? [...this.sessions.values()].find((x) => typeof p.prompt === 'string' && p.prompt.endsWith(`-${x.fx.name}`));
+        const s = this.sessions.get(this.promptAgent.get(String(p.prompt)) ?? '');
         if (!s) throw new Refusal('not_found', `no prompt ${String(p.prompt)}`);
         this.gate(s, actor);
         if (s.prompt?.id !== p.prompt) throw new Refusal('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', 'stale_prompt');
@@ -411,22 +416,26 @@ export class FakeDaemon {
     this.emit('agents', 'control', s.fx.name, actor, { method: what });
   }
 
+  /** Opens a session; the new screen follows the old text, as a terminal's scrollback would. */
   private startSession(s: Session, wake: boolean, actor: string) {
     if (s.open) throw refused('the session is already open');
     if (wake && !s.sessionId) throw refused('there is no closed session to resume');
     s.open = true; s.hasTerminal = true;
-    s.sessionId ??= `s-${s.fx.name}-${++s.promptCount}`;
-    s.lines = BANNER.map((l) => l.replace('{worktree}', s.fx.worktree));
-    this.edit(s, () => {});
-    this.pushTerminal(s, 'frame', (seq): FrameNotice => ({ terminal: tid(s), seq, scrolled: 0, rows: this.visible(s).flatMap((text, row) => (text ? [{ row, text }] : [])) }));
+    s.sessionId ??= `s-${s.fx.name}-${++s.sessionCount}`;
+    this.edit(s, () => { s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree))); });
     this.setState(s, 'idle', 'state', actor);
     return { accepted: true };
+  }
+
+  private restartSession(s: Session, fresh: boolean, actor: string) {
+    if (s.open) this.stopSession(s, 'close', actor);
+    if (fresh) s.sessionId = null;
+    return this.startSession(s, false, actor);
   }
 
   private stopSession(s: Session, mode: string, actor: string) {
     if (!['exit', 'close', 'kill'].includes(mode)) this.bad('mode must be exit, close or kill');
     if (!s.open) throw refused('the agent has no open session');
-    if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
     if (s.prompt) this.closePrompt(s, 'stopped', actor);
     s.queue = []; s.open = false;
     if (mode === 'kill') s.hasTerminal = false; else this.write(s, '(session ended)');
@@ -449,7 +458,6 @@ export class FakeDaemon {
   private keys(s: Session, keys: unknown, actor: string) {
     if (!Array.isArray(keys) || !keys.length || !keys.every((k) => NAMED_KEYS.has(k))) this.bad('keys must be named keys');
     this.gate(s, actor);
-    if (s.fx.wall) throw refused('the account is at its usage limit');
     this.control(s, actor, 'keys');
     for (const k of keys as NamedKey[]) this.pressKey(s, k, actor);
     return { accepted: true };
@@ -457,7 +465,9 @@ export class FakeDaemon {
 
   private view(s: Session): AgentView {
     return { name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, since: s.since,
-      account: s.fx.account, task: s.fx.task, has_dialog: s.prompt !== null, parent: s.fx.parent };
+      account: s.fx.account, task: s.fx.task, has_dialog: s.prompt !== null, parent: s.fx.parent,
+      block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
+      cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null };
   }
   private detail(s: Session): AgentDetail {
     return { ...this.view(s), worktree: s.fx.worktree, branch: s.fx.branch, terminal: tid(s), session: s.sessionId,
