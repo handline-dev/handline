@@ -60,6 +60,9 @@ export const font = {
   size: { small: 12, body: 14, title: 16 },
 } as const;
 
+/** Heights (CSS px) of the rows a list draws. A skeleton row and the real row both take them, so nothing shifts when data arrives. */
+export const rowHeight = { line: 18, agent: 44, message: 56, task: 48, inbox: 56, account: 72, field: 36 } as const;
+
 const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 /** The palette as CSS custom property declarations: `--bg: #fafaf9; --panel: #fff; ...` (accentInk becomes --accent-ink). */
