@@ -18,8 +18,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/store"
-	"github.com/handline/handline/go/internal/version"
 )
 
 // networkListener is the skeleton of the network door: the same JSON-RPC over an encrypted WebSocket, every
@@ -48,7 +46,7 @@ func listenNetwork(cfg Config, d *Daemon) (*networkListener, error) {
 		return nil, err
 	}
 	nl.ln = ln
-	rs := rpc.NewServer(cfg.Auth, version.Sha, store.LatestVersion(), "network", cfg.Log)
+	rs := d.newServer("network")
 	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }} // callers are not browsers' pages; the token decides
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", func(w http.ResponseWriter, r *http.Request) {

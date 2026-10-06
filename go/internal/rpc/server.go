@@ -35,6 +35,9 @@ type Transport interface {
 type Method struct {
 	Role    string
 	Handler func(c *Conn, params map[string]any) (any, error)
+	// Waits marks a method that may hold its call for a long time: it runs beside the connection's other calls
+	// and stops when the client hangs up (Conn.Done).
+	Waits bool
 }
 
 // Server holds what every connection shares.
@@ -54,8 +57,8 @@ func NewServer(auth authority.Authority, sha string, schema int, transport strin
 	if u, err := user.Current(); err == nil {
 		s.founder = u.Username
 	}
-	s.Register("hello", Method{"anonymous", hello})
-	s.Register("whoami", Method{"agent", whoami})
+	s.Register("hello", Method{Role: "anonymous", Handler: hello})
+	s.Register("whoami", Method{Role: "agent", Handler: whoami})
 	return s
 }
 
@@ -75,11 +78,23 @@ type Conn struct {
 	Caller    Caller
 	saidHello bool
 	wmu       sync.Mutex
+	done      chan struct{} // closed when the client is gone
+	waiting   sync.WaitGroup
 }
+
+// Server is the server this connection belongs to.
+func (c *Conn) Server() *Server { return c.srv }
+
+// Done is closed once the client has hung up: a call that waits stops then.
+func (c *Conn) Done() <-chan struct{} { return c.done }
 
 // Serve answers calls on tr until it ends. pid is the peer process on the local socket, 0 elsewhere.
 func (s *Server) Serve(tr Transport, pid int) {
-	c := &Conn{srv: s, tr: tr, Pid: pid}
+	c := &Conn{srv: s, tr: tr, Pid: pid, done: make(chan struct{})}
+	defer func() {
+		close(c.done)
+		c.waiting.Wait()
+	}()
 	c.Caller = identify(s.Auth, s.Transport == "local", pid, "", s.founder)
 	for {
 		timeout := RecvTimeout
@@ -146,66 +161,100 @@ func (c *Conn) one(raw []byte) bool {
 			rid = v
 		}
 	}
-	result, err := c.dispatch(msg)
+	call, err := c.route(msg)
 	if err != nil {
-		e, ok := err.(*Error)
-		if !ok {
-			c.srv.Log("  rpc: %v", err)
-			e = &Error{RPCCode: Internal, Code: "internal", Message: "internal error"}
+		return c.fail(rid, err)
+	}
+	_, hasID := obj["id"]
+	answer := func() bool {
+		result, err := call.run()
+		if err != nil {
+			return c.fail(rid, err)
 		}
-		return c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "error": e.wire()})
+		if !hasID {
+			return true // a notification is never answered
+		}
+		return c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "result": result})
 	}
-	if _, has := obj["id"]; isObj && !has {
-		return true // a notification is never answered
+	if call.waits {
+		c.waiting.Add(1)
+		go func() {
+			defer c.waiting.Done()
+			answer()
+		}()
+		return true
 	}
-	return c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "result": result})
+	return answer()
 }
 
-func (c *Conn) dispatch(msg any) (any, error) {
+func (c *Conn) fail(rid any, err error) bool {
+	e, ok := err.(*Error)
+	if !ok {
+		c.srv.Log("  rpc: %v", err)
+		e = &Error{RPCCode: Internal, Code: "internal", Message: "internal error"}
+	}
+	return c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "error": e.wire()})
+}
+
+// routed is a call that passed every check before its handler: run it now, or beside the connection's other calls.
+type routed struct {
+	waits bool
+	run   func() (any, error)
+}
+
+func (c *Conn) route(msg any) (routed, error) {
 	if _, batch := msg.([]any); batch {
-		return nil, BadRequestError("batches are not accepted", "", BadRequest)
+		return routed{}, BadRequestError("batches are not accepted", "", BadRequest)
 	}
 	obj, ok := msg.(map[string]any)
 	if !ok || obj["jsonrpc"] != "2.0" {
-		return nil, BadRequestError("a request is a JSON-RPC 2.0 object", "", BadRequest)
+		return routed{}, BadRequestError("a request is a JSON-RPC 2.0 object", "", BadRequest)
 	}
 	if id, has := obj["id"]; has {
 		switch id.(type) {
 		case json.Number, string:
 		default:
-			return nil, BadRequestError("id is an integer or a string", "id", BadRequest)
+			return routed{}, BadRequestError("id is an integer or a string", "id", BadRequest)
 		}
 	}
 	name, isStr := obj["method"].(string)
 	if !isStr {
-		return nil, BadRequestError("method is a string", "method", BadRequest)
+		return routed{}, BadRequestError("method is a string", "method", BadRequest)
 	}
 	params := map[string]any{}
 	if p, has := obj["params"]; has {
 		pm, isMap := p.(map[string]any)
 		if !isMap {
-			return nil, BadRequestError("params go by name, as an object", "params", InvalidParams)
+			return routed{}, BadRequestError("params go by name, as an object", "params", InvalidParams)
 		}
 		params = pm
 	}
 	if name != "hello" && !c.saidHello {
-		return nil, BadRequestError("the first call is hello", "method", BadRequest)
+		return routed{}, BadRequestError("the first call is hello", "method", BadRequest)
 	}
 	m, found := c.srv.methods[name]
 	if !found {
-		return nil, BadRequestError("no such method: "+name, "method", NoSuchMethod)
+		return routed{}, BadRequestError("no such method: "+name, "method", NoSuchMethod)
 	}
 	if !c.Caller.Allows(m.Role) {
-		return nil, Refused(fmt.Sprintf("%s is for a %s or above; this caller is %s", name, m.Role, c.Caller.Role), "role", "")
+		return routed{}, Refused(fmt.Sprintf("%s is for a %s or above; this caller is %s", name, m.Role, c.Caller.Role), "role", "")
 	}
-	result, err := m.Handler(c, params)
-	if err != nil {
-		return nil, err
+	// A call that waits runs on its own goroutine while a later hello may replace c.Caller: it gets the caller as
+	// it was when routed, on a Conn of its own that shares only what stays fixed.
+	at := c
+	if m.Waits {
+		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
 	}
-	if name == "hello" {
-		c.saidHello = true
-	}
-	return result, nil
+	return routed{waits: m.Waits, run: func() (any, error) {
+		result, err := m.Handler(at, params)
+		if err != nil {
+			return nil, err
+		}
+		if name == "hello" {
+			c.saidHello = true
+		}
+		return result, nil
+	}}, nil
 }
 
 // RequireSelf is for the methods that act as the caller's own session: an agent that is not the caller is refused.
@@ -225,7 +274,8 @@ func (c *Conn) methodList() []map[string]any {
 	return out
 }
 
-func asInt(v any) (int64, bool) {
+// AsInt is a JSON number that is a whole one.
+func AsInt(v any) (int64, bool) {
 	n, ok := v.(json.Number)
 	if !ok || strings.ContainsAny(string(n), ".eE") {
 		return 0, false
@@ -238,7 +288,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	if client, ok := params["client"].(string); !ok || client == "" {
 		return nil, BadRequestError("hello needs client, the name/version of the caller", "client", InvalidParams)
 	}
-	protocol, ok := asInt(params["protocol"])
+	protocol, ok := AsInt(params["protocol"])
 	if !ok {
 		return nil, BadRequestError("hello needs protocol, an integer", "protocol", InvalidParams)
 	}

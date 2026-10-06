@@ -4,14 +4,9 @@ account.login
 account.set
 account.set_cap
 agent.create
-agent.get
 agent.options
-agent.timeline
-agents.list
-daemon.status
 events.feed
 hr.decide
-inbox.list
 input.ask
 input.release
 input.take
@@ -36,10 +31,8 @@ settings.trust
 subscribe
 task.cancel
 task.edit
-task.get
 task.new
 task.withdraw
-tasks.list
 terminal.attach
 terminal.close
 terminal.detach

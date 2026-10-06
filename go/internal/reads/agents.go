@@ -1,0 +1,320 @@
+package reads
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/handline/handline/go/internal/rpc"
+)
+
+// roleLine is the first line of the agent's ROLE.md that is not blank and not a heading, as one line.
+func (e *Env) roleLine(name string) string {
+	b, err := os.ReadFile(filepath.Join(e.Home, "agents", name, "ROLE.md"))
+	if err != nil {
+		return ""
+	}
+	for _, ln := range strings.Split(string(b), "\n") {
+		if t := strings.TrimSpace(ln); t != "" && !strings.HasPrefix(strings.TrimLeft(ln, " \t"), "#") {
+			return head(oneline(t), 160)
+		}
+	}
+	return ""
+}
+
+// viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view). An agent with no
+// stored view yet gets what can be read without the tick's judgement of its screen: its state is "unknown".
+func (e *Env) viewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
+	if v, ok := stored[name]; ok {
+		return v, nil
+	}
+	view := map[string]any{
+		"name": name, "role": e.roleLine(name), "model": nil, "effort": nil, "state": "unknown", "state_detail": "",
+		"state_since": nil, "block": nil, "wall_reason": nil, "background_since": nil, "would_wake": false,
+		"blocker": nil, "account": nil, "task": nil, "cache_until": nil, "has_dialog": false, "parent": nil,
+	}
+	cur, err := queryOne(e.DB, "SELECT t.id, t.title FROM agent_state a JOIN tasks t ON t.id = a.current_task WHERE a.agent = ?", name)
+	if err != nil {
+		return nil, err
+	}
+	if cur != nil {
+		view["task"] = map[string]any{"id": cur.i("id"), "title": cur.str("title")}
+	}
+	return json.Marshal(view)
+}
+
+func (e *Env) storedViews() (map[string]json.RawMessage, error) {
+	rows, err := query(e.DB, "SELECT agent, view FROM agent_view ORDER BY agent")
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]json.RawMessage, len(rows))
+	for _, r := range rows {
+		out[r.str("agent")] = json.RawMessage(r.str("view"))
+	}
+	return out, nil
+}
+
+func (e *Env) agentsList(c *rpc.Conn, params map[string]any) (any, error) {
+	stored, err := e.storedViews()
+	if err != nil {
+		return nil, err
+	}
+	agents := []json.RawMessage{}
+	for _, n := range e.listAgents() {
+		v, err := e.viewOf(n, stored)
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, v)
+	}
+	return map[string]any{"agents": agents}, nil
+}
+
+func (e *Env) named(params map[string]any) (string, error) {
+	name, ok := params["agent"].(string)
+	if !ok || name == "" {
+		return "", badParam("agent is a name", "agent")
+	}
+	for _, n := range e.listAgents() {
+		if n == name {
+			return name, nil
+		}
+	}
+	err := rpc.NotFoundError("no such agent: " + name)
+	err.Data = map[string]any{"what": "agent", "name": name}
+	return "", err
+}
+
+func (e *Env) agentGet(c *rpc.Conn, params map[string]any) (any, error) {
+	name, err := e.named(params)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := e.storedViews()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := e.viewOf(name, stored)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	st, err := queryOne(e.DB, "SELECT worktree, terminal, resume_session, closed_at FROM agent_state WHERE agent = ?", name)
+	if err != nil {
+		return nil, err
+	}
+	out["worktree"] = nil
+	if path := st.str("worktree"); path != "" {
+		out["worktree"] = map[string]any{"path": path, "branch": branchOf(path)}
+	}
+	out["terminal"] = st.strOrNil("terminal")
+	out["session_id"] = st.strOrNil("resume_session")
+	out["session_open"] = st.set("terminal") && st.str("terminal") != "" && st.i("closed_at") == 0
+	if out["input_holders"], err = e.inputHolders(name); err != nil {
+		return nil, err
+	}
+	out["account_pick"] = map[string]any{"account": nil, "reason": "this daemon does not place sessions yet"}
+	if out["prompt"], err = e.openPrompt(name); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// branchOf is the branch checked out at path, or "" when git cannot say.
+func branchOf(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return oneline(string(out))
+}
+
+const defaultHoldIdleS = 600
+
+// inputHolders is the spec's InputHolder list: whoever holds the input, else the daemon. A hold idle past the limit
+// no longer counts; reading does not delete it, as the Python daemon does.
+func (e *Env) inputHolders(name string) ([]any, error) {
+	daemon := []any{map[string]any{"kind": "daemon", "name": "daemon", "since": nil}}
+	r, err := queryOne(e.DB, "SELECT kind, name, since, last_typed FROM input_holders WHERE agent = ?", name)
+	if err != nil || r == nil {
+		return daemon, err
+	}
+	if time.Now().Unix()-r.i("last_typed") >= defaultHoldIdleS {
+		return daemon, nil
+	}
+	return []any{map[string]any{"kind": r.str("kind"), "name": r.str("name"), "since": ts(r["since"])}}, nil
+}
+
+const promptStaleS = 10
+
+var escOption = map[string]any{"key": "esc", "label": "Cancel (Esc)", "answer": "other", "highlighted": false}
+
+func cancelOption() map[string]any {
+	o := map[string]any{}
+	for k, v := range escOption {
+		o[k] = v
+	}
+	return o
+}
+
+// optionsOf is the choices prompt.answer takes as choice, by what the screen read.
+func optionsOf(kind string, answerable bool, detail map[string]any) []any {
+	switch kind {
+	case "permission":
+		if !answerable {
+			return []any{}
+		}
+		return []any{
+			map[string]any{"key": "yes", "label": "Yes", "answer": "yes", "highlighted": false},
+			map[string]any{"key": "no", "label": "No", "answer": "no", "highlighted": false}, cancelOption()}
+	case "question":
+		out := []any{}
+		opts, _ := detail["options"].([]any)
+		for i, o := range opts {
+			om, _ := o.(map[string]any)
+			checked, _ := om["checked"].(bool)
+			label, _ := om["label"].(string)
+			out = append(out, map[string]any{"key": fmt.Sprint(i + 1), "label": label, "answer": "other", "highlighted": checked})
+		}
+		return append(out, cancelOption())
+	}
+	out := []any{}
+	opts, _ := detail["options"].([]any)
+	for _, o := range opts {
+		pair, _ := o.([]any)
+		if len(pair) < 2 {
+			continue
+		}
+		out = append(out, map[string]any{"key": fmt.Sprint(pair[0]), "label": fmt.Sprint(pair[1]), "answer": "other", "highlighted": false})
+	}
+	return append(out, cancelOption())
+}
+
+func orNil(m map[string]any, k string) any {
+	if s, ok := m[k].(string); ok && s != "" {
+		return s
+	}
+	return nil
+}
+
+// openPrompt is the agent's open prompt as the spec's Prompt, while the screen watch has refreshed it within promptStaleS.
+func (e *Env) openPrompt(name string) (any, error) {
+	r, err := queryOne(e.DB, "SELECT * FROM prompt_blocks WHERE agent = ? AND gone_at IS NULL", name)
+	if err != nil || r == nil || time.Now().Unix()-r.i("last_seen") > promptStaleS {
+		return nil, err
+	}
+	detail := decodeObject(r.str("detail"))
+	var panel []any
+	json.Unmarshal([]byte(r.str("panel")), &panel)
+	if panel == nil {
+		panel = []any{}
+	}
+	since := r["first_seen"]
+	if since == nil || r.i("first_seen") == 0 {
+		since = r["last_seen"]
+	}
+	return map[string]any{
+		"id": r.str("fingerprint"), "agent": name, "kind": r.str("kind"), "tool": orNil(detail, "tool"),
+		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
+		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
+	}, nil
+}
+
+func (e *Env) agentTimeline(c *rpc.Conn, params map[string]any) (any, error) {
+	limit := int64(defaultLimit)
+	if v, has := params["limit"]; has {
+		n, ok := rpc.AsInt(v)
+		if !ok || n < 1 {
+			return nil, badParam("limit is a positive integer", "limit")
+		}
+		limit = n
+	}
+	before, err := optInt(params, "before")
+	if err != nil {
+		return nil, badParam("before is an event id", "before")
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	name, err := e.named(params)
+	if err != nil {
+		return nil, err
+	}
+	var b any
+	if before != nil {
+		b = *before
+	}
+	rows, err := query(e.DB, "SELECT * FROM events WHERE agent = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?",
+		name, b, b, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	items := []any{}
+	for i, r := range rows {
+		if int64(i) >= limit {
+			break
+		}
+		items = append(items, timelineEntry(r))
+	}
+	return map[string]any{"items": items, "more": int64(len(rows)) > limit}, nil
+}
+
+func timelineEntry(r row) map[string]any {
+	payload := map[string]any{}
+	if p := r.str("payload"); strings.HasPrefix(p, "{") {
+		payload = decodeObject(p)
+	}
+	var actor any
+	if a, ok := payload["actor"].(map[string]any); ok {
+		actor = a
+	}
+	text := r.str("kind")
+	for _, k := range []string{"text", "detail", "method"} {
+		if s := pyStr(payload[k]); s != "" {
+			text = s
+			break
+		}
+	}
+	return map[string]any{"id": r.i("id"), "at": ts(r["ts"]), "kind": r.str("kind"), "actor": actor, "text": text, "data": payload}
+}
+
+// pyStr is str(v) for a payload value that counts as set (Python's `or` chain skips null, "", 0, false and empty containers).
+func pyStr(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case bool:
+		if t {
+			return "True"
+		}
+		return ""
+	case json.Number:
+		if f, err := t.Float64(); err == nil && f == 0 {
+			return ""
+		}
+		return t.String()
+	case []any:
+		if len(t) == 0 {
+			return ""
+		}
+	case map[string]any:
+		if len(t) == 0 {
+			return ""
+		}
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
