@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -46,6 +46,8 @@ export type RefusalData = {
   gate?: string;
   /** The command or step that fixes it, when there is one. */
   hint?: string;
+  /** With gates proposal_changed and proposal_settled: the proposal as it is now. */
+  proposal?: Proposal;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -319,14 +321,37 @@ export type TeamAgent = {
 
 export type Proposal = {
   id: number;
-  agent: AgentName;
+  /** The agent the proposal is about, as the card heads it `<kind> <agent>`. For a bundle: `<N> changes`, not an agent's name. */
+  agent: string;
+  /** One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text. */
   title: string;
-  /** Unified diff. */
+  /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
-  state: "open" | "approved" | "rejected";
+  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
+  state: string;
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
+  /** Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional. */
+  requested_by?: string;
+  /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
+  reason?: string;
+  /** The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only. */
+  asked?: {
+    vendor?: string;
+    model?: string;
+    team?: string;
+    repo?: string;
+    /** rename: the new name; link, unlink: the other end. */
+    to?: string;
+    /** `set <key>`: each agent setting asked for, key to value. */
+    sets?: { [key: string]: string };
+    effort?: string;
+  };
+  error?: string | null;
+  settled?: Timestamp | null;
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
+  kind?: string;
 };
 
 export type Repo = {
@@ -1296,6 +1321,7 @@ export interface Methods {
     }[];
   } };
   "hr.list": { params: {
+  /** Only the proposals in that state; without it, the list below. */
   state?: string;
 }; result: {
     proposals: Proposal[];
