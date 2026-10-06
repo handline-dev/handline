@@ -386,6 +386,14 @@
      },
      "text": {
       "type": "string"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
     },
     "required": [
@@ -393,7 +401,8 @@
      "seq",
      "at",
      "kind",
-     "actor"
+     "actor",
+     "format"
     ]
    },
    "note": "The daemon typed, or a control call happened, at this point in the stream."
@@ -413,12 +422,21 @@
       "items": {
        "$ref": "#/components/schemas/InputHolder"
       }
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
     },
     "required": [
      "terminal",
      "seq",
-     "holders"
+     "holders",
+     "format"
     ]
    },
    "note": "Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders."
@@ -512,15 +530,15 @@
  },
  "x-terminal": "Format `text` sends text rows (frame notices); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
  "x-terminal-bytes": {
-  "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`.",
+  "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`. A connection has at most one attach per terminal and format (see terminal.attach); detach takes an optional `format`.",
   "encoding": "Bytes travel as base64 (standard alphabet, padded) in JSON strings on the same transport as every other message: no binary frames. They need not be valid UTF-8, and a notice may end inside a character or an escape sequence, so a client writes each as bytes to a terminal that keeps its own parser state.",
   "snapshot": "`data` is written unchanged to a freshly reset terminal of `cols` by `rows` (the client resizes, resets, writes, in one step). It begins with `ESC [ ? 1049 h` when `alt_screen` is true, then paints the visible rows with their SGR codes, each row ending in a reset and rows separated by CR LF, never a bare LF; then sets the modes the pane has on that change what a client sends (application cursor keys, bracketed paste, mouse reporting and its SGR encoding) as far as the host reports them; it ends by placing the cursor at `cursor` and showing or hiding it as `cursor_visible` says. It is at most 1 MiB decoded: a screen whose coded form is larger is sent with its styling left out, never refused. Later transitions of the alternate screen are in the stream; the flag is for the snapshot alone.",
-  "sequence": "One counter per attach, shared by all its notices (`output`, `snapshot`, `marker`, `holder`), and it goes up by exactly 1 with each. The snapshot's `seq` is the last notice its screen includes: the daemon takes the screen and starts the stream together, so the first notice after the reply has `seq` + 1 and no byte is lost or repeated between them. A client ignores a notice whose seq is not above the last it applied and re-attaches on a hole. The counters of different attaches, text ones included, are unrelated. There is no resume: after a reconnect the client attaches again and repaints from the new snapshot, and what it missed is not replayed.",
+  "sequence": "One counter per attach, shared by all its notices (`output`, `snapshot`, `marker`, `holder`), and it goes up by exactly 1 with each. The snapshot's `seq` is the last notice its screen includes: the daemon takes the screen and starts the stream together, so the first notice after the reply has `seq` + 1 and no byte is lost or repeated between them. A client ignores a notice whose seq is not above the last it applied and re-attaches on a hole. The counters of different attaches, text ones included, are unrelated: a connection that watches one terminal in both formats has two counters, and attaching the same terminal and format again replaces that attach and starts a new one at its snapshot's seq. There is no resume: after a reconnect the client attaches again and repaints from the new snapshot, and what it missed is not replayed.",
   "slow_client": "Output is never dropped from the middle. When one attach's unsent output reaches 1 MiB decoded, the daemon discards all of it and sends one `snapshot` notice, reason `slow_client`, with a seq above everything discarded; output follows it. Counting bytes, not seconds, is the whole rule. A connection that falls behind on events past the gap rule is closed with gap `slow_client` as before and attaches again.",
   "history": "Lines come as strings with their SGR codes, as the host keeps them: one physical row each (the row as the pane wrapped it, never joined), starting at default attributes and ending in a reset, with no line break inside. `history` on attach and `limit` on `terminal.history` count lines as in text (default 100, at most 2000); a page is trimmed to 1 MiB and says `more`. Only the normal screen has scrollback: while `alt_screen` is true the snapshot's history is empty.",
   "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
   "resize": "`terminal.resize` is unchanged: the input holder alone, restored when they leave. A bytes attach is told of any size change, the holder's or the restore, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
-  "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it."
+  "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it. Each carries `format`, the attach it was sent to, since a terminal watched in both formats gets each notice once per attach with that attach's counter."
  },
  "methods": [
   {
@@ -2545,7 +2563,8 @@
    ],
    "x-gates": [
     "unsupported"
-   ]
+   ],
+   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach."
   },
   {
    "name": "terminal.history",
@@ -2775,7 +2794,7 @@
   },
   {
    "name": "terminal.detach",
-   "summary": "Stop receiving this terminal. Never stops the agent.",
+   "summary": "Stop receiving this terminal, in one format or in all. Never stops the agent.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2783,6 +2802,18 @@
      "required": true,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "format",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`."
      }
     }
    ],
@@ -2799,8 +2830,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "not_found is for a terminal handle that does not exist. Closing the connection ends every attach."
   },
   {
    "name": "inbox.list",
