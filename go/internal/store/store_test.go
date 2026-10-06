@@ -52,7 +52,7 @@ func TestReopenChangesNothing(t *testing.T) {
 func TestNewerDatabaseIsRefused(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, _ := Open(p)
-	db.Exec("INSERT INTO schema_version VALUES(999, 'future', 0)")
+	db.Exec("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(999, 'future', 0, 0)")
 	db.Close()
 	if _, err := Open(p); !errors.Is(err, ErrSchema) {
 		t.Fatalf("got %v", err)
@@ -171,4 +171,143 @@ func withoutComments(sql string) string {
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+func versions(t *testing.T, db *sql.DB) []int {
+	t.Helper()
+	rows, err := db.Query("SELECT version FROM schema_version ORDER BY version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []int
+	for rows.Next() {
+		var v int
+		rows.Scan(&v)
+		out = append(out, v)
+	}
+	return out
+}
+
+func marks(t *testing.T, db *sql.DB) map[int]int {
+	t.Helper()
+	rows, err := db.Query("SELECT version, additive FROM schema_version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[int]int{}
+	for rows.Next() {
+		var v, a int
+		rows.Scan(&v, &a)
+		out[v] = a
+	}
+	return out
+}
+
+// stampFuture is what code one step ahead leaves behind: a step this code does not know, with its mark.
+func stampFuture(t *testing.T, p string, additive int) {
+	t.Helper()
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(?, 'ahead', 0, ?)",
+		LatestVersion()+1, additive); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAStepIsStampedWithWhetherItIsAdditive(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ms, _ := migrations()
+	want := map[int]int{}
+	for _, m := range ms {
+		if m.additive {
+			want[m.version] = 1
+		} else {
+			want[m.version] = 0
+		}
+	}
+	got := marks(t, db)
+	for v, a := range want {
+		if got[v] != a {
+			t.Fatalf("marks %v, want %v", got, want)
+		}
+	}
+}
+
+func TestADatabaseAnAdditiveStepAheadIsUsedAsItIs(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	stampFuture(t, p, 1)
+	db, err := Open(p)
+	if err != nil {
+		t.Fatalf("refused a step that only added: %v", err)
+	}
+	defer db.Close()
+	if got := versions(t, db); len(got) != LatestVersion()+1 {
+		t.Fatalf("nothing is stamped or removed: %v", got)
+	}
+}
+
+func TestADatabaseAStepAheadThatIsNotAdditiveIsRefused(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	stampFuture(t, p, 0)
+	if _, err := Open(p); !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestADatabaseAheadWithNoMarksIsRefused(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	stampFuture(t, p, 1)
+	db, _ := sql.Open("sqlite", "file:"+p)
+	if _, err := db.Exec("ALTER TABLE schema_version DROP COLUMN additive"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if _, err := Open(p); !errors.Is(err, ErrSchema) {
+		t.Fatalf("a database that never said which steps only add is not trusted: %v", err)
+	}
+}
+
+func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	db, _ := Open(p)
+	db.Close()
+	raw, _ := sql.Open("sqlite", "file:"+p)
+	for _, q := range []string{"ALTER TABLE schema_version DROP COLUMN additive"} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw.Close()
+	if db, err := Open(p); err != nil { // nothing to run: the column stays absent
+		t.Fatal(err)
+	} else {
+		ok, _ := hasAdditiveColumn(db)
+		db.Close()
+		if ok {
+			t.Fatal("a connect with nothing to run touched it")
+		}
+	}
+	raw, _ = sql.Open("sqlite", "file:"+p)
+	raw.Exec("DROP TABLE rpc_replies") // a step that was not run has not made its tables
+	raw.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
+	raw.Close()
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for v, a := range marks(t, db) {
+		if a != 1 {
+			t.Fatalf("version %d has mark %d: %v", v, a, marks(t, db))
+		}
+	}
 }

@@ -34,6 +34,7 @@ type Config struct {
 type Daemon struct {
 	cfg     Config
 	ln      net.Listener
+	local   *rpc.Server
 	net     *networkListener
 	wg      sync.WaitGroup
 	mu      sync.Mutex
@@ -53,14 +54,17 @@ func Start(cfg Config) (*Daemon, error) {
 		return nil, err
 	}
 	defer db.Close() // the schema is up; the first method that needs the database opens it itself
-	ln, err := listenUnix(cfg.SocketFile)
-	if err != nil {
-		return nil, err
+	d := &Daemon{cfg: cfg, conns: map[net.Conn]struct{}{}}
+	d.local = rpc.NewServer(cfg.Auth, version.Sha, store.LatestVersion(), "local", cfg.Log)
+	if cfg.SocketFile != "" {
+		ln, err := listenUnix(cfg.SocketFile)
+		if err != nil {
+			return nil, err
+		}
+		d.ln = ln
+		d.wg.Add(1)
+		go d.acceptLocal(d.local)
 	}
-	d := &Daemon{cfg: cfg, ln: ln, conns: map[net.Conn]struct{}{}}
-	srv := rpc.NewServer(cfg.Auth, version.Sha, store.LatestVersion(), "local", cfg.Log)
-	d.wg.Add(1)
-	go d.acceptLocal(srv)
 	if cfg.Listen != "" {
 		nl, err := listenNetwork(cfg, d)
 		if err != nil {
@@ -69,7 +73,7 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.net = nl
 	}
-	cfg.Log("handlined %s serving %s", version.Sha, cfg.SocketFile)
+	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
 }
 
@@ -131,6 +135,25 @@ func (d *Daemon) acceptLocal(srv *rpc.Server) {
 			srv.Serve(rpc.NewLineTransport(c), peer.PID(c))
 		}()
 	}
+}
+
+// ServeFile serves one connection that already exists, a unix stream socket made by the caller (a socketpair):
+// for a run where no socket can be bound. The caller on it is told apart as on the local socket.
+func (d *Daemon) ServeFile(f *os.File) error {
+	c, err := net.FileConn(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	if !d.track(c) {
+		c.Close()
+		return errors.New("daemon is closing")
+	}
+	go func() {
+		defer d.untrack(c)
+		d.local.Serve(rpc.NewLineTransport(c), peer.PID(c))
+	}()
+	return nil
 }
 
 // Close stops listening, drops every connection and waits for their goroutines.

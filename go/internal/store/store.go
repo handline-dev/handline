@@ -113,6 +113,40 @@ func tooNew(path string, have, latest int) error {
 		ErrSchema, path, have, latest)
 }
 
+func hasAdditiveColumn(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}) (bool, error) {
+	rows, err := q.Query("PRAGMA table_info(schema_version)")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == "additive" {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// newerStepsOnlyAdd is true when every step this code does not know was recorded as additive: it only added
+// tables and columns, so this code, which names none of them, runs on the database as it is. A step recorded
+// without the mark, or a database with no marks at all, is not trusted.
+func newerStepsOnlyAdd(db *sql.DB, latest int) (bool, error) {
+	if ok, err := hasAdditiveColumn(db); err != nil || !ok {
+		return false, err
+	}
+	var n int
+	err := db.QueryRow("SELECT COUNT(*) FROM schema_version WHERE version > ? AND additive = 0", latest).Scan(&n)
+	return n == 0, err
+}
+
 func bringUp(db *sql.DB, path string) error {
 	ms, err := migrations()
 	if err != nil {
@@ -124,7 +158,12 @@ func bringUp(db *sql.DB, path string) error {
 	} else if have == latest {
 		return nil
 	} else if have > latest {
-		return tooNew(path, have, latest)
+		if ok, err := newerStepsOnlyAdd(db, latest); err != nil {
+			return err
+		} else if !ok {
+			return tooNew(path, have, latest)
+		}
+		return nil
 	}
 	lock, err := takeLock(path + ".migrate-lock")
 	if err != nil {
@@ -136,7 +175,12 @@ func bringUp(db *sql.DB, path string) error {
 		return err
 	}
 	if have > latest {
-		return tooNew(path, have, latest)
+		if ok, err := newerStepsOnlyAdd(db, latest); err != nil {
+			return err
+		} else if !ok {
+			return tooNew(path, have, latest)
+		}
+		return nil // another process brought it ahead while this one waited for the lock
 	}
 	if have == 0 {
 		var n int
@@ -161,16 +205,37 @@ func bringUp(db *sql.DB, path string) error {
 			return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
 		}
 		if _, err := tx.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, " +
-			"name TEXT NOT NULL, applied_at INTEGER NOT NULL)"); err != nil {
+			"name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)"); err != nil {
 			tx.Rollback()
 			return err
 		}
-		if _, err := tx.Exec("INSERT INTO schema_version(version, name, applied_at) VALUES(?, ?, ?)",
-			m.version, m.name, time.Now().Unix()); err != nil {
+		if err := markAdditiveColumn(tx, ms); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec("INSERT INTO schema_version(version, name, applied_at, additive) VALUES(?, ?, ?, ?)",
+			m.version, m.name, time.Now().Unix(), m.additive); err != nil {
 			tx.Rollback()
 			return err
 		}
 		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// markAdditiveColumn gives a database stamped before steps said whether they only add the column, filled
+// from the steps this code knows (_mark_additive_column in schema.py).
+func markAdditiveColumn(tx *sql.Tx, ms []migration) error {
+	if ok, err := hasAdditiveColumn(tx); err != nil || ok {
+		return err
+	}
+	if _, err := tx.Exec("ALTER TABLE schema_version ADD COLUMN additive INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	for _, m := range ms {
+		if _, err := tx.Exec("UPDATE schema_version SET additive = ? WHERE version = ?", m.additive, m.version); err != nil {
 			return err
 		}
 	}
