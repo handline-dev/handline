@@ -711,6 +711,20 @@ def _operations(con) -> None:
     """)
 
 
+def _devices(con) -> None:
+    """Paired devices: one row each, with the sha256 hex of its token. Revoking a device deletes its row.
+    Additive: a process that does not know the table never reads it."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS devices (
+          id         TEXT    PRIMARY KEY,
+          name       TEXT    NOT NULL,
+          token_hash TEXT    NOT NULL UNIQUE,
+          created    INTEGER NOT NULL,
+          last_seen  INTEGER
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -720,6 +734,7 @@ MIGRATIONS = [
     (6, "write_effects", _write_effects, True),
     (7, "input_holders", _input_holders, True),
     (8, "operations", _operations, True),
+    (9, "devices", _devices, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
