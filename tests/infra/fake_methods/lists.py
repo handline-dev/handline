@@ -1,18 +1,13 @@
-"""accounts.list, team.get, hr.list, schedules.list, stats.get and settings.get: empty answers of the shape the spec gives, and the refusals the fixtures pin."""
+"""accounts.list, team.get, schedules.list, stats.get and settings.get: empty answers of the shape the spec gives, and the refusals the fixtures pin."""
 from . import err, fake
 
 
-@fake("accounts.list", "team.get", "hr.list", "schedules.list", "stats.get", "settings.get")
+@fake("accounts.list", "team.get", "schedules.list", "stats.get", "settings.get")
 def lists(role, method, params):
     if method == "accounts.list":
         return "ok", {"accounts": []}
     if method == "team.get":
         return "ok", {"agents": [], "edges": []}
-    if method == "hr.list":
-        state = params.get("state")
-        if state is not None and state not in ("open", "approved", "rejected"):
-            return "fail", err(-32602, "bad_request", field="state")
-        return "ok", {"proposals": []}
     if method == "schedules.list":
         return "ok", {"schedules": []}
     if method == "stats.get":

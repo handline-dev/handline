@@ -1,0 +1,62 @@
+# Drives the app on the iOS simulator against `pnpm fake-listener`:  maestro test -e URI="$(head -1 listener.log)" e2e/pair-and-page.yaml
+appId: dev.handline.mobile
+---
+# the dev client shows its menu on first launch; close it
+- runFlow:
+    when: { visible: Continue }
+    commands: [{ tapOn: Continue }]
+- runFlow:
+    when: { visible: Reload }
+    commands: [{ tapOn: { point: "90%,48%" } }]
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- runFlow:
+    when: { visible: Unpair this phone }
+    commands: [{ tapOn: Unpair this phone }]
+- tapOn:
+    id: pair-uri
+- inputText: ${URI}
+- tapOn: Pair with a daemon
+- takeScreenshot: shots/1-pair
+- tapOn:
+    id: pair-go
+- assertVisible: Agents
+- assertVisible:
+    id: agent-handline.architect
+- takeScreenshot: shots/2-agent-list
+- tapOn:
+    id: agent-handline.architect
+- assertVisible: Chat is not available yet
+- takeScreenshot: shots/3-agent-page-chat
+- tapOn:
+    id: tab-terminal
+- assertVisible:
+    id: terminal-text
+- takeScreenshot: shots/4-terminal-before-take
+- tapOn:
+    id: take
+- assertVisible: "Input: YOU"
+- tapOn:
+    id: key-shift-tab
+- takeScreenshot: shots/5-key-strip
+- tapOn:
+    id: composer
+- inputText: push the branch
+- tapOn: Send
+- assertVisible: ".*push the branch.*"
+- extendedWaitUntil:
+    visible:
+      id: permission-card
+    timeout: 15000
+- takeScreenshot: shots/6-permission-card-terminal
+- tapOn:
+    id: tab-chat
+- assertVisible:
+    id: permission-card
+- takeScreenshot: shots/7-permission-card-chat
+- tapOn:
+    id: answer-1
+- assertNotVisible:
+    id: permission-card
+- takeScreenshot: shots/8-card-answered

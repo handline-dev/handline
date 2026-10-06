@@ -53,6 +53,8 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
 | `pairing_code` | device.redeem: the code is wrong, expired or already used. The reply does not say which. |
 | `session_token` | Session token and peer-pid check, unchanged. |
+| `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
+| `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
 
 ## Methods
 
@@ -139,7 +141,7 @@ A method marked write takes a required `request_id`.
 | `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
 | `hr.propose` | agent | yes | `kind`, `args`, `why?`, `request_id` | `Accepted & {proposal}` | `refused`, `bad_request` |  |
-| `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` | proposal_settled |
 | `trust.propose` | agent | yes | `root`, `why`, `request_id` | `Accepted & {proposal}` | `refused` |  |
 | `trust.list` | agent |  | `proposals?` | `{roots, proposals}` |  |  |
 | `trust.remove` | agent | yes | `root`, `request_id` | `Accepted` | `not_found` |  |
@@ -147,7 +149,7 @@ A method marked write takes a required `request_id`.
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
 | `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
-| `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
 | `accounts.list` | agent |  | none | `{accounts}` |  |  |
 | `account.set_cap` | founder | yes | `account`, `cap`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -492,7 +494,7 @@ Propose a roster change; the founder decides (hl hr add, retire, rename, link, u
 
 ### `hr.withdraw`
 
-Take back the caller's own undecided proposal.
+Take back an undecided proposal: its author's own, or any for the founder; another agent is refused (gate role).
 
 ### `trust.propose`
 
@@ -520,11 +522,11 @@ Agents, roles, allowed edges, role and base file metadata.
 
 ### `hr.list`
 
-HR proposals with their diff.
+HR proposals with their diff: what waits for the founder, and what settled recently. Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human is never listed: the founder made that change directly and was not asked (the bridge leaves it out of its cards too). The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed exist only for a human's own change and are never listed.
 
 ### `hr.decide`
 
-Approve or reject a proposal.
+Approve or reject a proposal; approving an apply_failed one applies it again. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is.
 
 ### `accounts.list`
 
@@ -690,7 +692,7 @@ Agent commands the spec does not keep at agent role, for the founder to decide. 
 - **Needs a decision:** `hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl memory migrate`; `hl task note (suppressed)`
 
-The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.
+The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.
 
 ## Topics
 
@@ -705,6 +707,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
+| `hr` | `hr.raised` (Proposal), `hr.settled` (Proposal) | `hr.list` |
 
 ## Notifications
 

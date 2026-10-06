@@ -1,6 +1,6 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
 import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import { Store } from '@handline/app-core';
+import type { Store } from '@handline/app-core';
 import { RpcError, type AgentDetail, type AgentView } from '@handline/client';
 
 const StoreContext = createContext<Store | null>(null);
@@ -15,14 +15,22 @@ export function DaemonProvider(props: { store: Store; where?: string; retryMs?: 
     if (!connect) return;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const boot = () => store.start().then(() => store.dismissError(), (e) => {
-      if (done) return;
-      const fatal = e instanceof RpcError && e.code === 'protocol';
-      store.fail(fatal ? (e.reason ?? e.message) : `Cannot reach the daemon${where ? ` at ${where}` : ''}; trying again.`);
-      if (!fatal) timer = setTimeout(boot, retryMs);
-    });
+    const boot = () =>
+      store.start().then(
+        () => store.dismissError(),
+        (e) => {
+          if (done) return;
+          const fatal = e instanceof RpcError && e.code === 'protocol';
+          store.fail(fatal ? (e.reason ?? e.message) : `Cannot reach the daemon${where ? ` at ${where}` : ''}; trying again.`);
+          if (!fatal) timer = setTimeout(boot, retryMs);
+        },
+      );
     void boot();
-    return () => { done = true; clearTimeout(timer); store.stop(); };
+    return () => {
+      done = true;
+      clearTimeout(timer);
+      store.stop();
+    };
   }, [store, where, retryMs, connect]);
   return createElement(StoreContext.Provider, { value: store }, props.children);
 }
@@ -39,9 +47,13 @@ export function useStore(): Store {
  */
 export function useSelector<T>(select: (s: Store) => T): T {
   const store = useStore();
-  const version = useSyncExternalStore((cb) => store.subscribe(cb), () => store.version);
+  const version = useSyncExternalStore(
+    (cb) => store.subscribe(cb),
+    () => store.version,
+  );
   const last = useRef<{ store: Store; version: number; value: T } | null>(null);
-  if (!last.current || last.current.store !== store || last.current.version !== version) last.current = { store, version, value: select(store) };
+  if (!last.current || last.current.store !== store || last.current.version !== version)
+    last.current = { store, version, value: select(store) };
   return last.current.value;
 }
 

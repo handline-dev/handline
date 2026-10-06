@@ -73,7 +73,7 @@ func TestPreVersionDatabaseIsLeftToThePythonDaemon(t *testing.T) {
 func TestOldDatabaseMigratesOnceUnderConcurrentOpens(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, _ := Open(p)
-	db.Exec("DROP TABLE operations")
+	db.Exec("DROP TABLE devices")
 	db.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	db.Close()
 	var wg sync.WaitGroup
@@ -297,7 +297,7 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		}
 	}
 	raw, _ = sql.Open("sqlite", "file:"+p)
-	raw.Exec("DROP TABLE operations") // a step that was not run has not made its tables
+	raw.Exec("DROP TABLE devices") // a step that was not run has not made its tables
 	raw.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	raw.Close()
 	db, err := Open(p)

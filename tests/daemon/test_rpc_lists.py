@@ -1,4 +1,4 @@
-"""Tests: accounts.list, team.get, hr.list, schedules.list, stats.get and settings.get (contract/protocol.md): each answers what its
+"""Tests: accounts.list, team.get, schedules.list, stats.get and settings.get (contract/protocol.md): each answers what its
 spec says, in the spec's own schema, who may call it, what a bad parameter says, and that the commands they serve still work from an
 agent session.
 
@@ -95,7 +95,7 @@ def test_every_list_answers_in_the_schema_the_spec_gives_it(home: Path) -> None:
     _world(home)
     hr.propose("unlink", "manager", "manager", "no longer", to="worker")
     actions.schedule_add("worker", "0 9 * * *", "check the board")
-    for method, params in (("accounts.list", {}), ("team.get", {}), ("hr.list", {}), ("schedules.list", {}),
+    for method, params in (("accounts.list", {}), ("team.get", {}), ("schedules.list", {}),
                            ("stats.get", {"window": "24h"}), ("stats.get", {"window": "7d"}), ("settings.get", {}),
                            ("settings.get", {"agent": "worker"})):
         r = _call(method, params)
@@ -105,7 +105,7 @@ def test_every_list_answers_in_the_schema_the_spec_gives_it(home: Path) -> None:
 
 def test_roles_decide_who_reads_what(home: Path) -> None:
     _world(home)
-    for method in ("accounts.list", "team.get", "hr.list", "schedules.list"):
+    for method in ("accounts.list", "team.get", "schedules.list"):
         check(f"{method}: an agent session may read it", "result" in _call(method, as_agent="worker"))
     for method, params in (("stats.get", {"window": "24h"}), ("settings.get", {})):
         r = _call(method, params, as_agent="worker")
@@ -137,25 +137,6 @@ def test_team_names_each_agent_its_parent_and_files_and_the_edges(home: Path) ->
     check("team.get: the role and base files with when they were written", by["worker"]["role_file"]["path"].endswith("worker/ROLE.md")
           and by["worker"]["role_file"]["updated"] and by["worker"]["base_file"]["path"].endswith("worker/base.md"), str(by["worker"]))
     check("team.get: the allowed edges", {"from": "manager", "to": "worker"} in got["edges"], str(got["edges"]))
-
-
-def test_proposals_have_the_integer_ids_the_decision_uses_and_the_states_the_spec_names(home: Path) -> None:
-    _world(home)
-    hr.propose("unlink", "worker", "worker", "no longer", to="manager")
-    hr.propose("unlink", "manager", "manager", "no longer", to="worker")
-    got = _call("hr.list")["result"]["proposals"]
-    check("hr.list: both proposals, open", len(got) == 2 and {p["state"] for p in got} == {"open"}, str(got))
-    prop = hr.listing()[0]
-    mine = next(p for p in got if p["id"] == rpc_team._num(prop["id"]))
-    check("hr.list: the id is the one hr.decide takes, and its subject is the digest to hand back", mine["subject"] == hr.subject_of(prop)
-          and mine["agent"] == prop["agent"] and "diff" in mine and mine["diff"], str(mine))
-    r = _call("hr.decide", {"proposal": mine["id"], "decision": "reject", "request_id": "h1"})
-    check("hr.list: a rejected one reads rejected; a filter names the state",
-          [p["state"] for p in _call("hr.list", {"state": "rejected"})["result"]["proposals"]] == ["rejected"]
-          and len(_call("hr.list", {"state": "open"})["result"]["proposals"]) == 1, str(r))
-    for bad in ("nonsense", 5):
-        r = _call("hr.list", {"state": bad})
-        check(f"hr.list: state {bad!r} is bad_request", _code(r) == "bad_request" and r["error"]["data"]["field"] == "state", str(r))
 
 
 def test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(home: Path) -> None:
@@ -254,7 +235,7 @@ def test_the_list_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every list fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 12, str(bad))
+    check("fixtures: every list fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 10, str(bad))
 
 
 def main() -> int:
@@ -263,7 +244,6 @@ def main() -> int:
         run(lambda: test_roles_decide_who_reads_what(Path(td) / "l2"))
         run(lambda: test_accounts_say_what_the_account_page_shows(Path(td) / "l3"))
         run(lambda: test_team_names_each_agent_its_parent_and_files_and_the_edges(Path(td) / "l4"))
-        run(lambda: test_proposals_have_the_integer_ids_the_decision_uses_and_the_states_the_spec_names(Path(td) / "l5"))
         run(lambda: test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(Path(td) / "l6"))
         run(lambda: test_stats_count_a_window(Path(td) / "l7"))
         run(lambda: test_settings_say_where_every_setting_stands(Path(td) / "l8"))

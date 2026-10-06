@@ -1,14 +1,18 @@
 // The agent list. A row is an agent's only control surface: Start or Resume on the selected row, a ⋯ menu for stopping,
 // and under the selected row the facts the old agent header showed.
 import { useRef, useState } from 'react';
-import { ago, controlsOf, dotOf, needsConfirm, railGroups, STOP_MODES, type GroupBy, type KV, type StopMode, type Store } from '@handline/app-core';
+import { ago, controlsOf, dotOf, needsConfirm, railGroups, STOP_MODES, type GroupBy, type KV, type StopMode } from '@handline/app-core';
 import type { AgentDetail, AgentView } from '@handline/client';
-import { useAgentDetail, useAgents, useConnection, useSelector, useStore } from '@handline/app-react';
+import { useConnection, useSelector, useStore } from '@handline/app-react';
+import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { goAgent } from './route.ts';
+import { View } from './View.tsx';
 
 export function Sidebar({ selected, storage, onToggle }: { selected: string; storage: KV | null; onToggle: () => void }) {
-  const agents = useAgents();
+  const list = useAgents();
+  const { served } = useServes('agents.list');
+  const agents = list.data?.agents ?? [];
   const conn = useConnection();
   const [search, setSearch] = useState('');
   const [by, setBy] = useState(() => setting(storage, 'group', 'role').value as GroupBy);
@@ -17,34 +21,80 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
   const waiting = agents.filter((a) => dotOf(a) === 'waiting').length;
   const accounts = [...new Set(agents.map((a) => a.account).filter(Boolean))];
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
-  const later = (t: string) => <button key={t} className="nav" disabled title="Not built yet">{t}</button>;
+  const later = (t: string) => (
+    <button key={t} className="nav" disabled title="Not built yet">
+      {t}
+    </button>
+  );
   return (
     <nav className="rail" aria-label="Agents">
       <div className="rail-top">
-        <button className="icon" aria-label="Hide the agent list" onClick={onToggle}>☰</button>
+        <button className="icon" aria-label="Hide the agent list" onClick={onToggle}>
+          ☰
+        </button>
         <strong className="brand">Handline</strong>
-        {waiting ? <span className="bell" title="Agents waiting on you">{waiting}</span> : null}
+        {waiting ? (
+          <span className="bell" title="Agents waiting on you">
+            {waiting}
+          </span>
+        ) : null}
       </div>
       <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
       <div className="rail-opts">
-        <input className="search" type="search" placeholder="Search agents" aria-label="Search agents" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select aria-label="Group by" value={by} onChange={(e) => { setBy(e.target.value as GroupBy); setting(storage, 'group', '').save(e.target.value); }}>
-          {['role', 'state', 'account'].map((o) => <option key={o} value={o}>by {o}</option>)}
+        <input
+          className="search"
+          type="search"
+          placeholder="Search agents"
+          aria-label="Search agents"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          aria-label="Group by"
+          value={by}
+          onChange={(e) => {
+            setBy(e.target.value as GroupBy);
+            setting(storage, 'group', '').save(e.target.value);
+          }}
+        >
+          {['role', 'state', 'account'].map((o) => (
+            <option key={o} value={o}>
+              by {o}
+            </option>
+          ))}
         </select>
-        <label className="check"><input type="checkbox" checked={hideParked} onChange={(e) => { setHide(e.target.checked); setting(storage, 'hideParked', '').save(e.target.checked ? '1' : ''); }} /> hide parked</label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={hideParked}
+            onChange={(e) => {
+              setHide(e.target.checked);
+              setting(storage, 'hideParked', '').save(e.target.checked ? '1' : '');
+            }}
+          />{' '}
+          hide parked
+        </label>
       </div>
       <div className="rail-list">
-        {agents.length ? null : <p className="muted pad">{conn === 'open' ? 'No agents.' : 'Connecting…'}</p>}
-        {groups.map((g) => (
-          <section className="group" key={g.title}>
-            <h3>{g.title}</h3>
-            {g.rows.map(({ agent, depth }) => <Row key={agent.name} agent={agent} depth={depth} selected={agent.name === selected} />)}
-          </section>
-        ))}
+        {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
+        <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
+          {groups.map((g) => (
+            <section className="group" key={g.title}>
+              <h3>{g.title}</h3>
+              {g.rows.map(({ agent, depth }) => (
+                <Row key={agent.name} agent={agent} depth={depth} selected={agent.name === selected} />
+              ))}
+            </section>
+          ))}
+        </View>
       </div>
       <footer className="rail-status">
-        <span><span className={`dot ${dot}`} /> daemon {conn}</span>
-        <span>{agents.length} agents · {agents.filter((a) => a.state === 'running').length} running</span>
+        <span>
+          <span className={`dot ${dot}`} /> daemon {conn}
+        </span>
+        <span>
+          {agents.length} agents · {agents.filter((a) => a.state === 'running').length} running
+        </span>
         {accounts.length ? <span className="muted">accounts {accounts.join(', ')}</span> : null}
       </footer>
     </nav>
@@ -61,9 +111,12 @@ function Row({ agent: a, depth, selected }: { agent: AgentView; depth: number; s
           <span className={`dot ${dot}`} title={a.state} />
           <span className="row-text">
             <span className="name">{a.name}</span>
-            <span className="sub">{a.state} · {ago(a.state_since)}{a.task ? ` · #${a.task.id} ${a.task.title}` : ''}</span>
+            <span className="sub">
+              {a.state} · {ago(a.state_since)}
+              {a.task ? ` · #${a.task.id} ${a.task.title}` : ''}
+            </span>
           </span>
-          {selected ? null : <span className="row-side">{[a.model, a.account].filter(Boolean).join(" · ")}</span>}
+          {selected ? null : <span className="row-side">{[a.model, a.account].filter(Boolean).join(' · ')}</span>}
         </button>
         {selected ? <RowControls agent={a.name} account={account} /> : null}
       </div>
@@ -75,26 +128,53 @@ function Row({ agent: a, depth, selected }: { agent: AgentView; depth: number; s
 /** Start or Resume, and the ⋯ menu. Which apply comes from the agent's detail, as the old header did. */
 function RowControls({ agent, account }: { agent: string; account: string }) {
   const store = useStore();
-  const d = useAgentDetail(agent);
+  const d = useAgentDetail(agent).data;
+  const agents = useAgents();
   const menu = useRef<HTMLDetailsElement>(null);
+  const start = useWrite('session.start', agent);
+  const resume = useWrite('session.restart', agent);
+  const stopWrite = useWrite('session.stop', agent);
+  const interrupt = useWrite('session.interrupt', agent);
+  const busy = start.isPending || resume.isPending || stopWrite.isPending || interrupt.isPending;
   if (!d) return null;
   const c = controlsOf(d, store.me);
-  const a = store.agents.get(agent);
-  const stop = async (mode: StopMode) => {
+  const a = agents.data?.agents.find((x) => x.name === agent);
+  const stop = (mode: StopMode) => {
     menu.current?.removeAttribute('open');
-    if (a && needsConfirm(mode, a) && !confirm(`${mode === 'kill' ? 'Kill the terminal of' : 'Close the session of'} ${agent}?${a.task ? ` It has work in flight: ${a.task.title}.` : ''}`)) return;
-    await store.act(mode, () => mode === 'interrupt' ? store.client.interrupt(agent) : store.client.stopSession(agent, mode));
+    if (
+      a &&
+      needsConfirm(mode, a) &&
+      !confirm(
+        `${mode === 'kill' ? 'Kill the terminal of' : 'Close the session of'} ${agent}?${a.task ? ` It has work in flight: ${a.task.title}.` : ''}`,
+      )
+    )
+      return;
+    if (mode === 'interrupt') interrupt.mutate({ agent });
+    else stopWrite.mutate({ agent, mode });
   };
   return (
     <span className="row-actions">
-      {c.start ? <button className="btn primary" onClick={() => void store.act('start', () => store.client.startSession(agent, account || undefined))}>▶ Start</button> : null}
-      {c.resume ? <button className="btn" onClick={() => void store.act('resume', () => store.client.restartSession(agent))}>⟳ Resume</button> : null}
+      {c.start ? (
+        <button className="btn primary" disabled={busy} onClick={() => start.mutate({ agent, account: account || undefined })}>
+          {start.isPending ? 'starting…' : '▶ Start'}
+        </button>
+      ) : null}
+      {c.resume ? (
+        <button className="btn" disabled={busy} onClick={() => resume.mutate({ agent })}>
+          {resume.isPending ? 'resuming…' : '⟳ Resume'}
+        </button>
+      ) : null}
       {c.stop ? (
         <details className="menu" ref={menu}>
-          <summary className="btn" aria-label={`More actions for ${agent}`}>⋯</summary>
+          <summary className="btn" aria-label={`More actions for ${agent}`}>
+            {stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯'}
+          </summary>
           <div className="menu-list">
             {STOP_MODES.map((m) => (
-              <button key={m.mode} className="menu-item" onClick={() => void stop(m.mode)}><strong>{m.label}</strong><span className="muted"> {m.hint}</span></button>
+              <button key={m.mode} className="menu-item" disabled={busy} onClick={() => stop(m.mode)}>
+                <strong>{m.label}</strong>
+                <span className="muted"> {m.hint}</span>
+              </button>
             ))}
           </div>
         </details>
@@ -104,26 +184,50 @@ function RowControls({ agent, account }: { agent: string; account: string }) {
 }
 
 function Detail({ agent: a, account, setAccount }: { agent: AgentView; account: string; setAccount: (a: string) => void }) {
-  const store: Store = useStore();
-  const d: AgentDetail | undefined = useAgentDetail(a.name);
-  const accounts = [...new Set([...store.agents.values()].map((x) => x.account).filter((x): x is string => !!x))];
+  const store = useStore();
+  const q = useAgentDetail(a.name);
+  const d: AgentDetail | undefined = q.data;
+  const { served } = useServes('agent.get');
+  const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x))];
   const c = d ? controlsOf(d, store.me) : null;
-  const row = (k: string, v: string | null | undefined) => v ? <div className="kv" key={k}><span className="muted">{k}</span><span>{v}</span></div> : null;
+  const row = (k: string, v: string | null | undefined) =>
+    v ? (
+      <div className="kv" key={k}>
+        <span className="muted">{k}</span>
+        <span>{v}</span>
+      </div>
+    ) : null;
   return (
     <div className="row-detail" aria-label={`${a.name} details`}>
-      {a.block ? <div className="banner">Blocked: {a.block.kind}{a.wall_reason ? ` (${a.wall_reason})` : ''} since {ago(a.block.since)}</div> : null}
+      {a.block ? (
+        <div className="banner">
+          Blocked: {a.block.kind}
+          {a.wall_reason ? ` (${a.wall_reason})` : ''} since {ago(a.block.since)}
+        </div>
+      ) : null}
       {row('model', [a.model, a.effort].filter(Boolean).join(' · '))}
       {row('account', a.account)}
       {c?.start && d ? (
         <div className="kv">
           <span className="muted">start on</span>
-          <select aria-label="Account for this start" title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
-            value={account} onChange={(e) => setAccount(e.target.value)}>
+          <select
+            aria-label="Account for this start"
+            title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+          >
             <option value="">{`auto: ${d.account_pick.account ?? 'none'}`}</option>
-            {accounts.map((x) => <option key={x} value={x}>{x}</option>)}
+            {accounts.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
           </select>
         </div>
       ) : null}
+      <View q={q} served={served} shape="agentDetail" what={`${a.name} details`}>
+        {null}
+      </View>
       {row('task', a.task ? `#${a.task.id} ${a.task.title}` : null)}
       {row('worktree', d?.worktree?.branch)}
       {row('session', d?.session_id)}
@@ -141,7 +245,14 @@ function Timeline({ agent }: { agent: string }) {
   return (
     <details className="timeline">
       <summary className="muted">Timeline ({notes.length})</summary>
-      {notes.slice().reverse().map((n, i) => <div className="note" key={i}><span className="muted">{ago(n.at)}</span> {n.text}</div>)}
+      {notes
+        .slice()
+        .reverse()
+        .map((n, i) => (
+          <div className="note" key={i}>
+            <span className="muted">{ago(n.at)}</span> {n.text}
+          </div>
+        ))}
     </details>
   );
 }

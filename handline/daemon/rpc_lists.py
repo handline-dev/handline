@@ -1,9 +1,8 @@
-"""accounts.list, team.get, hr.list, schedules.list, stats.get and settings.get: what the Accounts, Team, HR, Schedules, Stats
-and Settings screens draw, read by the daemon from the readers the commands use (usage, team, hr, schedules, config.yaml).
+"""accounts.list, team.get, schedules.list, stats.get and settings.get: what the Accounts, Team, HR, Schedules, Stats
+and Settings screens draw, read by the daemon from the readers the commands use (usage, team, schedules, config.yaml); hr.list is `rpc_hr`'s.
 
-They serve `hl status` and `hl account list` (accounts.list), `hl team` (team.get), `hl hr list` (hr.list) and `hl schedule list`
-(schedules.list); stats.get and settings.get have no command. A proposal's id is the integer its hex id reads as, and its `diff` is
-what approving does in words, one change per line (there is no unified diff of a proposal). A schedule's id is
+They serve `hl status` and `hl account list` (accounts.list), `hl team` (team.get) and `hl schedule list`
+(schedules.list); stats.get and settings.get have no command. A schedule's id is
 `rpc_schedules.schedule_id`; its last_run is the newest `schedule_fired` event for its cron, and its next_run the first minute the
 cron names after that (after now when it never fired). The settings the daemon keeps itself and the screens read:
 `values` is every config.yaml key by name with the value in force, `timings` the seconds-valued ones, and `listener` what this
@@ -18,7 +17,7 @@ from .. import actions, db, vendors
 from ..actions import details
 from ..infra import cron, paths
 from ..session import events as evmod, idle_close, term
-from ..team import accounts, agents, hr, team as teammod
+from ..team import accounts, agents, team as teammod
 from ..usage import cycle, load as loadmod, status
 from . import agentview, devmode, delivery, inputhold, rpc, rpc_schedules, rpc_settings, rpc_status, timebox
 
@@ -92,33 +91,6 @@ def _team(ctx, params) -> dict:
                     "role_file": _file(d / "ROLE.md"), "base_file": _file(d / "base.md")})
     edges = [{"from": str(e["from"]), "to": str(e["to"])} for e in (table.edges if table else [])]
     return {"agents": out, "edges": edges}
-
-
-_STATE = {"proposed": "open", "approved": "open", "applied": "approved", "rejected": "rejected", "withdrawn": "rejected"}
-
-
-def _proposal(prop: dict) -> dict | None:
-    pid = rpc_team_num(prop.get("id"))
-    if pid is None:
-        return None
-    card = hr.card(prop)
-    return {"id": pid, "agent": card["agent"], "title": f"{prop['kind']} {card['to'] or card['agent']}".strip(), "diff": card["text"],
-            "subject": card["subject"], "state": _STATE.get(prop.get("state"), "open"), "created": _TS(card["ts"])}
-
-
-def rpc_team_num(pid) -> int | None:
-    try:
-        return int(pid, 16) if isinstance(pid, str) and pid.isalnum() else None
-    except ValueError:
-        return None
-
-
-def _hr(ctx, params) -> dict:
-    want = params.get("state")
-    if want is not None and (not isinstance(want, str) or want not in ("open", "approved", "rejected")):
-        raise rpc.bad_request("state is open, approved or rejected", "state", rpc.INVALID_PARAMS)
-    found = [p for p in (_proposal(x) for x in sorted(hr.listing(), key=lambda p: p.get("created") or 0)) if p]
-    return {"proposals": [p for p in found if want is None or p["state"] == want]}
 
 
 def _fired(con, agent: str, item: dict) -> int | None:
@@ -236,7 +208,6 @@ def _settings(ctx, params) -> dict:
 
 rpc.METHODS["accounts.list"] = rpc.Method(_accounts, "agent")
 rpc.METHODS["team.get"] = rpc.Method(_team, "agent")
-rpc.METHODS["hr.list"] = rpc.Method(_hr, "agent")
 rpc.METHODS["schedules.list"] = rpc.Method(_schedules, "agent")
 rpc.METHODS["stats.get"] = rpc.Method(_stats, "member")
 rpc.METHODS["settings.get"] = rpc.Method(_settings, "founder")
