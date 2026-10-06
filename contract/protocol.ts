@@ -70,7 +70,7 @@ export type Prompt = {
   /** Opaque; changes whenever the open prompt changes (the daemon uses the screen block's fingerprint). */
   id: string;
   agent: AgentName;
-  /** e.g. permission, trust, dialog; open set. */
+  /** permission, question, dialog or exit_confirm today; open set. A dialog is `dialog` unless its screen is a known one (contract/prompts/). */
   kind: string;
   tool?: string | null;
   command?: string | null;

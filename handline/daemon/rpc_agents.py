@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from .. import actions, db
 from ..infra import gitrun, paths, textsafe
-from ..session import launch
+from ..session import launch, promptparse
 from . import agentview, inputhold, rpc
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
@@ -59,7 +59,10 @@ def prompt_of(block: dict) -> dict:
     """An open prompt as the spec's `Prompt`."""
     name = block["agent"]
     detail = block.get("detail") or {}
-    return {"id": block["fingerprint"], "agent": name, "kind": block["kind"], "tool": detail.get("tool") or None,
+    kind = block["kind"]
+    if kind == "dialog":
+        kind = promptparse.dialog_kind(detail.get("options") or [])
+    return {"id": block["fingerprint"], "agent": name, "kind": kind, "tool": detail.get("tool") or None,
             "command": detail.get("command") or None, "reason": detail.get("reason") or None,
             "lines": list(block["panel"]), "options": options_of(block),
             "since": agentview._ts(block.get("first_seen") or block["last_seen"])}

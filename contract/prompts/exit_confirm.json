@@ -1,0 +1,28 @@
+{
+ "name": "exit_confirm",
+ "source": "tests/support.py EXIT_DIALOG (measured)",
+ "screen": [
+  "  Two things remain open and I've flagged both rather than deciding them myself.",
+  "✻ Sautéed for 5m 52s · done 12:41 PM · 1 shell still running",
+  "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
+  "   Background work is running",
+  "   The following will stop when you exit:",
+  "   shell · until grep -qE \"BUILD (SUCCEEDED|FAILED)|error:\" …",
+  "   ❯ 1. Exit and stop tasks",
+  "     2. Move to background and exit",
+  "     3. Stay",
+  "   Enter to confirm · Esc to cancel"
+ ],
+ "expect": {
+  "kind": "exit_confirm",
+  "tool": null,
+  "command": null,
+  "reason": null,
+  "options": [
+   "1",
+   "2",
+   "3",
+   "esc"
+  ]
+ }
+}

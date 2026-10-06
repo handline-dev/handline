@@ -6336,13 +6336,13 @@
      },
      "kind": {
       "type": "string",
-      "description": "e.g. permission, trust, dialog; open set."
+      "description": "permission, question, dialog or exit_confirm today; open set. A dialog is `dialog` unless its screen is a known one (contract/prompts/)."
      },
      "tool": {
       "oneOf": [
        {
         "type": "string",
-        "description": "The tool asking, when the dialog names one."
+        "description": "The tool asking, when the screen's title names a known one or the hook record does; else null."
        },
        {
         "type": "null"
@@ -6353,7 +6353,7 @@
       "oneOf": [
        {
         "type": "string",
-        "description": "The command or action it wants to run."
+        "description": "The command or action it wants to run, as the screen shows it; null when the screen states none."
        },
        {
         "type": "null"
@@ -6364,7 +6364,7 @@
       "oneOf": [
        {
         "type": "string",
-        "description": "Why it asks, when it says."
+        "description": "Why it asks, when the screen says; else null, never inferred."
        },
        {
         "type": "null"

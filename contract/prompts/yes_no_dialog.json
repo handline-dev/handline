@@ -1,0 +1,23 @@
+{
+ "name": "yes_no_dialog",
+ "source": "tests/support.py YES_NO_DIALOG",
+ "screen": [
+  "  earlier output",
+  "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
+  "   Overwrite the file?",
+  "   ❯ 1. Yes",
+  "     2. No",
+  "   Enter to confirm · Esc to cancel"
+ ],
+ "expect": {
+  "kind": "dialog",
+  "tool": null,
+  "command": null,
+  "reason": null,
+  "options": [
+   "1",
+   "2",
+   "esc"
+  ]
+ }
+}
