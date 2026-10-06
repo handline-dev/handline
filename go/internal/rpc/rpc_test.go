@@ -194,3 +194,32 @@ func TestLastLineNeedsNoNewline(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestAWaitingCallRunsBesideTheOthersAndStopsWhenTheClientHangsUp(t *testing.T) {
+	cl, sv := net.Pipe()
+	srv := NewServer(fakeAuth{}, "abc1234", 7, "local", func(string, ...any) {})
+	stopped := make(chan struct{})
+	srv.Register("slow", Method{Role: "anonymous", Waits: true, Handler: func(c *Conn, _ map[string]any) (any, error) {
+		<-c.Done()
+		close(stopped)
+		return nil, nil
+	}})
+	done := make(chan struct{})
+	go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
+	c := &client{cl, bufio.NewReader(cl)}
+	c.raw(t, helloLine)
+	cl.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := cl.Write([]byte(`{"jsonrpc":"2.0","id":2,"method":"slow","params":{}}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if r := c.raw(t, strings.Replace(helloLine, `"id":1`, `"id":3`, 1)); r["id"].(float64) != 3 || r["result"] == nil {
+		t.Fatalf("the call behind a waiting one was not answered first: %v", r)
+	}
+	cl.Close()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting call did not stop when the client hung up")
+	}
+	<-done
+}

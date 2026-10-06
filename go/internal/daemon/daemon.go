@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/version"
@@ -33,6 +35,8 @@ type Config struct {
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
 type Daemon struct {
 	cfg     Config
+	db      *sql.DB
+	started time.Time
 	ln      net.Listener
 	local   *rpc.Server
 	net     *networkListener
@@ -53,12 +57,12 @@ func Start(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close() // the schema is up; the first method that needs the database opens it itself
-	d := &Daemon{cfg: cfg, conns: map[net.Conn]struct{}{}}
-	d.local = rpc.NewServer(cfg.Auth, version.Sha, store.LatestVersion(), "local", cfg.Log)
+	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}}
+	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
 		if err != nil {
+			db.Close()
 			return nil, err
 		}
 		d.ln = ln
@@ -75,6 +79,13 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
+}
+
+// newServer is a connection server on one transport, with the methods this daemon serves.
+func (d *Daemon) newServer(transport string) *rpc.Server {
+	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
+	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+	return s
 }
 
 // listenUnix binds the socket, 0600, replacing a stale file but never one a live daemon answers on.
@@ -172,6 +183,9 @@ func (d *Daemon) Close() {
 		d.net.close()
 	}
 	d.wg.Wait()
+	if d.db != nil {
+		d.db.Close()
+	}
 }
 
 // Wait blocks until ctx ends, then closes.
