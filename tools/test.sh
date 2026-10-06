@@ -26,9 +26,10 @@ fi
 echo "tools/test.sh: $py -u ${target[*]} $*" >&2
 env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@" | tee "$scratch/run.log"
 status=${PIPESTATUS[0]}
-# The whole suite includes the Go daemon's required check (go test -race ./...).
+# The whole suite includes the Go daemon's required check (go test -race ./...); OCP_TEST_GO names another
+# command for it (tests/infra/test_test_sh.py runs this script with a stub, not a nested go test -race).
 if [ -n "$whole" ]; then
-    tools/test-go.sh || status=1
+    "${OCP_TEST_GO:-tools/test-go.sh}" || status=1
 fi
 # What failed is said last: the Go run's output follows the suite's own list of failures and would bury it.
 if [ "$status" -ne 0 ] && grep -qE '^(FAIL |  FAILED:)' "$scratch/run.log"; then
