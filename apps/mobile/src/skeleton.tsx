@@ -55,7 +55,7 @@ export function Skeleton(props: { shape: SkeletonName; loading: boolean; label: 
   return (
     <View
       testID={`skeleton-${props.shape}`}
-      accessibilityRole="progressbar"
+      accessibilityState={{ busy: true }}
       accessibilityLabel={`Loading ${props.label}`}
       style={{ padding: 16 }}
     >

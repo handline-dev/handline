@@ -46,12 +46,7 @@ describe('guard 3: every read has a key', () => {
 });
 
 /** Files that still call the daemon by hand. Q2 and Q3 move them; this list may only get shorter. */
-const STILL_BY_HAND = [
-  'apps/mobile/src/screens/AgentPage.tsx',
-  'apps/web/src/ChatTab.tsx',
-  'apps/web/src/Sidebar.tsx',
-  'apps/web/src/TerminalTab.tsx',
-];
+const STILL_BY_HAND = ['apps/web/src/ChatTab.tsx', 'apps/web/src/Sidebar.tsx', 'apps/web/src/TerminalTab.tsx'];
 const BY_HAND =
   /\bclient\.call\(|\.act\(|\bclient\.(startSession|restartSession|parkSession|stopSession|sendInput|sendKeys|interrupt|answerPrompt|takeInput|releaseInput|openPrompts)\(|\bstore\.(startAgent|resume|stopAgent|send|key|interrupt|answer|take|release)\(/;
 

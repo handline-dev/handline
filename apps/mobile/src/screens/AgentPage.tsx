@@ -191,6 +191,9 @@ function Terminal(props: { detail: AgentDetail }) {
   const holder = d.input_holders?.[0];
   const takeInput = useWrite('input.take', d.name);
   const releaseInput = useWrite('input.release', d.name);
+  const sendInput = useWrite('session.input', d.name);
+  const sendKeys = useWrite('session.keys', d.name);
+  const releasing = usePending('input.release').some((v) => v.agent === d.name);
   const taking = usePending('input.take').some((v) => v.agent === d.name);
   const take = () => {
     // Taking the input from a person at another device asks first; the daemon's own hold is not a person's.
@@ -203,7 +206,7 @@ function Terminal(props: { detail: AgentDetail }) {
   };
   const submit = () => {
     if (text.trim()) {
-      void store.send(d.name, text);
+      sendInput.mutate({ agent: d.name, text, enter: true });
       setText('');
     }
   };
@@ -228,10 +231,10 @@ function Terminal(props: { detail: AgentDetail }) {
       {d.session_open && (
         <Row style={{ padding: space.sm, justifyContent: 'space-between' }}>
           <Text testID="holder" style={{ color: c.muted, fontSize: 12 }}>
-            Input: {taking ? 'taking…' : holderLabel(holder, me)}
+            Input: {taking ? 'taking…' : releasing ? 'releasing…' : holderLabel(holder, me)}
           </Text>
           {ctl.take && <Button testID="take" label="Take control" disabled={taking} onPress={take} />}
-          {ctl.release && <Button label="Release" onPress={() => releaseInput.mutate({ agent: d.name })} />}
+          {ctl.release && <Button label="Release" disabled={releasing} onPress={() => releaseInput.mutate({ agent: d.name })} />}
         </Row>
       )}
       <Row style={{ paddingHorizontal: space.sm, gap: 4 }}>
@@ -241,7 +244,7 @@ function Terminal(props: { detail: AgentDetail }) {
             testID={`key-${k.key}`}
             label={k.label}
             disabled={!ctl.typing}
-            onPress={() => void store.key(d.name, k.key)}
+            onPress={() => sendKeys.mutate({ agent: d.name, keys: [k.key] })}
             style={{ flex: 1, paddingHorizontal: 0, paddingVertical: space.sm }}
           />
         ))}

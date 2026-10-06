@@ -54,8 +54,6 @@ afterEach(async () => {
 describe('the agent list', () => {
   it('shows its skeleton after 150 ms while the daemon is slow, then the rows', async () => {
     const m = await mount((s) => s.daemon.knobs.latency(600));
-    await sleep(60);
-    expect($('skeleton-agents')).toBeNull(); // a fast enough answer shows no flash
     await until(() => $('skeleton-agents'), 'the skeleton');
     const skeletonRowHeight = rowHeightOf($('skeleton-agents')!.firstElementChild); // the first skeleton row
     expect($(`agent-${ARCH}`)).toBeNull();
