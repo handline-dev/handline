@@ -406,7 +406,7 @@ def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_se
             ch.notify("holder", holders=[{"kind": "person", "name": f"p{i}", "since": None}])
         time.sleep(0.2)
         check("overflow: a client that fell CLIENT_QUEUE notices behind is hung up, not left with a stale holder", hung == [1] and client.dead and not client.notices, str(hung))
-        check("overflow: it is no longer served, and the poller is not held by it", client not in ch.clients or client.dead)
+        check("overflow: it is no longer served, and the poller is not held by it", client not in ch.clients)
         stuck.set()
         con = db.connect()
         inputhold.take(con, "worker", "person", "latest.holder")
