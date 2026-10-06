@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const WEB = path.dirname(fileURLToPath(import.meta.url));
-const ROOTS: Record<string, string> = { '/ui/': path.join(WEB, 'ui'), '/src/': path.join(WEB, '..', 'packages', 'client', 'src'), '/contract/': path.join(WEB, '..', 'contract') };
+const ROOTS: Record<string, string> = { '/ui/': path.join(WEB, 'ui'), '/src/': path.join(WEB, '..', 'packages', 'client', 'src'), '/app-core/': path.join(WEB, '..', 'packages', 'app-core', 'src'), '/tokens/': path.join(WEB, '..', 'packages', 'tokens', 'src'), '/contract/': path.join(WEB, '..', 'contract') };
 const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.ts': 'text/javascript', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
 
 /** The file a URL path names, only under a served root; undefined for anything else. */

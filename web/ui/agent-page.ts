@@ -4,8 +4,8 @@ import { h, keyed } from './dom.ts';
 import {
   ago, controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, saveLayout, STOP_MODES,
   type Dock, type KV, type PaneLayout, type StopMode,
-} from './model.ts';
-import type { Store } from './store.ts';
+} from '@handline/app-core';
+import type { Store } from '@handline/app-core';
 import { TerminalPane } from './terminal-pane.ts';
 
 const CHIPS: [string, string][] = [['esc', 'Esc'], ['ctrl-c', '^C'], ['enter', '↵'], ['up', '↑'], ['down', '↓'], ['tab', 'Tab'], ['shift-tab', '⇧Tab'], ['1', '1'], ['2', '2'], ['3', '3']];
