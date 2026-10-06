@@ -275,7 +275,7 @@ def test_the_typing_fixtures_pass_against_this_daemon(home: Path) -> None:
     real = (sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail)
     sent = []
     termmod.send = lambda handle, text, enter=True: (sent.append((handle, text)) or (True, ""))
-    termmod._screen_tail = lambda handle: ["Resume this session with:", "ron@mac ~ % "] if handle == "t-shelled" else None
+    termmod._screen_tail = lambda handle: ["Resume this session with:", "user@host ~ % "] if handle == "t-shelled" else None
     delivery.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit" if agent == "walled" else None
     termmod.available = lambda: True
     termmod.screen_blocker = lambda handle: termmod.Blocker(termmod.MODAL, "a dialog") if handle == "t-manager" else None
