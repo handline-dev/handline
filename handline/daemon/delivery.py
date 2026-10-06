@@ -19,7 +19,7 @@ from ..session import term
 from ..usage import status
 from ..infra import textsafe
 
-from . import handoff, screensamples
+from . import handoff, inputhold, screensamples
 from .states import HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S
 
 
@@ -155,7 +155,10 @@ def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
     nothing stands in the way, else why. The caller holds the agent's terminal.
     While a reason stands, when this dialog first proved unpassable is kept, by
     its title: a different dialog starts its own clock, so a caller that can
-    wait measures the wait of the dialog that is there."""
+    wait measures the wait of the dialog that is there. Nothing is pressed at a
+    terminal someone holds (`inputhold`): there is nothing to get past for them."""
+    if inputhold.held_by_other(con, agent):
+        return ""
     why, title = blocked.past_dialog(con, agent, log, only_limit=only_limit)
     since_key, title_key = f"dialog_since:{agent}", f"dialog_title:{agent}"
     if not why:
@@ -237,8 +240,9 @@ def clear_hold(con, agent: str) -> str | None:
 
 
 def typing_hold(con, agent: str) -> str | None:
-    """Why nothing may be typed at this agent's session now: the wall, or a clear owed."""
-    return wall_reason(con, agent) or clear_hold(con, agent)
+    """Why nothing may be typed at this agent's session now: someone holds its input, the wall, or a clear owed."""
+    held = inputhold.held_by_other(con, agent)
+    return f"{agent}'s terminal is held by {held}" if held else wall_reason(con, agent) or clear_hold(con, agent)
 
 
 def _cache_lapsed(con, agent: str, now: int) -> bool:
@@ -366,6 +370,9 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
     move): the settle window above is what catches a stale idle reading that
     `typeable_now`, read fresh a moment too soon, still cannot.
     """
+    held = inputhold.held_by_other(con, agent)
+    if held:
+        return f"{agent}'s terminal is held by {held}"
     if require_settled:
         last = db.get_cursor(con, f"typed_at:{agent}")
         if last and int(time.time()) - last < TYPE_SETTLE_S:

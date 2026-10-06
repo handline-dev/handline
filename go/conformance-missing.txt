@@ -8,6 +8,11 @@ daemon.status
 events.feed
 inbox.list
 repos.list
+input.ask
+input.release
+input.take
+prompt.answer
+prompt.list
 session.park
 session.restart
 session.start

@@ -23,6 +23,7 @@ MAX_LINE_BYTES = 1 << 20
 ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
+STALE_PROMPT = -32003
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
 # A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
 # calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.

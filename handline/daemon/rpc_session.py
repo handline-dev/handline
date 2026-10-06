@@ -20,7 +20,7 @@ from ..actions import control
 from ..infra import lock, paths
 from ..session import observe as obs
 from ..session import term
-from . import delivery, lifecycle, rpc, states
+from . import delivery, inputhold, lifecycle, rpc, rpc_gates, states
 
 
 def _noop(_m: str) -> None:
@@ -60,17 +60,18 @@ def _busy(agent: str) -> rpc.RpcError:
 def _run(ctx, name: str, params, fn, hold: bool = False) -> dict:
     """Run `fn(con, agent)` and record its result as the effect of this request_id. With `hold` the agent's terminal
     lock is held across it; without, it is only looked at first, for a refusal before anything starts, because the
-    action takes the lock itself."""
+    action takes the lock itself. A person's own call is not held back by whoever holds the input."""
     agent = _agent(params)
     con = db.connect()
     try:
-        with lock.terminal(agent) as mine:
-            if not mine:
-                raise _busy(agent)
-            if hold:
+        with inputhold.controlling():
+            with lock.terminal(agent) as mine:
+                if not mine:
+                    raise _busy(agent)
+                if hold:
+                    result = fn(con, agent)
+            if not hold:
                 result = fn(con, agent)
-        if not hold:
-            result = fn(con, agent)
         db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
         return result
     finally:
@@ -143,6 +144,7 @@ def _stop(ctx, params) -> dict:
 
 def _terminal_close(ctx, params) -> dict:
     def close(con, agent):
+        rpc_gates.input_holder(ctx, con, agent)
         handle = db.get_terminal(con, agent)
         if not handle:
             raise rpc.refused(f"{agent} has no terminal", gate="state")
@@ -154,6 +156,7 @@ def _terminal_close(ctx, params) -> dict:
             raise rpc.refused(f"{agent}: its terminal would not close: {why}", gate="state")
         db.set_terminal(con, agent, None, row["worktree"] if row else None)
         db.add_event(con, agent, "terminal_closed", {"handle": handle})
+        inputhold.release(con, agent)       # a hold on a terminal that is gone is over
         return {"accepted": True, "said": f"{agent}: terminal closed"}
     return _run(ctx, "terminal.close", params, close, hold=True)
 
