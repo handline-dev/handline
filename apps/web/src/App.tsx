@@ -1,5 +1,5 @@
-// The frame: top bar, sidebar with every agent control, the selected agent's workspace, a context panel and the status bar.
-import { useState } from 'react';
+// The frame: the sidebar with every agent control, and the selected agent's workspace at full height.
+import { useEffect, useState } from 'react';
 import { dotOf, type KV, type Store } from '@handline/app-core';
 import { DaemonProvider, useAgents, useError, useStore } from '@handline/app-react';
 import { setting } from './daemon.ts';
@@ -22,7 +22,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const store = useStore();
   const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
   const toggle = () => { setRail(!railOpen); setting(storage, 'rail', '1').save(railOpen ? '0' : '1'); };
-  document.title = waiting ? `(${waiting}) Handline` : 'Handline';
+  useEffect(() => { document.title = waiting ? `(${waiting}) Handline` : 'Handline'; }, [waiting]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   return (
     <div id="app" data-rail={railOpen ? 'open' : 'closed'}>
