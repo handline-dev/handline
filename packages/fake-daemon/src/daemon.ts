@@ -13,6 +13,8 @@ import { AGENTS, BANNER, PROMPT_LINES, type AgentFixture } from './fixtures.ts';
 const ROWS = 24, COLS = 80;
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
+// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
+const UNKEPT = new Set(['device.pair', 'device.redeem']);
 const row = (text: string): Row => ({ text });
 
 /** A refusal or error the caller gets as a JSON-RPC error. */
@@ -314,7 +316,7 @@ export class FakeDaemon {
   /** A write's successful reply is kept by request_id; the same id with the same params returns it, repeating nothing. */
   private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
-    if (!spec?.write || typeof p.request_id !== 'string') return this.dispatch(c, method, p);
+    if (!spec?.write || typeof p.request_id !== 'string' || UNKEPT.has(method)) return this.dispatch(c, method, p);
     const { request_id, ...rest } = p;
     const sig = JSON.stringify(rest);
     const kept = this.replies.get(request_id);

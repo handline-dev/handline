@@ -26,13 +26,21 @@ export const listenerUrl = (host: string): string => `wss://${host}/rpc`;
  * Trades a pairing code for a device token. `connect` must verify the listener's fingerprint. An unpaired
  * connection may call nothing but device.redeem, hello included, so this is the first and only message sent.
  */
-export async function redeemPairing(connect: () => Promise<Transport>, code: string, deviceName: string): Promise<{ token: string; device: string }> {
+export async function redeemPairing(connect: () => Promise<Transport>, code: string, deviceName: string, timeoutMs = 10_000): Promise<{ token: string; device: string }> {
   const t = await connect();
-  const reply = await new Promise<{ result?: { token: string; device: string }; error?: { message: string; data?: { code?: string; gate?: string; reason?: string } } }>((ok, fail) => {
-    t.onmessage = (m) => ok(JSON.parse(m));
+  const request_id = `pair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const reply = await new Promise<Reply>((ok, fail) => {
+    timer = setTimeout(() => fail(new RpcError('transport', 'the listener did not answer')), timeoutMs);
+    t.onmessage = (m) => { try { ok(JSON.parse(m)); } catch { fail(new RpcError('transport', 'the listener sent something that is not JSON')); } };
     t.onclose = () => fail(new RpcError('transport', 'the listener closed the connection'));
-    t.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'device.redeem', params: { code, name: deviceName, request_id: `pair-${crypto.randomUUID()}` } }));
-  }).finally(() => { t.onclose = null; t.close(); });
+    t.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'device.redeem', params: { code, name: deviceName, request_id } }));
+  }).finally(() => { clearTimeout(timer); t.onclose = null; t.close(); });
   if (reply.error) throw new RpcError((reply.error.data?.code ?? 'refused') as ErrorCode, reply.error.data?.reason ?? reply.error.message, reply.error.data);
   return { token: reply.result!.token, device: reply.result!.device };
+}
+
+interface Reply {
+  result?: { token: string; device: string };
+  error?: { message: string; data?: { code?: string; gate?: string; reason?: string } };
 }
