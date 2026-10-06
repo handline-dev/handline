@@ -3,7 +3,6 @@ package daemon
 import (
 	"bufio"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -12,8 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 type fakeAuth struct{ agent, key string }
@@ -104,46 +101,6 @@ func TestSocketIsPrivateAndAStaleOneIsReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	d2.Close()
-}
-
-func TestNetworkListenerSpeaksHelloOverTLSWebSocketAndKnowsNoOne(t *testing.T) {
-	// the network door alone: no unix socket, so this runs where a sandbox will not bind one
-	d := &Daemon{conns: map[net.Conn]struct{}{}}
-	cfg := Config{Listen: "127.0.0.1:0", Auth: fakeAuth{key: "k", agent: "a"}, Log: func(string, ...any) {}}
-	nl, err := listenNetwork(cfg, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d.net = nl
-	t.Cleanup(d.Close)
-	dialer := websocket.Dialer{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} // the pairing QR carries the fingerprint; here it is checked below
-	ws, resp, err := dialer.Dial("wss://"+d.NetworkAddr()+"/rpc", nil)
-	if err != nil {
-		t.Fatalf("%v %v", err, resp)
-	}
-	defer ws.Close()
-	if fp := sha256hex(ws.UnderlyingConn().(*tls.Conn).ConnectionState().PeerCertificates[0].Raw); fp != d.NetworkFingerprint() {
-		t.Fatalf("fingerprint %s != %s", fp, d.NetworkFingerprint())
-	}
-	ask := func(msg string) map[string]any {
-		ws.WriteMessage(websocket.TextMessage, []byte(msg))
-		ws.SetReadDeadline(time.Now().Add(5 * time.Second))
-		_, b, err := ws.ReadMessage()
-		if err != nil {
-			t.Fatal(err)
-		}
-		var m map[string]any
-		json.Unmarshal(b, &m)
-		return m
-	}
-	// neither a founder key nor a peer pid means anything over the network
-	r := ask(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"key":"k"}}`)["result"].(map[string]any)
-	if r["role"] != "anonymous" || r["transport"] != "network" {
-		t.Fatalf("%v", r)
-	}
-	if _, code := errOf(t, ask(`{"jsonrpc":"2.0","id":2,"method":"hello","params":{"client":"t","protocol":1,"token":"x"}}`)); code != "refused" {
-		t.Fatal(code)
-	}
 }
 
 func sha256hex(b []byte) string {

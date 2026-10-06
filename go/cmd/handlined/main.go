@@ -39,6 +39,8 @@ func main() {
 	key := flag.String("key", "", "private key for the network listener")
 	serveFDs := flag.String("serve-fds", "", "comma-separated file descriptors of connections already open (socketpairs "+
 		"made by the parent, for a run where no socket can be bound); each is served and no socket file is made")
+	serveNetFDs := flag.String("serve-net-fds", "", "like -serve-fds, but each connection is served as one of the network listener's "+
+		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -53,23 +55,32 @@ func main() {
 	if cfg.DBFile == "" {
 		cfg.DBFile = paths.DBFile(homeDir)
 	}
-	if cfg.SocketFile == "" && *serveFDs == "" {
+	if cfg.SocketFile == "" && *serveFDs == "" && *serveNetFDs == "" {
 		cfg.SocketFile = paths.SocketFile(homeDir)
 	}
-	var fds []int
-	for _, f := range strings.FieldsFunc(*serveFDs, func(r rune) bool { return r == ',' }) {
-		n, err := strconv.Atoi(f)
-		if err != nil {
-			log.Fatalf("handlined: -serve-fds: %q is not a descriptor", f)
+	descriptors := func(flagName, list string) []int {
+		var fds []int
+		for _, f := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' }) {
+			n, err := strconv.Atoi(f)
+			if err != nil {
+				log.Fatalf("handlined: -%s: %q is not a descriptor", flagName, f)
+			}
+			fds = append(fds, n)
 		}
-		fds = append(fds, n)
+		return fds
 	}
+	fds, netFDs := descriptors("serve-fds", *serveFDs), descriptors("serve-net-fds", *serveNetFDs)
 	d, err := daemon.Start(cfg)
 	if err != nil {
 		log.Fatalf("handlined: %v", err)
 	}
 	for _, fd := range fds {
 		if err := d.ServeFile(os.NewFile(uintptr(fd), "inherited")); err != nil {
+			log.Fatalf("handlined: fd %d: %v", fd, err)
+		}
+	}
+	for _, fd := range netFDs {
+		if err := d.ServeNetFile(os.NewFile(uintptr(fd), "inherited")); err != nil {
 			log.Fatalf("handlined: fd %d: %v", fd, err)
 		}
 	}

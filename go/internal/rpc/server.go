@@ -42,6 +42,9 @@ type Method struct {
 	// Write marks a method that changes something: it takes a request_id and runs once per id (runWrite).
 	// OwnEvent says it writes its own event, so the generic rpc_write one is not added.
 	Write, OwnEvent bool
+	// Unkept marks a write whose reply is never kept for a retry because it holds a secret that is given once
+	// (a pairing code, a device token): the retry runs again and is judged on its own.
+	Unkept bool
 }
 
 // Server holds what every connection shares.
@@ -52,6 +55,7 @@ type Server struct {
 	Transport string // "local" or "network"
 	Log       func(format string, args ...any)
 	DB        *sql.DB // the database the write methods keep their replies in
+	Net       NetGate // the paired devices of a network server; nil on the local one
 	methods   map[string]Method
 	order     []string
 	founder   string
@@ -82,9 +86,26 @@ type Conn struct {
 	Pid       int
 	Caller    Caller
 	saidHello bool
-	wmu       sync.Mutex
-	done      chan struct{} // closed when the client is gone
-	waiting   sync.WaitGroup
+	// Remote is the peer's host on the network listener, "" elsewhere.
+	Remote  string
+	closeFn func()
+	device  string // the paired device this connection hello'd with
+	release func()
+	wmu     sync.Mutex
+	done    chan struct{} // closed when the client is gone
+	waiting sync.WaitGroup
+}
+
+// NetGate is what a network server knows of paired devices: a call from a connection that no device token
+// opened is refused before any method runs.
+type NetGate interface {
+	// Know says whether token is a paired device's.
+	Know(token string) bool
+	// Login binds a connection to the device token belongs to; closeConn is what revoking the device calls.
+	// release unbinds it when the connection ends.
+	Login(token string, closeConn func()) (id, name string, release func(), ok bool)
+	// Live says whether the device still has its token.
+	Live(id string) bool
 }
 
 // Server is the server this connection belongs to.
@@ -94,11 +115,21 @@ func (c *Conn) Server() *Server { return c.srv }
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
 // Serve answers calls on tr until it ends. pid is the peer process on the local socket, 0 elsewhere.
-func (s *Server) Serve(tr Transport, pid int) {
-	c := &Conn{srv: s, tr: tr, Pid: pid, done: make(chan struct{})}
+func (s *Server) Serve(tr Transport, pid int) { s.serve(tr, pid, "", nil) }
+
+// ServeNet serves a connection of the network listener: remote is the peer's host, closeConn ends the connection.
+func (s *Server) ServeNet(tr Transport, remote string, closeConn func()) {
+	s.serve(tr, 0, remote, closeConn)
+}
+
+func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
+	c := &Conn{srv: s, tr: tr, Pid: pid, Remote: remote, closeFn: closeConn, done: make(chan struct{})}
 	defer func() {
 		close(c.done)
 		c.waiting.Wait()
+		if c.release != nil {
+			c.release()
+		}
 	}()
 	c.Caller = identify(s.Auth, s.Transport == "local", pid, "", s.founder)
 	for {
@@ -116,10 +147,75 @@ func (s *Server) Serve(tr Transport, pid int) {
 		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
 		}
+		if s.Net != nil {
+			switch c.admit(raw) {
+			case refuse:
+				if !c.send(unpairedReply(raw)) {
+					return
+				}
+				continue
+			case drop:
+				c.send(unpairedReply(raw))
+				return
+			}
+		}
 		if !c.one(raw) {
 			return
 		}
 	}
+}
+
+type admission int
+
+const (
+	let admission = iota
+	refuse
+	drop
+)
+
+// admit is the network gate, before the message is even parsed into a call: a connection no device token opened
+// may call device.redeem, or hello with a token that is paired; a paired one stays only while its device does.
+func (c *Conn) admit(raw []byte) admission {
+	if c.device != "" {
+		if c.srv.Net.Live(c.device) {
+			return let
+		}
+		return drop
+	}
+	if msg, err := decode(raw); err == nil {
+		if obj, ok := msg.(map[string]any); ok && obj["jsonrpc"] == "2.0" {
+			switch obj["method"] {
+			case "device.redeem":
+				return let
+			case "hello":
+				if p, ok := obj["params"].(map[string]any); ok {
+					if tok, ok := p["token"].(string); ok && c.srv.Net.Know(tok) {
+						return let
+					}
+				}
+			}
+		}
+	}
+	return refuse
+}
+
+// UnpairedError is the one refusal an unpaired network caller gets: the same words every time, so a reply
+// says nothing about why.
+func UnpairedError() *Error {
+	return &Error{RPCCode: RefusedCode, Code: "refused", Message: "refused", Data: map[string]any{"gate": "unpaired", "reason": "not paired"}}
+}
+
+func unpairedReply(raw []byte) map[string]any {
+	var rid any
+	if msg, err := decode(raw); err == nil {
+		if obj, ok := msg.(map[string]any); ok {
+			switch v := obj["id"].(type) {
+			case json.Number, string:
+				rid = v
+			}
+		}
+	}
+	return map[string]any{"jsonrpc": "2.0", "id": rid, "error": UnpairedError().wire()}
 }
 
 func (c *Conn) send(obj map[string]any) bool {
@@ -234,7 +330,7 @@ func (c *Conn) route(msg any) (routed, error) {
 		}
 		params = pm
 	}
-	if name != "hello" && !c.saidHello {
+	if name != "hello" && name != "device.redeem" && !c.saidHello {
 		return routed{}, BadRequestError("the first call is hello", "method", BadRequest)
 	}
 	m, found := c.srv.methods[name]
@@ -248,7 +344,7 @@ func (c *Conn) route(msg any) (routed, error) {
 	// it was when routed, on a Conn of its own that shares only what stays fixed.
 	at := c
 	if m.Waits {
-		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
+		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Remote: c.Remote, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
 	}
 	return routed{waits: m.Waits, run: func() (any, error) {
 		var result any
@@ -308,10 +404,20 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			"protocol", "hl service install")
 	}
 	key, _ := params["key"].(string)
-	if tok, has := params["token"]; has && tok != nil && c.srv.Transport != "local" {
-		return nil, Refused("device tokens are not available yet", "unsupported", "")
+	if c.srv.Net != nil {
+		tok, _ := params["token"].(string)
+		id, name, release, ok := c.srv.Net.Login(tok, c.closeFn)
+		if !ok {
+			return nil, UnpairedError()
+		}
+		if c.release != nil {
+			c.release()
+		}
+		c.device, c.release = id, release
+		c.Caller = Caller{"member", map[string]any{"kind": "device", "id": id, "name": name}}
+	} else {
+		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
-	c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	return map[string]any{
 		"protocol": Protocol, "min_client": MinClient, "daemon": c.srv.Sha, "schema": c.srv.Schema,
 		"role": c.Caller.Role, "caller": c.Caller.Info,

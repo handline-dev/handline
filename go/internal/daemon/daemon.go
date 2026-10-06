@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/reads"
@@ -43,6 +44,7 @@ type Daemon struct {
 	ln      net.Listener
 	local   *rpc.Server
 	net     *networkListener
+	dev     *devices.Manager // nil unless the network listener is on
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
@@ -63,6 +65,9 @@ func Start(cfg Config) (*Daemon, error) {
 	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{}),
 		hooks: &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}}
 	d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
+	if cfg.Listen != "" {
+		d.dev = devices.New(devices.NewMemStore()) // until the database has its devices table
+	}
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -95,6 +100,10 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.hooks != nil {
 		d.hooks.Register(s)
 	}
+	if transport == "network" {
+		s.Net = d.dev
+	}
+	devices.Register(s, d.dev)
 	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 	return s
 }
@@ -195,6 +204,26 @@ func (d *Daemon) ServeFile(f *os.File) error {
 	go func() {
 		defer d.untrack(c)
 		d.local.Serve(rpc.NewLineTransport(c), peer.PID(c))
+	}()
+	return nil
+}
+
+// ServeNetFile serves one connection that already exists as a network connection: past TLS and the pinned
+// fingerprint, so the gate and the device roles apply. It is how the contract's network fixtures reach a daemon where
+// no socket can be bound.
+func (d *Daemon) ServeNetFile(f *os.File) error {
+	c, err := net.FileConn(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	if d.net == nil || !d.track(c) {
+		c.Close()
+		return errors.New("no network listener")
+	}
+	go func() {
+		defer d.untrack(c)
+		d.net.rs.ServeNet(rpc.NewLineTransport(c), "", func() { c.Close() })
 	}()
 	return nil
 }

@@ -205,7 +205,7 @@
       "method": "device.revoke",
       "params": {
        "device": "{{device}}",
-       "request_id": "conf-dev-v6"
+       "request_id": "conf-dev-v6-{{device}}"
       }
      },
      "result": {
@@ -496,7 +496,7 @@
       "method": "device.revoke",
       "params": {
        "device": "{{device}}",
-       "request_id": "conf-dev-v6"
+       "request_id": "conf-dev-v6-{{device}}"
       }
      },
      "result": {
@@ -617,7 +617,7 @@
       "method": "device.revoke",
       "params": {
        "device": "{{device}}",
-       "request_id": "conf-dev-v6"
+       "request_id": "conf-dev-v6-{{device}}"
       }
      },
      "result": {
@@ -763,7 +763,7 @@
       "method": "device.revoke",
       "params": {
        "device": "{{device}}",
-       "request_id": "conf-dev-v6"
+       "request_id": "conf-dev-v6-{{device}}"
       }
      },
      "result": {
