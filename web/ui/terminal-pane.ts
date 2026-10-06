@@ -79,7 +79,7 @@ export class TerminalPane {
 
   /** Whether this page holds the keyboard; says how to take it when not. */
   private holding(): boolean {
-    const holder = this.store.details.get(this.agent)?.input_holders[0];
+    const holder = this.store.details.get(this.agent)?.input_holders?.[0];
     const yes = !!holder && holder.kind !== 'daemon' && holder.name === this.store.me;
     if (!yes) this.status.textContent = 'Press "Take control" to type here; the daemon stops typing while you hold the keyboard.';
     return yes;

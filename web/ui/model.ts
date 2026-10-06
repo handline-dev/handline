@@ -52,7 +52,7 @@ export interface Controls { start: boolean; resume: boolean; stop: boolean; take
 
 /** Which header buttons apply to this agent and this viewer. */
 export function controlsOf(d: AgentDetail, me: string): Controls {
-  const holder = d.input_holders[0];
+  const holder = d.input_holders?.[0];
   const iHold = !!holder && holder.kind !== 'daemon' && holder.name === me;
   return {
     start: !d.session_open && !d.session_id,

@@ -134,7 +134,7 @@ export class AgentPage {
         h('div', { class: 'menu-list' }, ...STOP_MODES.map((m) =>
           h('button', { class: 'menu-item', onclick: (e: Event) => { (e.target as HTMLElement).closest('details')!.removeAttribute('open'); void this.stop(m.mode); } },
             h('strong', null, m.label), h('span', { class: 'muted' }, ` ${m.hint}`))))) : null,
-      d ? h('span', { class: 'holder', title: 'Who may type now' }, `input: ${holderLabel(d.input_holders[0], this.store.me)}`) : null,
+      d ? h('span', { class: 'holder', title: 'Who may type now' }, `input: ${holderLabel(d.input_holders?.[0], this.store.me)}`) : null,
       c?.take ? h('button', { class: 'btn', onclick: () => void this.store.act('take control', () => this.store.client.takeInput(this.agent)) }, 'Take control') : null,
       c?.release ? h('button', { class: 'btn', onclick: () => void this.store.act('release', () => this.store.client.releaseInput(this.agent)) }, 'Release') : null,
       !this.layout.open ? h('button', { class: 'btn', onclick: () => this.setLayout({ open: true }) }, 'Show pane') : null]);
