@@ -44,11 +44,12 @@ def _method_of(line: bytes):
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
-    def __init__(self, role: str, mutate=None, lacks=(), broken=(), serial=False):
+    def __init__(self, role: str, mutate=None, lacks=(), broken=(), serial=False, unread=False):
         """`lacks`: methods this daemon does not have (not listed, -32601). `broken`: listed, yet answered -32601.
-        `serial`: serve a connection's calls one at a time, so a waiting inbox.list holds the ones behind it."""
+        `serial`: serve a connection's calls one at a time, so a waiting inbox.list holds the ones behind it.
+        `unread`: the inbox holds unread items (ids from 5), so an inbox.list that none of them is filtered out of returns at once."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
-        self.serial = serial
+        self.serial, self.unread = serial, unread
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -131,6 +132,8 @@ class FakeDaemon:
             return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
                        "methods": self._methods()}), said_hello
         if method == "inbox.list":
+            if self.unread and params.get("before", 5) > 5:
+                return ok({"items": [{"id": 5}], "more": False}), said_hello
             time.sleep(min(params.get("wait_s", 0), 3))
             return ok({"items": [], "more": False}), said_hello
         if method == "agent.get":
@@ -290,6 +293,9 @@ def test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture() ->
     results = conformance.run_all(FILES, {"founder": FakeDaemon("founder", serial=True).connect}, KEY, "framing.waiting")
     check("conformance: a daemon that answers a waiting call first fails the pipelined fixture",
           results[0][0] == "fail" and "timed out" in results[0][1], str(results))
+    results = conformance.run_all(FILES, {"founder": FakeDaemon("founder", serial=True, unread=True).connect}, KEY, "framing.waiting")
+    check("conformance: unread items in the inbox do not let a serial daemon pass the pipelined fixture",
+          results[0][0] == "fail" and "timed out" in results[0][1], str(results))
 
 
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
@@ -387,6 +393,13 @@ def test_fixtures_follow_the_format_and_the_spec() -> None:
           all(f.get("as", "founder") in RANK and f.get("about") and f["steps"] and all(
               sum(k in s for k in ("send", "raw", "await")) == 1 and (
                   "result" in s or "error" in s or "closed" in s or ("send" in s and "await" not in s)) for s in f["steps"]) for f in fixtures))
+    for f in fixtures:
+        pending = set()
+        for s in f["steps"]:
+            if "send" in s and not ({"result", "error", "closed"} & set(s)):
+                pending.add(s["send"]["id"])
+            pending.discard(s.get("await"))
+        check(f"conformance: {f['name']} awaits every call it only sends", not pending, str(pending))
     sent = {s["send"]["method"] for f in fixtures for s in f["steps"] if "send" in s}
     check("conformance: every method a fixture sends is in the spec", sent <= set(METHODS), str(sent - set(METHODS)))
     refused = {f["spec"] for f in fixtures for s in f["steps"] if "error" in s}

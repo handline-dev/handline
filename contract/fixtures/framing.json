@@ -3,7 +3,7 @@
   {
    "name": "framing.waiting_call_does_not_block",
    "spec": "inbox.list",
-   "about": "A call that waits (inbox.list with wait_s) does not hold up a later call on the same connection; its own reply still comes. Meaningful when the founder's inbox has nothing unread (else the first call returns at once).",
+   "about": "A call that waits (inbox.list with wait_s) does not hold up a later call on the same connection; its own reply still comes. The wait filters on before: 1, which no item is older than, so it holds the full 3 s whatever the inbox holds.",
    "as": "founder",
    "steps": [
     {
@@ -34,7 +34,8 @@
       "id": 2,
       "method": "inbox.list",
       "params": {
-       "wait_s": 3
+       "wait_s": 3,
+       "before": 1
       }
      }
     },
