@@ -30,7 +30,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, sends, stream
+from . import landauth, lands, messaging, relay, rpc, sends, stream
 from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
     rpc_accounts,
     rpc_agents,
@@ -201,6 +201,7 @@ class SocketServer:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._watcher = stream.Watcher(log)
+        self._relay = relay.RelayServer(log)
 
     def start(self) -> None:
         path = paths.socket_file()
@@ -230,6 +231,7 @@ class SocketServer:
         self._thread = threading.Thread(target=self._accept_loop, daemon=True,
                                         name="ocp-daemon-socket")
         self._thread.start()
+        self._relay.start()
         self._watcher.start()
 
     def _accept_loop(self) -> None:
@@ -244,6 +246,7 @@ class SocketServer:
 
     def stop(self) -> None:
         self._stop.set()
+        self._relay.stop()
         self._watcher.close()
         if self._sock is not None:
             try:
