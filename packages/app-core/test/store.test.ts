@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { RpcError } from '@handline/client';
 import { Store, controlsOf } from '../src/index.ts';
 import { setup, until } from '@handline/fake-daemon/helpers';
 
@@ -143,4 +144,92 @@ test('a lost connection shows as the state and the open page recovers on reconne
   assert.equal(store.page!.agent, ARCH);
   assert.ok(store.details.get(ARCH));
   store.stop();
+});
+
+// ---- review of the merged store ----
+
+const watchedOf = (store: Store) => (store as unknown as { watched: Map<string, number> }).watched;
+
+test('two quick openAgent calls end with the later page; the earlier agent is let go and not left attached', async () => {
+  const { store, client } = await open();
+  const detached: string[] = [];
+  const detach = client.detachTerminal.bind(client);
+  client.detachTerminal = (a: string) => { detached.push(a); return detach(a); };
+  // the earlier call is slow to attach, so it finishes after the later one has opened its page
+  const attach = client.attachTerminal.bind(client);
+  client.attachTerminal = async (a: string) => { if (a === ARCH) await new Promise((r) => setTimeout(r, 40)); return attach(a); };
+  const first = store.openAgent(ARCH);
+  await new Promise((r) => setTimeout(r, 5));
+  const second = store.openAgent(TB);
+  await Promise.all([first, second]);
+  assert.equal(store.page!.agent, TB);
+  assert.equal(watchedOf(store).has(ARCH), false);
+  assert.equal(watchedOf(store).get(TB), 1);
+  assert.equal(detached.filter((a) => a === ARCH).length, 1); // attached late, then detached by the stale call
+  await Promise.all([store.openAgent(TB), store.openAgent(TB)]);
+  assert.equal(store.page!.agent, TB);
+  assert.equal(watchedOf(store).get(TB), 1);
+  store.stop();
+});
+
+test('a failed open lets go of the agent it watched', async () => {
+  const { store, client } = await open();
+  client.attachTerminal = async () => { throw new RpcError('refused', 'the agent has no terminal'); };
+  await store.openAgent(TB);
+  assert.equal(store.page, null);
+  assert.equal(watchedOf(store).has(TB), false);
+  assert.match(store.error!, /no terminal/);
+  store.stop();
+});
+
+test('watching is counted: one screen letting go does not stop another\'s updates', async () => {
+  const { store, client } = await open();
+  await store.watch(ARCH); await store.watch(ARCH);
+  store.unwatch(ARCH);
+  assert.equal(watchedOf(store).get(ARCH), 1);
+  store.unwatch(ARCH); store.unwatch(ARCH); // extra calls do not go negative
+  assert.equal(watchedOf(store).has(ARCH), false);
+  client.close();
+});
+
+test('a refresh whose detail load fails still tells subscribers the list changed', async () => {
+  const { store, client } = await open();
+  await store.watch(ARCH);
+  let notified = 0;
+  store.subscribe(() => notified++);
+  const call = client.call.bind(client) as (m: string, p: object) => Promise<unknown>;
+  (client as unknown as { call: unknown }).call = (m: string, p: object) => m === 'agent.get' ? Promise.reject(new RpcError('internal', 'boom')) : call(m, p);
+  await assert.rejects(store.refresh(), /boom/);
+  assert.ok(notified >= 1);
+  client.close();
+});
+
+test('stop clears the open page and the watches so a restart begins clean', async () => {
+  const { store } = await open();
+  await store.openAgent(ARCH);
+  store.stop();
+  assert.equal(store.page, null);
+  assert.equal(watchedOf(store).size, 0);
+});
+
+test('an agent that goes away while its page is open closes the page and says so', async () => {
+  const { store, client } = await open();
+  await store.openAgent(ARCH);
+  const call = client.call.bind(client) as (m: string, p: object) => Promise<unknown>;
+  (client as unknown as { call: unknown }).call = (m: string, p: object) => m === 'agent.get' ? Promise.reject(new RpcError('not_found', 'no such agent')) : call(m, p);
+  await store.refresh();
+  await until(() => store.page === null, 'page closed');
+  assert.match(store.error!, /is gone/);
+  assert.equal(watchedOf(store).has(ARCH), false);
+  client.close();
+});
+
+test('take and release go through the store and the detail follows', async () => {
+  const { store, client } = await open();
+  await store.openAgent(ARCH);
+  await store.take(ARCH);
+  assert.equal(controlsOf(store.details.get(ARCH)!, store.me).typing, true);
+  await store.release(ARCH);
+  assert.equal(controlsOf(store.details.get(ARCH)!, store.me).typing, false);
+  client.close();
 });

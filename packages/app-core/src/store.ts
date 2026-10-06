@@ -20,7 +20,9 @@ export class Store {
   version = 0;
   private wired = false;
   private listeners = new Set<() => void>();
-  private watched = new Set<string>(); // agents whose detail is kept fresh
+  private watched = new Map<string, number>(); // agents whose detail is kept fresh, and how many screens watch each
+  private openSeq = 0; // the latest openAgent call: an earlier one that finishes late undoes itself
+  private openTarget = '';
   private pendingDetail = new Set<string>();
   private offs: (() => void)[] = [];
   private unwatchView: (() => void) | null = null;
@@ -48,28 +50,45 @@ export class Store {
   }
 
   /** Detaches from the daemon and closes the connection. */
-  stop(): void { for (const off of this.offs) off(); this.offs = []; this.wired = false; this.unwatchView?.(); this.unwatchView = null; this.client.close(); }
+  stop(): void {
+    for (const off of this.offs) off();
+    this.offs = []; this.wired = false;
+    this.unwatchView?.(); this.unwatchView = null;
+    this.page = null; this.watched.clear(); this.pendingDetail.clear(); // a restart begins clean; the client is closing, so nothing is detached
+    this.client.close();
+  }
 
   /** Fetches the agent list again, and the detail of every agent being watched. */
   async refresh(): Promise<void> {
     const { agents } = await this.client.call('agents.list', {});
     this.agents = new Map(agents.map((a) => [a.name, a]));
-    await Promise.all([...this.watched].map((n) => this.loadDetail(n)));
     this.emit();
+    try { await Promise.all([...this.watched.keys()].map((n) => this.loadDetail(n))); } finally { this.emit(); }
   }
 
   /** Keeps this agent's detail current until `unwatch`. */
-  async watch(name: string): Promise<void> { this.watched.add(name); await this.loadDetail(name); this.emit(); }
-  unwatch(name: string): void { this.watched.delete(name); }
+  async watch(name: string): Promise<void> { this.watched.set(name, (this.watched.get(name) ?? 0) + 1); await this.loadDetail(name); this.emit(); }
+  /** Ends one `watch`; the detail is kept fresh until every watcher has let go. */
+  unwatch(name: string): void {
+    const n = (this.watched.get(name) ?? 0) - 1;
+    if (n > 0) this.watched.set(name, n); else this.watched.delete(name);
+  }
 
   private async loadDetail(name: string): Promise<void> {
     try { this.details.set(name, await this.client.call('agent.get', { agent: name })); }
-    catch (e) { if (e instanceof RpcError && e.code === 'not_found') this.details.delete(name); else throw e; }
+    catch (e) {
+      if (!(e instanceof RpcError && e.code === 'not_found')) throw e;
+      this.details.delete(name);
+      if (this.page?.agent === name) { this.error = `${name} is gone`; void this.closeAgent(); }
+    }
   }
 
   private onEvent(e: WireEvent): void {
     if (e.type === 'agent.changed') this.agents.set(e.data.name as string, e.data as unknown as AgentView);
-    if (e.type === 'agent.removed' && e.agent) this.agents.delete(e.agent);
+    if (e.type === 'agent.removed' && e.agent) {
+      this.agents.delete(e.agent);
+      if (this.page?.agent === e.agent) { this.error = `${e.agent} was removed`; void this.closeAgent(); }
+    }
     if (e.agent && e.type === 'agent.control') {
       const d = e.data as { at: string; kind: string; text: string; actor: { name: string } | null };
       const list = this.notes.get(e.agent) ?? [];
@@ -106,15 +125,25 @@ export class Store {
 
   // ---- the open agent page (one-page apps) ----
 
+  /** Opens the agent's page. Two quick calls end with the later one open; the earlier one lets go of what it took. */
   async openAgent(agent: string): Promise<void> {
+    const seq = ++this.openSeq;
+    this.openTarget = agent;
     await this.closeAgent();
+    if (seq !== this.openSeq) return;
+    let watched = false, attached = false, opened = false;
     await this.act('open', async () => {
-      await this.watch(agent);
-      const view = await this.client.attachTerminal(agent);
+      await this.watch(agent); watched = true;
+      const view = await this.client.attachTerminal(agent); attached = true;
+      if (seq !== this.openSeq) return;
       this.unwatchView = view.subscribe(() => this.emit());
       this.page = { agent, tab: 'chat', view };
+      opened = true;
       this.emit();
     });
+    if (opened) return;
+    if (watched) this.unwatch(agent);
+    if (attached && this.openTarget !== agent) await this.client.detachTerminal(agent).catch(() => {});
   }
   async closeAgent(): Promise<void> {
     const p = this.page;
@@ -140,5 +169,7 @@ export class Store {
   key(agent: string, key: string) { return this.run('key', agent, () => this.client.sendKeys(agent, key)); }
   interrupt(agent: string) { return this.run('interrupt', agent, () => this.client.interrupt(agent)); }
   answer(prompt: Prompt, key: string) { return this.run('answer', prompt.agent, () => this.client.answerPrompt(prompt.agent, prompt.id, key)); }
+  take(agent: string) { return this.run('take control', agent, () => this.client.takeInput(agent)); }
+  release(agent: string) { return this.run('release', agent, () => this.client.releaseInput(agent)); }
   loadOlder() { const v = this.page?.view; return v ? this.act('load older', () => this.client.loadOlder(v)).then(() => {}) : Promise.resolve(); }
 }
