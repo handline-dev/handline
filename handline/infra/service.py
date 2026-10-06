@@ -157,6 +157,16 @@ def install(home: Path | None = None) -> tuple[bool, str]:
     return True, f"installed {path}, label {LABEL}"
 
 
+def load() -> tuple[bool, str]:
+    """Load the installed plist into launchd, as `install` does but without writing it: for a service that is installed and not
+    loaded (after `launchctl bootout`, or a login that did not load it). (True, "") or (False, launchd's own words)."""
+    res = run_launchctl(["bootstrap", domain_target(), str(plist_path())])
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or "launchctl bootstrap failed").strip()
+    run_launchctl(["enable", service_target()])
+    return True, ""
+
+
 def uninstall() -> tuple[bool, str]:
     path = plist_path()
     run_launchctl(["bootout", service_target()])
