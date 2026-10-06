@@ -129,11 +129,11 @@ A method marked write takes a required `request_id`.
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused` |  |
-| `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused` |  |
-| `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused` |  |
-| `push.answer` | agent | yes | `requester`, `request_id` | `Accepted` | `refused` |  |
-| `push.cancelled` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused`, `bad_request` |  |
+| `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused`, `bad_request`, `not_found` |  |
+| `push.answer` | agent | yes | `requester`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `push.cancelled` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |

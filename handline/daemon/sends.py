@@ -91,7 +91,9 @@ def _working_say(con, me: str, target: str, body: str, parent: int | None, task:
 
 
 def say_verb(con, log, **kw) -> tuple[bool, str]:
-    """`hl say TARGET BODY`: a message that needs no answer, typed at once."""
+    """`hl say TARGET BODY`: a message that needs no answer, typed at once. `effect(con, message, request id)`, when given, is
+    the daemon's record of the write, made in the transaction that writes the message and what is written with it."""
+    effect = kw.get("effect")
     me, speaker = _who(kw)
     if me is None:
         return False, _NO_WHO
@@ -120,14 +122,17 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
             tries = [_say_cmd(target, kw["body"], kw["parent"], f"--task T{t}") for t in mine[:3]]
             tries.append(_say_cmd(target, kw["body"], kw["parent"], "--no-task '<why>'"))
             return False, refusal + "\nTry:\n  " + "\n  ".join(tries)
-        ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
-                                  speaker=speaker, notify=False)
-        if ok:
+        def within(c, note, rid):
             if plain and rid is not None:
                 for tid in asked_on:
-                    db.link_request(con, tid, rid)
-            elif db.get_request(con, kw["parent"])["state"] != "queued":     # it settled, not lost a race
-                actions.record_human_resolve(con, kw["parent"], [task] if task else None, no_task, me)
+                    db.link_request(c, tid, rid)
+            elif db.get_request(c, kw["parent"])["state"] != "queued":     # it settled, not lost a race
+                actions.record_human_resolve(c, kw["parent"], [task] if task else None, no_task, me)
+            if effect:
+                effect(c, note, rid)
+        ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw["parent"],
+                                  speaker=speaker, notify=False, within=within)
+        if ok:
             _after(rid, kw["target"], log)
             if defaulted:
                 msg += f"\nattached to T{task}, your only open task"
@@ -150,19 +155,36 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         if target == actions.HUMAN and row["opened_by"] == me:
             # A reply to the founder naming the task it became: it is theirs to read, not a memo,
             # and the task is named whoever holds it now.
+            def within(c, note, rid):
+                db.link_request(c, task, rid)
+                if effect:
+                    effect(c, note, rid)
             ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),
-                                      speaker=speaker, notify=False)
+                                      speaker=speaker, notify=False, within=within)
             if ok and rid is not None:
-                db.link_request(con, task, rid)
                 _after(rid, kw["target"], log)
             return ok, msg
         if row["owner"] != target:
             return False, (f"T{task} is with {row['owner']}, not {target}. Try:\n  "
                            + _say_cmd(row["owner"], kw["body"], kw.get("parent"), f"--task T{task}"))
-        ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
+        if effect is None:
+            ok, msg, _ = actions.memo_add(con, task, me, kw["body"])
+            return ok, msg
+        con.execute("BEGIN IMMEDIATE")      # the memo and the daemon's record of it are one write; the holder is told after
+        try:
+            ok, msg, _ = actions.memo_add(con, task, me, kw["body"], tell=False)
+            if ok:
+                effect(con, msg, None)
+            con.execute("COMMIT" if ok else "ROLLBACK")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+        if ok:
+            actions.tell_memo_holder(con, task, me, "added", kw["body"])
         return ok, msg
     ok, msg, rid = askmod.say(target, kw["body"], requester=me, parent_id=kw.get("parent"),
-                              speaker=speaker, notify=False)
+                              speaker=speaker, notify=False, within=effect)
     if ok:
         _after(rid, kw["target"], log)
     return ok, msg

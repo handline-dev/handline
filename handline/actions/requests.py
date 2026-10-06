@@ -62,7 +62,7 @@ def answer_ok(con, rid: int, verdict: str, effect=None) -> tuple[bool, str]:
         return tasks.decide(con, tid, verdict, effect=effect)
     if _is_answer_to_human(row):
         said = db.answer_row_of(con, rid)
-        def sent(c, note):
+        def sent(c, note, _rid=None):
             # Replied to is read: leaving it in the mailbox would ask the human
             # to dismiss what they have just answered.
             db.mark_announced(c, [rid])

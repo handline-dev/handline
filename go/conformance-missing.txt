@@ -52,3 +52,8 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+say
+ask
+push
+push.answer
+push.cancelled

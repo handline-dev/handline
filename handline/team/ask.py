@@ -421,7 +421,7 @@ def say(target: str, body: str, requester: str | None = None,
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
 
-    `within(con, message)` is more to write in the transaction that writes the reply and settles the request
+    `within(con, message, request id)` is more to write in the transaction that writes the reply and settles the request
     it answers.
     """
     settled: list = []
@@ -430,7 +430,7 @@ def say(target: str, body: str, requester: str | None = None,
         if parent_id is not None:
             settled.append(_close_replied(con, parent_id, rid, body))
         if within:
-            within(con, note)
+            within(con, note, rid)
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
                       kind=SAY_KIND,
                       speaker=speaker, notify=notify, within=together if parent_id is not None or within else None)
