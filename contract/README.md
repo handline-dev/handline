@@ -6,15 +6,15 @@
 
 `fixtures/*.json` are scripted exchanges that any daemon (Python, Go) or fake daemon must satisfy. They are the behaviour; prose follows them.
 
-    python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [FILE ...]
+    python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [--allow-missing METHOD ...] [--allow-missing-file PATH] [FILE ...]
 
-Prints PASS, FAIL or SKIP per fixture. Exit 0: all passed. 1: a fixture failed. 2: usage. 3: nothing failed but something was skipped (`--allow-skip` makes that 0). Every reply must be JSON-RPC 2.0 with exactly one of `result` and `error`, every notice `jsonrpc` 2.0 with a `method`; otherwise the fixture fails. Unix sockets only for now.
+Prints PASS, FAIL or SKIP per fixture. Exit 0: all passed. 1: a fixture failed, or was not run for want of a method or a `--var` that no `--allow-missing` names. 2: usage. 3: nothing else is wrong but a role had no socket (`--allow-skip` makes that 0; it covers nothing else). The summary counts passed, failed, skipped by role, not implemented, and needing a var, apart. Every reply must be JSON-RPC 2.0 with exactly one of `result` and `error`, every notice `jsonrpc` 2.0 with a `method`; otherwise the fixture fails. Unix sockets only for now.
 
 A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, steps}`:
 
 - `name`: `area.case`, unique. `spec`: the method (or `x-` section) of `protocol.json` it pins. `about`: one line.
-- `as`: the role of the connection: `founder` (the default and SOCKET itself), `agent`, `member`, `anonymous`. A role with no `--as` socket is SKIPPED, never passed.
-- A fixture is SKIPPED, with the reason, when it needs a `--var` that was not given, or when its `spec` is a method the daemon does not list in `hello`. A method the daemon lists and then fails to serve is a FAIL.
+- `as`: the role of the connection: `founder` (the default and SOCKET itself), `agent`, `member`, `anonymous`. A role with no `--as` socket is SKIPPED, never passed; `--allow-skip` covers only this.
+- A fixture is reported NEEDVAR when it needs a `--var` that was not given, and MISSING ("method not implemented by this daemon") when its `spec` is a method the daemon does not list in `hello`. Both fail the run unless the fixture's `spec` method is named by `--allow-missing METHOD` (repeatable) or in `--allow-missing-file PATH` (one method per line, `#` comments): a daemon that is still growing keeps that list, and shrinks it as methods land. A method the daemon lists and then fails to serve is a FAIL.
 - Each fixture gets a fresh connection. `steps` run in order; a step has one of `send` (a JSON-RPC request object) or `raw` (a line sent as written), then:
   - `result` or `error`: what the reply with that id must hold. `error` has `code`, `message`, `data`.
   - `notices`: notifications that must arrive after the reply, in this order (others may be interleaved); waits 1 s.
@@ -27,5 +27,5 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 
 - Founder: the connection proves it by the founder key, which a fixture sends as `{{founder_key}}` in `hello`. Pass it with `--var founder_key=KEY`. The Python daemon keeps it in its protected store (`sessiontoken.founder_key_held()`, minted by `sessiontoken.ensure_founder_key()`); the Go daemon's own test harness mints one.
 - Anonymous: the same socket, a hello without the key.
-- Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3.
+- Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0.
 - A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Run the conformance fixtures in contract/fixtures against a daemon's Unix socket.
 
-  python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip] [FILE ...]
+  python3 contract/conformance.py SOCKET [--as ROLE=SOCKET ...] [--var NAME=VALUE ...] [--only TEXT] [--allow-skip]
+      [--allow-missing METHOD ...] [--allow-missing-file PATH] [FILE ...]
 
-The format is in contract/README.md. Exit 0 when everything passed, 1 when a fixture failed, 2 on a usage error, 3 when
-nothing failed but something was skipped (a run that skipped is not green; --allow-skip says it is meant). The same fixtures run against the Python daemon, the Go
+The format is in contract/README.md. Exit 0 when everything passed, 1 when a fixture failed or one was not run for want of
+a method or a --var (unless its method is named by --allow-missing, repeatable, or in --allow-missing-file, one method per
+line), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
+nothing else). The same fixtures run against the Python daemon, the Go
 one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
 from __future__ import annotations
@@ -239,16 +242,17 @@ def listed_methods(target) -> set | None:
 
 
 def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None) -> tuple[str, str]:
-    """("pass" | "fail" | "skip", why). Each fixture gets a fresh connection on the socket of its `as` role.
-    `methods` is what the daemon lists in hello: a fixture whose `spec` is a method it does not list is skipped."""
+    """("pass" | "fail" | "skip" | "needvar" | "missing", why). Each fixture gets a fresh connection on the socket of its
+    `as` role. "skip" is a role with no socket; "needvar" a --var not given; "missing" a `spec` method the daemon does not
+    list in hello (`methods`)."""
     role = fx.get("as", "founder")
     if role not in sockets:
         return "skip", f"no socket for role {role} (pass --as {role}=SOCKET)"
     missing = sorted(names_used(fx["steps"]) - set(vars_))
     if missing:
-        return "skip", f"needs --var {missing[0]}=..."
+        return "needvar", f"needs --var {missing[0]}=..."
     if methods is not None and fx.get("spec") in spec_methods() and fx["spec"] not in methods:
-        return "skip", "method not implemented by this daemon"
+        return "missing", "method not implemented by this daemon"
     saved = dict(vars_)
     try:
         conn = Connection(sockets[role])
@@ -310,11 +314,17 @@ def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = No
     return out
 
 
+def read_methods(path: str) -> set:
+    """One method per line; blank lines and #-comments are ignored."""
+    lines = (ln.split("#", 1)[0].strip() for ln in Path(path).read_text().splitlines())
+    return {ln for ln in lines if ln}
+
+
 def main(argv: list[str], connectors: dict | None = None) -> int:
     """`connectors` (role -> function returning a connected socket) stands in for the socket paths: tests only."""
     sockets: dict = {}
     vars_: dict = {}
-    only, files, rest, i, allow_skip = None, [], [], 0, False
+    only, files, rest, i, allow_skip, allow_missing = None, [], [], 0, False, set()
     while i < len(argv):
         a = argv[i]
         if a in ("--as", "--var") and i + 1 < len(argv) and "=" in argv[i + 1]:
@@ -323,6 +333,16 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
             i += 2
         elif a == "--allow-skip":
             allow_skip, i = True, i + 1
+        elif a == "--allow-missing" and i + 1 < len(argv):
+            allow_missing.add(argv[i + 1])
+            i += 2
+        elif a == "--allow-missing-file" and i + 1 < len(argv):
+            try:
+                allow_missing |= read_methods(argv[i + 1])
+            except OSError as e:
+                print(f"cannot read {argv[i + 1]}: {e}", file=sys.stderr)
+                return 2
+            i += 2
         elif a == "--only" and i + 1 < len(argv):
             only, i = argv[i + 1], i + 2
         elif a.startswith("-"):
@@ -338,12 +358,18 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     if "founder" not in sockets:
         sockets["founder"], rest = rest[0], rest[1:]
     files = [Path(p) for p in rest] or sorted(FIXTURES.glob("*.json"))
-    counts = {"pass": 0, "fail": 0, "skip": 0}
+    spec_of = {fx["name"]: fx.get("spec") for fx in load(files)}
+    counts = {"pass": 0, "fail": 0, "skip": 0, "missing": 0, "needvar": 0}
+    unallowed = 0
     for status, why, name in run_all(files, sockets, vars_, only):
         counts[status] += 1
+        if status in ("missing", "needvar") and spec_of[name] not in allow_missing:
+            unallowed += 1
+            why += f" (not in --allow-missing: {spec_of[name]})"
         print(f"{status.upper():4}  {name}" + (f"  - {why}" if why else ""))
-    print(f"{counts['pass']} passed, {counts['fail']} failed, {counts['skip']} skipped")
-    if counts["fail"]:
+    print(f"{counts['pass']} passed, {counts['fail']} failed, {counts['skip']} skipped by role, "
+          f"{counts['missing']} not implemented, {counts['needvar']} needing a var ({unallowed} of those not allowed)")
+    if counts["fail"] or unallowed:
         return 1
     return 3 if counts["skip"] and not allow_skip else 0
 

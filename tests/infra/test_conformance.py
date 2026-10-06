@@ -176,12 +176,12 @@ def _first_fixture_fails(mutate, needle: str, name: str) -> None:
 
 def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
     [(status, why, _)] = conformance.run_all(FILES, _fakes("founder"), {}, "hello.ok")
-    check("conformance: a fixture needing a --var is skipped without it", status == "skip" and "founder_key" in why, why)
+    check("conformance: a fixture needing a --var is reported needvar without it", status == "needvar" and "founder_key" in why, why)
     results = conformance.run_all(FILES, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
     by = {n: (s, why) for s, why, n in results}
-    check("conformance: a fixture whose method the daemon does not list is skipped, with the reason",
-          by["errors.not_found"] == ("skip", "method not implemented by this daemon")
-          and by["errors.invalid_params"][0] == "skip" and by["hello.ok"][0] == "pass", str(by))
+    check("conformance: a fixture whose method the daemon does not list is reported missing, with the reason",
+          by["errors.not_found"] == ("missing", "method not implemented by this daemon")
+          and by["errors.invalid_params"][0] == "missing" and by["hello.ok"][0] == "pass", str(by))
     check("conformance: nothing else is hidden by it", not [n for n, (s, _) in by.items() if s == "fail"], str(by))
     results = conformance.run_all(FILES, _fakes("founder", broken={"agent.get"}), KEY, "errors.not_found")
     check("conformance: a method the daemon lists and then answers -32601 for fails",
@@ -205,7 +205,7 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
     check("conformance: the Python daemon passes the hello, whoami and error fixtures it can",
           all(by[n][0] == "pass" for n in ("hello.ok", "hello.must_come_first", "whoami.founder", "errors.parse_error")), str(by))
-    check("conformance: what it lacks is skipped, not passed", by["terminal.format_is_text"][0] == "skip", str(by))
+    check("conformance: what it lacks is reported missing, not passed", by["terminal.format_is_text"][0] == "missing", str(by))
     print("python daemon:", ", ".join(f"{s.upper()} {n}" for n, (s, _) in sorted(by.items())))
 
 
@@ -239,6 +239,34 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         skipped_all = conformance.main([str(path)], _fakes("founder"))
     check("conformance: a run where everything skipped exits 3", skipped_all == 3)
+
+
+def _run(args, **fake) -> tuple[int, str]:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = conformance.main(args, _fakes("founder", "agent", "anonymous", **fake))
+    return code, out.getvalue()
+
+
+def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
+    code, out = _run(["--allow-skip", *KEYARG], lacks={"agent.get"})
+    check("conformance: a daemon that omits a method its fixtures pin fails even with --allow-skip", code == 1 and "MISSING" in out and "not in --allow-missing: agent.get" in out, out)
+    code, out = _run(["--allow-skip", "--allow-missing", "agent.get", *KEYARG], lacks={"agent.get"})
+    check("conformance: the same run with --allow-missing for that method exits 0", code == 0, out)
+    listing = Path(td) / "missing.txt"
+    listing.write_text("# methods Go lacks\n\nagent.get  # soon\n")
+    code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
+    check("conformance: --allow-missing-file lists methods one per line, comments allowed", code == 0, out)
+    code, out = _run(["--allow-skip", "--allow-missing", "whoami", *KEYARG], lacks={"agent.get"})
+    check("conformance: allowing a different method does not cover it", code == 1, out)
+    code, out = _run(["--allow-skip"])
+    check("conformance: a run without the founder key var and --allow-skip exits non-zero", code == 1 and "NEEDVAR" in out and "needs --var founder_key" in out, out)
+    code, out = _run(["--allow-skip", *KEYARG])
+    check("conformance: the summary counts each kind apart",
+          "0 failed, 0 skipped by role, 0 not implemented, 0 needing a var" in out, out)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bad = conformance.main(["--allow-missing-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
+    check("conformance: an unreadable --allow-missing-file is a usage error", bad == 2)
 
 
 def test_matchers() -> None:
@@ -289,6 +317,7 @@ def main() -> int:
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))
+        run(lambda: test_only_role_skips_are_covered_by_allow_skip(td))
         run(lambda: test_matchers())
         run(lambda: test_fixtures_follow_the_format_and_the_spec())
     return run_area(tests)
