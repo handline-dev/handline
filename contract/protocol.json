@@ -46,7 +46,7 @@
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
   "session_token": "Session token and peer-pid check, unchanged."
  },
- "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.",
+ "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open: it was decided, withdrawn, or its apply failed; the Proposal carries the new state and `settled`. The event carries the whole Proposal, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description.",
  "x-legacy": {
   "land": "land",
   "land_pass": "land.pass",
@@ -222,6 +222,13 @@
    "data": {
     "device.paired": "Device",
     "device.revoked": "{device}"
+   }
+  },
+  "hr": {
+   "snapshot": "hr.list",
+   "data": {
+    "hr.raised": "Proposal",
+    "hr.settled": "Proposal"
    }
   }
  },
@@ -4957,14 +4964,15 @@
   },
   {
    "name": "hr.list",
-   "summary": "HR proposals with their diff.",
+   "summary": "HR proposals with their diff: what waits for the founder, and what settled recently.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "state",
      "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Only the proposals in that state; without it, the list below."
      }
     }
    ],
@@ -4987,11 +4995,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound."
   },
   {
    "name": "hr.decide",
-   "summary": "Approve or reject a proposal.",
+   "summary": "Approve or reject a proposal; approving an apply_failed one applies it again.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6190,9 +6199,10 @@
      "notifications",
      "operations",
      "chat",
-     "devices"
+     "devices",
+     "hr"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
    },
    "Caller": {
     "type": "object",
@@ -7599,11 +7609,7 @@
      },
      "state": {
       "type": "string",
-      "enum": [
-       "open",
-       "approved",
-       "rejected"
-      ]
+      "description": "open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved, but the change did not go through (`error` says why); still the founder's move, and hr.decide approve again retries it. withdrawn: taken back by the agent that raised it. An open set: a client ignores a word it does not know."
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
@@ -7611,6 +7617,65 @@
      "subject": {
       "type": "string",
       "description": "Digest of what the proposal changes as drawn; hr.decide's approve hands it back."
+     },
+     "requested_by": {
+      "type": "string",
+      "description": "Who asked: an agent's name, or human for a proposal the founder typed. Text from the daemon's record; optional."
+     },
+     "reason": {
+      "type": "string",
+      "description": "Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional."
+     },
+     "asked": {
+      "type": "object",
+      "description": "The fields the proposal asks for, by what was asked. Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent.",
+      "properties": {
+       "vendor": {
+        "type": "string"
+       },
+       "model": {
+        "type": "string"
+       },
+       "team": {
+        "type": "string"
+       },
+       "repo": {
+        "type": "string"
+       },
+       "to": {
+        "type": "string",
+        "description": "rename: the new name; link, unlink: the other end."
+       },
+       "sets": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "string"
+        },
+        "description": "`set <key>`: each agent setting asked for, key to value."
+       }
+      }
+     },
+     "error": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Why the change did not go through; set when state is apply_failed, else null. Text only. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "settled": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "When it was decided, withdrawn or its apply failed; null while open. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "required": [

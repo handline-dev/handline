@@ -520,11 +520,11 @@ Agents, roles, allowed edges, role and base file metadata.
 
 ### `hr.list`
 
-HR proposals with their diff.
+HR proposals with their diff: what waits for the founder, and what settled recently. Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound.
 
 ### `hr.decide`
 
-Approve or reject a proposal.
+Approve or reject a proposal; approving an apply_failed one applies it again.
 
 ### `accounts.list`
 
@@ -690,7 +690,7 @@ Agent commands the spec does not keep at agent role, for the founder to decide. 
 - **Needs a decision:** `hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl memory migrate`; `hl task note (suppressed)`
 
-The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.
+The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open: it was decided, withdrawn, or its apply failed; the Proposal carries the new state and `settled`. The event carries the whole Proposal, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description.
 
 ## Topics
 
@@ -705,6 +705,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
+| `hr` | `hr.raised` (Proposal), `hr.settled` (Proposal) | `hr.list` |
 
 ## Notifications
 

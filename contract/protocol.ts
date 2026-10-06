@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -323,10 +323,28 @@ export type Proposal = {
   title: string;
   /** Unified diff. */
   diff: string;
-  state: "open" | "approved" | "rejected";
+  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved, but the change did not go through (`error` says why); still the founder's move, and hr.decide approve again retries it. withdrawn: taken back by the agent that raised it. An open set: a client ignores a word it does not know. */
+  state: string;
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
+  /** Who asked: an agent's name, or human for a proposal the founder typed. Text from the daemon's record; optional. */
+  requested_by?: string;
+  /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
+  reason?: string;
+  /** The fields the proposal asks for, by what was asked. Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. */
+  asked?: {
+    vendor?: string;
+    model?: string;
+    team?: string;
+    repo?: string;
+    /** rename: the new name; link, unlink: the other end. */
+    to?: string;
+    /** `set <key>`: each agent setting asked for, key to value. */
+    sets?: { [key: string]: string };
+  };
+  error?: string | null;
+  settled?: Timestamp | null;
 };
 
 export type Repo = {
@@ -1296,6 +1314,7 @@ export interface Methods {
     }[];
   } };
   "hr.list": { params: {
+  /** Only the proposals in that state; without it, the list below. */
   state?: string;
 }; result: {
     proposals: Proposal[];

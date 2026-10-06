@@ -1,0 +1,148 @@
+{
+ "fixtures": [
+  {
+   "name": "hr.list.state_is_text",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: A state that is not text is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": 5
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.list.shape",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: The list is an array of proposals, empty when none waits or settled lately.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {}
+     },
+     "result": {
+      "proposals": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.list.only_a_proposal_in_the_state_asked",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: With a state nothing else is served: a state no proposal has gives an empty list.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": "no_such_state"
+      }
+     },
+     "result": {
+      "proposals": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "subscribe.hr_is_a_topic",
+   "spec": "subscribe",
+   "about": "NOT_YET_IN_PYTHON: hr is a topic of the spec: the subscribe is answered with a cursor.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "hr"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
