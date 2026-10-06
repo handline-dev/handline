@@ -35,7 +35,14 @@ function draw(Box: NonNullable<ReturnType<typeof useData>['box']> | string, node
   if ('repeat' in node) return Array.from({ length: node.repeat }, (_, i) => draw(Box, node.of, i));
   const kids = ('row' in node ? node.row : node.col).map((n, i) => draw(Box, n, i));
   return make(
-    { display: 'flex', flexDirection: 'row' in node ? 'row' : 'column', gap: node.gap ?? 0, ...(node.h ? { height: node.h } : {}) },
+    {
+      display: 'flex',
+      flexDirection: 'row' in node ? 'row' : 'column',
+      // a column beside a mark takes the rest of the row, so its bars have a width to be a percentage of
+      ...('col' in node ? { flex: 1, minWidth: 0 } : {}),
+      gap: node.gap ?? 0,
+      ...(node.h ? { height: node.h } : {}),
+    },
     kids,
   );
 }
