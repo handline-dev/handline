@@ -403,11 +403,11 @@ func TestAGatewayNeedsTheDatabaseTheOtherDaemonBroughtUp(t *testing.T) {
 func TestAGatewayRefusesAConfigThatWouldMakeItSomethingElse(t *testing.T) {
 	_, _, cfg := startGateway(t, "")
 	for name, mod := range map[string]func(*Config){
-		"no certificate":    func(c *Config) { c.CertFile, c.KeyFile = "", "" },
-		"no listen":         func(c *Config) { c.Listen = "" },
-		"the python socket": func(c *Config) { c.SocketFile = filepath.Join(c.Home, "daemon.sock") },
-		"no relay":          func(c *Config) { c.RelaySocket = "" },
-		"all interfaces":    func(c *Config) { c.Listen = "0.0.0.0:0" },
+		"a certificate without its key": func(c *Config) { c.KeyFile = "" },
+		"no listen":                     func(c *Config) { c.Listen = "" },
+		"the python socket":             func(c *Config) { c.SocketFile = filepath.Join(c.Home, "daemon.sock") },
+		"no relay":                      func(c *Config) { c.RelaySocket = "" },
+		"all interfaces":                func(c *Config) { c.Listen = "0.0.0.0:0" },
 	} {
 		c := cfg
 		c.PidFile = filepath.Join(t.TempDir(), "p.pid")
@@ -598,5 +598,102 @@ func TestTheRelaySocketIsTrustedOnlyWhenTheDaemonHoldingTheLockAnswersOnIt(t *te
 	}
 	if err := relayPeerIsTheDaemon(c, lock, asPid(0)); err == nil {
 		t.Fatal("a peer the kernel could not name was trusted")
+	}
+}
+
+// startPlain is a gateway with no certificate (Tailscale mode) on loopback, where a test can reach it.
+func startPlain(t *testing.T, web string) *Daemon {
+	t.Helper()
+	_, _, cfg := startGateway(t, web)
+	cfg.CertFile, cfg.KeyFile = "", ""
+	cfg.PidFile = filepath.Join(t.TempDir(), "p.pid")
+	d, err := Start(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Close)
+	return d
+}
+
+func TestWithoutACertificateTheGatewayServesPlainHTTPAndWebSocketWithNothingToPin(t *testing.T) {
+	web := t.TempDir()
+	os.WriteFile(filepath.Join(web, "index.html"), []byte("<html>pair</html>"), 0o644)
+	d := startPlain(t, web)
+	if d.NetworkFingerprint() != "" {
+		t.Fatal("a plain listener has no certificate to fingerprint")
+	}
+	if resp, err := http.Get("http://" + d.NetworkAddr() + "/"); err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%v %v", resp, err)
+	}
+	if _, err := (&http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}).Get("https://" + d.NetworkAddr() + "/"); err == nil {
+		t.Fatal("TLS answered on a plain listener")
+	}
+	for origin, ok := range map[string]bool{"http://" + d.NetworkAddr(): true, "http://evil.example": false, "https://" + d.NetworkAddr(): true} {
+		ws, _, err := websocket.DefaultDialer.Dial("ws://"+d.NetworkAddr()+"/rpc", http.Header{"Origin": {origin}})
+		if (err == nil) != ok {
+			t.Errorf("origin %s: %v", origin, err)
+		}
+		if ws != nil {
+			ws.Close()
+		}
+	}
+	ws, _, err := websocket.DefaultDialer.Dial("ws://"+d.NetworkAddr()+"/rpc", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	c := &wsClient{t, ws}
+	if r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"agents.list"}`); gate(r) != "unpaired" {
+		t.Fatalf("%v", r)
+	}
+	_, _, _, uri := d.dev.Pair(time.Minute)
+	if u, _ := url.Parse(uri); u.Query().Has("fp") || u.Query().Get("host") != d.NetworkAddr() {
+		t.Fatal(uri)
+	}
+}
+
+func TestThePlainListenerRefusesEveryAddressButTailscaleAndLoopback(t *testing.T) {
+	for addr, ok := range map[string]bool{"100.64.0.1:1": true, "100.127.255.254:1": true, "127.0.0.1:1": true, "[::1]:1": true,
+		"192.168.1.5:1": false, "10.0.0.2:1": false, "172.16.0.1:1": false, "169.254.1.1:1": false, "100.128.0.1:1": false, "100.63.255.255:1": false,
+		"0.0.0.0:1": false, "8.8.8.8:1": false, "host.ts.net:1": false} {
+		if err := checkPlainBind(addr); (err == nil) != ok {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+	// and Start refuses before it binds anything
+	_, _, cfg := startGateway(t, "")
+	cfg.CertFile, cfg.KeyFile = "", ""
+	for _, addr := range []string{"192.168.1.5:0", "10.0.0.2:0", "0.0.0.0:0"} {
+		c := cfg
+		c.Listen, c.PidFile = addr, filepath.Join(t.TempDir(), "p.pid")
+		d, err := Start(c) // the address may not be this machine's, so the refusal must be the plain-HTTP rule, not a failed bind
+		if err == nil {
+			d.Close()
+			t.Errorf("%s: plain listener started", addr)
+		} else if !strings.Contains(err.Error(), "plain HTTP") && !strings.Contains(err.Error(), "binds every interface") {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+}
+
+func TestTailscaleModeBindsTheTailscaleAddressAndNeverFallsBack(t *testing.T) {
+	was := tailscaleAddr
+	defer func() { tailscaleAddr = was }()
+	tailscaleAddr = func() (net.IP, error) { return net.ParseIP("100.101.102.103"), nil }
+	if a, err := plainAddr(":7443"); err != nil || a != "100.101.102.103:7443" {
+		t.Fatalf("%q %v", a, err)
+	}
+	if a, err := plainAddr("127.0.0.1:7443"); err != nil || a != "127.0.0.1:7443" {
+		t.Fatalf("%q %v", a, err)
+	}
+	tailscaleAddr = func() (net.IP, error) { return nil, errors.New("no tailscale") }
+	if a, err := plainAddr(":7443"); err == nil {
+		t.Fatalf("fell back to %q", a)
+	}
+	_, _, cfg := startGateway(t, "")
+	cfg.CertFile, cfg.KeyFile, cfg.Listen, cfg.PidFile = "", "", ":0", filepath.Join(t.TempDir(), "p.pid")
+	if d, err := Start(cfg); err == nil {
+		d.Close()
+		t.Fatal("started with no Tailscale address")
 	}
 }

@@ -22,8 +22,10 @@ var alwaysNative = map[string]bool{"hello": true, "whoami": true, "device.pair":
 
 func checkGateway(cfg Config) error {
 	switch {
-	case cfg.Listen == "" || cfg.CertFile == "" || cfg.KeyFile == "":
-		return errors.New("a gateway needs an address to listen on and the certificate and key to serve (-listen, -cert, -key)")
+	case cfg.Listen == "":
+		return errors.New("a gateway needs an address to listen on (-listen)")
+	case (cfg.CertFile == "") != (cfg.KeyFile == ""):
+		return errors.New("a gateway takes -cert and -key together, or neither (Tailscale mode, plain HTTP)")
 	case cfg.RelaySocket == "" || cfg.PidFile == "":
 		return errors.New("a gateway needs the relay socket and its own pid file")
 	case cfg.SocketFile != "" && filepath.Clean(cfg.SocketFile) == filepath.Join(cfg.Home, "daemon.sock"):

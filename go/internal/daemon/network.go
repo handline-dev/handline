@@ -37,6 +37,9 @@ type networkListener struct {
 
 // Fingerprint is the sha256 of the certificate the listener presents now, for the pairing QR.
 func (n *networkListener) Fingerprint() string {
+	if n.src == nil {
+		return "" // plain Tailscale mode: nothing to pin
+	}
 	c, err := n.src.get()
 	if err != nil || len(c.Certificate) == 0 {
 		return ""
@@ -87,25 +90,35 @@ func listenNetwork(cfg Config, d *Daemon) (*networkListener, error) {
 	if err := checkBind(cfg.Listen); err != nil {
 		return nil, err
 	}
-	src := &certSource{}
-	switch {
-	case cfg.CertFile != "" || cfg.KeyFile != "":
-		src.certFile, src.keyFile = cfg.CertFile, cfg.KeyFile
-		if _, err := src.get(); err != nil {
-			return nil, fmt.Errorf("network listener certificate: %w", err)
+	nl := &networkListener{}
+	var ln net.Listener
+	var err error
+	if cfg.plain() {
+		// Tailscale mode: the tailnet is encrypted end to end, so there is no certificate; plain HTTP is never served
+		// anywhere the tailnet is not the only way in.
+		if err := checkPlainBind(cfg.Listen); err != nil {
+			return nil, err
 		}
-	case cfg.Gateway:
-		return nil, errors.New("a gateway needs -cert and -key: it makes no certificate of its own")
-	default:
-		cert, err := networkCert(cfg.Home)
-		if err != nil {
-			return nil, fmt.Errorf("network listener certificate: %w", err)
+		ln, err = net.Listen("tcp", cfg.Listen)
+	} else {
+		src := &certSource{}
+		switch {
+		case cfg.CertFile != "" || cfg.KeyFile != "":
+			src.certFile, src.keyFile = cfg.CertFile, cfg.KeyFile
+			if _, err := src.get(); err != nil {
+				return nil, fmt.Errorf("network listener certificate: %w", err)
+			}
+		default:
+			cert, err := networkCert(cfg.Home)
+			if err != nil {
+				return nil, fmt.Errorf("network listener certificate: %w", err)
+			}
+			src.cert = &cert
 		}
-		src.cert = &cert
+		nl.src = src
+		ln, err = tls.Listen("tcp", cfg.Listen, &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return src.get() },
+			MinVersion: tls.VersionTLS13})
 	}
-	nl := &networkListener{src: src}
-	ln, err := tls.Listen("tcp", cfg.Listen, &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return src.get() },
-		MinVersion: tls.VersionTLS13})
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +155,57 @@ func listenNetwork(cfg Config, d *Daemon) (*networkListener, error) {
 	}
 	nl.srv = &http.Server{Handler: mux, ReadHeaderTimeout: rpc.RecvTimeout}
 	go nl.srv.Serve(ln)
-	cfg.Log("network listener on %s, certificate %s", ln.Addr(), nl.Fingerprint())
+	if cfg.plain() {
+		cfg.Log("network listener on %s, plain HTTP (Tailscale)", ln.Addr())
+	} else {
+		cfg.Log("network listener on %s, certificate %s", ln.Addr(), nl.Fingerprint())
+	}
 	return nl, nil
+}
+
+// plain is Tailscale mode: a gateway given no certificate serves plain HTTP/ws, and only on a Tailscale or loopback address.
+func (c Config) plain() bool { return c.Gateway && c.CertFile == "" && c.KeyFile == "" }
+
+// tailscaleAddr is this machine's Tailscale IPv4 address; a variable so a test can name one.
+var tailscaleAddr = func() (net.IP, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && tailscaleV4.Contains(n.IP) {
+			return n.IP, nil
+		}
+	}
+	return nil, errors.New("this machine has no Tailscale address (100.64.0.0/10); Tailscale mode serves nowhere else")
+}
+
+// plainAddr completes ":PORT" with the Tailscale address; a given host is left for checkPlainBind to judge.
+func plainAddr(listen string) (string, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "", fmt.Errorf("network listener address %q: %w (want :PORT or ADDR:PORT)", listen, err)
+	}
+	if host != "" {
+		return listen, nil
+	}
+	ip, err := tailscaleAddr()
+	if err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(ip.String(), port), nil
+}
+
+// checkPlainBind admits only a Tailscale address, or loopback for a local proxy such as `tailscale serve`.
+func checkPlainBind(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || tailscaleV4.Contains(ip)) {
+		return nil
+	}
+	return fmt.Errorf("network listener address %q: without -cert and -key the listener serves plain HTTP, which only a Tailscale (100.64.0.0/10) or loopback address may; any other address needs -cert and -key", addr)
 }
 
 // sameOrigin lets a call without an Origin through (a native client) and a browser's only from the page this

@@ -5,7 +5,7 @@ One binary, built from `go/`. Run it with `-home DIR`; on the default home it re
 
 ## Network listener
 
-`-listen ADDR:PORT` opens an encrypted WebSocket (`/rpc`) for paired devices; nothing listens without it. `ADDR` must be an IP of this
+`-listen ADDR:PORT` opens an encrypted WebSocket (a gateway without `-cert` is plain, see Tailscale mode) (`/rpc`) for paired devices; nothing listens without it. `ADDR` must be an IP of this
 machine's loopback, LAN or Tailscale network, never a wildcard, a public address or a host name. A connection no device token opened gets
 one refusal for every call (`gate: unpaired`) and nothing else. `device.pair` (founder) makes a one-time code; a device trades it
 with `device.redeem` for a token, which is kept as a hash in the `devices` table and sent in `hello`.
@@ -16,8 +16,9 @@ Without `-cert` and `-key` the listener keeps a self-signed certificate in the h
 
 `-gateway` makes the daemon the network front door of the Python daemon that owns the home: Python stays the only writer of agent state.
 
-    handlined -gateway -allow-real-home -listen 100.64.1.2:7443 -cert HOST.crt -key HOST.key \
-              -advertise HOST.TAILNET.ts.net:7443 -web /path/to/web/dist
+    handlined -gateway -allow-real-home -listen :7443 -web /path/to/web/dist
+
+With no `-cert` and `-key` this is Tailscale mode (below): nothing to set up.
 
 - It opens `db.sqlite` without creating or migrating it and refuses one the Python daemon has not brought to this schema.
 - It writes the `devices` table and its pid file, nothing else. The pid file is in the founder's protected store, which no agent sandbox
@@ -39,18 +40,44 @@ Without `-cert` and `-key` the listener keeps a self-signed certificate in the h
 
 ## Web UI and TLS
 
-`-web DIR` serves the built web UI on the listener's own origin (`https://HOST:PORT/`), so a browser needs no pinning. Files only: no
+`-web DIR` serves the built web UI on the listener's own origin (`http://` in Tailscale mode, `https://` with a certificate), so a browser needs no pinning. Files only: no
 listing, nothing outside `DIR` (including through a symlink), no dotfiles, `index.html` never cached, `GET` and `HEAD` only, a `token` in the
 query refused. The page is the app and its pairing screen, not data; every call it makes goes through the device gate, with the token sent
 in the first `hello` message. A browser's WebSocket is accepted only from the page this listener served.
 
-The certificate is read from `-cert` and `-key` and read again whenever either file changes, so a renewal needs no restart. Nothing else is read or
-created, and neither is logged. Two setups:
+### Tailscale mode (the default): no certificate
 
-1. **CA-trusted (browsers).** `tailscale cert HOST.TAILNET.ts.net` writes `HOST.TAILNET.ts.net.crt` and `.key`; give those to `-cert`/`-key` and
-   `-advertise HOST.TAILNET.ts.net:PORT`. Browsers accept it without a warning.
-2. **Self-signed (native clients that pin).** Any self-signed certificate and key (for example from `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 ...`).
-   The pairing code carries its sha256 fingerprint and clients refuse any other certificate. A browser warns once.
+A gateway given no `-cert` and `-key` serves plain HTTP and WebSocket, because a tailnet is already encrypted end to end by WireGuard.
+There is nothing to install and a browser shows no warning.
+
+- `-listen :PORT` binds the machine's Tailscale address (the one in 100.64.0.0/10) only. If there is none, the gateway refuses to start; it
+  never falls back to `0.0.0.0` or to another interface. `-listen 100.x.y.z:PORT` names the address yourself.
+- Plain HTTP is served only on a Tailscale address or on loopback (for the proxy below). Any other address, a LAN address for example, is refused
+  at start (`-cert` and `-key` are needed there). There is no way to serve plain HTTP on the LAN.
+- The pairing code carries the address and a one-time secret, and no fingerprint (there is no certificate). Pairing secrets and tokens are
+  never logged. A caller no device token has opened still gets no data.
+- A browser's WebSocket is accepted only from the page the listener served (`http://HOST:PORT`).
+
+**Secure context (installable web app, service worker).** A browser treats plain `http://` on a tailnet address as not secure, so a web
+app cannot be installed from it. For that, run once, with the gateway on loopback (`-listen 127.0.0.1:7443`):
+
+    tailscale serve --bg --https=443 http://127.0.0.1:7443
+
+Tailscale then serves `https://HOST.TAILNET.ts.net/` with its own certificate and proxies to the gateway; use `-advertise HOST.TAILNET.ts.net:443`.
+I could not verify this command's syntax offline; check it against the current Tailscale documentation (`tailscale serve --help`) before relying on it.
+Skip it if you do not want the app installed.
+
+### TLS (any other interface, or native clients that pin)
+
+With `-cert` and `-key` the listener serves TLS 1.3 on any LAN, Tailscale or loopback address, never plain. The certificate is read from those
+files and read again whenever either file changes, so a renewal needs no restart. Nothing else is read or created, and neither file is logged.
+Both files are given together or not at all.
+
+- **Self-signed, pinned.** Any self-signed certificate and key (for example from
+  `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 ...`). The pairing code carries its sha256 fingerprint and
+  a native client refuses any other certificate. A browser warns once.
+- **CA-trusted.** `tailscale cert HOST.TAILNET.ts.net` writes `HOST.TAILNET.ts.net.crt` and `.key`; give those to `-cert`/`-key` and
+  `-advertise HOST.TAILNET.ts.net:PORT`. Browsers accept it without a warning.
 
 `device.pair` returns `{code, expires_at, fingerprint, uri}`; `uri` is `handline://pair?host=ADDRESS&fp=FINGERPRINT&code=CODE`, the address
-being `-advertise` or the listening address.
+being `-advertise` or the listening address; `fp` is absent in Tailscale mode.

@@ -39,12 +39,12 @@ func main() {
 	allowReal := flag.Bool("allow-real-home", false, "with no -home, use the default home, which a running install uses")
 	db := flag.String("db", "", "database file (default: <home>/db.sqlite)")
 	sock := flag.String("socket", "", "local socket (default: <home>/daemon.sock)")
-	listen := flag.String("listen", "", "address for the network listener, an encrypted WebSocket; off when empty")
-	cert := flag.String("cert", "", "certificate for the network listener (default: one made in memory)")
+	listen := flag.String("listen", "", "address for the network listener; off when empty. With -gateway and no -cert, :PORT binds the Tailscale address")
+	cert := flag.String("cert", "", "certificate for the network listener (default: one made in memory; a gateway with none serves plain HTTP on Tailscale)")
 	key := flag.String("key", "", "private key for the network listener")
 	serveFDs := flag.String("serve-fds", "", "comma-separated file descriptors of connections already open (socketpairs "+
 		"made by the parent, for a run where no socket can be bound); each is served and no socket file is made")
-	gateway := flag.Bool("gateway", false, "run as the network front door of the Python daemon that owns the home: needs -listen, -cert and -key; "+
+	gateway := flag.Bool("gateway", false, "run as the network front door of the Python daemon that owns the home: needs -listen (with -cert and -key for TLS, without them plain HTTP on the Tailscale address); "+
 		"opens the database without changing it, writes only the devices table and the pid file, relays what it does not serve")
 	relaySock := flag.String("relay-socket", "", "the Python daemon's relay socket, for -gateway (default: <home>/relay.sock)")
 	pidFile := flag.String("pid-file", "", "where -gateway records its pid (default: the founder's protected store, gateway/pid, which no agent sandbox can write)")

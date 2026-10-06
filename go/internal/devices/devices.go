@@ -114,7 +114,10 @@ func (m *Manager) Pair(ttl time.Duration) (c string, expires time.Time, fingerpr
 	if m.print != nil {
 		fp = m.print()
 	}
-	q := url.Values{"host": {m.addr}, "fp": {fp}, "code": {c}}
+	q := url.Values{"host": {m.addr}, "code": {c}}
+	if fp != "" {
+		q.Set("fp", fp) // plain Tailscale mode has no certificate to pin
+	}
 	return c, expires, fp, "handline://pair?" + q.Encode()
 }
 

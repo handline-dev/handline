@@ -25,8 +25,8 @@ type Config struct {
 	Home       string
 	DBFile     string
 	SocketFile string
-	// Listen is the address the network listener binds; empty leaves it off. It is always an encrypted
-	// WebSocket, and a Tailscale or LAN address is only the address it binds.
+	// Listen is the address the network listener binds; empty leaves it off. It is an encrypted
+	// WebSocket, except in a gateway's Tailscale mode (see Gateway).
 	Listen string
 	// CertFile and KeyFile are the listener's certificate; with neither, one is made in memory for this run.
 	CertFile, KeyFile string
@@ -35,8 +35,9 @@ type Config struct {
 
 	// Gateway makes this daemon the network front door of a Python daemon that owns Home: it opens the database
 	// without changing it, writes nothing but its devices table and its pid file, serves natively only the device
-	// methods and Native, and relays every other call a paired device may make to RelaySocket. It needs Listen,
-	// CertFile and KeyFile, and its local socket is never the Python daemon's.
+	// methods and Native, and relays every other call a paired device may make to RelaySocket. It needs Listen, and its
+	// local socket is never the Python daemon's. With no CertFile and KeyFile it is in Tailscale mode: Listen is
+	// ":PORT" (the Tailscale address is found) or a Tailscale or loopback address, and it serves plain HTTP/ws.
 	Gateway     bool
 	RelaySocket string   // the Python daemon's relay socket
 	PidFile     string   // where the gateway records its pid, for the relay's trust check
@@ -69,6 +70,13 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	if cfg.Auth == nil {
 		cfg.Auth = authority.New(cfg.Home)
+	}
+	if cfg.plain() && cfg.Listen != "" {
+		addr, err := plainAddr(cfg.Listen)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Listen = addr
 	}
 	if cfg.Gateway {
 		if err := checkGateway(cfg); err != nil {
