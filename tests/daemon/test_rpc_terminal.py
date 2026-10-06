@@ -210,22 +210,36 @@ def test_two_clients_watch_one_terminal_with_one_poll_at_the_capped_rate(home: P
         b.close()
 
 
+def _until(pred, secs: float = 30.0) -> bool:
+    """Wait on a condition, not for a time: the limit only ends a test that would never finish."""
+    end = time.monotonic() + secs
+    while not pred():
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.005)
+    return True
+
+
 def test_a_slow_client_is_sent_a_fresh_frame_and_no_backlog(home: Path) -> None:
     support._board_world(home)
     with Screen() as s:
         termchannel.RATE_S = 0.02
         got: list = []
+        gate = threading.Event()
 
-        def slow(msg):
+        def slow(msg):          # a client that takes nothing more until the gate opens
             got.append(msg)
-            time.sleep(0.3)
+            gate.wait(30)
         client = termchannel.Client(slow, lambda: None)
         ch = termchannel.HUB.attach("t-worker", client)
         ch.begin(client)
+        _until(lambda: got)
         for i in range(12):
             s.rows = [f"state {i}", "second row", "third row"]
-            time.sleep(0.04)
-        time.sleep(0.8)
+            seen = s.reads
+            _until(lambda: s.reads >= seen + 2)     # the poller has read this screen, whatever the machine's load
+        gate.set()
+        _until(lambda: any(m["method"] == "frame" and m["params"]["lines"][0]["text"] == "state 11" for m in got))
         frames = [m for m in got if m["method"] == "frame"]
         check("slow client: it is not sent a message per change", 1 <= len(frames) <= 5, str(len(frames)))
         last = frames[-1]["params"]
@@ -404,7 +418,7 @@ def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_se
         ch.begin(client)
         for i in range(termchannel.CLIENT_QUEUE + 20):       # holders change faster than a stuck client reads
             ch.notify("holder", holders=[{"kind": "person", "name": f"p{i}", "since": None}])
-        time.sleep(0.2)
+        _until(lambda: hung == [1] and client not in ch.clients, 10)
         check("overflow: a client that fell CLIENT_QUEUE notices behind is hung up, not left with a stale holder", hung == [1] and client.dead and not client.notices, str(hung))
         check("overflow: it is no longer served, and the poller is not held by it", client not in ch.clients)
         stuck.set()
@@ -430,8 +444,9 @@ def test_a_client_that_falls_far_behind_is_hung_up_to_reattach_and_one_poller_se
             t.start()
         for t in ts:
             t.join()
-        time.sleep(0.1)
-        check("one poller: two attaches beginning at once leave one poller thread", sum(1 for t in threading.enumerate() if t.name == "ocp-terminal-poll") == 1)
+        pollers = lambda: sum(1 for t in threading.enumerate() if t.name == "ocp-terminal-poll")
+        _until(lambda: pollers() <= 1, 10)      # the earlier channel's poller is still on its way out; a second one here never goes
+        check("one poller: two attaches beginning at once leave one poller thread", pollers() == 1)
         for c in (c1, c2):
             ch2.detach(c)
 
