@@ -11,5 +11,5 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": { "@handline/client": "workspace:*", "@handline/client-node": "workspace:*" },
-  "devDependencies": { "@handline/config": "workspace:*", "@handline/fake-daemon": "workspace:*", "@handline/web": "workspace:*", "electron": "^38", "esbuild": "^0.25" }
+  "devDependencies": { "@handline/config": "workspace:*", "@handline/fake-daemon": "workspace:*", "@handline/web": "workspace:*", "electron": "^38", "esbuild": "^0.25", "happy-dom": "^18" }
 }

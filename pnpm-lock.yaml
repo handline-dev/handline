@@ -42,6 +42,9 @@ importers:
       esbuild:
         specifier: ^0.25
         version: 0.25.12
+      happy-dom:
+        specifier: ^18
+        version: 18.0.1
 
   apps/mobile:
     dependencies:
