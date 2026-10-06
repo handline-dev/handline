@@ -20,7 +20,7 @@ async function drive(client: DaemonClient, daemon: FakeDaemon) {
   daemon.settle();
   await until(() => view.text().includes('Do you want to proceed?'), 'prompt over the wire');
   const [p] = await client.openPrompts(A);
-  await client.answerPrompt(p.id, '1');
+  await client.answerPrompt(A, p!.id, '1');
   daemon.settle();
   await until(() => view.text().includes('● Pushed. Done.'), 'finish');
   client.close();

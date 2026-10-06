@@ -1,36 +1,34 @@
-// A fake daemon that answers the JSON-RPC contract of docs/daemon-plan.md from fixtures, with one
+// A fake daemon that answers the generated contract (contract/protocol.ts) from fixtures, with one
 // scripted fake session per agent. The UI cannot tell it from the real socket; the real daemon is a swap.
+// It serves the methods the UI's session screen needs; every other method is refused as `unsupported`.
 import {
-  BARRED_FOR_AGENT, PROTOCOL, WRITE_METHODS,
-  type AgentDetail, type AgentView, type EventNotice, type ErrorCode, type FrameNotice, type HelloParams,
-  type InputHolder, type MethodName, type NamedKey, type Prompt, type Role, type RpcErrorBody, type Topic,
+  METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
+  type Actor, type AgentDetail, type AgentView, type Caller, type ErrorCode, type Event as WireEvent,
+  type InputHolder, type MethodName, type Notifications, type Prompt, type Role, type Row, type Timestamp, type Topic,
 } from '../src/protocol.ts';
 import type { Transport } from '../src/transport.ts';
 import { AGENTS, BANNER, PROMPT_LINES, type AgentFixture } from './fixtures.ts';
 
-const ROWS = 24, COLS = 80, HISTORY_PAGE = 50;
-const NAMED_KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+const ROWS = 24, COLS = 80;
+const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
+const row = (text: string): Row => ({ text });
 
-// Every method and the protocol it appeared in.
-const METHODS: Record<MethodName, number> = {
-  'hello': 1, 'whoami': 1, 'daemon.status': 1, 'agents.list': 1, 'agent.get': 1, 'subscribe': 1, 'unsubscribe': 1,
-  'session.start': 1, 'session.wake': 1, 'session.restart': 1, 'session.park': 1, 'session.stop': 1, 'session.input': 1, 'session.keys': 1,
-  'session.interrupt': 1, 'prompt.list': 1, 'prompt.answer': 1, 'input.take': 1, 'input.release': 1,
-  'terminal.attach': 1, 'terminal.detach': 1, 'terminal.history': 1, 'terminal.resize': 1,
-};
-
-class Refusal extends Error {
+/** A refusal or error the caller gets as a JSON-RPC error. */
+class Failure extends Error {
   code: ErrorCode;
-  reason?: string;
-  rpc: number; // -32601 only for an unknown method
-  constructor(code: ErrorCode, message: string, reason?: string, rpc = -32000) { super(message); this.code = code; this.reason = reason; this.rpc = rpc; }
+  data: Record<string, unknown>;
+  constructor(code: ErrorCode, message: string, data: Record<string, unknown> = {}) {
+    super(message); this.code = code; this.data = { code, ...data };
+  }
 }
-const refused = (why: string) => new Refusal('refused', why, why);
+const refused = (gate: string, reason: string, hint?: string) => new Failure('refused', reason, { reason, gate, hint });
+const badRequest = (message: string, field?: string) => new Failure('bad_request', message, { field });
 
 interface Session {
   fx: AgentFixture;
-  state: AgentView['state'];
-  since: string;
+  state: string;
+  since: Timestamp;
   sessionId: string | null;
   open: boolean;
   hasTerminal: boolean;
@@ -43,15 +41,14 @@ interface Session {
   holder: InputHolder;
   prompt: Prompt | null;
   queue: (() => void)[]; // the scripted turn, one step per tick
-  promptCount: number;
-  sessionCount: number;
+  counter: number;
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
 interface Conn {
   transport: Transport;
   role: Role;
-  client: string;
+  caller: Caller;
   helloed: boolean;
   topics: Set<Topic> | null;
   attached: Set<string>; // terminal ids
@@ -62,17 +59,19 @@ export interface FakeDaemonOptions {
   now?: () => Date;
 }
 
+type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
+
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();
-  private promptAgent = new Map<string, string>(); // every prompt id issued -> its agent, so an old one is stale, not unknown
-  private events: EventNotice[] = [];
+  private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
   private conns = new Set<Conn>();
-  private replies = new Map<string, { result?: unknown; error?: RpcErrorBody }>();
+  private replies = new Map<string, { params: string; result: Record<string, unknown> }>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
+  private timelineId = 0;
 
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
@@ -80,31 +79,29 @@ export class FakeDaemon {
     for (const fx of AGENTS) this.sessions.set(fx.name, this.newSession(fx));
   }
 
-  private iso() { return this.now().toISOString(); }
+  private iso(): Timestamp { return this.now().toISOString(); }
 
   private newSession(fx: AgentFixture): Session {
     const open = fx.session !== null;
-    const s: Session = {
+    return {
       fx, state: fx.state, since: this.iso(), sessionId: fx.session, open, hasTerminal: fx.state !== 'no_terminal',
       lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [], seq: 0, cols: COLS, rows: ROWS,
-      buffer: '', composing: false, holder: { who: 'daemon', since: this.iso() }, prompt: null,
-      queue: [], promptCount: 0, sessionCount: 0, received: [],
+      buffer: '', composing: false, holder: DAEMON_HOLDER, prompt: null, queue: [], counter: 0, received: [],
     };
-    return s;
   }
 
   // ---- hosting ----
 
   /** Serves one connection; `dropConnections` cuts them. */
-  accept(transport: Transport, role: Role = 'founder'): void {
-    const conn: Conn = { transport, role, client: 'unknown', helloed: false, topics: null, attached: new Set() };
+  accept(transport: Transport, role: Role = 'founder', name = 'unknown'): void {
+    const kind = role === 'agent' ? 'agent' : role === 'member' ? 'device' : 'person';
+    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set() };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
     transport.onclose = () => { this.conns.delete(conn); };
   }
 
   dropConnections(): void { for (const c of [...this.conns]) c.transport.close(); }
-  connectionCount(): number { return this.conns.size; }
 
   /** Runs the scripted sessions by themselves, one step per interval. */
   autoplay(ms: number): void { this.timer = setInterval(() => this.tick(), ms); }
@@ -127,17 +124,18 @@ export class FakeDaemon {
   /** The daemon's own typing: refused while a person holds the terminal, marked in the stream otherwise. */
   daemonTypes(agent: string, text: string): void {
     const s = this.session(agent);
-    if (s.holder.who !== 'daemon') throw refused(`${s.holder.who} holds the input`);
+    if (s.holder.kind !== 'daemon') throw refused('input_holder', `${s.holder.name} holds the input`);
     this.record(s, 'text', text, 'daemon');
-    this.edit(s, () => { s.lines.push(`> ${text}`); }, { kind: 'daemon_typed', text });
+    this.edit(s, () => { s.lines.push(`> ${text}`); });
+    this.pushTerminal(s, 'marker', (seq): Notifications['marker'] => ({
+      terminal: tid(s), seq, at: this.iso(), kind: 'daemon_typed', actor: { kind: 'daemon', name: 'daemon' }, text }));
   }
 
-  private session(agent: string): Session {
-    const s = this.sessions.get(agent);
-    if (!s) throw new Refusal('not_found', `no agent named ${agent}`);
+  private session(agent: unknown): Session {
+    const s = typeof agent === 'string' ? this.sessions.get(agent) : undefined;
+    if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
     return s;
   }
-
   private record(s: Session, kind: 'text' | 'key', value: string, actor: string) { s.received.push({ kind, value, actor }); }
 
   private visible(s: Session): string[] {
@@ -147,29 +145,42 @@ export class FakeDaemon {
   private scrolledOff(s: Session): number { return Math.max(0, s.lines.length - s.rows); }
 
   /** Applies a change to the screen text and sends the changed rows to everyone attached. */
-  private edit(s: Session, change: () => void, marker?: { kind: 'daemon_typed' | 'control'; text: string }): void {
-    const before = this.visible(s), offBefore = this.scrolledOff(s);
+  private edit(s: Session, change: () => void): void {
+    const before = this.visible(s);
     change();
-    const after = this.visible(s), scrolled = this.scrolledOff(s) - offBefore;
-    const shifted = [...before.slice(scrolled), ...Array(scrolled).fill('')];
-    const rows = after.flatMap((text, row) => (text !== shifted[row] ? [{ row, text }] : []));
-    if (rows.length || scrolled) {
-      this.pushTerminal(s, 'frame', (seq): FrameNotice => ({ terminal: tid(s), seq, scrolled, rows }));
-    }
-    if (marker) {
-      const row = Math.min(s.lines.length, s.rows) - 1;
-      this.pushTerminal(s, 'marker', (seq) => ({ terminal: tid(s), seq, row, ...marker }));
-    }
+    const changed = this.visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
+    if (changed.length) this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
   }
-  private pushTerminal(s: Session, method: string, build: (seq: number) => object): void {
-    const seq = ++s.seq;
-    const params = build(seq);
+  private pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
+    const params = build(++s.seq);
     for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
   }
 
-  private setState(s: Session, state: AgentView['state'], kind = 'state', actor?: string) {
+  private view(s: Session): AgentView {
+    return {
+      name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, state_since: s.since,
+      block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
+      wall_reason: s.fx.wall ? 'usage limit' : null,
+      account: s.fx.account, task: s.fx.task,
+      cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
+      has_dialog: s.prompt !== null, parent: s.fx.parent,
+    };
+  }
+  private detail(s: Session): AgentDetail {
+    return {
+      ...this.view(s), worktree: { path: s.fx.worktree, branch: s.fx.branch }, terminal: s.hasTerminal ? tid(s) : null,
+      session_id: s.sessionId, session_open: s.open, input_holders: [s.holder],
+      account_pick: { account: s.fx.account, reason: 'fixture' }, prompt: s.prompt,
+    };
+  }
+
+  private setState(s: Session, state: string, actor?: Actor) {
     s.state = state; s.since = this.iso();
-    this.emit('agents', kind, s.fx.name, actor);
+    this.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: this.view(s) as unknown as Record<string, unknown> });
+  }
+  private control(s: Session, actor: Actor, kind: string, text: string) {
+    this.emit('agents', 'agent.control', { agent: s.fx.name, actor,
+      data: { id: ++this.timelineId, at: this.iso(), kind, actor, text } });
   }
 
   private write(s: Session, line: string) { this.edit(s, () => { s.lines.push(line); }); }
@@ -182,7 +193,7 @@ export class FakeDaemon {
     });
   }
 
-  private submit(s: Session, actor: string) {
+  private submit(s: Session, actor: Actor) {
     const text = s.buffer;
     this.edit(s, () => {
       const line = `> ${text}`;
@@ -192,8 +203,8 @@ export class FakeDaemon {
     if (s.state === 'idle') this.startTurn(s, actor);
   }
 
-  private startTurn(s: Session, actor: string) {
-    this.setState(s, 'running', 'state', actor);
+  private startTurn(s: Session, actor: Actor) {
+    this.setState(s, 'running', actor);
     s.queue = [
       () => this.write(s, '● Thinking…'),
       () => this.write(s, '● I will push the branch.'),
@@ -202,26 +213,20 @@ export class FakeDaemon {
   }
 
   private openPrompt(s: Session) {
-    const id = `p${++s.promptCount}-${s.fx.name}`;
     const lines = PROMPT_LINES.map((l) => l.replace('{branch}', s.fx.branch));
-    this.promptAgent.set(id, s.fx.name);
-    s.prompt = {
-      id, kind: 'permission', agent: s.fx.name, tool: 'Bash', command: `git push origin ${s.fx.branch}`,
-      reason: null, lines, options: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }],
+    const prompt: Prompt = {
+      id: `p${++s.counter}-${s.fx.name}`, agent: s.fx.name, kind: 'permission', tool: 'Bash',
+      command: `git push origin ${s.fx.branch}`, reason: null, lines, since: this.iso(),
+      options: [{ key: '1', label: 'Yes', answer: 'yes', highlighted: true }, { key: '2', label: 'No', answer: 'no' }],
     };
+    s.prompt = prompt;
     for (const l of lines) this.write(s, l);
     this.setState(s, 'waiting');
-    this.emit('requests', 'prompt_open', s.fx.name, undefined, { prompt: id });
+    this.emit('notifications', 'prompt_asked', { agent: s.fx.name, title: 'Permission: Bash', data: prompt as unknown as Record<string, unknown> });
   }
 
-  private closePrompt(s: Session, how: string, actor: string) {
-    const id = s.prompt!.id;
+  private answer(s: Session, key: string, actor: Actor) {
     s.prompt = null;
-    this.emit('requests', 'prompt_closed', s.fx.name, actor, { prompt: id, how });
-  }
-
-  private answer(s: Session, key: NamedKey, actor: string) {
-    this.closePrompt(s, key === '1' ? 'yes' : 'no', actor);
     if (key === '1') {
       s.queue = [
         () => { this.setState(s, 'running'); this.write(s, `● Ran git push origin ${s.fx.branch}`); },
@@ -231,29 +236,29 @@ export class FakeDaemon {
     } else {
       s.queue = [() => { this.write(s, '● Understood, I will not push.'); this.setState(s, 'idle'); }];
     }
-    this.setState(s, 'running', 'state', actor);
+    this.setState(s, 'running', actor);
   }
 
-  private interruptTurn(s: Session, actor: string) {
+  private interruptTurn(s: Session, actor: Actor) {
     if (s.state === 'idle') return;
-    if (s.prompt) this.closePrompt(s, 'interrupted', actor);
-    s.queue = [];
+    s.prompt = null; s.queue = [];
     this.write(s, '● Interrupted · What should Claude do instead?');
-    this.setState(s, 'idle', 'state', actor);
+    this.setState(s, 'idle', actor);
   }
 
-  private pressKey(s: Session, key: NamedKey, actor: string) {
-    this.record(s, 'key', key, actor);
+  private pressKey(s: Session, key: string, actor: Actor) {
+    this.record(s, 'key', key, actor.name);
     if (key === 'esc' || key === 'ctrl-c') this.interruptTurn(s, actor);
     else if (key === 'enter') { if (s.buffer) this.submit(s, actor); }
-    else if (s.prompt && s.prompt.options.some((o) => o.key === key)) this.answer(s, key, actor);
+    else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
   }
 
   // ---- events ----
 
   /** Public so a test can make changes while no client is connected. */
-  emit(topic: Topic, kind: string, agent?: string, actor?: string, data?: Record<string, unknown>) {
-    const e: EventNotice = { cursor: ++this.head, topic, kind, agent, actor, data };
+  emit(topic: Topic, type: string, f: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> } = {}) {
+    const e: WireEvent = { cursor: ++this.head, topic, type, at: this.iso(), actor: f.actor ?? null, agent: f.agent ?? null,
+      title: f.title ?? null, target: f.agent ? { screen: 'session', id: f.agent } : null, data: f.data ?? {} };
     this.events.push(e);
     while (this.events.length > this.retention) this.floor = this.events.shift()!.cursor;
     for (const c of this.conns) if (c.topics?.has(topic)) this.notify(c, 'event', e);
@@ -264,8 +269,11 @@ export class FakeDaemon {
   private notify(c: Conn, method: string, params: unknown) {
     c.transport.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
   }
-  private reply(c: Conn, id: unknown, body: { result?: unknown; error?: RpcErrorBody }) {
+  private reply(c: Conn, id: unknown, body: Body) {
     c.transport.send(JSON.stringify({ jsonrpc: '2.0', id, ...body }));
+  }
+  private fail(e: Failure): Body {
+    return { error: { code: RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
   }
 
   private onMessage(c: Conn, line: string) {
@@ -274,204 +282,204 @@ export class FakeDaemon {
       return this.reply(c, null, { error: { code: -32700, message: 'The request is not valid JSON.', data: { code: 'bad_request' } } });
     }
     if (typeof req.method !== 'string' || req.id === undefined) {
-      return this.reply(c, req.id ?? null, { error: { code: -32600, message: 'A request needs an id and a method.', data: { code: 'bad_request' } } });
+      return this.reply(c, req.id ?? null, this.fail(badRequest('A request needs an id and a method.')));
     }
     const params = req.params ?? {};
-    let body: { result?: unknown; error?: RpcErrorBody };
-    const rid = typeof params.request_id === 'string' ? params.request_id : null;
-    const isWrite = WRITE_METHODS.has(req.method);
-    if (isWrite && rid && this.replies.has(rid)) body = this.replies.get(rid)!; // a retry: no second action
-    else {
-      try {
-        const result = this.dispatch(c, req.method, params);
-        body = { result };
-      } catch (e) {
-        if (!(e instanceof Refusal)) throw e;
-        body = { error: { code: e.rpc, message: e.message, data: { code: e.code, reason: e.reason } } };
-      }
-      if (isWrite && rid) this.replies.set(rid, body);
-    }
+    let body: Body;
+    try { body = { result: this.withReplay(c, req.method, params) }; }
+    catch (e) { if (!(e instanceof Failure)) throw e; body = this.fail(e); }
     this.reply(c, req.id, body);
-    this.afterReply(c, req.method, params, body);
+    if (req.method === 'subscribe' && !body.error) this.replay(c, params.since as number | undefined);
+  }
+
+  /** A write's successful reply is kept by request_id; the same id with the same params returns it, repeating nothing. */
+  private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
+    const spec = METHODS[method as MethodName];
+    if (!spec?.write || typeof p.request_id !== 'string') return this.dispatch(c, method, p);
+    const { request_id, ...rest } = p;
+    const sig = JSON.stringify(rest);
+    const kept = this.replies.get(request_id);
+    if (kept) {
+      if (kept.params !== sig) throw badRequest('That request_id was used for different params.', 'request_id');
+      return { ...kept.result, replayed: true };
+    }
+    const result = this.dispatch(c, method, p) as Record<string, unknown>;
+    this.replies.set(request_id, { params: sig, result });
+    return result;
   }
 
   // Replayed events follow the subscribe reply, never precede it.
-  private afterReply(c: Conn, method: string, params: Record<string, unknown>, body: { result?: unknown; error?: RpcErrorBody }) {
-    if (method !== 'subscribe' || body.error) return;
-    const since = params.since as number | undefined;
+  private replay(c: Conn, since: number | undefined) {
     if (since === undefined) return;
-    if (since < this.floor) { this.notify(c, 'gap', { cursor: this.head }); return; }
+    if (since < this.floor) { this.notify(c, 'gap', { reason: 'retention', cursor: this.head } satisfies Notifications['gap']); return; }
     for (const e of this.events) if (e.cursor > since && c.topics?.has(e.topic)) this.notify(c, 'event', e);
   }
 
-  private bad(why: string): never { throw new Refusal('bad_request', why); }
+  private accepted(said: string, extra: Record<string, unknown> = {}) { return { accepted: true, said, ...extra }; }
+  private actor(c: Conn): Actor { return { kind: c.caller.kind === 'device' ? 'device' : c.caller.kind === 'agent' ? 'agent' : 'user', name: c.caller.name }; }
 
   private dispatch(c: Conn, method: string, p: Record<string, unknown>): unknown {
+    const spec = METHODS[method as MethodName];
     if (method === 'hello') {
-      const h = p as unknown as HelloParams;
-      if (typeof h.client !== 'string' || typeof h.protocol !== 'number') this.bad('hello needs client and protocol');
-      c.client = h.client; c.helloed = true;
-      const methods = Object.fromEntries(Object.entries(METHODS).filter(([m]) => this.mayCall(c.role, m)));
-      return { protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, methods };
+      if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
+      if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
+      c.helloed = true;
+      if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
+      return {
+        protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, caller: c.caller,
+        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: 'local',
+        methods: Object.entries(METHODS).map(([name, m]) => ({ name, since: m.since, role: m.role, allowed: this.mayCall(c.role, m.role) })),
+      };
     }
-    if (!c.helloed) this.bad('say hello first');
-    if (!(method in METHODS)) throw new Refusal('not_found', `unknown method ${method}`, undefined, -32601);
-    if (!this.mayCall(c.role, method)) throw refused(`the ${c.role} role may not call ${method}`);
-    if (WRITE_METHODS.has(method) && typeof p.request_id !== 'string') this.bad(`${method} needs a request_id`);
-    const actor = c.client;
-    const agent = () => { if (typeof p.agent !== 'string') this.bad('agent is required'); return this.session(p.agent); };
-    switch (method) {
-      case 'whoami': return { viewer: actor, role: c.role, methods: Object.keys(METHODS).filter((m) => this.mayCall(c.role, m)) };
+    if (!c.helloed) throw badRequest('say hello first');
+    if (!spec) throw new Failure('not_found', `unknown method ${method}`);
+    if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
+    if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
+    const actor = this.actor(c);
+    const agent = () => this.session(p.agent);
+    switch (method as MethodName) {
+      case 'whoami': return { caller: c.caller, role: c.role, methods: Object.entries(METHODS).filter(([, m]) => this.mayCall(c.role, m.role)).map(([n]) => n) };
       case 'daemon.status': {
-        const counts: Record<string, number> = {};
-        for (const s of this.sessions.values()) counts[s.state] = (counts[s.state] ?? 0) + 1;
-        return { alive: true, version: 'fake0000', protocol: PROTOCOL, host: { name: 'fake', healthy: true }, counts, inbox: 0 };
+        const by_state: Record<string, number> = {};
+        for (const s of this.sessions.values()) by_state[s.state] = (by_state[s.state] ?? 0) + 1;
+        return { alive: true, version: 'fake0000', protocol: PROTOCOL, schema: 1, started_at: this.iso(),
+          terminal_host: { name: 'fake', health: 'ok' }, agents: { total: this.sessions.size, by_state }, inbox: { unread: 0 } };
       }
       case 'agents.list': return { agents: [...this.sessions.values()].map((s) => this.view(s)) };
       case 'agent.get': return this.detail(agent());
       case 'subscribe': {
-        const topics = p.topics;
-        if (!Array.isArray(topics) || !topics.length) this.bad('topics must be a non-empty list');
-        c.topics = new Set(topics as Topic[]);
+        if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
+        c.topics = new Set(p.topics as Topic[]);
         return { cursor: this.head };
       }
-      case 'unsubscribe': c.topics = null; return {};
+      case 'unsubscribe': {
+        for (const t of (p.topics as Topic[] | undefined) ?? []) c.topics?.delete(t);
+        return {};
+      }
       case 'prompt.list': { const s = agent(); return { prompts: s.prompt ? [s.prompt] : [] }; }
-      case 'session.start': case 'session.wake': return this.startSession(agent(), method === 'session.wake', actor);
+      case 'session.start': return this.startSession(agent(), false, actor);
+      case 'session.wake': return this.startSession(agent(), true, actor);
       case 'session.restart': return this.restartSession(agent(), p.fresh === true, actor);
       case 'session.park': return this.stopSession(agent(), 'close', actor);
-      case 'session.stop': return this.stopSession(agent(), p.mode as string, actor);
-      case 'session.input': return this.input(agent(), p, actor);
-      case 'session.keys': return this.keys(agent(), p.keys, actor);
+      case 'session.stop': return this.stopSession(agent(), p.mode, actor);
+      case 'session.input': return this.input(agent(), p, c, actor);
+      case 'session.keys': return this.keys(agent(), p.keys, c, actor);
       case 'session.interrupt': {
-        const s = agent(); this.gate(s, actor);
-        this.record(s, 'key', 'esc', actor);
-        this.control(s, actor, 'interrupt'); this.interruptTurn(s, actor);
-        return { accepted: true };
+        const s = agent(); this.gate(s, c);
+        this.record(s, 'key', 'esc', actor.name);
+        this.control(s, actor, 'interrupt', `${actor.name} interrupted`); this.interruptTurn(s, actor);
+        return this.accepted('Interrupted.');
       }
       case 'prompt.answer': {
-        const s = this.sessions.get(this.promptAgent.get(String(p.prompt)) ?? '');
-        if (!s) throw new Refusal('not_found', `no prompt ${String(p.prompt)}`);
-        this.gate(s, actor);
-        if (s.prompt?.id !== p.prompt) throw new Refusal('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', 'stale_prompt');
-        const key = p.choice as NamedKey;
-        if (!s.prompt.options.some((o) => o.key === key)) this.bad(`${String(key)} is not offered by this prompt`);
-        this.record(s, 'key', key, actor);
-        this.control(s, actor, 'prompt.answer'); this.answer(s, key, actor);
-        return { accepted: true };
+        const s = agent(); this.gate(s, c);
+        const open = s.prompt;
+        if (!open || open.id !== p.prompt) throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
+        if (typeof p.choice !== 'string') throw badRequest('this prompt takes one of its option keys', 'choice');
+        const key = p.choice;
+        if (!open.options.some((o) => o.key === key)) throw badRequest(`${key} is not offered by this prompt`, 'choice');
+        this.record(s, 'key', key, actor.name);
+        this.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`); this.answer(s, key, actor);
+        return this.accepted('Answered.');
       }
       case 'input.take': {
         const s = agent();
-        if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
-        if (s.holder.who === 'daemon') s.holder = { who: actor, since: this.iso() };
-        this.control(s, actor, 'input.take'); return { holders: [s.holder] };
+        if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
+        if (s.holder.kind === 'daemon') s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: this.iso() };
+        this.control(s, actor, 'input.take', `${actor.name} took the input`);
+        return this.accepted('You hold the input.', { holder: s.holder });
       }
       case 'input.release': {
         const s = agent();
-        if (s.holder.who !== actor) throw refused('you do not hold the input');
-        s.holder = { who: 'daemon', since: this.iso() };
-        this.control(s, actor, 'input.release'); return { holders: [s.holder] };
+        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'you do not hold the input');
+        s.holder = DAEMON_HOLDER;
+        this.control(s, actor, 'input.release', `${actor.name} released the input`);
+        return this.accepted('The daemon holds the input again.');
       }
       case 'terminal.attach': {
-        const s = agent();
-        if (!s.hasTerminal) throw refused('the agent has no terminal');
+        const s = p.terminal !== undefined ? this.byTerminal(p.terminal) : agent();
+        if (p.terminal !== undefined && p.agent !== undefined) throw badRequest('give agent or terminal, not both', 'terminal');
+        if (!s.hasTerminal) throw refused('state', 'the agent has no terminal');
         c.attached.add(tid(s));
-        const hist = s.lines.slice(0, this.scrolledOff(s));
-        return { terminal: tid(s), seq: s.seq, cols: s.cols, rows: s.rows, frame: this.visible(s),
-          history: hist.slice(-HISTORY_PAGE), history_more: hist.length > HISTORY_PAGE };
+        const want = typeof p.history === 'number' ? p.history : 100;
+        const off = this.scrolledOff(s), first = Math.max(0, off - want);
+        return { terminal: tid(s), format: 'text', seq: s.seq, cols: s.cols, rows: s.rows, lines: this.visible(s).map(row), cursor: null,
+          history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 }, holder: s.holder };
       }
       case 'terminal.detach': c.attached.delete(String(p.terminal)); return {};
       case 'terminal.history': {
-        const s = this.byTerminal(String(p.terminal));
-        const before = Number(p.before), limit = Number(p.limit);
-        const hist = s.lines.slice(0, this.scrolledOff(s));
-        const end = Math.max(0, hist.length - before), start = Math.max(0, end - limit);
-        return { lines: hist.slice(start, end), more: start > 0 };
+        const s = this.byTerminal(p.terminal);
+        const end = Math.min(Number(p.before), this.scrolledOff(s)), first = Math.max(0, end - Number(p.limit));
+        return { first, lines: s.lines.slice(first, end).map(row), more: first > 0 };
       }
       case 'terminal.resize': {
-        const s = this.byTerminal(String(p.terminal));
-        if (s.holder.who !== actor) throw refused('only the input holder may resize');
+        const s = this.byTerminal(p.terminal);
+        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'only the input holder may resize');
         s.cols = Number(p.cols); s.rows = Number(p.rows);
-        this.pushTerminal(s, 'resize', (seq) => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
-        return { accepted: true };
+        this.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
+        return this.accepted('Resized.');
       }
+      default: throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
-    throw new Refusal('internal', `${method} is declared but not served`);
   }
 
-  private byTerminal(id: string): Session {
+  private byTerminal(id: unknown): Session {
     const s = [...this.sessions.values()].find((x) => tid(x) === id);
-    if (!s) throw new Refusal('not_found', `no terminal ${id}`);
+    if (!s) throw new Failure('not_found', `no terminal ${String(id)}`);
     return s;
   }
 
-  private mayCall(role: Role, method: string): boolean { return !(role === 'agent' && BARRED_FOR_AGENT.has(method)); }
+  private mayCall(role: Role, lowest: Role): boolean { return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(lowest); }
 
   /** The gates every typing method passes: a session to type at, and nobody else holding the input. */
-  private gate(s: Session, actor: string) {
-    if (!s.open) throw refused('the agent has no open session');
-    if (s.holder.who !== 'daemon' && s.holder.who !== actor) throw refused(`${s.holder.who} holds the input`);
-  }
-  private control(s: Session, actor: string, what: string) {
-    this.emit('agents', 'control', s.fx.name, actor, { method: what });
+  private gate(s: Session, c: Conn) {
+    if (!s.open) throw refused('state', 'the agent has no open session');
+    if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
   }
 
   /** Opens a session; the new screen follows the old text, as a terminal's scrollback would. */
-  private startSession(s: Session, wake: boolean, actor: string) {
-    if (s.open) throw refused('the session is already open');
-    if (wake && !s.sessionId) throw refused('there is no closed session to resume');
+  private startSession(s: Session, wake: boolean, actor: Actor) {
+    if (s.open) throw refused('state', 'the session is already open');
+    if (wake && !s.sessionId) throw refused('state', 'there is no closed session to resume');
     s.open = true; s.hasTerminal = true;
-    s.sessionId ??= `s-${s.fx.name}-${++s.sessionCount}`;
+    s.sessionId ??= `s-${s.fx.name}-${++s.counter}`;
     this.edit(s, () => { s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree))); });
-    this.setState(s, 'idle', 'state', actor);
-    return { accepted: true };
+    this.setState(s, 'idle', actor);
+    return this.accepted('Session started.');
   }
 
-  private restartSession(s: Session, fresh: boolean, actor: string) {
+  private restartSession(s: Session, fresh: boolean, actor: Actor) {
     if (s.open) this.stopSession(s, 'close', actor);
     if (fresh) s.sessionId = null;
     return this.startSession(s, false, actor);
   }
 
-  private stopSession(s: Session, mode: string, actor: string) {
-    if (!['exit', 'close', 'kill'].includes(mode)) this.bad('mode must be exit, close or kill');
-    if (!s.open) throw refused('the agent has no open session');
-    if (s.prompt) this.closePrompt(s, 'stopped', actor);
-    s.queue = []; s.open = false;
+  private stopSession(s: Session, mode: unknown, actor: Actor) {
+    if (mode !== 'exit' && mode !== 'close' && mode !== 'kill') throw badRequest('mode must be exit, close or kill', 'mode');
+    if (!s.open) throw refused('state', 'the agent has no open session');
+    s.prompt = null; s.queue = []; s.open = false;
     if (mode === 'kill') s.hasTerminal = false; else this.write(s, '(session ended)');
-    this.setState(s, mode === 'kill' ? 'no_terminal' : 'parked', 'state', actor);
-    return { accepted: true };
+    this.setState(s, mode === 'kill' ? 'no_terminal' : 'parked', actor);
+    return this.accepted('Session ended.');
   }
 
-  private input(s: Session, p: Record<string, unknown>, actor: string) {
-    if (typeof p.text !== 'string' || typeof p.enter !== 'boolean') this.bad('input needs text and enter');
-    this.gate(s, actor);
-    if (s.fx.wall) throw refused('the account is at its usage limit; typing would only spend quota');
-    if (s.prompt) throw refused('a dialog is open, so a typed line would answer it; use keys or prompt.answer');
-    this.record(s, 'text', p.text, actor);
-    this.control(s, actor, 'input');
+  private input(s: Session, p: Record<string, unknown>, c: Conn, actor: Actor) {
+    if (typeof p.text !== 'string') throw badRequest('input needs text', 'text');
+    this.gate(s, c);
+    if (s.fx.wall) throw refused('wall', 'the account is at its usage limit; typing would only spend quota');
+    if (s.prompt) throw refused('screen_blocker', 'a dialog is open, so a typed line would answer it', 'use keys or prompt.answer');
+    this.record(s, 'text', p.text, actor.name);
+    this.control(s, actor, 'input', `${actor.name} typed`);
     s.buffer += p.text;
-    if (p.enter) this.submit(s, actor); else this.setComposeLine(s);
-    return { accepted: true };
+    if (p.enter !== false) this.submit(s, actor); else this.setComposeLine(s);
+    return this.accepted('Typed.');
   }
 
-  private keys(s: Session, keys: unknown, actor: string) {
-    if (!Array.isArray(keys) || !keys.length || !keys.every((k) => NAMED_KEYS.has(k))) this.bad('keys must be named keys');
-    this.gate(s, actor);
-    this.control(s, actor, 'keys');
-    for (const k of keys as NamedKey[]) this.pressKey(s, k, actor);
-    return { accepted: true };
-  }
-
-  private view(s: Session): AgentView {
-    return { name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, since: s.since,
-      account: s.fx.account, task: s.fx.task, has_dialog: s.prompt !== null, parent: s.fx.parent,
-      block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
-      cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null };
-  }
-  private detail(s: Session): AgentDetail {
-    return { ...this.view(s), worktree: s.fx.worktree, branch: s.fx.branch, terminal: tid(s), session: s.sessionId,
-      session_open: s.open, input: [s.holder], prompt: s.prompt };
+  private keys(s: Session, keys: unknown, c: Conn, actor: Actor) {
+    if (!Array.isArray(keys) || !keys.length || !keys.every((k) => KEYS.has(k))) throw badRequest('keys must be named keys', 'keys');
+    this.gate(s, c);
+    this.control(s, actor, 'keys', `${actor.name} pressed ${keys.join(' ')}`);
+    for (const k of keys as string[]) this.pressKey(s, k, actor);
+    return this.accepted('Keys sent.');
   }
 }
 
