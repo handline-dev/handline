@@ -8,9 +8,7 @@ away and task.cancel the founder ending one with its open requests, both `hl tas
 task.memo.add, edit and delete serve `hl task memo add`, `edit` and `delete`: the memo and its `write_effects` row are one transaction, and the
 holder of a doing task is told after it commits (a crash between loses the telling, never the memo or its answer).
 task.done, reopen, discard, merge, queue, draft and release serve the `hl task` commands of those names, and the UI's mark done,
-reopen, discard, merge and queue buttons. Each action takes the record of the write and makes it in its own transaction, but
-release: it retires each request on a connection of its own, so its record follows the last of them, and a crash between loses
-the record and a retry is judged afresh. queue and draft change all their tasks or none, where the command goes on past a refusal.
+reopen, discard, merge and queue buttons. Each action takes the record of the write and makes it in the transaction of the write; the telling follows the commit. queue and draft change all their tasks or none, where the command goes on past a refusal.
 `relation`, `response`, `reply` (task.new), `waits_on` (task.edit) and `to`, `reason` (task.release) have no action behind them yet and are refused."""
 from __future__ import annotations
 

@@ -584,18 +584,12 @@ def reopen_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool,
 
 
 def release_task(con, tid: int, by: str, effect=None) -> tuple[bool, str]:
-    """`_release_task`, then `effect(con, message)`: the daemon's record of the write. Each request it retires
-    closes on a connection of its own, so the record cannot share their transaction."""
-    ok, msg = _release_task(con, tid, by)
-    if ok and effect:
-        effect(con, msg)
-    return ok, msg
-
-
-def _release_task(con, tid: int, by: str) -> tuple[bool, str]:
     """Answer to a timeout notice besides extending it: retire the task's own open
     requests (so whoever is mid-way is told to stop) and take it back to queued or
-    draft. Opener or founder only; a task doing through a child is released there."""
+    draft. Opener or founder only; a task doing through a child is released there.
+
+    The writes are one transaction, and `effect(con, message)`, the daemon's record of them, is made in it. The
+    telling (the agent told to stop, the requesters, whatever queued behind) follows the commit."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
@@ -612,44 +606,57 @@ def _release_task(con, tid: int, by: str) -> tuple[bool, str]:
         return False, (f"task T{tid} is doing through its child T{child['id']} - "
                        f"release it there" if child else
                        f"task T{tid} was begun on a founder message: it is doing until it is done")
-    # Best-effort, not all-or-nothing: each retire_open call is its own
-    # atomic close, so one losing a race to some other close (an agent
-    # resolving it at the same instant) must not throw away what the others
-    # already did - the task and its clock still have to end up matching
-    # whatever did get retired.
-    retired, said, failed = [], [], []
-    for r in direct:
-        if r["state"] == "landed":      # held by its agent: ended here, and the agent told to stop
-            db.end_held(con, tid, r["target"])
-            db.refresh_sent(con, tid)
-            _type_say(con, r["target"], f"T{tid} released by {by} - stop work on it", "task released")
-            retired.append(r["id"])
-            said.append(f"#{r['id']} ended; {r['target']} told to stop")
-            continue
-        ok, msg = askmod.retire_open(con, r["id"], f"T{tid} released by {by}", settle=False)
-        if ok:
-            retired.append(r["id"])
-            said.append(msg.split("\n", 1)[0])
+    # Best-effort, not all-or-nothing: one request losing a race to some other close (an agent
+    # resolving it at the same instant) must not throw away what the others already did - the
+    # task and its clock still have to end up matching whatever did get retired.
+    why = f"T{tid} released by {by}"
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        retired, told, failed = [], [], []
+        for r in direct:
+            if r["state"] == "landed":      # held by its agent: ended here, and the agent told to stop
+                db.end_held(con, tid, r["target"])
+                db.refresh_sent(con, tid)
+                retired.append(r["id"])
+                told.append(("held", r))
+                continue
+            ok, msg, after = askmod.retire_write(con, r["id"], why, settle=False)
+            if ok:
+                retired.append(r["id"])
+                told.append(("closed", after))
+            else:
+                failed.append(f"#{r['id']}: {msg}")
+        if not retired:
+            con.execute("ROLLBACK")
+            return False, f"task T{tid} released nothing: {'; '.join(failed)}"
+        db.add_event(con, by, "release_task",
+                    {"task_id": tid, "retired": retired, **({"failed": failed} if failed else {})})
+        tail = f" - not retired: {'; '.join(failed)}" if failed else ""
+        if is_doing(con, tid):
+            # Every direct request just closed: what is left is a child's, or a founder-begun task.
+            child = next((c for c in db.open_child_tasks(con, tid)
+                          if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
+            outcome = ("but it is still doing " + (f"through its child T{child['id']} - release it there too" if child
+                       else "because it was begun on a founder message")
+                       + "; its own timeout keeps running until then")
         else:
-            failed.append(f"#{r['id']}: {msg}")
-    if not retired:
-        return False, f"task T{tid} released nothing: {'; '.join(failed)}"
-    db.add_event(con, by, "release_task",
-                {"task_id": tid, "retired": retired, **({"failed": failed} if failed else {})})
-    detail = "; ".join(said)
-    tail = f" - not retired: {'; '.join(failed)}" if failed else ""
-    if is_doing(con, tid):
-        # Every direct request just closed: what is left is a child's, or a founder-begun task.
-        child = next((c for c in db.open_child_tasks(con, tid)
-                      if any(_asks(r) for r in db.task_requests(con, c["id"]))), None)
-        why = (f"through its child T{child['id']} - release it there too" if child
-               else "because it was begun on a founder message")
-        return True, (f"task T{tid} released by {by}: {detail}, but it is still doing {why}; "
-                      f"its own timeout keeps running until then{tail}")
-    db.pause_task_timeout(con, tid)
-    back = "queued" if row["queued_by"] else "draft"
-    return True, (f"task T{tid} released by {by}: {detail}, back to {back}, "
-                  f"its timeout paused{tail}")
+            db.pause_task_timeout(con, tid)
+            outcome = f"back to {'queued' if row['queued_by'] else 'draft'}, its timeout paused"
+        if effect:
+            effect(con, f"task T{tid} released by {by}: {outcome}{tail}")
+        con.execute("COMMIT")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK")
+        raise
+    said = []
+    for kind, what in told:
+        if kind == "held":
+            _type_say(con, what["target"], f"{why} - stop work on it", "task released")
+            said.append(f"#{what['id']} ended; {what['target']} told to stop")
+        else:
+            said.append(askmod.retire_tell(con, what).split("\n", 1)[0])
+    return True, f"task T{tid} released by {by}: {'; '.join(said)}, {outcome}{tail}"
 
 
 def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int,

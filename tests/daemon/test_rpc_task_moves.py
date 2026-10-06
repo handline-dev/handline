@@ -208,6 +208,57 @@ def test_release_takes_a_doing_task_back_for_its_opener(home: Path) -> None:
     check("task.release: no such task is not_found", _code(_call("task.release", {"task": 999, "request_id": "r3"})) == "not_found")
 
 
+class RecordFailsOnce:
+    """`record_effect` raising once, after the effect has been written in the same transaction: the daemon dying between the two."""
+    def __enter__(self):
+        self.real, self.armed = db.record_effect, True
+
+        def failing(*a, **kw):
+            if self.armed:
+                self.armed = False
+                raise RuntimeError("the daemon died here")
+            return self.real(*a, **kw)
+        db.record_effect = failing
+        return self
+
+    def __exit__(self, *exc):
+        db.record_effect = self.real
+
+
+def _dies_then_retries(method: str, params: dict, as_agent, after, unchanged) -> None:
+    """The first call dies between the effect and its record: the effect is not there. The retry makes it once, and a third call replays."""
+    with RecordFailsOnce():
+        first = _call(method, params, as_agent=as_agent)
+    check(f"{method}: a death between the effect and its record leaves nothing written", "error" in first and unchanged(), str(first))
+    second = _call(method, params, as_agent=as_agent)
+    check(f"{method}: the retry makes the effect, once", second["result"]["accepted"] is True and not second["result"].get("replayed") and after(), str(second))
+    third = _call(method, params, as_agent=as_agent)
+    check(f"{method}: and the next retry replays it", third["result"].get("replayed") is True and after(), str(third))
+
+
+def test_a_death_between_a_task_move_and_its_record_repeats_nothing(home: Path) -> None:
+    support._board_world(home)
+    t = _doing("done by hand")
+    _dies_then_retries("task.done", {"task": t, "evidence": "by hand", "request_id": "y1"}, "worker",
+                       after=lambda: bool(_row(t)["done_evidence"]), unchanged=lambda: not _row(t)["done_evidence"])
+    _dies_then_retries("task.reopen", {"task": t, "note": "wrong", "request_id": "y2"}, "manager",
+                       after=lambda: not _row(t)["done_evidence"], unchanged=lambda: bool(_row(t)["done_evidence"]))
+    d = _draft("thrown away")
+    _dies_then_retries("task.discard", {"task": d, "reason": "not wanted", "request_id": "y3"}, "manager",
+                       after=lambda: bool(_row(d)["discarded_by"]), unchanged=lambda: not _row(d)["discarded_by"])
+    keep, a = _draft("keep"), _draft("folded")
+    _dies_then_retries("task.merge", {"into": keep, "tasks": [a], "request_id": "y4"}, "manager",
+                       after=lambda: bool(_row(a)["discarded_by"]), unchanged=lambda: not _row(a)["discarded_by"])
+    busy = _doing("keeps the worker busy")
+    q = _draft("waits")
+    _dies_then_retries("task.queue", {"tasks": [q], "request_id": "y5"}, "manager",
+                       after=lambda: _state(q) == "queued", unchanged=lambda: _state(q) == "draft")
+    _dies_then_retries("task.draft", {"tasks": [q], "request_id": "y6"}, "manager",
+                       after=lambda: _state(q) == "draft", unchanged=lambda: _state(q) == "queued")
+    _dies_then_retries("task.release", {"task": busy, "request_id": "y7"}, "manager",
+                       after=lambda: _state(busy) == "draft", unchanged=lambda: _state(busy) == "doing")
+
+
 def test_the_task_commands_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _doing()
@@ -262,6 +313,7 @@ def main() -> int:
         run(lambda: test_merge_folds_tasks_into_one_for_whoever_may_edit_them(Path(td) / "k4"))
         run(lambda: test_queue_and_draft_move_every_task_named_or_none(Path(td) / "k5"))
         run(lambda: test_release_takes_a_doing_task_back_for_its_opener(Path(td) / "k6"))
+        run(lambda: test_a_death_between_a_task_move_and_its_record_repeats_nothing(Path(td) / "k9"))
         run(lambda: test_the_task_commands_still_work_from_an_agent_session(Path(td) / "k7"))
         run(lambda: test_the_task_move_fixtures_pass_against_this_daemon(Path(td) / "k8"))
     return run_area(tests)
