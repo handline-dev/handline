@@ -3,7 +3,6 @@
 import type { Actor, Caller, Notifications, Prompt, Timestamp, Topic } from '@handline/contract';
 import { BANNER, PROMPT_LINES } from './fixtures.ts';
 import { badRequest, refused } from './errors.ts';
-import { outputFor, snapshotOf, typedParts } from './bytes.ts';
 import { row, tid, view, visible, type Session } from './session.ts';
 
 export interface Host {
@@ -11,8 +10,6 @@ export interface Host {
   emit(topic: Topic, type: string, f?: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> }): void;
   /** Sends a terminal notice to every connection attached to the session's terminal. */
   broadcast(s: Session, method: string, params: unknown): void;
-  /** Sends a notice to the connections watching in bytes, each with its own seq. */
-  broadcastBytes(s: Session, method: 'output' | 'snapshot', build: () => object): void;
 }
 type Who = { caller: Caller };
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
@@ -33,22 +30,8 @@ export class Script {
     const before = visible(s);
     change();
     const changed = visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
-    if (!changed.length) return;
-    this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
-    this.host.broadcastBytes(s, 'output', () => ({
-      terminal: tid(s),
-      data: outputFor(
-        s,
-        changed.map((c) => c.y),
-      ),
-    }));
-  }
-  /** Tells bytes watchers to repaint: the size changed, or (`slow_client`) they fell behind. */
-  snapshotBytes(s: Session, reason: 'resize' | 'slow_client'): void {
-    this.host.broadcastBytes(s, 'snapshot', () => {
-      const { terminal, cols, rows, data, alt_screen, cursor, cursor_visible } = snapshotOf(s, 0, [s.holder]);
-      return { terminal, reason, cols, rows, data, alt_screen, cursor, cursor_visible };
-    });
+    if (changed.length)
+      this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
   }
   pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
     const params = build(++s.seq);
@@ -216,24 +199,6 @@ export class Script {
     s.buffer += p.text;
     if (p.enter !== false) this.submit(s, actor);
     else this.setComposeLine(s);
-    return this.accepted('Typed.');
-  }
-
-  /** Raw bytes from a terminal client: text is typed, CR is Enter, 0x03 and a lone ESC are the interrupt keys. */
-  rawInput(s: Session, p: Record<string, unknown>, c: Who, actor: Actor) {
-    const bytes = typeof p.data === 'string' ? Buffer.from(p.data, 'base64') : Buffer.alloc(0);
-    if (!bytes.length || bytes.length > 16384) throw badRequest('data is 1 to 16384 bytes of base64', 'data');
-    if (s.holder.kind === 'daemon') throw refused('input_holder', 'take the input first: the daemon holds it');
-    this.gate(s, c);
-    this.control(s, actor, 'input', `${actor.name} typed`);
-    for (const part of typedParts(bytes.toString('utf8'))) {
-      if ('key' in part) this.pressKey(s, part.key, actor);
-      else {
-        this.record(s, 'text', part.text, actor.name);
-        s.buffer += part.text;
-        this.setComposeLine(s);
-      }
-    }
     return this.accepted('Typed.');
   }
 

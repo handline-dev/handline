@@ -39,7 +39,7 @@
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
-  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented.",
+  "unsupported": "Reserved and not implemented.",
   "not_self": "The agent named is not the caller's own session.",
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
@@ -234,29 +234,6 @@
    }
   }
  },
- "x-state-words": {
-  "rule": "AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it. The mapping is made from the source facts (the state row, its wake time, the screen), never by reading state_detail text.",
-  "words": {
-   "running": "A turn is running (a hand-off in progress counts: moving is working).",
-   "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
-   "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
-   "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
-   "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
-   "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
-   "blocked": "Reserved: waiting on a blocker the view names in `block`. The daemon does not send it today; a client draws it as blocked.",
-   "no_terminal": "Registered but with no terminal to show: never started or its terminal closed, and nothing waits for it. Checked before idle; a closed agent with work waiting is queued or parked."
-  },
-  "from_daemon": {
-   "RUNNING, HANDOFF": "running",
-   "IDLE, DONE, PARKED with no work behind it": "idle",
-   "QUEUED, a restart retry (PENDING with no clock)": "queued",
-   "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
-   "DIALOG (an open prompt or modal)": "waiting",
-   "STALLED (FATAL)": "stalled",
-   "no state row or no terminal, and nothing waiting for it (checked before IDLE)": "no_terminal"
-  },
-  "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
- },
  "x-notifications": {
   "event": {
    "params": "Event",
@@ -335,7 +312,7 @@
      "cursor"
     ]
    },
-   "note": "Text attaches only. full:true carries every line and is what a slow client gets instead of a backlog."
+   "note": "full:true carries every line and is what a slow client gets instead of a backlog."
   },
   "resize": {
    "params": {
@@ -360,8 +337,7 @@
      "cols",
      "rows"
     ]
-   },
-   "note": "Text attaches only; a bytes attach gets a snapshot notice instead."
+   }
   },
   "marker": {
    "params": {
@@ -431,106 +407,9 @@
     ]
    },
    "note": "Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders."
-  },
-  "output": {
-   "params": {
-    "type": "object",
-    "properties": {
-     "terminal": {
-      "type": "string"
-     },
-     "seq": {
-      "type": "integer"
-     },
-     "data": {
-      "type": "string",
-      "description": "Base64 of what the program wrote."
-     }
-    },
-    "required": [
-     "terminal",
-     "seq",
-     "data"
-    ]
-   },
-   "note": "Bytes attaches only: the pane's output in order, at most one notice per 50 ms and 64 KiB decoded each. A notice may end inside a multi-byte character or an escape sequence."
-  },
-  "snapshot": {
-   "params": {
-    "type": "object",
-    "properties": {
-     "terminal": {
-      "type": "string"
-     },
-     "seq": {
-      "type": "integer"
-     },
-     "reason": {
-      "type": "string",
-      "enum": [
-       "resize",
-       "slow_client"
-      ]
-     },
-     "cols": {
-      "type": "integer"
-     },
-     "rows": {
-      "type": "integer"
-     },
-     "data": {
-      "type": "string",
-      "description": "Base64, as in the attach snapshot."
-     },
-     "alt_screen": {
-      "type": "boolean"
-     },
-     "cursor": {
-      "type": "object",
-      "properties": {
-       "x": {
-        "type": "integer"
-       },
-       "y": {
-        "type": "integer"
-       }
-      },
-      "required": [
-       "x",
-       "y"
-      ]
-     },
-     "cursor_visible": {
-      "type": "boolean"
-     }
-    },
-    "required": [
-     "terminal",
-     "seq",
-     "reason",
-     "cols",
-     "rows",
-     "data",
-     "alt_screen",
-     "cursor",
-     "cursor_visible"
-    ]
-   },
-   "note": "Bytes attaches only: the screen again, to be repainted as after an attach (reset, resize to cols by rows, write data), because the terminal changed size or the client fell behind. Everything the stream would have said before it is dropped; output follows with the next seq."
   }
  },
- "x-terminal": "Format `text` sends text rows (frame notices); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
- "x-terminal-bytes": {
-  "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`.",
-  "encoding": "Bytes travel as base64 (standard alphabet, padded) in JSON strings on the same transport as every other message: no binary frames. They need not be valid UTF-8, and a notice may end inside a character or an escape sequence, so a client writes each as bytes to a terminal that keeps its own parser state.",
-  "snapshot": "`data` is written unchanged to a freshly reset terminal of `cols` by `rows` (the client resizes, resets, writes, in one step). It begins with `ESC [ ? 1049 h` when `alt_screen` is true, then paints the visible rows with their SGR codes, each row ending in a reset and rows separated by CR LF, never a bare LF; then sets the modes the pane has on that change what a client sends (application cursor keys, bracketed paste, mouse reporting and its SGR encoding) as far as the host reports them; it ends by placing the cursor at `cursor` and showing or hiding it as `cursor_visible` says. It is at most 1 MiB decoded: a screen whose coded form is larger is sent with its styling left out, never refused. Later transitions of the alternate screen are in the stream; the flag is for the snapshot alone.",
-  "sequence": "One counter per attach, shared by all its notices (`output`, `snapshot`, `marker`, `holder`), and it goes up by exactly 1 with each. The snapshot's `seq` is the last notice its screen includes: the daemon takes the screen and starts the stream together, so the first notice after the reply has `seq` + 1 and no byte is lost or repeated between them. A client ignores a notice whose seq is not above the last it applied and re-attaches on a hole. The counters of different attaches, text ones included, are unrelated. There is no resume: after a reconnect the client attaches again and repaints from the new snapshot, and what it missed is not replayed.",
-  "slow_client": "Output is never dropped from the middle. When one attach's unsent output reaches 1 MiB decoded, the daemon discards all of it and sends one `snapshot` notice, reason `slow_client`, with a seq above everything discarded; output follows it. Counting bytes, not seconds, is the whole rule. A connection that falls behind on events past the gap rule is closed with gap `slow_client` as before and attaches again.",
-  "history": "Lines come as strings with their SGR codes, as the host keeps them: one physical row each (the row as the pane wrapped it, never joined), starting at default attributes and ending in a reset, with no line break inside. `history` on attach and `limit` on `terminal.history` count lines as in text (default 100, at most 2000); a page is trimmed to 1 MiB and says `more`. Only the normal screen has scrollback: while `alt_screen` is true the snapshot's history is empty.",
-  "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
-  "resize": "`terminal.resize` is unchanged: the input holder alone, restored when they leave. A bytes attach is told of any size change, the holder's or the restore, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
-  "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it."
- },
+ "x-terminal": "Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
  "methods": [
   {
    "name": "hello",
@@ -2486,7 +2365,7 @@
   },
   {
    "name": "terminal.attach",
-   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices) or bytes (output notices).",
+   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes frame, resize and marker notices.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2511,31 +2390,12 @@
       "type": "integer",
       "description": "History lines to include; default 100."
      }
-    },
-    {
-     "name": "format",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "enum": [
-       "text",
-       "bytes"
-      ],
-      "description": "Default text. bytes is served on tmux-hosted terminals; see x-terminal-bytes."
-     }
     }
    ],
    "result": {
     "name": "result",
     "schema": {
-     "oneOf": [
-      {
-       "$ref": "#/components/schemas/TerminalSnapshot"
-      },
-      {
-       "$ref": "#/components/schemas/TerminalBytesSnapshot"
-      }
-     ]
+     "$ref": "#/components/schemas/TerminalSnapshot"
     }
    },
    "x-role": "member",
@@ -2547,13 +2407,7 @@
     },
     {
      "$ref": "#/components/errors/bad_request"
-    },
-    {
-     "$ref": "#/components/errors/refused"
     }
-   ],
-   "x-gates": [
-    "unsupported"
    ]
   },
   {
@@ -2581,31 +2435,12 @@
      "schema": {
       "type": "integer"
      }
-    },
-    {
-     "name": "format",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "enum": [
-       "text",
-       "bytes"
-      ],
-      "description": "Default text."
-     }
     }
    ],
    "result": {
     "name": "result",
     "schema": {
-     "oneOf": [
-      {
-       "$ref": "#/components/schemas/HistoryPage"
-      },
-      {
-       "$ref": "#/components/schemas/HistoryBytesPage"
-      }
-     ]
+     "$ref": "#/components/schemas/HistoryPage"
     }
    },
    "x-role": "member",
@@ -2614,16 +2449,7 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
     }
-   ],
-   "x-gates": [
-    "unsupported"
    ]
   },
   {
@@ -2681,62 +2507,6 @@
     "role",
     "input_holder"
    ]
-  },
-  {
-   "name": "terminal.input",
-   "summary": "Raw keystrokes or pasted bytes into the terminal, from the input holder only.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "terminal",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "data",
-     "required": true,
-     "schema": {
-      "type": "string",
-      "description": "Base64 of the bytes a terminal sends for the keys (xterm's own: ESC [ A for up, 0x03 for ctrl-c, a bracketed paste with its markers); 1 to 16384 bytes decoded, else bad_request."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "x-gates": [
-    "role",
-    "terminal_lock",
-    "input_holder",
-    "unsupported"
-   ],
-   "description": "For a client that is a terminal (xterm.js), as session.type is for a person typing: the same gates, and it passes the wall and an open dialog as session.type and session.keys do (the person sees the screen; session.input keeps both gates). Unlike them it is refused while the daemon holds the input, since a stream of keystrokes beside the daemon's own typing would corrupt both: take the input first. A terminal with no holder, a login terminal, refuses it too. A pane showing a shell prompt takes it, as with session.type. Calls on one connection are applied in the order they were read, however many are waiting. It is recorded as an event of the agent (kind type) whose actor is the caller, a paired device by its id, with the byte count and never the bytes. Terminal hosts that cannot send keys refuse with gate unsupported."
   },
   {
    "name": "terminal.close",
@@ -6729,7 +6499,7 @@
      },
      "state": {
       "type": "string",
-      "description": "One of x-state-words, lower case; an open set, clients treat an unknown word as idle."
+      "description": "The daemon's state word; open set, clients ignore unknown."
      },
      "state_since": {
       "$ref": "#/components/schemas/Timestamp"
@@ -8979,21 +8749,9 @@
        "type": "string",
        "enum": [
         "text",
-        "bytes",
         "styled"
        ]
-      },
-      "description": "Formats the daemon serves on at least one host; `styled` is reserved."
-     },
-     "terminal_hosts": {
-      "type": "object",
-      "additionalProperties": {
-       "type": "array",
-       "items": {
-        "type": "string"
-       }
-      },
-      "description": "Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has."
+      }
      }
     },
     "required": [
@@ -9556,106 +9314,6 @@
      "allowed"
     ],
     "description": "One method as a daemon lists it: its role and whether this caller may call it."
-   },
-   "TerminalBytesSnapshot": {
-    "type": "object",
-    "properties": {
-     "terminal": {
-      "type": "string"
-     },
-     "format": {
-      "const": "bytes"
-     },
-     "seq": {
-      "type": "integer",
-      "description": "The last notice of this attach the screen includes; the next notice has seq+1."
-     },
-     "cols": {
-      "type": "integer"
-     },
-     "rows": {
-      "type": "integer"
-     },
-     "data": {
-      "type": "string",
-      "description": "Base64. Written unchanged to a freshly reset terminal of cols by rows, it paints the screen, the modes and the cursor."
-     },
-     "alt_screen": {
-      "type": "boolean",
-      "description": "The pane is on the alternate screen; data begins by switching to it."
-     },
-     "cursor": {
-      "type": "object",
-      "properties": {
-       "x": {
-        "type": "integer"
-       },
-       "y": {
-        "type": "integer"
-       }
-      },
-      "required": [
-       "x",
-       "y"
-      ],
-      "description": "0-based column and row; also where data leaves the cursor."
-     },
-     "cursor_visible": {
-      "type": "boolean"
-     },
-     "history": {
-      "$ref": "#/components/schemas/HistoryBytesPage"
-     },
-     "holder": {
-      "$ref": "#/components/schemas/InputHolder",
-      "description": "The first of holders; kept for clients written to the single value."
-     },
-     "holders": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/InputHolder"
-      },
-      "description": "Everyone who holds the input, oldest first; one in v1."
-     }
-    },
-    "required": [
-     "terminal",
-     "format",
-     "seq",
-     "cols",
-     "rows",
-     "data",
-     "alt_screen",
-     "cursor",
-     "cursor_visible",
-     "history",
-     "holder",
-     "holders"
-    ]
-   },
-   "HistoryBytesPage": {
-    "type": "object",
-    "properties": {
-     "first": {
-      "type": "integer",
-      "description": "Absolute index of the first line, as in HistoryPage."
-     },
-     "lines": {
-      "type": "array",
-      "items": {
-       "type": "string",
-       "description": "One physical row with its SGR codes: starts at default attributes and ends with a reset; no line break in it."
-      }
-     },
-     "more": {
-      "type": "boolean"
-     }
-    },
-    "required": [
-     "first",
-     "lines",
-     "more"
-    ]
    }
   },
   "errors": {
