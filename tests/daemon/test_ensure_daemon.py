@@ -21,6 +21,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import client, rpc, spool  # noqa: E402
 from handline.infra import service, sessiontoken  # noqa: E402
+from handline.session import waiting  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code  # noqa: E402
@@ -244,6 +245,80 @@ def test_a_hook_applied_but_never_answered_is_not_applied_again_by_its_retry(hom
     con.close()
 
 
+def test_a_spool_replayed_after_a_crash_changes_nothing_a_second_time(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    con = db.connect()
+    db.set_agent_state(con, "worker", dmn_states.IDLE)
+    for i, kind in enumerate(("PostToolUse", "Stop")):
+        spool.append("worker", kind, {"hook_event_name": kind, "session_id": "s"}, f"seq-{i}")
+    work = spool.path().with_suffix(".ingesting")
+    copy = spool.path().read_text()
+    spool.ingest(con, lambda m: None)
+    check("replay: after the first pass the agent is idle", db.get_agent_state(con, "worker")["state"] == "IDLE")
+    work.write_text(copy)           # the daemon died before it removed the file: the same two lines again
+    spool.ingest(con, lambda m: None)
+    check("replay: [PostToolUse, Stop] again leaves the agent IDLE, not RUNNING with nothing to end it",
+          db.get_agent_state(con, "worker")["state"] == "IDLE", db.get_agent_state(con, "worker")["state"])
+    con.close()
+
+
+def test_every_kind_of_hook_line_is_a_no_op_the_second_time(home: Path) -> None:
+    support._daemon_home(home, 20)
+    con = db.connect()
+    lines = [("UserPromptSubmit", {"prompt": "go"}), ("PostToolUse", {"tool_name": "Bash", "tool_input": {"command": "ls"}}),
+             ("SessionStart", {"source": "startup", "session_id": "sess-1"}),
+             ("PermissionRequest", {"tool_name": "Bash", "tool_input": {"command": "rm x"}}),
+             ("StopFailure", {"error": "rate_limit"}), ("Stop", {})]
+    for i, (kind, extra) in enumerate(lines):
+        raw = {"hook_event_name": kind, "session_id": "s", **extra}
+        db.set_agent_state(con, "backend", dmn_states.QUEUED if kind == "PostToolUse" else dmn_states.IDLE)
+        evmod.apply_hook(con, "backend", kind, raw, f"kind-{i}", int(time.time()))
+
+        def snap():
+            return (con.execute("SELECT COUNT(*) FROM events WHERE agent = 'backend'").fetchone()[0],
+                    con.execute("SELECT COUNT(*) FROM session_starts WHERE agent = 'backend'").fetchone()[0],
+                    waiting.read("backend"))
+        after_first = snap()
+        moved = dmn_states.PARKED
+        db.set_agent_state(con, "backend", moved, wake_at=int(time.time()) + 600, detail="moved on by someone else")
+        evmod.apply_hook(con, "backend", kind, raw, f"kind-{i}", int(time.time()))
+        check(f"replay: {kind} applied twice writes no second event, bind or wait, and moves no state",
+              snap() == after_first and db.get_agent_state(con, "backend")["state"] == moved,
+              f"{snap()} vs {after_first} {db.get_agent_state(con, 'backend')['state']}")
+    con.close()
+
+
+def test_a_hook_that_dies_part_way_applies_nothing_and_its_retry_applies_all(home: Path) -> None:
+    support._daemon_home(home, 20)
+    con = db.connect()
+    db.set_agent_state(con, "backend", dmn_states.IDLE)
+    real = evmod._mark_activity
+    state = {"n": 0}
+
+    def dies_once(*a, **k):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("daemon died here")
+        return real(*a, **k)
+    evmod._mark_activity = dies_once
+    raw = {"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "x"}
+    try:
+        try:
+            evmod.apply_hook(con, "backend", "UserPromptSubmit", raw, "die-1", int(time.time()))
+        except RuntimeError:
+            pass
+        check("crash: nothing of the half-applied hook is left (no event, and its id is free)",
+              con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 0
+              and con.execute("SELECT COUNT(*) FROM hook_applied WHERE request_id = 'die-1'").fetchone()[0] == 0)
+        evmod.apply_hook(con, "backend", "UserPromptSubmit", raw, "die-1", int(time.time()))
+    finally:
+        evmod._mark_activity = real
+    check("crash: the retry applies all of it, once", con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 1
+          and db.get_agent_state(con, "backend")["state"] == "RUNNING")
+    con.close()
+
+
 def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
@@ -265,6 +340,9 @@ def main() -> int:
         run(lambda: test_many_hooks_appending_at_once_never_mix_their_lines(Path(td) / "e7"))
         run(lambda: test_hook_record_applies_a_hook_once_and_only_as_the_agent_itself(Path(td) / "e8"))
         run(lambda: test_a_hook_applied_but_never_answered_is_not_applied_again_by_its_retry(Path(td) / "e9"))
+        run(lambda: test_a_spool_replayed_after_a_crash_changes_nothing_a_second_time(Path(td) / "e11"))
+        run(lambda: test_every_kind_of_hook_line_is_a_no_op_the_second_time(Path(td) / "e12"))
+        run(lambda: test_a_hook_that_dies_part_way_applies_nothing_and_its_retry_applies_all(Path(td) / "e13"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 

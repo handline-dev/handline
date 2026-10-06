@@ -130,8 +130,29 @@ def _record(agent: str, event: str, raw: dict) -> None:
         pass
 
 
+HOOK_KEEP_S = 24 * 3600
+
+
 def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
-    """What the daemon does with a hook event: the one writer of what a hook records. Once per request id."""
+    """What the daemon does with a hook event: the one writer of what a hook records. Once per request id: the id
+    is taken first, in the same transaction as every effect, so a line already applied does nothing at all and a
+    crash part-way leaves nothing applied for the retry to repeat or to skip."""
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        now = int(time.time())
+        con.execute("DELETE FROM hook_applied WHERE ts < ?", (now - HOOK_KEEP_S,))
+        if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts) VALUES(?, ?)", (request_id, now)).rowcount == 0:
+            con.execute("ROLLBACK")
+            return
+        _apply(con, agent, event, raw, request_id, at)
+        con.execute("COMMIT")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK")
+        raise
+
+
+def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
     if event in ANSWERS:
         _note_tool_use(agent, con)
     if event not in CAPTURED:
@@ -151,9 +172,7 @@ def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int)
         payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
     elif event in ENDS_WAIT:
         waiting.clear(agent)
-    eid = db.add_event(con, agent, event, payload, account=account, dedup_key=f"hook:{request_id}", ts=at)
-    if eid is None:
-        return              # this request was applied before
+    eid = db.add_event(con, agent, event, payload, account=account, ts=at)
     if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
         db.bind_session_start(con, agent, str(raw["session_id"]))
     if event == "PermissionRequest":

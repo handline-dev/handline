@@ -406,7 +406,7 @@ def test_a_database_made_before_the_stream_gets_it_from_a_plain_connect(home: Pa
     db.schema.connect(p).close()
     raw = __import__("sqlite3").connect(p)
     raw.execute("DROP TABLE stream_log")
-    raw.execute("DELETE FROM schema_version WHERE version = 4")
+    raw.execute("DELETE FROM schema_version WHERE version > 3")
     raw.commit()
     raw.close()
     con = db.schema.connect(p)

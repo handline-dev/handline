@@ -652,11 +652,17 @@ def _stream_log(con) -> None:
     """)
 
 
+def _hook_applied(con) -> None:
+    """The request ids of hook events already applied, kept a day (session/events.py `apply_hook`)."""
+    con.execute("CREATE TABLE IF NOT EXISTS hook_applied (request_id TEXT PRIMARY KEY, ts INTEGER NOT NULL)")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
     (3, "agent_view", _agent_view, True),
     (4, "stream_log", _stream_log, True),
+    (5, "hook_applied", _hook_applied, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
