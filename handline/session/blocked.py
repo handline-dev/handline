@@ -344,6 +344,23 @@ def press_note(con, agent: str, rec, now: int) -> str:
     return f"ocp did not press it: {said[-1]['note']}" if said else ""
 
 
+def _tell_unpressed(con, agent: str, handle: str, title: str, why: str) -> None:
+    """Tell the founder at once about a dialog ocp holds without pressing: what it says and how to
+    answer, not only a log line. Nothing is said when no dialog is open or the screen was unread."""
+    if why == term.NO_DIALOG or "could not be read" in why:
+        return
+    dialog = term.dialog_on_screen(handle)
+    if dialog:
+        shown = f'"{dialog.title}"\n' + "\n".join(f"  {n}. {label}" for n, label in dialog.options)
+    else:
+        shown = "its screen:\n" + "\n".join((term.screen_text(handle) or "").splitlines()[-15:])
+    askmod.report(con, agent,
+                  f"{agent} is at a dialog ocp did not press: {why}.\n{shown}\n"
+                  f"Answer it from the bridge, or in the agent's terminal "
+                  f"(`tmux -L ocp attach`, window {agent.replace('.', '_')}).",
+                  "dialog not pressed")
+
+
 def _decline(con, agent: str, rec, now: int, log):
     """Press Esc at this block's dialog when the rules allow, and say what came
     of it. The block, or None when the dialog is gone."""
@@ -357,6 +374,7 @@ def _decline(con, agent: str, rec, now: int, log):
         if not last or last[-1]["note"] != why or last[-1]["title"] != title:
             db.press_add(con, agent, now, title, outcome, why)
             log(f"  {agent}: ocp did not press its dialog - {why}")
+            _tell_unpressed(con, agent, handle, title, why)
         return rec
     db.press_add(con, agent, now, title, outcome, why)
     if outcome == term.STILL_OPEN:

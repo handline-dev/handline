@@ -434,6 +434,22 @@ def test_trust_prompt_folder_parses_a_live_capture() -> None:
           drv.trust_screen([claudemod.TRUST_PROMPT_MARKER]) == "")
     check("trust_screen: the workspace line with nothing after it is \"\" too",
           drv.trust_screen([claudemod.TRUST_PROMPT_MARKER, "Accessing workspace:"]) == "")
+    permissions = [
+        "\u2500" * 60,
+        " Accessing workspace:",
+        " /home/x/workspaces/",
+        " legacy/clearlogo",
+        " This folder pre-approves 291 tool permissions in .claude/settings.local.json:",
+        "   Bash(git status:*)",
+        " These will apply without asking. Only proceed if you trust this configuration.",
+        " Security guide",
+        " \u276f No, exit",
+        "   Yes, I trust this folder",
+        " Enter to confirm \u00b7 Esc to cancel",
+    ]
+    check("trust_screen: the pre-approved-permissions variant is the trust screen, folder joined bare",
+          drv.trust_screen(permissions) == "/home/x/workspaces/legacy/clearlogo",
+          drv.trust_screen(permissions))
 
 
 def test_trust_prompt_dispatches_to_the_terminals_own_vendor(home: Path) -> None:
