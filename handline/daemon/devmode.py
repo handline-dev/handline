@@ -1,6 +1,7 @@
 """Dev mode: restart the daemon when its own code changes."""
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -68,12 +69,25 @@ _STALE = ("code newer than this process",)      # a baseline no fingerprint equa
 _now = time.monotonic
 
 
+# What a restart was decided on, carried across the exec so the new process knows the tree it started on is the
+# one it was restarted for. It is only ever compared with a digest of the tree on disk, and it only suppresses a
+# restart for a tree identical to the one the process has already loaded: whoever can set it already controls the
+# code the daemon runs, and setting it cannot hide a change, because a changed tree has another digest.
+CARRY_ENV = "OCP_DEV_RESTART_TREE"
+
+
+def _digest(fp) -> str:
+    return hashlib.sha1(repr(fp).encode()).hexdigest()
+
+
 def _changed_since_start(root: Path) -> bool:
     """Whether any watched file was written after this process began to load the code, so that what it
-    imported may not be what is on disk now, however the tree looked when it first checked."""
+    imported may not be what is on disk now, however the tree looked when it first checked. A time later than
+    now is no write at all (clock skew, a checkout from a machine ahead of this one), only a stamp."""
+    now = time.time()
     for f in _watched_files(root):
         try:
-            if f.stat().st_mtime > STARTED:
+            if STARTED < f.stat().st_mtime <= now:
                 return True
         except FileNotFoundError:
             continue
@@ -120,7 +134,9 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
         # The baseline is the tree this process loaded. Taken now it would be the tree as of the first tick,
         # which a merge still writing when the process started has changed since: a file written after the
         # process began to load is newer than what it runs, so the baseline is stale and the tree is a change.
-        state["fp"] = _STALE if _changed_since_start(root) else fp
+        # A restart made for exactly this tree is the one that loaded it: not a change, whatever its mtimes say.
+        carried = os.environ.get(CARRY_ENV) == _digest(fp)
+        state["fp"] = _STALE if _changed_since_start(root) and not carried else fp
         if state["fp"] is not _STALE:
             return False
     if fp == state["fp"] or fp == state["warned"]:
@@ -141,7 +157,7 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
     return False
 
 
-def _dev_mode_restart() -> None:
+def _dev_mode_restart(tree=None) -> None:
     """Exec the same entrypoint with the same arguments, in this process.
 
     Not a kill from outside (#2121): by the time this runs, the tick it
@@ -153,4 +169,6 @@ def _dev_mode_restart() -> None:
     or the daemon is running by hand.
     """
     exe = service.ocp_executable()
+    if tree is not None:
+        os.environ[CARRY_ENV] = _digest(tree)       # the tree this restart is for: the new process must not restart for it again
     os.execv(exe, [exe] + sys.argv[1:])

@@ -159,5 +159,5 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             con.close()
 
     if restarting:
-        devmode._dev_mode_restart()  # execs; does not return
+        devmode._dev_mode_restart(dev_state.get("seen"))  # execs; does not return
     return 0
