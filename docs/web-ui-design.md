@@ -100,14 +100,14 @@ Controls (header and Claude Code pane):
 
 | Control | Does | Notes |
 |---|---|---|
-| **Start** | create a terminal in the agent's worktree and launch `hl launch <agent>`; or, if a closed session exists, resume it | shows the account that will be used (the daemon's `pick`) and lets the person override it once |
-| **Stop ▾** | *Interrupt* (Esc, ends the turn), *Exit* (`/exit`), *Close* (ends the session, keeps terminal, worktree, account; frees memory), *Kill* (kills the terminal; confirm) | the same words as the API's `session.interrupt` and `session.stop` exit/close/kill; "close" always means end the session and keep the terminal |
+| **Start** | create a terminal in the agent's worktree and launch `hl launch <agent>`; or, if a closed session exists, resume it | shows the account the daemon would pick (`account_pick` on `agent.get`) and lets the person override it once |
+| **Stop ▾** | *Interrupt* (Esc, ends the turn), *Exit* (`/exit`), *Close* (ends the session, keeps terminal, worktree, account; frees memory), *Kill* (kills the terminal and session; confirm); then, once no session runs, *Close terminal* (the host refuses it while a session runs, so the UI stops first) | the same words as the API's `session.interrupt` and `session.stop` exit/close/kill; "close" always means end the session and keep the terminal |
 | **Resume** | wake the same session | enabled when the session is closed and exists |
 | **Chat box** | sends a message to the agent as a request, the way the bridge does | goes through the daemon's delivery (queued, typed, landed), not raw keystrokes; Shift+Enter is a newline |
 | **Key chips** | send one key to the terminal: Esc, Ctrl-C, Enter, arrows, Tab, Shift+Tab (mode cycle), 1/2/3 (menu pick) | the answer to dialogs, which are menus; primary input on mobile (§7). Sent with `session.keys`, after an explicit take (§4.3) |
 | **Permission card** | Yes / No on a detected Claude permission prompt | appears only when the daemon *detected* one (tool, command, reason, the prompt's own lines); never offers "always". Same card in Inbox |
 | **Other dialogs** | trust-folder, `/exit` over background work, login expired, unknown dialog | card with the dialog's lines and key chips; the daemon names what it cannot decide and never picks for the person |
-| **Terminal pane** | the live stream as a **text grid** in v1 (rows of text; no colour or cursor addressing yet), selectable, copyable, scrollback | printable text typed in the pane is sent with `session.input` and named keys with `session.keys`, once the person *takes the keyboard* (§4.3); while a dialog is open only keys pass (§9) |
+| **Terminal pane** | the live stream as a **text grid** in v1 (rows of text; no colour or cursor addressing yet), selectable, copyable, scrollback | printable text typed in the pane is sent with `session.input` and named keys with `session.keys`, once the person *takes the keyboard* (§4.3); while a dialog is open text goes through `prompt.answer` with a free-text choice, and keys through `session.keys` |
 
 Chat box and terminal are two ways to speak: the chat box for a message to the agent (queued, tracked, safe while the agent works), the terminal for a person who needs the TUI itself (menus, `/` commands, a dialog).
 
@@ -189,7 +189,7 @@ Kept open for many (not built in v1):
 
 ### 4.4 Safety
 
-- Stop ▸ Kill asks to confirm, and Close too when the agent has work in flight (F13 kept); both say whether the agent has queued work.
+- Stop ▸ Kill and Close terminal ask to confirm, and Close too when the agent has work in flight (F13 kept); they say whether the agent has queued work.
 - Yes on a permission prompt sends the single key the prompt's highlighted option needs, and only if the prompt is still the one the person saw (the request carries the prompt's id; if it changed, nothing is sent and the banner refreshes). Same for No.
 - Everything a person does here is recorded as an event with who and when, visible on the agent's timeline.
 
@@ -288,7 +288,7 @@ Names are descriptive, not final. Screen B's chat needs its own list, below the 
 |---|---|---|
 | Frame / status bar | daemon alive, version; per-account window use, reset, source mark; counts of agents by state; terminal host name and health; inbox count | Live |
 | A Rail | per agent: name, role, model, effort, state, state-since, block kind and since, account, current task id and title, window use of its account, prompt-cache deadline, has-dialog flag, parent agent | Live |
-| B Agent page: terminal | agent detail (above plus worktree path/branch, terminal handle, session id, session open/closed); **terminal stream** (snapshot of screen and scrollback on attach, then output chunks, resize events); **parsed prompt** (kind, id, tool, command, reason, lines, offered keys); input holders (list; one in v1) and since; recent timeline | Live |
+| B Agent page: terminal | agent detail (above plus worktree path/branch, terminal handle, session id, session open/closed); **terminal stream** (a text grid in v1: snapshot of screen rows and scrollback on attach, then row updates, resize events); **parsed prompt** (kind, id, tool, command, reason, lines, offered keys); input holders (list; one in v1) and since; recent timeline | Live |
 | B Agent page: chat | see "Chat data" below | Live + Command |
 | B actions | start (agent, optional account), stop (interrupt / exit / close / kill), resume, send text (with or without Enter), send key (named key), answer prompt (prompt id, yes/no), take / release input, ask for input (reserved), resize; each returns accepted/refused with the reason, and carries a request id for safe retry | Command |
 | C Inbox | items: kind, id, agent, title, body, evidence, task id, created, read/answered, options for a decision, prompt payload; actions: mark read, answer, reply | Live + Command |
@@ -305,7 +305,7 @@ Names are descriptive, not final. Screen B's chat needs its own list, below the 
 
 Cross-cutting needs for the contract:
 
-1. **Authentication and device identity**: the web app is a remote surface on a daemon that today answers on a local unix socket; it needs a login, per-device tokens, and revocation. **Reach in v1: LAN or Tailscale only**: the daemon listens on a chosen interface (default loopback, opt-in for LAN or the Tailscale address), always speaks an encrypted WebSocket (certificate fingerprint carried in the pairing QR, §7), and has no relay and no public endpoint.
+1. **Authentication and device identity**: the web app is a remote surface on a daemon that today answers on a local unix socket; it needs a login, per-device tokens, and revocation. **Reach in v1: LAN or Tailscale only**: the daemon listens on a chosen interface (default loopback, opt-in for a LAN or Tailscale address; Tailscale is only a bind address, not a different security mode), always speaks TLS (an encrypted WebSocket, certificate fingerprint carried in the pairing QR, §7), and has no relay and no public endpoint.
 2. **One event stream with resume**: a client that reconnects asks for events after an id and does not miss a prompt.
 3. **Terminal stream as a separate channel** from state events (high volume, per terminal, with backpressure).
 4. **Input holder rule** (§4.3), with the daemon refusing to type while a person holds.
@@ -320,7 +320,7 @@ Cross-cutting needs for the contract:
 3. **The agent's side of the conversation and its work**: reply text and tool activity from the transcript, as ordered items with ids, so a client can append and not redraw; a working/waiting line (what it waits for or is blocked by); whether a turn is running.
 4. **Prompt cards in the stream**: the permission or question prompt (id, tool, command, reason, options) and whether it is still open, answerable through the same call as in §3.2.
 5. **Task events inline**: task opened, changed, done with evidence, withdrawn, with their request ids.
-6. **Live updates**: new messages, landing-state changes and working-state changes pushed on the event stream with a resume id, so a chat open on two devices agrees.
+6. **Live updates**: new messages, landing-state changes and working-state changes pushed on the `chat` topic of the event stream with a resume id, so a chat open on two devices agrees.
 7. **Send**: a message to an agent (body, optional task fields: title, time box), idempotent by request id, and answer, dismiss, withdraw on a message.
 8. **Search and jump**: given a message id, return the agent and tab (*mine* or *all*) whose chat shows it.
 
@@ -337,11 +337,14 @@ Decided:
 3. **Reach**: LAN or Tailscale only in v1; no internet relay (§7, §8).
 4. **Diff review**: yes in this app, later; reserved in §3.7 and §8, not designed.
 
-Open, asks to the API (from the audit of this document, sent to orcapipe):
+Closed by the API spec (checked against its text and types):
 
-- **Chat methods (G1)**: the API has none for §8 "Chat data" (paged messages, landing state, transcript items, plain send, answer/dismiss/withdraw, search), and no `requests` topic in the web-UI event list.
-- **Holders as a list (G2)**: the API has one holder and no ask-for-input; the doc wants `holders: [{who, since}]` and a reserved request.
-- **Free-text answer to a dialog (G9)**: `session.input` is refused while a dialog is open and only `session.keys` passes, so typing a free-text answer to a dialog has no method; the API must allow text through for that case, or the UI cannot offer it.
-- **Account preview (G4)**: Start shows the account the daemon would pick; the API has no preview (a field on `agent.get` or an option on `session.start`).
+- **Stop modes**: one meaning of close; Close terminal is its own method, refused while a session runs, so the UI stops first (§3.2).
+- **Account preview**: `account_pick` on `agent.get`.
+- **Free-text answer to a dialog**: `prompt.answer` takes a free-text choice; `session.input` stays refused while a dialog is open.
+- **Chat**: paged messages with landing state, transcript, send, answer/dismiss/withdraw, locate and search, and a `chat` topic (the earlier `requests` topic is replaced by `chat` and `inbox`).
+- **Holders**: `AgentDetail.input_holders` is a list; `input.ask` is reserved and refused until implemented, as this document reserves it.
+
+Still open: **styled terminal rows**. The v1 stream is a text grid; the spec reserves styled rows and leaves the colour decision to the founder.
 
 Open, smaller: where the Electron wrapper differs (native notifications, open-in-editor); whether a person's chat messages carry a task as the bridge's can (§8 chat data 7 assumes yes); how long a hold lasts idle before it returns to the daemon.
