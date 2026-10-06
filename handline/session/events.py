@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+import uuid
 
 from ..usage import collect
 from .. import db
 from ..infra import names, sessiontoken
+from ..team import agents
 from . import bgjobs, memoryguard, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
@@ -108,6 +111,58 @@ def at_limit(con, agent: str) -> dict | None:
     return dict(data, at=int(row["ts"]))
 
 
+def _record(agent: str, event: str, raw: dict) -> None:
+    """Hand the event to the daemon, which writes it down and decides what it means for the agent's state. With
+    the daemon down it goes to the spool, which only records. A hook never fails its session over this."""
+    try:
+        from ..daemon import client, spool
+        request_id = uuid.uuid4().hex
+        at = int(time.time())
+        try:
+            sock = client.connect(2.0)
+            if sock is None:
+                raise OSError("no daemon")
+            client.call(sock, "hook.record", {"agent": agent, "kind": event, "at": at, "data": raw,
+                                              "request_id": request_id}, client_name="hook")
+        except (OSError, client.RpcError):
+            spool.append(agent, event, raw, request_id, at)
+    except Exception:  # noqa: BLE001 - a hook must never break the session
+        pass
+
+
+def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
+    """What the daemon does with a hook event: the one writer of what a hook records. Once per request id."""
+    if event in ANSWERS:
+        _note_tool_use(agent, con)
+    if event not in CAPTURED:
+        return
+    account = agents.current_account(agent, con)
+    payload = _slim(raw)
+    if event == "StopFailure":
+        lim = limit_reason(raw)
+        if lim:
+            payload["limit"], payload["limit_source"] = lim
+    if event == "PermissionRequest":
+        payload["command"] = waiting.summary(raw.get("tool_input"))
+        # Observation only: what a permission hook is told, so a later hook that answers can be designed on
+        # it. Key names, no values.
+        if isinstance(raw.get("permission_mode"), str):
+            payload["permission_mode"] = raw["permission_mode"][:40]
+        payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
+    elif event in ENDS_WAIT:
+        waiting.clear(agent)
+    eid = db.add_event(con, agent, event, payload, account=account, dedup_key=f"hook:{request_id}", ts=at)
+    if eid is None:
+        return              # this request was applied before
+    if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
+        db.bind_session_start(con, agent, str(raw["session_id"]))
+    if event == "PermissionRequest":
+        # After its own row exists, so the id `of()` later compares other activity against is this exact
+        # prompt's, not the one before it.
+        waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
+    _mark_activity(con, agent, event, payload)
+
+
 def record_from_stdin(argv: list[str] | None = None) -> int:
     """Entry point for `hl hook <event>`. Always exits 0.
 
@@ -156,10 +211,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             waiting.clear(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             pass
-        try:
-            _note_tool_use(agent)
-        except Exception:  # noqa: BLE001 - same
-            pass
+        _record(agent, event, raw)
         if event == "PostToolUse":
             try:
                 memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
@@ -187,36 +239,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         print("{}")
         return 0
 
-    try:
-        con = db.connect()
-        try:
-            payload = _slim(raw)
-            if event == "StopFailure":
-                lim = limit_reason(raw)
-                if lim:
-                    payload["limit"], payload["limit_source"] = lim
-            if event == "PermissionRequest":
-                payload["command"] = waiting.summary(raw.get("tool_input"))
-                # T648, observation only: what a permission hook is told, so a
-                # later hook that answers can be designed on it. Key names, no values.
-                if isinstance(raw.get("permission_mode"), str):
-                    payload["permission_mode"] = raw["permission_mode"][:40]
-                payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
-            elif event in ENDS_WAIT:
-                waiting.clear(agent)
-            eid = db.add_event(con, agent, event, payload, account=account)
-            if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
-                db.bind_session_start(con, agent, str(raw["session_id"]))
-            if event == "PermissionRequest":
-                # After its own row exists, so the id `of()` later compares
-                # other activity against is this exact prompt's, not the one
-                # before it.
-                waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
-            _mark_activity(con, agent, event, payload)
-        finally:
-            con.close()
-    except Exception:  # noqa: BLE001 - a hook must never break the session
-        pass
+    _record(agent, event, raw)
     if event in COLLECT_EVENTS:
         try:
             collect.collect(agent, raw.get("cwd") or os.getcwd())
@@ -303,22 +326,18 @@ def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> 
                            detail="finished its turn")
 
 
-def _note_tool_use(agent: str) -> None:
+def _note_tool_use(agent: str, con) -> None:
     """A tool just ran, so the agent is mid-turn. A prompt the daemon typed while it was busy is
     queued by the session and run inside the same turn: no UserPromptSubmit fires for it and no Stop
     until the whole turn ends, so the row stayed QUEUED (drawn PENDING) or IDLE for as long as that
     turn lasted - an hour for an agent that kept finding more work. Only a row the daemon is not
     steering (QUEUED not moving, IDLE, session not closed) is moved; the turn's Stop sets IDLE again."""
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, agent)
-        if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
-            return
-        if (row["detail"] or "").startswith("moving"):
-            return
-        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
-    finally:
-        con.close()
+    row = db.get_agent_state(con, agent)
+    if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
+        return
+    if (row["detail"] or "").startswith("moving"):
+        return
+    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

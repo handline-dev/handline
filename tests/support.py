@@ -1490,11 +1490,22 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     return con, term
 
 
+def drain_spool() -> None:
+    """What a hook left in the spool while no daemon was running, applied as the daemon does at start."""
+    from handline.daemon import spool
+    con = db.connect()
+    try:
+        spool.ingest(con, lambda m: None)
+    finally:
+        con.close()
+
+
 def _fire_hook(event: str, **fields) -> None:
     real_in = sys.stdin
     sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
     try:
         evmod.record_from_stdin([event])
+        drain_spool()
     finally:
         sys.stdin = real_in
 
@@ -2019,6 +2030,7 @@ def orca_settled() -> None:
 
 __all__ = [
     'approve_hr',
+    'drain_spool',
     'answer_card',
     '_ask_row',
     'hand_edit_team',

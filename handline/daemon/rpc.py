@@ -106,6 +106,7 @@ class Method(NamedTuple):
     handler: Callable
     role: str               # the lowest role that may call it
     write: bool = False     # takes a request_id, keeps its reply a day, and is logged under its actor
+    own_event: bool = False  # it writes its own event, under its actor, so no generic one is added
 
 
 # Every method a later task adds is a line here.
@@ -145,7 +146,8 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
                     raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
                 return {**json.loads(row["reply"]), "replayed": True}
             result = m.handler(ctx, params)
-            db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.actor_info})
+            if not m.own_event:
+                db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.actor_info})
             now = int(time.time())
             con.execute("DELETE FROM rpc_replies WHERE ts <= ?", (now - REPLY_KEEP_S,))
             con.execute("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",

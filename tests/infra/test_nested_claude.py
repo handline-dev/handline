@@ -105,6 +105,7 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
           json.loads(theirs.stdout or "[]") == [None, None], theirs.stdout + theirs.stderr[-200:])
 
     def hooks() -> int:
+        drain_spool()
         con = db.connect()
         try:
             return con.execute("SELECT count(*) FROM events WHERE agent = 'scout' AND kind = 'UserPromptSubmit'"
