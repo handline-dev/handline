@@ -152,6 +152,8 @@ class Connection:
         self.sock.settimeout(TIMEOUT_S)
         self.buf = b""
         self.notices: list[dict] = []
+        self.sent: set = set()  # ids sent and not yet answered
+        self.early: dict = {}  # replies read while waiting for another id
 
     def send_line(self, text: str) -> None:
         self.sock.sendall(text.encode() + b"\n")
@@ -167,10 +169,16 @@ class Connection:
         line, self.buf = self.buf.split(b"\n", 1)
         return json.loads(line)
 
-    def reply_to(self, rid) -> dict | None:
-        """Read until the reply with this id; lines without an id are notices and are kept."""
+    def reply_to(self, rid, timeout: float = TIMEOUT_S) -> dict | None:
+        """Read until the reply with this id; lines without an id are notices and are kept. A reply for another id that was
+        sent and not yet answered is kept for its own step (replies come in any order); any other id is a mismatch.
+        `timeout` bounds the whole wait."""
+        if rid in self.early:
+            self.sent.discard(rid)
+            return self.early.pop(rid)
+        deadline = time.time() + timeout
         while True:
-            msg = self.read_line()
+            msg = self.read_line(max(deadline - time.time(), 0.001))
             if msg is None:
                 return None
             if isinstance(msg, dict) and "method" in msg and "id" not in msg:
@@ -179,7 +187,12 @@ class Connection:
                 continue
             check_envelope(msg, False)
             if msg.get("id") == rid:
+                self.sent.discard(rid)
                 return msg
+            if msg.get("id") in self.sent:
+                self.early[msg["id"]] = msg
+                self.sent.discard(msg["id"])
+                continue
             raise Mismatch(f"a reply for id {json.dumps(msg.get('id'))} while waiting for {json.dumps(rid)}")
 
     def notice(self, want: dict, saved: dict) -> None:
@@ -269,15 +282,19 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                 if "raw" in step:
                     conn.send_line(step["raw"])
                     rid = None
+                elif "await" in step:
+                    rid = step["await"]
                 else:
                     req = substitute(step["send"], saved)
                     conn.send_line(json.dumps(req))
                     rid = req.get("id")
+                    if "result" not in step and "error" not in step and rid is not None:
+                        conn.sent.add(rid)
                 if "closed" in step:
                     if conn.closed() != step["closed"]:
                         raise Mismatch(f"connection closed should be {step['closed']}")
                 if "result" in step or "error" in step:
-                    reply = conn.reply_to(rid)
+                    reply = conn.reply_to(rid, step.get("within_s", TIMEOUT_S))
                     if reply is None:
                         raise Mismatch("the connection closed without a reply")
                     if "result" in step:
