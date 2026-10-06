@@ -132,7 +132,8 @@ class Claude:
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
                     chrome: bool = False, sandbox: bool = True,
-                    mcp_approved: list[str] | None = None) -> list[str]:
+                    mcp_approved: list[str] | None = None,
+                    extra_dirs: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -143,16 +144,20 @@ class Claude:
         # `chrome: true` in its agent.yaml (T875) opts in with --chrome.
         argv += ["--chrome" if chrome else "--no-chrome"]
         argv += mcp
+        if extra_dirs:
+            argv += ["--add-dir", *extra_dirs]
         if preamble:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        if hide or no_write:
+        if hide or no_write or extra_dirs:
             fs = {}
             if hide:
                 fs["denyRead"] = hide
             if no_write:
                 fs["denyWrite"] = no_write
+            if extra_dirs:
+                fs["allowWrite"] = extra_dirs       # a working directory is readable; Bash may write it only when it is named here
             settings["sandbox"] = {"filesystem": fs}
         if not sandbox:
             # The founder's choice for this agent: commands run unsandboxed. The Read/Edit denies below

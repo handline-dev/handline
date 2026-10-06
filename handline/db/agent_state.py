@@ -316,6 +316,13 @@ def due_agents(con, now: int):
     ).fetchall()
 
 
+def set_extra_worktrees(con, agent: str, paths: list[str]) -> None:
+    """Record the agent's further worktrees (its first is `worktree`). A new agent has no row yet: it gets one, IDLE, as `set_terminal` makes it."""
+    con.execute("INSERT INTO agent_state(agent, state, updated, extra_worktrees) VALUES(?,?,?,?) "
+                "ON CONFLICT(agent) DO UPDATE SET extra_worktrees=excluded.extra_worktrees",
+                (agent, "IDLE", int(time.time()), json.dumps(paths) if paths else None))
+
+
 def get_agent_state(con, agent: str):
     return con.execute("SELECT * FROM agent_state WHERE agent = ?", (agent,)).fetchone()
 

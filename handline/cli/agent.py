@@ -75,12 +75,14 @@ def cmd_agent_register(args) -> int:
                         skip_permissions=None if args.skip_permissions is None
                         else args.skip_permissions == "on",
                         chrome=None if args.chrome is None else args.chrome == "on",
-                        mcp_config=mcp_text)
+                        mcp_config=mcp_text, extra_worktrees=args.extra_worktrees)
     print(f"registered agent '{args.name}': {d}")
     if args.skip_permissions:
         print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     if args.chrome:
         print(f"chrome {args.chrome}: applies from its next launch")
+    if args.extra_worktrees is not None:
+        print(f"extra-worktrees {args.extra_worktrees}: made when it is next started")
     if args.mcp_config:
         print(f"mcp-config {args.mcp_config}: applies from its next launch")
     print(f"launch it from {term.host_title()} with:")

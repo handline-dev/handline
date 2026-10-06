@@ -333,10 +333,12 @@ def hidden_transcripts(agent: str, drv) -> list[str]:
         other = r["agent"]
         if other == agent or actions.supervisor_of(table, other) == agent or not r["worktree"]:
             continue
+        from ..team import spawn as spawnmod  # late: spawn imports this module
         for cfg in configs:
-            d = drv.transcript_dir(cfg, r["worktree"].split("::", 1)[-1])
-            if d is not None:
-                out.append(str(d))
+            for wt in [r["worktree"].split("::", 1)[-1], *spawnmod.extra_paths(r)]:
+                d = drv.transcript_dir(cfg, wt)
+                if d is not None:
+                    out.append(str(d))
     return out
 
 
@@ -467,6 +469,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
         print(f"warning: agent '{agent}' has mode {chosen}, but {drv.name} has no such mode - "
               f"starting it as usual", file=sys.stderr)
     approved = trust.mcp_approved(Path.cwd())
+    extra_dirs = extra_worktrees_of(agent, cfg)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(f) for f in sessiontoken.hidden_folders()],
@@ -475,7 +478,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
                            **({} if agents.sandbox_on(agent, cfg) else {"sandbox": False}),
-                           **({"mcp_approved": approved} if approved else {}))
+                           **({"mcp_approved": approved} if approved else {}),
+                           **({"extra_dirs": extra_dirs} if extra_dirs else {}))
     if cfg.get("sandbox") is False and not agents.sandbox_off_granted(agent):
         print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
               f"turned it off (`hl agent set {agent} sandbox=off`, from a terminal) - ignoring it",
@@ -501,6 +505,39 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     return argv, env
 
 
+def extra_worktrees_of(agent: str, cfg: dict) -> list[str]:
+    """The agent's further worktrees a session may work in: as many as agent.yaml asks for, and only ones that are there."""
+    n = agents.extra_worktrees(cfg)
+    if not n:
+        return []
+    from ..team import spawn as spawnmod  # late: spawn imports this module
+    con = db.connect()
+    try:
+        return spawnmod.extra_paths(db.get_agent_state(con, agent))[:n]
+    finally:
+        con.close()
+
+
+def _worktrees_line(agent: str) -> str:
+    """Which of the agent's worktrees is which, when it has more than one."""
+    try:
+        extra = extra_worktrees_of(agent, agents.read(agent))
+    except Exception:  # noqa: BLE001 - a config that cannot be read says nothing here
+        return ""
+    if not extra:
+        return ""
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, agent)
+    finally:
+        con.close()
+    first = (row["worktree"] if row else "") or ""
+    first = first.split("::", 1)[-1]
+    return (f"You have {len(extra) + 1} worktrees of this repo, all yours: {first} (where you were started) is for probes and checking out "
+            f"other shas; {', '.join(extra)} " + ("is" if len(extra) == 1 else "are") + " for suite runs, so a long run there is not disturbed when you check "
+            "out something else in the first. Stay inside these.")
+
+
 def _static_preamble(agent: str) -> str:
     """The part of `context_for` that a rebuild reproduces byte for byte:
     everything except the handoff, which is supposed to differ every time
@@ -516,6 +553,9 @@ def _static_preamble(agent: str) -> str:
              "until one does.",
              "On a long request, keep `hl progress \"done: ... left: ...\"` current: "
              "your handoff carries it to the session that takes over."]
+    where = _worktrees_line(agent)
+    if where:
+        parts.insert(2, where)
     team_line = _your_team(agent)
     if team_line:
         parts.append(team_line)

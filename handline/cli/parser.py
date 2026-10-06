@@ -109,6 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
                    help="start its sessions without asking before they act (default off); "
                    "applies from the next launch; on re-registration, omit to keep the current one")
+    p.add_argument("--extra-worktrees", type=int, default=None, choices=range(agents.MAX_EXTRA_WORKTREES + 1), metavar="N",
+                   help=f"worktrees it has besides its first (0 to {agents.MAX_EXTRA_WORKTREES}, default 0): made beside the first when it is next "
+                   "started, writable to it alone; on re-registration, omit to keep the current one")
     p.add_argument("--chrome", default=None, choices=["on", "off"],
                    help="start its sessions with the Claude in Chrome integration (default off, "
                    "every other agent keeps --no-chrome); its browser dialog is yours to answer, "
