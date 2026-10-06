@@ -13,7 +13,7 @@ The menu of `web-main-view.md` §2 holds Interrupt, Exit, Close, Kill, Close ter
 | Wake | `w` | `session.wake` | decided | only when the row is stalled (the bridge's `_needs_confirm`); otherwise none | no session or parked |
 | Close | `c` | `session.stop` | decided | yes | a session exists |
 | Restart | `r` | `session.restart` | decided | yes | a session exists |
-| Restart fresh | (the bridge's restart without resuming) | `session.restart` with `fresh` | decided | yes, and the sheet says the session's context is dropped | a session exists |
+| Restart fresh | (the bridge's restart without resuming) | `session.restart { fresh: true }` (the contract has `agent`, `fresh`, `force`; Close fresh is `session.stop { mode: close, fresh }`) | decided | yes, and the sheet says the session's context is dropped | a session exists |
 | Park | `p` | `session.park` | decided | yes | a session exists |
 | Fold | `f` | `agent.fold` | decided | yes, and the sheet names the handoff it folds into | a session exists |
 | Move account | `v` | `agent.move` | decided | none: choosing the account is the choice | always |
@@ -48,13 +48,16 @@ Fields whose effect comes at the next launch carry the bridge's note ("from the 
 
 ### 2.2 How saving works
 
-Write kind from §8.5: `agent.set` is **authored**. The bridge saves with a Save button; here every field saves on its own, because the cache patch is per field and a failed field reverts alone:
+Write kind from §8.5: `agent.set` is **authored**. The web keeps the bridge's per-field save (its `commit()` on blur for text fields, on change for selects and switches); there is no Save button, because the cache patch is per field and a failed field reverts alone:
 - A text or number field saves on blur or Enter; a select and a switch save on change.
 - While the value differs from the daemon's, the field shows the hollow dot; on refusal it reverts and its note line says why. A field with an invalid value (a non-number in "hand off at") is not sent; the note says what is allowed.
+- **Two switches confirm first, in the bridge's words.** Turning **skip prompts** on asks "Stop asking before this agent runs tools": "skip prompts runs claude --dangerously-skip-permissions: it will act without asking, from the next launch.", buttons **Turn on** and **Cancel**, drawn in `--block` as a danger confirm. Turning **sandbox** off (when it is on) asks "Run this agent without its sandbox": "Its commands will run with nothing holding them back, until its session ends.", buttons **Turn off** and **Cancel**. Until the person confirms nothing is sent; on Cancel, or a refusal, the switch snaps back to its stored value. Turning either the safe way (skip prompts off, sandbox on) asks nothing.
 - The founder-only fields (from `whoami`) show a lock `🔒` and are read-only for other roles, with "founder only" as the tooltip; the page never offers a write it knows will be refused.
 - Leaving the page with an unsaved invalid field asks "Leave without saving?" with the problems listed (the bridge's `Confirm.ask` on leave); with only valid fields there is nothing unsaved.
 
 ### 2.3 Schedules
+
+The schedule methods are founder-only in the contract: for other roles (from `whoami`) the controls are hidden and the list is read-only, as the locked fields of §2.2.
 
 A list inside the page, one line each: when in words ("every weekday 09:00"; the cron under it in `--mono` and `--muted` when the words differ), next run, the message (one line, cut with …), and `✎` edit and `✕` remove buttons. "Add schedule" under the list. Add and edit open an inline sheet with a when field (cron, with the words rendered live under it), a message box, Save and Cancel. Writes `schedule.add` `schedule.edit` `schedule.remove` are authored (§8.5): the line appears or changes at once with the hollow dot, and reverts on refusal. Remove keeps the bridge's confirmation, naming the message's first words.
 
@@ -74,7 +77,7 @@ Keys: Tab and Shift-Tab between fields, Enter saves a text field, Escape reverts
 
 ### 3.1 The status bar usage popup
 
-The status bar item "acct alpha 41% · beta 12%" (`web-ui-design.md` §2) opens a popup anchored above it (a bottom sheet on phones): one line per account: alias or name, the **5 h** gauge, the **week** gauge, the resets in words ("resets in 2 h 10 m"), agents on it ("3 / cap 4"), runway. A gauge is a bar in `--panel` with the fill in `--run`, `--wait` from 75% and `--block` from 95%, a tick `│` for how far through the window we are (the bridge's bar), and the percentage as text, so colour is never alone. A row is a link to that account's page. At the foot: "All accounts" opens the page, and when the daemon serves it, `stats.outlook` figures (the week left) are shown, otherwise omitted (N5).
+The status bar item "acct alpha 41% · beta 12%" (`web-ui-design.md` §2) opens a popup anchored above it (a bottom sheet on phones): one line per account: alias or name, the **5 h** gauge, the **week** gauge, the resets in words ("resets in 2 h 10 m"), agents on it ("3 / cap 4"), runway. A gauge is a bar in `--panel` with the fill in `--run`, `--wait` from 60% and `--block` from 85% (the bridge's `gauge.py` thresholds), a tick `│` for how far through the window we are (the bridge's bar), and the percentage as text, so colour is never alone. A row is a link to that account's page. At the foot: "All accounts" opens the page, and when the daemon serves it, `stats.outlook` figures (the week left) are shown, otherwise omitted (N5).
 
 Narrow popup widths drop things in the bridge's order (`_ACCT_TIERS`): first the reset countdowns, then the percentages beside the bars. Loading: three account skeleton rows; empty: "No accounts configured." with a pointer to the login; error and not served as in §1 of the Inbox doc; the last data stays visible during a refetch. The popup refreshes from the `accounts` topic; no polling interval is drawn.
 
@@ -111,15 +114,12 @@ The list is cards with the two gauges stacked and the agents count; the account 
 ## 4. What the tests check
 
 - U12: one control per `AGENT_KEYS` verb; the confirm set equals the bridge's `CONFIRM` plus wake-on-stalled; a confirm whose state changed sends nothing; a verb the daemon does not serve is absent; decided marks per verb. Clear stall is built behind the method being listed.
-- U13: each field of `agent_settings.py` edits and saves, reverts on refusal with its note; founder-only fields lock; schedules add, edit and remove with the hollow dot; skeleton heights equal loaded heights.
-- U14: gauge colours at 74, 75, 94 and 95 percent with the text always present; the popup's narrow tiers; login opens a terminal tab and never asks for a credential; remove, when listed, refuses an account in use before it asks for the name.
+- U13: each field of `agent_settings.py` edits and saves, reverts on refusal with its note; turning skip prompts on and sandbox off ask first, and a cancelled or refused switch snaps back and sends nothing; founder-only fields lock; schedules add, edit and remove with the hollow dot; skeleton heights equal loaded heights.
+- U14: gauge colours at 59, 60, 84 and 85 percent with the text always present; the popup's narrow tiers; login opens a terminal tab and never asks for a credential; remove, when listed, refuses an account in use before it asks for the name.
 - All: skeleton timing of §8.6, no spinner in the DOM, light and dark, reduced motion, screenshots at 375 and 1280.
 
 ## 5. Assumptions to confirm
 
-1. Per-field save replaces the bridge's Save button; if the founder prefers one Save for the form, the page keeps a draft and the write becomes one `agent.set`.
-2. **Pending, founder:** clear stall (N4) and account remove (N3) are founder-only in the spec and undecided; the designs above hold either way, and "founder only" hides them from other roles.
-3. "Restart fresh" is taken as the existing restart with the resume switched off; the call field name (`fresh`) is a guess until D5 lands.
-4. The gauge colour bands (75% and 95%) are a proposal; the bridge colours by its own thresholds, which I did not copy here.
-5. Login by terminal tab depends on R2 (terminals the web can open); without it login is a host command.
-6. Move account has no confirmation, as in the bridge; the account chosen is shown before the call.
+1. **Pending, founder:** clear stall (N4) and account remove (N3) are founder-only in the spec and undecided; the designs above hold either way, and "founder only" hides them from other roles.
+2. Login by terminal tab depends on R2 (terminals the web can open); without it login is a host command.
+3. Move account has no confirmation, as in the bridge; the account chosen is shown before the call.
