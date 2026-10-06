@@ -1908,8 +1908,9 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         termmod.idle_now = lambda h: True
         head = db.head_of_queue(con, "backend")
         sent.clear()
+        db.set_cursor(con, "batch:backend", 0)            # the minute is up
         askmod.resolve(head["id"], "done")
-        check("deliver: resolving the head delivers the one behind it, right away",
+        check("deliver: resolving the head delivers what is behind it once the minute is up",
               sent and "and this" in sent[-1] and "look at this" not in sent[-1], str(sent))
     finally:
         termmod.alive, termmod.idle_now, termmod.send, termmod.available = real

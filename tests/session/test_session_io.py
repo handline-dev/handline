@@ -2475,10 +2475,10 @@ def test_what_is_typed_at_an_agent_is_never_more_than_three_lines(home: Path) ->
         db.add_request(con, "reviewer", "backend", "later", None, "peer", "async", "task", 0, None)
         _session_file(home, "sess-A")
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("lines: a multi-line body with more waiting behind it is typed in three lines",
+        check("lines: a batch with a multi-line body is typed in three lines",
               len(sent) == 1 and sent[0].count("\n") == 2
               and "step one - a - b" in sent[0] and "step two" in sent[0]
-              and "1 more waiting" in sent[0], repr(sent))
+              and "#2 from reviewer: later" in sent[0], repr(sent))
         sent.clear()
 
         for i in range(5):
@@ -2516,23 +2516,22 @@ def test_a_reply_in_the_open_heads_thread_is_told_now_not_behind_it(home: Path) 
         other = db.add_request(con, "marina", "backend", "unrelated", None, "peer", "async", "task", 0, None)
         reply = db.add_request(con, "marina", "backend", "on step six: leave it", None,
                                "peer", "async", None, 0, head)
-        check("thread: the task head is told by the tick, without the reply",
+        check("thread: the tasks are told by the tick as one batch, without the reply",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-              and "step six" in sent[-1] and "leave it" not in sent[-1], str(sent))
+              and "step six" in sent[-1] and "unrelated" in sent[-1] and "leave it" not in sent[-1], str(sent))
         sent.clear()
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("thread: the reply, a message, is typed at once though its head is still open",
               len(sent) == 1 and "leave it" in sent[-1], str(sent))
         sent.clear()
-        check("thread: and once - the unrelated task stays behind the head",
+        check("thread: and once - the unrelated task was told with the head and is not told again",
               not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent)
         dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
         check("thread: the reply is not typed a second time", not sent, str(sent))
         support._set_request_state(con, head, "landed", "ok")
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("thread: with the head closed, the unrelated task is told and the reply is not",
-              not any("leave it" in t for t in sent) and any("unrelated" in t for t in sent),
-              str(sent))
+        check("thread: with the head closed, nothing is typed again: the reply and the task were told",
+              not sent, str(sent))
     finally:
         con.close()
 
@@ -3110,7 +3109,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         obsmod.live_sessions = lambda: dict(table)
         check("shell: a running agent is told what is waiting",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and
-              any("hl inbox" in t2 for t2 in sent), str(sent))
+              any("waiting for you" in t2 for t2 in sent), str(sent))
 
         # One listing per tick, not one per send: the sweep already asked.
         calls = {"n": 0}
@@ -3126,7 +3125,7 @@ def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
         sent.clear()
         dmn_evaluate.tick(con, lambda _m: None)
         check("shell: the tick reads the process table once, and the sends reuse it",
-              calls["n"] == 1 and any("hl inbox" in t2 for t2 in sent),
+              calls["n"] == 1 and any("waiting for you" in t2 for t2 in sent),
               f"{calls['n']} listings, sent {sent}")
     finally:
         (termmod.available, termmod.alive, termmod.idle_now, termmod.wait_idle,

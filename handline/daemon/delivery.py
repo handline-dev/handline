@@ -551,30 +551,38 @@ def _held(agent: str, head, why: str, log, contestable: bool = False) -> bool:
     return False
 
 
-def _next_behind(con, agent: str, head):
-    """The first task behind `head` that nobody has told the agent about and that is not itself
-    blocked on record (T337)."""
-    return next((r for r in db.queued_for(con, agent)
-                 if r["kind"] == "task" and r["edge_ok"] and int(r["id"]) != int(head["id"])
-                 and not r["delivered_at"] and not head_task_blocked(con, agent, r)), None)
+def _untold_behind(con, agent: str, head) -> list:
+    """The tasks behind `head` that nobody has told the agent about and that are not themselves
+    blocked on record, in queue order."""
+    return [r for r in db.queued_for(con, agent)
+            if r["kind"] == "task" and r["edge_ok"] and int(r["id"]) != int(head["id"])
+            and not r["delivered_at"] and not head_task_blocked(con, agent, r)]
 
 
-def _idle_on(con, agent: str, head) -> bool:
-    """The agent has sat idle on `head`, told and still open, this long: nothing it started is
-    running (background work that is not stale) and it has done nothing since, nor been told
-    anything since: a task typed past `head` restarts this, so they go out one per stretch (T459)."""
-    now = int(time.time())
-    if has_background_work(con, agent) and not bg_stale(con, agent, now):
-        return False
-    last_told = max((int(r["delivered_at"] or 0) for r in db.queued_for(con, agent)), default=0)
-    return now - max(last_told, idle_since(con, agent) or 0) >= NUDGE_AFTER_S
+# What is queued for an agent goes out together, once a minute, not one task at a time
+# behind an idle wait. When the last batch went out is `batch:<agent>` in the db, so a restart neither
+# sends early nor forgets what is still owed: whether a batch is due is read from it, never from a timer.
+BATCH_EVERY_S = 60
+
+
+def _urgent(r) -> bool:
+    """A batch holding this goes out at once: the founder's own request, or one marked send-now."""
+    return r["requester"] == db.HUMAN or db.tells_now(r)
+
+
+def _batch_due(con, agent: str, rows, fresh_session: bool) -> bool:
+    if fresh_session or any(_urgent(r) for r in rows):
+        return True          # a session that knows nothing of its queue (new, or voided): not a batch
+    return int(time.time()) - (db.get_cursor(con, f"batch:{agent}") or 0) >= BATCH_EVERY_S
 
 
 def deliver_queued(con, agent: str, log) -> bool:
-    """Tell an agent about its next task - only tasks, one at a time and only when
-    it is free: a message is typed at once (`messaging.tell_now`) and never comes
-    here (T398). Told once per task: the cursor holds the id last announced. Whatever
-    holds a task back is logged, once per reason (T456).
+    """Tell an agent about the tasks queued for it - only tasks: a message is typed at once
+    (`messaging.tell_now`) and never comes here. Everything not yet told goes out as one
+    message once a minute, or at once when it holds the founder's request or one marked send-now;
+    only one task is the agent's to do at a time, the rest are told so it knows what is queued.
+    Told once per task: the cursor holds the id last announced. Whatever holds the batch back is
+    logged, once per reason.
     """
     if not enforce_edges(con, agent, log):
         return False
@@ -590,17 +598,20 @@ def deliver_queued(con, agent: str, log) -> bool:
         db.set_cursor(con, f"notify:{agent}", int(head["id"]))
         head_due = False
     ahead_of = None
-    if not head_due:
-        # The head was told and is still open: what is behind it waits, but not for as long
-        # as the agent sits idle on it (T459).
-        ahead_of, head = head, _next_behind(con, agent, head)
-        if not head:
+    if head_due:
+        batch = [head] + _untold_behind(con, agent, head)
+    else:
+        # The head was told and is still open: what is behind it is told as a batch.
+        ahead_of = head
+        batch = _untold_behind(con, agent, head)
+        if not batch:
             _HELD.pop(agent, None)
             note_hold(agent, None)
             return False
-        if not _idle_on(con, agent, ahead_of):
-            return _held(agent, head, f"#{ahead_of['id']}, told and still open, is ahead of it "
-                         f"until the agent has been idle on it {NUDGE_AFTER_S // 60} min", log)
+        head = batch[0]
+    fresh = head_due and (_session_changed(con, agent) or not db.get_cursor(con, f"notify:{agent}"))
+    if not _batch_due(con, agent, batch, fresh):
+        return False                                  # collected; goes out when the minute is up
     why = typing_hold(con, agent)
     if why:
         return _held(agent, head, why, log)          # stays queued; told when it wakes or moves
@@ -628,10 +639,9 @@ def deliver_queued(con, agent: str, log) -> bool:
             return _held(agent, head, "its terminal is locked by another send", log, contestable=True)
         if _type_gate(con, agent, handle):
             return _held(agent, head, "its screen changed before the send", log, contestable=True)
-        # One task per pass: it starts the agent's turn, so a second would be typed
-        # mid-turn. The rest go out on later ticks, each behind its own typeable check.
-        told = _tell(con, agent, head, depth, handle, log, ahead_of, parked=ahead_of is not None)
+        told = _tell_batch(con, agent, batch, depth, handle, log, ahead_of)
         if told:
+            db.set_cursor(con, f"batch:{agent}", int(time.time()))
             _HELD.pop(agent, None)
             note_hold(agent, None)
         return told
@@ -1108,8 +1118,8 @@ def notices_text(con, agent: str, folded) -> str:
 def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded=()) -> str:
     """The message that tells an agent about `head`, as it is typed.
 
-    `ahead_of` is the head a "send now" request is jumping, or, with `parked`, the head the
-    agent has sat idle on. `folded` is `folded_notices`, carried on the same line."""
+    `ahead_of` is the head a "send now" request is jumping, or, with `parked`, the open head the
+    task is queued behind. `folded` is `folded_notices`, carried on the same line."""
     more = depth - 1
     # One line; `hl read` has the rest. The message is three lines at most
     # (`MAX_TYPED_LINES`), so what follows the body rides on its line. A task handoff
@@ -1138,7 +1148,7 @@ def tell_text(con, head, depth: int, ahead_of=None, parked: bool = False, folded
     waiting = more_waiting(head["kind"], more)
     tail = f" [{waiting}]" if waiting else ""
     if parked:
-        tail = f" [Ahead of #{ahead_of['id']}, which is still open and has sat idle.]"
+        tail = f" [Queued behind #{ahead_of['id']}, which is still open: the next task comes when you hand it on or finish it.]"
     elif ahead_of is not None:
         tail = (f" [A follow-up to #{ahead_of['id']}, which is still open.]"
                 if head["parent_id"] == ahead_of["id"] else
@@ -1164,39 +1174,86 @@ def _record_told(con, agent: str, head, depth: int, log, session: str | None,
         db.mark_told_ahead(con, agent, int(head["id"]), [int(r["id"]) for r in db.queued_for(con, agent)])
     db.add_event(con, agent, "notified", {"request_id": head["id"], "more_waiting": more})
     log(f"  {agent}: told about #{head['id']}"
-        + (f" (ahead of #{ahead_of['id']}, idle)" if parked else " (send now)" if ahead_of is not None else "")
+        + (f" (behind #{ahead_of['id']})" if parked else " (send now)" if ahead_of is not None else "")
         + (f" ({more} more waiting)" if more else ""))
 
 
-def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None,
-          parked: bool = False) -> bool:
-    """`ahead_of` is the head a "send now" request is jumping: it is told
-    without touching the head's own cursor, so that head is not told twice.
-    `parked` says it is a task the agent's idle head let through (T459)."""
-    # Before the send, not after: this is what closes withdraw/replace's race
-    # against delivery (request #189). A send that then fails leaves the row
-    # marked anyway - its requester can no longer withdraw it, but the cursor
-    # below is not advanced, so the next tick retries the same head.
-    if not db.mark_delivered(con, int(head["id"])):
-        # Retired (withdrawn/replaced) in the gap between head_of_queue and
-        # here. Typing a dead request into the target's terminal would be
-        # worse than skipping it; the next tick picks up whatever is now head.
-        return False
+def _tell(con, agent: str, head, depth: int, handle: str, log, ahead_of=None, parked: bool = False) -> bool:
+    """Tell `agent` about the one task `head`."""
+    return _tell_batch(con, agent, [head], depth, handle, log, ahead_of, parked)
+
+
+BATCH_LINE = 160
+
+
+def batch_text(con, batch, folded, ahead_of=None) -> str:
+    """One message for several queued tasks: a line each, then how to work them. The three-line cap
+    (`_send`) joins the middle lines, so the header and the footer stay apart."""
+    lines = []
+    for r in batch:
+        parts = handoff_parts(r["body"])
+        text = (f"T{parts[0]} handed to you: {parts[2]} - {parts[3] or '(no note)'}" if parts
+                else r["body"] or "(empty)")
+        text = textsafe.oneline(text).strip()
+        if len(text) > BATCH_LINE:
+            text = f"{text[:BATCH_LINE].rstrip()}…"
+        lines.append(f"#{r['id']} from {r['requester']}: {text}")
+    head = (f"{len(batch)} more tasks queued behind #{ahead_of['id']}, which is still open:"
+            if ahead_of is not None else f"{len(batch)} tasks waiting for you:")
+    foot = ("`hl read <id>` shows one whole. You do one at a time, in this order: each ends with "
+            "`hl task done T<n>` or `hl task handoff T<n> <agent> \"<note>\"`."
+            + notices_text(con, batch[0]["target"], folded))
+    return "\n".join([head, *lines, foot])
+
+
+def _tell_batch(con, agent: str, batch, depth: int, handle: str, log, ahead_of=None,
+                parked: bool | None = None) -> bool:
+    """Type `batch` (the tasks no one has told the agent about, in queue order) as one message and
+    record each as told. One task is `_tell`'s own message. Each is marked delivered before the send
+    (as `_tell` is: it closes withdraw/replace's race) and put back as owed when the send fails.
+    `ahead_of` is the open head the batch is queued behind; `parked` says so (the default when it is
+    given), else it is a "send now" request jumping that head."""
     from . import landing        # imports this module
-    if landing.landed_already(con, agent, int(head["id"])):
-        # T766: the transcript first - a line it already holds is not typed again.
-        db.mark_typed(con, int(head["id"]), _live_session(con, agent))
-        db.mark_landed(con, int(head["id"]))
-        _record_told(con, agent, head, depth, log, None, ahead_of, parked)
-        return True
+    parked = ahead_of is not None if parked is None else parked
+    live, landed = [], False
+    for r in batch:
+        if not db.mark_delivered(con, int(r["id"])):
+            continue                 # retired in the gap since it was listed
+        if landing.landed_already(con, agent, int(r["id"])):
+            # the transcript first - a line it already holds is not typed again.
+            db.mark_typed(con, int(r["id"]), _live_session(con, agent))
+            db.mark_landed(con, int(r["id"]))
+            _record_told(con, agent, r, depth, log, None, ahead_of, parked)
+            landed = True
+            continue
+        live.append(r)
+    if not live:
+        return landed
     folded = folded_notices(con, agent)
-    ok, _ = _send(handle, tell_text(con, head, depth, ahead_of, parked, folded))
-    if ok:
-        _mark_typed(con, agent)
-        db.mark_notices_shown(con, [int(r["id"]) for r in folded], _live_session(con, agent))
-        _record_told(con, agent, head, depth, log,
-                     _live_session(con, agent) if ahead_of is None else None, ahead_of, parked)
-    return ok
+    if len(live) == 1:
+        text = tell_text(con, live[0], depth, ahead_of, parked, folded)
+    else:
+        text = batch_text(con, live, folded, ahead_of)
+    ok, _ = _send(handle, text)
+    if not ok:
+        for r in live:
+            db.clear_delivered(con, int(r["id"]))
+        return False
+    _mark_typed(con, agent)
+    session = _live_session(con, agent)
+    db.mark_notices_shown(con, [int(r["id"]) for r in folded], session)
+    for n, r in enumerate(live):
+        if n == 0:
+            _record_told(con, agent, r, depth, log, session if ahead_of is None else None,
+                         ahead_of, parked)
+            continue
+        # Told with the first, to the session that is running: becoming the head is not news.
+        db.mark_typed(con, int(r["id"]), session)
+        landing.note_typed(int(r["id"]))
+        db.mark_told_ahead(con, agent, int(r["id"]), [int(q["id"]) for q in db.queued_for(con, agent)])
+        db.add_event(con, agent, "notified", {"request_id": r["id"], "more_waiting": depth - 1})
+        log(f"  {agent}: told about #{r['id']} (batched with #{live[0]['id']})")
+    return True
 
 
 def waiting_prompt(con, agent: str, log):
