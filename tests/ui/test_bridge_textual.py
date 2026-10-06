@@ -433,7 +433,7 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
         msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
         check("chat: a queued message can be cancelled, not yet delivered",
               msgs[0]["queued"] and not msgs[0]["delivered"] and msgs[0]["side"] == "you", str(msgs[0]))
-        con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ? WHERE id = ?",
+        con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ?, state = 'landed' WHERE id = ?",
                     (int(time.time()),) * 3 + (first,))
         con.commit()
         check("chat: once delivered it says so",

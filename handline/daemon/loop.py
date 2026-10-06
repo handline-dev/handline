@@ -74,7 +74,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             except ValueError:
                 pass  # not on the main thread
 
-        con = db.connect()
+        con = db.connect(migrating=True)
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
         srv = socket_server.SocketServer(log)

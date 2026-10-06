@@ -706,14 +706,14 @@ def test_korean_digests_read_and_are_migrated_to_english_headings(home: Path) ->
         con.execute("DELETE FROM cursors WHERE name = 'migrated:english_digests'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("upgrade: the stored digest is rewritten in English, once",
               j.read_text() == new and db.get_cursor(con, "migrated:english_digests") == 1, j.read_text())
         j.write_text(old)
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     con.close()
     check("upgrade: a second connect does not touch it again", j.read_text() == old)
     # A journal folder it cannot write must not fail a connect, now or on any later one.
@@ -727,7 +727,7 @@ def test_korean_digests_read_and_are_migrated_to_english_headings(home: Path) ->
     os.chmod(j.parent, 0o555)
     try:
         try:
-            db.connect().close()
+            support.upgrade().close()
             failed = ""
         except OSError as e:
             failed = str(e)

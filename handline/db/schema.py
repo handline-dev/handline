@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import time
@@ -438,7 +439,15 @@ CREATE INDEX IF NOT EXISTS session_starts_agent ON session_starts(agent, id);
 """
 
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
+class SchemaError(RuntimeError):
+    """The database cannot be used by this code as it stands."""
+
+
+def connect(path: Path | None = None, *, migrating: bool = False) -> sqlite3.Connection:
+    """Open the database. The baseline (migration 1) is the pass every connect used to run, so a database
+    that has none of the versions gets it here; a step above it needs the daemon (which passes `migrating`),
+    and a database waiting for one is refused. A newer database is refused for good. A file with no tables
+    yet is set up whole."""
     p = path or paths.db_file()
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(p, timeout=10.0, isolation_level=None)
@@ -447,21 +456,78 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.execute("PRAGMA foreign_keys=ON")
-    # Two processes opening one older database at once both see a column missing and both add it: the
-    # second fails with "duplicate column name". Every step looks at the columns it needs again, so
-    # running the migration again finds that column there and goes on.
-    for attempt in range(4):
-        try:
-            _migrate(con)
-            break
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e) or attempt == 3:
-                raise
+    try:
+        have = schema_version(con)
+        if have < LATEST_VERSION:
+            if migrating or not con.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
+                migrate(con)
+            elif have < BASELINE_VERSION:
+                migrate(con, up_to=BASELINE_VERSION)
+            have = schema_version(con)
+        if have > LATEST_VERSION:
+            raise SchemaError(f"{p} is at schema version {have}, newer than the {LATEST_VERSION} this code "
+                              f"knows: update handline before using it")
+        if have < LATEST_VERSION:
+            raise SchemaError(f"{p} is at schema version {have}, older than the {LATEST_VERSION} this code "
+                              f"needs: run `{RESTART_COMMAND}` to restart the daemon, which brings it up")
+    except BaseException:
+        con.close()
+        raise
     return con
 
 
-def _migrate(con) -> None:
-    """Bring the database up to the current schema; safe to run again."""
+def schema_version(con) -> int:
+    """The newest migration this database has had; 0 for one that has had none."""
+    try:
+        return con.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
+    except sqlite3.OperationalError:        # no such table yet
+        return 0
+
+
+MIGRATE_WAIT_S = 60.0
+RESTART_COMMAND = "hl service install"
+
+
+def migrate(con, up_to: int | None = None) -> None:
+    """Apply every migration the database has not had, up to `up_to` (default all), in order. Processes
+    serialize on a lock file, and each takes the version again once it holds it, so a migration runs once
+    however many open at the same time. A step that dies midway is run again, so a step must be safe to
+    run again. A lock held past MIGRATE_WAIT_S is an error that names its holder."""
+    import fcntl
+    file = next(r[2] for r in con.execute("PRAGMA database_list") if r[1] == "main")
+    with open(file + ".migrate-lock", "a+") as lock:
+        deadline = time.monotonic() + MIGRATE_WAIT_S
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    lock.seek(0)
+                    holder = lock.read().strip() or "another process"
+                    raise SchemaError(f"{file} has been busy migrating for {MIGRATE_WAIT_S:.0f}s, held by pid "
+                                      f"{holder}: wait for it, or end it and try again") from None
+                time.sleep(0.05)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(os.getpid()))
+        lock.flush()
+        have = schema_version(con)
+        if have > LATEST_VERSION:
+            raise SchemaError(f"{file} is at schema version {have}, newer than the {LATEST_VERSION} this code "
+                              f"knows: update handline before using it")
+        for version, name, step in MIGRATIONS:
+            if version <= have or (up_to is not None and version > up_to):
+                continue
+            step(con)
+            con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, "
+                        "name TEXT NOT NULL, applied_at INTEGER NOT NULL)")
+            con.execute("INSERT INTO schema_version(version, name, applied_at) VALUES(?, ?, ?)",
+                        (version, name, int(time.time())))
+
+
+def _baseline(con) -> None:
+    """Migration 1: everything done before versions existed, as one pass that is safe to run again."""
     # The legacy request columns (`_LEGACY_REQUEST_COLUMNS`): a database that was dropped of them by
     # the doctor, or made without them, never grows them back and runs no migration that names them.
     fresh = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'requests'").fetchone() is None
@@ -509,6 +575,15 @@ def _migrate(con) -> None:
     _hr_proposals_leave_tasks(con)
     for gone in ("task_sent_on_link", "task_sent_on_unlink", "task_sent_on_request"):
         con.execute(f"DROP TRIGGER IF EXISTS {gone}")     # T751: `db.refresh_sent` keeps sent_at now
+
+
+# Ordered and numbered; a step is appended, never edited or reordered, and none may drop or reshape a
+# column (the doctor drops dead ones). A database that is not at the last number is not current.
+MIGRATIONS = [
+    (1, "baseline", _baseline),
+]
+BASELINE_VERSION = 1
+LATEST_VERSION = MIGRATIONS[-1][0]
 
 
 def _write_if_any(con, table: str, where: str, sql: str, params: tuple = ()) -> None:
