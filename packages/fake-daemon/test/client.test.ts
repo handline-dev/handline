@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RpcError, type Event } from '@handline/client';
+import type { RpcError} from '@handline/client';
+import { type Event } from '@handline/client';
 import { flush, second, setup, until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
@@ -37,8 +38,9 @@ test('errors carry a stable code, a readable sentence and the gate', async () =>
 
 test('a daemon that needs a newer client is refused with the fix', async () => {
   const { client, daemon } = setup();
-  const dispatch = (daemon as any).dispatch.bind(daemon);
-  (daemon as any).dispatch = (c: unknown, m: string, p: unknown) =>
+  const inner = daemon as unknown as { dispatch(c: unknown, m: string, p: unknown): object };
+  const dispatch = inner.dispatch.bind(daemon);
+  inner.dispatch = (c, m, p) =>
     (m === 'hello' ? { ...dispatch(c, m, p), min_client: 2 } : dispatch(c, m, p));
   await assert.rejects(client.start(), (e: RpcError) => e.code === 'protocol' && /hl service install/.test(e.reason ?? ''));
 });
@@ -83,7 +85,7 @@ test('session started, text streamed, input sent, Esc sent, prompt answered', as
   daemon.settle();
   await until(() => view.text().includes('● Pushed. Done.'), 'finish');
   assert.equal((await client.call('agent.get', { agent: A })).state, 'idle');
-  assert.ok(events.some((e) => e.type === 'agent.changed' && (e.data as any).has_dialog === false && e.actor?.name === 'web-test'));
+  assert.ok(events.some((e) => e.type === 'agent.changed' && (e.data as { has_dialog?: boolean }).has_dialog === false && e.actor?.name === 'web-test'));
 
   // a fresh attach has the whole text, scrollback included
   const again = await client.attachTerminal(A);
@@ -195,7 +197,7 @@ test('a remounted terminal keeps the shared view until its last holder lets go',
   const { client, daemon } = setup();
   await client.start();
   await client.startSession(A);
-  const attached = () => [...(daemon as any).conns].reduce((n: number, c: any) => n + c.attached.size, 0);
+  const attached = () => [...(daemon as unknown as { conns: Set<{ attached: Set<string> }> }).conns].reduce((n, c) => n + c.attached.size, 0);
   const first = client.attachTerminal(A), second = client.attachTerminal(A); // remount before the first answer
   const [v1, v2] = await Promise.all([first, second]);
   assert.equal(v1, v2);
@@ -250,7 +252,7 @@ test('reconnect resumes the event stream without loss and takes a fresh terminal
   await until(() => view.text().includes('● Understood, I will not push.'), 'terminal resync');
   await flush();
   assert.ok(seen.length > first, 'events from the outage arrived');
-  const all = (daemon as any).events.map((e: Event) => e.cursor) as number[];
+  const all = (daemon as unknown as { events: Event[] }).events.map((e: Event) => e.cursor) as number[];
   assert.deepEqual(seen, all.filter((c) => c >= seen[0]!), 'every event from the first seen on, once, in order');
   assert.deepEqual(view.text(), daemon.sessions.get(A)!.lines.slice(-view.text().length));
   client.close(); other.close();
@@ -293,7 +295,7 @@ test('close settles a call waiting for the connection to come back', async () =>
   const { client, net } = setup();
   await client.start();
   net.down = true;
-  (client as any).transport.close();
+  (client as unknown as { transport: { close(): void } }).transport.close();
   await until(() => client.state === 'reconnecting', 'drop');
   const waiting = client.call('daemon.status', {});
   client.close();

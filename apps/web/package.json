@@ -8,7 +8,8 @@
     "dev:fake": "HANDLINE_FAKE=1 vite",
     "build": "vite build",
     "test": "vitest run",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@handline/app-core": "workspace:*",

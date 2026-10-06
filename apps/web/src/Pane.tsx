@@ -13,7 +13,7 @@ const PRESETS: [Preset, string][] = [['single', 'One pane'], ['cols', 'Two colum
 const EDGES: Edge[] = ['left', 'right', 'top', 'bottom'];
 
 export function Pane({ group }: { group: Group }) {
-  const { ws, detail, agent, apply, drop, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, apply, dragging, setDragging } = useWorkspace();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
 

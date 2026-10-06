@@ -1,6 +1,6 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
 import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
-import { Store } from '@handline/app-core';
+import type { Store } from '@handline/app-core';
 import { RpcError, type AgentDetail, type AgentView } from '@handline/client';
 
 const StoreContext = createContext<Store | null>(null);

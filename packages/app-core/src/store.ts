@@ -1,5 +1,6 @@
 // The apps' view of the daemon: agents, watched agents' detail, what changed, and the one open agent page (phone). Screens subscribe to it.
-import { DaemonClient, RpcError, type AgentDetail, type AgentView, type ConnectionState, type Event as WireEvent, type Prompt, type TerminalView } from '@handline/client';
+import type { DaemonClient} from '@handline/client';
+import { RpcError, type AgentDetail, type AgentView, type ConnectionState, type Event as WireEvent, type Prompt, type TerminalView } from '@handline/client';
 
 export interface Note { at: string; kind: string; text: string; actor: string | null }
 export type PageTab = 'chat' | 'terminal';

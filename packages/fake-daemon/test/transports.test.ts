@@ -1,5 +1,4 @@
 import { test } from 'node:test';
-import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { DaemonClient, webSocketTransport } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';

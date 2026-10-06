@@ -109,7 +109,7 @@ test('rule 5: dividers clamp, double-click resets, a small window or a phone sho
   ws = setSplit(ws, [], 0.3);
   assert.equal((setSplit(ws, [], 0.5).root as { at: number }).at, 0.5);
   const nested = splitTab(openTab(ws, 'markdown', { path: 'n' }), 'markdown:n', 'g2', 'bottom')!;
-  assert.equal(((setSplit(nested, ['b'], 0.7).root as any).b as { at: number }).at, 0.7);
+  assert.equal(((setSplit(nested, ['b'], 0.7).root as unknown as { b: { at: number } }).b).at, 0.7);
   const wide = arrange(ws, 1280, 800);
   assert.equal(wide.merged, false);
   assert.deepEqual(wide.merged === false && wide.rects.map((r) => Math.round(r.rect.w)), [384, 896]);

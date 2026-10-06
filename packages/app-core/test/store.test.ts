@@ -135,7 +135,7 @@ test('a permission prompt is answered from the page; a prompt that changed is re
 });
 
 test('a lost connection shows as the state and the open page recovers on reconnect', async () => {
-  const { store, client, daemon, net } = await open();
+  const { store, daemon, net } = await open();
   await store.openAgent(ARCH);
   net.down = true; daemon.dropConnections();
   await until(() => store.conn === 'reconnecting');
@@ -176,7 +176,7 @@ test('quick repeats of the same agent leave no terminal attached after close', a
   const { store, client, daemon } = await open();
   const attach = client.attachTerminal.bind(client);
   client.attachTerminal = async (a: string) => { if (a === ARCH) await new Promise((r) => setTimeout(r, 40)); return attach(a); };
-  const attached = () => [...(daemon as any).conns].reduce((n: number, c: any) => n + c.attached.size, 0);
+  const attached = () => [...(daemon as unknown as { conns: Set<{ attached: Set<string> }> }).conns].reduce((n, c) => n + c.attached.size, 0);
   const first = store.openAgent(ARCH);
   await new Promise((r) => setTimeout(r, 5));
   await Promise.all([first, store.openAgent(ARCH)]);

@@ -97,7 +97,7 @@ test('a lost connection shows a banner and the page recovers on reconnect', asyn
   const { store, net, client } = await started();
   await store.openAgent(A);
   net.down = true;
-  (client as any).transport.close();
+  (client as unknown as { transport: { close(): void } }).transport.close();
   await until(() => store.conn === 'reconnecting', 'reconnecting');
   assert.match(app(toState(store)), /Reconnecting/);
   net.down = false;

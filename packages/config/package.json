@@ -2,6 +2,14 @@
   "name": "@handline/config",
   "private": true,
   "type": "module",
-  "description": "Base tsconfigs shared by the packages",
-  "exports": { "./tsconfig.node.json": "./tsconfig.node.json", "./tsconfig.react.json": "./tsconfig.react.json" }
+  "description": "Base tsconfigs, ESLint flat configs and Prettier settings shared by the packages",
+  "exports": {
+    "./tsconfig.node.json": "./tsconfig.node.json",
+    "./tsconfig.react.json": "./tsconfig.react.json",
+    "./eslint": "./eslint/index.js",
+    "./prettier.json": "./prettier.json"
+  },
+  "scripts": {
+    "lint": "eslint ."
+  }
 }
