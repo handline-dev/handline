@@ -1,0 +1,4 @@
+{ "name": "Handline", "short_name": "Handline", "start_url": "/", "display": "standalone",
+  "background_color": "#111418", "theme_color": "#111418",
+  "icons": [ { "src": "/web/mobile/icon-192.png", "sizes": "192x192", "type": "image/png" },
+             { "src": "/web/mobile/icon-512.png", "sizes": "512x512", "type": "image/png" } ] }

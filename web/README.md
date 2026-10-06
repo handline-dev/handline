@@ -14,3 +14,25 @@ any other method is refused as `unsupported`, and `capabilities.chat` is false u
 
 Test: `cd web && npm test` (Node 22.18+, no dependencies; TypeScript runs by type stripping, so no enums or
 parameter properties). Type check: `tsc -p web` (strict, `erasableSyntaxOnly`; TypeScript and `@types/node` are not vendored).
+
+## mobile/: the phone app (PWA)
+
+A dependency-free PWA on the shared client, chosen over React Native/Expo because the client's WebSocket transport
+already runs in a phone browser unchanged, there is no app store or signing for a LAN/Tailscale-only tool, and it installs
+from the browser ("Add to Home Screen"); native push can come later as a thin wrapper if the PWA's limits bite.
+There is no build step: `mobile/server.ts` strips types per request with Node's own stripper.
+
+- `store.ts`: agent list and agent page state, kept current from events; actions return the daemon's own refusal sentence.
+- `views.ts`: pure state-to-HTML. `app.ts`: browser wiring. `server.ts`: static server for the page, the client and the contract types.
+- Built: Agents list; agent page with Chat/Terminal tabs, Start/Resume/Interrupt/Exit/Close/Kill, terminal text grid with
+  typed input and the key strip, permission card (Yes/No) on both tabs. Chat shows its empty state until the daemon serves `chat.*`.
+  The other tab-bar destinations are present but disabled.
+
+Run: `npm run fake-daemon` and, in another shell, `npm run mobile -- --cert FILE --key FILE`; open `https://<this-machine>:8443/`
+on the phone. TLS is required for a phone to install the PWA and for the page to open `wss://`; the page derives `wss`
+from its own scheme (`?daemon=wss://<host>:7777` points at another daemon). Without `--cert` the server serves plain
+`http://127.0.0.1:8080` for development only, against the fake daemon (plain `ws`, started with `--host` to leave localhost).
+Test: `npm test`.
+
+Not yet built: Inbox, Tasks, Accounts and More; take/release input; the landscape fullscreen terminal and terminal resize
+for the phone (design 7.4, 4.2); pair device; a real icon (the manifest's are placeholders).

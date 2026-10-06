@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.18" },
   "scripts": {
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "mobile": "node mobile/server.ts",
     "fake-daemon": "node fake-daemon/serve.ts"
   }
 }
