@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from pathlib import Path
@@ -380,7 +381,89 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
             return f"{agent} was typed at moments ago; letting the screen catch up"
     if require_idle and handle and term.available() and not term.typeable_now(handle):
         return f"{agent} is mid-turn or has a dialog open"
+    if handle and term.available() and _own_text_in_box(con, agent, handle):
+        return f"{agent} has text we typed still unsent in its input box"
     return None
+
+
+# Text typed at an agent whose Enter was lost stays in its input box: the agent reads idle, and
+# anything typed after it joins the same box. What was typed is kept (`unsent:<agent>`) until the
+# prompt line is seen without it, and the box alone decides whether it is still unsent - the
+# transcript above it showing the text means it went, and it is not sent again.
+UNSENT_GRACE_S = 3          # a send that has only just landed is still being drawn
+UNSENT_ENTER_WAIT_S = 10    # an Enter that has had this long and left the text there did not take
+_typed_text: dict[str, str] = {}      # handle -> what `_send` last typed, until `_mark_typed` records it
+
+
+def _unsent_key(agent: str) -> str:
+    return f"unsent:{agent}"
+
+
+def _unsent_record(con, agent: str) -> dict | None:
+    raw = db.get_meta(con, _unsent_key(agent))
+    try:
+        rec = json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        rec = None
+    return rec if isinstance(rec, dict) and isinstance(rec.get("text"), str) else None
+
+
+def _own_text_in_box(con, agent: str, handle: str) -> bool:
+    rec = _unsent_record(con, agent)
+    box = term.composer_on_screen(handle) if rec else None
+    return bool(rec and box and term.is_text_typed(box, rec["text"]))
+
+
+def recover_unsent(con, agent: str, log) -> bool:
+    """Press Enter on text we typed that is still in the agent's box; True while it is (the tick
+    types nothing else at it). The first Enter comes on the tick after the type; if the box still
+    holds the text UNSENT_ENTER_WAIT_S after it, the box is cleared and the text typed once more;
+    if that is not submitted either the agent is reported blocked and nothing more is pressed.
+    A box with anything but our text in it - a person's draft - is never sent."""
+    rec = _unsent_record(con, agent)
+    handle = db.get_terminal(con, agent)
+    if not rec or not handle or not term.available():
+        return False
+    if not _own_text_in_box(con, agent, handle):
+        if term.composer_on_screen(handle) is not None:      # unreadable keeps the record
+            db.clear_meta(con, _unsent_key(agent))
+            note_hold(agent, None)
+        return False
+    now = int(time.time())
+    age = now - int(rec.get("at", now))
+    if rec.get("blocked"):
+        note_hold(agent, "text we typed is still unsent in its input box and Enter does not send it")
+        return True
+    if (rec.get("enters") and age < UNSENT_ENTER_WAIT_S) or age < UNSENT_GRACE_S:
+        return True
+    if term.screen_blocker(handle) is not None:
+        return True                                          # an open dialog would take the Enter
+    with lock.terminal(agent) as mine:
+        if not mine or typing_hold(con, agent) or not _own_text_in_box(con, agent, handle):
+            return True
+        if not rec.get("enters"):
+            term.send(handle, "")
+            log(f"  {agent}: our text was left unsent in its input box; pressed Enter")
+            rec.update(enters=1, at=now)
+        elif not rec.get("retyped"):
+            term.send(handle, term.CTRL_C, enter=False)
+            time.sleep(term.SHELL_SETTLE_S)
+            box = term.composer_on_screen(handle)
+            if box is None or box:
+                rec.update(blocked=True)        # the box did not clear: typing again would append
+                log(f"  {agent}: Enter did not send our text and the box would not clear; giving up")
+            else:
+                _send(handle, rec["text"])
+                log(f"  {agent}: Enter did not send our text; cleared the box and typed it again")
+                rec.update(enters=0, at=now, retyped=True)
+        else:
+            rec.update(blocked=True)
+            log(f"  {agent}: our text is still unsent after a second try; giving up")
+        if rec.get("blocked"):
+            db.add_event(con, agent, "unsent_input_blocked", {})
+        _typed_text.pop(handle, None)
+        db.set_meta(con, _unsent_key(agent), json.dumps(rec))
+    return True
 
 
 def _mark_typed(con, agent: str, by: dict | None = None) -> None:
@@ -388,6 +471,10 @@ def _mark_typed(con, agent: str, by: dict | None = None) -> None:
     half of `_type_gate`'s settle window. Whoever watches the terminal is told, as
     the daemon typing unless `by` names the person whose control call it was."""
     db.set_cursor(con, f"typed_at:{agent}", int(time.time()))
+    text = _typed_text.pop(db.get_terminal(con, agent) or "", None)
+    if text is not None:
+        db.set_meta(con, _unsent_key(agent), json.dumps({"text": text, "at": int(time.time()), "enters": 0,
+                                                         "retyped": False, "blocked": False}))
     termchannel.marker(con, agent, "control" if by else "daemon_typed", by or {"kind": "daemon", "name": "daemon"})
 
 
@@ -898,7 +985,11 @@ def _send(handle: str, text: str) -> tuple[bool, str]:
     if len(lines) > MAX_TYPED_LINES:
         keep = MAX_TYPED_LINES - 2
         lines = lines[:keep] + [" ".join(lines[keep:-1])] + lines[-1:]
-    return term.send_to_session(handle, "\n".join(lines))
+    text = "\n".join(lines)
+    ok, out = term.send_to_session(handle, text)
+    if ok:
+        _typed_text[handle] = text
+    return ok, out
 
 
 def type_notice(con, agent: str, text: str) -> bool:
