@@ -1,5 +1,5 @@
 // What the screens decide from daemon facts. Pure: no DOM, so tests run it in Node.
-import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '../src/protocol.ts';
+import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
 
 export type Dot = 'running' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 

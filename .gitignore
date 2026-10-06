@@ -14,3 +14,4 @@ docs/vendor-extension-board.md
 node_modules/
 .turbo/
 dist/
+.pnpm-store/

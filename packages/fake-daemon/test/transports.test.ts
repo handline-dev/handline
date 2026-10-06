@@ -1,12 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
-import { DaemonClient } from '../src/client.ts';
-import { webSocketTransport } from '../src/transport.ts';
-import { unixSocketTransport } from '../src/node-socket.ts';
-import { FakeDaemon } from '../fake-daemon/daemon.ts';
-import { serveSocket, serveWs } from '../fake-daemon/serve.ts';
-import { until } from './helpers.ts';
+import { DaemonClient, webSocketTransport } from '@handline/client';
+import { unixSocketTransport } from '@handline/client-node';
+import { FakeDaemon } from '../src/daemon.ts';
+import { serveSocket, serveWs } from '../src/serve.ts';
+import { until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
 

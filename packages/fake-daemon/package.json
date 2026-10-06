@@ -1,0 +1,14 @@
+{
+  "name": "@handline/fake-daemon",
+  "private": true,
+  "type": "module",
+  "description": "A scripted daemon on the contract, over memory, a Unix socket or a WebSocket (tests and development)",
+  "exports": { "./daemon": "./src/daemon.ts", "./serve": "./src/serve.ts", "./helpers": "./src/helpers.ts" },
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "serve": "node src/serve.ts"
+  },
+  "dependencies": { "@handline/client": "workspace:*", "@handline/client-node": "workspace:*", "@handline/contract": "workspace:*" },
+  "devDependencies": { "@handline/config": "workspace:*" }
+}
