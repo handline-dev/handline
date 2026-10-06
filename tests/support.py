@@ -246,8 +246,13 @@ def restore_world() -> None:
     blockedmod._checked.clear()
     dmn_login_expired._checked.clear()
     accounts._modified.clear()
+    # The machine's process table is not the test world: with the real reading, whether a doctor or a task
+    # check goes on to ask Orca for its terminals depends on what happens to be running. "Could not look" is
+    # the answer the world gives; a test about sessions sets its own, or takes REAL_OBSERVE's.
+    obsmod.live_sessions = lambda: None
     for n, f in REAL_OBSERVE.items():
-        setattr(obsmod, n, f)
+        if n != "live_sessions":
+            setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
     dmn_delivery._seen.clear()

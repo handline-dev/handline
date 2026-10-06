@@ -306,10 +306,26 @@ def _watch_one_change(watcher, w_con_fn=None):
     w = Wire()
     w.call("hello", _hp())
     w.call("subscribe", {"topics": ["agents"]})
-    watcher.start()
-    time.sleep(0.8)
+    # The change has to come after the watcher's first scan, which baselines what it watches: made
+    # before it, the change is baselined and never emitted. A failure the test injected has been
+    # recovered from by then, so the scan is the moment to wait for, not a fixed time.
+    scanned, real_scan = threading.Event(), stream.Watcher.scan
+
+    def scan(self, con):
+        real_scan(self, con)
+        if self is watcher:
+            scanned.set()
+    stream.Watcher.scan = scan
+    try:
+        watcher.start()
+        check("watcher: it scans after starting or recovering", scanned.wait(10))
+    finally:
+        stream.Watcher.scan = real_scan
     other = db.connect()
-    db.set_agent_state(other, "backend", dmn_states.RUNNING)
+    # A change, not the state the agent is already in: the view shows how long it has been so by the second,
+    # so setting it again is a change only once a second has passed.
+    row = db.get_agent_state(other, "backend")
+    db.set_agent_state(other, "backend", dmn_states.IDLE if row and row["state"] == dmn_states.RUNNING else dmn_states.RUNNING)
     agentview.refresh(other)
     other.close()
     try:
