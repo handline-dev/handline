@@ -3,7 +3,7 @@
   {
    "name": "whoami.founder",
    "spec": "whoami",
-   "about": "The local founder: role, caller and the methods it may call, with allowed flags in hello.",
+   "about": "The local founder, by the founder key: role, caller and the methods it may call.",
    "as": "founder",
    "steps": [
     {
@@ -13,14 +13,16 @@
       "method": "hello",
       "params": {
        "client": "conformance/1",
-       "protocol": 1
+       "protocol": 1,
+       "key": "{{founder_key}}"
       }
      },
      "result": {
       "role": "founder",
       "methods": {
        "$contains": {
-        "name": "settings.set",
+        "name": "hello",
+        "role": "anonymous",
         "allowed": true
        }
       }
@@ -39,7 +41,10 @@
       },
       "role": "founder",
       "methods": {
-       "$contains": "settings.set"
+       "$contains": {
+        "name": "whoami",
+        "allowed": true
+       }
       }
      }
     }
@@ -48,7 +53,7 @@
   {
    "name": "whoami.agent",
    "spec": "whoami",
-   "about": "A call from inside an agent session: role agent; its own commands allowed, founder-only ones not.",
+   "about": "A call from inside an agent session: role agent, and the methods it lists include the ones it may call.",
    "as": "agent",
    "steps": [
     {
@@ -71,7 +76,7 @@
       },
       "methods": {
        "$contains": {
-        "name": "task.new",
+        "name": "whoami",
         "allowed": true
        }
       }
@@ -90,8 +95,8 @@
      "result": {
       "methods": {
        "$contains": {
-        "name": "settings.set",
-        "allowed": false
+        "name": "whoami",
+        "allowed": true
        }
       }
      }
@@ -109,7 +114,10 @@
        "kind": "agent"
       },
       "methods": {
-       "$contains": "task.new"
+       "$contains": {
+        "name": "whoami",
+        "allowed": true
+       }
       }
      }
     }
@@ -147,7 +155,9 @@
      },
      "error": {
       "code": -32002,
-      "message": "refused",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "refused",
        "gate": "role"

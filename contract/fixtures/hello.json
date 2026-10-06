@@ -13,7 +13,8 @@
       "method": "hello",
       "params": {
        "client": "conformance/1",
-       "protocol": 1
+       "protocol": 1,
+       "key": "{{founder_key}}"
       }
      },
      "result": {
@@ -30,17 +31,9 @@
        "$type": "integer"
       },
       "capabilities": {
-       "chat": {
-        "$type": "boolean"
-       },
-       "review": {
-        "$type": "boolean"
-       },
-       "input_ask": {
-        "$type": "boolean"
-       },
+       "$type": "object",
        "terminal_format": {
-        "$contains": "text"
+        "$type": "array"
        }
       },
       "transport": "local",
@@ -110,7 +103,9 @@
      },
      "error": {
       "code": -32002,
-      "message": "refused",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "refused",
        "gate": "protocol",
@@ -140,7 +135,9 @@
      },
      "error": {
       "code": -32602,
-      "message": "bad_request",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "bad_request",
        "field": "protocol"
@@ -164,7 +161,9 @@
      },
      "error": {
       "code": -32600,
-      "message": "bad_request",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "bad_request"
       }

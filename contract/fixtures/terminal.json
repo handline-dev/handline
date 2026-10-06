@@ -1,0 +1,31 @@
+{
+ "fixtures": [
+  {
+   "name": "terminal.format_is_text",
+   "spec": "terminal.attach",
+   "about": "A daemon with the terminal channel reports it: capabilities.terminal_format contains text. Skipped on a daemon that does not list terminal.attach.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "capabilities": {
+       "terminal_format": {
+        "$contains": "text"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

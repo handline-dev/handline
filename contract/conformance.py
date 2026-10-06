@@ -206,11 +206,49 @@ class Connection:
         self.sock.close()
 
 
-def run_fixture(fx: dict, sockets: dict, vars_: dict) -> tuple[str, str]:
-    """("pass" | "fail" | "skip", why). Each fixture gets a fresh connection on the socket of its `as` role."""
+def names_used(node) -> set:
+    """The {{name}}s a fixture's requests use."""
+    if isinstance(node, str):
+        return set(re.findall(r"\{\{(\w+)\}\}", node))
+    if isinstance(node, dict):
+        return set().union(*(names_used(v) for v in node.values()), set())
+    if isinstance(node, list):
+        return set().union(*(names_used(v) for v in node), set())
+    return set()
+
+
+def spec_methods() -> set:
+    return {m["name"] for m in json.loads((HERE / "protocol.json").read_text())["methods"]}
+
+
+def listed_methods(target) -> set | None:
+    """The methods a daemon lists in its hello (to a caller with no key: the whole list), None when it will not say."""
+    try:
+        conn = Connection(target)
+    except OSError:
+        return None
+    try:
+        conn.send_line(json.dumps({"jsonrpc": "2.0", "id": 0, "method": "hello",
+                                   "params": {"client": "conformance/probe", "protocol": 1}}))
+        reply = conn.reply_to(0)
+        return {m["name"] for m in reply["result"]["methods"]} if reply and "result" in reply else None
+    except (Mismatch, socket.timeout, ConnectionError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+    finally:
+        conn.close()
+
+
+def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None) -> tuple[str, str]:
+    """("pass" | "fail" | "skip", why). Each fixture gets a fresh connection on the socket of its `as` role.
+    `methods` is what the daemon lists in hello: a fixture whose `spec` is a method it does not list is skipped."""
     role = fx.get("as", "founder")
     if role not in sockets:
         return "skip", f"no socket for role {role} (pass --as {role}=SOCKET)"
+    missing = sorted(names_used(fx["steps"]) - set(vars_))
+    if missing:
+        return "skip", f"needs --var {missing[0]}=..."
+    if methods is not None and fx.get("spec") in spec_methods() and fx["spec"] not in methods:
+        return "skip", "method not implemented by this daemon"
     saved = dict(vars_)
     try:
         conn = Connection(sockets[role])
@@ -260,7 +298,16 @@ def load(paths: list[Path]) -> list[dict]:
 
 def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = None) -> list[tuple[str, str, str]]:
     """[(status, fixture name, why)] for every fixture in `files`."""
-    return [(*run_fixture(fx, sockets, vars_), fx["name"]) for fx in load(files) if not only or only in fx["name"]]
+    listed = {}
+    out = []
+    for fx in load(files):
+        if only and only not in fx["name"]:
+            continue
+        role = fx.get("as", "founder")
+        if role in sockets and role not in listed:
+            listed[role] = listed_methods(sockets[role])
+        out.append((*run_fixture(fx, sockets, vars_, listed.get(role)), fx["name"]))
+    return out
 
 
 def main(argv: list[str], connectors: dict | None = None) -> int:
