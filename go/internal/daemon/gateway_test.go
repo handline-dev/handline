@@ -29,6 +29,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/handline/handline/go/internal/hooks"
+	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/store"
 )
 
@@ -580,24 +581,36 @@ func TestTheRelaySocketIsTrustedOnlyWhenTheDaemonHoldingTheLockAnswersOnIt(t *te
 	c, _ := net.Pipe()
 	defer c.Close()
 	asPid := func(pid int) func(net.Conn) int { return func(net.Conn) int { return pid } }
+	real := peer.Started
 	lock := filepath.Join(t.TempDir(), "daemon.lock")
 	for name, body := range map[string]string{"missing": "", "garbage": "x\n", "another process": fmt.Sprintf("%-16d\n", os.Getppid()), "zero": "0"} {
 		if body != "" {
 			os.WriteFile(lock, []byte(body), 0o600)
 		}
-		if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid())); err == nil {
+		if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()), real); err == nil {
 			t.Errorf("%s: trusted", name)
 		}
 	}
 	os.WriteFile(lock, []byte(fmt.Sprintf("%-16d\n", os.Getpid())), 0o600)
-	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid())); err != nil {
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()), real); err != nil {
 		t.Fatal(err)
 	}
-	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()+1)); err == nil {
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()+1), real); err == nil {
 		t.Fatal("a socket answered by another process was trusted")
 	}
-	if err := relayPeerIsTheDaemon(c, lock, asPid(0)); err == nil {
+	if err := relayPeerIsTheDaemon(c, lock, asPid(0), real); err == nil {
 		t.Fatal("a peer the kernel could not name was trusted")
+	}
+	// a pid taken after the lock was written (a crashed daemon's pid, reused) is not the daemon
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(lock, old, old)
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()), real); err == nil {
+		t.Fatal("a process that started after the lock was written was trusted")
+	}
+	now := time.Now()
+	os.Chtimes(lock, now, now)
+	if err := relayPeerIsTheDaemon(c, lock, asPid(os.Getpid()), func(int) (time.Time, bool) { return time.Time{}, false }); err == nil {
+		t.Fatal("a process whose start time is unknown was trusted")
 	}
 }
 

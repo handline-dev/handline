@@ -52,7 +52,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 			if err != nil {
 				return nil, err
 			}
-			if err := relayPeerIsTheDaemon(c, lock, peer.PID); err != nil {
+			if err := relayPeerIsTheDaemon(c, lock, peer.PID, peer.Started); err != nil {
 				c.Close()
 				return nil, err
 			}
@@ -64,9 +64,13 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 
 // relayPeerIsTheDaemon refuses a relay socket nobody but the Python daemon answers on: anyone can unlink and rebind
 // a path in the home, so what sits at it must be the process that holds the daemon's lock (the pid it wrote there)
-// before any device traffic is sent.
-func relayPeerIsTheDaemon(c net.Conn, lockFile string, pidOf func(net.Conn) int) error {
+// and have started before the lock was last written, before any device traffic is sent.
+func relayPeerIsTheDaemon(c net.Conn, lockFile string, pidOf func(net.Conn) int, startOf func(int) (time.Time, bool)) error {
 	b, err := os.ReadFile(lockFile)
+	if err != nil {
+		return fmt.Errorf("the daemon's lock file: %w", err)
+	}
+	st, err := os.Stat(lockFile)
 	if err != nil {
 		return fmt.Errorf("the daemon's lock file: %w", err)
 	}
@@ -76,6 +80,10 @@ func relayPeerIsTheDaemon(c net.Conn, lockFile string, pidOf func(net.Conn) int)
 	}
 	if got := pidOf(c); got != want {
 		return fmt.Errorf("the relay socket is answered by pid %d, not the daemon (pid %d)", got, want)
+	}
+	// A pid alone goes stale: a crashed daemon's pid, taken by another process, started after the lock was written.
+	if started, ok := startOf(want); !ok || started.After(st.ModTime()) {
+		return fmt.Errorf("pid %d did not start before the daemon's lock file was written: a reused pid", want)
 	}
 	return nil
 }
