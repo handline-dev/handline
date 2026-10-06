@@ -325,7 +325,7 @@ def open_decision(me: str, body: str) -> tuple[bool, str, int | None]:
     return True, msg, card
 
 
-def decide(con, tid: int, text: str) -> tuple[bool, str]:
+def decide(con, tid: int, text: str, effect=None) -> tuple[bool, str]:
     """The founder's decision on a task they own (a decision card): the text is
     recorded as the task's evidence, the task is done, and the opener is told
     it - one act, however it was typed (a card's reply, a command). Nothing
@@ -333,6 +333,7 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
 
     The request that delivered the card is settled with the same text, which
     is what tells the asker and takes the card off the founder's screen.
+    `effect(con, message)` is the daemon's record of the write, made in the transaction of the one that ends the task.
     """
     text = (text or "").strip()
     if not text:
@@ -352,13 +353,14 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
     card = db.decision_card_of(con, tid)
     cards = [card] if card is not None and card["state"] == "queued" and card["target"] == HUMAN else []
     for r in cards:
-        ok, msg = askmod.resolve(r["id"], text)
+        ok, msg = askmod.resolve(r["id"], text, effect=effect)
         if not ok:
             return False, msg
+        effect = None
     # Settling the card settled the task too (`db.settle_decision_tasks`); only a
     # card that was already closed some other way leaves it here to be decided.
     if not db.task_ended(db.get_task(con, tid)):
-        ok, msg = mark_task_done(con, tid, HUMAN, reason=text)
+        ok, msg = mark_task_done(con, tid, HUMAN, reason=text, effect=effect)
         if not ok:
             return False, msg
     return True, f"T{tid} decided"
@@ -366,7 +368,7 @@ def decide(con, tid: int, text: str) -> tuple[bool, str]:
 
 def mark_task_done(con, tid: int, by: str, sha: str | None = None,
                    request_id: int | None = None, reason: str | None = None,
-                   repo: Path | None = None) -> tuple[bool, str]:
+                   repo: Path | None = None, effect=None) -> tuple[bool, str]:
     """Mark a task done (#71) - final: a wrong result is reopened by its asker.
     Exactly one of a merge sha (checked against `main`), the id of a request
     where the result was already reported (must exist and be answered - not
@@ -381,6 +383,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     while this task itself is waiting on an open blocker (task #21/#1884),
     otherwise marking it done is a back door around the wait the block exists
     to enforce; the founder may pass an open blocker.
+
+    `effect(con, message)` is the daemon's record of the write, made in the same transaction (settling a
+    leftover request, below, has none to share: it repeats harmlessly).
     """
     row = db.get_task(con, tid)
     if row is None:
@@ -392,7 +397,10 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         if by in (row["owner"], HUMAN) and any(r["state"] == "queued" for r in db.task_requests(con, tid)):
             told = _end_task(con, tid, by, row, done_text=row["done_evidence"])
             _deliver_unblocked(con, told, set())
-            return True, f"task T{tid} is already done ({row['done_evidence']}); its leftover request is settled"
+            msg = f"task T{tid} is already done ({row['done_evidence']}); its leftover request is settled"
+            if effect:
+                effect(con, msg)
+            return True, msg
         return False, f"task T{tid} is already done ({row['done_evidence']})"
     # T292 (#1655 section 4): a sha-expecting task's opener or the founder
     # may close it another way when the sha is never going to land - the
@@ -439,6 +447,8 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
             return False, f"task T{tid} was marked done by someone else just now"
         db.add_event(con, by, "mark_task_done", {"task_id": tid, "done": mark, "from": task_state(con, row)})
         told = _end_task(con, tid, by, row, done_text=mark)
+        if effect:
+            effect(con, f"task T{tid} done ({mark})")
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -1425,7 +1435,7 @@ def _memo_guard(row, by: str) -> str | None:
     return f"memo {row['id']} is {row['author']}'s: only its author or the founder edits or deletes it"
 
 
-def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
+def tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
     """T493: a memo changing on a task that is doing is told to its holder at once, typed like
     a say; on any other task, or when the holder made the change, nothing is sent."""
     row = db.get_task(con, tid)
@@ -1433,10 +1443,6 @@ def _tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
         return
     _type_say(con, row["owner"], f"T{tid} memo {what} by {by}"
               + (f": {textsafe.oneline(text)[:400]}" if text else ""), "task memo")
-
-
-def tell_memo_holder(con, tid: int, by: str, what: str, text: str) -> None:
-    _tell_memo_holder(con, tid, by, what, text)
 
 
 def _type_say(con, owner: str, body: str, why: str) -> None:
@@ -1459,7 +1465,7 @@ def memo_add(con, tid: int, by: str, body: str, tell: bool = True) -> tuple[bool
         return False, "a memo needs some text", None
     mid = db.add_memo(con, tid, by, body)
     if tell:
-        _tell_memo_holder(con, tid, by, "added", body)
+        tell_memo_holder(con, tid, by, "added", body)
     return True, f"memo {mid} added to T{tid}", mid
 
 
@@ -1477,7 +1483,7 @@ def memo_edit(con, mid: int, by: str, body: str, tell: bool = True) -> tuple[boo
         return False, f"memo {mid} already reads that way - nothing to edit"
     db.edit_memo(con, mid, body)
     if tell:
-        _tell_memo_holder(con, row["task_id"], by, "edited", body)
+        tell_memo_holder(con, row["task_id"], by, "edited", body)
     return True, f"memo {mid} on T{row['task_id']} edited"
 
 
@@ -1490,7 +1496,7 @@ def memo_delete(con, mid: int, by: str, tell: bool = True) -> tuple[bool, str]:
         return False, refusal
     db.delete_memo(con, mid)
     if tell:
-        _tell_memo_holder(con, row["task_id"], by, "deleted", "")
+        tell_memo_holder(con, row["task_id"], by, "deleted", "")
     return True, f"memo {mid} deleted from T{row['task_id']}"
 
 

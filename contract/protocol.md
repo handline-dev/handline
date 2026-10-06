@@ -352,15 +352,15 @@ One item (hl read).
 
 ### `inbox.mark_read`
 
-Mark items read; an id that is not yours is not_found.
+Mark items read; an id that is not yours is not_found. For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state.
 
 ### `inbox.answer`
 
-Answer a decision item with one of its options or free text.
+Answer a decision item with one of its options or free text. The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role.
 
 ### `inbox.reply`
 
-Reply to an item.
+Reply to an item. A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state).
 
 ### `tasks.list`
 

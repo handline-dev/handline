@@ -194,6 +194,55 @@ def test_inbox_reply_sends_a_settling_message_to_whoever_sent_the_item(home: Pat
           and _count("SELECT COUNT(*) FROM requests WHERE requester = 'human' AND target = 'worker' AND parent_id = ?", report) == 1, str(r))
 
 
+class RecordFailsOnce:
+    """`record_effect` raising once, after the effect has been written in the same transaction: the daemon dying between the two."""
+    def __enter__(self):
+        self.real, self.armed = db.record_effect, True
+
+        def failing(*a, **kw):
+            if self.armed:
+                self.armed = False
+                raise RuntimeError("the daemon died here")
+            return self.real(*a, **kw)
+        db.record_effect = failing
+        return self
+
+    def __exit__(self, *exc):
+        db.record_effect = self.real
+
+
+def _dies_then_retries(method: str, params: dict, as_agent, after, unchanged) -> None:
+    """The first call dies between the effect and its record: the effect is not there. The retry makes it once, and a third call replays."""
+    with RecordFailsOnce():
+        first = _call(method, params, as_agent=as_agent)
+    check(f"{method}: a death between the effect and its record leaves the effect unwritten", "error" in first and unchanged(), str(first))
+    second = _call(method, params, as_agent=as_agent)
+    check(f"{method}: the retry makes the effect, once", second["result"]["accepted"] is True and not second["result"].get("replayed") and after(), str(second))
+    third = _call(method, params, as_agent=as_agent)
+    check(f"{method}: and the next retry replays it", third["result"].get("replayed") is True and after(), str(third))
+
+
+def test_a_death_between_an_inbox_effect_and_its_record_repeats_nothing(home: Path) -> None:
+    support._board_world(home)
+    ok, _, rid = askmod.ask("worker", "look at this", requester="manager")
+    _dies_then_retries("inbox.mark_read", {"ids": [rid], "request_id": "z1"}, "worker",
+                       after=lambda: db.get_request(db.connect(), rid)["state"] == "landed",
+                       unchanged=lambda: db.get_request(db.connect(), rid)["state"] == "queued")
+    one = _to_founder("a report")
+    _dies_then_retries("inbox.mark_read", {"ids": [one], "request_id": "z2"}, None,
+                       after=lambda: one not in {i["id"] for i in _call("inbox.list", as_agent=None)["result"]["items"]},
+                       unchanged=lambda: one in {i["id"] for i in _call("inbox.list", as_agent=None)["result"]["items"]})
+    ask = _to_founder("may I deploy?", who="manager", kind="ask")
+    _dies_then_retries("inbox.answer", {"id": ask, "text": "yes", "request_id": "z3"}, None,
+                       after=lambda: db.get_request(db.connect(), ask)["state"] != "queued",
+                       unchanged=lambda: db.get_request(db.connect(), ask)["state"] == "queued")
+    ok, _, q = askmod.ask("worker", "which branch?", requester="manager")
+    n = _count("SELECT COUNT(*) FROM requests")
+    _dies_then_retries("inbox.reply", {"id": q, "text": "main", "request_id": "z4"}, "worker",
+                       after=lambda: _count("SELECT COUNT(*) FROM requests") == n + 1 and db.get_request(db.connect(), q)["state"] != "queued",
+                       unchanged=lambda: _count("SELECT COUNT(*) FROM requests") == n and db.get_request(db.connect(), q)["state"] == "queued")
+
+
 def test_the_memo_and_inbox_commands_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _task()
@@ -243,6 +292,7 @@ def main() -> int:
         run(lambda: test_inbox_mark_read_reads_what_the_caller_may_and_keeps_what_is_owed(Path(td) / "m3"))
         run(lambda: test_inbox_answer_settles_what_the_founder_was_asked(Path(td) / "m4"))
         run(lambda: test_inbox_reply_sends_a_settling_message_to_whoever_sent_the_item(Path(td) / "m5"))
+        run(lambda: test_a_death_between_an_inbox_effect_and_its_record_repeats_nothing(Path(td) / "m8"))
         run(lambda: test_the_memo_and_inbox_commands_still_work_from_an_agent_session(Path(td) / "m6"))
         run(lambda: test_the_memo_and_inbox_fixtures_pass_against_this_daemon(Path(td) / "m7"))
     return run_area(tests)
