@@ -13,6 +13,7 @@ import time
 from ..infra import paths
 
 NAME = "hook-spool.jsonl"
+REJECTED = "hook-spool-rejected.jsonl"
 
 
 def path():
@@ -50,13 +51,16 @@ def ingest(con, log) -> int:
     if not work.exists():
         return 0
     lines = work.read_text(encoding="utf-8", errors="replace").splitlines()
-    n = 0
+    n = rejected = 0
     for i, raw in enumerate(lines):
         try:
             line = json.loads(raw)
             args = (line["agent"], line["kind"], line["data"], str(line["request_id"]), int(line["at"]))
         except (ValueError, KeyError, TypeError) as e:
-            log(f"  spool: skipped a line that is not a hook event ({type(e).__name__}: {e})")
+            if not _reject(raw, e, log):
+                _keep(work, lines[i:])
+                return n
+            rejected += 1
             continue
         try:
             rpc_hooks.apply(con, *args)
@@ -66,10 +70,34 @@ def ingest(con, log) -> int:
                 f"{len(lines) - i} line(s) left for the next try")
             _keep(work, lines[i:])
             return n
-        except Exception as e:  # noqa: BLE001 - this line cannot be applied: it is skipped, the rest go on
-            log(f"  spool: skipped a line that cannot be applied ({type(e).__name__}: {e})")
+        except Exception as e:  # noqa: BLE001 - this line cannot be applied; it is set aside, the rest go on
+            if not _reject(raw, e, log):
+                _keep(work, lines[i:])
+                return n
+            rejected += 1
+    if rejected:
+        log(f"  spool: {rejected} line(s) set aside in {path().with_name(REJECTED)}")
     work.unlink()
     return n
+
+
+def _reject(raw: str, e: Exception, log) -> bool:
+    """Set a line that cannot be applied aside, whole, with what went wrong and when, in the rejected file:
+    a bug in applying must lose no hook event, only park it where a person can read it. False when even that
+    cannot be written, and the line then stays in the spool like any other the system could not deal with."""
+    record = {"rejected_at": int(time.time()), "error": type(e).__name__, "message": str(e)[:300], "line": raw}
+    try:
+        fd = os.open(path().with_name(REJECTED), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            os.write(fd, (json.dumps(record) + "\n").encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError as err:
+        log(f"  spool: a line that cannot be applied could not be set aside either ({err}); it stays in the spool")
+        return False
+    log(f"  spool: set aside a line ({type(e).__name__}: {e})")
+    return True
 
 
 def _keep(work, rest: list[str]) -> None:

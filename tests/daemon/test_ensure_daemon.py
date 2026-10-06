@@ -386,8 +386,12 @@ def test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(home: P
     con = db.connect()
     logs = []
     n = spool.ingest(con, logs.append)
-    check("bad lines: the two good lines apply and the three bad ones are skipped, the file removed",
-          n == 2 and not spool.path().with_suffix(".ingesting").exists() and len([m for m in logs if "skipped" in m]) == 3, f"{n} {logs}")
+    rejected = [json.loads(ln) for ln in spool.path().with_name(spool.REJECTED).read_text().splitlines()]
+    check("bad lines: the two good lines apply, the three bad ones are set aside whole, the spool file removed",
+          n == 2 and not spool.path().with_suffix(".ingesting").exists() and len(rejected) == 3
+          and [r["line"] for r in rejected][0] == "not json at all"
+          and {r["error"] for r in rejected} == {"JSONDecodeError", "KeyError", "ValueError"}, f"{n} {logs} {rejected}")
+    check("bad lines: and the log counts them", any("3 line(s) set aside" in m for m in logs), str(logs))
     con.close()
 
 
@@ -441,6 +445,115 @@ def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> N
     con.close()
 
 
+def test_a_line_that_cannot_be_applied_is_set_aside_not_lost(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-1")
+    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-2")
+    con = db.connect()
+    from handline.daemon import rpc_hooks
+    real = rpc_hooks.apply
+
+    def bug_on_first(c, agent, kind, data, request_id, at):
+        if request_id == "rej-1":
+            raise AttributeError("a bug in applying")
+        return real(c, agent, kind, data, request_id, at)
+    rpc_hooks.apply = bug_on_first
+    logs = []
+    try:
+        n = spool.ingest(con, logs.append)
+    finally:
+        rpc_hooks.apply = real
+    side = [json.loads(ln) for ln in spool.path().with_name(spool.REJECTED).read_text().splitlines()]
+    check("rejected: the line an apply bug failed on is in the rejected file, whole, with the error class and a time",
+          n == 1 and len(side) == 1 and json.loads(side[0]["line"])["request_id"] == "rej-1" and side[0]["error"] == "AttributeError"
+          and side[0]["rejected_at"] > 0, str(side))
+    check("rejected: the next line still applied and the spool is gone", not spool.path().with_suffix(".ingesting").exists()
+          and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'Stop'").fetchone()[0] == 1)
+    check("rejected: and the log says how many", any("1 line(s) set aside" in m for m in logs), str(logs))
+    con.close()
+
+
+def test_a_line_that_cannot_be_set_aside_either_stays_in_the_spool(home: Path) -> None:
+    support.use_home(home)
+    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "stay-1")
+    con = db.connect()
+    from handline.daemon import rpc_hooks
+    real = rpc_hooks.apply
+    rpc_hooks.apply = lambda *a: (_ for _ in ()).throw(AttributeError("bug"))
+    spool.path().with_name(spool.REJECTED).mkdir()          # a folder where the file should go: it cannot be written
+    try:
+        spool.ingest(con, lambda m: None)
+    finally:
+        rpc_hooks.apply = real
+    check("rejected: when the rejected file cannot be written the line stays in the spool",
+          len(spool.path().with_suffix(".ingesting").read_text().splitlines()) == 1)
+    con.close()
+
+
+def _hook(con, kind, at, rid, agent="worker"):
+    evmod.apply_hook(con, agent, kind, {"hook_event_name": kind, "session_id": "s"}, rid, at)
+
+
+def test_an_older_event_arriving_late_is_recorded_and_moves_nothing(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    now = int(time.time())
+    con = db.connect()
+    db.set_agent_state(con, "worker", dmn_states.IDLE)
+    # a PostToolUse kept in the spool behind a lock (t=100), then a live Stop (t=200), then the tick's replay
+    spool.append("worker", "PostToolUse", {"hook_event_name": "PostToolUse", "session_id": "s"}, "late-1", at=now - 100)
+    con.execute("PRAGMA busy_timeout = 100")
+    other = sqlite3.connect(paths.db_file(), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    try:
+        spool.ingest(con, lambda m: None)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    db.set_agent_state(con, "worker", dmn_states.RUNNING)
+    _hook(con, "Stop", now - 50, "late-live")
+    check("late: the live Stop makes the agent IDLE", db.get_agent_state(con, "worker")["state"] == "IDLE")
+    spool.ingest(con, lambda m: None)
+    check("late: the older PostToolUse, replayed after it, leaves the agent IDLE", db.get_agent_state(con, "worker")["state"] == "IDLE",
+          db.get_agent_state(con, "worker")["state"])
+    check("late: and both events are recorded once", con.execute("SELECT COUNT(*) FROM events WHERE agent = 'worker' AND kind = 'Stop'").fetchone()[0] == 1
+          and con.execute("SELECT COUNT(*) FROM hook_applied WHERE agent = 'worker'").fetchone()[0] == 2)
+    # two live hooks arriving in the wrong order
+    db.set_agent_state(con, "worker", dmn_states.RUNNING)
+    _hook(con, "Stop", now - 10, "order-1")
+    _hook(con, "PostToolUse", now - 20, "order-2")
+    check("late: Stop (t=-10) then PostToolUse (t=-20) arriving in that order: IDLE", db.get_agent_state(con, "worker")["state"] == "IDLE")
+    con.close()
+
+
+def test_events_with_the_same_second_apply_in_the_order_they_arrive(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    now = int(time.time())
+    con = db.connect()
+    db.set_agent_state(con, "worker", dmn_states.IDLE)
+    _hook(con, "Stop", now, "tie-1")
+    _hook(con, "UserPromptSubmit", now, "tie-2")
+    check("tie: a later arrival with the same second wins (the turn began after the stop was written)",
+          db.get_agent_state(con, "worker")["state"] == "RUNNING")
+    _hook(con, "Stop", now, "tie-3")
+    check("tie: and so does the one after it", db.get_agent_state(con, "worker")["state"] == "IDLE")
+    con.close()
+
+
+def test_a_late_session_start_does_not_rebind_and_a_late_permission_request_leaves_no_wait(home: Path) -> None:
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    _hook(con, "Stop", now, "lt-1", agent="backend")
+    evmod.apply_hook(con, "backend", "PermissionRequest", {"hook_event_name": "PermissionRequest", "tool_name": "Bash",
+                                                            "tool_input": {"command": "rm x"}}, "lt-2", now - 30)
+    check("late: a permission request older than the newest event records no wait", waiting.read("backend") is None, str(waiting.read("backend")))
+    check("late: but its event is there", con.execute("SELECT COUNT(*) FROM events WHERE kind = 'PermissionRequest'").fetchone()[0] == 1)
+    con.close()
+
+
 def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
@@ -471,6 +584,11 @@ def main() -> int:
         run(lambda: test_an_unreadable_file_keeps_everything(Path(td) / "e17"))
         run(lambda: test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(Path(td) / "e18"))
         run(lambda: test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(Path(td) / "e19"))
+        run(lambda: test_a_line_that_cannot_be_applied_is_set_aside_not_lost(Path(td) / "e20"))
+        run(lambda: test_a_line_that_cannot_be_set_aside_either_stays_in_the_spool(Path(td) / "e21"))
+        run(lambda: test_an_older_event_arriving_late_is_recorded_and_moves_nothing(Path(td) / "e22"))
+        run(lambda: test_events_with_the_same_second_apply_in_the_order_they_arrive(Path(td) / "e23"))
+        run(lambda: test_a_late_session_start_does_not_rebind_and_a_late_permission_request_leaves_no_wait(Path(td) / "e24"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 

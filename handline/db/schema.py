@@ -653,8 +653,12 @@ def _stream_log(con) -> None:
 
 
 def _hook_applied(con) -> None:
-    """The request ids of hook events already applied, kept a day (session/events.py `apply_hook`)."""
-    con.execute("CREATE TABLE IF NOT EXISTS hook_applied (request_id TEXT PRIMARY KEY, ts INTEGER NOT NULL)")
+    """The request ids of hook events already applied, kept a day, with whose and when they ran: the newest
+    `at` of an agent is what an older event must not move its state back past (session/events.py `apply_hook`)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS hook_applied (request_id TEXT PRIMARY KEY, ts INTEGER NOT NULL, agent TEXT, at INTEGER);
+        CREATE INDEX IF NOT EXISTS hook_applied_agent ON hook_applied(agent, at);
+    """)
 
 
 MIGRATIONS = [

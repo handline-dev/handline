@@ -136,17 +136,24 @@ HOOK_KEEP_S = 24 * 3600
 def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
     """What the daemon does with a hook event: the one writer of what a hook records. Once per request id: the id
     is taken first, in the same transaction as every effect, so a line already applied does nothing at all and a
-    crash part-way leaves nothing applied for the retry to repeat or to skip."""
+    crash part-way leaves nothing applied for the retry to repeat or to skip.
+
+    An event older than the newest already applied for this agent is recorded but moves nothing: it arrived late
+    (a kept spool line, two hooks that raced), and acting on it would put the agent back where a newer event has
+    already taken it. On equal times the one that arrives later wins: hook times are whole seconds and the
+    daemon's order of arrival is the only order left to go by."""
     con.execute("BEGIN IMMEDIATE")
     try:
         now = int(time.time())
         from ..daemon import spool
         if not spool.pending():         # a file left by a crash may still replay lines older than a day
             con.execute("DELETE FROM hook_applied WHERE ts < ?", (now - HOOK_KEEP_S,))
-        if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts) VALUES(?, ?)", (request_id, now)).rowcount == 0:
+        newest = con.execute("SELECT MAX(at) FROM hook_applied WHERE agent = ?", (agent,)).fetchone()[0]
+        if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts, agent, at) VALUES(?, ?, ?, ?)",
+                       (request_id, now, agent, at)).rowcount == 0:
             con.execute("ROLLBACK")
             return
-        _apply(con, agent, event, raw, request_id, at)
+        _apply(con, agent, event, raw, request_id, at, late=newest is not None and at < newest)
         con.execute("COMMIT")
     except BaseException:
         if con.in_transaction:
@@ -154,9 +161,10 @@ def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int)
         raise
 
 
-def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
+def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int, late: bool = False) -> None:
     if event in ANSWERS:
-        _note_tool_use(agent, con)
+        if not late:
+            _note_tool_use(agent, con)
     if event not in CAPTURED:
         return
     account = agents.current_account(agent, con)
@@ -172,9 +180,11 @@ def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> 
         if isinstance(raw.get("permission_mode"), str):
             payload["permission_mode"] = raw["permission_mode"][:40]
         payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
-    elif event in ENDS_WAIT:
+    elif event in ENDS_WAIT and not late:
         waiting.clear(agent)
     eid = db.add_event(con, agent, event, payload, account=account, ts=at)
+    if late:
+        return              # recorded, and nothing it would change is changed: a newer event has been applied
     if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
         db.bind_session_start(con, agent, str(raw["session_id"]))
     if event == "PermissionRequest":
