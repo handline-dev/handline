@@ -9,13 +9,33 @@ export { groupOf, groupsOf };
 export type TabKind = 'chat' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
 export const TAB_KINDS: readonly TabKind[] = ['chat', 'terminal', 'shell', 'emulator', 'web', 'markdown', 'review'];
 export type TabParams = Record<string, string | number>;
-export interface Tab { id: string; kind: TabKind; params: TabParams }
+export interface Tab {
+  id: string;
+  kind: TabKind;
+  params: TabParams;
+}
 /** A pane: its own tab strip. Never empty, so `activeTab` always names one of `tabs`. */
-export interface Group { type: 'group'; id: string; tabs: string[]; activeTab: string }
+export interface Group {
+  type: 'group';
+  id: string;
+  tabs: string[];
+  activeTab: string;
+}
 /** `at` is the share of `a`, MIN_AT..MAX_AT. */
-export interface Split { type: 'split'; dir: 'row' | 'col'; a: Node; b: Node; at: number }
+export interface Split {
+  type: 'split';
+  dir: 'row' | 'col';
+  a: Node;
+  b: Node;
+  at: number;
+}
 export type Node = Group | Split;
-export interface Workspace { v: 1; root: Node; active: string; tabs: Record<string, Tab> }
+export interface Workspace {
+  v: 1;
+  root: Node;
+  active: string;
+  tabs: Record<string, Tab>;
+}
 export type Edge = 'left' | 'right' | 'top' | 'bottom';
 export type Preset = 'single' | 'cols' | 'rows' | 'grid';
 export type Path = ('a' | 'b')[];
@@ -39,8 +59,7 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
   return `${kind}:${n}`;
 }
 
-const nextGroupId = (ws: Workspace): string =>
-  `g${Math.max(0, ...groupsOf(ws.root).map((g) => Number(g.id.slice(1)) || 0)) + 1}`;
+const nextGroupId = (ws: Workspace): string => `g${Math.max(0, ...groupsOf(ws.root).map((g) => Number(g.id.slice(1)) || 0)) + 1}`;
 
 /** Chat beside the agent's session terminal, each pane with its own strip; no session, one pane holding Chat. */
 export function defaultWorkspace(opts: { terminal?: string } = {}): Workspace {
@@ -64,7 +83,9 @@ export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, in
   if (ws.tabs[id]) return activate(ws, id);
   const target = groupsOf(ws.root).find((g) => g.id === into) ?? groupsOf(ws.root).find((g) => g.id === ws.active)!;
   return {
-    ...ws, active: target.id, tabs: { ...ws.tabs, [id]: { id, kind, params } },
+    ...ws,
+    active: target.id,
+    tabs: { ...ws.tabs, [id]: { id, kind, params } },
     root: replaceGroup(ws.root, target.id, (g) => ({ ...g, tabs: [...g.tabs, id], activeTab: id })),
   };
 }
@@ -88,7 +109,8 @@ export function moveTab(ws: Workspace, id: string, to: string, index?: number): 
   }
   const { root } = detach(ws, id);
   return {
-    ...ws, active: to,
+    ...ws,
+    active: to,
     root: replaceGroup(root!, to, (g) => {
       const tabs = [...g.tabs];
       tabs.splice(index ?? tabs.length, 0, id);
@@ -99,7 +121,8 @@ export function moveTab(ws: Workspace, id: string, to: string, index?: number): 
 
 /** Moves a tab to the previous (-1) or next (+1) group in reading order: the keyboard's way to split or merge without a pointer. */
 export function moveTabBy(ws: Workspace, id: string, delta: -1 | 1): Workspace {
-  const gs = groupsOf(ws.root), from = gs.findIndex((g) => g.tabs.includes(id));
+  const gs = groupsOf(ws.root),
+    from = gs.findIndex((g) => g.tabs.includes(id));
   const to = gs[from + delta];
   return from < 0 || !to ? ws : moveTab(ws, id, to.id);
 }
@@ -114,8 +137,11 @@ function fits(ws: Workspace, id: string, onto?: string): boolean {
 }
 
 const wrap = (existing: Node, fresh: Group, edge: Edge): Split => ({
-  type: 'split', dir: edge === 'left' || edge === 'right' ? 'row' : 'col',
-  a: edge === 'left' || edge === 'top' ? fresh : existing, b: edge === 'left' || edge === 'top' ? existing : fresh, at: 0.5,
+  type: 'split',
+  dir: edge === 'left' || edge === 'right' ? 'row' : 'col',
+  a: edge === 'left' || edge === 'top' ? fresh : existing,
+  b: edge === 'left' || edge === 'top' ? existing : fresh,
+  at: 0.5,
 });
 
 /** Drag onto an edge of a pane: splits that pane and puts the tab in the new group. */
@@ -163,10 +189,13 @@ export function setSplit(ws: Workspace, path: Path, at: number): Workspace {
   return { ...ws, root: go(ws.root, 0) };
 }
 
-export interface Rect { x: number; y: number; w: number; h: number }
-export type Arrangement =
-  | { merged: false; rects: { id: string; rect: Rect }[] }
-  | { merged: true; tabs: string[]; activeTab: string };
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export type Arrangement = { merged: false; rects: { id: string; rect: Rect }[] } | { merged: true; tabs: string[]; activeTab: string };
 
 /**
  * What a window of this size shows. Under the phone width, or when a saved split would leave a pane under MIN_PANE,
@@ -175,11 +204,16 @@ export type Arrangement =
 export function arrange(ws: Workspace, width: number, height: number): Arrangement {
   const rects: { id: string; rect: Rect }[] = [];
   const walk = (n: Node, r: Rect) => {
-    if (n.type === 'group') { rects.push({ id: n.id, rect: r }); return; }
+    if (n.type === 'group') {
+      rects.push({ id: n.id, rect: r });
+      return;
+    }
     if (n.dir === 'row') {
-      walk(n.a, { ...r, w: r.w * n.at }); walk(n.b, { ...r, x: r.x + r.w * n.at, w: r.w * (1 - n.at) });
+      walk(n.a, { ...r, w: r.w * n.at });
+      walk(n.b, { ...r, x: r.x + r.w * n.at, w: r.w * (1 - n.at) });
     } else {
-      walk(n.a, { ...r, h: r.h * n.at }); walk(n.b, { ...r, y: r.y + r.h * n.at, h: r.h * (1 - n.at) });
+      walk(n.a, { ...r, h: r.h * n.at });
+      walk(n.b, { ...r, y: r.y + r.h * n.at, h: r.h * (1 - n.at) });
     }
   };
   walk(ws.root, { x: 0, y: 0, w: width, h: height });
@@ -207,7 +241,8 @@ function checkNode(x: unknown, seen: Set<string>, ids: Set<string>): Node | null
     return group(x.id, x.tabs as string[], x.activeTab);
   }
   if (x.type === 'split' && (x.dir === 'row' || x.dir === 'col') && typeof x.at === 'number' && x.at >= MIN_AT && x.at <= MAX_AT) {
-    const a = checkNode(x.a, seen, ids), b = a && checkNode(x.b, seen, ids);
+    const a = checkNode(x.a, seen, ids),
+      b = a && checkNode(x.b, seen, ids);
     return a && b ? { type: 'split', dir: x.dir, a, b, at: x.at } : null;
   }
   return null;
@@ -222,7 +257,8 @@ export function parseWorkspace(raw: unknown): Workspace | null {
     if ((t.kind === 'chat') !== (id === CHAT)) return null;
     tabs[id] = { id, kind: t.kind as TabKind, params: t.params as TabParams };
   }
-  const seen = new Set<string>(), ids = new Set<string>();
+  const seen = new Set<string>(),
+    ids = new Set<string>();
   const root = checkNode(raw.root, seen, ids);
   if (!root || groupsOf(root).length > MAX_GROUPS) return null;
   if (seen.size !== Object.keys(tabs).length || [...seen].some((t) => !tabs[t])) return null;
@@ -230,7 +266,8 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   const ws: Workspace = { v: 1, root, active, tabs };
   if (tabs[CHAT]) return ws;
   return {
-    ...ws, tabs: { ...tabs, [CHAT]: { id: CHAT, kind: 'chat', params: {} } },
+    ...ws,
+    tabs: { ...tabs, [CHAT]: { id: CHAT, kind: 'chat', params: {} } },
     root: replaceGroup(root, active, (g) => ({ ...g, tabs: [CHAT, ...g.tabs] })),
   };
 }
@@ -240,9 +277,15 @@ export function loadWorkspace(store: KV | null, key: string, fallback: () => Wor
   try {
     const raw = store?.getItem(key);
     if (raw) return parseWorkspace(JSON.parse(raw)) ?? fallback();
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return fallback();
 }
 export function saveWorkspace(store: KV | null, key: string, ws: Workspace): void {
-  try { store?.setItem(key, serialize(ws)); } catch { /* storage may be blocked */ }
+  try {
+    store?.setItem(key, serialize(ws));
+  } catch {
+    /* storage may be blocked */
+  }
 }

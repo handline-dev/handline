@@ -3,9 +3,18 @@
 // It serves the methods the UI's session screen needs; every other method is refused as `unsupported`.
 import crypto from 'node:crypto';
 import {
-  METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
-  type Actor, type Caller, type Event as WireEvent,
-  type MethodName, type Notifications, type Role, type Timestamp, type Topic,
+  METHODS,
+  PROTOCOL,
+  ROLE_ORDER,
+  RPC_CODES,
+  type Actor,
+  type Caller,
+  type Event as WireEvent,
+  type MethodName,
+  type Notifications,
+  type Role,
+  type Timestamp,
+  type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import { AGENTS } from './fixtures.ts';
@@ -15,7 +24,6 @@ import { DAEMON_HOLDER, detail, newSession, row, scrolledOff, tid, view, visible
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
-
 
 interface Conn {
   transport: Transport;
@@ -49,7 +57,9 @@ export class FakeDaemon {
   private script = new Script({
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
-    broadcast: (s, method, params) => { for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params); },
+    broadcast: (s, method, params) => {
+      for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
+    },
   });
   private tokens = new Map<string, { id: string; name: string }>();
 
@@ -59,34 +69,58 @@ export class FakeDaemon {
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
   }
 
-  private iso(): Timestamp { return this.now().toISOString(); }
+  private iso(): Timestamp {
+    return this.now().toISOString();
+  }
 
   // ---- hosting ----
 
   /** Serves one connection; `dropConnections` cuts them. */
   accept(transport: Transport, role: Role = 'founder', name = 'unknown', network = false): void {
     const kind = role === 'agent' ? 'agent' : role === 'member' ? 'device' : 'person';
-    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set(), network, paired: !network };
+    const conn: Conn = {
+      transport,
+      role,
+      caller: { kind, name },
+      helloed: false,
+      topics: null,
+      attached: new Set(),
+      network,
+      paired: !network,
+    };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
-    transport.onclose = () => { this.conns.delete(conn); };
+    transport.onclose = () => {
+      this.conns.delete(conn);
+    };
   }
 
   /** A connection through the network listener: anonymous until hello carries a device token. */
-  acceptNetwork(transport: Transport): void { this.accept(transport, 'anonymous', 'unknown', true); }
+  acceptNetwork(transport: Transport): void {
+    this.accept(transport, 'anonymous', 'unknown', true);
+  }
 
   /** What `device.pair` gives the founder: a one-time code to redeem. */
   issueCode(): string {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // the Go daemon's, so a code looks the same
     const code = Array.from(crypto.randomBytes(12), (b, i) => (i && i % 4 === 0 ? '-' : '') + alphabet[b % alphabet.length]).join('');
-    this.codes.add(code); return code;
+    this.codes.add(code);
+    return code;
   }
 
-  dropConnections(): void { for (const c of [...this.conns]) c.transport.close(); }
+  dropConnections(): void {
+    for (const c of [...this.conns]) c.transport.close();
+  }
 
   /** Runs the scripted sessions by themselves, one step per interval. */
-  autoplay(ms: number): void { this.timer = setInterval(() => this.tick(), ms); }
-  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; this.dropConnections(); }
+  autoplay(ms: number): void {
+    this.timer = setInterval(() => this.tick(), ms);
+  }
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.dropConnections();
+  }
 
   // ---- the scripted session ----
 
@@ -95,21 +129,34 @@ export class FakeDaemon {
     let any = false;
     for (const s of this.sessions.values()) {
       const step = s.queue.shift();
-      if (step) { step(); any = true; }
+      if (step) {
+        step();
+        any = true;
+      }
     }
     return any;
   }
   /** Runs the script until every session waits for a person or is idle. */
-  settle(): void { while (this.tick()); }
+  settle(): void {
+    while (this.tick());
+  }
 
   /** The daemon's own typing: refused while a person holds the terminal, marked in the stream otherwise. */
   daemonTypes(agent: string, text: string): void {
     const s = this.session(agent);
     if (s.holder.kind !== 'daemon') throw refused('input_holder', `${s.holder.name} holds the input`);
     this.script.record(s, 'text', text, 'daemon');
-    this.script.edit(s, () => { s.lines.push(`> ${text}`); });
+    this.script.edit(s, () => {
+      s.lines.push(`> ${text}`);
+    });
     this.script.pushTerminal(s, 'marker', (seq): Notifications['marker'] => ({
-      terminal: tid(s), seq, at: this.iso(), kind: 'daemon_typed', actor: { kind: 'daemon', name: 'daemon' }, text }));
+      terminal: tid(s),
+      seq,
+      at: this.iso(),
+      kind: 'daemon_typed',
+      actor: { kind: 'daemon', name: 'daemon' },
+      text,
+    }));
   }
 
   private session(agent: unknown): Session {
@@ -121,8 +168,17 @@ export class FakeDaemon {
 
   /** Public so a test can make changes while no client is connected. */
   emit(topic: Topic, type: string, f: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> } = {}) {
-    const e: WireEvent = { cursor: ++this.head, topic, type, at: this.iso(), actor: f.actor ?? null, agent: f.agent ?? null,
-      title: f.title ?? null, target: f.agent ? { screen: 'session', id: f.agent } : null, data: f.data ?? {} };
+    const e: WireEvent = {
+      cursor: ++this.head,
+      topic,
+      type,
+      at: this.iso(),
+      actor: f.actor ?? null,
+      agent: f.agent ?? null,
+      title: f.title ?? null,
+      target: f.agent ? { screen: 'session', id: f.agent } : null,
+      data: f.data ?? {},
+    };
     this.events.push(e);
     while (this.events.length > this.retention) this.floor = this.events.shift()!.cursor;
     for (const c of this.conns) if (c.topics?.has(topic)) this.notify(c, 'event', e);
@@ -142,20 +198,30 @@ export class FakeDaemon {
 
   private onMessage(c: Conn, line: string) {
     let req: { id?: number | string; method?: string; params?: Record<string, unknown> };
-    try { req = JSON.parse(line); } catch {
+    try {
+      req = JSON.parse(line);
+    } catch {
       return this.reply(c, null, { error: { code: -32700, message: 'The request is not valid JSON.', data: { code: 'bad_request' } } });
     }
     if (typeof req.method !== 'string' || req.id === undefined) {
       return this.reply(c, req.id ?? null, this.fail(badRequest('A request needs an id and a method.')));
     }
     const params = req.params ?? {};
-    if (c.network && !c.paired && !(req.method === 'device.redeem' || (req.method === 'hello' && typeof params.token === 'string' && this.tokens.has(params.token)))) {
+    if (
+      c.network &&
+      !c.paired &&
+      !(req.method === 'device.redeem' || (req.method === 'hello' && typeof params.token === 'string' && this.tokens.has(params.token)))
+    ) {
       // The listener's one reply to anyone unpaired, the same words whatever was asked.
       return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
     }
     let body: Body;
-    try { body = { result: this.withReplay(c, req.method, params) }; }
-    catch (e) { if (!(e instanceof Failure)) throw e; body = this.fail(e); }
+    try {
+      body = { result: this.withReplay(c, req.method, params) };
+    } catch (e) {
+      if (!(e instanceof Failure)) throw e;
+      body = this.fail(e);
+    }
     this.reply(c, req.id, body);
     if (req.method === 'subscribe' && !body.error) this.replay(c, params.since as number | undefined);
   }
@@ -179,11 +245,16 @@ export class FakeDaemon {
   // Replayed events follow the subscribe reply, never precede it.
   private replay(c: Conn, since: number | undefined) {
     if (since === undefined) return;
-    if (since < this.floor) { this.notify(c, 'gap', { reason: 'retention', cursor: this.head } satisfies Notifications['gap']); return; }
+    if (since < this.floor) {
+      this.notify(c, 'gap', { reason: 'retention', cursor: this.head } satisfies Notifications['gap']);
+      return;
+    }
     for (const e of this.events) if (e.cursor > since && c.topics?.has(e.topic)) this.notify(c, 'event', e);
   }
 
-  private actor(c: Conn): Actor { return { kind: c.caller.kind === 'device' ? 'device' : c.caller.kind === 'agent' ? 'agent' : 'user', name: c.caller.name }; }
+  private actor(c: Conn): Actor {
+    return { kind: c.caller.kind === 'device' ? 'device' : c.caller.kind === 'agent' ? 'agent' : 'user', name: c.caller.name };
+  }
 
   private dispatch(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
@@ -191,13 +262,28 @@ export class FakeDaemon {
       if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
       if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
       const device = c.network && typeof p.token === 'string' ? this.tokens.get(p.token) : undefined;
-      if (device) { c.role = 'member'; c.paired = true; c.caller = { kind: 'device', device: device.id, name: device.name }; }
+      if (device) {
+        c.role = 'member';
+        c.paired = true;
+        c.caller = { kind: 'device', device: device.id, name: device.name };
+      }
       c.helloed = true;
       if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
       return {
-        protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, caller: c.caller,
-        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: c.network ? 'network' : 'local',
-        methods: Object.entries(METHODS).map(([name, m]) => ({ name, since: m.since, role: m.role, allowed: this.mayCall(c.role, m.role) })),
+        protocol: PROTOCOL,
+        min_client: 1,
+        daemon: 'fake0000',
+        schema: 1,
+        role: c.role,
+        caller: c.caller,
+        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] },
+        transport: c.network ? 'network' : 'local',
+        methods: Object.entries(METHODS).map(([name, m]) => ({
+          name,
+          since: m.since,
+          role: m.role,
+          allowed: this.mayCall(c.role, m.role),
+        })),
       };
     }
     if (!c.helloed && method !== 'device.redeem') throw badRequest('say hello first'); // an unpaired caller redeems with no hello
@@ -207,15 +293,32 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     switch (method as MethodName) {
-      case 'whoami': return { caller: c.caller, role: c.role, methods: Object.entries(METHODS).filter(([, m]) => this.mayCall(c.role, m.role)).map(([n]) => n) };
+      case 'whoami':
+        return {
+          caller: c.caller,
+          role: c.role,
+          methods: Object.entries(METHODS)
+            .filter(([, m]) => this.mayCall(c.role, m.role))
+            .map(([n]) => n),
+        };
       case 'daemon.status': {
         const by_state: Record<string, number> = {};
         for (const s of this.sessions.values()) by_state[s.state] = (by_state[s.state] ?? 0) + 1;
-        return { alive: true, version: 'fake0000', protocol: PROTOCOL, schema: 1, started_at: this.iso(),
-          terminal_host: { name: 'fake', health: 'ok' }, agents: { total: this.sessions.size, by_state }, inbox: { unread: 0 } };
+        return {
+          alive: true,
+          version: 'fake0000',
+          protocol: PROTOCOL,
+          schema: 1,
+          started_at: this.iso(),
+          terminal_host: { name: 'fake', health: 'ok' },
+          agents: { total: this.sessions.size, by_state },
+          inbox: { unread: 0 },
+        };
       }
-      case 'agents.list': return { agents: [...this.sessions.values()].map((s) => view(s)) };
-      case 'agent.get': return detail(agent());
+      case 'agents.list':
+        return { agents: [...this.sessions.values()].map((s) => view(s)) };
+      case 'agent.get':
+        return detail(agent());
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
         c.topics = new Set(p.topics as Topic[]);
@@ -225,35 +328,52 @@ export class FakeDaemon {
         for (const t of (p.topics as Topic[] | undefined) ?? []) c.topics?.delete(t);
         return {};
       }
-      case 'prompt.list': { const s = agent(); return { prompts: s.prompt ? [s.prompt] : [] }; }
-      case 'session.start': return this.script.startSession(agent(), false, actor);
-      case 'session.wake': return this.script.startSession(agent(), true, actor);
-      case 'session.restart': return this.script.restartSession(agent(), p.fresh === true, actor);
-      case 'session.park': return this.script.stopSession(agent(), 'close', actor);
-      case 'session.stop': return this.script.stopSession(agent(), p.mode, actor);
-      case 'session.input': return this.script.input(agent(), p, c, actor);
-      case 'session.keys': return this.script.keys(agent(), p.keys, c, actor);
+      case 'prompt.list': {
+        const s = agent();
+        return { prompts: s.prompt ? [s.prompt] : [] };
+      }
+      case 'session.start':
+        return this.script.startSession(agent(), false, actor);
+      case 'session.wake':
+        return this.script.startSession(agent(), true, actor);
+      case 'session.restart':
+        return this.script.restartSession(agent(), p.fresh === true, actor);
+      case 'session.park':
+        return this.script.stopSession(agent(), 'close', actor);
+      case 'session.stop':
+        return this.script.stopSession(agent(), p.mode, actor);
+      case 'session.input':
+        return this.script.input(agent(), p, c, actor);
+      case 'session.keys':
+        return this.script.keys(agent(), p.keys, c, actor);
       case 'session.interrupt': {
-        const s = agent(); this.script.gate(s, c);
+        const s = agent();
+        this.script.gate(s, c);
         this.script.record(s, 'key', 'esc', actor.name);
-        this.script.control(s, actor, 'interrupt', `${actor.name} interrupted`); this.script.interruptTurn(s, actor);
+        this.script.control(s, actor, 'interrupt', `${actor.name} interrupted`);
+        this.script.interruptTurn(s, actor);
         return this.script.accepted('Interrupted.');
       }
       case 'prompt.answer': {
-        const s = agent(); this.script.gate(s, c);
+        const s = agent();
+        this.script.gate(s, c);
         const open = s.prompt;
-        if (!open || open.id !== p.prompt) throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
+        if (!open || open.id !== p.prompt)
+          throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
         if (typeof p.choice !== 'string') throw badRequest('this prompt takes one of its option keys', 'choice');
         const key = p.choice;
         if (!open.options.some((o) => o.key === key)) throw badRequest(`${key} is not offered by this prompt`, 'choice');
         this.script.record(s, 'key', key, actor.name);
-        this.script.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`); this.script.answer(s, key, actor);
+        this.script.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`);
+        this.script.answer(s, key, actor);
         return this.script.accepted('Answered.');
       }
       case 'input.take': {
         const s = agent();
-        if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
-        if (s.holder.kind === 'daemon') s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: this.iso() };
+        if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name)
+          throw refused('input_holder', `${s.holder.name} holds the input`);
+        if (s.holder.kind === 'daemon')
+          s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: this.iso() };
         this.script.control(s, actor, 'input.take', `${actor.name} took the input`);
         return this.script.accepted('You hold the input.', { holder: s.holder });
       }
@@ -270,37 +390,58 @@ export class FakeDaemon {
         if (!s.hasTerminal) throw refused('state', 'the agent has no terminal');
         c.attached.add(tid(s));
         const want = typeof p.history === 'number' ? p.history : 100;
-        const off = scrolledOff(s), first = Math.max(0, off - want);
-        return { terminal: tid(s), format: 'text', seq: s.seq, cols: s.cols, rows: s.rows, lines: visible(s).map(row), cursor: null,
-          history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 }, holder: s.holder };
+        const off = scrolledOff(s),
+          first = Math.max(0, off - want);
+        return {
+          terminal: tid(s),
+          format: 'text',
+          seq: s.seq,
+          cols: s.cols,
+          rows: s.rows,
+          lines: visible(s).map(row),
+          cursor: null,
+          history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 },
+          holder: s.holder,
+        };
       }
-      case 'terminal.detach': c.attached.delete(String(p.terminal)); return {};
+      case 'terminal.detach':
+        c.attached.delete(String(p.terminal));
+        return {};
       case 'terminal.history': {
         const s = this.byTerminal(p.terminal);
-        const end = Math.min(Number(p.before), scrolledOff(s)), first = Math.max(0, end - Number(p.limit));
+        const end = Math.min(Number(p.before), scrolledOff(s)),
+          first = Math.max(0, end - Number(p.limit));
         return { first, lines: s.lines.slice(first, end).map(row), more: first > 0 };
       }
       case 'terminal.resize': {
         const s = this.byTerminal(p.terminal);
-        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'only the input holder may resize');
-        s.cols = Number(p.cols); s.rows = Number(p.rows);
+        if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon')
+          throw refused('input_holder', 'only the input holder may resize');
+        s.cols = Number(p.cols);
+        s.rows = Number(p.rows);
         this.script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
         return this.script.accepted('Resized.');
       }
       case 'device.pair': {
         const code = this.issueCode();
-        return this.script.accepted('Pairing code made.', { code, expires_at: new Date(this.now().getTime() + 300_000).toISOString(), fingerprint: 'fa'.repeat(32),
-          uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}` });
+        return this.script.accepted('Pairing code made.', {
+          code,
+          expires_at: new Date(this.now().getTime() + 300_000).toISOString(),
+          fingerprint: 'fa'.repeat(32),
+          uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}`,
+        });
       }
       case 'device.redeem': {
         if (typeof p.code !== 'string') throw badRequest('code is a string', 'code');
         if (typeof p.name !== 'string' || p.name === '') throw badRequest("name is the device's name, a string", 'name');
         if (!this.codes.delete(p.code.trim().toUpperCase())) throw refused('pairing_code', 'that pairing code is not valid');
-        const token = 'hld_' + crypto.randomBytes(32).toString('hex'), id = 'dev_' + crypto.randomBytes(6).toString('hex');
+        const token = 'hld_' + crypto.randomBytes(32).toString('hex'),
+          id = 'dev_' + crypto.randomBytes(6).toString('hex');
         this.tokens.set(token, { id, name: p.name });
         return this.script.accepted('Paired.', { token, device: id });
       }
-      default: throw refused('unsupported', `the fake daemon does not serve ${method}`);
+      default:
+        throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
   }
 
@@ -310,5 +451,7 @@ export class FakeDaemon {
     return s;
   }
 
-  private mayCall(role: Role, lowest: Role): boolean { return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(lowest); }
+  private mayCall(role: Role, lowest: Role): boolean {
+    return ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(lowest);
+  }
 }

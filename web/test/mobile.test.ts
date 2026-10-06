@@ -18,7 +18,12 @@ async function started() {
 
 test('the agent list shows every agent with its state, and follows the daemon', async () => {
   const { store } = await started();
-  assert.deepEqual(toState(store).agents.map((a) => a.name).sort(), ['handline.architect', 'handline.auditor', A]);
+  assert.deepEqual(
+    toState(store)
+      .agents.map((a) => a.name)
+      .sort(),
+    ['handline.architect', 'handline.auditor', A],
+  );
   let html = app(toState(store));
   assert.match(html, /handline\.architect<\/b><small>idle · Web UI design · acct alpha/);
   assert.match(html, /<span class="flag warn">wall<\/span>/); // the auditor's account is at the wall
@@ -63,7 +68,10 @@ test('start, input and stop go to the daemon; its refusals reach the screen in i
   await until(() => store.page!.view.text().includes('> push the branch'), 'echo');
   await store.interrupt(A);
   await store.key(A, 'shift-tab');
-  assert.deepEqual(daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`), ['text:push the branch', 'key:esc', 'key:shift-tab']);
+  assert.deepEqual(
+    daemon.sessions.get(A)!.received.map((r) => `${r.kind}:${r.value}`),
+    ['text:push the branch', 'key:esc', 'key:shift-tab'],
+  );
 
   await store.stopAgent(A, 'close');
   assert.equal(store.details.get(A)!.session_open, false);
@@ -77,7 +85,8 @@ test('a permission prompt shows as a card on both tabs and Yes answers it', asyn
   const { store, daemon } = await started();
   await store.openAgent(A);
   await store.startAgent(A);
-  await store.send(A, 'go'); daemon.settle();
+  await store.send(A, 'go');
+  daemon.settle();
   await until(() => store.details.get(A)!.prompt !== null, 'prompt card');
   const prompt = store.details.get(A)!.prompt!;
   for (const tab of ['chat', 'terminal'] as const) {
@@ -87,7 +96,8 @@ test('a permission prompt shows as a card on both tabs and Yes answers it', asyn
     assert.match(html, new RegExp(`class="btn yes" data-act="answer" data-key="1" data-prompt="${prompt.id}"`));
     assert.match(html, /class="btn no" data-act="answer" data-key="2"/);
   }
-  await store.answer(prompt, '1'); daemon.settle();
+  await store.answer(prompt, '1');
+  daemon.settle();
   await until(() => store.details.get(A)!.prompt === null, 'card closed');
   assert.doesNotMatch(app(toState(store)), /class="card prompt"/);
   store.stop();

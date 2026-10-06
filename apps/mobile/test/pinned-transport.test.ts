@@ -5,15 +5,29 @@ import type { PinnedSocketNative } from '../modules/pinned-socket/index.ts';
 
 /** The native module's contract, in memory: events by connection id, a pin that must match. */
 function fakeNative(goodPin: string) {
-  const subs = { message: new Set<(e: { id?: string; data?: string }) => void>(), close: new Set<(e: { id?: string; data?: string }) => void>() };
+  const subs = {
+    message: new Set<(e: { id?: string; data?: string }) => void>(),
+    close: new Set<(e: { id?: string; data?: string }) => void>(),
+  };
   const sent: string[] = [];
   const native: PinnedSocketNative = {
-    async connect(_id, _url, pin) { if (pin !== goodPin) throw new Error('cancelled'); },
-    send(_id, text) { sent.push(text); },
-    close(id) { for (const f of subs.close) f({ id }); },
-    addListener(event: 'message' | 'close', fn: (e: { id?: string; data?: string }) => void) { subs[event].add(fn); return { remove: () => subs[event].delete(fn) }; },
+    async connect(_id, _url, pin) {
+      if (pin !== goodPin) throw new Error('cancelled');
+    },
+    send(_id, text) {
+      sent.push(text);
+    },
+    close(id) {
+      for (const f of subs.close) f({ id });
+    },
+    addListener(event: 'message' | 'close', fn: (e: { id?: string; data?: string }) => void) {
+      subs[event].add(fn);
+      return { remove: () => subs[event].delete(fn) };
+    },
   } as PinnedSocketNative;
-  const emit = (event: 'message' | 'close', e: object) => { for (const f of [...subs[event]]) f(e); };
+  const emit = (event: 'message' | 'close', e: object) => {
+    for (const f of [...subs[event]]) f(e);
+  };
   return { native, sent, emit, subs };
 }
 

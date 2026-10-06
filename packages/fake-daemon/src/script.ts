@@ -17,16 +17,21 @@ const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c'
 export class Script {
   private timelineId = 0;
   private host: Host;
-  constructor(host: Host) { this.host = host; }
+  constructor(host: Host) {
+    this.host = host;
+  }
 
-  record(s: Session, kind: 'text' | 'key', value: string, actor: string) { s.received.push({ kind, value, actor }); }
+  record(s: Session, kind: 'text' | 'key', value: string, actor: string) {
+    s.received.push({ kind, value, actor });
+  }
 
   /** Applies a change to the screen text and sends the changed rows to everyone attached. */
   edit(s: Session, change: () => void): void {
     const before = visible(s);
     change();
     const changed = visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
-    if (changed.length) this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
+    if (changed.length)
+      this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
   }
   pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
     const params = build(++s.seq);
@@ -34,20 +39,29 @@ export class Script {
   }
 
   setState(s: Session, state: string, actor?: Actor) {
-    s.state = state; s.since = this.host.iso();
+    s.state = state;
+    s.since = this.host.iso();
     this.host.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
   }
   control(s: Session, actor: Actor, kind: string, text: string) {
-    this.host.emit('agents', 'agent.control', { agent: s.fx.name, actor,
-      data: { id: ++this.timelineId, at: this.host.iso(), kind, actor, text } });
+    this.host.emit('agents', 'agent.control', {
+      agent: s.fx.name,
+      actor,
+      data: { id: ++this.timelineId, at: this.host.iso(), kind, actor, text },
+    });
   }
 
-  write(s: Session, line: string) { this.edit(s, () => { s.lines.push(line); }); }
+  write(s: Session, line: string) {
+    this.edit(s, () => {
+      s.lines.push(line);
+    });
+  }
 
   setComposeLine(s: Session) {
     this.edit(s, () => {
       const line = `> ${s.buffer}`;
-      if (s.composing) s.lines[s.lines.length - 1] = line; else s.lines.push(line);
+      if (s.composing) s.lines[s.lines.length - 1] = line;
+      else s.lines.push(line);
       s.composing = true;
     });
   }
@@ -56,51 +70,71 @@ export class Script {
     const text = s.buffer;
     this.edit(s, () => {
       const line = `> ${text}`;
-      if (s.composing) s.lines[s.lines.length - 1] = line; else s.lines.push(line);
-      s.composing = false; s.buffer = '';
+      if (s.composing) s.lines[s.lines.length - 1] = line;
+      else s.lines.push(line);
+      s.composing = false;
+      s.buffer = '';
     });
     if (s.state === 'idle') this.startTurn(s, actor);
   }
 
   startTurn(s: Session, actor: Actor) {
     this.setState(s, 'running', actor);
-    s.queue = [
-      () => this.write(s, '● Thinking…'),
-      () => this.write(s, '● I will push the branch.'),
-      () => this.openPrompt(s),
-    ];
+    s.queue = [() => this.write(s, '● Thinking…'), () => this.write(s, '● I will push the branch.'), () => this.openPrompt(s)];
   }
 
   openPrompt(s: Session) {
     const lines = PROMPT_LINES.map((l) => l.replace('{branch}', s.fx.branch));
     const prompt: Prompt = {
-      id: `p${++s.counter}-${s.fx.name}`, agent: s.fx.name, kind: 'permission', tool: 'Bash',
-      command: `git push origin ${s.fx.branch}`, reason: null, lines, since: this.host.iso(),
-      options: [{ key: '1', label: 'Yes', answer: 'yes', highlighted: true }, { key: '2', label: 'No', answer: 'no' }],
+      id: `p${++s.counter}-${s.fx.name}`,
+      agent: s.fx.name,
+      kind: 'permission',
+      tool: 'Bash',
+      command: `git push origin ${s.fx.branch}`,
+      reason: null,
+      lines,
+      since: this.host.iso(),
+      options: [
+        { key: '1', label: 'Yes', answer: 'yes', highlighted: true },
+        { key: '2', label: 'No', answer: 'no' },
+      ],
     };
     s.prompt = prompt;
     for (const l of lines) this.write(s, l);
     this.setState(s, 'waiting');
-    this.host.emit('notifications', 'prompt_asked', { agent: s.fx.name, title: 'Permission: Bash', data: prompt as unknown as Record<string, unknown> });
+    this.host.emit('notifications', 'prompt_asked', {
+      agent: s.fx.name,
+      title: 'Permission: Bash',
+      data: prompt as unknown as Record<string, unknown>,
+    });
   }
 
   answer(s: Session, key: string, actor: Actor) {
     s.prompt = null;
     if (key === '1') {
       s.queue = [
-        () => { this.setState(s, 'running'); this.write(s, `● Ran git push origin ${s.fx.branch}`); },
+        () => {
+          this.setState(s, 'running');
+          this.write(s, `● Ran git push origin ${s.fx.branch}`);
+        },
         () => this.write(s, '● Pushed. Done.'),
         () => this.setState(s, 'idle'),
       ];
     } else {
-      s.queue = [() => { this.write(s, '● Understood, I will not push.'); this.setState(s, 'idle'); }];
+      s.queue = [
+        () => {
+          this.write(s, '● Understood, I will not push.');
+          this.setState(s, 'idle');
+        },
+      ];
     }
     this.setState(s, 'running', actor);
   }
 
   interruptTurn(s: Session, actor: Actor) {
     if (s.state === 'idle') return;
-    s.prompt = null; s.queue = [];
+    s.prompt = null;
+    s.queue = [];
     this.write(s, '● Interrupted · What should Claude do instead?');
     this.setState(s, 'idle', actor);
   }
@@ -108,11 +142,14 @@ export class Script {
   pressKey(s: Session, key: string, actor: Actor) {
     this.record(s, 'key', key, actor.name);
     if (key === 'esc' || key === 'ctrl-c') this.interruptTurn(s, actor);
-    else if (key === 'enter') { if (s.buffer) this.submit(s, actor); }
-    else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
+    else if (key === 'enter') {
+      if (s.buffer) this.submit(s, actor);
+    } else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
   }
 
-  accepted(said: string, extra: Record<string, unknown> = {}) { return { accepted: true, said, ...extra }; }
+  accepted(said: string, extra: Record<string, unknown> = {}) {
+    return { accepted: true, said, ...extra };
+  }
 
   /** The gates every typing method passes: a session to type at, and nobody else holding the input. */
   gate(s: Session, c: Who) {
@@ -124,9 +161,12 @@ export class Script {
   startSession(s: Session, wake: boolean, actor: Actor) {
     if (s.open) throw refused('state', 'the session is already open');
     if (wake && !s.sessionId) throw refused('state', 'there is no closed session to resume');
-    s.open = true; s.hasTerminal = true;
+    s.open = true;
+    s.hasTerminal = true;
     s.sessionId ??= `s-${s.fx.name}-${++s.counter}`;
-    this.edit(s, () => { s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree))); });
+    this.edit(s, () => {
+      s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree)));
+    });
     this.setState(s, 'idle', actor);
     return this.accepted('Session started.');
   }
@@ -140,8 +180,11 @@ export class Script {
   stopSession(s: Session, mode: unknown, actor: Actor) {
     if (mode !== 'exit' && mode !== 'close' && mode !== 'kill') throw badRequest('mode must be exit, close or kill', 'mode');
     if (!s.open) throw refused('state', 'the agent has no open session');
-    s.prompt = null; s.queue = []; s.open = false;
-    if (mode === 'kill') s.hasTerminal = false; else this.write(s, '(session ended)');
+    s.prompt = null;
+    s.queue = [];
+    s.open = false;
+    if (mode === 'kill') s.hasTerminal = false;
+    else this.write(s, '(session ended)');
     this.setState(s, mode === 'kill' ? 'no_terminal' : 'parked', actor);
     return this.accepted('Session ended.');
   }
@@ -154,7 +197,8 @@ export class Script {
     this.record(s, 'text', p.text, actor.name);
     this.control(s, actor, 'input', `${actor.name} typed`);
     s.buffer += p.text;
-    if (p.enter !== false) this.submit(s, actor); else this.setComposeLine(s);
+    if (p.enter !== false) this.submit(s, actor);
+    else this.setComposeLine(s);
     return this.accepted('Typed.');
   }
 

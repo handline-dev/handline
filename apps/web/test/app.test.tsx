@@ -9,9 +9,15 @@ import { App } from '../src/App.tsx';
 
 const ARCH = 'handline.architect'; // idle with a session
 const TB = 'handline.term-build'; // parked, no session
-const wait = (ms = 10) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+const wait = (ms = 10) =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, ms));
+  });
 async function until(cond: () => unknown, what: string) {
-  for (let i = 0; i < 300; i++) { if (cond()) return; await wait(); }
+  for (let i = 0; i < 300; i++) {
+    if (cond()) return;
+    await wait();
+  }
   throw new Error(`timed out waiting for ${what}`);
 }
 const memory = (): KV & { data: Map<string, string> } => {
@@ -23,8 +29,14 @@ let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
-const fire = (el: Element, type: string) => act(async () => { el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true })); });
-const click = (el: Element) => act(async () => { (el as HTMLElement).click(); });
+const fire = (el: Element, type: string) =>
+  act(async () => {
+    el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+  });
+const click = (el: Element) =>
+  act(async () => {
+    (el as HTMLElement).click();
+  });
 const text = (el: Element | null) => el?.textContent ?? '';
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
 
@@ -33,13 +45,24 @@ async function mount(agent: string, storage: KV = memory(), s = setup()) {
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
-  await act(async () => { root!.render(<App store={store} daemon="test" storage={storage} />); });
+  await act(async () => {
+    root!.render(<App store={store} daemon="test" storage={storage} />);
+  });
   return { store, storage, ...s };
 }
-const unmount = async () => { await act(async () => root?.unmount()); root = null; box?.remove(); };
+const unmount = async () => {
+  await act(async () => root?.unmount());
+  root = null;
+  box?.remove();
+};
 
-beforeEach(() => { vi.stubGlobal('confirm', () => true); });
-afterEach(async () => { await unmount(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  vi.stubGlobal('confirm', () => true);
+});
+afterEach(async () => {
+  await unmount();
+  vi.unstubAllGlobals();
+});
 
 describe('the workspace', () => {
   it('has no agent header and no per-agent tab row; every pane has its own strip, Chat first and unclosable', async () => {
@@ -70,7 +93,7 @@ describe('the workspace', () => {
     expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team.*Accounts/);
   });
 
-  it('closing a tab only detaches; closing a pane\'s last tab removes the pane; Chat stays', async () => {
+  it("closing a tab only detaches; closing a pane's last tab removes the pane; Chat stays", async () => {
     const { daemon } = await mount(ARCH);
     await until(() => $$('.pane').length === 2, 'two panes');
     await click($(`${termTab} .x`)!);
@@ -183,10 +206,13 @@ describe('the sidebar', () => {
     expect($('.row-actions .btn.primary')).toBeNull();
   });
 
-  it('switching agent opens that agent\'s own workspace, with its own terminal tab', async () => {
+  it("switching agent opens that agent's own workspace, with its own terminal tab", async () => {
     await mount(ARCH);
     await until(() => $(termTab), 'architect terminal tab');
-    await act(async () => { location.hash = `#/agents/${TB}`; dispatchEvent(new Event('hashchange')); });
+    await act(async () => {
+      location.hash = `#/agents/${TB}`;
+      dispatchEvent(new Event('hashchange'));
+    });
     await until(() => $('[data-tab="terminal:term:handline.term-build"]'), 'term-build terminal tab');
     expect($(termTab)).toBeNull();
     expect($$('[data-tab="chat"]')).toHaveLength(1);

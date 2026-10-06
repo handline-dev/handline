@@ -7,7 +7,8 @@ export const group = (id: string, tabs: string[], activeTab = tabs[0]!): Group =
 
 export function mapNode(n: Node, f: (g: Group) => Node | null): Node | null {
   if (n.type === 'group') return f(n);
-  const a = mapNode(n.a, f), b = mapNode(n.b, f);
+  const a = mapNode(n.a, f),
+    b = mapNode(n.b, f);
   return !a ? b : !b ? a : { ...n, a, b };
 }
 

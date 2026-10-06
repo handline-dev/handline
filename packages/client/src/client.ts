@@ -1,7 +1,14 @@
 import {
-  METHODS, PROTOCOL,
-  type ErrorCode, type Event as WireEvent, type MethodName, type Methods,
-  type Notifications, type Prompt, type RequestId, type Topic,
+  METHODS,
+  PROTOCOL,
+  type ErrorCode,
+  type Event as WireEvent,
+  type MethodName,
+  type Methods,
+  type Notifications,
+  type Prompt,
+  type RequestId,
+  type Topic,
 } from './protocol.ts';
 import type { Transport } from './transport.ts';
 import { RpcError } from './errors.ts';
@@ -24,8 +31,11 @@ export interface ClientOptions {
 
 type Handler<T> = (value: T) => void;
 interface Pending {
-  id: number; method: string; params: unknown;
-  resolve: (v: unknown) => void; reject: (e: Error) => void;
+  id: number;
+  method: string;
+  params: unknown;
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
 }
 
 export class DaemonClient {
@@ -47,7 +57,9 @@ export class DaemonClient {
   private closing = false;
 
   private opts: ClientOptions;
-  constructor(opts: ClientOptions) { this.opts = opts; }
+  constructor(opts: ClientOptions) {
+    this.opts = opts;
+  }
 
   // ---- connection ----
 
@@ -64,7 +76,10 @@ export class DaemonClient {
     this.failPending(new RpcError('transport', 'client closed'));
   }
 
-  onState(fn: Handler<ConnectionState>): () => void { this.stateHandlers.add(fn); return () => this.stateHandlers.delete(fn); }
+  onState(fn: Handler<ConnectionState>): () => void {
+    this.stateHandlers.add(fn);
+    return () => this.stateHandlers.delete(fn);
+  }
 
   private setState(s: ConnectionState): void {
     if (this.state === s) return;
@@ -79,11 +94,15 @@ export class DaemonClient {
     t.onclose = () => this.lost(t);
     const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
-      t.onclose = null; t.close();
-      this.setState('closed'); this.closing = true;
-      throw new RpcError('protocol',
+      t.onclose = null;
+      t.close();
+      this.setState('closed');
+      this.closing = true;
+      throw new RpcError(
+        'protocol',
         `The daemon speaks protocol ${hello.protocol} (needs client ${hello.min_client}+); this client speaks ${PROTOCOL}.`,
-        { reason: 'run `hl service install` to reload the service' });
+        { reason: 'run `hl service install` to reload the service' },
+      );
     }
     this.hello = hello;
     // Pending writes go first with their old ids and request_ids: a daemon that already did one
@@ -91,7 +110,8 @@ export class DaemonClient {
     for (const p of this.pending.values()) this.transmit(p);
     await this.establish();
     this.setState('open');
-    const waiters = this.waitingForOpen; this.waitingForOpen = [];
+    const waiters = this.waitingForOpen;
+    this.waitingForOpen = [];
     for (const w of waiters) w.ok();
   }
 
@@ -105,7 +125,11 @@ export class DaemonClient {
     this.transport = null;
     this.failInflightInternal();
     const r = this.opts.reconnect;
-    if (r === false) { this.setState('closed'); this.failPending(new RpcError('transport', 'connection lost')); return; }
+    if (r === false) {
+      this.setState('closed');
+      this.failPending(new RpcError('transport', 'connection lost'));
+      return;
+    }
     this.setState('reconnecting');
     void this.reconnect(r ?? { minMs: 250, maxMs: 5000 });
   }
@@ -113,9 +137,14 @@ export class DaemonClient {
   private async reconnect(r: { minMs: number; maxMs: number }): Promise<void> {
     let delay = r.minMs;
     while (!this.closing) {
-      try { await this.open(); return; }
-      catch (e) {
-        if (e instanceof RpcError && e.code === 'protocol') { this.failPending(e); return; }
+      try {
+        await this.open();
+        return;
+      } catch (e) {
+        if (e instanceof RpcError && e.code === 'protocol') {
+          this.failPending(e);
+          return;
+        }
         await new Promise((res) => setTimeout(res, delay));
         delay = Math.min(delay * 2, r.maxMs);
       }
@@ -162,21 +191,37 @@ export class DaemonClient {
   }
 
   private failPending(e: Error): void {
-    const waiters = this.waitingForOpen; this.waitingForOpen = [];
+    const waiters = this.waitingForOpen;
+    this.waitingForOpen = [];
     for (const w of waiters) w.fail(e);
     for (const p of this.pending.values()) p.reject(e);
-    this.pending.clear(); this.inflightInternal.clear();
+    this.pending.clear();
+    this.inflightInternal.clear();
   }
 
   private receive(t: Transport, line: string): void {
     if (t !== this.transport) return;
-    let msg: { id?: unknown; result?: unknown; error?: { message: string; data?: Record<string, unknown> }; method?: string; params?: unknown };
-    try { msg = JSON.parse(line); } catch { return; } // a line that is not JSON is not ours to act on
-    if (msg.method && msg.id === undefined) { this.notice(msg.method, msg.params); return; }
+    let msg: {
+      id?: unknown;
+      result?: unknown;
+      error?: { message: string; data?: Record<string, unknown> };
+      method?: string;
+      params?: unknown;
+    };
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    } // a line that is not JSON is not ours to act on
+    if (msg.method && msg.id === undefined) {
+      this.notice(msg.method, msg.params);
+      return;
+    }
     if (typeof msg.id !== 'number') return;
     const p = this.pending.get(msg.id);
     if (!p) return; // a reply to a resent call that already finished
-    this.pending.delete(msg.id); this.inflightInternal.delete(msg.id);
+    this.pending.delete(msg.id);
+    this.inflightInternal.delete(msg.id);
     if (msg.error) {
       const e = msg.error;
       p.reject(new RpcError((e.data?.code as ErrorCode | undefined) ?? 'internal', e.message, e.data));
@@ -193,9 +238,15 @@ export class DaemonClient {
     const r = await this.call('subscribe', { topics: [...this.topics], since: this.cursor });
     this.cursor ??= r.cursor;
   }
-  onEvent(fn: Handler<WireEvent>): () => void { this.eventHandlers.add(fn); return () => this.eventHandlers.delete(fn); }
+  onEvent(fn: Handler<WireEvent>): () => void {
+    this.eventHandlers.add(fn);
+    return () => this.eventHandlers.delete(fn);
+  }
   /** The daemon dropped history this client needed: refetch what the events described. */
-  onGap(fn: Handler<Notifications['gap']>): () => void { this.gapHandlers.add(fn); return () => this.gapHandlers.delete(fn); }
+  onGap(fn: Handler<Notifications['gap']>): () => void {
+    this.gapHandlers.add(fn);
+    return () => this.gapHandlers.delete(fn);
+  }
 
   private notice(method: string, params: unknown): void {
     switch (method) {
@@ -212,11 +263,16 @@ export class DaemonClient {
         for (const fn of this.gapHandlers) fn(g);
         break;
       }
-      case 'frame': case 'resize': case 'marker': {
+      case 'frame':
+      case 'resize':
+      case 'marker': {
         const n = params as { terminal: string; seq: number };
         const v = [...this.views.values()].find((x) => x.terminal === n.terminal);
         if (!v) return;
-        if (!v.fits(n.seq)) { void this.attach(v).catch(() => {}); return; } // missed one: take a fresh frame
+        if (!v.fits(n.seq)) {
+          void this.attach(v).catch(() => {});
+          return;
+        } // missed one: take a fresh frame
         if (method === 'frame') v.applyFrame(params as Notifications['frame']);
         else if (method === 'resize') v.applyResize(params as Notifications['resize']);
         else v.applyMarker(params as Notifications['marker']);
@@ -232,7 +288,12 @@ export class DaemonClient {
     const v = this.views.get(agent) ?? new TerminalView(agent);
     this.views.set(agent, v);
     this.holders.set(agent, (this.holders.get(agent) ?? 0) + 1);
-    try { await this.attach(v); } catch (e) { this.release(agent); throw e; }
+    try {
+      await this.attach(v);
+    } catch (e) {
+      this.release(agent);
+      throw e;
+    }
     return v;
   }
   /** Lets go of one hold; the daemon is told to stop only when the last holder does. */
@@ -244,12 +305,17 @@ export class DaemonClient {
   /** Drops one hold; true when it was the last, and the view is gone. */
   private release(agent: string): boolean {
     const n = (this.holders.get(agent) ?? 1) - 1;
-    if (n > 0) { this.holders.set(agent, n); return false; }
-    this.holders.delete(agent); this.views.delete(agent);
+    if (n > 0) {
+      this.holders.set(agent, n);
+      return false;
+    }
+    this.holders.delete(agent);
+    this.views.delete(agent);
     return true;
   }
   private async attach(v: TerminalView): Promise<void> {
-    const snap = await (this.state === 'open' ? this.call('terminal.attach', { agent: v.agent, history: 100 })
+    const snap = await (this.state === 'open'
+      ? this.call('terminal.attach', { agent: v.agent, history: 100 })
       : this.callNow('terminal.attach', { agent: v.agent, history: 100 }));
     v.setSnapshot(snap);
   }
@@ -257,24 +323,48 @@ export class DaemonClient {
   /** Fetches older scrollback into the view. Lines that scrolled off while attached arrive on a fresh attach. */
   async loadOlder(v: TerminalView, limit = 100): Promise<void> {
     const h = await this.call('terminal.history', { terminal: v.terminal, before: v.historyFirst, limit });
-    v.prependHistory(h.first, h.lines.map((r) => r.text), h.more);
+    v.prependHistory(
+      h.first,
+      h.lines.map((r) => r.text),
+      h.more,
+    );
   }
 
   // ---- session control ----
 
-  startSession(agent: string, account?: string) { return this.call('session.start', { agent, account }); }
-  restartSession(agent: string, fresh = false) { return this.call('session.restart', { agent, fresh }); }
-  parkSession(agent: string) { return this.call('session.park', { agent }); }
-  stopSession(agent: string, mode: 'exit' | 'close' | 'kill') { return this.call('session.stop', { agent, mode }); }
+  startSession(agent: string, account?: string) {
+    return this.call('session.start', { agent, account });
+  }
+  restartSession(agent: string, fresh = false) {
+    return this.call('session.restart', { agent, fresh });
+  }
+  parkSession(agent: string) {
+    return this.call('session.park', { agent });
+  }
+  stopSession(agent: string, mode: 'exit' | 'close' | 'kill') {
+    return this.call('session.stop', { agent, mode });
+  }
   /** `enter: false` types without pressing Enter; Enter is its own keystroke. */
-  sendInput(agent: string, text: string, enter = true) { return this.call('session.input', { agent, text, enter }); }
-  sendKeys(agent: string, ...keys: string[]) { return this.call('session.keys', { agent, keys }); }
-  interrupt(agent: string) { return this.call('session.interrupt', { agent }); }
-  async openPrompts(agent: string): Promise<Prompt[]> { return (await this.call('prompt.list', { agent })).prompts; }
+  sendInput(agent: string, text: string, enter = true) {
+    return this.call('session.input', { agent, text, enter });
+  }
+  sendKeys(agent: string, ...keys: string[]) {
+    return this.call('session.keys', { agent, keys });
+  }
+  interrupt(agent: string) {
+    return this.call('session.interrupt', { agent });
+  }
+  async openPrompts(agent: string): Promise<Prompt[]> {
+    return (await this.call('prompt.list', { agent })).prompts;
+  }
   /** Names the prompt answered: a changed prompt is refused as `stale_prompt` (data.current is the open one) and nothing is sent. */
   answerPrompt(agent: string, prompt: string, choice: string | { text: string }) {
     return this.call('prompt.answer', { agent, prompt, choice });
   }
-  takeInput(agent: string) { return this.call('input.take', { agent }); }
-  releaseInput(agent: string) { return this.call('input.release', { agent }); }
+  takeInput(agent: string) {
+    return this.call('input.take', { agent });
+  }
+  releaseInput(agent: string) {
+    return this.call('input.release', { agent });
+  }
 }

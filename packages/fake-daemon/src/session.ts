@@ -1,7 +1,8 @@
 import type { AgentDetail, AgentView, InputHolder, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
 
-export const ROWS = 24, COLS = 80;
+export const ROWS = 24,
+  COLS = 80;
 export const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
 export const row = (text: string): Row => ({ text });
 
@@ -30,9 +31,23 @@ export const tid = (s: Session) => `term:${s.fx.name}`;
 export function newSession(fx: AgentFixture, since: Timestamp): Session {
   const open = fx.session !== null;
   return {
-    fx, state: fx.state, since, sessionId: fx.session, open, hasTerminal: fx.state !== 'no_terminal',
-    lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [], seq: 0, cols: COLS, rows: ROWS,
-    buffer: '', composing: false, holder: DAEMON_HOLDER, prompt: null, queue: [], counter: 0, received: [],
+    fx,
+    state: fx.state,
+    since,
+    sessionId: fx.session,
+    open,
+    hasTerminal: fx.state !== 'no_terminal',
+    lines: open ? BANNER.map((l) => l.replace('{worktree}', fx.worktree)) : [],
+    seq: 0,
+    cols: COLS,
+    rows: ROWS,
+    buffer: '',
+    composing: false,
+    holder: DAEMON_HOLDER,
+    prompt: null,
+    queue: [],
+    counter: 0,
+    received: [],
   };
 }
 
@@ -45,18 +60,31 @@ export const scrolledOff = (s: Session): number => Math.max(0, s.lines.length - 
 
 export function view(s: Session): AgentView {
   return {
-    name: s.fx.name, role: s.fx.role, model: s.fx.model, effort: s.fx.effort, state: s.state, state_since: s.since, state_detail: '',
+    name: s.fx.name,
+    role: s.fx.role,
+    model: s.fx.model,
+    effort: s.fx.effort,
+    state: s.state,
+    state_since: s.since,
+    state_detail: '',
     block: s.fx.wall ? { kind: 'wall', since: s.since } : null,
     wall_reason: s.fx.wall ? 'usage limit' : null,
-    account: s.fx.account, task: s.fx.task,
+    account: s.fx.account,
+    task: s.fx.task,
     cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
-    has_dialog: s.prompt !== null, parent: s.fx.parent,
+    has_dialog: s.prompt !== null,
+    parent: s.fx.parent,
   };
 }
 export function detail(s: Session): AgentDetail {
   return {
-    ...view(s), worktree: { path: s.fx.worktree, branch: s.fx.branch }, terminal: s.hasTerminal ? tid(s) : null,
-    session_id: s.sessionId, session_open: s.open, input_holders: [s.holder],
-    account_pick: { account: s.fx.account, reason: 'fixture' }, prompt: s.prompt,
+    ...view(s),
+    worktree: { path: s.fx.worktree, branch: s.fx.branch },
+    terminal: s.hasTerminal ? tid(s) : null,
+    session_id: s.sessionId,
+    session_open: s.open,
+    input_holders: [s.holder],
+    account_pick: { account: s.fx.account, reason: 'fixture' },
+    prompt: s.prompt,
   };
 }

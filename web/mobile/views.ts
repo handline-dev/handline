@@ -24,8 +24,12 @@ export function agentList(s: State): string {
 export function permissionCard(p: Prompt): string {
   const what = p.command ? `<code>${esc(p.tool ?? '')} ${esc(p.command)}</code>` : p.lines.map((l) => `<div>${esc(l)}</div>`).join('');
   // Yes/No only where the daemon marked the answer; other options stay as plain key chips.
-  const buttons = p.options.map((o) =>
-    `<button class="btn ${o.answer ?? ''}" data-act="answer" data-key="${esc(o.key)}" data-prompt="${esc(p.id)}">${esc(o.label)}</button>`).join('');
+  const buttons = p.options
+    .map(
+      (o) =>
+        `<button class="btn ${o.answer ?? ''}" data-act="answer" data-key="${esc(o.key)}" data-prompt="${esc(p.id)}">${esc(o.label)}</button>`,
+    )
+    .join('');
   return `<section class="card prompt"><h3>${esc(p.kind === 'permission' ? 'Permission' : p.kind)}${p.reason ? ' · ' + esc(p.reason) : ''}</h3>${what}<div class="actions">${buttons}</div></section>`;
 }
 
@@ -34,7 +38,12 @@ function controls(d: AgentDetail): string {
   if (!d.session_open) {
     return d.session_id ? b('resume', 'Resume') + b('start', 'Start new') : b('start', 'Start');
   }
-  return b('interrupt', 'Interrupt') + b('stop', 'Exit', 'data-mode="exit"') + b('stop', 'Close', 'data-mode="close"') + b('stop', 'Kill', 'data-mode="kill"');
+  return (
+    b('interrupt', 'Interrupt') +
+    b('stop', 'Exit', 'data-mode="exit"') +
+    b('stop', 'Close', 'data-mode="close"') +
+    b('stop', 'Kill', 'data-mode="kill"')
+  );
 }
 
 // Chat has no daemon method to draw from yet (capabilities.chat is false in the fake), so this is its empty state.
@@ -75,11 +84,14 @@ export const pageKey = (s: State): string => (s.page ? `agent:${s.page.agent}:${
 
 export function app(s: State): string {
   const banner = s.connection === 'open' ? '' : `<div class="banner">${s.connection === 'closed' ? 'Disconnected' : 'Reconnecting…'}</div>`;
-  const error = s.error ? `<div class="banner err" role="alert">${esc(s.error)}<button data-act="dismiss" aria-label="Dismiss">✕</button></div>` : '';
+  const error = s.error
+    ? `<div class="banner err" role="alert">${esc(s.error)}<button data-act="dismiss" aria-label="Dismiss">✕</button></div>`
+    : '';
   const main = s.page ? agentPage(s) : agentList(s);
   // Destinations the design lists but this build does not have yet are shown disabled.
   const nav = ['Inbox', 'Agents', 'Tasks', 'Accounts', 'More']
-    .map((n) => `<button class="${n === 'Agents' ? 'on' : ''}" ${n === 'Agents' ? 'data-act="back"' : 'disabled'}>${n}</button>`).join('');
+    .map((n) => `<button class="${n === 'Agents' ? 'on' : ''}" ${n === 'Agents' ? 'data-act="back"' : 'disabled'}>${n}</button>`)
+    .join('');
   return `<div class="shell" data-key="${esc(pageKey(s))}"><div data-r="banner">${banner}</div><div data-r="error">${error}</div>
     <main>${main}</main><nav class="tabbar">${nav}</nav></div>`;
 }

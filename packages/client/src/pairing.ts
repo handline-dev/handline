@@ -14,7 +14,9 @@ export interface PairingOffer {
 
 export function parsePairingUri(uri: string): PairingOffer {
   const u = new URL(uri);
-  const host = u.searchParams.get('host'), fp = u.searchParams.get('fp'), code = u.searchParams.get('code');
+  const host = u.searchParams.get('host'),
+    fp = u.searchParams.get('fp'),
+    code = u.searchParams.get('code');
   if (u.protocol !== 'handline:' || u.hostname !== 'pair' || !host || !fp || !code) throw new Error('not a handline pairing uri');
   return { host, fingerprint: fp.toLowerCase(), code };
 }
@@ -26,17 +28,37 @@ export const listenerUrl = (host: string): string => `wss://${host}/rpc`;
  * Trades a pairing code for a device token. `connect` must verify the listener's fingerprint. An unpaired
  * connection may call nothing but device.redeem, hello included, so this is the first and only message sent.
  */
-export async function redeemPairing(connect: () => Promise<Transport>, code: string, deviceName: string, timeoutMs = 10_000): Promise<{ token: string; device: string }> {
+export async function redeemPairing(
+  connect: () => Promise<Transport>,
+  code: string,
+  deviceName: string,
+  timeoutMs = 10_000,
+): Promise<{ token: string; device: string }> {
   const t = await connect();
   const request_id = `pair-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const reply = await new Promise<Reply>((ok, fail) => {
     timer = setTimeout(() => fail(new RpcError('transport', 'the listener did not answer')), timeoutMs);
-    t.onmessage = (m) => { try { ok(JSON.parse(m)); } catch { fail(new RpcError('transport', 'the listener sent something that is not JSON')); } };
+    t.onmessage = (m) => {
+      try {
+        ok(JSON.parse(m));
+      } catch {
+        fail(new RpcError('transport', 'the listener sent something that is not JSON'));
+      }
+    };
     t.onclose = () => fail(new RpcError('transport', 'the listener closed the connection'));
     t.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'device.redeem', params: { code, name: deviceName, request_id } }));
-  }).finally(() => { clearTimeout(timer); t.onclose = null; t.close(); });
-  if (reply.error) throw new RpcError((reply.error.data?.code ?? 'refused') as ErrorCode, reply.error.data?.reason ?? reply.error.message, reply.error.data);
+  }).finally(() => {
+    clearTimeout(timer);
+    t.onclose = null;
+    t.close();
+  });
+  if (reply.error)
+    throw new RpcError(
+      (reply.error.data?.code ?? 'refused') as ErrorCode,
+      reply.error.data?.reason ?? reply.error.message,
+      reply.error.data,
+    );
   return { token: reply.result!.token, device: reply.result!.device };
 }
 
