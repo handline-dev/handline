@@ -1,0 +1,30 @@
+{
+  "name": "@handline/web",
+  "private": true,
+  "type": "module",
+  "description": "The responsive web app: sidebar, agent workspaces with tabs and split panes, on the shared packages",
+  "scripts": {
+    "dev": "vite",
+    "dev:fake": "HANDLINE_FAKE=1 vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@handline/app-core": "workspace:*",
+    "@handline/app-react": "workspace:*",
+    "@handline/client": "workspace:*",
+    "@handline/tokens": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*",
+    "@handline/fake-daemon": "workspace:*",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "happy-dom": "^18",
+    "vite": "^7",
+    "vitest": "^3"
+  }
+}

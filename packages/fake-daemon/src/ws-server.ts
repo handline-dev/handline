@@ -44,12 +44,13 @@ function wrap(sock: Duplex): Transport {
   return t;
 }
 
-export function wsServer(onConnect: (t: Transport) => void, tls?: https.ServerOptions): http.Server {
+/** `path` limits the upgrade to one URL path, as the real listener's /rpc does; without it any path upgrades. */
+export function wsServer(onConnect: (t: Transport) => void, tls?: https.ServerOptions, path?: string): http.Server {
   const refuse = (_: http.IncomingMessage, res: http.ServerResponse) => { res.statusCode = 426; res.end('websocket only'); };
   const server = tls ? https.createServer(tls, refuse) : http.createServer(refuse);
   server.on('upgrade', (req, sock) => {
     const key = req.headers['sec-websocket-key'];
-    if (typeof key !== 'string') { sock.destroy(); return; }
+    if (typeof key !== 'string' || (path !== undefined && req.url !== path)) { sock.destroy(); return; }
     const accept = crypto.createHash('sha1').update(key + GUID).digest('base64');
     sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
     onConnect(wrap(sock));
