@@ -140,7 +140,9 @@ def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int)
     con.execute("BEGIN IMMEDIATE")
     try:
         now = int(time.time())
-        con.execute("DELETE FROM hook_applied WHERE ts < ?", (now - HOOK_KEEP_S,))
+        from ..daemon import spool
+        if not spool.pending():         # a file left by a crash may still replay lines older than a day
+            con.execute("DELETE FROM hook_applied WHERE ts < ?", (now - HOOK_KEEP_S,))
         if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts) VALUES(?, ?)", (request_id, now)).rowcount == 0:
             con.execute("ROLLBACK")
             return

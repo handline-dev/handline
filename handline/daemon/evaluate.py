@@ -22,7 +22,7 @@ from ..usage import status
 from ..usage import tokenlog
 from ..session import triggers
 
-from . import agentview, applysettings, costpilot, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
+from . import agentview, applysettings, costpilot, delivery, handoff, handoff_note, landing, lands, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, spool, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK,
                      PARKED, QUEUED, RUNNING, STALLED, THROTTLED)
 
@@ -520,6 +520,10 @@ def tick(con, log, samples: dict | None = None) -> Tick:
             reconciler._stall_agent(con, agent, log, actions, e, "error")
 
     blocked.sweep(con, log, now)
+    try:
+        spool.ingest(con, log)      # what a hook left while the daemon was busy or restarting, or an ingest could not finish
+    except Exception as e:  # noqa: BLE001 - it is read again on the next tick
+        log(f"  spool: {type(e).__name__}: {e}")
     try:
         agentview.refresh(con, now, log)
     except Exception as e:  # noqa: BLE001 - a view not stored is stored on the next tick

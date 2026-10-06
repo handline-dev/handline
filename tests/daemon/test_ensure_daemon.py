@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -20,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import client, rpc, spool  # noqa: E402
-from handline.infra import service, sessiontoken  # noqa: E402
+from handline.infra import paths, service, sessiontoken  # noqa: E402
 from handline.session import waiting  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -319,6 +320,127 @@ def test_a_hook_that_dies_part_way_applies_nothing_and_its_retry_applies_all(hom
     con.close()
 
 
+def test_a_line_the_database_could_not_take_stays_for_the_next_try_and_a_bad_line_is_skipped(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    for i in range(3):
+        spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": str(i)}, f"lock-{i}")
+    con = db.connect()
+    con.execute("PRAGMA busy_timeout = 100")
+    other = sqlite3.connect(paths.db_file(), isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")                        # a writer outside the daemon holds the write lock
+    logs = []
+    try:
+        n = spool.ingest(con, logs.append)
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    work = spool.path().with_suffix(".ingesting")
+    check("locked: nothing is applied and nothing is lost: the lines are all still in the file",
+          n == 0 and work.exists() and len(work.read_text().splitlines()) == 3, f"{n} {logs}")
+    check("locked: it says why it stopped", any("could not take" in m and "locked" in m for m in logs), str(logs))
+    n = spool.ingest(con, lambda m: None)
+    got = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0]
+    check("locked: with the lock gone the next try applies all three, once, and removes the file",
+          n == 3 and got == 3 and not work.exists() and not spool.path().exists(), f"{n} {got}")
+    con.close()
+
+
+def test_a_failure_part_way_leaves_only_the_lines_not_yet_applied(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    for i in range(4):
+        spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, f"part-{i}")
+    con = db.connect()
+    from handline.daemon import rpc_hooks
+    real = rpc_hooks.apply
+    seen = []
+
+    def fails_on_third(c, agent, kind, data, request_id, at):
+        seen.append(request_id)
+        if request_id == "part-2" and seen.count("part-2") == 1:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real(c, agent, kind, data, request_id, at)
+    rpc_hooks.apply = fails_on_third
+    try:
+        n = spool.ingest(con, lambda m: None)
+        left = [json.loads(ln)["request_id"] for ln in spool.path().with_suffix(".ingesting").read_text().splitlines()]
+        check("part way: two applied, and the failing line and the one after it are what is left", n == 2 and left == ["part-2", "part-3"], f"{n} {left}")
+        n = spool.ingest(con, lambda m: None)
+    finally:
+        rpc_hooks.apply = real
+    check("part way: the next try applies the rest, and the whole four are there once",
+          n == 2 and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 4)
+    con.close()
+
+
+def test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, "good-1")
+    with open(spool.path(), "a") as f:
+        f.write("not json at all\n")
+        f.write(json.dumps({"agent": "worker", "kind": "Stop"}) + "\n")                      # no data, no request id
+        f.write(json.dumps({"agent": "worker", "kind": "Stop", "data": "no", "at": "x", "request_id": "bad-3"}) + "\n")
+    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "good-2")
+    con = db.connect()
+    logs = []
+    n = spool.ingest(con, logs.append)
+    check("bad lines: the two good lines apply and the three bad ones are skipped, the file removed",
+          n == 2 and not spool.path().with_suffix(".ingesting").exists() and len([m for m in logs if "skipped" in m]) == 3, f"{n} {logs}")
+    con.close()
+
+
+def test_an_unreadable_file_keeps_everything(home: Path) -> None:
+    support.use_home(home)
+    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "unread-1")
+    con = db.connect()
+    real = Path.read_text
+
+    def refuses(self, *a, **k):
+        if self.name.endswith(".ingesting"):
+            raise OSError("input/output error")
+        return real(self, *a, **k)
+    Path.read_text = refuses
+    try:
+        try:
+            spool.ingest(con, lambda m: None)
+            raised = False
+        except OSError:
+            raised = True
+    finally:
+        Path.read_text = real
+    check("file: a file that cannot be read raises, and stays where it is",
+          raised and spool.path().with_suffix(".ingesting").exists())
+    con.close()
+
+
+def test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(home: Path) -> None:
+    support._daemon_home(home, 20)
+    con = db.connect()
+    old = int(time.time()) - 2 * 24 * 3600
+    con.execute("INSERT INTO hook_applied(request_id, ts) VALUES('old-1', ?)", (old,))
+    spool.path().with_suffix(".ingesting").write_text("")           # a crash-left file
+    evmod.apply_hook(con, "backend", "Stop", {"hook_event_name": "Stop"}, "new-1", int(time.time()))
+    check("keep: an id older than a day stays while a crash-left file waits",
+          con.execute("SELECT COUNT(*) FROM hook_applied WHERE request_id = 'old-1'").fetchone()[0] == 1)
+    spool.path().with_suffix(".ingesting").unlink()
+    evmod.apply_hook(con, "backend", "Stop", {"hook_event_name": "Stop"}, "new-2", int(time.time()))
+    check("keep: and goes when none does", con.execute("SELECT COUNT(*) FROM hook_applied WHERE request_id = 'old-1'").fetchone()[0] == 0)
+    con.close()
+
+
+def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
+    support._daemon_home(home, 20)
+    spool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
+    con = db.connect()
+    from handline.daemon import evaluate
+    evaluate.tick(con, lambda m: None)
+    check("tick: a spooled hook event is applied by the next tick, not only at start",
+          con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 1 and not spool.path().exists())
+    con.close()
+
+
 def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
@@ -343,6 +465,12 @@ def main() -> int:
         run(lambda: test_a_spool_replayed_after_a_crash_changes_nothing_a_second_time(Path(td) / "e11"))
         run(lambda: test_every_kind_of_hook_line_is_a_no_op_the_second_time(Path(td) / "e12"))
         run(lambda: test_a_hook_that_dies_part_way_applies_nothing_and_its_retry_applies_all(Path(td) / "e13"))
+        run(lambda: test_a_line_the_database_could_not_take_stays_for_the_next_try_and_a_bad_line_is_skipped(Path(td) / "e14"))
+        run(lambda: test_a_failure_part_way_leaves_only_the_lines_not_yet_applied(Path(td) / "e15"))
+        run(lambda: test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(Path(td) / "e16"))
+        run(lambda: test_an_unreadable_file_keeps_everything(Path(td) / "e17"))
+        run(lambda: test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(Path(td) / "e18"))
+        run(lambda: test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(Path(td) / "e19"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 
