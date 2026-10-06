@@ -347,7 +347,7 @@ def press_note(con, agent: str, rec, now: int) -> str:
 def _tell_unpressed(con, agent: str, handle: str, title: str, why: str) -> None:
     """Tell the founder at once about a dialog ocp holds without pressing: what it says and how to
     answer, not only a log line. Nothing is said when no dialog is open or the screen was unread."""
-    if why == term.NO_DIALOG or "could not be read" in why:
+    if why in (term.NO_DIALOG, term.SCREEN_UNREAD):
         return
     dialog = term.dialog_on_screen(handle)
     if dialog:
