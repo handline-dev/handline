@@ -3064,7 +3064,7 @@
        2,
        3
       ],
-      "description": "1 high, 2 default, 3 low (written P1-P3)."
+      "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
      }
     },
     {
@@ -6520,7 +6520,7 @@
      },
      "multi": {
       "type": "boolean",
-      "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. False for every other prompt, where an array is bad_request."
+      "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request."
      }
     },
     "required": [
@@ -6529,8 +6529,7 @@
      "kind",
      "lines",
      "options",
-     "since",
-     "multi"
+     "since"
     ]
    },
    "Block": {
@@ -6981,8 +6980,7 @@
      "done",
      "hold_reason",
      "block_reason",
-     "evidence",
-     "priority"
+     "evidence"
     ],
     "description": "A task row without its body."
    },

@@ -81,8 +81,8 @@ export type Prompt = {
   options: PromptOption[];
   /** When the daemon first saw this prompt open. */
   since: Timestamp;
-  /** Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. False for every other prompt, where an array is bad_request. */
-  multi: boolean;
+  /** Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request. */
+  multi?: boolean;
 };
 
 export type Block = {
@@ -169,7 +169,7 @@ export type Task = {
   block_reason: string | null;
   evidence: string | null;
   /** 1 high, 2 default, 3 low (written P1-P3). */
-  priority: 1 | 2 | 3;
+  priority?: 1 | 2 | 3;
 };
 
 export type TaskDetail = Task & {
@@ -1096,7 +1096,7 @@ export interface Methods {
   parent?: number;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
-  /** 1 high, 2 default, 3 low (written P1-P3). */
+  /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   expects?: Expects;
   /** Also answer the founder's message with text, where {task} is this task's real number. */
