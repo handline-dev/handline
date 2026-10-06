@@ -1,11 +1,12 @@
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, Notification, shell } from 'electron';
+import { app, BrowserWindow, dialog, Notification, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
 import { hashOfAgent } from './notices.ts';
 import { serveDir } from './serve.ts';
+import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
 const home = env('HOME') ?? path.join(os.homedir(), '.handline');
@@ -41,6 +42,15 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', show);
     app.on('window-all-closed', () => app.quit());
     app.on('quit', () => web.close());
+
+    const updater = new Updater({
+      build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
+      idle: async () => !!win && !win.isDestroyed() && !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true)),
+      ask: async () => (await dialog.showMessageBox(win!, { message: 'Handline was updated. Restart now?', buttons: ['Restart', 'Not now'], defaultId: 0, cancelId: 1 })).response === 0,
+      restart: () => { app.relaunch(); app.quit(); },
+    });
+    const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
+    app.on('quit', () => clearInterval(checking));
 
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     const desk = new Desk(client, {
