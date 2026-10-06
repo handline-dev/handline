@@ -18,14 +18,31 @@ export function AgentList(props: { onUnpair: () => void }) {
         renderItem={({ item: a }) => {
           const sub = [a.task?.title, a.account && `acct ${a.account}`, a.model].filter(Boolean).join(' · ');
           return (
-            <Pressable testID={`agent-${a.name}`} onPress={() => void store.openAgent(a.name)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.lg, borderTopWidth: 1, borderTopColor: c.line }}>
+            <Pressable
+              testID={`agent-${a.name}`}
+              onPress={() => void store.openAgent(a.name)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.md,
+                padding: space.lg,
+                borderTopWidth: 1,
+                borderTopColor: c.line,
+              }}
+            >
               <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dotColor(c, a.state) }} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: c.ink, fontWeight: '600' }}>{a.name}</Text>
-                <Text style={{ color: c.muted, fontSize: 12 }}>{a.state}{sub ? ` · ${sub}` : ''}</Text>
+                <Text style={{ color: c.muted, fontSize: 12 }}>
+                  {a.state}
+                  {sub ? ` · ${sub}` : ''}
+                </Text>
               </View>
-              {a.has_dialog ? <Text style={{ color: c.wait }}>asks</Text> : a.block ? <Text style={{ color: c.block }}>{a.block.kind}</Text> : null}
+              {a.has_dialog ? (
+                <Text style={{ color: c.wait }}>asks</Text>
+              ) : a.block ? (
+                <Text style={{ color: c.block }}>{a.block.kind}</Text>
+              ) : null}
             </Pressable>
           );
         }}
