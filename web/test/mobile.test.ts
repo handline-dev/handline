@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../mobile/store.ts';
-import { app, esc } from '../mobile/views.ts';
+import http from 'node:http';
+import { handler } from '../mobile/server.ts';
+import { app, esc, pageKey } from '../mobile/views.ts';
 import { setup, until } from './helpers.ts';
 
 const A = 'handline.term-build';
@@ -122,4 +124,35 @@ test('a lost connection shows a banner and the page recovers on reconnect', asyn
 
 test('text from the daemon is escaped', () => {
   assert.equal(esc('<img onerror="x">'), '&lt;img onerror=&quot;x&quot;&gt;');
+});
+
+test('streaming terminal output changes only the grid region, never the page key or the composer', async () => {
+  const { store, daemon } = await started();
+  await store.openAgent(A);
+  await store.startAgent(A);
+  store.setTab('terminal');
+  const before = app(store.state);
+  daemon.daemonTypes(A, 'more output');
+  await until(() => store.state.page!.view.text().includes('> more output'), 'frame');
+  const after = app(store.state);
+  const strip = (h: string) => h.replace(/(<pre class="grid"[^>]*>)[\s\S]*?<\/pre>/, '$1</pre>');
+  assert.match(after, /more output/);
+  assert.equal(strip(after), strip(before));
+  assert.equal(pageKey(store.state), `agent:${A}:terminal`);
+  store.stop();
+});
+
+test('the static server answers a malformed or directory URL with an error, not a crash', async () => {
+  const server = http.createServer(handler);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const status = async (u: string) => (await fetch(base + u)).status;
+  assert.equal(await status('/web/mobile/%'), 400);
+  assert.equal(await status('/web/mobile/..'), 404);
+  assert.equal(await status('/web/mobile/'), 404);
+  assert.equal(await status('/web/mobile/server.ts'), 404);
+  assert.equal(await status('/web/mobile/app.ts'), 200);
+  assert.equal(await status('/'), 200);
+  assert.equal(await status('/web/mobile/icon-192.png'), 200);
+  server.close();
 });

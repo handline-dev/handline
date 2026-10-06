@@ -18,7 +18,7 @@ function agentRow(a: AgentView): string {
 
 export function agentList(s: State): string {
   const rows = s.agents.length ? s.agents.map(agentRow).join('') : '<li class="empty">No agents.</li>';
-  return `<header class="bar"><h1>Agents</h1></header><ul class="list">${rows}</ul>`;
+  return `<header class="bar"><h1>Agents</h1></header><ul class="list" data-r="list">${rows}</ul>`;
 }
 
 export function permissionCard(p: Prompt): string {
@@ -40,7 +40,7 @@ function controls(d: AgentDetail): string {
 // Chat has no daemon method to draw from yet (capabilities.chat is false in the fake), so this is its empty state.
 function chatTab(s: State): string {
   const card = s.page!.detail.prompt ? permissionCard(s.page!.detail.prompt) : '';
-  return `${card}<div class="empty"><b>Chat is not available yet</b><small>This daemon does not serve chat. Use the Terminal tab to talk to the agent.</small></div>`;
+  return `<div data-r="card">${card}</div><div class="empty"><b>Chat is not available yet</b><small>This daemon does not serve chat. Use the Terminal tab to talk to the agent.</small></div>`;
 }
 
 function terminalTab(s: State): string {
@@ -50,9 +50,11 @@ function terminalTab(s: State): string {
   const keys = KEY_STRIP.map((k) => `<button class="key" data-act="key" data-key="${esc(k.key)}">${esc(k.label)}</button>`).join('');
   const card = p.detail.prompt ? permissionCard(p.detail.prompt) : '';
   const holder = p.detail.input_holders.map((h) => (h.kind === 'device' ? 'PHONE' : h.kind)).join(', ');
-  return `${card}${older}<pre class="grid" aria-label="Terminal">${esc(lines.join('\n')) || '<span class="muted">No terminal output.</span>'}</pre>
+  // data-r regions are patched in place by app.ts; the composer and the key strip have none, so they live as long as the tab.
+  return `<div data-r="card">${card}</div><div data-r="older">${older}</div>
+    <pre class="grid" data-r="grid" aria-label="Terminal">${esc(lines.join('\n')) || '<span class="muted">No terminal output.</span>'}</pre>
     <form class="composer" data-act="type"><input name="text" autocomplete="off" autocapitalize="off" placeholder="Type to the terminal" /><button class="btn">Send</button></form>
-    <div class="keys">${keys}</div>${holder ? `<small class="muted">Input: ${esc(holder)}</small>` : ''}`;
+    <div class="keys">${keys}</div><small class="muted" data-r="holder">${holder ? `Input: ${esc(holder)}` : ''}</small>`;
 }
 
 export function agentPage(s: State): string {
@@ -62,11 +64,14 @@ export function agentPage(s: State): string {
   const tab = (t: 'chat' | 'terminal', label: string) =>
     `<button role="tab" aria-selected="${p.tab === t}" class="${p.tab === t ? 'on' : ''}" data-act="tab" data-tab="${t}">${label}</button>`;
   return `<header class="bar"><button class="back" data-act="back" aria-label="Back">‹</button>
-      <span class="grow"><h1>${dot(d.state)}${esc(p.agent)}</h1><small>${sub}</small></span></header>
-    <div class="controls">${controls(d)}</div>
+      <span class="grow" data-r="head"><h1>${dot(d.state)}${esc(p.agent)}</h1><small>${sub}</small></span></header>
+    <div class="controls" data-r="controls">${controls(d)}</div>
     <nav class="tabs" role="tablist">${tab('chat', 'Chat')}${tab('terminal', 'Terminal')}</nav>
     <div class="tabpanel">${p.tab === 'chat' ? chatTab(s) : terminalTab(s)}</div>`;
 }
+
+/** What is on screen apart from its text: the page, or the agent and tab. A change of key redraws everything. */
+export const pageKey = (s: State): string => (s.page ? `agent:${s.page.agent}:${s.page.tab}` : 'list');
 
 export function app(s: State): string {
   const banner = s.connection === 'open' ? '' : `<div class="banner">${s.connection === 'closed' ? 'Disconnected' : 'Reconnecting…'}</div>`;
@@ -75,5 +80,6 @@ export function app(s: State): string {
   // Destinations the design lists but this build does not have yet are shown disabled.
   const nav = ['Inbox', 'Agents', 'Tasks', 'Accounts', 'More']
     .map((n) => `<button class="${n === 'Agents' ? 'on' : ''}" ${n === 'Agents' ? 'data-act="back"' : 'disabled'}>${n}</button>`).join('');
-  return `${banner}${error}<main>${main}</main><nav class="tabbar">${nav}</nav>`;
+  return `<div class="shell" data-key="${esc(pageKey(s))}"><div data-r="banner">${banner}</div><div data-r="error">${error}</div>
+    <main>${main}</main><nav class="tabbar">${nav}</nav></div>`;
 }

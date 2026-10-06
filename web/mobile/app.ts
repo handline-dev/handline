@@ -5,26 +5,34 @@ import { Store } from './store.ts';
 import { app } from './views.ts';
 
 const root = document.getElementById('app')!;
-// The daemon's WebSocket: ?daemon=ws://host:port, else the page's own host on the fake daemon's port.
-const daemonUrl = new URLSearchParams(location.search).get('daemon') ?? `ws://${location.hostname}:7777`;
+// The daemon's WebSocket: ?daemon=wss://host:port, else the page's own host and scheme (wss on an https page; plain ws only for local dev).
+const daemonUrl = new URLSearchParams(location.search).get('daemon') ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:7777`;
 const store = new Store(new DaemonClient({
   client: 'mobile', reconnect: { minMs: 500, maxMs: 8000 },
   connect: () => webSocketTransport(daemonUrl),
 }));
 
+const template = document.createElement('template');
+
+/** Redraws the page when it changes; otherwise patches only the regions whose HTML changed, so a streaming terminal
+ *  never replaces the composer (IME, caret, focus) or the grid element (the reader's scroll position). */
 function draw(): void {
-  // Keep what the person is typing across redraws.
-  const typed = root.querySelector<HTMLInputElement>('form input, form textarea');
-  const keep = typed ? { name: typed.name, value: typed.value, focus: document.activeElement === typed } : null;
-  const grid = root.querySelector('.grid');
-  const stuck = grid ? grid.scrollHeight - grid.scrollTop - grid.clientHeight < 40 : true;
-  root.innerHTML = app(store.state);
-  if (keep) {
-    const el = root.querySelector<HTMLInputElement>(`form [name="${keep.name}"]`);
-    if (el) { el.value = keep.value; if (keep.focus) el.focus(); }
+  template.innerHTML = app(store.state);
+  const next = template.content.firstElementChild!;
+  const cur = root.firstElementChild as HTMLElement | null;
+  if (!cur || cur.dataset.key !== (next as HTMLElement).dataset.key) {
+    root.replaceChildren(next);
+    const g = root.querySelector('.grid');
+    if (g) g.scrollTop = g.scrollHeight;
+    return;
   }
-  const g = root.querySelector('.grid');
-  if (g && stuck) g.scrollTop = g.scrollHeight;
+  for (const n of next.querySelectorAll<HTMLElement>('[data-r]')) {
+    const c = cur.querySelector<HTMLElement>(`[data-r="${n.dataset.r}"]`);
+    if (!c || c.innerHTML === n.innerHTML) continue;
+    const stuck = c.classList.contains('grid') && c.scrollHeight - c.scrollTop - c.clientHeight < 40;
+    c.innerHTML = n.innerHTML;
+    if (stuck) c.scrollTop = c.scrollHeight;
+  }
 }
 store.subscribe(draw);
 
