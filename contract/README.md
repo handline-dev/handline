@@ -36,3 +36,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 ## Other checks
 
 The web client's tests are not part of `tools/test.sh`: run `npm test` in `web/` (Node's test runner over `web/test/*.test.ts`).
+
+## Prompt captures
+
+`prompts/*.json` are screens of open prompts and what `prompt.list` must read from each: `{name, source, screen, expect}`. `screen` is the terminal's rows as captured, `expect` the prompt's `kind`, `tool`, `command`, `reason` and option `keys`. A field the screen does not state is null. `tests/daemon/test_prompt_fields.py` runs each through the Python daemon's screen watch; the Go daemon is to read the same screens to the same answers. Not covered: the folder-trust screen and the bypass warning (the screen watch does not list them: trust has its own path, and the bypass screen's options are unnumbered) and an edit approval (never captured); one that reaches the watch as a dialog is listed with its raw lines and no fields.
