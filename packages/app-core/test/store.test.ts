@@ -172,6 +172,20 @@ test('two quick openAgent calls end with the later page; the earlier agent is le
   store.stop();
 });
 
+test('quick repeats of the same agent leave no terminal attached after close', async () => {
+  const { store, client, daemon } = await open();
+  const attach = client.attachTerminal.bind(client);
+  client.attachTerminal = async (a: string) => { if (a === ARCH) await new Promise((r) => setTimeout(r, 40)); return attach(a); };
+  const attached = () => [...(daemon as any).conns].reduce((n: number, c: any) => n + c.attached.size, 0);
+  const first = store.openAgent(ARCH);
+  await new Promise((r) => setTimeout(r, 5));
+  await Promise.all([first, store.openAgent(ARCH)]);
+  assert.equal(attached(), 1);
+  await store.closeAgent();
+  assert.equal(attached(), 0);
+  store.stop();
+});
+
 test('a failed open lets go of the agent it watched', async () => {
   const { store, client } = await open();
   client.attachTerminal = async () => { throw new RpcError('refused', 'the agent has no terminal'); };

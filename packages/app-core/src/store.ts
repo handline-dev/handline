@@ -22,7 +22,6 @@ export class Store {
   private listeners = new Set<() => void>();
   private watched = new Map<string, number>(); // agents whose detail is kept fresh, and how many screens watch each
   private openSeq = 0; // the latest openAgent call: an earlier one that finishes late undoes itself
-  private openTarget = '';
   private pendingDetail = new Set<string>();
   private offs: (() => void)[] = [];
   private unwatchView: (() => void) | null = null;
@@ -128,7 +127,6 @@ export class Store {
   /** Opens the agent's page. Two quick calls end with the later one open; the earlier one lets go of what it took. */
   async openAgent(agent: string): Promise<void> {
     const seq = ++this.openSeq;
-    this.openTarget = agent;
     await this.closeAgent();
     if (seq !== this.openSeq) return;
     let watched = false, attached = false, opened = false;
@@ -143,7 +141,7 @@ export class Store {
     });
     if (opened) return;
     if (watched) this.unwatch(agent);
-    if (attached && this.openTarget !== agent) await this.client.detachTerminal(agent).catch(() => {});
+    if (attached) await this.client.detachTerminal(agent).catch(() => {});
   }
   async closeAgent(): Promise<void> {
     const p = this.page;
