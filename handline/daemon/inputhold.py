@@ -14,6 +14,12 @@ from ..session import idle_close
 
 IDLE_KEY, DEFAULT_IDLE_S = "input_hold_idle_s", 600
 DAEMON = {"kind": "daemon", "name": "daemon", "since": None}
+HELD_BY = " is held by "
+
+
+def held_why(agent: str, name: str) -> str:
+    """What the daemon's refusal to type or press at a held terminal says; callers that must tell it from another refusal match `HELD_BY`."""
+    return f"{agent}'s terminal{HELD_BY}{name}"
 _control = threading.local()
 
 
@@ -67,12 +73,17 @@ def held_by_other(con, agent: str) -> str | None:
     return row["name"] if row else None
 
 
-def take(con, agent: str, kind: str, name: str, now: int | None = None) -> None:
+def take(con, agent: str, kind: str, name: str, now: int | None = None) -> bool:
+    """Hold `agent`'s input as `name`: one statement that sets the row only when there is none or it is already `name`'s, and
+    says whether it did, so two takes at once cannot both win. An idle hold is dropped first."""
     now = int(time.time()) if now is None else now
-    con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "
-                "ON CONFLICT(agent) DO UPDATE SET last_typed = excluded.last_typed",
-                (agent, kind, name, now, now))
-    _changed(con, agent)
+    holder(con, agent, now)
+    cur = con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(agent) DO UPDATE SET last_typed = excluded.last_typed WHERE input_holders.name = excluded.name",
+                      (agent, kind, name, now, now))
+    if cur.rowcount:
+        _changed(con, agent)
+    return bool(cur.rowcount)
 
 
 def release(con, agent: str) -> None:

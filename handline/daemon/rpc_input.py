@@ -22,7 +22,9 @@ def _take(ctx, params) -> dict:
     con = db.connect()
     try:
         rpc_gates.input_holder(ctx, con, agent)
-        inputhold.take(con, agent, rpc_gates.holder_kind(ctx), ctx.caller.info["name"])
+        if not inputhold.take(con, agent, rpc_gates.holder_kind(ctx), ctx.caller.info["name"]):     # another took it first
+            rpc_gates.input_holder(ctx, con, agent)
+            raise rpc.refused(f"{agent}'s terminal was taken by someone else", gate="input_holder")
         return {"accepted": True, "said": f"{agent}: you hold its input", "holder": inputhold.view(con, agent)[0]}
     finally:
         con.close()

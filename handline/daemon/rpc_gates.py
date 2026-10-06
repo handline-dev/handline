@@ -17,7 +17,7 @@ def input_holder(ctx, con, agent: str) -> None:
     short hold, not a refusal."""
     row = inputhold.holder(con, agent)
     if row is not None and row["name"] != ctx.caller.info["name"]:
-        raise rpc.refused(f"{agent}'s terminal is held by {row['name']}", gate="input_holder")
+        raise rpc.refused(inputhold.held_why(agent, row["name"]), gate="input_holder")
 
 
 def holder_kind(ctx) -> str:

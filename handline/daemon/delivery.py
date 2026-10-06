@@ -156,9 +156,10 @@ def _past_dialog(con, agent: str, log, only_limit: bool = False) -> str:
     While a reason stands, when this dialog first proved unpassable is kept, by
     its title: a different dialog starts its own clock, so a caller that can
     wait measures the wait of the dialog that is there. Nothing is pressed at a
-    terminal someone holds (`inputhold`): there is nothing to get past for them."""
-    if inputhold.held_by_other(con, agent):
-        return ""
+    terminal someone holds (`inputhold`): the hold is what stands in the way."""
+    held = inputhold.held_by_other(con, agent)
+    if held:
+        return inputhold.held_why(agent, held)
     why, title = blocked.past_dialog(con, agent, log, only_limit=only_limit)
     since_key, title_key = f"dialog_since:{agent}", f"dialog_title:{agent}"
     if not why:
@@ -242,7 +243,7 @@ def clear_hold(con, agent: str) -> str | None:
 def typing_hold(con, agent: str) -> str | None:
     """Why nothing may be typed at this agent's session now: someone holds its input, the wall, or a clear owed."""
     held = inputhold.held_by_other(con, agent)
-    return f"{agent}'s terminal is held by {held}" if held else wall_reason(con, agent) or clear_hold(con, agent)
+    return inputhold.held_why(agent, held) if held else wall_reason(con, agent) or clear_hold(con, agent)
 
 
 def _cache_lapsed(con, agent: str, now: int) -> bool:
@@ -372,7 +373,7 @@ def _type_gate(con, agent: str, handle: str | None, *, require_idle: bool = True
     """
     held = inputhold.held_by_other(con, agent)
     if held:
-        return f"{agent}'s terminal is held by {held}"
+        return inputhold.held_why(agent, held)
     if require_settled:
         last = db.get_cursor(con, f"typed_at:{agent}")
         if last and int(time.time()) - last < TYPE_SETTLE_S:

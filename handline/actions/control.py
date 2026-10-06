@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..team import accounts
 from ..team import agents
-from ..daemon import delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
+from ..daemon import inputhold, delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from ..infra import lock, waits
 from ..session import fold as foldmod
@@ -118,6 +118,9 @@ def start_result(con, agent: str, repo: str | None = None, base: str = "main") -
     layer underneath - nothing an agent with no terminal yet has to spawn
     into would otherwise stop two starts landing at once and making it two.
     """
+    held = inputhold.held_by_other(con, agent)
+    if held:        # nothing is launched in a pane someone holds
+        return False, inputhold.held_why(agent, held)
     with lock.terminal(agent) as mine:
         if not mine:
             return False, f"{agent}: {dmn_lifecycle.TYPING_ELSEWHERE}; not starting twice"

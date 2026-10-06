@@ -23,7 +23,7 @@ from ..usage import status
 from ..team import trust
 from .. import vendors
 
-from . import delivery, handoff, handoff_note
+from . import inputhold, delivery, handoff, handoff_note
 from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
                      MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
                      THROTTLED)
@@ -770,6 +770,9 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
     as (`db.session_starts`); a wake says "wake", "fresh close" or "move" itself. `restarted_by`
     names who asked for a restart: the session's first prompt says so.
     """
+    held = inputhold.held_by_other(con, agent)
+    if held:        # nothing is typed into a pane someone holds, a launch line included; the work stays queued
+        return False, inputhold.held_why(agent, held)
     with lock.terminal(agent) as mine:
         if not mine:
             # A human's key and a tick can both land here, and this one holds

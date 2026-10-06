@@ -159,7 +159,7 @@ def test_the_daemon_types_nothing_and_presses_nothing_at_a_held_terminal(home: P
         real_past = delivery.blocked.past_dialog
         delivery.blocked.past_dialog = lambda *a, **k: (pressed.append(1), ("", ""))[1]
         try:
-            check("held: no key is pressed past a dialog", delivery._past_dialog(con, "worker", lambda _m: None) == "" and not pressed)
+            check("held: no key is pressed past a dialog, and the hold is what stands in the way", ME in delivery._past_dialog(con, "worker", lambda _m: None) and not pressed)
         finally:
             delivery.blocked.past_dialog = real_past
         real_accepts = termmod.accepts_tool
@@ -335,6 +335,96 @@ def test_the_session_methods_are_not_held_back_by_a_hold_and_the_hold_does_not_h
     check("hl task list: works at role agent beside a hold", rc == 0, out)
 
 
+def test_a_wake_or_a_start_types_no_launch_line_into_a_pane_someone_holds(home: Path) -> None:
+    from handline.actions import control
+    from handline.daemon import lifecycle
+    test_taskholds._world(home)
+    con = db.connect()
+    try:
+        calls: list = []
+        real = (lifecycle._wake_agent, control.spawnmod.start_in)
+        lifecycle._wake_agent = lambda con, agent, log, **k: (calls.append(("wake", agent)), (True, "woken"))[1]
+        control.spawnmod.start_in = lambda agent, wt, cmd=None: (calls.append(("start_in", agent)), (True, "started"))[1]
+        try:
+            con.execute("UPDATE agent_state SET closed_at = 1 WHERE agent = 'worker'")
+            _hold("worker", ME)
+            ok, why = lifecycle.wake_agent(con, "worker", lambda _m: None)
+            check("held: the tick's wake of a closed agent is refused, the hold named, and nothing is launched", not ok and ME in why and not calls, str((ok, why, calls)))
+            check("held: and it is not a failed wake: no failure is counted", db.get_agent_state(con, "worker")["wake_failures"] == 0)
+            check("held: a start is refused the same way", control.start_result(con, "worker")[0] is False and not calls)
+            _hold("worker", ME, ago=inputhold.idle_s() + 5)
+            ok, why = lifecycle.wake_agent(con, "worker", lambda _m: None)
+            check("held: once the hold goes idle the wake is made", ok and calls == [("wake", "worker")], str((ok, why, calls)))
+            _hold("worker", ME)
+            con.execute("DELETE FROM input_holders")
+            calls.clear()
+            check("released: and so it is after a release", lifecycle.wake_agent(con, "worker", lambda _m: None)[0] and calls == [("wake", "worker")])
+            _hold("worker", ME)
+            with inputhold.controlling():
+                check("a person's own call wakes it whatever is held", lifecycle.wake_agent(con, "worker", lambda _m: None)[0])
+        finally:
+            lifecycle._wake_agent, control.spawnmod.start_in = real
+    finally:
+        con.close()
+
+
+def test_an_agents_session_call_is_held_back_by_a_hold_as_its_verb_is(home: Path) -> None:
+    from handline.actions import control
+    support._board_world(home)
+    _hold("worker", ME)
+    seen: list = []
+    real = control.restart_result
+
+    def probe(con, agent, fresh=False, force=False, by=None):
+        why = delivery._type_gate(con, agent, None)
+        seen.append(why)
+        return (False, why) if why else (True, "restarted")
+    control.restart_result = probe
+    try:
+        r = _call("session.restart", {"agent": "worker", "request_id": "ah1"}, as_agent="manager")
+        check("session.restart: an agent's call is refused by the hold, gate input_holder", _gate(r) == "input_holder" and ME in r["error"]["message"], str(r))
+        r = _call("session.restart", {"agent": "worker", "request_id": "ah2"})
+        check("session.restart: the founder's call goes through the hold, as a person's own call", "result" in r and seen[-1] is None, str((r, seen)))
+        con = db.connect()
+        inputhold.release(con, "worker")
+        con.close()
+        r = _call("session.restart", {"agent": "worker", "request_id": "ah3"}, as_agent="manager")
+        check("session.restart: with nobody holding, an agent may, as the verb allows", "result" in r, str(r))
+    finally:
+        control.restart_result = real
+
+
+def test_two_takes_at_once_cannot_both_win(home: Path) -> None:
+    support._board_world(home)
+    con = db.connect()
+    try:
+        check("take: the first wins", inputhold.take(con, "worker", "person", "first") is True)
+        check("take: a second name does not, and the row is still the first's", inputhold.take(con, "worker", "person", "second") is False
+              and inputhold.holder(con, "worker")["name"] == "first")
+        check("take: the same name again is fine and refreshes", inputhold.take(con, "worker", "person", "first") is True)
+        con.execute("UPDATE input_holders SET last_typed = 0")
+        check("take: an idle hold does not stand in the way of the next", inputhold.take(con, "worker", "person", "second") is True
+              and inputhold.holder(con, "worker")["name"] == "second")
+    finally:
+        con.close()
+    real = inputhold.take
+    def raced(*a, **k):      # another take lands between the gate and the write
+        c = db.connect()
+        c.execute("DELETE FROM input_holders")
+        real(c, "worker", "person", "raced.in")
+        c.close()
+        return False
+    inputhold.take = raced
+    try:
+        con = db.connect()
+        con.execute("DELETE FROM input_holders")
+        con.close()
+        r = _call("input.take", {"agent": "worker", "request_id": "race"})
+        check("input.take: losing the race is refused, not told 'you hold it'", _gate(r) == "input_holder" and "raced.in" in r["error"]["message"], str(r))
+    finally:
+        inputhold.take = real
+
+
 def test_the_input_fixtures_pass_against_this_daemon(home: Path) -> None:
     import socket
     import threading
@@ -369,6 +459,9 @@ def main() -> int:
         run(lambda: test_prompt_answer_passes_the_role_lock_and_holder_gates_first(Path(td) / "i5"))
         run(lambda: test_terminal_close_is_refused_while_another_holds_the_input(Path(td) / "i6"))
         run(lambda: test_the_session_methods_are_not_held_back_by_a_hold_and_the_hold_does_not_hold_back_the_hl_commands(Path(td) / "i7"))
+        run(lambda: test_a_wake_or_a_start_types_no_launch_line_into_a_pane_someone_holds(Path(td) / "i9"))
+        run(lambda: test_an_agents_session_call_is_held_back_by_a_hold_as_its_verb_is(Path(td) / "i10"))
+        run(lambda: test_two_takes_at_once_cannot_both_win(Path(td) / "i11"))
         run(lambda: test_the_input_fixtures_pass_against_this_daemon(Path(td) / "i8"))
     return run_area(tests)
 

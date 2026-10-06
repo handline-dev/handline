@@ -12,6 +12,7 @@ with the agent's terminal lock held; the other verbs take it themselves. `sessio
 yet and refuses one; `session.stop kill` is refused to an agent session."""
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 
@@ -44,7 +45,8 @@ def _flag(params, key: str) -> bool:
 
 
 def _refusal(why: str) -> rpc.RpcError:
-    return rpc.refused(why, gate="terminal_lock" if lifecycle.TYPING_ELSEWHERE in why else "state")
+    gate = "terminal_lock" if lifecycle.TYPING_ELSEWHERE in why else "input_holder" if inputhold.HELD_BY in why else "state"
+    return rpc.refused(why, gate=gate)
 
 
 def _done(ok: bool, said: str) -> dict:
@@ -60,11 +62,12 @@ def _busy(agent: str) -> rpc.RpcError:
 def _run(ctx, name: str, params, fn, hold: bool = False) -> dict:
     """Run `fn(con, agent)` and record its result as the effect of this request_id. With `hold` the agent's terminal
     lock is held across it; without, it is only looked at first, for a refusal before anything starts, because the
-    action takes the lock itself. A person's own call is not held back by whoever holds the input."""
+    action takes the lock itself. A person's own call (a member's or the founder's) is not held back by whoever holds the
+    input; an agent's call is, as the legacy verb it re-exposes is."""
     agent = _agent(params)
     con = db.connect()
     try:
-        with inputhold.controlling():
+        with inputhold.controlling() if ctx.caller.allows("member") else contextlib.nullcontext():
             with lock.terminal(agent) as mine:
                 if not mine:
                     raise _busy(agent)
