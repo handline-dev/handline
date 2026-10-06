@@ -249,6 +249,24 @@ def test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_
         sessiontoken.agent_of = real
 
 
+def test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_after_its_reply(home: Path) -> None:
+    import socket
+    from handline.daemon import rpc as rpcmod
+    support._board_world(home)
+    a, b = socket.socketpair()
+    conn = rpcmod.Connection(b, lambda m: None, lambda m, log, peer: {})
+    conn.said_hello = True
+    conn.caller = rpcmod.Caller(None, _hp()["key"])
+    ran: list = []
+    conn.after_reply.append(lambda: ran.append("subscribe started"))     # what a subscribe in flight has queued
+    conn._answer({"jsonrpc": "2.0", "id": 1, "method": "whoami", "params": {}}, 1, own_thread=True)
+    check("framing: a call answered on its own thread runs nothing another call queued for after its reply", ran == [] and len(conn.after_reply) == 1, str(ran))
+    conn._answer({"jsonrpc": "2.0", "id": 2, "method": "whoami", "params": {}}, 2)
+    check("framing: the reading loop's own call still runs it, after its reply", ran == ["subscribe started"] and conn.after_reply == [], str(ran))
+    a.close()
+    b.close()
+
+
 def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _task("listed by the command")
@@ -269,6 +287,7 @@ def main() -> int:
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))
         run(lambda: test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_it(Path(td) / "r8"))
+        run(lambda: test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_after_its_reply(Path(td) / "r9"))
         run(lambda: test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
     return run_area(tests)
 

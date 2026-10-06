@@ -264,11 +264,13 @@ class Connection:
             rid = None
         entry = METHODS.get(msg.get("method")) if isinstance(msg, dict) and isinstance(msg.get("method"), str) else None
         if entry is not None and entry.waits and self.said_hello and "id" in msg and self.caller.allows(entry.role):
-            threading.Thread(target=self._answer, args=(msg, rid), daemon=True).start()
+            threading.Thread(target=self._answer, args=(msg, rid, True), daemon=True).start()
             return True
         return self._answer(msg, rid)
 
-    def _answer(self, msg, rid) -> bool:
+    def _answer(self, msg, rid, own_thread: bool = False) -> bool:
+        """Answer one call. Only the reading loop runs what `after_reply` holds (a subscribe's start): a call answered on a
+        thread of its own must not take the one a later call queued."""
         try:
             result = self._dispatch(msg)
         except RpcError as e:
@@ -282,9 +284,10 @@ class Connection:
             if isinstance(msg, dict) and "id" not in msg:
                 return True     # a notification is never answered
             sent = self._send({"jsonrpc": "2.0", "id": rid, "result": result})
-            todo, self.after_reply = self.after_reply, []
-            for fn in todo:
-                fn()
+            if not own_thread:
+                todo, self.after_reply = self.after_reply, []
+                for fn in todo:
+                    fn()
             return sent
         return self._send({"jsonrpc": "2.0", "id": rid, "error": error.wire()})
 
