@@ -77,7 +77,9 @@ class Claude:
         return model or self.DEFAULT_HEADLESS_MODEL
 
     def is_session(self, command: str) -> bool:
-        """`claude` in the command line, headless runs excluded. Headless here
+        """The command's own program is `claude`, headless runs excluded: a
+        `claude` elsewhere on the line (a script under the session's
+        /tmp/claude-<uid> scratchpad, run with node) is not a session. Headless here
         is `-p`, which is claude's spelling and nobody else's.
 
         Only the options up to the first one that carries free text are
@@ -85,7 +87,7 @@ class Claude:
         handoff note included, and a ` -p ` in that (`mkdir -p`, `git log -p`)
         made a live session read as a headless run and vanish from the table.
         A headless run's `-p` comes before its prompt."""
-        if "claude" not in command:
+        if not command.strip() or os.path.basename(command.split(None, 1)[0]) != "claude":
             return False
         head = re.split(r" --(?:append-system-prompt|settings)\b", command, maxsplit=1)[0]
         return " -p " not in head and not head.endswith(" -p")

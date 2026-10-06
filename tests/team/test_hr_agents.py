@@ -1120,6 +1120,10 @@ def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
               not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
         check("is_session: and nothing of ours is not a session either",
               not obsmod.is_session("/usr/bin/ssh somewhere"))
+        check("is_session: a script under a claude scratchpad is not a session",
+              not obsmod.is_session("node /private/tmp/claude-501/-Users-x/abc/scratchpad/ws-only.ts"))
+        check("is_session: a bare claude on PATH is",
+              obsmod.is_session("claude --resume abc123"))
     check("is_session: with that driver gone its command line is not a session",
           not obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
 
