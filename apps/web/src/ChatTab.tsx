@@ -5,7 +5,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { AgentDetail, Prompt } from '@handline/client';
 import { offered, timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { Skeleton, usePending, useChat, useWrite, type ChatScope } from '@handline/app-data';
+import { Skeleton, classify, sentence, usePending, useChat, useWrite, type ChatScope } from '@handline/app-data';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
@@ -106,9 +106,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
-        {chat.status === 'error' ? (
+        {chat.status === 'error' && sentence(classify(chat.error)) ? (
           <div className="banner" role="alert">
-            Could not read the conversation.{' '}
+            {sentence(classify(chat.error))}{' '}
             <button className="btn" onClick={chat.refetch}>
               Retry
             </button>

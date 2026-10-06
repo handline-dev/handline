@@ -1,5 +1,5 @@
 // The pure side of chat: how messages and transcript items are ordered, who a message is from, and what can still be done to it.
-// Fetching and keeping the conversation current is the apps' shared query layer (@handline/app-react).
+// Fetching and keeping the conversation current is the apps' shared query layer (@handline/app-data).
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
 
 export type TimelineEntry =

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
+import { RpcError } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
@@ -269,12 +270,13 @@ describe('errors', () => {
     const s = setup();
     s.daemon.knobs.refuse('chat.messages', 'state', REFUSAL);
     await mount(ARCH, s);
-    await until(() => text($('.chat')).includes('Could not read the conversation'), 'the error state');
+    await until(() => $('.chat .banner'), 'the error state');
+    expect(text($('.chat .banner'))).toContain(REFUSAL);
     expect($('.chat .skeleton')).toBeNull();
     s.daemon.knobs.clear();
     await click($$('.chat .banner .btn').find((b) => text(b) === 'Retry')!);
     await until(() => msg('Which gap list'), 'the conversation after Retry');
-    expect(text($('.chat'))).not.toContain('Could not read the conversation');
+    expect($('.chat .banner')).toBeNull();
   });
 
   it('keeps what it had when a later read fails', async () => {
@@ -283,7 +285,28 @@ describe('errors', () => {
     await until(() => msg('Which gap list'), 'history');
     s.daemon.knobs.refuse('chat.messages', 'state', REFUSAL);
     s.daemon.dropConnections(); // the reconnect reads every active query again, and the read is refused
-    await until(() => text($('.chat')).includes('Could not read the conversation'), 'the error after a failed read');
+    await until(() => $('.chat .banner'), 'the error after a failed read');
     expect(msg('Which gap list')).toBeDefined(); // the last data stays
+  });
+
+  it("shows the daemon's sentence and its hint when a read is refused", async () => {
+    const s = setup();
+    s.daemon.knobs.refuse('chat.transcript', 'state', REFUSAL, 'start the agent first');
+    await mount(ARCH, s);
+    await until(() => $('.chat .banner'), 'the error state');
+    expect(text($('.chat .banner'))).toContain(`${REFUSAL} (start the agent first)`);
+  });
+
+  it('draws no block when the read failed only because the connection is gone', async () => {
+    const s = setup();
+    const { store } = await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    const call = store.client.call.bind(store.client);
+    vi.spyOn(store.client, 'call').mockImplementation(((method: string, params: never) =>
+      method.startsWith('chat.') ? Promise.reject(new RpcError('transport', 'closed')) : call(method as never, params)) as never);
+    s.daemon.dropConnections(); // the reconnect reads again and the read cannot reach the daemon
+    await wait(300);
+    expect($('.chat .banner')).toBeNull();
+    expect(msg('Which gap list')).toBeDefined();
   });
 });
