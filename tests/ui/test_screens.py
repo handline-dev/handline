@@ -2559,6 +2559,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     # a new command is neither here nor driven until someone decides which.
     skipped = {
         "init": "creates the home and the shared settings",
+        "device pair": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
+        "device list": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
+        "device revoke": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
         "login": "interactive: hands the terminal to claude",
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",
