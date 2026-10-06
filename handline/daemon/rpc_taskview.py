@@ -100,10 +100,10 @@ def _delivery(r) -> dict:
 
 
 def _event(row, tid: int, owner: str) -> dict:
-    """A recorded event of the task as the spec's `Event`. It is not on the daemon's stream, so its `cursor` is 0."""
+    """A recorded event of the task as the spec's `TaskEvent`: an `Event` without a `cursor`, since it is not on the daemon's stream."""
     p = json.loads(row["payload"]) if row["payload"] else {}
     kind = "user" if row["agent"] == db.HUMAN else "agent"
-    return {"cursor": 0, "topic": "tasks", "type": row["kind"], "at": agentview._ts(row["ts"]),
+    return {"topic": "tasks", "type": row["kind"], "at": agentview._ts(row["ts"]),
             "actor": {"kind": kind, "name": row["agent"]}, "agent": owner, "title": None,
             "target": {"screen": "tasks", "id": str(tid)}, "data": p if isinstance(p, dict) else {}}
 

@@ -73,7 +73,7 @@ def _inbox_list(ctx, params) -> dict:
     if not wait or first["items"]:
         return first
     until = time.time() + wait
-    while time.time() < until:     # held until something arrives, as the spec says; a hung-up client ends it at its next write
+    while time.time() < until and not ctx.hung_up():     # held until something arrives, as the spec says; a client that hung up ends it
         time.sleep(POLL_S)
         page = _page(ctx, params)
         if page["items"]:
@@ -81,4 +81,4 @@ def _inbox_list(ctx, params) -> dict:
     return first
 
 
-rpc.METHODS["inbox.list"] = rpc.Method(_inbox_list, "agent")
+rpc.METHODS["inbox.list"] = rpc.Method(_inbox_list, "agent", waits=True)

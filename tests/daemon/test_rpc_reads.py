@@ -160,6 +160,7 @@ def test_task_get_is_one_task_whole(home: Path) -> None:
     check("task.get: its children", r["children"] == [b], str(r))
     check("task.get: its delivery", len(r["deliveries"]) == 1 and r["deliveries"][0]["at"].endswith("Z"), str(r))
     check("task.get: its recorded events, as events", r["events"] and all(e["topic"] == "tasks" and e["target"]["id"] == str(a) for e in r["events"]), str(r))
+    check("task.get: and they carry no cursor, being off the daemon's stream", all("cursor" not in e for e in r["events"]), str(r["events"][:1]))
     r = _call("task.get", {"task": b})["result"]
     check("task.get: what it waits on", r["blockers"] and r["blockers"][0]["task"] == a and r["block_reason"] == f"waiting on T{a}", str(r))
     r = _call("task.get", {"task": 999})
@@ -217,6 +218,37 @@ def test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(home: Pa
     check("inbox.list: and returns as soon as something arrives", len(r["items"]) == 1 and _t.time() - t0 < 3, str(r))
 
 
+def test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_it(home: Path) -> None:
+    import threading
+    import time as _t
+    support._board_world(home)
+    from handline.daemon import rpc_inbox
+    rpc_inbox.POLL_S = 0.05
+    real = sessiontoken.agent_of
+    sessiontoken.agent_of = lambda pid: None
+    try:
+        w = Wire()
+        w.call("hello", _hp())
+        w.send({"jsonrpc": "2.0", "id": 10, "method": "inbox.list", "params": {"wait_s": 3}})
+        w.send({"jsonrpc": "2.0", "id": 11, "method": "whoami", "params": {}})
+        t0 = _t.time()
+        first = w.read()
+        check("framing: the quick call is answered first, while the waiting one still waits", first["id"] == 11 and _t.time() - t0 < 2, str(first))
+        second = w.read()
+        check("framing: and the waiting call's own reply still comes", second["id"] == 10 and second["result"]["items"] == [], str(second))
+        before = threading.active_count()
+        w.send({"jsonrpc": "2.0", "id": 12, "method": "inbox.list", "params": {"wait_s": 60}})
+        _t.sleep(0.3)
+        check("framing: a call waiting for its page runs on a thread of its own", threading.active_count() > before)
+        w.close()
+        t0 = _t.time()
+        while threading.active_count() > before and _t.time() - t0 < 3:
+            _t.sleep(0.05)
+        check("framing: a client that hangs up ends its waiting call within a second or two", threading.active_count() <= before and _t.time() - t0 < 2.5)
+    finally:
+        sessiontoken.agent_of = real
+
+
 def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
     tid = _task("listed by the command")
@@ -236,6 +268,7 @@ def main() -> int:
         run(lambda: test_tasks_list_scopes_an_agent_as_the_command_does(Path(td) / "r7"))
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))
+        run(lambda: test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_it(Path(td) / "r8"))
         run(lambda: test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
     return run_area(tests)
 

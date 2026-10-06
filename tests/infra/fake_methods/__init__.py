@@ -7,7 +7,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-# method -> handler(role, params) returning ("ok", result) or ("fail", error)
+# method -> handler(role, method, params) returning ("ok", result) or ("fail", error), or None to leave the call to the daemon's own branches
 HANDLERS: dict = {}
 
 

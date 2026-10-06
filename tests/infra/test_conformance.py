@@ -136,6 +136,12 @@ class FakeDaemon:
         if method == "whoami":
             return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
                        "methods": self._methods()}), said_hello
+        handler = HANDLERS.get(method)
+        if handler is not None:
+            result = handler(self.role, method, params)
+            if result is not None:      # a handler that has nothing to say about the call (None) leaves it to the daemon's own branches below
+                kind, payload = result
+                return (ok if kind == "ok" else fail)(payload), said_hello
         if method == "inbox.list":
             items = [i for i in self._inbox() if (not params.get("unread") or not i["read"]) and params.get("kind", i["kind"]) == i["kind"]
                      and (params.get("before") is None or i["id"] < params["before"])]
@@ -159,10 +165,6 @@ class FakeDaemon:
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
             return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
-        handler = HANDLERS.get(method)
-        if handler is not None:
-            kind, payload = handler(self.role, method, params)
-            return (ok if kind == "ok" else fail)(payload), said_hello
         if method == "events.feed":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
