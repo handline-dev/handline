@@ -54,6 +54,8 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  /** Topics `subscribe` refuses as the daemon's stream does for one it has no list for; `hr` is in the contract but not yet served. */
+  readonly unservedTopics = new Set<Topic>(['hr']);
   private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
@@ -370,6 +372,7 @@ export class FakeDaemon {
         return detail(agent());
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
+        for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');
         c.topics = new Set(p.topics as Topic[]);
         return { cursor: this.head };
       }

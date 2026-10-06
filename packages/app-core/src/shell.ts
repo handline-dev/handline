@@ -36,6 +36,8 @@ export function routeOfTarget(target: { screen: string; id: string } | null, eve
       return eventType === 'task_done' ? '#/inbox' : `#/tasks/${id}`;
     case 'account':
       return `#/accounts/${id}`;
+    case 'hr':
+      return `#/team/hr/${id}`;
     default:
       return null;
   }
