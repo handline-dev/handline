@@ -173,6 +173,63 @@ def test_operation_get_is_refused_to_an_agent_session(home: Path) -> None:
               _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
 
 
+def test_a_get_that_races_the_final_write_never_turns_done_into_failed(home: Path) -> None:
+    support._board_world(home)
+    con = db.connect()
+    con.execute("INSERT INTO operations(id, kind, state, steps_done, steps_total, agent, created_at, updated_at) "
+                "VALUES('racing', 'agent.create', 'running', 1, 2, 'x.y', 1, 1)")
+    con.commit()
+    con.close()
+    rpc_operations.LIVE.add("racing")
+    real = rpc_operations._load
+    seen = []
+
+    def load_then_finish(c, op):
+        got = real(c, op)
+        if not seen:                 # the thread writes its last state and leaves LIVE right after get's read
+            seen.append(got)
+            rpc_operations._progress("racing", state="done", steps_done=2, result={"agent": "x.y"})
+            rpc_operations.LIVE.discard("racing")
+        return got
+    rpc_operations._load = load_then_finish
+    try:
+        rpc_operations._get(None, {"operation": "racing"})
+    finally:
+        rpc_operations._load = real
+    got = _call("operation.get", {"operation": "racing"})["result"]
+    check("operation.get: a read that the final write lands in the middle of leaves the operation done", got["state"] == "done"
+          and got["steps_done"] == 2 and got["result"] == {"agent": "x.y"}, str(got))
+
+
+def test_two_creates_of_one_name_run_once(home: Path) -> None:
+    support._board_world(home)
+    real = agents.register
+
+    def slow(*a, **kw):
+        time.sleep(0.5)
+        return real(*a, **kw)
+    agents.register = slow
+    try:
+        with Spawn() as sp:
+            first = _create("worker.dup", home, "d1")
+            second = _create("worker.dup", home, "d2")
+            check("agent.create: a second create of the name while the first runs is refused, gate state, whatever its request_id",
+                  first["result"]["accepted"] and _code(second) == "refused" and second["error"]["data"]["gate"] == "state", str((first, second)))
+            got = _settled(first["result"]["operation"])
+            check("agent.create: the first ends done and the agent was started once", got["state"] == "done" and len(sp.calls) == 1, str((got, sp.calls)))
+    finally:
+        agents.register = real
+
+
+def test_a_name_that_is_not_plain_text_is_bad_request_up_front(home: Path) -> None:
+    support._board_world(home)
+    with Spawn() as sp:
+        for bad in ("two\nlines", "esc\x1b[31m", "yes", "12"):
+            r = _create(bad, home, f"b-{bad!r}")
+            check(f"agent.create: name {bad!r} is bad_request naming it and no operation starts", _code(r) == "bad_request"
+                  and r["error"]["data"]["field"] == "name" and not sp.calls, str(r))
+
+
 def test_the_operations_fixtures_pass_against_this_daemon(home: Path) -> None:
     import socket
     import threading
@@ -210,6 +267,9 @@ def main() -> int:
         run(lambda: test_an_operation_the_daemon_died_in_is_reported_failed(Path(td) / "d4"))
         run(lambda: test_agent_create_refuses_what_it_cannot_do_and_starts_nothing(Path(td) / "d5"))
         run(lambda: test_operation_get_is_refused_to_an_agent_session(Path(td) / "d6"))
+        run(lambda: test_a_get_that_races_the_final_write_never_turns_done_into_failed(Path(td) / "d8"))
+        run(lambda: test_two_creates_of_one_name_run_once(Path(td) / "d9"))
+        run(lambda: test_a_name_that_is_not_plain_text_is_bad_request_up_front(Path(td) / "d10"))
         run(lambda: test_the_operations_fixtures_pass_against_this_daemon(Path(td) / "d7"))
     return run_area(tests)
 

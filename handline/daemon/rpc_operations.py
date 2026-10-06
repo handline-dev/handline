@@ -6,7 +6,8 @@ it finish or fail. It serves `hl agent register` followed by `hl spawn`, which s
 The steps are `register` (agent.yaml, ROLE.md) and `start` (worktree and terminal). A failure in `start` leaves the agent
 registered, as `hl agent register` then `hl spawn` would, and the operation says so. The operation row and the request_id's
 reply are written in one transaction before the thread starts, so a retry after a lost reply answers with the same operation and
-starts nothing again; an operation the daemon died in the middle of is found `running` with no thread and reported `failed`.
+starts nothing again; an operation the daemon died in the middle of is found `running` with no thread and reported `failed`. A second create of a name
+while the first is running is refused (gate state) in that same transaction.
 `name` must be `<parent>.<something>` when `parent` is given, as a parent is the part of a name before its last dot;
 `account` is refused until a session can be started on a named account, as `session.start` does."""
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from .. import db
 from ..db import effects
-from ..infra import paths
+from ..infra import paths, textsafe
 from ..team import agents
 from ..team import spawn as spawnmod
 from ..team import team as teammod
@@ -93,10 +94,10 @@ def _create(ctx, params) -> dict:
         raise rpc.bad_request("a new agent's account is chosen when it starts; none can be named yet", "account", rpc.INVALID_PARAMS)
     if effort and effort not in agents.VALID_EFFORT:
         raise rpc.bad_request(f"effort is one of {', '.join(agents.VALID_EFFORT)}", "effort", rpc.INVALID_PARAMS)
-    if "/" in name or name.startswith(".") or name in paths.list_agents():
-        if name in paths.list_agents():
-            raise rpc.refused(f"{name} is already an agent", gate="state")
-        raise rpc.bad_request("name is an agent's name", "name", rpc.INVALID_PARAMS)
+    if "/" in name or name.startswith(".") or textsafe.has_unsafe(name) or not agents.is_plain_text(name):
+        raise rpc.bad_request("name is an agent's name, plain text", "name", rpc.INVALID_PARAMS)
+    if name in paths.list_agents():
+        raise rpc.refused(f"{name} is already an agent", gate="state")
     if parent is not None:
         if parent not in paths.list_agents():
             raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent {parent}", what="agent", name=parent)
@@ -107,38 +108,66 @@ def _create(ctx, params) -> dict:
     kw = {k: v for k, v in (("role", role), ("model", model), ("effort", effort)) if v}
     op = uuid.uuid4().hex
     now = int(time.time())
+    with _live_lock:
+        LIVE.add(op)                # before the row exists, so nothing reads a running row of a live operation as dead
     con = db.connect()
     try:
-        with con:                       # the operation and the retry's answer land together, or neither does
+        con.execute("BEGIN IMMEDIATE")          # the check for a create in flight, the row and the retry's answer are one step
+        try:
+            for (other,) in con.execute("SELECT id FROM operations WHERE kind = 'agent.create' AND agent = ? AND state = 'running'", (name,)):
+                with _live_lock:
+                    going = other in LIVE
+                if going:
+                    raise rpc.refused(f"{name} is already being created", gate="state")
             con.execute("DELETE FROM operations WHERE updated_at < ?", (now - KEEP_S,))
             con.execute("INSERT INTO operations(id, kind, state, step, steps_done, steps_total, message, agent, created_at, updated_at) "
                         "VALUES(?, 'agent.create', 'running', NULL, 0, ?, ?, ?, ?, ?)",
                         (op, len(STEPS), f"creating {name}", name, now, now))
             result = {"accepted": True, "said": f"creating {name}", "operation": op}
             effects.record_effect(con, ctx.caller.actor, params["request_id"], "agent.create", result)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
         stream.emit(con, "operations", "operation.progress", _load(con, op), agent=name)
+    except BaseException:
+        with _live_lock:
+            LIVE.discard(op)
+        raise
     finally:
         con.close()
-    with _live_lock:
-        LIVE.add(op)
     threading.Thread(target=_run, args=(op, name, str(Path(repo).resolve()), base or "main", kw), daemon=True,
                      name=f"agent.create-{name}").start()
     return result
+
+
+def _orphaned(op: str) -> None:
+    """End a running operation whose thread is gone. Conditional on the row still running, so a thread's own final write is never undone."""
+    con = db.connect()
+    try:
+        cur = con.execute("UPDATE operations SET state = 'failed', message = ?, updated_at = ? WHERE id = ? AND state = 'running'",
+                          ("the daemon stopped before it finished", int(time.time()), op))
+        if cur.rowcount:
+            now = _load(con, op)
+            stream.emit(con, "operations", "operation.progress", now, agent=now["agent"])
+    finally:
+        con.close()
 
 
 def _get(ctx, params) -> dict:
     op = params.get("operation")
     if not isinstance(op, str) or not op:
         raise rpc.bad_request("operation is an operation id", "operation", rpc.INVALID_PARAMS)
+    with _live_lock:
+        live = op in LIVE       # asked before the row is read: a thread writes its last state, then leaves LIVE
     con = db.connect()
     try:
         got = _load(con, op)
         if got is None:
             raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no operation {op}", what="operation", name=op)
-        with _live_lock:
-            orphan = got["state"] == "running" and op not in LIVE
-        if orphan:      # its thread died with the daemon that ran it
-            _progress(op, state="failed", message="the daemon stopped before it finished")
+        if got["state"] == "running" and not live:
+            _orphaned(op)
             got = _load(con, op)
         return got
     finally:
