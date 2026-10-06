@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Window } from 'happy-dom';
 import { buildId, unsent, UNSENT_PROBE, Updater } from '../src/update.ts';
 
 const page = (over: { fields?: string[]; matches?: Record<string, number> } = {}) => ({
@@ -12,12 +13,24 @@ const page = (over: { fields?: string[]; matches?: Record<string, number> } = {}
   },
 });
 
-test('a restart waits for an open box, text in a field or a send that has not landed', () => {
+test('a restart waits for an open box, text in a field or a send in flight', () => {
   assert.equal(unsent(page()), false);
   assert.equal(unsent(page({ fields: ['', '  '] })), false);
   assert.equal(unsent(page({ fields: ['half a message'] })), true);
   assert.equal(unsent(page({ matches: { 'dialog[open]': 1 } })), true);
-  assert.equal(unsent(page({ matches: { '[data-landing="queued"]': 1 } })), true);
+  assert.equal(unsent(page({ matches: { '[data-id^="-"]': 1 } })), true);
+});
+
+// U8's message row, as ChatTab renders it: data-id is negative until the daemon numbers the message.
+const row = (id: number, landing: string) => `<div class="msg person" data-landing="${landing}" data-id="${id}"><div class="msg-body">hi</div></div>`;
+const dom = (html: string) => { const w = new Window(); w.document.body.innerHTML = html; return w.document as unknown as Parameters<typeof unsent>[0]; };
+
+test("against U8's markup: only a row the daemon has not numbered, a marked element or typed text counts; a queued message does not", () => {
+  assert.equal(unsent(dom(row(41, 'queued') + row(42, 'typed') + '<textarea class="compose"></textarea>')), false);
+  assert.equal(unsent(dom(row(41, 'queued') + row(-1790000000000, 'queued'))), true);
+  assert.equal(unsent(dom('<div data-pending="send"></div>')), true);
+  assert.equal(unsent(dom('<textarea class="compose">half</textarea>')), true);
+  assert.equal(unsent(dom('<dialog open></dialog>')), true);
 });
 
 test('the probe runs in the page as the same function', () => {

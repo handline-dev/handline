@@ -1,11 +1,16 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 
-/** Something in the page would be lost by a restart: a box is open, a field holds text, or a send has not landed. Runs in the page. */
+/**
+ * Something in the page would be lost by a restart: a box is open, a field holds text (the chat compose box, an answer to
+ * an agent's question, the Terminal tab's input), or a send is in flight. A send in flight is the chat's optimistic row,
+ * which carries a negative `data-id` until the daemon numbers it (a queued message is on the daemon and is not lost), or
+ * any element a view marks `data-pending`. Runs in the page.
+ */
 export function unsent(doc: { querySelectorAll(s: string): ArrayLike<{ value?: string }> }): boolean {
   if (doc.querySelectorAll('dialog[open], [aria-modal="true"]').length) return true;
   for (const f of Array.from(doc.querySelectorAll('textarea, input[type="text"], input:not([type])'))) if ((f.value ?? '').trim()) return true;
-  return doc.querySelectorAll('[data-landing="queued"], [data-landing="sending"]').length > 0;
+  return doc.querySelectorAll('[data-id^="-"], [data-pending]').length > 0;
 }
 export const UNSENT_PROBE = `(${unsent.toString()})(document)`;
 
