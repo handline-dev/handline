@@ -1004,6 +1004,7 @@ class Pending:
     """A message handed to a worker and not yet answered."""
     widget: object
     body: str
+    typed: bool = True      # it came from the box; a refusal puts it back there
 
 
 @dataclass(frozen=True)
@@ -2468,7 +2469,8 @@ class ChatPage(JobsAware, Screen):
 
     def on_shell_card_send(self, event: ShellCard.Send) -> None:
         event.stop()
-        self.start_send(event.run.as_message(), None)
+        event.run.sent = True
+        self.start_send(event.run.as_message(), None, typed=False)
 
     def send_now(self, rid: int) -> None:
         def work() -> None:
@@ -2536,17 +2538,19 @@ class ChatPage(JobsAware, Screen):
                 self._restore(body)
         self.refresh_conversation(force=True)
 
-    def start_send(self, body: str, rid: int | None) -> None:
+    def start_send(self, body: str, rid: int | None, typed: bool = True) -> None:
         """Hand `body` to a worker thread and give the box back at once: a send
         can wait a long while on an agent that is off or restarting, and the
         screen must not wait with it. The message shows as pending until the
-        worker answers; a refusal puts the text back in the box."""
-        box = self.query_one("#compose", ChatBox)
-        self.history = remember(self.history, body)
-        save_history(self.agent, self.history)
-        self.hist_pos, self.history_mode = None, False
-        box.text = ""
-        self.reply_to(None)
+        worker answers; a refusal puts the text back in the box. A `body` that was
+        not typed (a shell result) leaves the box, its history and the reply alone."""
+        if typed:
+            box = self.query_one("#compose", ChatBox)
+            self.history = remember(self.history, body)
+            save_history(self.agent, self.history)
+            self.hist_pos, self.history_mode = None, False
+            box.text = ""
+            self.reply_to(None)
         pending = ChatMessage({"who": "you", "when": 0, "rid": None, "part": 0, "side": "you",
                                "text": body, "waiting": False, "replyable": False,
                                "answered": False})
@@ -2554,7 +2558,7 @@ class ChatPage(JobsAware, Screen):
         pane = self.query_one("#transcript", VerticalScroll)
         pane.mount(pending)
         pane.scroll_end(animate=False)
-        rec = Pending(pending, body)
+        rec = Pending(pending, body, typed)
         self.pending.append(rec)
         self.sending += 1
         self._spin()
@@ -2580,7 +2584,7 @@ class ChatPage(JobsAware, Screen):
         rec.widget.remove()
         if not ok:      # a send that went says nothing: the message shows it
             self.toast(said, ok)
-        if not ok:
+        if not ok and rec.typed:
             box = self.query_one("#compose", ChatBox)
             box.text = body if not box.text else body + "\n" + box.text
             box.move_cursor(box.document.end)

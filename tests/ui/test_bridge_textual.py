@@ -1337,7 +1337,7 @@ def test_a_send_that_went_shows_no_toast_and_a_refused_one_does() -> None:
         _status = lambda self: ""
         refresh_conversation = lambda self, force=False: None
 
-    rec = type("R", (), {"widget": type("W", (), {"remove": lambda s: None})()})()
+    rec = cp.Pending(type("W", (), {"remove": lambda s: None})(), "hi")
     s = Stub()
     cp.ChatPage.sent(s, True, "queued as #5 for x", "hi", rec)
     cp.ChatPage.sent(s, False, "not sent: nope", "hi", rec)
@@ -5216,8 +5216,11 @@ def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -
         lines, dropped, _ = big.snapshot()
         check("bang: a long output keeps its end and counts what it let go",
               lines[-1] == "25000" and dropped == 25000 - len(lines) > 0, f"{len(lines)} {dropped}")
-        check("bang: what goes to the agent is the command and the last lines", "seq 1 25000" in big.as_message()
-              and "25000" in big.as_message() and "earlier lines left out" in big.as_message())
+        msg, saved = big.as_message(), big.save_output()
+        check("bang: what goes to the agent is the command and the path of a file holding the output",
+              "seq 1 25000" in msg and str(saved) in msg and "exit 0" in msg and saved.read_text().splitlines()[-1] == "25000" and "earlier lines left out" in saved.read_text().splitlines()[0],
+              msg)
+        check("bang: a second save is the same file", big.save_output() == saved)
     cwd = actions.cwd_for(db.connect(), None)
     check("bang: with no agent it runs in home", cwd == str(Path.home()), cwd)
     os.environ["OCP_AGENT"] = "backend"
@@ -5229,6 +5232,66 @@ def test_a_bang_line_runs_in_zsh_in_the_worktree_and_an_agent_cannot_run_one() -
     finally:
         os.environ.pop("OCP_AGENT", None)
     check("bang: an agent's session is refused", refused)
+
+
+def test_a_shell_output_file_has_no_escape_codes_and_the_folder_keeps_the_newest() -> None:
+    from handline.infra import paths
+    _home("bangfile")
+    with tempfile.TemporaryDirectory() as d:
+        folder = paths.home() / "shell"
+        folder.mkdir(parents=True, exist_ok=True)
+        for i in range(actions.shell.KEEP_FILES + 7):
+            f = folder / f"old{i:03}.txt"
+            f.write_text("x")
+            os.utime(f, (1000 + i, 1000 + i))
+        run = actions.ShellRun(r"printf 'a\033[31mred\033[0m\033]0;title\007\nb\rc\n'", d)
+        for _ in range(100):
+            if not run.running:
+                break
+            time.sleep(0.05)
+        saved = run.save_output()
+        text = saved.read_text()
+        check("bang file: escape codes and a bare return are not in the file", "\x1b" not in text and "\r" not in text
+              and "\x07" not in text and text.startswith("ared"), repr(text))
+        left = sorted(f.name for f in folder.glob("*.txt"))
+        check("bang file: one save leaves KEEP_FILES files, the newest of them",
+              len(left) == actions.shell.KEEP_FILES and saved.name in left and "old000.txt" not in left and "old007.txt" not in left
+              and "old008.txt" in left, str(len(left)))
+
+
+def test_a_card_mounted_on_a_finished_run_sets_its_timer_first_and_sends_once() -> None:
+    from handline.ui.components.shell_card import ShellCard
+    _home("bangdone")
+    with tempfile.TemporaryDirectory() as d:
+        run = actions.ShellRun("echo hi", d)
+        for _ in range(100):
+            if not run.running:
+                break
+            time.sleep(0.05)
+        card = ShellCard(run)
+        posted, timers = [], []
+
+        class Timer:
+            def stop(self) -> None:
+                timers.append("stopped")
+        card.set_interval = lambda *a: Timer()
+        card.post_message = posted.append
+        card.query_one = lambda *a: type("S", (), {"scroll_end": lambda self, **k: None})()
+        for w in (card._head, card._out, card._cut):
+            w.update = lambda *a: None
+        try:
+            card.on_mount()
+            ok = True
+        except AttributeError as e:
+            ok = False
+            print(e)
+        check("shell card: mounting on a finished run does not use its timer before it is set", ok)
+        check("shell card: a finished run is sent on its own, once",
+              len(posted) == 1 and isinstance(posted[0], ShellCard.Send), str(posted))
+        check("shell card: it is marked sent when posted, before the page handles it", run.sent)
+        card._final = False
+        card.show()
+        check("shell card: a run already sent is not sent again", len(posted) == 1)
 
 
 async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> None:
@@ -5258,14 +5321,16 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
         await until(pilot, lambda: len(list(page.query(ShellCard))) == 1)
         cards = list(page.query(ShellCard))
         await until(pilot, lambda: cards[0]._send.display and not cards[0]._stop.display)   # its own redraw
-        check("bang card: one card was drawn and the box is empty", len(cards) == 1 and box.text == "", str(len(cards)))
+        check("bang card: one card was drawn and the box is empty", len(cards) == 1 and box.text == "", f"{len(cards)} {box.text!r}")
         text = str(cards[0]._head.render()) + str(cards[0]._out.render())
         check("bang card: it shows the command, the exit code and the output",
               "echo hello" in text and "exit 2" in text and "hello" in text, text)
+        await until(pilot, lambda: page.shells[0].sent and not page.sending)
         con = db.connect()
-        after = con.execute("SELECT count(*) FROM requests").fetchone()[0]
+        rows = con.execute("SELECT body FROM requests").fetchall()
         con.close()
-        check("bang card: nothing was sent to the agent", after == before, f"{before} -> {after}")
+        check("bang card: the finished command went to the agent on its own, as a file path and not the output",
+              len(rows) == before + 1 and "echo hello" in rows[-1][0] and "/shell/" in rows[-1][0], str(rows))
         check("bang card: a finished command offers Send to agent, not Stop",
               cards[0]._send.display and not cards[0]._stop.display)
         box.text = "!sleep 30"
@@ -5497,6 +5562,8 @@ async def _run_all() -> None:
     await test_a_drag_on_a_picked_message_copies_what_was_dragged_and_does_not_unpick_it()
     await test_a_widget_that_cannot_read_its_selection_copies_nothing_and_the_app_lives()
     test_a_late_answer_still_counts_as_new_everywhere()
+    test_a_shell_output_file_has_no_escape_codes_and_the_folder_keeps_the_newest()
+    test_a_card_mounted_on_a_finished_run_sets_its_timer_first_and_sends_once()
 
 
 def main() -> int:
