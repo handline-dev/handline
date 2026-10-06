@@ -6,11 +6,15 @@ import { app } from './views.ts';
 
 const root = document.getElementById('app')!;
 // The daemon's WebSocket: ?daemon=wss://host:port, else the page's own host and scheme (wss on an https page; plain ws only for local dev).
-const daemonUrl = new URLSearchParams(location.search).get('daemon') ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:7777`;
-const store = new Store(new DaemonClient({
-  client: 'mobile', reconnect: { minMs: 500, maxMs: 8000 },
-  connect: () => webSocketTransport(daemonUrl),
-}));
+const daemonUrl =
+  new URLSearchParams(location.search).get('daemon') ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:7777`;
+const store = new Store(
+  new DaemonClient({
+    client: 'mobile',
+    reconnect: { minMs: 500, maxMs: 8000 },
+    connect: () => webSocketTransport(daemonUrl),
+  }),
+);
 
 const template = document.createElement('template');
 
@@ -42,19 +46,41 @@ root.addEventListener('click', (ev) => {
   const agent = store.page?.agent ?? '';
   const d = el.dataset;
   switch (d.act) {
-    case 'open': void store.openAgent(d.agent!); break;
-    case 'back': void store.closeAgent(); break;
-    case 'tab': store.setTab(d.tab as 'chat' | 'terminal'); break;
-    case 'start': void store.startAgent(agent); break;
-    case 'resume': void store.resume(agent); break;
-    case 'interrupt': void store.interrupt(agent); break;
+    case 'open':
+      void store.openAgent(d.agent!);
+      break;
+    case 'back':
+      void store.closeAgent();
+      break;
+    case 'tab':
+      store.setTab(d.tab as 'chat' | 'terminal');
+      break;
+    case 'start':
+      void store.startAgent(agent);
+      break;
+    case 'resume':
+      void store.resume(agent);
+      break;
+    case 'interrupt':
+      void store.interrupt(agent);
+      break;
     case 'stop':
       if (d.mode !== 'kill' || confirm(`Kill ${agent}'s terminal?`)) void store.stopAgent(agent, d.mode as 'exit' | 'close' | 'kill');
       break;
-    case 'key': void store.key(agent, d.key!); break;
-    case 'answer': { const p = store.details.get(agent)?.prompt; if (p && p.id === d.prompt) void store.answer(p, d.key!); break; }
-    case 'older': void store.loadOlder(); break;
-    case 'dismiss': store.dismissError(); break;
+    case 'key':
+      void store.key(agent, d.key!);
+      break;
+    case 'answer': {
+      const p = store.details.get(agent)?.prompt;
+      if (p && p.id === d.prompt) void store.answer(p, d.key!);
+      break;
+    }
+    case 'older':
+      void store.loadOlder();
+      break;
+    case 'dismiss':
+      store.dismissError();
+      break;
   }
 });
 root.addEventListener('submit', (ev) => {
@@ -65,4 +91,6 @@ root.addEventListener('submit', (ev) => {
   field.value = '';
 });
 
-store.start().catch((e) => { root.innerHTML = `<div class="banner err">Cannot reach the daemon at ${daemonUrl}: ${e.message}</div>`; });
+store.start().catch((e) => {
+  root.innerHTML = `<div class="banner err">Cannot reach the daemon at ${daemonUrl}: ${e.message}</div>`;
+});

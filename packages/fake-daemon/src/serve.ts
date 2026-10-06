@@ -20,12 +20,17 @@ export function serveWs(daemon: FakeDaemon, port: number, host = '127.0.0.1', tl
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const arg = (n: string, d: string) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : d; };
+  const arg = (n: string, d: string) => {
+    const i = process.argv.indexOf(`--${n}`);
+    return i > 0 ? process.argv[i + 1] : d;
+  };
   const daemon = new FakeDaemon();
   const ms = Number(arg('autoplay', '1000'));
   if (ms > 0) daemon.autoplay(ms);
   serveSocket(daemon, arg('socket', '/tmp/handline-fake-daemon.sock'));
   if (process.argv.includes('--network-socket')) serveSocket(daemon, arg('network-socket', ''), true);
   serveWs(daemon, Number(arg('ws', '7777')), arg('host', '127.0.0.1'));
-  console.log(`fake daemon: socket ${arg('socket', '/tmp/handline-fake-daemon.sock')}, ws://${arg('host', '127.0.0.1')}:${arg('ws', '7777')}`);
+  console.log(
+    `fake daemon: socket ${arg('socket', '/tmp/handline-fake-daemon.sock')}, ws://${arg('host', '127.0.0.1')}:${arg('ws', '7777')}`,
+  );
 }

@@ -1,8 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CHAT, MAX_GROUPS, activate, applyPreset, arrange, closeTab, defaultWorkspace, groupOf, groupsOf, loadWorkspace, moveTab, moveTabBy, openTab,
-  parseWorkspace, saveWorkspace, serialize, setSplit, splitRoot, splitTab, storageKey, type Edge, type KV, type Workspace,
+  CHAT,
+  MAX_GROUPS,
+  activate,
+  applyPreset,
+  arrange,
+  closeTab,
+  defaultWorkspace,
+  groupOf,
+  groupsOf,
+  loadWorkspace,
+  moveTab,
+  moveTabBy,
+  openTab,
+  parseWorkspace,
+  saveWorkspace,
+  serialize,
+  setSplit,
+  splitRoot,
+  splitTab,
+  storageKey,
+  type Edge,
+  type KV,
+  type Workspace,
 } from '../src/index.ts';
 
 const two = () => defaultWorkspace({ terminal: 'term:a' });
@@ -22,10 +43,22 @@ function invariants(ws: Workspace): void {
   assert.equal(new Set(all).size, all.length, 'a tab sits in one group');
   assert.deepEqual([...all].sort(), Object.keys(ws.tabs).sort(), 'every tab is in a group');
   assert.equal(Object.values(ws.tabs).filter((t) => t.kind === 'chat').length, 1, 'exactly one Chat');
-  for (const g of gs) { assert.ok(g.tabs.length > 0, 'no empty group'); assert.ok(g.tabs.includes(g.activeTab), 'active tab is in its group'); }
-  assert.ok(gs.some((g) => g.id === ws.active), 'the focus names a group');
+  for (const g of gs) {
+    assert.ok(g.tabs.length > 0, 'no empty group');
+    assert.ok(g.tabs.includes(g.activeTab), 'active tab is in its group');
+  }
+  assert.ok(
+    gs.some((g) => g.id === ws.active),
+    'the focus names a group',
+  );
   assert.equal(new Set(gs.map((g) => g.id)).size, gs.length, 'group ids are unique');
-  const checkAt = (n: typeof ws.root): void => { if (n.type === 'split') { assert.ok(n.at >= 0.15 && n.at <= 0.85); checkAt(n.a); checkAt(n.b); } };
+  const checkAt = (n: typeof ws.root): void => {
+    if (n.type === 'split') {
+      assert.ok(n.at >= 0.15 && n.at <= 0.85);
+      checkAt(n.a);
+      checkAt(n.b);
+    }
+  };
   checkAt(ws.root);
 }
 
@@ -39,7 +72,8 @@ test('rule 1: at most 4 panes; a drag past that is refused, a drop on a strip ne
   assert.deepEqual(groupOf(extra, 'markdown:x.md')!.id, 'g2');
   // a lone tab dragged to another pane's edge frees its own pane, so the count stays 4
   assert.equal(groupsOf(splitTab(four, 'markdown:f1.md', 'g3', 'bottom')!.root).length, 4);
-  invariants(four); invariants(extra);
+  invariants(four);
+  invariants(extra);
 });
 
 test('rule 1: any shape is allowed: 2x2, and one wide pane over two narrow ones', () => {
@@ -50,7 +84,8 @@ test('rule 1: any shape is allowed: 2x2, and one wide pane over two narrow ones'
   ws = splitTab(openTab(ws, 'markdown', { path: 'b' }), 'markdown:b', groupOf(ws, 'markdown:a')!.id, 'right')!;
   assert.equal(ws.root.type === 'split' && ws.root.dir, 'col');
   assert.equal(groupsOf(ws.root).length, 3);
-  invariants(grid); invariants(ws);
+  invariants(grid);
+  invariants(ws);
 });
 
 test('rule 2: an edge splits the pane, the strip merges, a free edge splits the root, presets rearrange', () => {
@@ -66,7 +101,8 @@ test('rule 2: an edge splits the pane, the strip merges, a free edge splits the 
   const rooted = splitRoot(ws, 'terminal:term:a', 'top')!;
   assert.equal(rooted.root.type === 'split' && rooted.root.dir, 'col');
   assert.deepEqual(ids(rooted)[0], 'terminal:term:a');
-  const rows = applyPreset(two(), 'rows'), single = applyPreset(ws, 'single');
+  const rows = applyPreset(two(), 'rows'),
+    single = applyPreset(ws, 'single');
   assert.equal(rows.root.type === 'split' && rows.root.dir, 'col');
   assert.deepEqual(ids(single), ['markdown:n.md+chat+terminal:term:a']); // 3 tabs merge into one
   assert.deepEqual(ids(applyPreset(openTab(two(), 'markdown', { path: 'n.md' }), 'cols')), [CHAT, 'terminal:term:a+markdown:n.md']);
@@ -82,7 +118,9 @@ test('rule 3: Chat has no close; closeTab on it is a no-op; it can move; a saved
   assert.equal(closeTab(moved, CHAT), moved);
   const saved = JSON.parse(serialize(two()));
   delete saved.tabs.chat;
-  saved.root.a.tabs = ['terminal:x']; saved.root.a.activeTab = 'terminal:x'; saved.tabs['terminal:x'] = { id: 'terminal:x', kind: 'terminal', params: { handle: 'x' } };
+  saved.root.a.tabs = ['terminal:x'];
+  saved.root.a.activeTab = 'terminal:x';
+  saved.tabs['terminal:x'] = { id: 'terminal:x', kind: 'terminal', params: { handle: 'x' } };
   saved.active = 'g1';
   const fixed = parseWorkspace(saved)!;
   assert.ok(fixed.tabs[CHAT]);
@@ -90,7 +128,7 @@ test('rule 3: Chat has no close; closeTab on it is a no-op; it can move; a saved
   invariants(fixed);
 });
 
-test('rule 4: closing a group\'s last tab removes the group and the sibling takes the space; the focus moves with it', () => {
+test("rule 4: closing a group's last tab removes the group and the sibling takes the space; the focus moves with it", () => {
   let ws = openTab(two(), 'markdown', { path: 'n.md' }, 'g2');
   ws = closeTab(ws, 'terminal:term:a');
   assert.deepEqual(ids(ws), [CHAT, 'markdown:n.md']);
@@ -109,7 +147,7 @@ test('rule 5: dividers clamp, double-click resets, a small window or a phone sho
   ws = setSplit(ws, [], 0.3);
   assert.equal((setSplit(ws, [], 0.5).root as { at: number }).at, 0.5);
   const nested = splitTab(openTab(ws, 'markdown', { path: 'n' }), 'markdown:n', 'g2', 'bottom')!;
-  assert.equal(((setSplit(nested, ['b'], 0.7).root as any).b as { at: number }).at, 0.7);
+  assert.equal((setSplit(nested, ['b'], 0.7).root as unknown as { b: { at: number } }).b.at, 0.7);
   const wide = arrange(ws, 1280, 800);
   assert.equal(wide.merged, false);
   assert.deepEqual(wide.merged === false && wide.rects.map((r) => Math.round(r.rect.w)), [384, 896]);
@@ -131,7 +169,10 @@ test('rule 6: opening the same thing twice focuses its tab', () => {
   assert.equal(again.active, 'g1');
   assert.equal(groupOf(again, 'markdown:n.md')!.activeTab, 'markdown:n.md');
   assert.equal(openTab(ws, 'web', { port: 3000 }).tabs['web:3000']!.kind, 'web');
-  assert.deepEqual(Object.keys(openTab(openTab(ws, 'shell'), 'shell').tabs).filter((t) => t.startsWith('shell')), ['shell:1', 'shell:2']);
+  assert.deepEqual(
+    Object.keys(openTab(openTab(ws, 'shell'), 'shell').tabs).filter((t) => t.startsWith('shell')),
+    ['shell:1', 'shell:2'],
+  );
   invariants(again);
 });
 
@@ -163,14 +204,25 @@ test('save and load round-trip; a newer version, bad shapes and blocked storage 
   const dflt = () => defaultWorkspace();
   mem.set(key, JSON.stringify({ ...ws, v: 2 }));
   assert.deepEqual(loadWorkspace(kv, key, dflt), dflt());
-  for (const bad of ['{', '"x"', '{"v":1}', JSON.stringify({ ...ws, active: 5, root: 5 })]) { mem.set(key, bad); assert.deepEqual(loadWorkspace(kv, key, dflt), dflt()); }
+  for (const bad of ['{', '"x"', '{"v":1}', JSON.stringify({ ...ws, active: 5, root: 5 })]) {
+    mem.set(key, bad);
+    assert.deepEqual(loadWorkspace(kv, key, dflt), dflt());
+  }
   const five = JSON.parse(serialize(many(4)));
   five.root = { type: 'split', dir: 'row', a: five.root, b: { type: 'group', id: 'g9', tabs: ['x'], activeTab: 'x' }, at: 0.5 };
   five.tabs.x = { id: 'x', kind: 'shell', params: {} };
   assert.equal(parseWorkspace(five), null); // 5 groups
-  const dup = JSON.parse(serialize(two())); dup.root.b.tabs.push('chat');
+  const dup = JSON.parse(serialize(two()));
+  dup.root.b.tabs.push('chat');
   assert.equal(parseWorkspace(dup), null); // a tab in two places
-  const blocked: KV = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+  const blocked: KV = {
+    getItem: () => {
+      throw new Error('blocked');
+    },
+    setItem: () => {
+      throw new Error('blocked');
+    },
+  };
   assert.deepEqual(loadWorkspace(blocked, key, dflt), dflt());
   saveWorkspace(blocked, key, ws);
   assert.deepEqual(loadWorkspace(null, key, dflt), dflt());
@@ -178,22 +230,45 @@ test('save and load round-trip; a newer version, bad shapes and blocked storage 
 
 test('property: after any run of random operations, Chat is there and every invariant holds', () => {
   let seed = 7;
-  const rnd = (n: number) => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
+  const rnd = (n: number) => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed % n;
+  };
   const edges: Edge[] = ['left', 'right', 'top', 'bottom'];
   for (let run = 0; run < 60; run++) {
     let ws = rnd(2) ? two() : defaultWorkspace();
     for (let step = 0; step < 60; step++) {
-      const tabs = Object.keys(ws.tabs), gs = groupsOf(ws.root);
-      const t = tabs[rnd(tabs.length)]!, g = gs[rnd(gs.length)]!.id;
+      const tabs = Object.keys(ws.tabs),
+        gs = groupsOf(ws.root);
+      const t = tabs[rnd(tabs.length)]!,
+        g = gs[rnd(gs.length)]!.id;
       switch (rnd(10)) {
-        case 0: ws = openTab(ws, ['markdown', 'terminal', 'web', 'shell'][rnd(4)] as 'web', { path: `p${rnd(4)}`, port: rnd(3) }, g); break;
-        case 1: case 2: ws = closeTab(ws, t); break;
-        case 3: ws = moveTab(ws, t, g, rnd(3)); break;
-        case 4: case 5: ws = splitTab(ws, t, g, edges[rnd(4)]!) ?? ws; break;
-        case 6: ws = splitRoot(ws, t, edges[rnd(4)]!) ?? ws; break;
-        case 7: ws = applyPreset(ws, (['single', 'cols', 'rows', 'grid'] as const)[rnd(4)]!); break;
-        case 8: ws = moveTabBy(ws, t, rnd(2) ? 1 : -1); break;
-        default: ws = setSplit(ws, [rnd(2) ? 'a' : 'b'], rnd(100) / 50 - 0.5); break;
+        case 0:
+          ws = openTab(ws, ['markdown', 'terminal', 'web', 'shell'][rnd(4)] as 'web', { path: `p${rnd(4)}`, port: rnd(3) }, g);
+          break;
+        case 1:
+        case 2:
+          ws = closeTab(ws, t);
+          break;
+        case 3:
+          ws = moveTab(ws, t, g, rnd(3));
+          break;
+        case 4:
+        case 5:
+          ws = splitTab(ws, t, g, edges[rnd(4)]!) ?? ws;
+          break;
+        case 6:
+          ws = splitRoot(ws, t, edges[rnd(4)]!) ?? ws;
+          break;
+        case 7:
+          ws = applyPreset(ws, (['single', 'cols', 'rows', 'grid'] as const)[rnd(4)]!);
+          break;
+        case 8:
+          ws = moveTabBy(ws, t, rnd(2) ? 1 : -1);
+          break;
+        default:
+          ws = setSplit(ws, [rnd(2) ? 'a' : 'b'], rnd(100) / 50 - 0.5);
+          break;
       }
       invariants(ws);
       assert.deepEqual(parseWorkspace(JSON.parse(serialize(ws))), ws);
@@ -207,11 +282,15 @@ test('the default layout is Chat on the left and the session terminal on the rig
   if (ws.root.type !== 'split') return;
   assert.equal(ws.root.dir, 'row');
   assert.equal(ws.root.at, 0.5);
-  assert.deepEqual([ws.root.a, ws.root.b].map((n) => n.type === 'group' && n.tabs), [[CHAT], ['terminal:term:a']]);
+  assert.deepEqual(
+    [ws.root.a, ws.root.b].map((n) => n.type === 'group' && n.tabs),
+    [[CHAT], ['terminal:term:a']],
+  );
   assert.equal(ws.tabs['terminal:term:a']!.params.handle, 'term:a');
   assert.equal(ws.active, 'g2');
   const none = defaultWorkspace();
   assert.equal(none.root.type, 'group');
   assert.deepEqual(ids(none), [CHAT]);
-  invariants(ws); invariants(none);
+  invariants(ws);
+  invariants(none);
 });
