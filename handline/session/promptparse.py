@@ -4,7 +4,7 @@ cannot read is still listed, with its raw lines.
 
 Measured on the captures in contract/prompts/: a permission prompt's title names its tool ("Bash command"), the command follows,
 boxed with "│" or bare, then a description; a boxed run after the description is the reason the call is not allowed outright. Only a
-title seen in a capture is mapped to a tool, so an edit approval, whose title was never captured, has no tool and is returned raw."""
+title seen in a capture is read at all, so an edit approval, whose title was never captured, has no tool, command or reason and is returned raw."""
 from __future__ import annotations
 
 TOOLS = {"Bash command": "Bash"}
@@ -18,7 +18,10 @@ def _unbox(line: str) -> str:
 
 def permission_fields(title: str, lines) -> dict:
     """{tool, command, reason} of a permission prompt with this `title` and the `lines` between it and its question."""
+    tool = TOOLS.get(title.strip())
     lines = [ln for ln in lines if ln.strip()]
+    if tool is None:
+        return {"tool": None, "command": None, "reason": None}      # a title never captured: the lines are the screen's, nothing is guessed
     boxed = [ln.strip().startswith(BOX) for ln in lines]
     command = reason = None
     if lines and boxed[0]:
@@ -34,7 +37,7 @@ def permission_fields(title: str, lines) -> dict:
             reason = "\n".join(_unbox(ln) for ln in lines[m:])
     elif lines:
         command = lines[0].strip()
-    return {"tool": TOOLS.get(title.strip()), "command": command or None, "reason": reason or None}
+    return {"tool": tool, "command": command or None, "reason": reason or None}
 
 
 def dialog_kind(options) -> str:

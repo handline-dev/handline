@@ -49,7 +49,8 @@ def test_every_capture_reads_as_the_fixture_says(home: Path) -> None:
 
 
 def test_a_field_the_screen_does_not_state_is_null_never_guessed(home: Path) -> None:
-    check("fields: a title never captured names no tool", promptparse.permission_fields("Edit file", ["src/a.py"])["tool"] is None)
+    check("fields: an edit approval's title was never captured: no tool, no command, no reason",
+          promptparse.permission_fields("Edit file", ["src/a.py", "│ a reason"]) == {"tool": None, "command": None, "reason": None})
     check("fields: nothing between the title and the question is no command and no reason",
           promptparse.permission_fields("Bash command", []) == {"tool": "Bash", "command": None, "reason": None})
     check("fields: a boxed command alone has no reason", promptparse.permission_fields("Bash command", ["│ ls", "│ -la"])

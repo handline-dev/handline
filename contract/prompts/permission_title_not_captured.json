@@ -1,6 +1,6 @@
 {
  "name": "permission_title_not_captured",
- "source": "tests/session/test_confirmations.py PROMPT with its title changed: no tool is named",
+ "source": "tests/session/test_confirmations.py PROMPT with its title changed: nothing is read, the lines are the screen's",
  "screen": [
   "  earlier output",
   "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔",
@@ -16,7 +16,7 @@
  "expect": {
   "kind": "permission",
   "tool": null,
-  "command": "rm -rf build",
+  "command": null,
   "reason": null,
   "options": []
  }
