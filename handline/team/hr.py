@@ -39,15 +39,60 @@ from ..infra import atomic, paths, protected, sealed, textsafe
 from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load
 
-ITEM_KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings", "context")
+ITEM_KINDS = ("add", "retire", "rename", "link", "unlink", "team", "settings", "context", "schedule", "global")
 BUNDLE = "bundle"
 KINDS = ITEM_KINDS + (BUNDLE,)
 # The order a team diff is applied in: agents exist before anything names them, links come before
 # an agent is retired, and the standing context of what is left is last.
-STEP_ORDER = ("team", "add", "rename", "settings", "link", "unlink", "retire", "context")
+STEP_ORDER = ("team", "add", "rename", "settings", "schedule", "link", "unlink", "retire", "context", "global")
 # What a `context` proposal may replace: the files injected into every session, and their budgets.
 CONTEXT_FILES = {"ROLE.md": agents.ROLE_BUDGET_BYTES, "base.md": agents.BASE_BUDGET_BYTES}
 EDGE_KINDS = ("link", "unlink")
+SCHEDULE_ACTIONS = ("add", "edit", "remove")
+
+
+def _on_off(v: str) -> str:
+    if v not in ("on", "off"):
+        raise ValueError("on or off")
+    return v
+
+
+def _seconds_or_never(v: str) -> str:
+    if v == "never" or (v.isdigit() and int(v) >= 0):
+        return v
+    raise ValueError("a number of seconds, or never")
+
+
+def _span(v: str) -> str:
+    if timefmt.parse_span(v) <= 0:
+        raise ValueError("a positive span")
+    return v
+
+
+def _set_global(switch: str, value: str) -> None:
+    from ..session import autoaccept, idle_close
+    from ..daemon import devmode
+    if switch == "idle-timeout":
+        idle_close.set_close_timeout(idle_close.NEVER if value == "never" else int(value))
+    elif switch == "notice-digest":
+        idle_close.set_notice_digest_s(timefmt.parse_span(value))
+    elif switch == "ignore-cache-expiry":
+        idle_close.set_ignore_cache_expiry(value == "on")
+    elif switch == "auto-accept":
+        autoaccept.set_enabled(value == "on")
+    else:
+        devmode.set_dev_mode(value == "on")
+
+
+# The global switches an agent may ask for: (what its value must be, what it does). The `hl` command
+# of the same name sets it; from an agent's session it raises a `global` proposal instead.
+GLOBAL_SWITCHES = {
+    "idle-timeout": (_seconds_or_never, "how long an idle agent may sit before it is closed (seconds, or never)"),
+    "notice-digest": (_span, "how long after its first waiting result an agent is told them in one digest"),
+    "ignore-cache-expiry": (_on_off, "whether a resume may reuse a session whose prompt cache has expired"),
+    "auto-accept": (_on_off, "whether ocp answers the dialogs a working agent's standing rules cover"),
+    "dev-mode": (_on_off, "whether the daemon reloads its own code when it changes"),
+}
 
 
 def dir_() -> Path:
@@ -133,7 +178,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
             return {}, err
     if kind == "add" and name in registered:
         return {}, f"{name} is already an agent"
-    if kind in ("retire", "rename", "settings", "context") + EDGE_KINDS and name not in registered:
+    if kind in ("retire", "rename", "settings", "context", "schedule") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
     if kind in EDGE_KINDS:
         err = _edge_refusal(kind, name, to, response, relation, registered, coming)
@@ -163,6 +208,17 @@ def _draft(kind: str, name: str, requester: str, why: str,
             _, problem = agent_settings.changes_for(name, sets)
             if problem:
                 return {}, problem
+    if kind == "schedule":
+        err = _schedule_problem(name, sets or {}, name in coming)
+        if err:
+            return {}, err
+    if kind == "global":
+        if name not in GLOBAL_SWITCHES:
+            return {}, f"{name} is not a global switch: one of {', '.join(GLOBAL_SWITCHES)}"
+        try:
+            sets = {"value": GLOBAL_SWITCHES[name][0](str((sets or {}).get("value", "")).strip())}
+        except ValueError as e:
+            return {}, f"{name} takes {e}"
     if kind == "context":
         err = _context_problem(sets)
         if err:
@@ -202,6 +258,35 @@ def _draft(kind: str, name: str, requester: str, why: str,
             if (repos or {}).get(n):
                 prop[f"repo.{n}"] = repos[n]
     return prop, ""
+
+
+def _schedule_problem(agent: str, sets: dict, coming: bool) -> str | None:
+    """Why a `schedule` proposal's `sets` (action, and cron, message, index as it needs) cannot be
+    applied to `agent`'s schedules as they are now, or None."""
+    from ..actions import schedule as schedmod
+    from ..daemon import schedules
+    action = sets.get("action")
+    if action not in SCHEDULE_ACTIONS:
+        return f"a schedule change is one of {', '.join(SCHEDULE_ACTIONS)}"
+    unknown = sorted(set(sets) - {"action", "cron", "message", "index"})
+    if unknown:
+        return f"not part of a schedule: {', '.join(unknown)}"
+    if action != "add" and not str(sets.get("index", "")).isdigit():
+        return f"{action} needs the schedule's number (--index)"
+    if action != "remove" and not (sets.get("cron") and sets.get("message")):
+        return f"{action} needs a cron and a message"
+    if coming:
+        return None
+    try:
+        items = schedules.load(agent)
+        if action != "add" and not 1 <= int(sets["index"]) <= len(items):
+            return f"{agent} has no schedule {sets['index']}: 1..{len(items)}"
+        if action != "remove":
+            schedules.parse([{"cron": sets["cron"], "message": sets["message"]}])
+            schedmod.schedule_words(sets["cron"])
+    except ValueError as e:
+        return str(e)
+    return None
 
 
 def _context_problem(texts: dict[str, str] | None) -> str | None:
@@ -527,6 +612,8 @@ def _names_of(items: list[dict]) -> set[str]:
     """The agents whose folders and grants a step may change."""
     out: set[str] = set()
     for it in items:
+        if it["kind"] == "global":
+            continue                        # its name is a switch, and config.yaml is kept whole
         out.add(it["agent"])
         if it["kind"] == "rename":
             out.add(it["to"])
@@ -628,6 +715,17 @@ def _body(prop: dict, caveat: bool) -> list[str]:
         lines += [f"  {k}: {v or '(none)'}" for k, v in _sets_of(prop).items()]
         lines += ["Written as the founder's own change, from its next launch; a running "
                   "session is not restarted."]
+    elif prop["kind"] == "schedule":
+        from ..actions import schedule as schedmod
+        st = _sets_of(prop)
+        when = schedmod.schedule_words(st["cron"]) if st.get("cron") else ""
+        lines += [{"add": f"{prop['agent']} would be typed, {when}: {st.get('message')}",
+                   "edit": f"{prop['agent']}'s schedule {st.get('index')} would become, {when}: {st.get('message')}",
+                   "remove": f"{prop['agent']}'s schedule {st.get('index')} would be removed"}[st["action"]],
+                  "Written to its agent.yaml; the daemon reads it on its next tick."]
+    elif prop["kind"] == "global":
+        lines += [f"The global switch {prop['agent']} ({GLOBAL_SWITCHES[prop['agent']][1]}) would be set to "
+                  f"{_sets_of(prop).get('value')}, for every agent without its own override."]
     elif prop["kind"] == "context":
         lines += [f"{prop['agent']}'s standing context would be replaced, as a diff of what is there now:"]
         for fn, text in _context_texts(prop).items():
@@ -1280,8 +1378,32 @@ def _context(prop: dict, con) -> tuple[bool, str]:
     return True, f"{prop['agent']}: {', '.join(texts)} replaced, from its next launch"
 
 
+def _schedule(prop: dict, con) -> tuple[bool, str]:
+    """Exactly the schedule change that was proposed, through the one schedule write path."""
+    from ..actions import schedule as schedmod
+    st = _sets_of(prop)
+    problem = _schedule_problem(prop["agent"], st, False)
+    if problem:
+        return False, problem
+    if st["action"] == "add":
+        schedmod.schedule_add(prop["agent"], st["cron"], st["message"])
+    elif st["action"] == "edit":
+        schedmod.schedule_edit(prop["agent"], int(st["index"]), st["cron"], st["message"])
+    else:
+        schedmod.schedule_remove(prop["agent"], int(st["index"]))
+    return True, f"{prop['agent']}'s schedules: {st['action']} done"
+
+
+def _global(prop: dict, con) -> tuple[bool, str]:
+    switch, value = prop["agent"], _sets_of(prop).get("value", "")
+    if switch not in GLOBAL_SWITCHES:
+        return False, f"{switch} is not a global switch"
+    _set_global(switch, GLOBAL_SWITCHES[switch][0](value))
+    return True, f"{switch} set to {value}"
+
+
 _DOERS = {"add": _add, "settings": _settings, "context": _context, "retire": _retire, "rename": _rename,
-          "link": _link, "unlink": _unlink, "team": _team}
+          "link": _link, "unlink": _unlink, "team": _team, "schedule": _schedule, "global": _global}
 
 
 def _edges_touching(t, name: str) -> set[str]:
