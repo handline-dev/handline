@@ -4,6 +4,7 @@ Run on its own: python3 tests/infra/test_conformance.py   (all areas: python3 te
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import json
@@ -14,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "contract"))
 import conformance  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fake_methods import HANDLERS  # noqa: E402
+from fake_methods import CURRENT, HANDLERS  # noqa: E402
 
 STATE_WORDS = ("running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal")
 SPEC = json.loads((ROOT / "contract" / "protocol.json").read_text())
@@ -54,6 +56,7 @@ class FakeDaemon:
         `unread`: the inbox holds an unread item (id 5), so an inbox.list that its filters do not exclude returns at once."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
         self.serial, self.unread, self.upper_case = serial, unread, upper_case
+        self.state: dict = {}
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -76,6 +79,7 @@ class FakeDaemon:
 
     def _serve(self, conn):
         said_hello, buf, out = False, b"", threading.Lock()
+        ctx = types.SimpleNamespace(id=object(), state=self.state, after=[], on_close=[])
 
         def send(reply):
             with out:
@@ -84,25 +88,38 @@ class FakeDaemon:
                 except OSError:     # the client closed first
                     pass
 
+        ctx.send = send
+
         def answer_later(line):
             reply, _ = self._answer(line, True)
             send(reply)
         with conn:
-            while True:
-                try:
-                    chunk = conn.recv(65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                buf += chunk
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    if said_hello and not self.serial and _method_of(line) == "inbox.list":
-                        threading.Thread(target=answer_later, args=(line,), daemon=True).start()
-                        continue
-                    reply, said_hello = self._answer(line, said_hello)
-                    send(reply)
+            try:
+                self._loop(conn, ctx, send, answer_later, said_hello, buf)
+            finally:
+                for done in ctx.on_close:
+                    done()
+
+    def _loop(self, conn, ctx, send, answer_later, said_hello, buf):
+        while True:
+            try:
+                chunk = conn.recv(65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if said_hello and not self.serial and _method_of(line) == "inbox.list":
+                    threading.Thread(target=answer_later, args=(line,), daemon=True).start()
+                    continue
+                CURRENT.ctx = ctx
+                reply, said_hello = self._answer(line, said_hello)
+                send(reply)
+                for after in ctx.after:     # what may only start once the reply is on the wire: a watcher's notices
+                    after()
+                ctx.after.clear()
 
     def state_word(self, word: str) -> str:
         return word.upper() if self.upper_case else word
@@ -136,7 +153,8 @@ class FakeDaemon:
             kind = {"founder": "person", "agent": "agent", "member": "device", "anonymous": "anonymous"}[self.role]
             return ok({"protocol": 1, "min_client": 1, "daemon": "fake", "schema": 1, "role": self.role,
                        "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": self._methods(),
-                       "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text"]}}), True
+                       "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text", "bytes"],
+                                        "terminal_hosts": {"tmux": ["text", "bytes"], "orca": ["text"]}}}), True
         if method == "batch" or not said_hello:
             return fail(_err(-32600, "bad_request")), said_hello
         if method in self.lacks or method in self.broken:
@@ -271,9 +289,9 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
-KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
+KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
        "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp"}
-KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
+KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp"]
 
@@ -359,6 +377,10 @@ def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
           results[0][0] == "fail" and "-32001" in results[0][1], str(results))
 
 
+# fixtures of the terminal bytes spec whose method the Python daemon does not have yet (its api task); remove each as it lands
+NOT_YET_IN_PYTHON = {"terminal.attach.format_is_text_or_bytes", "terminal.history.format_is_text_or_bytes"}
+
+
 def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     from handline.daemon import socket_server
     from handline.infra import sessiontoken
@@ -374,7 +396,7 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
         return a
     results = conformance.run_all(FILES, {"founder": connect, "anonymous": connect}, {"founder_key": key})
     by = {n: (s, why) for s, why, n in results}
-    failed = {n: why for n, (s, why) in by.items() if s == "fail"}
+    failed = {n: why for n, (s, why) in by.items() if s == "fail" and n not in NOT_YET_IN_PYTHON}
     check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
     check("conformance: the Python daemon passes the hello, whoami and error fixtures it can",
           all(by[n][0] == "pass" for n in ("hello.ok", "hello.must_come_first", "whoami.founder", "errors.parse_error")), str(by))
@@ -451,6 +473,41 @@ def test_state_words_in_upper_case_fail_the_fixtures() -> None:
     check("conformance: the state word fixtures pass for lower-case words", [s for s, _, _ in results] == ["pass"] * len(results) and len(results) == 1 + len(STATE_WORDS), str(results))
     results = conformance.run_all(path, {"founder": FakeDaemon("founder", upper_case=True).connect}, KEY)
     check("conformance: a daemon that sends IDLE and RUNNING fails every one of them", all(s == "fail" for s, _, _ in results) and results, str(results))
+
+
+def test_the_bytes_fixtures_pass_against_the_fake_tmux_and_catch_a_hole() -> None:
+    path = [ROOT / "contract" / "fixtures" / "terminal_bytes.json"]
+    results = conformance.run_all(path, {"founder": FakeDaemon("founder").connect, "agent": FakeDaemon("agent").connect}, KEY)
+    check("conformance: the bytes fixtures pass against the fake tmux terminal", all(s == "pass" for s, _, _ in results) and results, str(results))
+
+    def hole(reply):        # a daemon that skips a seq on the holder notice
+        if reply.get("method") == "holder":
+            reply["params"]["seq"] += 1
+        return reply
+    results = dict((n, s) for s, _, n in conformance.run_all(path, {"founder": FakeDaemon("founder", hole).connect}, KEY, "terminal.bytes."))
+    check("conformance: a seq that skips fails the fixtures that follow the counter", results["terminal.bytes.output_follows_the_snapshot"] == "fail"
+          and results["terminal.bytes.resize_gives_watchers_a_snapshot"] == "fail", str(results))
+
+    def repeat(reply):      # a daemon that sends the first output again after the snapshot
+        if reply.get("method") == "output":
+            reply["params"]["seq"] = 100
+        return reply
+    results = dict((n, s) for s, _, n in conformance.run_all(path, {"founder": FakeDaemon("founder", repeat).connect}, KEY, "terminal.bytes.reconnect"))
+    check("conformance: output with a seq at or below the snapshot's fails the reconnect fixture", results["terminal.bytes.reconnect_from_a_snapshot"] == "fail", str(results))
+
+
+def test_the_counter_and_base64_matchers() -> None:
+    saved = {"s": 4}
+    for want, got, ok in (({"$next": "s"}, 5, True), ({"$next": "s"}, 6, False), ({"$above": "s"}, 5, True), ({"$above": "s"}, 4, False),
+                          ({"$above": "s"}, True, False), ({"$above": "nope"}, 5, False),
+                          ({"$b64regex": "bytes-42"}, base64.b64encode(b"\r\nbytes-42\r\n").decode(), True), ({"$b64regex": "bytes-42"}, "ZZZ", False),
+                          ({"$b64regex": "x"}, 7, False)):
+        try:
+            conformance.matches(want, got, saved)
+            passed = True
+        except conformance.Mismatch:
+            passed = False
+        check(f"conformance: matcher {json.dumps(want)} on {json.dumps(got)[:20]} is {'a match' if ok else 'a mismatch'}", passed == ok)
 
 
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
@@ -575,6 +632,8 @@ def main() -> int:
         run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
         run(lambda: test_the_device_fixtures_pass_against_a_fake_network_and_catch_a_leak())
         run(lambda: test_state_words_in_upper_case_fail_the_fixtures())
+        run(lambda: test_the_bytes_fixtures_pass_against_the_fake_tmux_and_catch_a_hole())
+        run(lambda: test_the_counter_and_base64_matchers())
         run(lambda: test_a_waiting_call_that_holds_the_connection_fails_the_framing_fixture())
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))
