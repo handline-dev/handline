@@ -269,7 +269,7 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
     old.commit()
     old.close()
 
-    con = db.connect(p)
+    con = support.upgrade(p)
     try:
         rows = con.execute(
             "SELECT id, body, queue_order, delivered_at FROM requests ORDER BY id").fetchall()
@@ -1426,7 +1426,7 @@ def test_any_request_that_landed_is_landed(home: Path) -> None:
         con.execute("UPDATE requests SET landed_at = 777 WHERE id = ?", (swept,))
         con.commit()
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         r = db.get_request(con, swept)
         check("landed any: the connect sweep lands a queued row that has its landing recorded",
               r["state"] == "landed" and r["state_at"] == 777, str(dict(r)))
@@ -4045,7 +4045,7 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
     old.commit()
     old.close()
 
-    con = db.connect(p)
+    con = support.upgrade(p)
     try:
         cols = tuple(r["name"] for r in con.execute("PRAGMA table_info(tasks)"))
         check("migration: the new column set, exactly",
@@ -4085,7 +4085,7 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
         # A second connect (every ocp command, and the daemon) re-runs the
         # migration guard - it must be a no-op the second time, not a second
         # rename onto columns that no longer exist.
-        con2 = db.connect(p)
+        con2 = support.upgrade(p)
         try:
             check("migration: idempotent - a second connect changes nothing",
                   dict(db.get_task(con2, closed["id"])) == dict(closed))
@@ -4572,7 +4572,7 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
         tasks_before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
         db.set_cursor(con, "migrated:kinds_to_say", 0)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
 
         def kind(rid):
             return db.get_request(con, rid)["kind"]
@@ -4626,7 +4626,7 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
         q_old = db.add_request(con, "worker", "manager", "still waiting", None, None, None, "report", 0, None)
         con.execute("DELETE FROM cursors WHERE name = 'migrated:kinds_are_say'")
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         check("kinds: every kind but say and task, on a finished row, becomes say (T766)",
               all(kind(r) == "say" for r in old_kinds.values()) and kind(task_row) == "task"
               and con.execute("SELECT 1 FROM cursors WHERE name = 'migrated:kinds_are_say'").fetchone() is not None)
@@ -4634,7 +4634,7 @@ def test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(hom
         check("kinds: an answer written after the answers became says now settles its request (T766)",
               kind(old_ans) == "say" and db.get_request(con, old_ans)["settles"] == ans)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         check("kinds: a second connect changes nothing",
               con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == tasks_before + 2)
     finally:
@@ -4776,7 +4776,7 @@ def test_an_decisionion_is_a_decision_task_and_the_gate_is_the_open_task(home: P
             "VALUES(1000, 'worker', 'human', 'which name?', 'escalate', 'queued', 0, 0, 1)").lastrowid
         db.set_cursor(con, "migrated:escalations_are_tasks", 0)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         t = db.tasks_for_request(con, loose)
         check("migrate: a queued decision no task carries opens one, and the row is a task row",
               len(t) == 1 and t[0]["owner"] == "human" and t[0]["opened_by"] == "worker"
@@ -4817,7 +4817,7 @@ def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None
                     (int(time.time()),))
         con.execute("DROP INDEX events_kind_task")
         con.close()
-        con = db.connect()          # rebuilds the index over a table that holds the bad row
+        con = support.upgrade()          # rebuilds the index over a table that holds the bad row
         check("index: a table holding a non-JSON payload still builds the index and answers",
               con.execute("SELECT name FROM sqlite_master WHERE name = 'events_kind_task'").fetchone()
               is not None and actions.tasks._begun(con, 3))
@@ -4949,14 +4949,14 @@ edges:
         con.execute("UPDATE requests SET state = 'done', resolved_at = 1000, verdict = 'old verdict' WHERE id = ?", (old,))      # the old shape
         db.set_cursor(con, "migrated:answer_rows", 0)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         made = db.answer_row_of(con, old)
         check("migration: an old verdict becomes an answer row, at the time it was answered",
               made is not None and made["body"] == "old verdict" and made["ts"] == 1000,
               str(dict(made) if made else None))
         count = con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"]
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         check("migration: a second connect adds nothing, and the earlier answers are not doubled",
               con.execute("SELECT COUNT(*) c FROM requests WHERE settles IS NOT NULL").fetchone()["c"] == count
               and len([1 for r in con.execute("SELECT id FROM requests WHERE settles = ?", (rid,))]) == 1)
@@ -4969,7 +4969,7 @@ edges:
                           (legacy, str(legacy))).lastrowid
         db.set_cursor(con, "migrated:answers_are_says", 0)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         got = db.get_request(con, aid)
         check("migration: an old answer-kind row becomes a say that settles the request it answered",
               got["kind"] == "say" and got["settles"] == legacy and got["parent_id"] == legacy
@@ -5007,7 +5007,7 @@ def test_the_answer_lookups_use_the_settles_index_not_a_scan(home: Path) -> None
         # An old database, built before the column: the index is made after the column is.
         con.execute("DROP INDEX requests_settles")
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         check("settles: reconnecting an old database creates the index too",
               con.execute("SELECT 1 FROM sqlite_master WHERE name = 'requests_settles'").fetchone() is not None)
     finally:
@@ -7452,7 +7452,7 @@ def test_closed_tasks_migrate_to_done_and_merged_ones_to_discarded(home: Path) -
     con.commit()
     con.close()
 
-    con = db.connect(p)
+    con = support.upgrade(p)
     try:
         st = lambda t: actions.task_state(con, db.get_task(con, t))
         check("T568 migration: a closed task reads done, its evidence kept",
@@ -7470,7 +7470,7 @@ def test_closed_tasks_migrate_to_done_and_merged_ones_to_discarded(home: Path) -
               [r["id"] for r in db.open_tasks(con)] == [keep])
     finally:
         con.close()
-    con = db.connect(p)         # a second connect leaves it as it is
+    con = support.upgrade(p)         # a second connect leaves it as it is
     try:
         check("T568 migration: running again changes nothing",
               actions.task_state(con, db.get_task(con, folded)) == "discarded"
@@ -7495,7 +7495,7 @@ def test_the_priority_columns_migrate_an_old_tasks_table(home: Path) -> None:
     """)
     old.commit()
     old.close()
-    con = db.connect(p)
+    con = support.upgrade(p)
     try:
         cols = {r["name"] for r in con.execute("PRAGMA table_info(tasks)")}
         check("migration: priority and merged_into are added",
@@ -8529,7 +8529,7 @@ limits:
         upmr = db.task_requests(con, upm)[0]["id"]
         con.execute("UPDATE tasks SET owner = 'helper' WHERE id = ?", (upm,))
         con.execute("DELETE FROM cursors WHERE name = 'migrated:task_leftovers_settled'")
-        con2 = db.connect()                                  # the upgrade: connect runs the migrations
+        con2 = support.upgrade()                             # the upgrade: the daemon's start runs the migrations
         try:
             gone = db.get_request(con2, upr)
             check("upgrade migration: an ended task's delivery is closed quietly, once",
@@ -8565,7 +8565,7 @@ limits:
         # the migration: backfill, and ghosts settled
         ok, _, landed = actions.task_new("manager", "worker", "landed long ago", "w")
         lrid = db.task_requests(con, landed)[0]["id"]
-        con.execute("UPDATE requests SET landed_at = 1234 WHERE id = ?", (lrid,))
+        con.execute("UPDATE requests SET landed_at = 1234, state = 'landed' WHERE id = ?", (lrid,))
         ok, _, ghost = actions.task_new("manager", "worker", "ended with a delivery left", "w")
         grid = db.task_requests(con, ghost)[0]["id"]
         db.mark_task_done(con, ghost, "done the old way", "reason")
@@ -9170,7 +9170,7 @@ def test_connect_to_a_migrated_database_takes_no_write_lock(home: Path) -> None:
         con.execute("INSERT INTO requests(ts, requester, target, kind, state, landed_at, body) "
                     "VALUES(1, 'a', 'b', 'say', 'queued', 5, 'x')")
         con.close()
-        con = db.connect(path)
+        con = support.upgrade(path)
         row = con.execute("SELECT state FROM requests").fetchone()
         check("connect: a queued row that had landed is still moved to landed", row[0] == "landed", tuple(row))
     finally:

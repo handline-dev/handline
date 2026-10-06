@@ -396,7 +396,7 @@ def test_a_say_queued_for_the_founder_before_the_upgrade_becomes_landed_and_unre
         con.execute("DELETE FROM cursors WHERE name = 'migrated:founder_says_landed'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         r = db.get_request(con, old_q)
         check("migration: a say still queued for the founder is landed and unread",
@@ -424,7 +424,7 @@ def test_an_fyi_report_before_the_upgrade_becomes_a_say(home: Path) -> None:
         con.execute("DELETE FROM cursors WHERE name = 'migrated:fyi_are_says'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         r = db.get_request(con, old_q)
         check("migration: a queued fyi is a say, landed and unread",
@@ -465,7 +465,7 @@ def test_an_answer_is_told_on_its_say_and_an_old_untold_one_gets_a_say(home: Pat
         con.execute("DELETE FROM cursors WHERE name = 'migrated:answers_told_on_the_say'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("migration: an answer told by the old mark has its say shown",
               db.answer_row_of(con, told_old)["delivered_at"] == 55)
@@ -495,7 +495,7 @@ def test_a_closed_request_has_left_its_queue_and_a_held_one_has_not(home: Path) 
         con.execute("DELETE FROM cursors WHERE name = 'migrated:closed_rows_leave_the_queue'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("migration: a resolved row loses its place, an unresolved one keeps it",
               db.get_request(con, old)["queue_order"] is None and db.get_request(con, held)["queue_order"] is not None)
@@ -524,7 +524,7 @@ def test_a_dismissal_is_an_event_and_an_old_one_gets_one(home: Path) -> None:
         con.execute("DELETE FROM cursors WHERE name = 'migrated:dismissals_are_events'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("migration: an old dismissal gets its event, and a read dismissal is not doubled",
               db.dismissal(db.get_request(con, old)) == (True, "frontend", None)
@@ -560,7 +560,7 @@ def test_why_a_request_closed_without_an_answer_is_an_event(home: Path) -> None:
         con.execute("DELETE FROM cursors WHERE name = 'migrated:reasons_are_events'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         ev = [json.loads(r["payload"])["request_id"] for r in
               con.execute("SELECT payload FROM events WHERE kind = 'request_reason'").fetchall()]
@@ -586,7 +586,7 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
         finally:
             c.close()
     check("new database: no legacy column, and it is marked so", not legacy & cols())
-    con = db.connect()
+    con = support.upgrade()
     try:
         support.legacy_shape(con)
         answered = db.add_request(con, "backend", "frontend", "q1", None, None, None, "task", 0, None)
@@ -603,7 +603,7 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
             con.execute("DELETE FROM cursors WHERE name = ?", (f"migrated:{name}",))
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         con.execute("DELETE FROM events WHERE kind IN ('dismissed', 'request_reason')")
         con.execute("DELETE FROM requests WHERE settles IS NOT NULL")
@@ -611,7 +611,7 @@ def test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_
     finally:
         con.close()
     check("doctor: the legacy columns are dropped", legacy <= set(gone) and not legacy & cols(), str(gone))
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("doctor: first, what old code closed is where the readers look",
               db.shown_verdict(db.get_request(con, answered)) == "done by old code"
@@ -632,7 +632,7 @@ def test_a_database_dropped_of_the_legacy_columns_without_the_mark_still_connect
         con.execute("DELETE FROM cursors WHERE name IN (?, 'migrated:answer_rows')", (dbschema.LEGACY_DROPPED,))
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("unmarked and column-less: connect does not crash, and marks it",
               dbschema._legacy_columns_dropped(con))
@@ -663,7 +663,7 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
         con.execute("DELETE FROM cursors WHERE name = 'migrated:requests_one_state'")
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         got = {r["id"]: (r["state"], r["state_at"]) for r in con.execute("SELECT id, state, state_at FROM requests")}
         check("one state: done becomes landed, stamped with when it landed (else typed, delivered, resolved)",
@@ -681,7 +681,7 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
               con.execute("SELECT COUNT(*) FROM requests WHERE state IN ('done', 'rejected')").fetchone()[0] == 0)
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         again = {r["id"]: (r["state"], r["state_at"]) for r in con.execute("SELECT id, state, state_at FROM requests")}
         check("one state: a second connect changes nothing", again == got)
@@ -689,7 +689,7 @@ def test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(home: P
         stray = row("done", delivered_at=300, resolved_at=900)
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         r = db.get_request(con, stray)
         check("one state: a row written in an old state after the migration is mapped at the next connect",
@@ -713,7 +713,7 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
             return {r[1] for r in c.execute("PRAGMA table_info(requests)")}
         finally:
             c.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         for col in dead:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
@@ -879,7 +879,7 @@ def test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(ho
             con.execute(f"ALTER TABLE requests DROP COLUMN {col}")     # the table as it was before
     finally:
         con.close()
-    con = db.connect()          # connecting migrates
+    con = support.upgrade()          # connecting migrates
     try:
         row = con.execute("SELECT * FROM requests WHERE body = 'old'").fetchone()
         check("migration: a request told before landings were checked is delivered as it was",

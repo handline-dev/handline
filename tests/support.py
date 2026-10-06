@@ -275,6 +275,21 @@ def _snap(*_geometry, **_cursor) -> str:
     return tui.snapshot()
 
 
+def upgrade(path: Path | None = None):
+    """Connect as the daemon does at start, after a test has put the database back in an older shape:
+    the version is forgotten first, so the migrations run again."""
+    from handline.db import schema as dbschema
+    import sqlite3
+    raw = sqlite3.connect(path or dbschema.paths.db_file())
+    try:
+        raw.execute("DELETE FROM schema_version")
+        raw.commit()
+    except sqlite3.OperationalError:        # never versioned
+        pass
+    raw.close()
+    return dbschema.connect(path, migrating=True)
+
+
 def legacy_shape(con) -> None:
     """Setup for a test of an upgrade from before the answers-to-says work (T835): the legacy
     request columns are back and the database is no longer marked as having dropped them, so a

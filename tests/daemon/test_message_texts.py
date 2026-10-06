@@ -187,7 +187,7 @@ def test_task_board_says_from_before_the_notice_column_are_never_carried(home: P
         con.commit()
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         cols = [r[1] for r in con.execute("PRAGMA table_info(requests)")]
         check("upgrade: connecting to an old database adds the column", "notice" in cols, str(cols))
@@ -199,7 +199,7 @@ def test_task_board_says_from_before_the_notice_column_are_never_carried(home: P
               [r["id"] for r in db.pending_notices(con, "worker")] == [later])
     finally:
         con.close()
-    con = db.connect()
+    con = support.upgrade()
     try:
         check("upgrade: reconnecting keeps the column and the row", [r["id"] for r in db.pending_notices(con, "worker")] == [later])
     finally:

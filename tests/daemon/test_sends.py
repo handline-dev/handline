@@ -417,7 +417,7 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
         con.execute("UPDATE requests SET kind = 'answer', settles = NULL WHERE id = ?", (fakes[0],))   # the old shape
         db.set_cursor(con, "migrated:close_notes", 0)
         con.close()
-        con = db.connect()
+        con = support.upgrade()
         gone = [con.execute("SELECT 1 FROM requests WHERE id = ?", (f,)).fetchone() is None for f in fakes]
         check("close notes: the messages made of them are gone, as an answer row or as a say", all(gone), str(gone))
         check("close notes: and the verdicts, so nothing is drawn from the say either",
