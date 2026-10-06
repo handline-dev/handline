@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, offered, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
@@ -30,6 +30,15 @@ export function AgentPage() {
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const release = useWrite('input.release', name);
+  const goBack = useRef<() => void>(() => void store.closeAgent());
+  // The Android back button goes from the agent page to the list; the list leaves the app.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      goBack.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
   if (!page) return null;
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
@@ -38,6 +47,7 @@ export function AgentPage() {
     if (detail && controlsOf(detail, me).release) release.mutate({ agent: name });
     void store.closeAgent();
   };
+  goBack.current = back;
   return (
     <AboveKeyboard>
       <Row style={{ padding: space.md }}>

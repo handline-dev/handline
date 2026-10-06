@@ -274,6 +274,19 @@ kbd {
   white-space: pre;
   outline-offset: -2px;
 }
+.grid-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+.grid-skeleton .sk {
+  background: color-mix(in srgb, var(--term-ink) 16%, transparent);
+}
+.grid-skeleton:empty {
+  display: none;
+}
 .grid-input {
   position: absolute;
   left: 0;
@@ -412,6 +425,122 @@ kbd {
   min-width: 0;
   padding: 12px;
 }
+/* chat tab */
+.chat-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.chat-tab {
+  padding: 4px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+.chat-tab.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.stream.col {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.stream.col > * {
+  flex: none;
+}
+.older {
+  align-self: center;
+}
+.msg {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.msg.person {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.msg.agent {
+  align-self: flex-start;
+}
+.msg.other {
+  align-self: flex-start;
+  opacity: 0.8;
+  border-style: dashed;
+}
+.msg[data-landing='withdrawn'],
+.msg[data-landing='dismissed'] {
+  opacity: 0.55;
+}
+.msg[data-landing='withdrawn'] .msg-body {
+  text-decoration: line-through;
+}
+.msg-body {
+  white-space: pre-wrap;
+}
+.msg-meta,
+.msg-from {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.msg .msg.answer {
+  margin-top: 8px;
+  max-width: 100%;
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 0 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+}
+.ask {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.line {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.line.tool {
+  align-self: flex-start;
+  font-family: var(--mono);
+}
+.line.working {
+  align-self: flex-start;
+  color: var(--run);
+}
+
+.msg.failed {
+  border-color: var(--block);
+}
+.msg[data-pending='true'] {
+  opacity: 0.7;
+}
+.failed-line {
+  color: var(--block);
+}
+.stream.col > .skeleton {
+  align-self: stretch;
+}
+
 .workspace {
   position: relative;
   flex: 1;

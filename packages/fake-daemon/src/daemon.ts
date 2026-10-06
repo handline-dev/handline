@@ -192,7 +192,7 @@ export class FakeDaemon {
       actor: f.actor ?? null,
       agent: f.agent ?? null,
       title: f.title ?? null,
-      target: f.agent ? { screen: 'session', id: f.agent } : null,
+      target: f.agent ? { screen: 'agent', id: f.agent } : null,
       data: f.data ?? {},
     };
     this.events.push(e);
