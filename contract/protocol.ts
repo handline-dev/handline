@@ -107,6 +107,8 @@ export type AgentView = {
   cache_until: Timestamp | null;
   has_dialog: boolean;
   parent: AgentName | null;
+  /** Who holds the input; one in v1, a list so more can later. */
+  input_holders?: InputHolder[];
 };
 
 export type AgentDetail = AgentView & {
@@ -117,14 +119,13 @@ export type AgentDetail = AgentView & {
   terminal: string | null;
   session_id: string | null;
   session_open: boolean;
-  /** Who holds the input; one in v1, a list so more can later. */
-  input_holders: InputHolder[];
   /** The account the daemon would place a session start on, before session.start; account null with a reason when none can take work. */
   account_pick: {
     account: string | null;
     reason: string;
   };
   prompt: Prompt | null;
+  settings?: AgentSettingValues;
 };
 
 export type TimelineEntry = {
@@ -229,7 +230,6 @@ export type Account = {
   login_state: "ok" | "needs_login" | "unknown";
   five_hour: Window | null;
   weekly: Window | null;
-  cap_pct: number | null;
   agents: AgentName[];
   moves: {
     at: Timestamp;
@@ -238,6 +238,21 @@ export type Account = {
     to: string;
     reason: string;
   }[];
+  /** The name screens show; the account's own name until an alias is set. */
+  label: string;
+  /** The account's own cap: most agents mid-turn at once; null follows active_cap. */
+  cap: number | null;
+  /** The cap in force: cap, else the active_cap setting. */
+  cap_effective: number;
+  /** Whether a dead usage read may spend one real turn to fix itself (hl account recover). */
+  recover: boolean;
+  cycle: {
+    /** One-month subscription; off is renewing. */
+    on: boolean;
+    end: string | null;
+    /** end is the next monthly anniversary of the subscription start, not typed. */
+    end_is_default: boolean;
+  };
 };
 
 export type DaemonStatus = {
@@ -383,6 +398,9 @@ export type Settings = {
       installed: boolean;
     }[];
   };
+  values: SettingsValues;
+  /** With settings.get `agent`: only that agent's own values for the Per agent keys. */
+  overrides?: { [key: string]: unknown };
 };
 
 export type Device = {
@@ -425,7 +443,10 @@ export type TerminalSnapshot = {
     lines: Row[];
     more: boolean;
   };
+  /** The first of holders; kept for clients written to the single value. */
   holder: InputHolder;
+  /** Everyone who holds the input, oldest first; one in v1. */
+  holders: InputHolder[];
 };
 
 export type Memo = {
@@ -444,11 +465,13 @@ export type TaskBoardRow = {
 /** Landing state of a message; open set. */
 export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" | "answered" | "dismissed" | "withdrawn";
 
+/** One request between the person and an agent. */
 export type ChatMessage = {
   /** Request id. */
   id: number;
   at: Timestamp;
-  state_at: string | null;
+  /** When the request entered its current state (queued, typed, landed, withdrawn...). Never null; the creation time until it first changes. */
+  state_at: Timestamp;
   from: string;
   to: string;
   state: string;
@@ -524,6 +547,129 @@ export type HistoryPage = {
 /** Chosen by the caller; unique per intended action. */
 export type RequestId = string;
 
+/** What task.done must be given: sha, verdict, decision or report (default; decision when the owner is human). */
+export type Expects = "sha" | "verdict" | "decision" | "report";
+
+/** What the proposal changes, by kind (hl hr). Every kind needs name. */
+export type HrArgs = {
+  /** The agent the proposal is about (the new agent's name for add; a team's manager for team). */
+  name: string;
+  team?: string;
+  repo?: string;
+  model?: string;
+  effort?: string;
+  vendor?: string;
+  /** rename: the new name; link, unlink: the other end. */
+  to?: string;
+  response?: string;
+  relation?: string;
+  /** team: each a suffix (`sea` is `name.sea`) or a full name. */
+  members?: string[];
+  /** team: repo by member. */
+  repos?: { [key: string]: string };
+  /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` (at most 1024 bytes) or `base.md` (at most 2048 bytes); empty text, control characters other than tab and newline, or a file over its budget is bad_request. */
+  sets?: { [key: string]: string };
+};
+
+export type StandingAnswer = {
+  /** trust: a folder trusted for every session; dialog: a rule that answers a vendor's dialog. */
+  kind: "trust" | "dialog";
+  /** What answer.remove takes: [folder] for trust, [vendor, title, label] for dialog. */
+  key: string[];
+  text: string;
+};
+
+/** An agent's settings, every value a string as `hl agent set <agent> key=value` takes it. Keys an agent may change on itself: model, effort, context_k, handoff_note. Every other key is the founder's (an agent proposes it with hr.propose kind settings). */
+export type AgentSettingValues = {
+  model?: string;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  weight?: "light" | "heavy";
+  repo?: string;
+  skip_permissions?: "on" | "off";
+  /** custom is read-only: set in a terminal. */
+  browser?: "off" | "chrome" | "playwright" | "custom";
+  /** Space-separated origins. */
+  browser_sites?: string;
+  /** Handoff threshold in thousands of tokens, a whole number. */
+  context_k?: string;
+  /** Idle close in whole minutes, 0 never, empty follows the global park_timeout_s. */
+  idle_close?: string;
+  /** default follows the global switch. */
+  handoff_note?: "default" | "on" | "off";
+  /** Why a key, not an is_off/back_on pair: it is already an agent setting (agents.sandbox_on, `hl agent set sandbox=on`), read in AgentDetail.settings and written the same way as every other key. `on` takes effect at once (the key and the grant go now; a running session restarts on the next idle sweep). `off` needs the founder's grant. */
+  sandbox?: "on" | "off";
+  /** Permission mode; bypass only with skip_permissions granted. */
+  mode?: "default" | "auto" | "acceptEdits" | "plan" | "bypass";
+};
+
+/** Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set. */
+export type SettingsValues = {
+  /** Default cap: most agents mid-turn at once on an account with no cap of its own. */
+  active_cap?: number;
+  /** Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`. */
+  park_timeout_s?: number;
+  /** Agents write a note for the next session before a close or move. */
+  handoff_note?: boolean;
+  /** Answer dialogs by the standing rules by itself. */
+  auto_accept_dialogs?: boolean;
+  /** Resume the old session even after its cache went cold. Per agent with `agent`. */
+  ignore_cache_expiry?: boolean;
+  /** The daemon restarts itself when its own code changed (hl dev-mode). */
+  dev_mode?: boolean;
+  /** Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`. */
+  bg_notice_s?: number;
+  /** Seconds after that notice before the work is stopped. Per agent. */
+  bg_grace_s?: number;
+  /** How often an agent with background work is asked which to stop. Per agent. */
+  bg_check_s?: number;
+  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
+  notice_digest_s?: number;
+  /** Seconds an unasked running agent may go before it is asked. */
+  unasked_running_s?: number;
+  /** Backstop for a stop-wait. */
+  stop_wait_backstop_s?: number;
+  /** Seconds of silence after which background work counts as stale. */
+  stale_background_s?: number;
+  /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. */
+  token_prices?: { [key: string]: number };
+  /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
+  input_hold_idle_s?: number;
+};
+
+/** settings.set's changes: any of SettingsValues' keys; null removes one. */
+export type SettingsChanges = {
+  /** Default cap: most agents mid-turn at once on an account with no cap of its own. null removes the key (back to the default). */
+  active_cap?: number | null;
+  /** Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`. null removes the key (back to the default). */
+  park_timeout_s?: number | null;
+  /** Agents write a note for the next session before a close or move. null removes the key (back to the default). */
+  handoff_note?: boolean | null;
+  /** Answer dialogs by the standing rules by itself. null removes the key (back to the default). */
+  auto_accept_dialogs?: boolean | null;
+  /** Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default). */
+  ignore_cache_expiry?: boolean | null;
+  /** The daemon restarts itself when its own code changed (hl dev-mode). null removes the key (back to the default). */
+  dev_mode?: boolean | null;
+  /** Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`. null removes the key (back to the default). */
+  bg_notice_s?: number | null;
+  /** Seconds after that notice before the work is stopped. Per agent. null removes the key (back to the default). */
+  bg_grace_s?: number | null;
+  /** How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default). */
+  bg_check_s?: number | null;
+  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
+  notice_digest_s?: number | null;
+  /** Seconds an unasked running agent may go before it is asked. null removes the key (back to the default). */
+  unasked_running_s?: number | null;
+  /** Backstop for a stop-wait. null removes the key (back to the default). */
+  stop_wait_backstop_s?: number | null;
+  /** Seconds of silence after which background work counts as stale. null removes the key (back to the default). */
+  stale_background_s?: number | null;
+  /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default). */
+  token_prices?: { [key: string]: number } | null;
+  /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
+  input_hold_idle_s?: number | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -532,6 +678,8 @@ export interface Methods {
   protocol: number;
   /** Device token; network listener only. */
   token?: string;
+  /** The founder key, from the founder's own key file; local socket only. Wrong key: refused, gate `role`. */
+  key?: string;
 }; result: {
     /** Newest protocol the daemon speaks. */
     protocol: number;
@@ -561,6 +709,8 @@ export interface Methods {
   topics: Topic[];
   /** Last cursor seen. Absent: live only. */
   since?: number;
+  /** Only events of this agent (events carry `agent`); events with no agent are not sent. Meant for the chat topic. */
+  agent?: AgentName;
 }; result: {
     /** The newest cursor at subscribe time. */
     cursor: number;
@@ -615,7 +765,7 @@ export interface Methods {
   } };
   "agent.set": { params: {
   agent: AgentName;
-  values: { [key: string]: unknown };
+  values: AgentSettingValues;
   speaker?: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -667,6 +817,12 @@ export interface Methods {
   agent: AgentName;
   /** esc, enter, up, down, tab, shift-tab, ctrl-c, 0-9. */
   keys: string[];
+  request_id: RequestId;
+}; result: Accepted };
+  "session.type": { params: {
+  agent: AgentName;
+  /** Printable characters and tab; no other control characters (those are session.keys). */
+  text: string;
   request_id: RequestId;
 }; result: Accepted };
   "session.interrupt": { params: {
@@ -723,12 +879,21 @@ export interface Methods {
     working: Working;
   } };
   "chat.locate": { params: {
-  agent: AgentName;
   request: number;
+  /** Optional: the daemon finds the conversation from the message itself. */
+  agent?: AgentName;
+  /** Page size, default 50. */
+  limit?: number;
 }; result: {
+    /** The agent whose chat shows it. */
+    agent: AgentName;
     /** mine: person and this agent; all: everything it sent or received. */
     scope: "mine" | "all";
     message: ChatMessage;
+    /** A page, newest first, containing message; continue with chat.messages before (older) or since (newer). */
+    messages: ChatMessage[];
+    more_older: boolean;
+    more_newer: boolean;
   } };
   "chat.search": { params: {
   agent?: AgentName;
@@ -761,6 +926,8 @@ export interface Methods {
 }; result: Accepted };
   "chat.withdraw": { params: {
   request: number;
+  /** Why; stored as typed. Empty is bad_request. */
+  reason?: string;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.attach": { params: {
@@ -796,12 +963,16 @@ export interface Methods {
   before?: number;
   /** Default 50, at most 200. */
   limit?: number;
+  /** Hold the call up to this many seconds while nothing unread exists, and return when something arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
+  wait_s?: number;
 }; result: {
     items: InboxItem[];
     more: boolean;
   } };
   "inbox.get": { params: {
   id: number;
+  /** Hold the call up to this many seconds until the request has been answered. Default 0, at most 600. */
+  wait_s?: number;
 }; result: InboxItem };
   "inbox.mark_read": { params: {
   ids: number[];
@@ -827,6 +998,10 @@ export interface Methods {
   before?: number;
   /** Default 50, at most 200. */
   limit?: number;
+  /** Done and discarded tasks too. */
+  all?: boolean;
+  /** Every team's tasks, not only the caller's and its reports'. */
+  everyone?: boolean;
 }; result: {
     items: Task[];
     more: boolean;
@@ -842,6 +1017,17 @@ export interface Methods {
   relation?: string;
   response?: string;
   parent?: number;
+  /** Cannot be worked until this task closes. */
+  blocked_by?: number;
+  /** 1 high, 2 default, 3 low (written P1-P3). */
+  priority?: 1 | 2 | 3;
+  expects?: Expects;
+  /** Also answer the founder's message with text, where {task} is this task's real number. */
+  reply?: {
+    message: number;
+    /** {task} is replaced by the new task's number. */
+    text: string;
+  };
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -854,7 +1040,14 @@ export interface Methods {
 }; result: Accepted };
   "task.done": { params: {
   task: number;
-  evidence: string;
+  /** A merge sha on main, or a reason in words. */
+  evidence?: string;
+  /** A request where the result was already reported. */
+  request?: number;
+  /** The repo whose main a sha is checked against. */
+  repo?: string;
+  /** Record evidence as words even if it looks like hex. */
+  reason?: boolean;
   request_id: RequestId;
 }; result: Accepted };
   "task.reopen": { params: {
@@ -872,6 +1065,10 @@ export interface Methods {
   body?: string;
   /** The founder's message it answers. */
   message: number;
+  priority?: 1 | 2 | 3;
+  expects?: Expects;
+  /** What led to this, in a line. */
+  why: string;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -1006,8 +1203,8 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "hr.propose": { params: {
-  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "context";
-  args: { [key: string]: unknown };
+  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "settings" | "context";
+  args: HrArgs;
   why?: string;
   request_id: RequestId;
 }; result: Accepted & {
@@ -1081,7 +1278,20 @@ export interface Methods {
   } };
   "account.set_cap": { params: {
   account: string;
-  cap_pct: number | null;
+  /** Most agents mid-turn at once (a count, not a percentage). */
+  cap: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "account.set": { params: {
+  account: string;
+  /** Alias, one plain line; empty clears. */
+  label?: string;
+  cap?: number;
+  recover?: boolean;
+  /** The one-month subscription switch (hl account cycle on|off); off keeps the end day. */
+  cycle?: boolean;
+  /** Last usable day YYYY-MM-DD; a date alone turns the cycle on, as `hl account cycle --end` does; null clears it. */
+  cycle_end?: string | null;
   request_id: RequestId;
 }; result: Accepted };
   "account.login": { params: {
@@ -1139,9 +1349,14 @@ export interface Methods {
   "stats.get": { params: {
   window: "24h" | "7d";
 }; result: Stats };
-  "settings.get": { params: { [key: string]: unknown }; result: Settings };
+  "settings.get": { params: {
+  /** Return that agent's own overrides in `overrides`. */
+  agent?: AgentName;
+}; result: Settings };
   "settings.set": { params: {
-  changes: { [key: string]: unknown };
+  changes: SettingsChanges;
+  /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request. */
+  agent?: AgentName;
   request_id: RequestId;
 }; result: Accepted };
   "settings.trust": { params: {
@@ -1150,6 +1365,24 @@ export interface Methods {
     agent: AgentName;
     path: string;
   }[];
+  request_id: RequestId;
+}; result: Accepted };
+  "answers.list": { params: { [key: string]: unknown }; result: {
+    answers: StandingAnswer[];
+  } };
+  "answer.add": { params: {
+  /** A folder to trust; must exist. Give folder, or the three rule fields. */
+  folder?: string;
+  vendor?: string;
+  /** The dialog's title; a long command's truncated title is refused. */
+  title?: string;
+  /** The option label to choose. */
+  label?: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "answer.remove": { params: {
+  kind: "trust" | "dialog";
+  key: string[];
   request_id: RequestId;
 }; result: Accepted };
   "devices.list": { params: { [key: string]: unknown }; result: {
@@ -1205,6 +1438,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "session.park": { role: "agent", callers: null, write: true, since: 1 },
   "session.input": { role: "member", callers: null, write: true, since: 1 },
   "session.keys": { role: "member", callers: null, write: true, since: 1 },
+  "session.type": { role: "member", callers: null, write: true, since: 1 },
   "session.interrupt": { role: "member", callers: null, write: true, since: 1 },
   "prompt.list": { role: "member", callers: null, write: false, since: 1 },
   "prompt.answer": { role: "member", callers: null, write: true, since: 1 },
@@ -1272,6 +1506,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "hr.decide": { role: "founder", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "account.set_cap": { role: "founder", callers: null, write: true, since: 1 },
+  "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
@@ -1285,6 +1520,9 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "settings.trust": { role: "founder", callers: null, write: true, since: 1 },
+  "answers.list": { role: "founder", callers: null, write: false, since: 1 },
+  "answer.add": { role: "founder", callers: null, write: true, since: 1 },
+  "answer.remove": { role: "founder", callers: null, write: true, since: 1 },
   "devices.list": { role: "founder", callers: null, write: false, since: 1 },
   "device.pair": { role: "founder", callers: null, write: true, since: 1 },
   "device.redeem": { role: "anonymous", callers: null, write: true, since: 1 },
@@ -1335,6 +1573,11 @@ export interface Notifications {
   kind: "daemon_typed" | "control";
   actor: Actor | null;
   text?: string;
+};
+  holder: {
+  terminal: string;
+  seq: number;
+  holders: InputHolder[];
 };
 }
 

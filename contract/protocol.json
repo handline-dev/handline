@@ -9,14 +9,16 @@
  "x-framing": {
   "reach": "v1 reaches this machine, the LAN or Tailscale only (founder decision 3): the network listener binds the address the config names (default loopback; a LAN or Tailscale address is opt-in), always speaks an encrypted WebSocket whose certificate fingerprint is in the pairing QR, and has no relay or public endpoint.",
   "transport": [
-   "Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line",
+   "Unix socket (0600, owned by the local user; the role is proven by hello, not by the socket), one JSON-RPC 2.0 object per line",
    "WebSocket (network listener, off by default), one object per text frame"
   ],
   "lines": "UTF-8 JSON, terminated by \\n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.",
   "ids": "Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.",
   "params": "By name only.",
   "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
-  "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again."
+  "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.",
+  "unknown_method": "A method the daemon does not know is JSON-RPC error -32601 with data.code `bad_request` and data.method; a method it knows but the caller's role may not call is `refused`, gate `role`.",
+  "idle": "A line begun but not finished within 30 s is dropped with bad_request, and so is a connection that has not said hello within 30 s. After hello, a connection with nothing in flight is closed after 3600 s without a byte. A subscribed or terminal-attached connection has no idle limit (the daemon notices a dead peer by a failed write); the subscribe and terminal tasks must build that. A call that waits (inbox wait_s) is in flight."
  },
  "x-handshake": "The first call is hello. Compatibility: adding a method or field never changes protocol; removing or changing one does, and the daemon then serves old and new side by side for one release. Clients ignore unknown fields and unknown enum-like strings (state words, kinds, event types). A client that does not know the daemon's protocol refuses to run and prints the one command that fixes it: `hl service install`.",
  "x-roles": {
@@ -26,7 +28,7 @@
    "member",
    "founder"
   ],
-  "rule": "x-role on a method is the lowest role that may call it. The local user on the local socket is founder; a paired device is member; a call from inside an agent session is agent (peer-pid check); an unauthenticated network connection is anonymous. A call below its role is refused, gate `role`."
+  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous and may call only hello (and device.redeem on the network listener). A call below its role is refused, gate `role`."
  },
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
@@ -91,7 +93,7 @@
   "hl read": "inbox.get",
   "hl say": "say",
   "hl ask": "ask",
-  "hl withdraw": "task.withdraw",
+  "hl withdraw": "chat.withdraw",
   "hl land": "land",
   "hl land --pass": "land.pass",
   "hl hook": "hook.record",
@@ -359,9 +361,34 @@
     ]
    },
    "note": "The daemon typed, or a control call happened, at this point in the stream."
+  },
+  "holder": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      }
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "holders"
+    ]
+   },
+   "note": "Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders."
   }
  },
- "x-terminal": "Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves.",
+ "x-terminal": "Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
  "methods": [
   {
    "name": "hello",
@@ -390,6 +417,14 @@
      "schema": {
       "type": "string",
       "description": "Device token; network listener only."
+     }
+    },
+    {
+     "name": "key",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The founder key, from the founder's own key file; local socket only. Wrong key: refused, gate `role`."
      }
     }
    ],
@@ -481,7 +516,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request."
+   "description": "A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request. Role by proof: a matching `key` gives founder; with no key, a peer pid that verifies against a recorded session gives agent; a device token (network listener) gives member; anything else is anonymous and every method but hello is refused until a later hello proves more."
   },
   {
    "name": "whoami",
@@ -538,6 +573,14 @@
      "schema": {
       "type": "integer",
       "description": "Last cursor seen. Absent: live only."
+     }
+    },
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Only events of this agent (events carry `agent`); events with no agent are not sent. Meant for the chat topic."
      }
     }
    ],
@@ -923,7 +966,7 @@
   },
   {
    "name": "agent.set",
-   "summary": "An agent changes its own settings (legacy agent_set).",
+   "summary": "Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -937,8 +980,7 @@
      "name": "values",
      "required": true,
      "schema": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "#/components/schemas/AgentSettingValues"
      }
     },
     {
@@ -971,6 +1013,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ],
    "x-gates": [
@@ -1447,6 +1492,61 @@
    ]
   },
   {
+   "name": "session.type",
+   "summary": "Plain typing into the pane: characters sent as typed, no Enter, no prompt checks.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Printable characters and tab; no other control characters (those are session.keys)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder"
+   ],
+   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog."
+  },
+  {
    "name": "session.interrupt",
    "summary": "Stop the turn in progress (Esc). The daemon never does this by itself.",
    "paramStructure": "by-name",
@@ -1886,21 +1986,30 @@
   },
   {
    "name": "chat.locate",
-   "summary": "Which scope and page show a message number.",
+   "summary": "Where a message number sits: its conversation, scope, and the page of messages around it.",
    "paramStructure": "by-name",
    "params": [
-    {
-     "name": "agent",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
     {
      "name": "request",
      "required": true,
      "schema": {
       "type": "integer"
+     }
+    },
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Optional: the daemon finds the conversation from the message itself."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Page size, default 50."
      }
     }
    ],
@@ -1908,7 +2017,19 @@
     "name": "result",
     "schema": {
      "type": "object",
+     "required": [
+      "agent",
+      "scope",
+      "message",
+      "messages",
+      "more_older",
+      "more_newer"
+     ],
      "properties": {
+      "agent": {
+       "$ref": "#/components/schemas/AgentName",
+       "description": "The agent whose chat shows it."
+      },
       "scope": {
        "type": "string",
        "enum": [
@@ -1919,12 +2040,21 @@
       },
       "message": {
        "$ref": "#/components/schemas/ChatMessage"
+      },
+      "messages": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ChatMessage"
+       },
+       "description": "A page, newest first, containing message; continue with chat.messages before (older) or since (newer)."
+      },
+      "more_older": {
+       "type": "boolean"
+      },
+      "more_newer": {
+       "type": "boolean"
       }
-     },
-     "required": [
-      "scope",
-      "message"
-     ]
+     }
     }
    },
    "x-role": "member",
@@ -2170,6 +2300,14 @@
      }
     },
     {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Why; stored as typed. Empty is bad_request."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2192,6 +2330,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2454,6 +2595,16 @@
       "type": "integer",
       "description": "Default 50, at most 200."
      }
+    },
+    {
+     "name": "wait_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600,
+      "description": "Hold the call up to this many seconds while nothing unread exists, and return when something arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle."
+     }
     }
    ],
    "result": {
@@ -2479,7 +2630,8 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "x-note": "hl inbox --wait is this call with wait_s; hl read --wait is inbox.get with wait_s."
   },
   {
    "name": "inbox.get",
@@ -2491,6 +2643,16 @@
      "required": true,
      "schema": {
       "type": "integer"
+     }
+    },
+    {
+     "name": "wait_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600,
+      "description": "Hold the call up to this many seconds until the request has been answered. Default 0, at most 600."
      }
     }
    ],
@@ -2511,7 +2673,7 @@
   },
   {
    "name": "inbox.mark_read",
-   "summary": "Mark items read.",
+   "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2692,6 +2854,22 @@
       "type": "integer",
       "description": "Default 50, at most 200."
      }
+    },
+    {
+     "name": "all",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Done and discarded tasks too."
+     }
+    },
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's tasks, not only the caller's and its reports'."
+     }
     }
    ],
    "result": {
@@ -2802,6 +2980,55 @@
      }
     },
     {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Cannot be worked until this task closes."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "expects",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Expects"
+     }
+    },
+    {
+     "name": "reply",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "message": {
+        "type": "integer"
+       },
+       "text": {
+        "type": "string",
+        "description": "{task} is replaced by the new task's number."
+       }
+      },
+      "required": [
+       "message",
+       "text"
+      ],
+      "description": "Also answer the founder's message with text, where {task} is this task's real number."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2905,9 +3132,34 @@
     },
     {
      "name": "evidence",
-     "required": true,
+     "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "A merge sha on main, or a reason in words."
+     }
+    },
+    {
+     "name": "request",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A request where the result was already reported."
+     }
+    },
+    {
+     "name": "repo",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The repo whose main a sha is checked against."
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Record evidence as words even if it looks like hex."
      }
     },
     {
@@ -2933,8 +3185,12 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request."
   },
   {
    "name": "task.reopen",
@@ -3057,6 +3313,33 @@
      "schema": {
       "type": "integer",
       "description": "The founder's message it answers."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "name": "expects",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Expects"
+     }
+    },
+    {
+     "name": "why",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "What led to this, in a line."
      }
     },
     {
@@ -4235,7 +4518,7 @@
   },
   {
    "name": "hr.propose",
-   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, context).",
+   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4250,6 +4533,7 @@
        "link",
        "unlink",
        "team",
+       "settings",
        "context"
       ]
      }
@@ -4258,8 +4542,7 @@
      "name": "args",
      "required": true,
      "schema": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "#/components/schemas/HrArgs"
      }
     },
     {
@@ -4771,7 +5054,7 @@
   },
   {
    "name": "account.set_cap",
-   "summary": "Set or clear an account's cap.",
+   "summary": "Set an account's cap, the most agents mid-turn at once (hl account cap).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4782,17 +5065,12 @@
      }
     },
     {
-     "name": "cap_pct",
+     "name": "cap",
      "required": true,
      "schema": {
-      "oneOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "type": "integer",
+      "minimum": 1,
+      "description": "Most agents mid-turn at once (a count, not a percentage)."
      }
     },
     {
@@ -4818,8 +5096,101 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "account.set",
+   "summary": "The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "label",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Alias, one plain line; empty clears."
+     }
+    },
+    {
+     "name": "cap",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    {
+     "name": "recover",
+     "required": false,
+     "schema": {
+      "type": "boolean"
+     }
+    },
+    {
+     "name": "cycle",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "The one-month subscription switch (hl account cycle on|off); off keeps the end day."
+     }
+    },
+    {
+     "name": "cycle_end",
+     "required": false,
+     "schema": {
+      "oneOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Last usable day YYYY-MM-DD; a date alone turns the cycle on, as `hl account cycle --end` does; null clears it."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields."
   },
   {
    "name": "account.login",
@@ -5273,7 +5644,16 @@
    "name": "settings.get",
    "summary": "Timings, terminal host, trust folders, hooks installed.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Return that agent's own overrides in `overrides`."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -5286,15 +5666,22 @@
   },
   {
    "name": "settings.set",
-   "summary": "Change settings; keys as settings.get names them.",
+   "summary": "Change settings: any keys of SettingsValues, globally or as one agent's override.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "changes",
      "required": true,
      "schema": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "#/components/schemas/SettingsChanges"
+     }
+    },
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request."
      }
     },
     {
@@ -5377,6 +5764,150 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "answers.list",
+   "summary": "The founder's saved answers: trusted folders and dialog rules (Home settings).",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "answers": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/StandingAnswer"
+       }
+      }
+     },
+     "required": [
+      "answers"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "answer.add",
+   "summary": "Save a standing answer: a folder to trust, or a dialog rule (vendor, title and label).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "folder",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A folder to trust; must exist. Give folder, or the three rule fields."
+     }
+    },
+    {
+     "name": "vendor",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "title",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The dialog's title; a long command's truncated title is refused."
+     }
+    },
+    {
+     "name": "label",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The option label to choose."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs."
+  },
+  {
+   "name": "answer.remove",
+   "summary": "Remove a standing answer by the kind and key answers.list gave.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "kind",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "trust",
+       "dialog"
+      ]
+     }
+    },
+    {
+     "name": "key",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -5986,6 +6517,13 @@
         "type": "null"
        }
       ]
+     },
+     "input_holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      },
+      "description": "Who holds the input; one in v1, a list so more can later."
      }
     },
     "required": [
@@ -6057,13 +6595,6 @@
        "session_open": {
         "type": "boolean"
        },
-       "input_holders": {
-        "type": "array",
-        "items": {
-         "$ref": "#/components/schemas/InputHolder"
-        },
-        "description": "Who holds the input; one in v1, a list so more can later."
-       },
        "account_pick": {
         "type": "object",
         "properties": {
@@ -6096,6 +6627,9 @@
           "type": "null"
          }
         ]
+       },
+       "settings": {
+        "$ref": "#/components/schemas/AgentSettingValues"
        }
       },
       "required": [
@@ -6625,16 +7159,6 @@
        }
       ]
      },
-     "cap_pct": {
-      "oneOf": [
-       {
-        "type": "number"
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
      "agents": {
       "type": "array",
       "items": {
@@ -6677,6 +7201,60 @@
         "reason"
        ]
       }
+     },
+     "label": {
+      "type": "string",
+      "description": "The name screens show; the account's own name until an alias is set."
+     },
+     "cap": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The account's own cap: most agents mid-turn at once; null follows active_cap."
+     },
+     "cap_effective": {
+      "type": "integer",
+      "description": "The cap in force: cap, else the active_cap setting."
+     },
+     "recover": {
+      "type": "boolean",
+      "description": "Whether a dead usage read may spend one real turn to fix itself (hl account recover)."
+     },
+     "cycle": {
+      "type": "object",
+      "required": [
+       "on",
+       "end",
+       "end_is_default"
+      ],
+      "properties": {
+       "on": {
+        "type": "boolean",
+        "description": "One-month subscription; off is renewing."
+       },
+       "end": {
+        "oneOf": [
+         {
+          "type": "string",
+          "format": "date",
+          "description": "Last usable day, YYYY-MM-DD."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "end_is_default": {
+        "type": "boolean",
+        "description": "end is the next monthly anniversary of the subscription start, not typed."
+       }
+      }
      }
     },
     "required": [
@@ -6684,9 +7262,13 @@
      "login_state",
      "five_hour",
      "weekly",
-     "cap_pct",
      "agents",
-     "moves"
+     "moves",
+     "label",
+     "cap",
+     "cap_effective",
+     "recover",
+     "cycle"
     ]
    },
    "DaemonStatus": {
@@ -7369,6 +7951,14 @@
        "installed",
        "accounts"
       ]
+     },
+     "values": {
+      "$ref": "#/components/schemas/SettingsValues"
+     },
+     "overrides": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "With settings.get `agent`: only that agent's own values for the Per agent keys."
      }
     },
     "required": [
@@ -7376,7 +7966,8 @@
      "terminal_host",
      "listener",
      "trust_folders",
-     "hooks"
+     "hooks",
+     "values"
     ]
    },
    "Device": {
@@ -7533,7 +8124,15 @@
       ]
      },
      "holder": {
-      "$ref": "#/components/schemas/InputHolder"
+      "$ref": "#/components/schemas/InputHolder",
+      "description": "The first of holders; kept for clients written to the single value."
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      },
+      "description": "Everyone who holds the input, oldest first; one in v1."
      }
     },
     "required": [
@@ -7545,7 +8144,8 @@
      "lines",
      "cursor",
      "history",
-     "holder"
+     "holder",
+     "holders"
     ]
    },
    "Memo": {
@@ -7621,14 +8221,8 @@
       "$ref": "#/components/schemas/Timestamp"
      },
      "state_at": {
-      "oneOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ]
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When the request entered its current state (queued, typed, landed, withdrawn...). Never null; the creation time until it first changes."
      },
      "from": {
       "type": "string"
@@ -7769,7 +8363,8 @@
      "kind",
      "tasks",
      "is_task_question"
-    ]
+    ],
+    "description": "One request between the person and an agent."
    },
    "TranscriptItem": {
     "type": "object",
@@ -7982,6 +8577,472 @@
     "minLength": 1,
     "maxLength": 128,
     "description": "Chosen by the caller; unique per intended action."
+   },
+   "Expects": {
+    "type": "string",
+    "enum": [
+     "sha",
+     "verdict",
+     "decision",
+     "report"
+    ],
+    "description": "What task.done must be given: sha, verdict, decision or report (default; decision when the owner is human)."
+   },
+   "HrArgs": {
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false,
+    "description": "What the proposal changes, by kind (hl hr). Every kind needs name.",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "The agent the proposal is about (the new agent's name for add; a team's manager for team)."
+     },
+     "team": {
+      "type": "string"
+     },
+     "repo": {
+      "type": "string"
+     },
+     "model": {
+      "type": "string"
+     },
+     "effort": {
+      "type": "string"
+     },
+     "vendor": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string",
+      "description": "rename: the new name; link, unlink: the other end."
+     },
+     "response": {
+      "type": "string"
+     },
+     "relation": {
+      "type": "string"
+     },
+     "members": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "team: each a suffix (`sea` is `name.sea`) or a full name."
+     },
+     "repos": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "team: repo by member."
+     },
+     "sets": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` (at most 1024 bytes) or `base.md` (at most 2048 bytes); empty text, control characters other than tab and newline, or a file over its budget is bad_request."
+     }
+    }
+   },
+   "StandingAnswer": {
+    "type": "object",
+    "required": [
+     "kind",
+     "key",
+     "text"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "trust",
+       "dialog"
+      ],
+      "description": "trust: a folder trusted for every session; dialog: a rule that answers a vendor's dialog."
+     },
+     "key": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "What answer.remove takes: [folder] for trust, [vendor, title, label] for dialog."
+     },
+     "text": {
+      "type": "string"
+     }
+    }
+   },
+   "AgentSettingValues": {
+    "type": "object",
+    "additionalProperties": false,
+    "description": "An agent's settings, every value a string as `hl agent set <agent> key=value` takes it. Keys an agent may change on itself: model, effort, context_k, handoff_note. Every other key is the founder's (an agent proposes it with hr.propose kind settings).",
+    "properties": {
+     "model": {
+      "type": "string"
+     },
+     "effort": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "weight": {
+      "type": "string",
+      "enum": [
+       "light",
+       "heavy"
+      ]
+     },
+     "repo": {
+      "type": "string"
+     },
+     "skip_permissions": {
+      "type": "string",
+      "enum": [
+       "on",
+       "off"
+      ]
+     },
+     "browser": {
+      "type": "string",
+      "enum": [
+       "off",
+       "chrome",
+       "playwright",
+       "custom"
+      ],
+      "description": "custom is read-only: set in a terminal."
+     },
+     "browser_sites": {
+      "type": "string",
+      "description": "Space-separated origins."
+     },
+     "context_k": {
+      "type": "string",
+      "description": "Handoff threshold in thousands of tokens, a whole number."
+     },
+     "idle_close": {
+      "type": "string",
+      "description": "Idle close in whole minutes, 0 never, empty follows the global park_timeout_s."
+     },
+     "handoff_note": {
+      "type": "string",
+      "enum": [
+       "default",
+       "on",
+       "off"
+      ],
+      "description": "default follows the global switch."
+     },
+     "sandbox": {
+      "type": "string",
+      "enum": [
+       "on",
+       "off"
+      ],
+      "description": "Why a key, not an is_off/back_on pair: it is already an agent setting (agents.sandbox_on, `hl agent set sandbox=on`), read in AgentDetail.settings and written the same way as every other key. `on` takes effect at once (the key and the grant go now; a running session restarts on the next idle sweep). `off` needs the founder's grant."
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "default",
+       "auto",
+       "acceptEdits",
+       "plan",
+       "bypass"
+      ],
+      "description": "Permission mode; bypass only with skip_permissions granted."
+     }
+    }
+   },
+   "SettingsValues": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "active_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "Default cap: most agents mid-turn at once on an account with no cap of its own."
+     },
+     "park_timeout_s": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 600,
+      "description": "Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`."
+     },
+     "handoff_note": {
+      "type": "boolean",
+      "default": true,
+      "description": "Agents write a note for the next session before a close or move."
+     },
+     "auto_accept_dialogs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Answer dialogs by the standing rules by itself."
+     },
+     "ignore_cache_expiry": {
+      "type": "boolean",
+      "default": false,
+      "description": "Resume the old session even after its cache went cold. Per agent with `agent`."
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "The daemon restarts itself when its own code changed (hl dev-mode)."
+     },
+     "bg_notice_s": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`."
+     },
+     "bg_grace_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 300,
+      "description": "Seconds after that notice before the work is stopped. Per agent."
+     },
+     "bg_check_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 600,
+      "description": "How often an agent with background work is asked which to stop. Per agent."
+     },
+     "notice_digest_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 900,
+      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
+     },
+     "unasked_running_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 900,
+      "description": "Seconds an unasked running agent may go before it is asked."
+     },
+     "stop_wait_backstop_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 900,
+      "description": "Backstop for a stop-wait."
+     },
+     "stale_background_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3000,
+      "description": "Seconds of silence after which background work counts as stale."
+     },
+     "token_prices": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "default": {},
+      "description": "Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored."
+     },
+     "input_hold_idle_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 600,
+      "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice)."
+     }
+    },
+    "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
+   },
+   "SettingsChanges": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "active_cap": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Default cap: most agents mid-turn at once on an account with no cap of its own. null removes the key (back to the default)."
+     },
+     "park_timeout_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "handoff_note": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Agents write a note for the next session before a close or move. null removes the key (back to the default)."
+     },
+     "auto_accept_dialogs": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Answer dialogs by the standing rules by itself. null removes the key (back to the default)."
+     },
+     "ignore_cache_expiry": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "dev_mode": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The daemon restarts itself when its own code changed (hl dev-mode). null removes the key (back to the default)."
+     },
+     "bg_notice_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "bg_grace_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds after that notice before the work is stopped. Per agent. null removes the key (back to the default)."
+     },
+     "bg_check_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default)."
+     },
+     "notice_digest_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
+     },
+     "unasked_running_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds an unasked running agent may go before it is asked. null removes the key (back to the default)."
+     },
+     "stop_wait_backstop_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Backstop for a stop-wait. null removes the key (back to the default)."
+     },
+     "stale_background_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds of silence after which background work counts as stale. null removes the key (back to the default)."
+     },
+     "token_prices": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default)."
+     },
+     "input_hold_idle_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default)."
+     }
+    },
+    "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
    }
   },
   "errors": {
@@ -8008,7 +9069,7 @@
    "bad_request": {
     "code": -32600,
     "message": "bad_request",
-    "data": "{code, field?}; also JSON-RPC parse errors (-32700) and invalid params (-32602)."
+    "data": "{code, field?, method?}; also JSON-RPC parse errors (-32700), invalid params (-32602) and an unknown method (-32601, data.method)."
    },
    "internal": {
     "code": -32603,

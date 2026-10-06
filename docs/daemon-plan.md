@@ -110,7 +110,7 @@ WebSocket; a Tailscale address is just the address it binds.
   carrying the same JSON-RPC lines over an encrypted WebSocket. The network listener is off by
   default and bound to the address the config names.
 - **Roles.** `founder`, `member` (a paired device with limited rights) and `agent` (a call from
-  inside an agent session). The local user on the local socket is the founder. The spec marks every
+  inside an agent session). Roles are proven, not assumed: the founder by the founder key in `hello` (the local user is not enough, because agents run as that user), an agent by a peer pid that verifies against a recorded session, a member by a device token; anything else is anonymous and may call only `hello`. The spec marks every
   method with the lowest role that may call it, and `hello` returns the caller's role and the
   methods it may use, so the UI can grey the rest. Founder only: schedules, role changes, the
   roster, settings and device management. The agent role keeps every `hl` command an agent runs today,

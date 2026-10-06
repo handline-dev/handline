@@ -5,7 +5,7 @@ OpenRPC-shaped. Source of contract/protocol.md and contract/protocol.ts: regener
 
 ## Framing
 
-- **Transport:** Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line; WebSocket (network listener, off by default), one object per text frame.
+- **Transport:** Unix socket (0600, owned by the local user; the role is proven by hello, not by the socket), one JSON-RPC 2.0 object per line; WebSocket (network listener, off by default), one object per text frame.
 - **Reach:** v1 reaches this machine, the LAN or Tailscale only (founder decision 3): the network listener binds the address the config names (default loopback; a LAN or Tailscale address is opt-in), always speaks an encrypted WebSocket whose certificate fingerprint is in the pairing QR, and has no relay or public endpoint.
 - **Lines:** UTF-8 JSON, terminated by \n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.
 - **Ids:** Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.
@@ -19,7 +19,7 @@ The first call is hello. Compatibility: adding a method or field never changes p
 
 ## Roles
 
-Order: anonymous < agent < member < founder. x-role on a method is the lowest role that may call it. The local user on the local socket is founder; a paired device is member; a call from inside an agent session is agent (peer-pid check); an unauthenticated network connection is anonymous. A call below its role is refused, gate `role`.
+Order: anonymous < agent < member < founder. x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous and may call only hello (and device.redeem on the network listener). A call below its role is refused, gate `role`.
 
 ## Errors
 
@@ -31,7 +31,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `refused` | -32002 | RefusalData |
 | `stale_prompt` | -32003 | {code, current: Prompt\|null}; nothing was sent. |
 | `daemon_busy` | -32004 | {code, retry_after_ms} |
-| `bad_request` | -32600 | {code, field?}; also JSON-RPC parse errors (-32700) and invalid params (-32602). |
+| `bad_request` | -32600 | {code, field?, method?}; also JSON-RPC parse errors (-32700), invalid params (-32602) and an unknown method (-32601, data.method). |
 | `internal` | -32603 | {code} |
 | `daemon_down` | none (client side) | {code, log_path}; raised by the client library, never sent on the wire. |
 
@@ -56,9 +56,9 @@ A method marked write takes a required `request_id`.
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `hello` | anonymous |  | `client`, `protocol`, `token?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
+| `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
 | `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
-| `subscribe` | agent |  | `topics`, `since?` | `{cursor}` |  |  |
+| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` |  |  |
 | `unsubscribe` | agent |  | `topics` | `object` |  |  |
 | `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
 | `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` |  |  |
@@ -68,7 +68,7 @@ A method marked write takes a required `request_id`.
 | `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
 | `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {operation}` | `refused`, `not_found` |  |
-| `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
+| `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | not_self |
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `session.start` | agent | yes | `agent`, `account?`, `repo?`, `base?`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
@@ -78,6 +78,7 @@ A method marked write takes a required `request_id`.
 | `session.park` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
 | `session.input` | member | yes | `agent`, `text`, `enter?`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, wall, screen_blocker |
 | `session.keys` | member | yes | `agent`, `keys`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder |
+| `session.type` | member | yes | `agent`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder |
 | `session.interrupt` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder |
 | `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
@@ -86,30 +87,30 @@ A method marked write takes a required `request_id`.
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
 | `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found` |  |
 | `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found` |  |
-| `chat.locate` | member |  | `agent`, `request` | `{scope, message}` | `not_found` |  |
+| `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `chat.withdraw` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?` | `TerminalSnapshot` | `not_found`, `bad_request` |  |
 | `terminal.history` | member |  | `terminal`, `before`, `limit` | `HistoryPage` | `not_found` |  |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
 | `terminal.close` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, state |
 | `terminal.detach` | member |  | `terminal` | `object` | `not_found` |  |
-| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?` | `{items, more}` |  |  |
-| `inbox.get` | agent |  | `id` | `InboxItem` | `not_found` |  |
+| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
+| `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?` | `{items, more}` |  |  |
+| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?` | `{items, more}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.done` | agent | yes | `task`, `evidence`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
-| `task.begin` | agent | yes | `title`, `body?`, `message`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
 | `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found` |  |
@@ -144,7 +145,8 @@ A method marked write takes a required `request_id`.
 | `hr.list` | agent |  | `state?` | `{proposals}` |  |  |
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `accounts.list` | agent |  | none | `{accounts}` |  |  |
-| `account.set_cap` | founder | yes | `account`, `cap_pct`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `account.set_cap` | founder | yes | `account`, `cap`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {terminal}` | `refused`, `not_found` |  |
 | `repos.list` | member |  | none | `{repos}` |  |  |
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
@@ -155,9 +157,12 @@ A method marked write takes a required `request_id`.
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` |  |  |
-| `settings.get` | founder |  | none | `Settings` |  |  |
-| `settings.set` | founder | yes | `changes`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `settings.get` | founder |  | `agent?` | `Settings` |  |  |
+| `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused` |  |
+| `answers.list` | founder |  | none | `{answers}` |  |  |
+| `answer.add` | founder | yes | `folder?`, `vendor?`, `title?`, `label?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `answer.remove` | founder | yes | `kind`, `key`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `devices.list` | founder |  | none | `{devices}` |  |  |
 | `device.pair` | founder | yes | `name?`, `request_id` | `Accepted & {code, expires_at, fingerprint, uri}` | `refused` |  |
 | `device.redeem` | anonymous | yes | `code`, `name`, `request_id` | `Accepted & {token, device}` | `refused` | attempt_limit |
@@ -167,7 +172,7 @@ Per-method summaries and field types are in `protocol.json` and `protocol.ts`.
 
 ### `hello`
 
-First call on every connection: versions and who the caller is. A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request.
+First call on every connection: versions and who the caller is. A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request. Role by proof: a matching `key` gives founder; with no key, a peer pid that verifies against a recorded session gives agent; a device token (network listener) gives member; anything else is anonymous and every method but hello is refused until a later hello proves more.
 
 ### `whoami`
 
@@ -215,7 +220,7 @@ Register, make the worktree, start. Long-running: progress arrives on `operation
 
 ### `agent.set`
 
-An agent changes its own settings (legacy agent_set).
+Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).
 
 ### `agent.fold`
 
@@ -253,6 +258,10 @@ Type text at the prompt; Enter optional.
 
 Named keys for menus and dialogs.
 
+### `session.type`
+
+Plain typing into the pane: characters sent as typed, no Enter, no prompt checks. Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog.
+
 ### `session.interrupt`
 
 Stop the turn in progress (Esc). The daemon never does this by itself.
@@ -287,7 +296,7 @@ The agent's replies, tool activity, prompt cards and task events as ordered item
 
 ### `chat.locate`
 
-Which scope and page show a message number.
+Where a message number sits: its conversation, scope, and the page of messages around it.
 
 ### `chat.search`
 
@@ -339,7 +348,7 @@ One item (hl read).
 
 ### `inbox.mark_read`
 
-Mark items read.
+Mark items read; an id that is not yours is not_found.
 
 ### `inbox.answer`
 
@@ -367,7 +376,7 @@ Hand a task to another agent.
 
 ### `task.done`
 
-Finish a task with evidence.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request.
 
 ### `task.reopen`
 
@@ -475,7 +484,7 @@ A hook records an event; the spool replays it with the same request_id.
 
 ### `hr.propose`
 
-Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, context).
+Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context).
 
 ### `hr.withdraw`
 
@@ -519,7 +528,11 @@ Accounts with login state, use, cap, agents, recent moves.
 
 ### `account.set_cap`
 
-Set or clear an account's cap.
+Set an account's cap, the most agents mid-turn at once (hl account cap).
+
+### `account.set`
+
+The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
 
 ### `account.login`
 
@@ -567,11 +580,23 @@ Timings, terminal host, trust folders, hooks installed.
 
 ### `settings.set`
 
-Change settings; keys as settings.get names them.
+Change settings: any keys of SettingsValues, globally or as one agent's override.
 
 ### `settings.trust`
 
 Trust worktree folders for an account (legacy trust).
+
+### `answers.list`
+
+The founder's saved answers: trusted folders and dialog rules (Home settings).
+
+### `answer.add`
+
+Save a standing answer: a folder to trust, or a dialog rule (vendor, title and label). Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs.
+
+### `answer.remove`
+
+Remove a standing answer by the kind and key answers.list gave.
 
 ### `devices.list`
 
@@ -626,7 +651,7 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl read` | `inbox.get` |
 | `hl say` | `say` |
 | `hl ask` | `ask` |
-| `hl withdraw` | `task.withdraw` |
+| `hl withdraw` | `chat.withdraw` |
 | `hl land` | `land` |
 | `hl land --pass` | `land.pass` |
 | `hl hook` | `hook.record` |
@@ -682,10 +707,11 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 - `frame`: full:true carries every line and is what a slow client gets instead of a backlog. Params: `{   terminal: string;   seq: number;   full: boolean;   lines?: Row[];   changed?: {     y: number;     row: Row;   }[];   cursor: Cursor; }`
 - `resize`:  Params: `{   terminal: string;   seq: number;   cols: number;   rows: number; }`
 - `marker`: The daemon typed, or a control call happened, at this point in the stream. Params: `{   terminal: string;   seq: number;   at: Timestamp;   kind: "daemon_typed" | "control";   actor: Actor | null;   text?: string; }`
+- `holder`: Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders. Params: `{   terminal: string;   seq: number;   holders: InputHolder[]; }`
 
 ## Terminal channel
 
-Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves.
+Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.
 
 ## Legacy verbs
 
