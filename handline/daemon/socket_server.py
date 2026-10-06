@@ -231,7 +231,10 @@ class SocketServer:
         self._thread = threading.Thread(target=self._accept_loop, daemon=True,
                                         name="ocp-daemon-socket")
         self._thread.start()
-        self._relay.start()
+        try:
+            self._relay.start()
+        except OSError as e:
+            self._log(f"relay socket: could not start ({e}) - continuing without it")
         self._watcher.start()
 
     def _accept_loop(self) -> None:

@@ -6,7 +6,8 @@ device. The end of the connection is the gateway's word that the device left or 
 attaches go with it.
 
 Who may connect is the point. The gateway writes its pid in the protected store (no sandbox can write it); a peer is accepted
-only when it is that process and no session `hl launch` recorded sits above it. Anything else, and every case where either
+only when it is that process, one that started before the file was written (a pid the gateway left behind when it died and another
+process took is later), and no session `hl launch` recorded sits above it. Anything else, and every case where either
 cannot be read, is closed without a byte. The device's role is taken as given up to member, never above.
 """
 from __future__ import annotations
@@ -34,8 +35,12 @@ def gateway_pid() -> int | None:
 
 
 def trusted(peer: int | None) -> bool:
-    """Whether `peer` is the gateway: the recorded pid, and not a process of any agent's session."""
+    """Whether `peer` is the gateway: the recorded pid, started before the file naming it was written (a process that has since taken
+    a dead gateway's pid starts later), and not a process of any agent's session. What cannot be told is a no."""
     if not peer or peer != gateway_pid():
+        return False
+    started, written = sessiontoken.started_at(peer), protected.written_at(NS, NAME)
+    if started is None or written is None or started > written:
         return False
     try:
         list((protected.root() / sessiontoken.NS).iterdir())

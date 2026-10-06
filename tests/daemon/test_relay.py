@@ -90,6 +90,20 @@ def test_a_peer_that_is_not_the_gateway_gets_nothing(home: Path) -> None:
         check("relay: the recorded pid inside an agent's session is closed without a byte", _nothing_at_all(Relay(), opening))
     finally:
         sessiontoken.agent_of = real
+    real_start = sessiontoken.started_at
+    sessiontoken.started_at = lambda pid: protected.written_at(relay.NS, relay.NAME) + 5     # a process that came after the file: a reused pid
+    try:
+        check("relay: the recorded pid held by a process that started after the file was written is closed without a byte", _nothing_at_all(Relay(), opening))
+        sessiontoken.started_at = lambda pid: None
+        check("relay: a start time that cannot be read refuses everything", _nothing_at_all(Relay(), opening))
+        sessiontoken.started_at = lambda pid: protected.written_at(relay.NS, relay.NAME) - 5   # the gateway, started before it wrote its pid
+        r = Relay()
+        check("relay: the recorded pid started before the file was written is served", r.open() == {"jsonrpc": "2.0", "id": 0, "result": {"ok": True}})
+        r.close()
+    finally:
+        sessiontoken.started_at = real_start
+    check("relay: the real start time of this process is before the file written now and not after it", (_record_gateway(os.getpid()), True)[1]
+          and sessiontoken.started_at(os.getpid()) <= protected.written_at(relay.NS, relay.NAME))
     folder = protected.root() / sessiontoken.NS
     folder.mkdir(parents=True, exist_ok=True)
     folder.chmod(0)
