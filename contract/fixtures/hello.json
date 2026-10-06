@@ -1,0 +1,176 @@
+{
+ "fixtures": [
+  {
+   "name": "hello.ok",
+   "spec": "hello",
+   "about": "The first call gives versions, the caller's role and the methods it may use.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "protocol": {
+       "$type": "integer"
+      },
+      "min_client": {
+       "$type": "integer"
+      },
+      "daemon": {
+       "$type": "string"
+      },
+      "schema": {
+       "$type": "integer"
+      },
+      "capabilities": {
+       "chat": {
+        "$type": "boolean"
+       },
+       "review": {
+        "$type": "boolean"
+       },
+       "input_ask": {
+        "$type": "boolean"
+       },
+       "terminal_format": {
+        "$contains": "text"
+       }
+      },
+      "transport": "local",
+      "methods": {
+       "$contains": {
+        "name": "hello",
+        "since": {
+         "$type": "integer"
+        },
+        "role": "anonymous",
+        "allowed": true
+       }
+      },
+      "role": "founder",
+      "caller": {
+       "kind": "person",
+       "name": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hello.newer_client_is_served",
+   "spec": "hello",
+   "about": "A client newer than the daemon gets a normal reply and decides itself whether to run.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 99
+      }
+     },
+     "result": {
+      "protocol": {
+       "$type": "integer"
+      },
+      "min_client": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hello.refuses_a_client_below_min_client",
+   "spec": "hello",
+   "about": "Protocol 0 is below any min_client: refused, gate protocol, with the command that fixes it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 0
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": "refused",
+      "data": {
+       "code": "refused",
+       "gate": "protocol",
+       "hint": "hl service install",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hello.requires_protocol",
+   "spec": "hello",
+   "about": "Missing required params are invalid params.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": "bad_request",
+      "data": {
+       "code": "bad_request",
+       "field": "protocol"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hello.must_come_first",
+   "spec": "hello",
+   "about": "Any other call before hello is bad_request.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "whoami",
+      "params": {}
+     },
+     "error": {
+      "code": -32600,
+      "message": "bad_request",
+      "data": {
+       "code": "bad_request"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

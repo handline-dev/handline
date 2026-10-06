@@ -1,0 +1,160 @@
+{
+ "fixtures": [
+  {
+   "name": "whoami.founder",
+   "spec": "whoami",
+   "about": "The local founder: role, caller and the methods it may call, with allowed flags in hello.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "role": "founder",
+      "methods": {
+       "$contains": {
+        "name": "settings.set",
+        "allowed": true
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "caller": {
+       "kind": "person"
+      },
+      "role": "founder",
+      "methods": {
+       "$contains": "settings.set"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "whoami.agent",
+   "spec": "whoami",
+   "about": "A call from inside an agent session: role agent; its own commands allowed, founder-only ones not.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "role": "agent",
+      "caller": {
+       "kind": "agent",
+       "name": {
+        "$type": "string"
+       }
+      },
+      "methods": {
+       "$contains": {
+        "name": "task.new",
+        "allowed": true
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "methods": {
+       "$contains": {
+        "name": "settings.set",
+        "allowed": false
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "role": "agent",
+      "caller": {
+       "kind": "agent"
+      },
+      "methods": {
+       "$contains": "task.new"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "whoami.refused_to_anonymous",
+   "spec": "whoami",
+   "about": "An unauthenticated connection may call only hello: whoami is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "role": "anonymous",
+      "caller": {
+       "kind": "anonymous"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "whoami",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "message": "refused",
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

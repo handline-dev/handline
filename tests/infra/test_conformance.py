@@ -1,0 +1,209 @@
+"""Tests: the conformance harness (contract/conformance.py) runs the fixtures in contract/fixtures against a fake server.
+
+Run on its own: python3 tests/infra/test_conformance.py   (all areas: python3 tests/test_ocp.py)
+"""
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import support  # noqa: E402
+from support import *  # noqa: E402,F401,F403
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "contract"))
+import conformance  # noqa: E402
+
+SPEC = json.loads((ROOT / "contract" / "protocol.json").read_text())
+METHODS = {m["name"]: m for m in SPEC["methods"]}
+RANK = {r: i for i, r in enumerate(SPEC["x-roles"]["order"])}
+
+
+def _err(code, message, **data):
+    return {"code": code, "message": message, "data": {"code": message, **data}}
+
+
+class FakeDaemon:
+    """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
+
+    def __init__(self, role: str):
+        self.role = role
+
+    def connect(self) -> socket.socket:
+        """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
+        client, server = socket.socketpair()
+        threading.Thread(target=self._serve, args=(server,), daemon=True).start()
+        return client
+
+    def listen(self, path: str) -> None:
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(path)
+        srv.listen(8)
+        def accept():
+            while True:
+                try:
+                    conn, _ = srv.accept()
+                except OSError:
+                    return
+                threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+        threading.Thread(target=accept, daemon=True).start()
+
+    def _serve(self, conn):
+        said_hello, buf = False, b""
+        with conn:
+            while True:
+                try:
+                    chunk = conn.recv(65536)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    reply, said_hello = self._answer(line, said_hello)
+                    conn.sendall(json.dumps(reply).encode() + b"\n")
+
+    def _answer(self, line: bytes, said_hello: bool):
+        try:
+            req = json.loads(line)
+        except ValueError:
+            return {"jsonrpc": "2.0", "id": None, "error": _err(-32700, "bad_request")}, said_hello
+        if not isinstance(req, dict):
+            return {"jsonrpc": "2.0", "id": None, "error": _err(-32600, "bad_request")}, said_hello
+        rid, method, params = req.get("id"), req.get("method"), req.get("params") or {}
+        def fail(e): return {"jsonrpc": "2.0", "id": rid, "error": e}
+        def ok(r): return {"jsonrpc": "2.0", "id": rid, "result": r}
+        if method == "hello":
+            if "protocol" not in params:
+                return fail(_err(-32602, "bad_request", field="protocol")), said_hello
+            if params["protocol"] < 1:
+                return fail({"code": -32002, "message": "refused", "data": {
+                    "code": "refused", "gate": "protocol", "reason": "too old", "hint": "hl service install"}}), said_hello
+            kind = {"founder": "person", "agent": "agent", "anonymous": "anonymous"}[self.role]
+            methods = [{"name": n, "since": 1, "role": m["x-role"], "allowed": RANK[m["x-role"]] <= RANK[self.role]}
+                       for n, m in METHODS.items()]
+            return ok({"protocol": 1, "min_client": 1, "daemon": "fake", "schema": 1, "role": self.role,
+                       "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": methods,
+                       "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text"]}}), True
+        if method == "batch" or not said_hello:
+            return fail(_err(-32600, "bad_request")), said_hello
+        m = METHODS.get(method)
+        if m is None or RANK[m["x-role"]] > RANK[self.role]:
+            return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "role"}}), said_hello
+        if method == "whoami":
+            return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
+                       "methods": [n for n, mm in METHODS.items() if RANK[mm["x-role"]] <= RANK[self.role]]}), said_hello
+        if method == "agent.get":
+            if "agent" not in params:
+                return fail(_err(-32602, "bad_request", field="agent")), said_hello
+            return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
+        return fail(_err(-32600, "bad_request")), said_hello
+
+
+FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
+
+
+def _fakes(*roles: str) -> dict:
+    return {r: FakeDaemon(r).connect for r in roles}
+
+
+def _count(results, status: str) -> int:
+    return sum(1 for s, _, _ in results if s == status)
+
+
+def test_the_fixtures_pass_against_a_fake_daemon() -> None:
+    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous"), {})
+    bad = [(n, why) for s, why, n in results if s != "pass"]
+    check("conformance: every fixture passes against the fake daemon", not bad and results, str(bad))
+    check("conformance: each fixture is reported by name", {"hello.ok", "errors.not_found"} <= {n for _, _, n in results})
+
+
+def test_a_role_without_a_socket_is_skipped_not_passed() -> None:
+    results = conformance.run_all(FILES, _fakes("founder"), {})
+    skipped = {n for s, _, n in results if s == "skip"}
+    check("conformance: fixtures for roles with no socket are skipped", {"whoami.agent", "errors.refused_by_role"} <= skipped and not _count(results, "fail"), str(results))
+
+
+def test_a_wrong_reply_fails_that_fixture(td) -> None:
+    path = Path(td) / "bad.json"
+    path.write_text(json.dumps({"fixtures": [{"name": "bad.case", "as": "founder", "steps": [
+        {"send": {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"client": "t", "protocol": 1}}, "result": {"role": "agent"}}]}]}))
+    [(status, why, name)] = conformance.run_all([path], _fakes("founder"), {})
+    check("conformance: a reply that differs fails, naming the path and both values",
+          status == "fail" and "result.role" in why and '"agent"' in why and '"founder"' in why, why)
+    path.write_text(json.dumps({"fixtures": [{"name": "bad.close", "as": "founder", "steps": [
+        {"raw": "{", "error": {"code": -32700}, "closed": True}]}]}))
+    [(status, why, _)] = conformance.run_all([path], _fakes("founder"), {})
+    check("conformance: a connection that stays open fails a closed:true step", status == "fail", why)
+
+
+def test_the_command_line_runs_against_a_socket_path(td) -> None:
+    try:     # a unix socket path is short, so not under td
+        path = os.path.join(tempfile.mkdtemp(prefix="cf", dir="/tmp"), "s")
+        FakeDaemon("founder").listen(path)
+    except PermissionError:
+        print("note: this run may not bind a socket; the command line check was not run")
+        return
+    r = subprocess.run([sys.executable, str(ROOT / "contract" / "conformance.py"), path, "--only", "hello"], capture_output=True, text=True)
+    check("conformance: the command line reports per fixture and exits 0", r.returncode == 0 and "PASS  hello.ok" in r.stdout and "0 failed" in r.stdout, r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, str(ROOT / "contract" / "conformance.py")], capture_output=True, text=True)
+    check("conformance: no socket is a usage error", r.returncode == 2)
+
+
+def test_matchers() -> None:
+    def ok(want, got, saved=None):
+        try:
+            conformance.matches(want, got, saved if saved is not None else {})
+            return True
+        except conformance.Mismatch:
+            return False
+    saved: dict = {}
+    check("conformance: objects match as subsets", ok({"a": 1}, {"a": 1, "b": 2}) and not ok({"a": 1}, {"b": 2}))
+    check("conformance: arrays match element by element", ok([1, 2], [1, 2]) and not ok([1], [1, 2]))
+    check("conformance: a bool is not an integer", not ok({"$type": "integer"}, True) and ok({"$type": "boolean"}, True))
+    check("conformance: $contains, $oneOf, $regex, $absent",
+          ok({"$contains": {"n": 1}}, [{"n": 0}, {"n": 1}]) and not ok({"$contains": 3}, [1, 2])
+          and ok({"$oneOf": ["a", "b"]}, "b") and ok({"$regex": "^ab"}, "abc") and ok({"k": {"$absent": True}}, {}) and not ok({"k": {"$absent": True}}, {"k": 1}))
+    check("conformance: $save keeps the value for {{name}}", ok({"$save": "x", "$type": "integer"}, 7, saved) and
+          conformance.substitute({"id": "{{x}}", "s": "n{{x}}"}, saved) == {"id": 7, "s": "n7"})
+    check("conformance: timestamps are RFC 3339 UTC", ok({"$type": "timestamp"}, "2026-10-06T09:00:00Z") and not ok({"$type": "timestamp"}, "yesterday"))
+
+
+def test_fixtures_follow_the_format_and_the_spec() -> None:
+    files = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
+    fixtures = conformance.load(files)
+    names = [f["name"] for f in fixtures]
+    check("conformance: fixture names are unique", len(names) == len(set(names)))
+    spec_keys = set(METHODS) | {k for k in SPEC if k.startswith("x-")}
+    check("conformance: every fixture names the spec method or x- section it pins", all(f.get("spec") in spec_keys for f in fixtures),
+          str([f["name"] for f in fixtures if f.get("spec") not in spec_keys]))
+    check("conformance: every fixture has a role, an about line and steps that expect something",
+          all(f.get("as", "founder") in RANK and f.get("about") and f["steps"] and all(
+              ("send" in s) != ("raw" in s) and ("result" in s or "error" in s or "closed" in s) for s in f["steps"]) for f in fixtures))
+    sent = {s["send"]["method"] for f in fixtures for s in f["steps"] if "send" in s}
+    check("conformance: every method a fixture sends is in the spec", sent <= set(METHODS), str(sent - set(METHODS)))
+    refused = {f["spec"] for f in fixtures for s in f["steps"] if "error" in s}
+    check("conformance: hello and whoami each have a refusal or error case", {"hello", "whoami"} <= refused, str(refused))
+
+
+def main() -> int:
+    def tests(td):
+        run(lambda: test_the_fixtures_pass_against_a_fake_daemon())
+        run(lambda: test_a_role_without_a_socket_is_skipped_not_passed())
+        run(lambda: test_a_wrong_reply_fails_that_fixture(td))
+        run(lambda: test_the_command_line_runs_against_a_socket_path(td))
+        run(lambda: test_matchers())
+        run(lambda: test_fixtures_follow_the_format_and_the_spec())
+    return run_area(tests)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
