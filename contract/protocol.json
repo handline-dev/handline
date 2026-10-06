@@ -4382,7 +4382,7 @@
    },
    "AgentName": {
     "type": "string",
-    "description": "An agent's name, e.g. orcapipe.daemon.contract."
+    "description": "An agent's name, as hl team lists it."
    },
    "Role": {
     "type": "string",
@@ -4406,7 +4406,7 @@
      "operations",
      "chat"
     ],
-    "description": "chat is added for the chat view (T1690 memo, UI design b7594c0b): messages, landing state, transcript items and working state of one agent; events carry `agent`."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`."
    },
    "Caller": {
     "type": "object",

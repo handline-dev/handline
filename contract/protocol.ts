@@ -4,13 +4,13 @@
 /** UTC, RFC 3339. */
 export type Timestamp = string;
 
-/** An agent's name, e.g. orcapipe.daemon.contract. */
+/** An agent's name, as hl team lists it. */
 export type AgentName = string;
 
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (T1690 memo, UI design b7594c0b): messages, landing state, transcript items and working state of one agent; events carry `agent`. */
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. */
 export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat";
 
 export type Caller = {
