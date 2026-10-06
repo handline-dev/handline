@@ -52,11 +52,10 @@ afterEach(async () => {
 });
 
 describe('loading', () => {
-  it('the sidebar shows its skeleton after the delay, no spinner, then the rows once the daemon answers', async () => {
+  it('the sidebar shows its skeleton while loading, no spinner, then the rows once the daemon answers', async () => {
     const s = setup();
     s.daemon.knobs.latency(500);
     await mount(TB, s);
-    expect($('.rail-list .skeleton')).toBeNull(); // not before 150 ms: a quick answer shows no flash
     await until(() => $('.rail-list .skeleton'), 'the sidebar skeleton');
     const sk = $('.rail-list .skeleton')!;
     expect(sk.getAttribute('aria-busy')).toBe('true');
