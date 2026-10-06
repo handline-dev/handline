@@ -1,6 +1,6 @@
 // Screen B: the agent page. Chat on one side (empty until the daemon serves chat), a movable pane with the live terminal on the other.
 import type { AgentDetail, Prompt } from '../src/protocol.ts';
-import { h } from './dom.ts';
+import { h, keyed } from './dom.ts';
 import {
   ago, controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, saveLayout, STOP_MODES,
   type Dock, type KV, type PaneLayout, type StopMode,
@@ -14,6 +14,12 @@ const DOCKS: [Dock, string, string][] = [['left', '◧', 'Dock left'], ['right',
 export class AgentPage {
   el: HTMLElement;
   private header = h('header', { class: 'agent-head' });
+  private title = h('div', { class: 'agent-title' });
+  private actions = h('div', { class: 'agent-actions' });
+  private narrow = h('div', { class: 'narrow-tabs' });
+  private banner = h('div', { class: 'banner-slot' });
+  private paneHead = h('div', { class: 'pane-head' });
+  private chips = h('div', { class: 'chips' });
   private cards = h('div', { class: 'cards' });
   private chatBox = h('section', { class: 'chat' });
   private paneBox = h('section', { class: 'pane-area' });
@@ -29,6 +35,7 @@ export class AgentPage {
     this.store = store; this.agent = agent; this.storage = storage;
     this.layout = loadLayout(storage, agent);
     this.terminal = new TerminalPane(store, agent);
+    this.header.append(this.title, this.actions, this.narrow, this.banner);
     this.el = h('div', { class: 'agent-page' }, this.header,
       h('div', { class: 'agent-body' }, this.chatBox, this.paneBox));
     this.buildChat(); this.buildPane();
@@ -57,23 +64,22 @@ export class AgentPage {
   // ---- pane ----
 
   private buildPane(): void {
-    this.paneBox.append(h('div', { class: 'pane-head' }), this.terminal.el, h('div', { class: 'chips' }));
+    this.paneBox.append(this.paneHead, this.terminal.el, this.chips);
   }
 
   private renderPane(d: AgentDetail | undefined): void {
     const l = this.layout, c = d ? controlsOf(d, this.store.me) : null;
     this.paneBox.hidden = !l.open;
-    const head = this.paneBox.querySelector('.pane-head')!;
-    head.replaceChildren(
+    keyed(this.paneHead, l.dock, () => [
       h('div', { class: 'tabs', role: 'tablist' },
         h('button', { class: 'tab on', role: 'tab', 'aria-selected': 'true' }, 'Claude Code ',
           h('span', { class: 'x', title: 'Close the pane; the agent keeps running', onclick: () => this.setLayout({ open: false }) }, '✕')),
         h('button', { class: 'tab', role: 'tab', disabled: true, title: 'A shell pane needs the daemon to serve shell terminals' }, 'shell')),
       h('div', { class: 'docks' }, ...DOCKS.map(([dock, glyph, title]) =>
-        h('button', { class: `icon${l.dock === dock ? ' on' : ''}`, title, 'aria-label': title, onclick: () => this.setLayout({ dock }) }, glyph))));
-    const chips = this.paneBox.querySelector('.chips')!;
-    chips.replaceChildren(...CHIPS.map(([key, label]) =>
-      h('button', { class: 'chip', disabled: !d?.session_open || (!!c && !c.typing && !c.take), title: `Send ${label}`, onclick: () => void this.press(key) }, label)));
+        h('button', { class: `icon${l.dock === dock ? ' on' : ''}`, title, 'aria-label': title, onclick: () => this.setLayout({ dock }) }, glyph)))]);
+    const keysOn = !!d?.session_open && (!c || c.typing || c.take);
+    keyed(this.chips, keysOn, () => CHIPS.map(([key, label]) =>
+      h('button', { class: 'chip', disabled: !keysOn, title: `Send ${label}`, onclick: () => void this.press(key) }, label)));
     this.terminal.setDialog(!!d?.prompt || !!d?.has_dialog, !!d?.terminal);
   }
 
@@ -83,7 +89,6 @@ export class AgentPage {
     if (!d) return;
     if (!controlsOf(d, this.store.me).typing && !(await this.store.act('take control', () => this.store.client.takeInput(this.agent)))) return;
     await this.store.act('key', () => this.store.client.sendKeys(this.agent, key));
-    await this.store.watch(this.agent);
   }
 
   // ---- header and cards ----
@@ -107,32 +112,37 @@ export class AgentPage {
 
   private render(): void {
     const a = this.store.agents.get(this.agent), d = this.store.details.get(this.agent);
-    if (!a) { this.header.replaceChildren(h('p', { class: 'muted' }, this.store.conn === 'open' ? `No agent named ${this.agent}.` : 'Connecting…')); return; }
+    if (!a) {
+      keyed(this.title, this.store.conn, () => [h('p', { class: 'muted' }, this.store.conn === 'open' ? `No agent named ${this.agent}.` : 'Connecting…')]);
+      this.actions.replaceChildren(); this.actions.dataset.sig = '';
+      return;
+    }
     const c = d ? controlsOf(d, this.store.me) : null;
     const accounts = [...new Set([...this.store.agents.values()].map((x) => x.account).filter((x): x is string => !!x))];
-    this.header.replaceChildren(
-      h('div', { class: 'agent-title' },
-        h('span', { class: `dot ${dotOf(a)}`, title: a.state }), h('strong', null, a.name),
-        h('span', { class: 'muted' }, [a.model, a.account, a.task?.title, d?.worktree ? `worktree ${d.worktree.branch}` : null].filter(Boolean).join(' · ')),
-        h('span', { class: 'state' }, `${a.state} ${ago(a.state_since)}`)),
-      h('div', { class: 'agent-actions' },
-        c?.start ? h('button', { class: 'btn primary', onclick: () => void this.store.act('start', () => this.store.client.startSession(this.agent, this.account || undefined)) }, '▶ Start') : null,
-        c?.start ? h('select', { 'aria-label': 'Account for this start', title: d ? `The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})` : '',
-          onchange: (e: Event) => { this.account = (e.target as HTMLSelectElement).value; } },
-          h('option', { value: '' }, `account: ${d?.account_pick.account ?? 'auto'}`), ...accounts.map((x) => h('option', { value: x, selected: x === this.account }, x))) : null,
-        c?.resume ? h('button', { class: 'btn', onclick: () => void this.store.act('resume', () => this.store.client.call('session.wake', { agent: this.agent })) }, '⟳ Resume') : null,
-        c?.stop ? h('details', { class: 'menu' }, h('summary', { class: 'btn' }, '■ Stop ▾'),
-          h('div', { class: 'menu-list' }, ...STOP_MODES.map((m) =>
-            h('button', { class: 'menu-item', onclick: (e: Event) => { (e.target as HTMLElement).closest('details')!.removeAttribute('open'); void this.stop(m.mode); } },
-              h('strong', null, m.label), h('span', { class: 'muted' }, ` ${m.hint}`))))) : null,
-        d ? h('span', { class: 'holder', title: 'Who may type now' }, `input: ${holderLabel(d.input_holders[0], this.store.me)}`) : null,
-        c?.take ? h('button', { class: 'btn', onclick: () => void this.store.act('take control', () => this.store.client.takeInput(this.agent)) }, 'Take control') : null,
-        c?.release ? h('button', { class: 'btn', onclick: () => void this.store.act('release', () => this.store.client.releaseInput(this.agent)) }, 'Release') : null,
-        !this.layout.open ? h('button', { class: 'btn', onclick: () => this.setLayout({ open: true }) }, 'Show pane') : null),
-      h('div', { class: 'narrow-tabs' }, ...(['chat', 'claude'] as const).map((t) =>
-        h('button', { class: `tab${this.layout.tab === t ? ' on' : ''}`, onclick: () => this.setLayout({ tab: t, open: true }) }, t === 'chat' ? 'Chat' : 'Claude Code'))),
-      ...(a.block ? [h('div', { class: 'banner' }, `Blocked: ${a.block.kind}${a.wall_reason ? ` (${a.wall_reason})` : ''} since ${ago(a.block.since)}`)] : []));
-    this.cards.replaceChildren(...(d?.prompt ? [this.card(d.prompt)] : []));
+    // Each part is rebuilt only when what it shows changed, so an open Stop menu or account list survives other agents' events.
+    keyed(this.title, [a.state, a.state_since, a.model, a.account, a.task, a.role, d?.worktree?.branch, dotOf(a)], () => [
+      h('span', { class: `dot ${dotOf(a)}`, title: a.state }), h('strong', null, a.name),
+      h('span', { class: 'muted' }, [a.model, a.account, a.task?.title, d?.worktree ? `worktree ${d.worktree.branch}` : null].filter(Boolean).join(' · ')),
+      h('span', { class: 'state' }, `${a.state} ${ago(a.state_since)}`)]);
+    keyed(this.actions, [c, accounts, d?.account_pick, d?.input_holders, this.store.me, this.layout.open, this.account], () => [
+      c?.start ? h('button', { class: 'btn primary', onclick: () => void this.store.act('start', () => this.store.client.startSession(this.agent, this.account || undefined)) }, '▶ Start') : null,
+      c?.start ? h('select', { 'aria-label': 'Account for this start', title: d ? `The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})` : '',
+        onchange: (e: Event) => { this.account = (e.target as HTMLSelectElement).value; } },
+        h('option', { value: '' }, `account: ${d?.account_pick.account ?? 'auto'}`), ...accounts.map((x) => h('option', { value: x, selected: x === this.account }, x))) : null,
+      c?.resume ? h('button', { class: 'btn', onclick: () => void this.store.act('resume', () => this.store.client.restartSession(this.agent)) }, '⟳ Resume') : null,
+      c?.stop ? h('details', { class: 'menu' }, h('summary', { class: 'btn' }, '■ Stop ▾'),
+        h('div', { class: 'menu-list' }, ...STOP_MODES.map((m) =>
+          h('button', { class: 'menu-item', onclick: (e: Event) => { (e.target as HTMLElement).closest('details')!.removeAttribute('open'); void this.stop(m.mode); } },
+            h('strong', null, m.label), h('span', { class: 'muted' }, ` ${m.hint}`))))) : null,
+      d ? h('span', { class: 'holder', title: 'Who may type now' }, `input: ${holderLabel(d.input_holders[0], this.store.me)}`) : null,
+      c?.take ? h('button', { class: 'btn', onclick: () => void this.store.act('take control', () => this.store.client.takeInput(this.agent)) }, 'Take control') : null,
+      c?.release ? h('button', { class: 'btn', onclick: () => void this.store.act('release', () => this.store.client.releaseInput(this.agent)) }, 'Release') : null,
+      !this.layout.open ? h('button', { class: 'btn', onclick: () => this.setLayout({ open: true }) }, 'Show pane') : null]);
+    keyed(this.narrow, this.layout.tab, () => (['chat', 'claude'] as const).map((t) =>
+      h('button', { class: `tab${this.layout.tab === t ? ' on' : ''}`, onclick: () => this.setLayout({ tab: t, open: true }) }, t === 'chat' ? 'Chat' : 'Claude Code')));
+    keyed(this.banner, [a.block, a.wall_reason], () => a.block
+      ? [h('div', { class: 'banner' }, `Blocked: ${a.block.kind}${a.wall_reason ? ` (${a.wall_reason})` : ''} since ${ago(a.block.since)}`)] : []);
+    keyed(this.cards, d?.prompt, () => d?.prompt ? [this.card(d.prompt)] : []);
     this.el.dataset.dock = this.layout.dock;
     this.el.dataset.tab = this.layout.tab;
     this.renderPane(d);

@@ -1,5 +1,6 @@
 // Runs the fake daemon on a Unix socket (lines) and a WebSocket port (for the browser), LAN/localhost only.
 //   node fake-daemon/serve.ts [--socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS]
+import type https from 'node:https';
 import net from 'node:net';
 import type { Transport } from '../src/transport.ts';
 import { wrapSocket } from '../src/node-socket.ts';
@@ -12,8 +13,8 @@ export function serveSocket(daemon: FakeDaemon, listen: string | number): net.Se
   server.listen(listen as never);
   return server;
 }
-export function serveWs(daemon: FakeDaemon, port: number, host = '127.0.0.1') {
-  const server = wsServer((t: Transport) => daemon.accept(t));
+export function serveWs(daemon: FakeDaemon, port: number, host = '127.0.0.1', tls?: https.ServerOptions) {
+  const server = wsServer((t: Transport) => daemon.accept(t), tls);
   server.listen(port, host);
   return server;
 }

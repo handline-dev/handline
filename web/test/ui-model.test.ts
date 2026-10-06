@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, Prompt } from '../src/protocol.ts';
 import {
-  controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, railGroups, saveLayout, typedFrom, DEFAULT_LAYOUT, type KV,
+  controlsOf, dotOf, holderLabel, loadLayout, needsConfirm, offered, railGroups, saveLayout, keyFrom, DEFAULT_LAYOUT, DAEMON_KEYS, type KV,
 } from '../ui/model.ts';
 
 const agent = (name: string, over: Partial<AgentView> = {}): AgentView => ({
@@ -35,15 +35,26 @@ test('a child whose parent is filtered out still shows', () => {
   assert.deepEqual(railGroups(list, 'role', { search: 'kid' })[0].rows.map((r) => r.agent.name), ['kid']);
 });
 
-test('typed keys: named keys, printable text, and only keys while a dialog is open', () => {
-  assert.deepEqual(typedFrom(key('Escape'), false), { kind: 'key', name: 'esc' });
-  assert.deepEqual(typedFrom(key('Tab', { shiftKey: true }), false), { kind: 'key', name: 'shift-tab' });
-  assert.deepEqual(typedFrom(key('c', { ctrlKey: true }), false), { kind: 'key', name: 'ctrl-c' });
-  assert.deepEqual(typedFrom(key('a'), false), { kind: 'text', text: 'a' });
-  assert.equal(typedFrom(key('a'), true), null);
-  assert.deepEqual(typedFrom(key('2'), true), { kind: 'key', name: '2' });
-  assert.equal(typedFrom(key('v', { metaKey: true }), false), null);
-  assert.equal(typedFrom(key('Shift'), false), null);
+test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {
+  assert.deepEqual(keyFrom(key('Escape'), false), { name: 'esc' });
+  assert.deepEqual(keyFrom(key('Tab', { shiftKey: true }), false), { name: 'shift-tab' });
+  assert.deepEqual(keyFrom(key('c', { ctrlKey: true }), false), { name: 'ctrl-c' });
+  assert.equal(keyFrom(key('a'), false), null); // arrives as an input event
+  assert.equal(keyFrom(key('Process'), false), null); // IME
+  assert.equal(keyFrom(key('ㅎ', { isComposing: true }), false), null);
+  assert.equal(keyFrom(key('Enter', { isComposing: true }), false), null); // Enter that commits a composition
+  assert.equal(keyFrom(key('v', { metaKey: true }), false), null); // paste
+  assert.equal(keyFrom(key('Shift'), false), null);
+  assert.deepEqual(keyFrom(key('2'), true), { name: '2' });
+  assert.deepEqual(keyFrom(key('a'), true), { swallow: true }); // only keys pass while a dialog is open
+});
+
+test('a key the daemon cannot take yet is reported, and goes through once the names are known', () => {
+  assert.deepEqual(keyFrom(key('Backspace'), false), { unavailable: 'Backspace' });
+  assert.deepEqual(keyFrom(key('ArrowLeft'), false), { unavailable: 'ArrowLeft' });
+  const later = new Set([...DAEMON_KEYS, 'backspace', 'left']);
+  assert.deepEqual(keyFrom(key('Backspace'), false, later), { name: 'backspace' });
+  assert.deepEqual(keyFrom(key('ArrowLeft'), false, later), { name: 'left' });
 });
 
 test('a permission card offers only yes and no; other dialogs offer everything', () => {

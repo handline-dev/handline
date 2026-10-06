@@ -103,6 +103,7 @@ kbd { font: 11px var(--mono); padding: 0 4px; border: 1px solid var(--line); bor
 .docks { display: flex; gap: 2px; padding-bottom: 3px; }
 .terminal { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--term-bg); }
 .grid { flex: 1; margin: 0; padding: 8px 10px; overflow: auto; color: var(--term-ink); font: 13px/1.35 var(--mono); white-space: pre; outline-offset: -2px; }
+.grid-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; resize: none; }
 .grid-status { color: var(--wait); font-size: 12px; padding: 0 10px 6px; }
 .grid-status:empty { display: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-top: 1px solid var(--line); }

@@ -43,11 +43,15 @@ for the phone (design 7.4, 4.2); pair device; a real icon (the manifest's are pl
 permission card, empty chat, a dockable live text-grid terminal pane with key chips). It uses `src/` as is and the types of
 `contract/protocol.ts`; no framework and no build step.
 
-- Run: `cd web && npm run ui`, then open http://127.0.0.1:8080/ (starts the fake daemon on ws 7777). Against another daemon:
-  `node serve-ui.ts --port 8080`, then `/ui/?daemon=ws://host:port`.
+- Run: `cd web && npm run ui`, then open http://127.0.0.1:8080/ (starts the fake daemon on ws 7777). TLS is the rule: add
+  `--cert FILE --key FILE` for https (and wss for the fake daemon); without a cert only loopback is served, plain, for development.
+  The page connects to its own host on 7777, `wss` on an https page; another daemon: `/ui/?daemon=wss://host:port`
+  (plain `ws://` is refused unless the daemon is on this machine).
 - `serve-ui.ts` type-strips `.ts` per request, so the browser loads the same files the tests run; Electron can load the same URL.
 - `ui/model.ts` (what the screens decide) and `ui/store.ts` (agents, detail, events) have no DOM and are tested in Node.
 - Type check: `tsc -p ui`.
+- Typing goes through a focused hidden textarea (input and composition events), so IME text and paste work; Backspace, Delete,
+  Left, Right, Home and End are mapped but say "the daemon cannot take it yet" until `session.keys` names them (`DAEMON_KEYS` in `ui/model.ts`).
 - To type in the terminal, press Take control first (the daemon stops typing there until Release); key chips take it for you.
 - Not built yet: Inbox, Tasks, Team, Accounts and the other screens (their top-bar buttons are disabled); chat (needs `chat.*`
   from the daemon); a shell pane (needs shell terminals).

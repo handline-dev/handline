@@ -13,3 +13,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props | 
   el.append(...kids.filter((c): c is Node | string => c !== null && c !== false && c !== undefined));
   return el;
 }
+
+/** Rebuilds `el`'s children only when `sig` changed since the last call, so a busy event stream leaves open menus, focus and clicks alone. */
+export function keyed(el: HTMLElement, sig: unknown, build: () => Child[]): void {
+  const s = JSON.stringify(sig);
+  if (el.dataset.sig === s) return;
+  el.dataset.sig = s;
+  el.replaceChildren(...build().filter((c): c is Node | string => c !== null && c !== false && c !== undefined));
+}

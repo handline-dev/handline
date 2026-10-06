@@ -83,18 +83,30 @@ export function offered(p: Prompt): PromptOption[] {
   return p.kind === 'permission' ? p.options.filter((o) => o.answer === 'yes' || o.answer === 'no') : p.options;
 }
 
-export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean };
-export type Typed = { kind: 'key'; name: string } | { kind: 'text'; text: string };
+export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };
 
-/** A browser key event as the daemon's input: a named key (`session.keys`) or printable text (`session.input`). */
-export function typedFrom(e: KeyEvent, dialogOpen: boolean): Typed | null {
+/** The key names `session.keys` takes (contract/protocol.json). Add the editing keys here when the contract names them. */
+export const DAEMON_KEYS: ReadonlySet<string> = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', ...'0123456789']);
+
+const NAMED: Record<string, string> = {
+  Escape: 'esc', Enter: 'enter', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+  Backspace: 'backspace', Delete: 'delete', Home: 'home', End: 'end',
+};
+
+/**
+ * What a keydown in the terminal sends: a named key the daemon takes, or null to leave the event alone. Printable text
+ * is not read here: it arrives through the input and compositionend events of the focused textarea, which is what makes
+ * IME composition and paste work. `unavailable` is set when the person pressed a key the daemon cannot take yet.
+ */
+export function keyFrom(e: KeyEvent, dialogOpen: boolean, keys: ReadonlySet<string> = DAEMON_KEYS): { name: string } | { unavailable: string } | { swallow: true } | null {
+  if (e.isComposing || e.key === 'Process' || e.key === 'Dead') return null;
   if (e.metaKey || e.altKey) return null;
-  if (e.ctrlKey) return e.key.toLowerCase() === 'c' ? { kind: 'key', name: 'ctrl-c' } : null;
-  const named: Record<string, string> = { Escape: 'esc', Enter: 'enter', ArrowUp: 'up', ArrowDown: 'down', Tab: e.shiftKey ? 'shift-tab' : 'tab' };
-  if (named[e.key]) return { kind: 'key', name: named[e.key] };
+  if (e.ctrlKey) return e.key.toLowerCase() === 'c' ? { name: 'ctrl-c' } : null;
+  const name = e.key === 'Tab' ? (e.shiftKey ? 'shift-tab' : 'tab') : NAMED[e.key];
+  if (name) return keys.has(name) ? { name } : { unavailable: e.key };
   if (e.key.length !== 1) return null;
-  if (dialogOpen) return /^[0-9]$/.test(e.key) ? { kind: 'key', name: e.key } : null; // a dialog is a menu: only keys pass
-  return { kind: 'text', text: e.key };
+  if (!dialogOpen) return null; // printable text comes from the textarea's input event
+  return /^[0-9]$/.test(e.key) ? { name: e.key } : { swallow: true }; // a dialog is a menu: only keys pass
 }
 
 export type Dock = 'right' | 'left' | 'bottom' | 'full';
