@@ -5,7 +5,7 @@ the agent's **Claude Code / Codex terminal**, **simulator / emulator**, **web**,
 to split the view, up to **four** panes; every tab but Chat can be closed.
 
 This replaces the agent page of `docs/web-ui-design.md` §3.2 (header controls, one pane area beside the chat) and feeds units 3 and 4 of
-`docs/turborepo-layout.md` (§7 below). Written against main @2f7de798 and the API spec in `contract/`.
+`docs/turborepo-layout.md` (§7). Written against main @2f7de798 and the API spec in `contract/`.
 
 ## 1. What changes from the approved design
 
