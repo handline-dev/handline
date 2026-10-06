@@ -14,7 +14,8 @@ export type WriteMethod = Exclude<
   ReadMethod | (typeof NOT_QUERIES)[number] | (typeof NOT_FROM_UI)[number] | (typeof PAIRING)[number]
 >;
 
-type Snapshot = [Key, unknown][];
+/** An entry as it was before the edit, and as the edit left it: a refusal restores it only if nothing else has changed it since. */
+type Snapshot = { key: Key; before: unknown; after: unknown }[];
 const FED = new Set<string>(Object.values(reads).flatMap((r) => ('feed' in r ? [r.resource] : [])));
 
 const writeKey = (daemon: string, method: string) => ['w', daemon, method] as const;
@@ -37,9 +38,9 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
       if (spec.kind !== 'authored') return { snapshot: [] };
       const keys = spec.touches?.(daemon, p as never) ?? [];
       await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey })));
-      const snapshot: Snapshot = keys.flatMap((queryKey) => qc.getQueriesData({ queryKey }));
+      const before = keys.flatMap((queryKey) => qc.getQueriesData({ queryKey }));
       spec.patch?.(ctx(), p as never);
-      return { snapshot };
+      return { snapshot: before.map(([key, data]) => ({ key, before: data, after: qc.getQueryData(key) })) };
     },
     onError: (e, p, mine) => {
       const handled = spec.fail?.(ctx(), p as never, e) ?? false;
@@ -54,9 +55,15 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
   });
 }
 
-/** Back to the entries as they were before the edit; an entry that had no data stays without. */
+/**
+ * Back to the entries as they were before the edit. An entry an event (or another write) changed meanwhile holds the daemon's newer
+ * truth, so it is read again instead of being overwritten with the old value.
+ */
 function restore(qc: QueryClient, snapshot: Snapshot) {
-  for (const [key, data] of snapshot) qc.setQueryData(key, data);
+  for (const { key, before, after } of snapshot) {
+    if (qc.getQueryData(key) === after) qc.setQueryData(key, before);
+    else void qc.invalidateQueries({ queryKey: key });
+  }
 }
 
 /** Only entries no topic keeps current are read again; the others get the daemon's event. */

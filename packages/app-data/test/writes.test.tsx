@@ -178,6 +178,22 @@ describe('writes', () => {
     expect(store.error).toBeNull();
   });
 
+  it("a refusal does not put an old value over an event that arrived while the write was in flight (the daemon's event wins)", async () => {
+    const wait = deferred();
+    const stub = stubClient(() => wait.promise);
+    const w = probe(() => useWrite('task.done', 'target'));
+    const { qc } = await mount(openStore(stub), w.node);
+    for (const [key, data] of taskSeed) qc.setQueryData(key, clone(data));
+    act(() => w.get().mutate({ task: 7, evidence: 'ok' }));
+    await until(() => stub.count('task.done') === 1, 'the call');
+    expect(qc.getQueryData<{ state: string }>(qk.task(D, 7))!.state).toBe('done');
+    act(() => stub.emit({ type: 'task.changed', topic: 'tasks', data: task(7, 'blocked') }));
+    await until(() => qc.getQueryData<{ state: string }>(qk.task(D, 7))!.state === 'blocked', 'the event');
+    wait.reject(refuse('the daemon said no', 'state', 'try later'));
+    await until(() => w.get().isError, 'the refusal');
+    expect(qc.getQueryData<{ state: string }>(qk.task(D, 7))!.state).toBe('blocked');
+  });
+
   it('a write is never retried, even when the connection drops', async () => {
     const stub = stubClient(() => {
       throw new RpcError('transport', 'connection lost');
