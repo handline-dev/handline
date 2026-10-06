@@ -22,6 +22,8 @@ export interface Chat {
   hasOlder: boolean;
   loadingOlder: boolean;
   loadOlder: () => void;
+  /** Reads both again (the error block's Retry). */
+  refetch: () => void;
 }
 
 const byId = <T extends { id: number }>(lists: T[][]): T[] => [...new Map(lists.flat().map((x) => [x.id, x])).values()];
@@ -59,6 +61,10 @@ export function useChat(agent: string, scope: ChatScope): Chat {
     working: tr.data?.pages[0]?.working ?? NOT_WORKING,
     hasOlder: !!msgs.hasNextPage || !!tr.hasNextPage,
     loadingOlder: msgs.isFetchingNextPage || tr.isFetchingNextPage,
+    refetch: () => {
+      void msgs.refetch();
+      void tr.refetch();
+    },
     loadOlder: () => {
       if (msgs.hasNextPage) void msgs.fetchNextPage();
       if (tr.hasNextPage) void tr.fetchNextPage();

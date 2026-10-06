@@ -79,7 +79,7 @@ describe('the workspace', () => {
     expect($('[data-tab="chat"] .x')).toBeNull();
     expect(text($('[data-tab="chat"]'))).toBe('Chat');
     expect($(`${termTab} .x`)).not.toBeNull();
-    expect(text($('.chat'))).toContain('No chat yet');
+    expect($('.chat .compose')).not.toBeNull(); // the Chat tab: its own tests are in chat.test.tsx
     await until(() => text($('.grid')).includes('Claude Code v2.1'), 'terminal text');
   });
 
