@@ -32,8 +32,14 @@ def _role_line(name: str) -> str:
     return oneline(body)[:160]
 
 
-def compute(con, name: str, now: int | None = None) -> dict:
+_READ = object()
+
+
+def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
+    """`table` is the routing table when the caller has read it already (once for every agent)."""
     now = int(time.time()) if now is None else now
+    if table is _READ:
+        table = actions.routing()
     row = db.get_agent_state(con, name)
     word, detail = screen_state(con, row)
     try:
@@ -63,16 +69,22 @@ def compute(con, name: str, now: int | None = None) -> dict:
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
         "cache_until": None if left is None else _ts(now + left),
         "has_dialog": word == "DIALOG",
-        "parent": actions.supervisor_of(table, name) if (table := actions.routing()) else None,
+        "parent": actions.supervisor_of(table, name) if table else None,
     }
 
 
-def refresh(con, now: int | None = None) -> None:
-    """Store a fresh view for every registered agent, writing only what changed, and drop a gone agent's."""
+def refresh(con, now: int | None = None, log=lambda m: None) -> None:
+    """Store a fresh view for every registered agent, writing only what changed, and drop a gone agent's.
+    The view is a read model: an agent whose view cannot be worked out keeps its last one, and the others go on."""
     names = paths.list_agents()
     kept = {r["agent"]: r["view"] for r in con.execute("SELECT agent, view FROM agent_view")}
+    table = actions.routing()
     for name in names:
-        view = json.dumps(compute(con, name, now), sort_keys=True)
+        try:
+            view = json.dumps(compute(con, name, now, table), sort_keys=True)
+        except Exception as e:  # noqa: BLE001 - one agent's failure must not stale every agent after it
+            log(f"  agent view: {name}: {type(e).__name__}: {e}")
+            continue
         if kept.get(name) != view:
             con.execute("INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, ?) "
                         "ON CONFLICT(agent) DO UPDATE SET view = excluded.view, updated = excluded.updated",

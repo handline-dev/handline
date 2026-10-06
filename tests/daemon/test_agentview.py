@@ -44,7 +44,8 @@ def _drift(con, label: str, now: int) -> None:
     check(f"{label}: the cache time is the daemon's",
           (view["cache_until"] is None) == (left is None) and (left is None or view["cache_until"] == agentview._ts(now + left)))
     check(f"{label}: account, task and parent", view["account"] == agents.current_account("backend", con)
-          and (view["task"] or {}).get("id") == db.current_task(con, "backend") and view["parent"] is None, str(view))
+          and (view["task"] or {}).get("id") == db.current_task(con, "backend")
+          and view["parent"] == actions.supervisor_of(actions.routing(), "backend"), str(view))
 
 
 def test_the_stored_view_does_not_drift_from_what_the_screens_work_out(home: Path) -> None:
@@ -74,6 +75,77 @@ def test_the_stored_view_does_not_drift_from_what_the_screens_work_out(home: Pat
         check("task: the view names the current task", agentview.stored(con, "backend")["task"] == {"id": tid, "title": "do the thing"})
     finally:
         con.close()
+
+
+def test_the_fields_a_quiet_agent_never_sets_are_checked_where_they_are_set(home: Path) -> None:
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        agentview.refresh(con, now)
+        check("quiet: a quiet agent would not wake, is not at a wall and has no parent",
+              (v := agentview.stored(con, "backend"))["would_wake"] is False and v["wall_reason"] is None and v["parent"] is None, str(v))
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        db.set_closed(con, "backend", None)
+        db.add_request(con, "product", "backend", "do it", None, None, None, "say", 0, None)
+        _drift(con, "queued request", now)
+        check("would_wake: a closed agent with a request waiting is one the daemon is trying to wake",
+              agentview.stored(con, "backend")["would_wake"] is True)
+        db.clear_closed(con, "backend")
+        db.add_event(con, "backend", "StopFailure", {"limit": "five-hour limit"})
+        _drift(con, "at the wall", now)
+        check("wall_reason: an agent whose turn ended on the usage limit says so",
+              agentview.stored(con, "backend")["wall_reason"] == "backend is at its usage limit")
+        agents.register("manager")
+        hand_edit_team("""
+agents:
+  manager: {}
+  backend: {}
+
+edges:
+  - { from: "manager", to: "backend", relation: supervisor, response: fire_and_forget }
+
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 50
+""")
+        tui.EXPANDED.add("manager")         # a closed supervisor's report is not drawn
+        try:
+            _drift(con, "supervised", now)
+        finally:
+            tui.EXPANDED.discard("manager")
+        check("parent: the agent its routing table says it answers to", agentview.stored(con, "backend")["parent"] == "manager")
+    finally:
+        con.close()
+
+
+def test_one_agents_failure_does_not_stale_the_others(home: Path) -> None:
+    support._daemon_home(home, 20)
+    agents.register("frontend")
+    agents.register("marketing")
+    con = db.connect()
+    logged = []
+    real = agentview.compute
+    try:
+        agentview.refresh(con, 1000)
+        before = agentview.stored(con, "frontend")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        db.set_agent_state(con, "marketing", dmn_states.RUNNING)
+        db.set_agent_state(con, "frontend", dmn_states.RUNNING)
+
+        def broken(c, name, *a, **k):
+            if name == "frontend":
+                raise RuntimeError("unreadable")
+            return real(c, name, *a, **k)
+        agentview.compute = broken
+        agentview.refresh(con, 2000, logged.append)
+    finally:
+        agentview.compute = real
+    check("failure: the agent before it and the agent after it are refreshed",
+          agentview.stored(con, "backend")["state"] == "RUNNING" and agentview.stored(con, "marketing")["state"] == "RUNNING")
+    check("failure: the one that failed keeps its last view", agentview.stored(con, "frontend") == before)
+    check("failure: and it is logged by name", any("frontend" in m and "unreadable" in m for m in logged), str(logged))
+    con.close()
 
 
 def test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(home: Path) -> None:
@@ -202,6 +274,8 @@ def test_a_database_made_before_the_view_gets_it_from_a_plain_connect(home: Path
 def main() -> int:
     def tests(td):
         run(lambda: test_the_stored_view_does_not_drift_from_what_the_screens_work_out(Path(td) / "a1"))
+        run(lambda: test_the_fields_a_quiet_agent_never_sets_are_checked_where_they_are_set(Path(td) / "a2a"))
+        run(lambda: test_one_agents_failure_does_not_stale_the_others(Path(td) / "a2b"))
         run(lambda: test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(Path(td) / "a2"))
         run(lambda: test_the_tick_stores_every_agents_view(Path(td) / "a3"))
         run(lambda: test_the_methods_serve_the_view_and_the_agents_detail(Path(td) / "a4"))

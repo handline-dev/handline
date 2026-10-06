@@ -521,7 +521,7 @@ def tick(con, log, samples: dict | None = None) -> Tick:
 
     blocked.sweep(con, log, now)
     try:
-        agentview.refresh(con, now)
+        agentview.refresh(con, now, log)
     except Exception as e:  # noqa: BLE001 - a view not stored is stored on the next tick
         log(f"  agent view: {type(e).__name__}: {e}")
     try:
