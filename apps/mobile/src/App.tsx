@@ -33,7 +33,7 @@ export default function App() {
       </DaemonProvider>
     );
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? RNStatusBar.currentHeight ?? 0 : 0 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0 }}>
       <StatusBar style="auto" />
       <View style={{ flex: 1 }}>{body}</View>
     </SafeAreaView>
