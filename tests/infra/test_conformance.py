@@ -378,7 +378,7 @@ def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
 
 
 # fixtures of the terminal bytes spec whose method the Python daemon does not have yet (its api task); remove each as it lands
-NOT_YET_IN_PYTHON = {"terminal.attach.format_is_text_or_bytes", "terminal.history.format_is_text_or_bytes"}
+NOT_YET_IN_PYTHON: set[str] = set()
 
 
 def test_the_fixtures_run_against_the_python_daemon(home) -> None:
