@@ -518,6 +518,23 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         bad = conformance.main(["--allow-missing-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
     check("conformance: an unreadable --allow-missing-file is a usage error", bad == 2)
+    _, out = _run(["--allow-skip"])
+    names = [ln.split()[1] for ln in out.splitlines() if ln.startswith("NEEDVAR")]
+    listing = Path(td) / "needvar.txt"
+    listing.write_text("# fixtures this run cannot seed\n" + "\n".join(sorted(names)) + "\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing)])
+    check("conformance: --allow-needvar-file covers the listed fixtures that need a var", code == 0 and "STALE" not in out, out)
+    listing.write_text("\n".join(sorted(names)[1:]) + "\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing)])
+    check("conformance: a needvar fixture not in the list still fails", code == 1 and "not in --allow-missing" in out, out)
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
+    check("conformance: a listed fixture that now has its var is stale and fails the run", code == 1 and "STALE" in out, out)
+    listing.write_text("no.such.fixture\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
+    check("conformance: a listed fixture that does not exist is stale", code == 1 and "STALE no.such.fixture" in out, out)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bad = conformance.main(["--allow-needvar-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
+    check("conformance: an unreadable --allow-needvar-file is a usage error", bad == 2)
 
 
 def test_matchers() -> None:
