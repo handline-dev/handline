@@ -13,8 +13,8 @@ export function serveSocket(daemon: FakeDaemon, listen: string | number): net.Se
   server.listen(listen as never);
   return server;
 }
-export function serveWs(daemon: FakeDaemon, port: number, host = '127.0.0.1', tls?: https.ServerOptions) {
-  const server = wsServer((t: Transport) => daemon.accept(t), tls);
+export function serveWs(daemon: FakeDaemon, port: number, host = '127.0.0.1', tls?: https.ServerOptions, network = false) {
+  const server = wsServer((t: Transport) => (network ? daemon.acceptNetwork(t) : daemon.accept(t)), tls);
   server.listen(port, host);
   return server;
 }

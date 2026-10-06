@@ -1,6 +1,7 @@
 // A fake daemon that answers the generated contract (contract/protocol.ts) from fixtures, with one
 // scripted fake session per agent. The UI cannot tell it from the real socket; the real daemon is a swap.
 // It serves the methods the UI's session screen needs; every other method is refused as `unsupported`.
+import crypto from 'node:crypto';
 import {
   METHODS, PROTOCOL, ROLE_ORDER, RPC_CODES,
   type Actor, type AgentDetail, type AgentView, type Caller, type ErrorCode, type Event as WireEvent,
@@ -52,6 +53,7 @@ interface Conn {
   helloed: boolean;
   topics: Set<Topic> | null;
   attached: Set<string>; // terminal ids
+  network: boolean; // came in through the paired-device listener
 }
 
 export interface FakeDaemonOptions {
@@ -72,6 +74,8 @@ export class FakeDaemon {
   private retention: number;
   private now: () => Date;
   private timelineId = 0;
+  private codes = new Set<string>();
+  private tokens = new Map<string, string>(); // device token -> device name
 
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
@@ -93,13 +97,19 @@ export class FakeDaemon {
   // ---- hosting ----
 
   /** Serves one connection; `dropConnections` cuts them. */
-  accept(transport: Transport, role: Role = 'founder', name = 'unknown'): void {
+  accept(transport: Transport, role: Role = 'founder', name = 'unknown', network = false): void {
     const kind = role === 'agent' ? 'agent' : role === 'member' ? 'device' : 'person';
-    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set() };
+    const conn: Conn = { transport, role, caller: { kind, name }, helloed: false, topics: null, attached: new Set(), network };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
     transport.onclose = () => { this.conns.delete(conn); };
   }
+
+  /** A connection through the network listener: anonymous until hello carries a device token. */
+  acceptNetwork(transport: Transport): void { this.accept(transport, 'anonymous', 'unknown', true); }
+
+  /** What `device.pair` gives the founder: a one-time code to redeem. */
+  issueCode(): string { const code = crypto.randomBytes(5).toString('hex').toUpperCase(); this.codes.add(code); return code; }
 
   dropConnections(): void { for (const c of [...this.conns]) c.transport.close(); }
 
@@ -323,11 +333,16 @@ export class FakeDaemon {
     if (method === 'hello') {
       if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
       if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
+      if (typeof p.token === 'string') {
+        const device = this.tokens.get(p.token);
+        if (!c.network || !device) throw refused('device_token', 'that device token is not valid');
+        c.role = 'member'; c.caller = { kind: 'device', name: device };
+      }
       c.helloed = true;
       if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
       return {
         protocol: PROTOCOL, min_client: 1, daemon: 'fake0000', schema: 1, role: c.role, caller: c.caller,
-        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: 'local',
+        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] }, transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS).map(([name, m]) => ({ name, since: m.since, role: m.role, allowed: this.mayCall(c.role, m.role) })),
       };
     }
@@ -417,6 +432,13 @@ export class FakeDaemon {
         s.cols = Number(p.cols); s.rows = Number(p.rows);
         this.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));
         return this.accepted('Resized.');
+      }
+      case 'device.redeem': {
+        const code = String(p.code ?? '').trim().toUpperCase();
+        if (!c.network || !this.codes.delete(code)) throw refused('pairing_code', 'that pairing code is not valid');
+        const token = crypto.randomBytes(16).toString('hex'), device = String(p.name);
+        this.tokens.set(token, device);
+        return this.accepted('Paired.', { token, device });
       }
       default: throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
