@@ -18,7 +18,7 @@
   "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
   "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.",
   "unknown_method": "A method the daemon does not know is JSON-RPC error -32601 with data.code `bad_request` and data.method; a method it knows but the caller's role may not call is `refused`, gate `role`.",
-  "idle": "A line begun but not finished within 30 s is dropped with bad_request. A connection with nothing in flight, no subscription and no terminal attached is closed by the daemon after 10 minutes without a byte; a subscribed or attached one has no idle limit (the daemon notices a dead peer by a failed write). A call that waits (inbox wait_s) is in flight."
+  "idle": "A line begun but not finished within 30 s is dropped with bad_request, and so is a connection that has not said hello within 30 s. After hello, a connection with nothing in flight is closed after 3600 s without a byte. A subscribed or terminal-attached connection has no idle limit (the daemon notices a dead peer by a failed write); the subscribe and terminal tasks must build that. A call that waits (inbox wait_s) is in flight."
  },
  "x-handshake": "The first call is hello. Compatibility: adding a method or field never changes protocol; removing or changing one does, and the daemon then serves old and new side by side for one release. Clients ignore unknown fields and unknown enum-like strings (state words, kinds, event types). A client that does not know the daemon's protocol refuses to run and prints the one command that fixes it: `hl service install`.",
  "x-roles": {
@@ -2673,7 +2673,7 @@
   },
   {
    "name": "inbox.mark_read",
-   "summary": "Mark items read.",
+   "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",
    "params": [
     {

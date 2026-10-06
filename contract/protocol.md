@@ -348,7 +348,7 @@ One item (hl read).
 
 ### `inbox.mark_read`
 
-Mark items read.
+Mark items read; an id that is not yours is not_found.
 
 ### `inbox.answer`
 
