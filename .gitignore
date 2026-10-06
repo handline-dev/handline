@@ -10,3 +10,7 @@ docs/vendor-extension-board.md
 
 # built Go daemon
 /go/handlined
+
+node_modules/
+.turbo/
+dist/
