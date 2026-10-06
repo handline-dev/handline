@@ -1,0 +1,11 @@
+{
+  "name": "handline-web",
+  "private": true,
+  "type": "module",
+  "description": "Shared daemon client and fake daemon for the web, Electron and mobile UIs",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "fake-daemon": "node fake-daemon/serve.ts"
+  }
+}
