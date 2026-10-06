@@ -2,7 +2,7 @@
 // `handline://pair?host=&fp=&code=` uri (a QR on a phone); `redeemPairing` trades the code for a token that
 // later hellos carry. The uri's fingerprint is the SHA-256 of the listener's certificate, which the
 // transport must check: the certificate is self-signed.
-import { RpcError } from './client.ts';
+import { RpcError } from './errors.ts';
 import type { ErrorCode } from './protocol.ts';
 import type { Transport } from './transport.ts';
 

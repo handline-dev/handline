@@ -1,23 +1,11 @@
 import {
   METHODS, PROTOCOL,
-  type ErrorCode, type Event as WireEvent, type InputHolder, type MethodName, type Methods,
-  type Notifications, type Prompt, type RequestId, type TerminalSnapshot, type Topic,
+  type ErrorCode, type Event as WireEvent, type MethodName, type Methods,
+  type Notifications, type Prompt, type RequestId, type Topic,
 } from './protocol.ts';
 import type { Transport } from './transport.ts';
-
-export class RpcError extends Error {
-  // `transport` and `protocol` are the client's own: no connection, and a daemon it must not talk to.
-  code: ErrorCode | 'transport' | 'protocol';
-  data: Record<string, unknown> | undefined;
-  constructor(code: ErrorCode | 'transport' | 'protocol', message: string, data?: Record<string, unknown>) {
-    super(message);
-    this.code = code; this.data = data;
-  }
-  /** The gate's own sentence, the command that fixes it, and which gate: from a `refused` error. */
-  get reason(): string | undefined { return this.data?.reason as string | undefined; }
-  get gate(): string | undefined { return this.data?.gate as string | undefined; }
-  get hint(): string | undefined { return this.data?.hint as string | undefined; }
-}
+import { RpcError } from './errors.ts';
+import { TerminalView } from './terminal-view.ts';
 
 /** A call's params; the client fills in request_id on writes. */
 export type CallParams<M extends MethodName> = Omit<Methods[M]['params'], 'request_id'> & { request_id?: RequestId };
@@ -38,51 +26,6 @@ type Handler<T> = (value: T) => void;
 interface Pending {
   id: number; method: string; params: unknown;
   resolve: (v: unknown) => void; reject: (e: Error) => void;
-}
-
-/** What a terminal pane renders: the screen rows, the scrollback fetched so far, and who holds the input. */
-export class TerminalView {
-  terminal = ''; seq = 0; cols = 0; rows = 0;
-  frame: string[] = [];
-  history: string[] = []; historyFirst = 0; historyMore = false; // historyFirst: absolute index of history[0]
-  holder: InputHolder | null = null;
-  markers: Notifications['marker'][] = [];
-  agent: string;
-  private listeners = new Set<() => void>();
-  constructor(agent: string) { this.agent = agent; }
-
-  subscribe(fn: () => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  /** Scrollback then screen, without trailing blank rows. */
-  text(): string[] {
-    const all = [...this.history, ...this.frame];
-    while (all.length && all[all.length - 1] === '') all.pop();
-    return all;
-  }
-  /** True when the notice is the next one; false means a notice was missed and the view must reattach. */
-  fits(seq: number): boolean { return seq === this.seq + 1; }
-
-  setSnapshot(s: TerminalSnapshot): void {
-    this.terminal = s.terminal; this.seq = s.seq; this.cols = s.cols; this.rows = s.rows;
-    this.frame = s.lines.map((r) => r.text);
-    this.history = s.history.lines.map((r) => r.text); this.historyFirst = s.history.first; this.historyMore = s.history.more;
-    this.holder = s.holder;
-    this.emit();
-  }
-  applyFrame(n: Notifications['frame']): void {
-    if (n.full) this.frame = (n.lines ?? []).map((r) => r.text);
-    for (const c of n.changed ?? []) this.frame[c.y] = c.row.text;
-    this.seq = n.seq; this.emit();
-  }
-  applyResize(n: Notifications['resize']): void {
-    this.cols = n.cols; this.rows = n.rows; this.seq = n.seq;
-    this.frame = Array.from({ length: n.rows }, (_, i) => this.frame[i] ?? '');
-    this.emit();
-  }
-  applyMarker(n: Notifications['marker']): void { this.markers.push(n); this.seq = n.seq; this.emit(); }
-  prependHistory(first: number, lines: string[], more: boolean): void {
-    this.history = [...lines, ...this.history]; this.historyFirst = first; this.historyMore = more; this.emit();
-  }
-  private emit(): void { for (const fn of this.listeners) fn(); }
 }
 
 export class DaemonClient {

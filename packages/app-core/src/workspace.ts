@@ -2,6 +2,9 @@
 // so web and mobile share it and Node tests drive it. A refused move returns null; every other function returns the next workspace.
 import { breakpoints } from '@handline/tokens';
 import type { KV } from './model.ts';
+import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts';
+
+export { groupOf, groupsOf };
 
 export type TabKind = 'chat' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
 export const TAB_KINDS: readonly TabKind[] = ['chat', 'terminal', 'shell', 'emulator', 'web', 'markdown', 'review'];
@@ -24,8 +27,6 @@ export const MAX_AT = 0.85;
 export const MIN_PANE = { w: 320, h: 200 };
 export const PHONE_WIDTH = breakpoints.phone;
 
-export const groupsOf = (n: Node): Group[] => (n.type === 'group' ? [n] : [...groupsOf(n.a), ...groupsOf(n.b)]);
-export const groupOf = (ws: Workspace, tab: string): Group | undefined => groupsOf(ws.root).find((g) => g.tabs.includes(tab));
 const clampAt = (at: number) => Math.min(MAX_AT, Math.max(MIN_AT, at));
 
 /** Tab ids name what a tab shows, so opening the same thing twice finds the first. Kinds with nothing to name get a counter. */
@@ -41,8 +42,6 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
 const nextGroupId = (ws: Workspace): string =>
   `g${Math.max(0, ...groupsOf(ws.root).map((g) => Number(g.id.slice(1)) || 0)) + 1}`;
 
-const group = (id: string, tabs: string[], activeTab = tabs[0]!): Group => ({ type: 'group', id, tabs, activeTab });
-
 /** Chat beside the agent's session terminal, each pane with its own strip; no session, one pane holding Chat. */
 export function defaultWorkspace(opts: { terminal?: string } = {}): Workspace {
   const tabs: Record<string, Tab> = { [CHAT]: { id: CHAT, kind: 'chat', params: {} } };
@@ -50,31 +49,6 @@ export function defaultWorkspace(opts: { terminal?: string } = {}): Workspace {
   const t = tabId(null, 'terminal', { handle: opts.terminal });
   tabs[t] = { id: t, kind: 'terminal', params: { handle: opts.terminal } };
   return { v: 1, root: { type: 'split', dir: 'row', a: group('g1', [CHAT]), b: group('g2', [t]), at: 0.5 }, active: 'g2', tabs };
-}
-
-function mapNode(n: Node, f: (g: Group) => Node | null): Node | null {
-  if (n.type === 'group') return f(n);
-  const a = mapNode(n.a, f), b = mapNode(n.b, f);
-  return !a ? b : !b ? a : { ...n, a, b };
-}
-
-/** Takes a tab out of its group. A group left empty is removed and its sibling takes the space; `heir` is where focus goes then. */
-function detach(ws: Workspace, id: string): { root: Node | null; heir: string | null } {
-  let heir: string | null = null;
-  const root = mapNode(ws.root, (g) => {
-    if (!g.tabs.includes(id)) return g;
-    const tabs = g.tabs.filter((t) => t !== id);
-    if (!tabs.length) return null;
-    const i = g.tabs.indexOf(id);
-    return { ...g, tabs, activeTab: g.activeTab === id ? tabs[Math.min(i, tabs.length - 1)]! : g.activeTab };
-  });
-  if (root && !groupsOf(root).some((g) => g.id === ws.active)) heir = groupsOf(root)[0]!.id;
-  return { root, heir };
-}
-
-function replaceGroup(n: Node, id: string, f: (g: Group) => Node): Node {
-  if (n.type === 'group') return n.id === id ? f(n) : n;
-  return { ...n, a: replaceGroup(n.a, id, f), b: replaceGroup(n.b, id, f) };
 }
 
 /** Shows the tab and gives its group the focus. */
