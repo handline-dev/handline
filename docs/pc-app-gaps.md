@@ -66,7 +66,7 @@ Order: **U8 + U9, then U10, then U11**, because that is the order of use in §2 
 
 E1 can start once unit 4a lands; E2 needs U9 and U10; E3 needs U8 and U10; E4 any time after E1.
 
-## 5. Requests to the daemon (orcapipe): not in the contract and not in the daemon team's list
+## 5. Requests to the daemon team: missing from the contract and their list, or pending a decision
 
 | # | Request | Why |
 |---|---|---|
