@@ -75,7 +75,7 @@ Per kind (from `web-ui-design.md` §3.3):
 - **Decision**: the question and its options as buttons; "Answer…" opens a text field in the card (E3 later adds "in editor"); answering marks it read.
 - **Prompt (permission or dialog)**: the U9 card as the item body.
 - **Block**: agent, what is in the way, "since 2 h" in `--wait`; the verbs are the agent's (open its chat).
-- **HR proposal**: the diff (collapsed to a count of changed lines, "Show diff") and Approve / Reject; arrives with U15, until then the item shows its title and "Open in the bridge".
+- **HR proposal**: not an Inbox item today: the contract's inbox serves messages and requests only, and HR lives on the Team page (`hr-team-stats-settings.md` §1). An HR card here waits on a daemon request (N17 of that doc).
 
 A card's "open" jumps to the task or chat it came from (`task` or `agent` on the item). Selecting a row sets the cursor only; Enter opens.
 
