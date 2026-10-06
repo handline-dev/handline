@@ -151,7 +151,8 @@ def test_the_watcher_sees_a_change_another_process_made(home: Path) -> None:
     w.call("subscribe", {"topics": ["agents"]})
     time.sleep(0.6)
     other = db.connect()
-    db.set_agent_state(other, "backend", dmn_states.RUNNING)
+    now = db.get_agent_state(other, "backend")
+    db.set_agent_state(other, "backend", dmn_states.IDLE if now and now["state"] == dmn_states.RUNNING else dmn_states.RUNNING)
     agentview.refresh(other)
     other.close()
     got = _notices(w, 1)[0]
@@ -254,6 +255,151 @@ def test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_sessi
     check("hl events: still works from an agent session", rc == 0, out.getvalue()[:200])
 
 
+def test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(home: Path) -> None:
+    _fresh(home)
+    con = db.connect()
+    evs = _emit(con, 1500)
+    w = Wire()
+    w.call("hello", _hp())
+    r = w.call("subscribe", {"topics": ["agents"], "since": 0})
+    check("resume: the reply is the newest cursor", r["result"]["cursor"] == evs[-1]["cursor"])
+    live = _emit(con, 3)
+    got = _notices(w, 1503, timeout=20)
+    check("resume: all 1500 missed events, in order, then the live ones, none dropped",
+          [g["params"]["cursor"] for g in got] == [e["cursor"] for e in evs + live] and all(g["method"] == "event" for g in got),
+          str([g.get("method") for g in got if g.get("method") != "event"][:3]))
+    w.close()
+    con.close()
+
+
+def test_a_real_slow_client_is_still_dropped_after_a_replay(home: Path) -> None:
+    _fresh(home)
+    real = stream.MAX_QUEUE
+    stream.MAX_QUEUE = 3
+    release, sent, closed = threading.Event(), [], threading.Event()
+
+    def slow_send(obj):
+        release.wait(5)
+        sent.append(obj)
+    sub = stream.Subscription(slow_send, closed.set, ["agents"], None)
+    con = db.connect()
+    try:
+        _emit(con, 10)
+        stream.HUB.subscribe(sub, con, 0)
+        check("slow after replay: the ten missed are queued past the live bound, not dropped",
+              len(sub.replay) == 10 and sub.gap is None, f"{len(sub.replay)} {sub.gap}")
+        sub.start()
+        for e in _emit(con, 8):
+            stream.HUB.publish(e)
+        check("slow after replay: live events past the bound drop it", sub.gap == ("slow_client", sub.gap[1]) if sub.gap else True)
+        release.set()
+        check("slow after replay: and the connection is closed", closed.wait(5))
+        check("slow after replay: with a gap that names slow_client", any(m["method"] == "gap" and m["params"]["reason"] == "slow_client" for m in sent), str(sent[-1:]))
+    finally:
+        stream.MAX_QUEUE = real
+        stream.HUB.subs.clear()
+        con.close()
+
+
+def _watch_one_change(watcher, w_con_fn=None):
+    """Run the watcher on a thread, make a change another connection would, and return what a subscriber saw."""
+    w = Wire()
+    w.call("hello", _hp())
+    w.call("subscribe", {"topics": ["agents"]})
+    watcher.start()
+    time.sleep(0.8)
+    other = db.connect()
+    db.set_agent_state(other, "backend", dmn_states.RUNNING)
+    agentview.refresh(other)
+    other.close()
+    try:
+        return _notices(w, 1, timeout=8)[0]
+    finally:
+        watcher.close()
+        w.close()
+
+
+def test_the_watcher_goes_on_after_a_failure_anywhere_in_its_loop(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    agentview.refresh(con)
+    con.close()
+    real = (stream.prune, stream.RETRY_S, db.connect, stream.Watcher.changed)
+    stream.RETRY_S = 0.1
+    logs = []
+    try:
+        calls = {"n": 0}
+
+        def prune_once(c, now=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("prune broke")
+        stream.prune = prune_once
+        got = _watch_one_change(stream.Watcher(logs.append))
+        check("watcher: a prune that raises is logged and the change is still emitted",
+              got["params"]["type"] == "agent.changed" and any("prune" in m and "prune broke" in m for m in logs), str(logs))
+        stream.prune = real[0]
+
+        tries = {"n": 0}
+
+        def connect_once(*a, **k):
+            if threading.current_thread().name == "ocp-stream-watch":
+                tries["n"] += 1
+                if tries["n"] == 1:
+                    raise db.SchemaError("busy", "busy")
+            return real[2](*a, **k)
+        db.connect = connect_once
+        logs.clear()
+        got = _watch_one_change(stream.Watcher(logs.append))
+        db.connect = real[2]
+        check("watcher: a connect that raises once, then the watcher recovers and emits", got["params"]["type"] == "agent.changed"
+              and any("watcher" in m for m in logs) and tries["n"] >= 2, str(logs))
+
+        seen = {"n": 0}
+        orig = real[3]
+
+        def changed_once(self, c):
+            seen["n"] += 1
+            if seen["n"] == 1:
+                raise RuntimeError("data_version broke")
+            return orig(self, c)
+        stream.Watcher.changed = changed_once
+        logs.clear()
+        got = _watch_one_change(stream.Watcher(logs.append))
+        check("watcher: a data_version read that raises is logged, the connection replaced, and the change still emitted",
+              got["params"]["type"] == "agent.changed" and any("data_version broke" in m for m in logs), str(logs))
+    finally:
+        stream.prune, stream.RETRY_S, db.connect, stream.Watcher.changed = real
+
+
+def test_a_notification_that_fails_to_emit_does_not_repeat_the_ones_before_it(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)           # primes the cursors
+    for t in (1, 2, 3):
+        db.add_event(con, "backend", "mark_task_done", {"task_id": t, "done": True})
+    real = stream.emit
+    calls = {"n": 0}
+
+    def emit_failing_second(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("second one broke")
+        return real(*a, **k)
+    stream.emit = emit_failing_second
+    try:
+        watcher.scan(con)
+    finally:
+        stream.emit = real
+    watcher.scan(con)
+    tasks = [e["data"]["task"] for e in stream.since(con, 0, ["notifications"]) if e["type"] == "task_done"]
+    check("cursor per row: the first is said once, the failed one and the one after it on the next look", tasks == [1, 2, 3], str(tasks))
+    con.close()
+
+
 def test_a_database_made_before_the_stream_gets_it_from_a_plain_connect(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     p = home / "v3.db"
@@ -281,6 +427,10 @@ def main() -> int:
         run(lambda: test_the_notification_detectors_say_what_happened_once_and_not_what_came_before(Path(td) / "s7"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))
+        run(lambda: test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(Path(td) / "s11"))
+        run(lambda: test_a_real_slow_client_is_still_dropped_after_a_replay(Path(td) / "s12"))
+        run(lambda: test_the_watcher_goes_on_after_a_failure_anywhere_in_its_loop(Path(td) / "s13"))
+        run(lambda: test_a_notification_that_fails_to_emit_does_not_repeat_the_ones_before_it(Path(td) / "s14"))
         run(lambda: test_a_database_made_before_the_stream_gets_it_from_a_plain_connect(Path(td) / "s10"))
     return run_area(tests)
 

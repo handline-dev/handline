@@ -21,6 +21,7 @@ from ..actions import prompt_blocks
 from . import rpc_agents
 
 WATCH_S = 0.25
+RETRY_S = 2.0              # after the watcher has failed, before it tries again
 RETENTION_S = 7 * 24 * 3600
 KEEP_ROWS = 50000
 MAX_QUEUE = 1000            # a subscriber this far behind is dropped with a gap
@@ -89,7 +90,8 @@ class Subscription:
 
     def __init__(self, send, close, topics, agent) -> None:
         self.send, self.close, self.topics, self.agent = send, close, set(topics), agent
-        self.queue: collections.deque = collections.deque()     # whole messages, in the order they are sent
+        self.replay: collections.deque = collections.deque()    # what a resume missed: up to REPLAY_MAX, outside the live bound
+        self.queue: collections.deque = collections.deque()     # live messages, bounded by MAX_QUEUE
         self.last = 0                       # the newest cursor queued: nothing at or below it is queued twice
         self.cond = threading.Condition()
         self.dead = False
@@ -118,9 +120,16 @@ class Subscription:
                 self.queue.append({"jsonrpc": "2.0", "method": "event", "params": ev})
             self.cond.notify()
 
-    def notice(self, method: str, params: dict) -> None:
+    def preload(self, events: list[dict], notice: tuple[str, dict] | None = None) -> None:
+        """Queue what a resume missed, ahead of everything live. It is not held to MAX_QUEUE: a client
+        reconnecting 5000 events behind is normal, and its backlog is not it falling behind."""
         with self.cond:
-            self.queue.append({"jsonrpc": "2.0", "method": method, "params": params})
+            if notice:
+                self.replay.append({"jsonrpc": "2.0", "method": notice[0], "params": notice[1]})
+            for ev in events:
+                if ev["cursor"] > self.last and self.wants(ev):
+                    self.replay.append({"jsonrpc": "2.0", "method": "event", "params": ev})
+                self.last = max(self.last, ev["cursor"])
             self.cond.notify()
 
     def end(self) -> None:
@@ -131,11 +140,12 @@ class Subscription:
     def _run(self) -> None:
         while True:
             with self.cond:
-                while not (self.queue or self.gap or self.dead):
+                while not (self.replay or self.queue or self.gap or self.dead):
                     self.cond.wait()
                 if self.dead and not self.gap:
                     return
-                gap, msg = self.gap, (self.queue.popleft() if self.queue and not self.gap else None)
+                src = self.replay or self.queue
+                gap, msg = self.gap, (src.popleft() if src and not self.gap else None)
             try:
                 if gap:
                     self.send({"jsonrpc": "2.0", "method": "gap", "params": {"reason": gap[0], "cursor": gap[1]}})
@@ -160,10 +170,9 @@ class Hub:
             if since_cursor is not None:
                 missed = since(con, since_cursor, sub.topics, sub.agent) if since_cursor >= pruned_through(con) else None
                 if missed is None or len(missed) > REPLAY_MAX:
-                    sub.notice("gap", {"reason": "retention", "cursor": top})
+                    sub.preload([], ("gap", {"reason": "retention", "cursor": top}))
                 else:
-                    for ev in missed:
-                        sub.offer(ev)
+                    sub.preload(missed)
             sub.last = max(sub.last, top)
             self.subs.add(sub)
         return top
@@ -225,24 +234,20 @@ def _notifications(con, state: dict) -> None:
     """What happened since the last look, from the events and prompts the other writers leave. The place it
     reached is a cursor in the database, so what happened while the daemon was down is said when it is back."""
     last = _cursor_or_prime(con, "stream:events", "SELECT COALESCE(MAX(id), 0) FROM events")
-    top = last
     kinds = tuple(_NOTIFY_KINDS)
     for row in con.execute(f"SELECT * FROM events WHERE id > ? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id",
                            (last, *kinds)).fetchall():
-        top = row["id"]
         payload = json.loads(row["payload"]) if row["payload"] and row["payload"][0] == "{" else {}
         if row["kind"] == "mark_task_done":
-            if not payload.get("done", True):
-                continue
-            tid = payload.get("task_id")
-            emit(con, "notifications", "task_done", {"task": tid}, agent=row["agent"], title=f"task {tid} done",
-                 target={"screen": "task", "id": str(tid)})
+            if payload.get("done", True):
+                tid = payload.get("task_id")
+                emit(con, "notifications", "task_done", {"task": tid}, agent=row["agent"], title=f"task {tid} done",
+                     target={"screen": "task", "id": str(tid)})
         else:
             acct = payload.get("account") or row["account"]
             emit(con, "notifications", "account_out", {"account": acct}, agent=row["agent"],
                  title=f"{acct} needs logging in", target={"screen": "account", "id": str(acct)})
-    if top != last:
-        db.set_cursor(con, "stream:events", top)
+        db.set_cursor(con, "stream:events", row["id"])      # per row: an emit that fails does not repeat the ones before it
     seen = _cursor_or_prime(con, "stream:prompts", "SELECT COALESCE(MAX(id), 0) FROM prompt_blocks")
     for row in con.execute("SELECT * FROM prompt_blocks WHERE id > ? ORDER BY id", (seen,)).fetchall():
         emit(con, "notifications", "prompt_asked", rpc_agents.prompt_of(prompt_blocks.of_row(row)), agent=row["agent"],
@@ -271,7 +276,10 @@ class Watcher:
                 self.log(f"  stream: {fn.__name__}: {type(e).__name__}: {e}")
         if time.monotonic() - self.last_prune > 3600:
             self.last_prune = time.monotonic()
-            prune(con)
+            try:
+                prune(con)
+            except Exception as e:  # noqa: BLE001 - retention is tried again in an hour
+                self.log(f"  stream: prune: {type(e).__name__}: {e}")
 
     def changed(self, con) -> bool:
         v = con.execute("PRAGMA data_version").fetchone()[0]
@@ -279,13 +287,25 @@ class Watcher:
         return moved
 
     def _run(self) -> None:
-        con = db.connect()
-        try:
-            while not self.stop.is_set():
+        con = None
+        while not self.stop.is_set():
+            try:
+                if con is None:
+                    con = db.connect()
+                    self.version = None         # a new connection's first look is a change
                 if self.changed(con):
                     self.scan(con)
                 self.stop.wait(WATCH_S)
-        finally:
+            except Exception as e:  # noqa: BLE001 - the watcher is every subscriber's only source: it must not end
+                self.log(f"  stream: watcher: {type(e).__name__}: {e}")
+                if con is not None:
+                    try:
+                        con.close()
+                    except Exception:  # noqa: BLE001 - it is being replaced
+                        pass
+                    con = None
+                self.stop.wait(RETRY_S)
+        if con is not None:
             con.close()
 
     def start(self) -> None:
