@@ -81,8 +81,10 @@ class Located:
     at: int  # when the session last wrote, which is not when we looked
 
 
-def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None:
-    """The newest transcript for this working directory, across every account.
+def locate(cwd: str | Path, accounts: list[str] | None = None,
+           session_id: str | None = None) -> Located | None:
+    """The newest transcript for this working directory, across every account; with `session_id`,
+    that session's transcript and no other.
 
     Searching all accounts is what makes the account first-hand: the session
     chose the directory it writes into, so its path *is* the account, the same
@@ -97,9 +99,11 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
     and the live session, while the statusLine was still reporting the 20%
     context of the session before the clear.
 
-    A project directory is keyed by working directory and each agent has its own
-    worktree, so nothing else writes here. `hl fold`'s `claude -p` does not
-    land in it either: it runs from the daemon's directory, not the agent's.
+    A project directory is keyed by working directory, and two agents can share one (orcapipe and
+    orcapipe.daemon do), so "the newest" is only the answer for a directory one agent uses. A caller
+    that knows the session - a hook's payload carries it - names it, and a directory without that
+    transcript yields nothing rather than another agent's. `hl fold`'s `claude -p` does not land
+    here: it runs from the daemon's directory, not the agent's.
     """
     best: Located | None = None
     for acct in (accounts if accounts is not None else paths.list_accounts()):
@@ -109,6 +113,8 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
         except (OSError, vendors.UnknownVendor):
             continue
         for f in entries:
+            if session_id and f.stem != session_id:
+                continue
             try:
                 at = int(f.stat().st_mtime)
             except OSError:
@@ -119,13 +125,13 @@ def locate(cwd: str | Path, accounts: list[str] | None = None) -> Located | None
 
 
 def snapshot(agent: str | None, cwd: str | Path, now: int | None = None,
-             accounts: list[str] | None = None) -> dict | None:
+             accounts: list[str] | None = None, session_id: str | None = None) -> dict | None:
     """One session's snapshot, in the shape every reader already expects.
 
     None when no transcript can be found for this working directory: nothing to
     say is written as nothing at all, never as a snapshot of zeros.
     """
-    found = locate(cwd, accounts)
+    found = locate(cwd, accounts, session_id)
     if found is None:
         return None
     now = int(time.time()) if now is None else now
@@ -179,9 +185,10 @@ def write(agent: str, snap: dict, path: Path | None = None) -> bool:
     return True
 
 
-def collect(agent: str, cwd: str | Path, now: int | None = None) -> dict | None:
+def collect(agent: str, cwd: str | Path, now: int | None = None,
+            session_id: str | None = None) -> dict | None:
     """Pull one agent's snapshot and write it. None when there was none to write."""
-    snap = snapshot(agent, cwd, now=now)
+    snap = snapshot(agent, cwd, now=now, session_id=session_id)
     if snap is None:
         return None
     return snap if write(agent, snap) else None
