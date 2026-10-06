@@ -2,6 +2,7 @@
 // without a dependency. Not for anything but the fake.
 import crypto from 'node:crypto';
 import http from 'node:http';
+import https from 'node:https';
 import type { Duplex } from 'node:stream';
 import type { Transport } from '../src/transport.ts';
 
@@ -43,8 +44,9 @@ function wrap(sock: Duplex): Transport {
   return t;
 }
 
-export function wsServer(onConnect: (t: Transport) => void): http.Server {
-  const server = http.createServer((_, res) => { res.statusCode = 426; res.end('websocket only'); });
+export function wsServer(onConnect: (t: Transport) => void, tls?: https.ServerOptions): http.Server {
+  const refuse = (_: http.IncomingMessage, res: http.ServerResponse) => { res.statusCode = 426; res.end('websocket only'); };
+  const server = tls ? https.createServer(tls, refuse) : http.createServer(refuse);
   server.on('upgrade', (req, sock) => {
     const key = req.headers['sec-websocket-key'];
     if (typeof key !== 'string') { sock.destroy(); return; }
