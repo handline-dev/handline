@@ -107,7 +107,7 @@ Controls (header and Claude Code pane):
 | **Key chips** | send one key to the terminal: Esc, Ctrl-C, Enter, arrows, Tab, Shift+Tab (mode cycle), 1/2/3 (menu pick) | the answer to dialogs, which are menus; primary input on mobile (§7). Sent with `session.keys`, after an explicit take (§4.3) |
 | **Permission card** | Yes / No on a detected Claude permission prompt | appears only when the daemon *detected* one (tool, command, reason, the prompt's own lines); never offers "always". Same card in Inbox |
 | **Other dialogs** | trust-folder, `/exit` over background work, login expired, unknown dialog | card with the dialog's lines and key chips; the daemon names what it cannot decide and never picks for the person |
-| **Terminal pane** | the live stream as a **text grid** in v1 (rows of text; no colour or cursor addressing yet), selectable, copyable, scrollback | keystrokes typed in the pane are sent as `session.keys` (not `session.input`, which is refused while a dialog is open), once the person *takes the keyboard* (§4.3) |
+| **Terminal pane** | the live stream as a **text grid** in v1 (rows of text; no colour or cursor addressing yet), selectable, copyable, scrollback | printable text typed in the pane is sent with `session.input` and named keys with `session.keys`, once the person *takes the keyboard* (§4.3); while a dialog is open only keys pass (§9) |
 
 Chat box and terminal are two ways to speak: the chat box for a message to the agent (queued, tracked, safe while the agent works), the terminal for a person who needs the TUI itself (menus, `/` commands, a dialog).
 
@@ -341,6 +341,7 @@ Open, asks to the API (auditor memo 456 on T1712, sent to orcapipe):
 
 - **Chat methods (G1)**: the API has none for §8 "Chat data" (paged messages, landing state, transcript items, plain send, answer/dismiss/withdraw, search), and no `requests` topic in the web-UI event list.
 - **Holders as a list (G2)**: the API has one holder and no ask-for-input; the doc wants `holders: [{who, since}]` and a reserved request.
+- **Free-text answer to a dialog (G9)**: `session.input` is refused while a dialog is open and only `session.keys` passes, so typing a free-text answer to a dialog has no method; the API must allow text through for that case, or the UI cannot offer it.
 - **Account preview (G4)**: Start shows the account the daemon would pick; the API has no preview (a field on `agent.get` or an option on `session.start`).
 
 Open, smaller: where the Electron wrapper differs (native notifications, open-in-editor); whether a person's chat messages carry a task as the bridge's can (§8 chat data 7 assumes yes); how long a hold lasts idle before it returns to the daemon.
