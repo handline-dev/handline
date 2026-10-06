@@ -46,6 +46,8 @@ export type RefusalData = {
   gate?: string;
   /** The command or step that fixes it, when there is one. */
   hint?: string;
+  /** With gates proposal_changed and proposal_settled: the proposal as it is now. */
+  proposal?: Proposal;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -319,20 +321,22 @@ export type TeamAgent = {
 
 export type Proposal = {
   id: number;
-  agent: AgentName;
+  /** The agent the proposal is about, as the card heads it `<kind> <agent>`. For a bundle: `<N> changes`, not an agent's name. */
+  agent: string;
+  /** One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text. */
   title: string;
   /** Unified diff. */
   diff: string;
-  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved, but the change did not go through (`error` says why); still the founder's move, and hr.decide approve again retries it. withdrawn: taken back by the agent that raised it. An open set: a client ignores a word it does not know. */
+  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
   state: string;
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
-  /** Who asked: an agent's name, or human for a proposal the founder typed. Text from the daemon's record; optional. */
+  /** Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional. */
   requested_by?: string;
   /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
   reason?: string;
-  /** The fields the proposal asks for, by what was asked. Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. */
+  /** The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only. */
   asked?: {
     vendor?: string;
     model?: string;
@@ -342,9 +346,12 @@ export type Proposal = {
     to?: string;
     /** `set <key>`: each agent setting asked for, key to value. */
     sets?: { [key: string]: string };
+    effort?: string;
   };
   error?: string | null;
   settled?: Timestamp | null;
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. */
+  kind: string;
 };
 
 export type Repo = {

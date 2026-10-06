@@ -76,9 +76,12 @@ class FakeDaemon:
         said_hello, buf, out = False, b"", threading.Lock()
 
         def send(reply):
+            after = reply.pop("_notices", [])
             with out:
                 try:
                     conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
+                    for notice in after:
+                        conn.sendall(json.dumps(notice).encode() + b"\n")
                 except OSError:     # the client closed first
                     pass
 
@@ -143,8 +146,11 @@ class FakeDaemon:
         if handler is not None:
             result = handler(self.role, method, params)
             if result is not None:      # a handler that has nothing to say about the call (None) leaves it to the daemon's own branches below
-                kind, payload = result
-                return (ok if kind == "ok" else fail)(payload), said_hello
+                kind, payload, *notices = result        # a third item is the notices that follow the reply
+                reply = (ok if kind == "ok" else fail)(payload)
+                if notices:
+                    reply["_notices"] = notices[0]
+                return reply, said_hello
         if method == "session.stop" and params.get("mode") == "kill" and self.role == "agent":
             return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "kill is for a person"}}), said_hello
         if method == "inbox.list":
@@ -261,10 +267,10 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
 
 
 KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp", "hr_seeded": "1"}
 KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp"]
+          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1"]
 
 
 def _count(results, status: str) -> int:
