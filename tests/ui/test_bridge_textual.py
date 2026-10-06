@@ -5325,10 +5325,14 @@ async def test_a_bang_line_in_the_chat_box_shows_a_card_and_sends_nothing() -> N
         text = str(cards[0]._head.render()) + str(cards[0]._out.render())
         check("bang card: it shows the command, the exit code and the output",
               "echo hello" in text and "exit 2" in text and "hello" in text, text)
-        await until(pilot, lambda: page.shells[0].sent and not page.sending)
-        con = db.connect()
-        rows = con.execute("SELECT body FROM requests").fetchall()
-        con.close()
+        def posted() -> list:
+            con = db.connect()
+            try:
+                return con.execute("SELECT body FROM requests").fetchall()
+            finally:
+                con.close()
+        await until(pilot, lambda: len(posted()) > before and page.shells[0].sent and not page.sending)
+        rows = posted()
         check("bang card: the finished command went to the agent on its own, as a file path and not the output",
               len(rows) == before + 1 and "echo hello" in rows[-1][0] and "/shell/" in rows[-1][0], str(rows))
         check("bang card: a finished command offers Send to agent, not Stop",
