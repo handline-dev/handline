@@ -15,3 +15,6 @@ node_modules/
 .turbo/
 dist/
 .pnpm-store/
+apps/mobile/ios/
+apps/mobile/android/
+apps/mobile/.expo/
