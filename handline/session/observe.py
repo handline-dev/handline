@@ -60,7 +60,8 @@ def _miss(why: str) -> None:
 
 def _ps_failed(call: str, out) -> str:
     """How a `ps` call failed, from its exit status and the first line of what it said on stderr."""
-    first = textsafe.oneline((out.stderr or "").strip().splitlines()[0] if (out.stderr or "").strip() else "")[:120]
+    said = (getattr(out, "stderr", "") or "").strip()
+    first = textsafe.oneline(said.splitlines()[0] if said else "")[:120]
     return f"{call} exited {out.returncode}" + (f": {first}" if first else "")
 
 
