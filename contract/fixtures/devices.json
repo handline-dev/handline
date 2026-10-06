@@ -23,15 +23,11 @@
      },
      "error": {
       "code": -32002,
-      "message": {
-       "$regex": "."
-      },
+      "message": "refused",
       "data": {
        "code": "refused",
        "gate": "unpaired",
-       "reason": {
-        "$regex": "."
-       },
+       "reason": "not paired",
        "$exact": true
       }
      }
@@ -45,15 +41,11 @@
      },
      "error": {
       "code": -32002,
-      "message": {
-       "$regex": "."
-      },
+      "message": "refused",
       "data": {
        "code": "refused",
        "gate": "unpaired",
-       "reason": {
-        "$regex": "."
-       },
+       "reason": "not paired",
        "$exact": true
       }
      },
@@ -649,15 +641,12 @@
      },
      "error": {
       "code": -32002,
-      "message": {
-       "$regex": "."
-      },
+      "message": "refused",
       "data": {
        "code": "refused",
        "gate": "unpaired",
-       "reason": {
-        "$regex": "."
-       }
+       "reason": "not paired",
+       "$exact": true
       }
      },
      "on": "again"

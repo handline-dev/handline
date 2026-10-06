@@ -220,7 +220,7 @@ class FakeNetwork:
                     rid, params = req.get("id"), req.get("params") or {}
                     def refuse():
                         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "refused", "data": {
-                            "code": "refused", "gate": "unpaired", "reason": "this connection is not paired"}}})
+                            "code": "refused", "gate": "unpaired", "reason": "not paired"}}})
                     if paired and not any(d["id"] == paired for d in dev.WORLD["devices"].values()):
                         return              # revoked while it was open
                     if req.get("method") == "device.redeem":
