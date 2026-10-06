@@ -6,7 +6,7 @@ OpenRPC-shaped. Source of contract/protocol.md and contract/protocol.ts: regener
 ## Framing
 
 - **Transport:** Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line; WebSocket (network listener, off by default), one object per text frame.
-- **Reach:** v1 reaches this machine, the LAN or Tailscale only: the network listener binds the interface the config names (default loopback), says whether it uses TLS or Tailscale encryption, and there is no relay or public endpoint.
+- **Reach:** v1 reaches this machine, the LAN or Tailscale only (founder decision 3): the network listener binds the address the config names (default loopback; a LAN or Tailscale address is opt-in), always speaks an encrypted WebSocket whose certificate fingerprint is in the pairing QR, and has no relay or public endpoint.
 - **Lines:** UTF-8 JSON, terminated by \n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.
 - **Ids:** Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.
 - **Params:** By name only.
@@ -46,6 +46,8 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
 | `unsupported` | Reserved and not implemented. |
+| `not_self` | The agent named is not the caller's own session. |
+| `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `session_token` | Session token and peer-pid check, unchanged. |
 
 ## Methods
@@ -54,21 +56,21 @@ A method marked write takes a required `request_id`.
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `hello` | anonymous |  | `client`, `protocol`, `token?` | `{` | `refused`, `bad_request` |  |
-| `whoami` | agent |  | none | `{` |  |  |
-| `subscribe` | agent |  | `topics`, `since?` | `{` |  |  |
-| `unsubscribe` | agent |  | `topics` | `{ [key: string]: unknown }` |  |  |
-| `daemon.status` | member |  | none | `DaemonStatus` |  |  |
-| `events.feed` | member |  | `since?`, `topics?`, `limit?` | `{` |  |  |
+| `hello` | anonymous |  | `client`, `protocol`, `token?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
+| `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
+| `subscribe` | agent |  | `topics`, `since?` | `{cursor}` |  |  |
+| `unsubscribe` | agent |  | `topics` | `object` |  |  |
+| `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
+| `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` |  |  |
 | `operation.get` | member |  | `operation` | `Operation` | `not_found` |  |
-| `agents.list` | agent |  | none | `{` |  |  |
+| `agents.list` | agent |  | none | `{agents}` |  |  |
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
-| `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{` | `not_found` |  |
+| `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
-| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {` | `refused`, `not_found` |  |
-| `agent.set` | agent | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `agent.fold` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `agent.move` | member | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {operation}` | `refused`, `not_found` |  |
+| `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
+| `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `session.start` | agent | yes | `agent`, `account?`, `repo?`, `base?`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
 | `session.wake` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
 | `session.stop` | agent | yes | `agent`, `mode`, `fresh?`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
@@ -77,67 +79,88 @@ A method marked write takes a required `request_id`.
 | `session.input` | member | yes | `agent`, `text`, `enter?`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, wall, screen_blocker |
 | `session.keys` | member | yes | `agent`, `keys`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder |
 | `session.interrupt` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder |
-| `prompt.list` | member |  | `agent` | `{` | `not_found` |  |
+| `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
-| `input.take` | member | yes | `agent`, `request_id` | `Accepted & {` | `refused`, `not_found` | role, input_holder |
+| `input.take` | member | yes | `agent`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder |
 | `input.ask` | member | yes | `agent`, `request_id` | `Accepted` | `refused` | unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
-| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{` | `not_found` |  |
-| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{` | `not_found` |  |
-| `chat.locate` | member |  | `agent`, `request` | `{` | `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {` | `refused`, `not_found` |  |
+| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found` |  |
+| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found` |  |
+| `chat.locate` | member |  | `agent`, `request` | `{scope, message}` | `not_found` |  |
+| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `chat.withdraw` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `chat.withdraw` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?` | `TerminalSnapshot` | `not_found`, `bad_request` |  |
 | `terminal.history` | member |  | `terminal`, `before`, `limit` | `HistoryPage` | `not_found` |  |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
-| `terminal.detach` | member |  | `terminal` | `{ [key: string]: unknown }` | `not_found` |  |
-| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?` | `{` |  |  |
+| `terminal.close` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, state |
+| `terminal.detach` | member |  | `terminal` | `object` | `not_found` |  |
+| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?` | `{items, more}` |  |  |
 | `inbox.get` | agent |  | `id` | `InboxItem` | `not_found` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?` | `{` |  |  |
+| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?` | `{items, more}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `request_id` | `Accepted & {` | `refused` |  |
+| `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.progress` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.withdraw` | member | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
+| `task.begin` | agent | yes | `title`, `body?`, `message`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
+| `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found` |  |
+| `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.board` | agent |  | none | `{mine, reports}` |  |  |
+| `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | member | yes | `task`, `title?`, `body?`, `time_box?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused` |  |
-| `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {` | `refused` |  |
+| `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused` |  |
 | `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused` |  |
 | `push.answer` | agent | yes | `requester`, `request_id` | `Accepted` | `refused` |  |
 | `push.cancelled` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `land` | agent | yes | `sha`, `message`, `tree?`, `request_id` | `Accepted` | `refused` | session_token |
-| `land.pass` | agent | yes | `sha`, `request_id` | `Accepted` | `refused` | session_token |
-| `land.authorize` | agent | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | session_token |
-| `hook.record` | agent | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` |  |
-| `team.get` | agent |  | none | `{` |  |  |
-| `hr.list` | member |  | `state?` | `{` |  |  |
+| `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
+| `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
+| `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
+| `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
+| `hr.propose` | agent | yes | `kind`, `args`, `why?`, `request_id` | `Accepted & {proposal}` | `refused`, `bad_request` |  |
+| `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `trust.propose` | agent | yes | `root`, `why`, `request_id` | `Accepted & {proposal}` | `refused` |  |
+| `trust.list` | agent |  | `proposals?` | `{roots, proposals}` |  |  |
+| `trust.remove` | agent | yes | `root`, `request_id` | `Accepted` | `not_found` |  |
+| `agent.triggers` | agent |  | `agent?` | `{agents}` |  |  |
+| `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
+| `team.get` | agent |  | none | `{agents, edges}` |  |  |
+| `hr.list` | agent |  | `state?` | `{proposals}` |  |  |
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `accounts.list` | member |  | none | `{` |  |  |
+| `accounts.list` | agent |  | none | `{accounts}` |  |  |
 | `account.set_cap` | founder | yes | `account`, `cap_pct`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `account.login` | founder | yes | `account`, `request_id` | `Accepted & {` | `refused`, `not_found` |  |
-| `repos.list` | member |  | none | `{` |  |  |
-| `worktrees.list` | member |  | `repo?`, `owner?` | `{` |  |  |
-| `worktree.diff` | member |  | `path`, `file?` | `{` | `not_found` |  |
+| `account.login` | founder | yes | `account`, `request_id` | `Accepted & {terminal}` | `refused`, `not_found` |  |
+| `repos.list` | member |  | none | `{repos}` |  |  |
+| `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
+| `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
 | `worktree.set_status` | member | yes | `path`, `status`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `schedules.list` | member |  | none | `{` |  |  |
-| `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {` | `refused`, `bad_request` |  |
+| `schedules.list` | agent |  | none | `{schedules}` |  |  |
+| `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {schedule}` | `refused`, `bad_request` |  |
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` |  |  |
 | `settings.get` | founder |  | none | `Settings` |  |  |
 | `settings.set` | founder | yes | `changes`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused` |  |
-| `devices.list` | founder |  | none | `{` |  |  |
-| `device.pair` | founder | yes | `name?`, `request_id` | `Accepted & {` | `refused` |  |
-| `device.redeem` | anonymous | yes | `code`, `name`, `request_id` | `Accepted & {` | `refused` |  |
+| `devices.list` | founder |  | none | `{devices}` |  |  |
+| `device.pair` | founder | yes | `name?`, `request_id` | `Accepted & {code, expires_at, fingerprint, uri}` | `refused` |  |
+| `device.redeem` | anonymous | yes | `code`, `name`, `request_id` | `Accepted & {token, device}` | `refused` | attempt_limit |
 | `device.revoke` | founder | yes | `device`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 
 Per-method summaries and field types are in `protocol.json` and `protocol.ts`.
@@ -266,6 +289,10 @@ The agent's replies, tool activity, prompt cards and task events as ordered item
 
 Which scope and page show a message number.
 
+### `chat.search`
+
+Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).
+
 ### `chat.send`
 
 A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
@@ -293,6 +320,10 @@ Page scrollback; absolute line indexes.
 ### `terminal.resize`
 
 Resize; accepted from the input holder only, restored when they leave.
+
+### `terminal.close`
+
+Close the host's terminal to free it (the web UI's Close terminal). Different from session.stop close, which ends the session and keeps the terminal: refused while a session runs.
 
 ### `terminal.detach`
 
@@ -346,6 +377,54 @@ Reopen a task.
 
 Record progress on a task (hl progress).
 
+### `task.begin`
+
+Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.
+
+### `task.start`
+
+Pick up a task as the caller's current one.
+
+### `task.memo.list`
+
+Memos beside a task.
+
+### `task.memo.add`
+
+Add a memo; anyone may. A memo on a doing task is told to its holder.
+
+### `task.memo.edit`
+
+Edit a memo: its author or the founder.
+
+### `task.memo.delete`
+
+Delete a memo: its author or the founder.
+
+### `task.queue`
+
+Approve draft tasks to run: the founder or the owner's manager.
+
+### `task.draft`
+
+Send queued tasks back to draft: the founder or the owner's manager.
+
+### `task.merge`
+
+Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.
+
+### `task.release`
+
+Take a doing task back to queued or draft: the opener or the founder.
+
+### `task.discard`
+
+Throw away a task that is not done: the asker or the founder, with a reason.
+
+### `task.board`
+
+The caller's open tasks and its reports', and who holds each now.
+
 ### `task.withdraw`
 
 Withdraw a task the caller made.
@@ -356,7 +435,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Edit a task that is not yet delivered.
+Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
 
 ### `say`
 
@@ -393,6 +472,34 @@ The session's hl land vouches for the next land verb (legacy land_authorize).
 ### `hook.record`
 
 A hook records an event; the spool replays it with the same request_id.
+
+### `hr.propose`
+
+Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, context).
+
+### `hr.withdraw`
+
+Take back the caller's own undecided proposal.
+
+### `trust.propose`
+
+Propose declaring a folder ocp may answer Claude's trust prompt in (the founder's own call declares it).
+
+### `trust.list`
+
+Declared trust roots and proposals.
+
+### `trust.remove`
+
+Drop a declared root; no gate, as today.
+
+### `agent.triggers`
+
+What the daemon would decide for an agent right now (hl triggers).
+
+### `memory.status`
+
+Per-agent memory against its budget (hl memory status).
 
 ### `team.get`
 
@@ -476,11 +583,84 @@ Make a one-time pairing code.
 
 ### `device.redeem`
 
-Trade a pairing code for a device token. Allowed before hello auth on the network listener.
+Trade a pairing code for a device token. Allowed before hello auth on the network listener; wrong, expired or used codes and too many tries are refused (gate attempt_limit).
 
 ### `device.revoke`
 
 Cancel a device and close its connections at once.
+
+## Who the caller is
+
+x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
+
+- **Sender:** say, ask and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
+- **Ownership:** Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason.
+
+## Agent commands
+
+Every `hl` command an agent runs today and the method that serves it.
+
+| Command | Method |
+|---|---|
+| `hl task new` | `task.new` |
+| `hl task begin` | `task.begin` |
+| `hl task start` | `task.start` |
+| `hl task handoff` | `task.handoff` |
+| `hl task done` | `task.done` |
+| `hl task reopen` | `task.reopen` |
+| `hl task edit` | `task.edit` |
+| `hl task merge` | `task.merge` |
+| `hl task release` | `task.release` |
+| `hl task discard` | `task.discard` |
+| `hl task queue` | `task.queue` |
+| `hl task draft` | `task.draft` |
+| `hl task board` | `task.board` |
+| `hl task show` | `task.get` |
+| `hl task list` | `tasks.list` |
+| `hl task memo list` | `task.memo.list` |
+| `hl task memo add` | `task.memo.add` |
+| `hl task memo edit` | `task.memo.edit` |
+| `hl task memo delete` | `task.memo.delete` |
+| `hl progress` | `task.progress` |
+| `hl inbox` | `inbox.list` |
+| `hl read` | `inbox.get` |
+| `hl say` | `say` |
+| `hl ask` | `ask` |
+| `hl withdraw` | `task.withdraw` |
+| `hl land` | `land` |
+| `hl land --pass` | `land.pass` |
+| `hl hook` | `hook.record` |
+| `hl agent set` | `agent.set` |
+| `hl agent move` | `agent.move` |
+| `hl fold` | `agent.fold` |
+| `hl close` | `session.stop` |
+| `hl restart` | `session.restart` |
+| `hl resume` | `session.wake` |
+| `hl wake` | `session.wake` |
+| `hl hr add|retire|rename|link|unlink|team|context` | `hr.propose` |
+| `hl hr withdraw` | `hr.withdraw` |
+| `hl hr list` | `hr.list` |
+| `hl trust add` | `trust.propose` |
+| `hl trust list|proposals` | `trust.list` |
+| `hl trust remove` | `trust.remove` |
+| `hl team` | `team.get` |
+| `hl ps` | `agents.list` |
+| `hl status` | `accounts.list` |
+| `hl events` | `events.feed` |
+| `hl triggers` | `agent.triggers` |
+| `hl schedule (show)` | `schedules.list` |
+| `hl account list` | `accounts.list` |
+| `hl memory status` | `memory.status` |
+
+## Dropped from agents on purpose
+
+Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
+
+- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl service ...`
+- **Needs a decision:** `hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)`; `hl agent register (a roster change, founder)`
+- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl memory migrate`; `hl task note (suppressed)`
+
+The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.
 
 ## Topics
 

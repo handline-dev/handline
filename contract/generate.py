@@ -83,9 +83,9 @@ def gen_ts(spec: dict) -> str:
     for m in spec["methods"]:
         out.append(f"  {json.dumps(m['name'])}: {{ params: {params_type(m)}; result: {ts(m['result']['schema'], 1)} }};")
     out += ["}", "", "export type MethodName = keyof Methods;", ""]
-    out.append("export const METHODS: { [K in MethodName]: { role: Role; write: boolean; since: number } } = {")
+    out.append("export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {")
     for m in spec["methods"]:
-        out.append(f"  {json.dumps(m['name'])}: {{ role: {json.dumps(m['x-role'])}, write: {json.dumps(m['x-write'])}, since: {m['x-since']} }},")
+        out.append(f"  {json.dumps(m['name'])}: {{ role: {json.dumps(m['x-role'])}, callers: {json.dumps(m.get('x-callers'))}, write: {json.dumps(m['x-write'])}, since: {m['x-since']} }},")
     out += ["};", "", f"export const PROTOCOL = {spec['x-protocol']};", ""]
     codes = spec["components"]["errors"]
     out.append("export type ErrorCode = " + " | ".join(json.dumps(c) for c in codes) + ";")
@@ -96,6 +96,18 @@ def gen_ts(spec: dict) -> str:
         out.append(f"  {n}: {ts(d['params']) if isinstance(d['params'], dict) else d['params']};")
     out += ["}", "", "export const ROLE_ORDER: Role[] = " + json.dumps(spec["x-roles"]["order"]) + ";", ""]
     return "\n".join(out)
+
+
+def short(schema: dict) -> str:
+    """A result type for a table cell: named types by name, inline objects as {...}."""
+    if "$ref" in schema:
+        return ref_name(schema["$ref"])
+    for key, joiner in (("allOf", " & "), ("oneOf", " | "), ("anyOf", " | ")):
+        if key in schema:
+            return joiner.join(short(s) for s in schema[key])
+    if schema.get("type") == "object":
+        return "{" + ", ".join(schema.get("properties", {})) + "}" if schema.get("properties") else "object"
+    return ts(schema).split("\n")[0]
 
 
 def cell(t: str) -> str:
@@ -118,10 +130,18 @@ def gen_md(spec: dict) -> str:
     for m in spec["methods"]:
         ps = ", ".join(f"`{p['name']}{'' if p['required'] else '?'}`" for p in m["params"]) or "none"
         errs = ", ".join(f"`{ref_name(e['$ref'])}`" for e in m.get("errors", [])) or ""
-        o.append(f"| `{m['name']}` | {m['x-role']} | {'yes' if m['x-write'] else ''} | {ps} | `{cell(ts(m['result']['schema']).split(chr(10))[0])}` | {errs} | {', '.join(m.get('x-gates', []))} |")
+        o.append(f"| `{m['name']}` | {m['x-role']}{' (only ' + ', '.join(m['x-callers']) + ')' if m.get('x-callers') else ''} | {'yes' if m['x-write'] else ''} | {ps} | `{cell(short(m['result']['schema']))}` | {errs} | {', '.join(m.get('x-gates', []))} |")
     o += ["", "Per-method summaries and field types are in `protocol.json` and `protocol.ts`.", ""]
     for m in spec["methods"]:
         o += [f"### `{m['name']}`", "", m["summary"] + (" " + m["description"] if m.get("description") else ""), ""]
+    ident = spec["x-identity"]
+    o += ["## Who the caller is", "", ident["rule"], "", "- **Sender:** " + ident["sender"], "- **Ownership:** " + ident["ownership"], "",
+          "## Agent commands", "", "Every `hl` command an agent runs today and the method that serves it.", "", "| Command | Method |", "|---|---|"]
+    o += [f"| `{c}` | `{m}` |" for c, m in spec["x-agent-commands"].items()]
+    d = spec["x-dropped-from-agents"]
+    o += ["", "## Dropped from agents on purpose", "", d["note"], ""]
+    o += [f"- **{k.replace('_', ' ').capitalize()}:** " + "; ".join(f"`{x}`" for x in v) for k, v in d.items() if k != "note"]
+    o += ["", spec["x-note-topics"], ""]
     o += ["## Topics", "", "| Topic | Event types (data) | Snapshot method |", "|---|---|---|"]
     for t, d in spec["x-topics"].items():
         o.append(f"| `{t}` | {', '.join(f'`{k}` ({v})' for k, v in d['data'].items())} | `{d['snapshot']}` |")

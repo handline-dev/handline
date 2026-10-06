@@ -119,6 +119,11 @@ export type AgentDetail = AgentView & {
   session_open: boolean;
   /** Who holds the input; one in v1, a list so more can later. */
   input_holders: InputHolder[];
+  /** The account the daemon would place a session start on, before session.start; account null with a reason when none can take work. */
+  account_pick: {
+    account: string | null;
+    reason: string;
+  };
   prompt: Prompt | null;
 };
 
@@ -161,6 +166,18 @@ export type TaskDetail = Task & {
     outcome: string;
   }[];
   events: Event[];
+  memos: Memo[];
+  blockers: {
+    task: number;
+    reason: string;
+  }[];
+  children: number[];
+  handoffs: {
+    at: Timestamp;
+    from: string;
+    to: string;
+    note: string;
+  }[];
 };
 
 export type DecisionOption = {
@@ -411,6 +428,19 @@ export type TerminalSnapshot = {
   holder: InputHolder;
 };
 
+export type Memo = {
+  id: number;
+  task: number;
+  author: string;
+  at: Timestamp;
+  text: string;
+};
+
+export type TaskBoardRow = {
+  task: Task;
+  holder: AgentName | null;
+};
+
 /** Landing state of a message; open set. */
 export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" | "answered" | "dismissed" | "withdrawn";
 
@@ -480,8 +510,8 @@ export type Listener = {
   enabled: boolean;
   /** loopback, lan, tailscale or an address. */
   bind: string;
-  /** What protects the transport; `none` only on loopback. */
-  encryption: "tls" | "tailscale" | "none";
+  /** Always an encrypted WebSocket with a certificate; `none` only on loopback. A Tailscale address is just a bind address. */
+  encryption: "tls" | "none";
   fingerprint: string | null;
 };
 
@@ -514,7 +544,7 @@ export interface Methods {
     caller: Caller;
     capabilities: Capabilities;
     /** How this connection is protected. */
-    transport: "local" | "tls" | "tailscale";
+    transport: "local" | "tls";
     methods: {
       name: string;
       since: number;
@@ -651,8 +681,10 @@ export interface Methods {
   "prompt.answer": { params: {
   agent: AgentName;
   prompt: string;
-  /** A PromptOption.key. */
-  choice: string;
+  /** A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. */
+  choice: string | {
+    text: string;
+  };
   request_id: RequestId;
 }; result: Accepted };
   "input.take": { params: {
@@ -698,6 +730,15 @@ export interface Methods {
     scope: "mine" | "all";
     message: ChatMessage;
   } };
+  "chat.search": { params: {
+  agent?: AgentName;
+  query: string;
+  /** mine: person and this agent; all: everything it sent or received. */
+  scope?: "mine" | "all";
+  limit?: number;
+}; result: {
+    messages: ChatMessage[];
+  } };
   "chat.send": { params: {
   agent: AgentName;
   body: string;
@@ -738,6 +779,10 @@ export interface Methods {
   terminal: string;
   cols: number;
   rows: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "terminal.close": { params: {
+  agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.detach": { params: {
@@ -822,6 +867,70 @@ export interface Methods {
   note: string;
   request_id: RequestId;
 }; result: Accepted };
+  "task.begin": { params: {
+  title: string;
+  body?: string;
+  /** The founder's message it answers. */
+  message: number;
+  request_id: RequestId;
+}; result: Accepted & {
+    task: number;
+  } };
+  "task.start": { params: {
+  task: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.memo.list": { params: {
+  task: number;
+}; result: {
+    memos: Memo[];
+  } };
+  "task.memo.add": { params: {
+  task: number;
+  text: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    memo: number;
+  } };
+  "task.memo.edit": { params: {
+  task: number;
+  memo: number;
+  text: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.memo.delete": { params: {
+  task: number;
+  memo: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.queue": { params: {
+  tasks: number[];
+  request_id: RequestId;
+}; result: Accepted };
+  "task.draft": { params: {
+  tasks: number[];
+  request_id: RequestId;
+}; result: Accepted };
+  "task.merge": { params: {
+  into: number;
+  tasks: number[];
+  request_id: RequestId;
+}; result: Accepted };
+  "task.release": { params: {
+  task: number;
+  to?: "queued" | "draft";
+  reason?: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.discard": { params: {
+  task: number;
+  reason: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.board": { params: { [key: string]: unknown }; result: {
+    mine: TaskBoardRow[];
+    reports: TaskBoardRow[];
+  } };
   "task.withdraw": { params: {
   task: number;
   request_id: RequestId;
@@ -833,9 +942,12 @@ export interface Methods {
 }; result: Accepted };
   "task.edit": { params: {
   task: number;
+  owner?: string;
   title?: string;
   body?: string;
   time_box?: Duration;
+  /** Owner only: what the task waits on. */
+  waits_on?: string;
   request_id: RequestId;
 }; result: Accepted };
   "say": { params: {
@@ -893,6 +1005,59 @@ export interface Methods {
   data: { [key: string]: unknown };
   request_id: RequestId;
 }; result: Accepted };
+  "hr.propose": { params: {
+  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "context";
+  args: { [key: string]: unknown };
+  why?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    proposal: number;
+  } };
+  "hr.withdraw": { params: {
+  proposal: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "trust.propose": { params: {
+  root: string;
+  why: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    proposal: string;
+  } };
+  "trust.list": { params: {
+  proposals?: boolean;
+}; result: {
+    roots: string[];
+    proposals: {
+      id: string;
+      root: string;
+      state: string;
+    }[];
+  } };
+  "trust.remove": { params: {
+  root: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "agent.triggers": { params: {
+  agent?: AgentName;
+}; result: {
+    agents: {
+      agent: AgentName;
+      fired: boolean;
+      reason: string;
+    }[];
+  } };
+  "memory.status": { params: {
+  agent?: AgentName;
+}; result: {
+    agents: {
+      agent: AgentName;
+      bytes: number;
+      budget: number;
+      entries: number;
+      unused: string[];
+    }[];
+  } };
   "team.get": { params: { [key: string]: unknown }; result: {
     agents: TeamAgent[];
     edges: {
@@ -1017,92 +1182,113 @@ export interface Methods {
 
 export type MethodName = keyof Methods;
 
-export const METHODS: { [K in MethodName]: { role: Role; write: boolean; since: number } } = {
-  "hello": { role: "anonymous", write: false, since: 1 },
-  "whoami": { role: "agent", write: false, since: 1 },
-  "subscribe": { role: "agent", write: false, since: 1 },
-  "unsubscribe": { role: "agent", write: false, since: 1 },
-  "daemon.status": { role: "member", write: false, since: 1 },
-  "events.feed": { role: "member", write: false, since: 1 },
-  "operation.get": { role: "member", write: false, since: 1 },
-  "agents.list": { role: "agent", write: false, since: 1 },
-  "agent.get": { role: "agent", write: false, since: 1 },
-  "agent.timeline": { role: "member", write: false, since: 1 },
-  "agent.options": { role: "member", write: false, since: 1 },
-  "agent.create": { role: "founder", write: true, since: 1 },
-  "agent.set": { role: "agent", write: true, since: 1 },
-  "agent.fold": { role: "member", write: true, since: 1 },
-  "agent.move": { role: "member", write: true, since: 1 },
-  "session.start": { role: "agent", write: true, since: 1 },
-  "session.wake": { role: "agent", write: true, since: 1 },
-  "session.stop": { role: "agent", write: true, since: 1 },
-  "session.restart": { role: "agent", write: true, since: 1 },
-  "session.park": { role: "agent", write: true, since: 1 },
-  "session.input": { role: "member", write: true, since: 1 },
-  "session.keys": { role: "member", write: true, since: 1 },
-  "session.interrupt": { role: "member", write: true, since: 1 },
-  "prompt.list": { role: "member", write: false, since: 1 },
-  "prompt.answer": { role: "member", write: true, since: 1 },
-  "input.take": { role: "member", write: true, since: 1 },
-  "input.ask": { role: "member", write: true, since: 1 },
-  "input.release": { role: "member", write: true, since: 1 },
-  "chat.messages": { role: "member", write: false, since: 1 },
-  "chat.transcript": { role: "member", write: false, since: 1 },
-  "chat.locate": { role: "member", write: false, since: 1 },
-  "chat.send": { role: "member", write: true, since: 1 },
-  "chat.answer": { role: "member", write: true, since: 1 },
-  "chat.dismiss": { role: "member", write: true, since: 1 },
-  "chat.withdraw": { role: "member", write: true, since: 1 },
-  "terminal.attach": { role: "member", write: false, since: 1 },
-  "terminal.history": { role: "member", write: false, since: 1 },
-  "terminal.resize": { role: "member", write: true, since: 1 },
-  "terminal.detach": { role: "member", write: false, since: 1 },
-  "inbox.list": { role: "agent", write: false, since: 1 },
-  "inbox.get": { role: "agent", write: false, since: 1 },
-  "inbox.mark_read": { role: "agent", write: true, since: 1 },
-  "inbox.answer": { role: "member", write: true, since: 1 },
-  "inbox.reply": { role: "agent", write: true, since: 1 },
-  "tasks.list": { role: "agent", write: false, since: 1 },
-  "task.get": { role: "agent", write: false, since: 1 },
-  "task.new": { role: "agent", write: true, since: 1 },
-  "task.handoff": { role: "agent", write: true, since: 1 },
-  "task.done": { role: "agent", write: true, since: 1 },
-  "task.reopen": { role: "agent", write: true, since: 1 },
-  "task.progress": { role: "agent", write: true, since: 1 },
-  "task.withdraw": { role: "member", write: true, since: 1 },
-  "task.cancel": { role: "member", write: true, since: 1 },
-  "task.edit": { role: "member", write: true, since: 1 },
-  "say": { role: "agent", write: true, since: 1 },
-  "ask": { role: "agent", write: true, since: 1 },
-  "push": { role: "agent", write: true, since: 1 },
-  "push.answer": { role: "agent", write: true, since: 1 },
-  "push.cancelled": { role: "agent", write: true, since: 1 },
-  "land": { role: "agent", write: true, since: 1 },
-  "land.pass": { role: "agent", write: true, since: 1 },
-  "land.authorize": { role: "agent", write: true, since: 1 },
-  "hook.record": { role: "agent", write: true, since: 1 },
-  "team.get": { role: "agent", write: false, since: 1 },
-  "hr.list": { role: "member", write: false, since: 1 },
-  "hr.decide": { role: "founder", write: true, since: 1 },
-  "accounts.list": { role: "member", write: false, since: 1 },
-  "account.set_cap": { role: "founder", write: true, since: 1 },
-  "account.login": { role: "founder", write: true, since: 1 },
-  "repos.list": { role: "member", write: false, since: 1 },
-  "worktrees.list": { role: "member", write: false, since: 1 },
-  "worktree.diff": { role: "member", write: false, since: 1 },
-  "worktree.set_status": { role: "member", write: true, since: 1 },
-  "schedules.list": { role: "member", write: false, since: 1 },
-  "schedule.add": { role: "founder", write: true, since: 1 },
-  "schedule.edit": { role: "founder", write: true, since: 1 },
-  "schedule.remove": { role: "founder", write: true, since: 1 },
-  "stats.get": { role: "member", write: false, since: 1 },
-  "settings.get": { role: "founder", write: false, since: 1 },
-  "settings.set": { role: "founder", write: true, since: 1 },
-  "settings.trust": { role: "founder", write: true, since: 1 },
-  "devices.list": { role: "founder", write: false, since: 1 },
-  "device.pair": { role: "founder", write: true, since: 1 },
-  "device.redeem": { role: "anonymous", write: true, since: 1 },
-  "device.revoke": { role: "founder", write: true, since: 1 },
+export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {
+  "hello": { role: "anonymous", callers: null, write: false, since: 1 },
+  "whoami": { role: "agent", callers: null, write: false, since: 1 },
+  "subscribe": { role: "agent", callers: null, write: false, since: 1 },
+  "unsubscribe": { role: "agent", callers: null, write: false, since: 1 },
+  "daemon.status": { role: "agent", callers: null, write: false, since: 1 },
+  "events.feed": { role: "agent", callers: null, write: false, since: 1 },
+  "operation.get": { role: "member", callers: null, write: false, since: 1 },
+  "agents.list": { role: "agent", callers: null, write: false, since: 1 },
+  "agent.get": { role: "agent", callers: null, write: false, since: 1 },
+  "agent.timeline": { role: "member", callers: null, write: false, since: 1 },
+  "agent.options": { role: "member", callers: null, write: false, since: 1 },
+  "agent.create": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.set": { role: "agent", callers: ["agent", "founder"], write: true, since: 1 },
+  "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
+  "agent.move": { role: "agent", callers: null, write: true, since: 1 },
+  "session.start": { role: "agent", callers: null, write: true, since: 1 },
+  "session.wake": { role: "agent", callers: null, write: true, since: 1 },
+  "session.stop": { role: "agent", callers: null, write: true, since: 1 },
+  "session.restart": { role: "agent", callers: null, write: true, since: 1 },
+  "session.park": { role: "agent", callers: null, write: true, since: 1 },
+  "session.input": { role: "member", callers: null, write: true, since: 1 },
+  "session.keys": { role: "member", callers: null, write: true, since: 1 },
+  "session.interrupt": { role: "member", callers: null, write: true, since: 1 },
+  "prompt.list": { role: "member", callers: null, write: false, since: 1 },
+  "prompt.answer": { role: "member", callers: null, write: true, since: 1 },
+  "input.take": { role: "member", callers: null, write: true, since: 1 },
+  "input.ask": { role: "member", callers: null, write: true, since: 1 },
+  "input.release": { role: "member", callers: null, write: true, since: 1 },
+  "chat.messages": { role: "member", callers: null, write: false, since: 1 },
+  "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
+  "chat.locate": { role: "member", callers: null, write: false, since: 1 },
+  "chat.search": { role: "member", callers: null, write: false, since: 1 },
+  "chat.send": { role: "member", callers: null, write: true, since: 1 },
+  "chat.answer": { role: "member", callers: null, write: true, since: 1 },
+  "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
+  "chat.withdraw": { role: "agent", callers: null, write: true, since: 1 },
+  "terminal.attach": { role: "member", callers: null, write: false, since: 1 },
+  "terminal.history": { role: "member", callers: null, write: false, since: 1 },
+  "terminal.resize": { role: "member", callers: null, write: true, since: 1 },
+  "terminal.close": { role: "member", callers: null, write: true, since: 1 },
+  "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
+  "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
+  "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
+  "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
+  "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
+  "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
+  "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
+  "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.new": { role: "agent", callers: null, write: true, since: 1 },
+  "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
+  "task.done": { role: "agent", callers: null, write: true, since: 1 },
+  "task.reopen": { role: "agent", callers: null, write: true, since: 1 },
+  "task.progress": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "task.begin": { role: "agent", callers: null, write: true, since: 1 },
+  "task.start": { role: "agent", callers: null, write: true, since: 1 },
+  "task.memo.list": { role: "agent", callers: null, write: false, since: 1 },
+  "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
+  "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
+  "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
+  "task.queue": { role: "agent", callers: null, write: true, since: 1 },
+  "task.draft": { role: "agent", callers: null, write: true, since: 1 },
+  "task.merge": { role: "agent", callers: null, write: true, since: 1 },
+  "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.discard": { role: "agent", callers: null, write: true, since: 1 },
+  "task.board": { role: "agent", callers: null, write: false, since: 1 },
+  "task.withdraw": { role: "agent", callers: null, write: true, since: 1 },
+  "task.cancel": { role: "member", callers: null, write: true, since: 1 },
+  "task.edit": { role: "agent", callers: null, write: true, since: 1 },
+  "say": { role: "agent", callers: null, write: true, since: 1 },
+  "ask": { role: "agent", callers: null, write: true, since: 1 },
+  "push": { role: "agent", callers: null, write: true, since: 1 },
+  "push.answer": { role: "agent", callers: null, write: true, since: 1 },
+  "push.cancelled": { role: "agent", callers: null, write: true, since: 1 },
+  "land": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "land.pass": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "land.authorize": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "hook.record": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "hr.propose": { role: "agent", callers: null, write: true, since: 1 },
+  "hr.withdraw": { role: "agent", callers: null, write: true, since: 1 },
+  "trust.propose": { role: "agent", callers: null, write: true, since: 1 },
+  "trust.list": { role: "agent", callers: null, write: false, since: 1 },
+  "trust.remove": { role: "agent", callers: null, write: true, since: 1 },
+  "agent.triggers": { role: "agent", callers: null, write: false, since: 1 },
+  "memory.status": { role: "agent", callers: null, write: false, since: 1 },
+  "team.get": { role: "agent", callers: null, write: false, since: 1 },
+  "hr.list": { role: "agent", callers: null, write: false, since: 1 },
+  "hr.decide": { role: "founder", callers: null, write: true, since: 1 },
+  "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
+  "account.set_cap": { role: "founder", callers: null, write: true, since: 1 },
+  "account.login": { role: "founder", callers: null, write: true, since: 1 },
+  "repos.list": { role: "member", callers: null, write: false, since: 1 },
+  "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
+  "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
+  "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
+  "schedule.add": { role: "founder", callers: null, write: true, since: 1 },
+  "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
+  "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
+  "stats.get": { role: "member", callers: null, write: false, since: 1 },
+  "settings.get": { role: "founder", callers: null, write: false, since: 1 },
+  "settings.set": { role: "founder", callers: null, write: true, since: 1 },
+  "settings.trust": { role: "founder", callers: null, write: true, since: 1 },
+  "devices.list": { role: "founder", callers: null, write: false, since: 1 },
+  "device.pair": { role: "founder", callers: null, write: true, since: 1 },
+  "device.redeem": { role: "anonymous", callers: null, write: true, since: 1 },
+  "device.revoke": { role: "founder", callers: null, write: true, since: 1 },
 };
 
 export const PROTOCOL = 1;

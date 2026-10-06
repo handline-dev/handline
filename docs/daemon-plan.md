@@ -89,7 +89,7 @@ Say so if you disagree with any; each is cheap to change before work starts.
 ### Event stream
 
 `subscribe {topics, since}` turns the connection into a stream of `event {cursor, topic, ...}`
-notices. Topics: `agents` (a view changed), `tasks`, `requests`, `usage`.
+notices. Topics are `status`, `accounts`, `agents`, `inbox`, `tasks`, `notifications`, `operations` and `chat`; `chat` replaces the earlier `requests` (messages and their landing state) and `accounts` replaces `usage`.
 
 - The cursor is the events row id, which only grows, so a client that reconnects with its last
   cursor gets exactly what it missed. A cursor older than retention gets a `gap` notice and the
@@ -102,9 +102,9 @@ notices. Topics: `agents` (a view changed), `tasks`, `requests`, `usage`.
 ### Callers, roles and commands
 
 The web UI is a remote surface, so the contract has to say who is calling, from where, and what they
-may do. Open question for the founder, from the UI's own list: whether the first version reaches
-only this machine and the LAN, or the internet. This plan builds the first and leaves a place for
-the second; an internet relay is out of scope until that is answered.
+may do. The founder decided (decision 3 of the web UI design): the first version reaches this machine, the LAN
+or Tailscale only, with no relay and no public endpoint. The network listener always speaks an encrypted
+WebSocket; a Tailscale address is just the address it binds.
 
 - **Two listeners, one contract.** The local socket as today, and an optional network listener
   carrying the same JSON-RPC lines over an encrypted WebSocket. The network listener is off by
@@ -143,7 +143,8 @@ it exists as legacy verbs and moves under the new protocol.
 | `session.input {agent, text, enter}` | Type text at the prompt. | `message` is the daemon's own queued, retried typing; a person's input is its own path |
 | `session.keys {agent, keys}` | Named keys (`esc`, `enter`, `up`, `down`, `tab`, `shift-tab`, `ctrl-c`, digits) for menus and dialogs. | new |
 | `session.interrupt {agent}` | Stop the turn in progress (Esc). | new |
-| `prompt.list {agent}`, `prompt.answer {prompt, choice}` | The open permission prompts and dialogs, and the answer. | `answer_block`, `trust`; the list is only in the db today |
+| `prompt.list {agent}`, `prompt.answer {prompt, choice}` | The open permission prompts and dialogs, and the answer; `choice` is an offered key, or `{text}` for a dialog's free-text answer. | `answer_block`, `trust`; the list is only in the db today |
+| `terminal.close {agent}` | Close the host's terminal to free it; refused while a session runs. Not `session.stop close`, which ends the session and keeps the terminal. | new |
 | `input.take {agent}`, `input.release {agent}` | Become, or stop being, the one who types at this terminal. | new |
 
 Each method passes only the gates that fit what it does. Every refusal is a `refused` reply with

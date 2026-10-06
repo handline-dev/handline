@@ -7,7 +7,7 @@
  },
  "x-protocol": 1,
  "x-framing": {
-  "reach": "v1 reaches this machine, the LAN or Tailscale only: the network listener binds the interface the config names (default loopback), says whether it uses TLS or Tailscale encryption, and there is no relay or public endpoint.",
+  "reach": "v1 reaches this machine, the LAN or Tailscale only (founder decision 3): the network listener binds the address the config names (default loopback; a LAN or Tailscale address is opt-in), always speaks an encrypted WebSocket whose certificate fingerprint is in the pairing QR, and has no relay or public endpoint.",
   "transport": [
    "Unix socket (0600, local user is founder), one JSON-RPC 2.0 object per line",
    "WebSocket (network listener, off by default), one object per text frame"
@@ -36,8 +36,11 @@
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
   "unsupported": "Reserved and not implemented.",
+  "not_self": "The agent named is not the caller's own session.",
+  "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "session_token": "Session token and peer-pid check, unchanged."
  },
+ "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.",
  "x-legacy": {
   "land": "land",
   "land_pass": "land.pass",
@@ -57,6 +60,98 @@
   "start": "session.start",
   "answer_block": "prompt.answer",
   "trust": "settings.trust"
+ },
+ "x-identity": {
+  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
+  "sender": "say, ask and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
+  "ownership": "Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason."
+ },
+ "x-agent-commands": {
+  "hl task new": "task.new",
+  "hl task begin": "task.begin",
+  "hl task start": "task.start",
+  "hl task handoff": "task.handoff",
+  "hl task done": "task.done",
+  "hl task reopen": "task.reopen",
+  "hl task edit": "task.edit",
+  "hl task merge": "task.merge",
+  "hl task release": "task.release",
+  "hl task discard": "task.discard",
+  "hl task queue": "task.queue",
+  "hl task draft": "task.draft",
+  "hl task board": "task.board",
+  "hl task show": "task.get",
+  "hl task list": "tasks.list",
+  "hl task memo list": "task.memo.list",
+  "hl task memo add": "task.memo.add",
+  "hl task memo edit": "task.memo.edit",
+  "hl task memo delete": "task.memo.delete",
+  "hl progress": "task.progress",
+  "hl inbox": "inbox.list",
+  "hl read": "inbox.get",
+  "hl say": "say",
+  "hl ask": "ask",
+  "hl withdraw": "task.withdraw",
+  "hl land": "land",
+  "hl land --pass": "land.pass",
+  "hl hook": "hook.record",
+  "hl agent set": "agent.set",
+  "hl agent move": "agent.move",
+  "hl fold": "agent.fold",
+  "hl close": "session.stop",
+  "hl restart": "session.restart",
+  "hl resume": "session.wake",
+  "hl wake": "session.wake",
+  "hl hr add|retire|rename|link|unlink|team|context": "hr.propose",
+  "hl hr withdraw": "hr.withdraw",
+  "hl hr list": "hr.list",
+  "hl trust add": "trust.propose",
+  "hl trust list|proposals": "trust.list",
+  "hl trust remove": "trust.remove",
+  "hl team": "team.get",
+  "hl ps": "agents.list",
+  "hl status": "accounts.list",
+  "hl events": "events.feed",
+  "hl triggers": "agent.triggers",
+  "hl schedule (show)": "schedules.list",
+  "hl account list": "accounts.list",
+  "hl memory status": "memory.status"
+ },
+ "x-dropped-from-agents": {
+  "note": "Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.",
+  "founder_only_today": [
+   "hl cancel",
+   "hl unstall",
+   "hl team seal",
+   "hl hr approve|reject|apply|relabel|rehome|links",
+   "hl trust apply|mcp",
+   "hl schedule add|edit|remove",
+   "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
+   "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
+   "hl dev-mode",
+   "hl service ..."
+  ],
+  "needs_a_decision": [
+   "hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)",
+   "hl agent register (a roster change, founder)"
+  ],
+  "not_daemon_methods": [
+   "hl init",
+   "hl login",
+   "hl launch",
+   "hl doctor",
+   "hl hooks",
+   "hl install-hooks",
+   "hl daemon",
+   "hl backup",
+   "hl venv",
+   "hl bridge",
+   "hl top",
+   "hl watch",
+   "hl guide",
+   "hl memory migrate",
+   "hl task note (suppressed)"
+  ]
  },
  "x-topics": {
   "status": {
@@ -331,8 +426,7 @@
        "type": "string",
        "enum": [
         "local",
-        "tls",
-        "tailscale"
+        "tls"
        ],
        "description": "How this connection is protected."
       },
@@ -504,7 +598,7 @@
      "$ref": "#/components/schemas/DaemonStatus"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1
   },
@@ -564,7 +658,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1
   },
@@ -878,6 +972,13 @@
     {
      "$ref": "#/components/errors/not_found"
     }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent",
+    "founder"
    ]
   },
   {
@@ -906,7 +1007,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -951,7 +1052,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -1450,8 +1551,23 @@
      "name": "choice",
      "required": true,
      "schema": {
-      "type": "string",
-      "description": "A PromptOption.key."
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "text"
+        ]
+       }
+      ],
+      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check."
      }
     },
     {
@@ -1821,6 +1937,66 @@
    ]
   },
   {
+   "name": "chat.search",
+   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "query",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "scope",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "mine: person and this agent; all: everything it sent or received."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "messages": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ChatMessage"
+       }
+      }
+     },
+     "required": [
+      "messages"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
    "name": "chat.send",
    "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.",
    "paramStructure": "by-name",
@@ -2007,7 +2183,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -2162,6 +2338,50 @@
    "x-gates": [
     "role",
     "input_holder"
+   ]
+  },
+  {
+   "name": "terminal.close",
+   "summary": "Close the host's terminal to free it (the web UI's Close terminal). Different from session.stop close, which ends the session and keeps the terminal: refused while a session runs.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder",
+    "state"
    ]
   },
   {
@@ -2804,7 +3024,576 @@
     {
      "$ref": "#/components/errors/not_found"
     }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent"
    ]
+  },
+  {
+   "name": "task.begin",
+   "summary": "Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "title",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "body",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "message",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "The founder's message it answers."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "task.start",
+   "summary": "Pick up a task as the caller's current one.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.list",
+   "summary": "Memos beside a task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "memos": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Memo"
+       }
+      }
+     },
+     "required": [
+      "memos"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add",
+   "summary": "Add a memo; anyone may. A memo on a doing task is told to its holder.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "memo": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "memo"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.edit",
+   "summary": "Edit a memo: its author or the founder.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.delete",
+   "summary": "Delete a memo: its author or the founder.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.queue",
+   "summary": "Approve draft tasks to run: the founder or the owner's manager.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.draft",
+   "summary": "Send queued tasks back to draft: the founder or the owner's manager.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.merge",
+   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "into",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.release",
+   "summary": "Take a doing task back to queued or draft: the opener or the founder.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "to",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "draft"
+      ]
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.discard",
+   "summary": "Throw away a task that is not done: the asker or the founder, with a reason.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "reason",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.board",
+   "summary": "The caller's open tasks and its reports', and who holds each now.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "mine": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskBoardRow"
+       }
+      },
+      "reports": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskBoardRow"
+       }
+      }
+     },
+     "required": [
+      "mine",
+      "reports"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
   },
   {
    "name": "task.withdraw",
@@ -2832,7 +3621,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -2891,7 +3680,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Edit a task that is not yet delivered.",
+   "summary": "Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2899,6 +3688,13 @@
      "required": true,
      "schema": {
       "type": "integer"
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string"
      }
     },
     {
@@ -2923,6 +3719,14 @@
      }
     },
     {
+     "name": "waits_on",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Owner only: what the task waits on."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2936,7 +3740,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -3250,7 +4054,11 @@
     }
    ],
    "x-gates": [
+    "not_self",
     "session_token"
+   ],
+   "x-callers": [
+    "agent"
    ]
   },
   {
@@ -3288,7 +4096,11 @@
     }
    ],
    "x-gates": [
+    "not_self",
     "session_token"
+   ],
+   "x-callers": [
+    "agent"
    ]
   },
   {
@@ -3351,7 +4163,11 @@
     }
    ],
    "x-gates": [
+    "not_self",
     "session_token"
+   ],
+   "x-callers": [
+    "agent"
    ]
   },
   {
@@ -3409,7 +4225,388 @@
     {
      "$ref": "#/components/errors/refused"
     }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent"
    ]
+  },
+  {
+   "name": "hr.propose",
+   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, context).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "kind",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "add",
+       "retire",
+       "rename",
+       "link",
+       "unlink",
+       "team",
+       "context"
+      ]
+     }
+    },
+    {
+     "name": "args",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    {
+     "name": "why",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "proposal": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "proposal"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "hr.withdraw",
+   "summary": "Take back the caller's own undecided proposal.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposal",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "trust.propose",
+   "summary": "Propose declaring a folder ocp may answer Claude's trust prompt in (the founder's own call declares it).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "root",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "why",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "proposal": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "proposal"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "trust.list",
+   "summary": "Declared trust roots and proposals.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposals",
+     "required": false,
+     "schema": {
+      "type": "boolean"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "roots": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "proposals": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string"
+         },
+         "root": {
+          "type": "string"
+         },
+         "state": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "id",
+         "root",
+         "state"
+        ]
+       }
+      }
+     },
+     "required": [
+      "roots",
+      "proposals"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "trust.remove",
+   "summary": "Drop a declared root; no gate, as today.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "root",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "agent.triggers",
+   "summary": "What the daemon would decide for an agent right now (hl triggers).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "agents": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "agent": {
+          "$ref": "#/components/schemas/AgentName"
+         },
+         "fired": {
+          "type": "boolean"
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "agent",
+         "fired",
+         "reason"
+        ]
+       }
+      }
+     },
+     "required": [
+      "agents"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "memory.status",
+   "summary": "Per-agent memory against its budget (hl memory status).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "agents": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "agent": {
+          "$ref": "#/components/schemas/AgentName"
+         },
+         "bytes": {
+          "type": "integer"
+         },
+         "budget": {
+          "type": "integer"
+         },
+         "entries": {
+          "type": "integer"
+         },
+         "unused": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "agent",
+         "bytes",
+         "budget",
+         "entries",
+         "unused"
+        ]
+       }
+      }
+     },
+     "required": [
+      "agents"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
   },
   {
    "name": "team.get",
@@ -3486,7 +4683,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1
   },
@@ -3568,7 +4765,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1
   },
@@ -3874,7 +5071,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1
   },
@@ -4275,7 +5472,7 @@
   },
   {
    "name": "device.redeem",
-   "summary": "Trade a pairing code for a device token. Allowed before hello auth on the network listener.",
+   "summary": "Trade a pairing code for a device token. Allowed before hello auth on the network listener; wrong, expired or used codes and too many tries are refused (gate attempt_limit).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4332,6 +5529,9 @@
     {
      "$ref": "#/components/errors/refused"
     }
+   ],
+   "x-gates": [
+    "attempt_limit"
    ]
   },
   {
@@ -4864,6 +6064,29 @@
         },
         "description": "Who holds the input; one in v1, a list so more can later."
        },
+       "account_pick": {
+        "type": "object",
+        "properties": {
+         "account": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "account",
+         "reason"
+        ],
+        "description": "The account the daemon would place a session start on, before session.start; account null with a reason when none can take work."
+       },
        "prompt": {
         "oneOf": [
          {
@@ -4881,6 +6104,7 @@
        "session_id",
        "session_open",
        "input_holders",
+       "account_pick",
        "prompt"
       ]
      }
@@ -5082,12 +6306,72 @@
         "items": {
          "$ref": "#/components/schemas/Event"
         }
+       },
+       "memos": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/Memo"
+        }
+       },
+       "blockers": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "task": {
+           "type": "integer"
+          },
+          "reason": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "task",
+          "reason"
+         ]
+        }
+       },
+       "children": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "handoffs": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "from": {
+           "type": "string"
+          },
+          "to": {
+           "type": "string"
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "at",
+          "from",
+          "to",
+          "note"
+         ]
+        }
        }
       },
       "required": [
        "body",
        "deliveries",
-       "events"
+       "events",
+       "memos",
+       "blockers",
+       "children",
+       "handoffs"
       ]
      }
     ]
@@ -6264,6 +7548,55 @@
      "holder"
     ]
    },
+   "Memo": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "task": {
+      "type": "integer"
+     },
+     "author": {
+      "type": "string"
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "task",
+     "author",
+     "at",
+     "text"
+    ]
+   },
+   "TaskBoardRow": {
+    "type": "object",
+    "properties": {
+     "task": {
+      "$ref": "#/components/schemas/Task"
+     },
+     "holder": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "task",
+     "holder"
+    ]
+   },
    "Landing": {
     "type": "string",
     "enum": [
@@ -6600,10 +7933,9 @@
       "type": "string",
       "enum": [
        "tls",
-       "tailscale",
        "none"
       ],
-      "description": "What protects the transport; `none` only on loopback."
+      "description": "Always an encrypted WebSocket with a certificate; `none` only on loopback. A Tailscale address is just a bind address."
      },
      "fingerprint": {
       "oneOf": [

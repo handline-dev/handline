@@ -23,11 +23,11 @@ terminal.resize session.start session.wake session.stop session.restart session.
 prompt.answer input.take input.release inbox.list inbox.mark_read inbox.answer inbox.reply tasks.list task.get task.new task.withdraw
 task.cancel task.edit team.get hr.list hr.decide account.set_cap account.login repos.list worktrees.list worktree.diff
 worktree.set_status agent.options agent.create schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
-settings.set settings.trust devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.withdraw input.ask device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
+settings.set settings.trust devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.withdraw chat.search input.ask terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
 AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say ask push land hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \
-                     "terminal.history terminal.resize chat.send input.ask devices.list device.pair device.revoke settings.set".split()
+                     "terminal.history terminal.resize terminal.close chat.send input.ask devices.list device.pair device.revoke settings.set".split()
 FOUNDER_ONLY = "schedule.add schedule.edit schedule.remove settings.get settings.set devices.list device.pair device.revoke".split()
 ROLES = SPEC["x-roles"]["order"]
 
@@ -58,6 +58,49 @@ def test_roles_follow_the_plan() -> None:
     check("contract: founder-only methods are founder", all(METHODS[n]["x-role"] == "founder" for n in FOUNDER_ONLY))
     check("contract: only hello and device.redeem are open to anonymous",
           sorted(n for n, m in METHODS.items() if m["x-role"] == "anonymous") == ["device.redeem", "hello"])
+
+
+def _agent_may_call(m) -> bool:
+    callers = m.get("x-callers")
+    return "agent" in callers if callers else ROLES.index(m["x-role"]) <= ROLES.index("agent")
+
+
+def test_every_agent_command_has_a_method_an_agent_may_call() -> None:
+    cmds = SPEC["x-agent-commands"]
+    missing = [(c, n) for c, n in cmds.items() if n not in METHODS]
+    check("contract: every agent command maps to a method", not missing, str(missing))
+    bad = [(c, n) for c, n in cmds.items() if n in METHODS and not _agent_may_call(METHODS[n])]
+    check("contract: an agent may call each", not bad, str(bad))
+    # the CLI's own command list: every top-level and sub command is mapped, dropped or local
+    import argparse
+    sys.path.insert(0, str(ROOT))
+    from handline.cli import parser
+    names = set()
+
+    def walk(p, pre=""):
+        for a in p._actions:
+            if isinstance(a, argparse._SubParsersAction):
+                for n, sp in a.choices.items():
+                    names.add(pre + n)
+                    walk(sp, pre + n + " ")
+    walk(parser.build_parser())
+    d = SPEC["x-dropped-from-agents"]
+    covered = set()
+    for entry in list(cmds) + [x for k, v in d.items() if k != "note" for x in v]:
+        words = entry.removeprefix("hl ").split(" (")[0].replace(" ...", "").replace(" --pass", "").split()
+        for alt in words[-1].split("|"):
+            covered.add(" ".join(words[:-1] + [alt]))
+    leaves = {n for n in names if not any(o.startswith(n + ' ') for o in names)}
+    uncovered = sorted(n for n in leaves if not any(n == c or n.startswith(c + " ") or c.startswith(n + " ") for c in covered))
+    check("contract: every CLI command is mapped, dropped or local", not uncovered, str(uncovered))
+
+
+def test_identity_methods_are_the_callers_own_and_closed_to_devices() -> None:
+    own = ("hook.record", "agent.set", "task.progress", "land", "land.pass", "land.authorize")
+    check("contract: identity methods list their callers and refuse a stranger's agent name",
+          all(METHODS[n].get("x-callers") and "member" not in METHODS[n]["x-callers"] and "not_self" in METHODS[n].get("x-gates", []) for n in own))
+    check("contract: x-callers are roles", all(set(m["x-callers"]) <= set(ROLES) for m in METHODS.values() if "x-callers" in m))
+    check("contract: the sender rule is stated", "human" in SPEC["x-identity"]["sender"])
 
 
 def test_every_write_takes_a_request_id_and_reads_do_not() -> None:
@@ -114,6 +157,8 @@ def main() -> int:
     def tests(td):
         run(lambda: test_every_method_the_plan_names_is_in_the_spec())
         run(lambda: test_roles_follow_the_plan())
+        run(lambda: test_every_agent_command_has_a_method_an_agent_may_call())
+        run(lambda: test_identity_methods_are_the_callers_own_and_closed_to_devices())
         run(lambda: test_every_write_takes_a_request_id_and_reads_do_not())
         run(lambda: test_every_reference_resolves())
         run(lambda: test_session_gates_are_declared_and_defined())
