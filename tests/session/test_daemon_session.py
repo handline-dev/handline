@@ -540,7 +540,7 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         # tick and release the lock before this fires.
         return True
 
-    def fake_restart():
+    def fake_restart(*_tree):
         calls.append(lock.holder(dmn_locks.DAEMON_LOCK) is not None)
 
     dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = fake_should, fake_restart
@@ -600,7 +600,7 @@ def test_dev_mode_restart_yields_to_a_signal_that_arrived_during_the_check(home:
         os.kill(os.getpid(), signal.SIGTERM)
         return True
 
-    def fake_restart():
+    def fake_restart(*_tree):
         restart_calls.append(True)
 
     dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = should_but_signal_first, fake_restart
