@@ -33,12 +33,12 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 
 ## 3. Badge, notices, update, and the notice's click
 
-The badge and the notices need **no call**: the shell reads `daemon.status` and the `notifications` topic itself and the page is not involved. Written here so nobody adds one.
+The badge and the notices need **no call**: the shell reads `daemon.status` and the `notifications` and `hr` topics itself and the page is not involved. Written here so nobody adds one.
 
 | | Shell | Plain browser |
 |---|---|---|
 | Badge | the dock badge shows `inbox.unread` (`99+` above 99; Linux count only, none on Windows) | the bell count in the app's top bar, and `(n) ` in front of the tab title; the page does both in the shell too |
-| Notice | one native notice per `prompt_asked`, `task_done`, `stall`, `account_out`; an HR proposal has no event yet, so none | none: no permission prompt, no `Notification` API. The bell and the cards are the signal |
+| Notice | one native notice per `prompt_asked`, `task_done`, `stall`, `account_out`, and one per `hr.raised` (an HR proposal). `hr.settled` raises none: the person decided, or the agent withdrew; a failed apply shows on the HR card. An HR notice is never suppressed by the agent on screen: it asks for a decision, whatever workspace is open; its text is the event's `title`, plain, control characters dropped, cut at 200 characters | none: no permission prompt, no `Notification` API. The bell and the cards are the signal |
 | Update | "Handline was updated. Restart now?" on a newer build, once idle; "Not now" is not asked again for that build | none: a new deploy is a reload |
 
 ### 3.1 `screen`
@@ -67,6 +67,7 @@ The daemon already puts one on each event: `Event.target = { screen, id }` (`str
 | `task_done` | `task`, the task id | `#/inbox`, the card of that task's result in view (U10); none left (read, dismissed): `#/tasks/<id>` (U11) |
 | `stall` | `agent` | `#/agents/<name>` |
 | `account_out` | `account`, the account name | `#/accounts/<name>` (U14) |
+| `hr.raised` (`hr` topic) | `hr`, the proposal's id as text | `#/team/hr/<id>`, that card in view (U15); a proposal that is no longer listed (older than the 7 days `hr.list` serves) lands on `#/team` |
 
 `routeOfTarget(target, eventType) → string | null` in `app-core` is the only table, and it returns `null` for an empty id or the string `None` (the daemon emits `task_done` with `str(tid)` even when the task id is missing; see §6); a click in the app on an inbox row uses it too. Ids are `encodeURIComponent`ed. The route strings belong to the web units; this table changes with them.
 
@@ -76,7 +77,7 @@ The daemon already puts one on each event: `Event.target = { screen, id }` (`str
 onNavigate(cb: (to: { screen: string; id: string; event: string }) => void): () => void   // returns off
 ```
 
-Called when a notice is clicked (`event` is the notifications type, `screen` and `id` the event's `target`). The shell has already shown and focused the window. **A click before the page registered is not lost**: the preload keeps the last one and delivers it to the first `onNavigate`. A notice whose event has no `target` does not call it. Replaces `executeJavaScript('location.hash = ...')`.
+Called when a notice is clicked (`event` is the event's `type`, `prompt_asked` or `hr.raised`, `screen` and `id` the event's `target`). The shell has already shown and focused the window. **A click before the page registered is not lost**: the preload keeps the last one and delivers it to the first `onNavigate`. A notice whose event has no `target` does not call it. Replaces `executeJavaScript('location.hash = ...')`.
 
 ## 4. E3: open a path, compose in an editor
 
@@ -151,6 +152,6 @@ The shell tests run under node with the Electron side injected, as `Desk` and `U
 ## 6. Open points
 
 - The route strings in §3.3 are the web units' to fix (U10, U11, U14); change the table, not the shell.
-- An HR proposal notice needs a `notifications` event the contract does not have; add a row here when it does.
+- The HR notice follows the `hr` topic of the HR spec (`hr.raised`; `target` `hr`, `agent` null for a bundle). The shell's `Desk` adds `hr` to its subscribe. It is not suppressed while the HR page itself is on screen; `screen` would need a second field for that, which nobody asked for.
 - The daemon emits `task_done` with `str(tid)` even when `task_id` is missing, which reads `None`; `routeOfTarget` guards it, and `stream.py` should stop sending it.
 - `terminal_editor` is the honest limit of a GUI app. Running the editor in the Terminal pane (a pty on the daemon) would lift it; it is a feature, not a fix, and not planned.
