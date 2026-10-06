@@ -125,10 +125,12 @@ describe('a read', () => {
 
   it('chat is read, paged, and its events reach the cache', async () => {
     const { store, daemon } = await connected();
+    daemon.knobs.latency(100); // the fake would otherwise answer before the first assertion
     const p = probe(() => useChat(ARCH, 'mine'));
     await mount(store, p.node);
     expect(p.get().status).toBe('loading');
     await until(() => p.get().status === 'ready', 'the conversation');
+    daemon.knobs.latency(0);
     const before = p.get().items.length;
     daemon.chat.seedItem(ARCH, { kind: 'reply', text: 'late' });
     daemon.emit('chat', 'chat.transcript', { agent: ARCH, data: { id: 99, at: 't', kind: 'reply', text: 'late' } });

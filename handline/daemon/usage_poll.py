@@ -31,12 +31,14 @@ def collect_snapshots(con, log) -> None:
     heartbeat - `status.stale` reads a fresh one as "a session is alive here" -
     and refreshing it for a closed agent would tell every reader the session is
     still up. A closed agent's file ages into stale exactly as it does now.
+
+    A worktree two agents share is left to their hooks, which carry the session id: the newest
+    transcript in it is not necessarily this agent's.
     """
-    for row in db.all_agent_states(con):
-        if row["closed_at"]:
-            continue
-        cwd = spawnmod.worktree_path(row["worktree"])
-        if not cwd:
+    rows = [r for r in db.all_agent_states(con) if not r["closed_at"]]
+    used = [spawnmod.worktree_path(r["worktree"]) for r in rows]
+    for row, cwd in zip(rows, used):
+        if not cwd or used.count(cwd) > 1:
             continue
         try:
             collect.collect(row["agent"], cwd)
