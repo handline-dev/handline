@@ -152,7 +152,7 @@ def test_a_handler_that_breaks_is_internal_and_the_connection_goes_on(home: Path
     use_home(home)
     def boom(ctx, params):
         raise RuntimeError("secret detail")
-    rpc.METHODS["boom"] = (boom, "anonymous")
+    rpc.METHODS["boom"] = rpc.Method(boom, "anonymous")
     try:
         w = Wire()
         w.call("hello", {"client": "t", "protocol": 1})
@@ -167,7 +167,7 @@ def test_a_handler_that_breaks_is_internal_and_the_connection_goes_on(home: Path
 
 def test_a_call_below_its_role_is_refused_at_the_role_gate(home: Path) -> None:
     use_home(home)
-    rpc.METHODS["founder.only"] = (lambda ctx, params: {}, "founder")
+    rpc.METHODS["founder.only"] = rpc.Method(lambda ctx, params: {}, "founder")
     real = sessiontoken.agent_of
     sessiontoken.agent_of = lambda pid: "backend"
     try:

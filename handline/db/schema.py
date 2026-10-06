@@ -579,8 +579,25 @@ def _baseline(con) -> None:
 
 # Ordered and numbered; a step is appended, never edited or reordered, and none may drop or reshape a
 # column (the doctor drops dead ones). A database that is not at the last number is not current.
+def _rpc_replies(con) -> None:
+    """The daemon's reply store: a write's reply, kept a day under its request_id (daemon/rpc.py)."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS rpc_replies (
+          caller     TEXT    NOT NULL,
+          request_id TEXT    NOT NULL,
+          method     TEXT    NOT NULL,
+          params     TEXT    NOT NULL,
+          reply      TEXT    NOT NULL,
+          ts         INTEGER NOT NULL,
+          PRIMARY KEY (caller, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS rpc_replies_ts ON rpc_replies(ts);
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline),
+    (2, "rpc_replies", _rpc_replies),
 ]
 BASELINE_VERSION = 1
 LATEST_VERSION = MIGRATIONS[-1][0]

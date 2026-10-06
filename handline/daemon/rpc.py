@@ -7,8 +7,12 @@ adapter answers it and hangs up, as the old server did, until its last caller ha
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import socket
+import threading
+import time
+from typing import Callable, NamedTuple
 
 from .. import db
 from ..infra import sessiontoken
@@ -20,6 +24,8 @@ ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
 PARSE_ERROR, INVALID_PARAMS = -32700, -32602
+REPLY_KEEP_S = 24 * 3600
+REQUEST_ID_MAX = 128
 
 
 class RpcError(Exception):
@@ -52,6 +58,14 @@ class Caller:
         else:       # the local user on the local socket is the founder
             self.role, self.info = "founder", {"kind": "person", "name": getpass.getuser()}
 
+    @property
+    def actor(self) -> str:
+        """The name a write is made under: an agent's own, else `human` (the founder and any device)."""
+        return self.info["name"] if self.role == "agent" else db.HUMAN
+
+    def allows(self, role: str) -> bool:
+        return ROLES.index(self.role) >= ROLES.index(role)
+
 
 def _hello(ctx: "Connection", params: dict) -> dict:
     client, protocol = params.get("client"), params.get("protocol")
@@ -68,12 +82,64 @@ def _hello(ctx: "Connection", params: dict) -> dict:
             "role": caller.role, "caller": caller.info,
             "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": []},
             "transport": "local",
-            "methods": [{"name": name, "since": 1, "role": role, "allowed": ROLES.index(caller.role) >= ROLES.index(role)}
-                        for name, (_, role) in METHODS.items()]}
+            "methods": _methods(caller)}
 
 
-# name -> (handler, lowest role that may call it). Every method a later task adds is a line here.
-METHODS = {"hello": (_hello, "anonymous")}
+def _whoami(ctx: "Connection", params: dict) -> dict:
+    return {"caller": ctx.caller.info, "role": ctx.caller.role, "methods": _methods(ctx.caller)}
+
+
+class Method(NamedTuple):
+    handler: Callable
+    role: str               # the lowest role that may call it
+    write: bool = False     # takes a request_id, keeps its reply a day, and is logged under its actor
+
+
+# Every method a later task adds is a line here.
+METHODS = {
+    "hello": Method(_hello, "anonymous"),
+    "whoami": Method(_whoami, "agent"),
+}
+
+
+def _methods(caller: Caller) -> list[dict]:
+    return [{"name": name, "since": 1, "role": m.role, "allowed": caller.allows(m.role)} for name, m in METHODS.items()]
+
+
+_RETRY_LOCKS = [threading.Lock() for _ in range(64)]      # striped by request_id: a few unrelated writes may wait, none run twice
+
+
+def _params_key(params: dict) -> str:
+    return json.dumps({k: v for k, v in params.items() if k != "request_id"}, sort_keys=True, ensure_ascii=False)
+
+
+def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
+    """Run a write once per request_id. The reply of a success is kept a day; a retry with the same id and
+    params gets it back, marked `replayed`, and repeats nothing. Refusals and errors are not kept, so a retry
+    is judged again. Retries of one id wait for each other, so two at once cannot both run."""
+    rid = params.get("request_id")
+    if not isinstance(rid, str) or not rid or len(rid) > REQUEST_ID_MAX:
+        raise bad_request(f"{name} is a write: it takes a request_id, a string of 1 to {REQUEST_ID_MAX} characters", "request_id")
+    key = (ctx.caller.actor, rid)
+    with _RETRY_LOCKS[hash(key) % len(_RETRY_LOCKS)]:
+        con = db.connect()
+        try:
+            row = con.execute("SELECT method, params, reply FROM rpc_replies WHERE caller = ? AND request_id = ? AND ts > ?",
+                              (*key, int(time.time()) - REPLY_KEEP_S)).fetchone()
+            pkey = _params_key(params)
+            if row:
+                if row["method"] != name or row["params"] != pkey:
+                    raise bad_request(f"request_id {rid!r} was used for a different call", "request_id")
+                return {**json.loads(row["reply"]), "replayed": True}
+            result = m.handler(ctx, params)
+            db.add_event(con, ctx.caller.actor, "rpc_write", {"method": name, "request_id": rid, "actor": ctx.caller.info})
+            now = int(time.time())
+            con.execute("DELETE FROM rpc_replies WHERE ts <= ?", (now - REPLY_KEEP_S,))
+            con.execute("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",
+                        (*key, name, pkey, json.dumps(result), now))
+            return result
+        finally:
+            con.close()
 
 
 class Connection:
@@ -162,10 +228,14 @@ class Connection:
         entry = METHODS.get(method)
         if entry is None:
             raise bad_request(f"no such method: {method}", "method")
-        handler, role = entry
-        if ROLES.index(self.caller.role) < ROLES.index(role):
-            raise refused(f"{method} is for a {role} or above; this caller is {self.caller.role}", gate="role")
-        result = handler(self, params)
+        if not self.caller.allows(entry.role):
+            raise refused(f"{method} is for a {entry.role} or above; this caller is {self.caller.role}", gate="role")
+        result = _write(self, method, entry, params) if entry.write else entry.handler(self, params)
         if method == "hello":
             self.said_hello = True
         return result
+
+    def require_self(self, agent) -> None:
+        """For the methods that act as the caller's own session: an `agent` that is not the caller is refused."""
+        if self.caller.role == "agent" and agent != self.caller.info["name"]:
+            raise refused(f"{agent!r} is not this session's agent", gate="not_self")
