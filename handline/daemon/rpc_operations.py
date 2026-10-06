@@ -28,6 +28,7 @@ from . import rpc, stream
 
 LIVE: set[str] = set()
 _live_lock = threading.Lock()
+_idle = threading.Condition(_live_lock)
 STEPS = ("register", "start")
 KEEP_S = 7 * 24 * 3600
 
@@ -75,6 +76,13 @@ def _run(op: str, name: str, repo: str, base: str, kw: dict) -> None:
     finally:
         with _live_lock:
             LIVE.discard(op)
+            _idle.notify_all()
+
+
+def wait_idle(timeout: float = 10.0) -> bool:
+    """Wait until no agent.create thread is running; False if one still is after `timeout` seconds."""
+    with _live_lock:
+        return _idle.wait_for(lambda: not LIVE, timeout)
 
 
 def _text(params: dict, key: str, required: bool = False) -> str | None:
