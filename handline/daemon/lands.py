@@ -64,9 +64,9 @@ def _message_refusal(message: str) -> str | None:
 
 
 def is_auditor(agent: str | None) -> bool:
-    """Whether `agent` holds the auditor role: a name's last part is its role (`orcapipe.auditor`,
-    `handline.auditor`), and the roster the founder approves is the only place such a name comes from. Who
-    is calling is not this name's claim: the daemon has already matched it to the session `hl launch` recorded."""
+    """Whether `agent` holds the auditor role: a name's last part is its role (`<team>.auditor`), and the
+    roster the founder approves is the only place such a name comes from. Who is calling is not this name's
+    claim: the daemon has already matched it to the session `hl launch` recorded."""
     return bool(agent) and team.parent_name(agent) is not None and agent.rpartition(".")[2] == AUDITOR_ROLE
 
 

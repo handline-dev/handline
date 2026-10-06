@@ -15,7 +15,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 LAND = ROOT / "tools" / "land.sh"
-AUDITOR = "orcapipe.auditor"
+AUDITOR = "alpha.auditor"
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
 
@@ -257,10 +257,10 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         check("land: the auditor's own session records a PASS", said["ok"], str(said))
         other = subprocess.Popen(["sleep", "300"], **quiet)
         sleepers.append(other)
-        sessiontoken.record("handline.auditor", other.pid)
-        said = ask_daemon("land_pass", "handline.auditor", other.pid)
+        sessiontoken.record("beta.auditor", other.pid)
+        said = ask_daemon("land_pass", "beta.auditor", other.pid)
         check("land: another team's auditor, in its own session, records a PASS too", said["ok"], str(said))
-        said = ask_daemon("land_pass", "handline.auditor", p_core)
+        said = ask_daemon("land_pass", "beta.auditor", p_core)
         check("land: and only from its own session", not said["ok"], str(said))
         con.execute("DELETE FROM land_passes")
 
@@ -458,15 +458,15 @@ def test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(home: Pa
     con = db.connect()
     try:
         sha = _git(main, "rev-parse", "HEAD")
-        for who in ("orcapipe.auditor", "handline.auditor", "harbor.sea.auditor"):
+        for who in ("alpha.auditor", "beta.auditor", "gamma.sea.auditor"):
             ok, said = lands.record_pass(con, sha, who)
             check(f"pass: {who} records one", ok, said)
-        for who in ("orcapipe.merger", "orcapipe.core", "auditor", "orcapipe.auditors", "orcapipe.auditor.helper",
-                    "orcapipe.Auditor", "", None, "human"):
+        for who in ("alpha.merger", "alpha.core", "auditor", "alpha.auditors", "alpha.auditor.helper",
+                    "alpha.Auditor", "", None, "human"):
             ok, said = lands.record_pass(con, sha, who)
             check(f"pass: {who!r} may not", not ok and "may not record a PASS" in said, said)
         check("pass: the one who recorded it is kept",
-              con.execute("SELECT by FROM land_passes WHERE sha = ?", (sha,)).fetchone()["by"] == "harbor.sea.auditor")
+              con.execute("SELECT by FROM land_passes WHERE sha = ?", (sha,)).fetchone()["by"] == "gamma.sea.auditor")
     finally:
         con.close()
         os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
