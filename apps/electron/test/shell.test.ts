@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Event } from '@handline/client';
 import { setup, until } from '@handline/fake-daemon/helpers';
 import { Desk, type Feed, type Ports } from '../src/desk.ts';
-import { agentOfHash, badgeText, hashOfAgent, noticeFor, suppressed } from '../src/notices.ts';
+import { badgeText, noticeFor, suppressed, type Notice } from '../src/notices.ts';
 import { serveDir } from '../src/serve.ts';
 
 const ev = (over: Partial<Event>): Event => ({
@@ -37,11 +37,14 @@ test('the four notifications events raise a notice naming what happened; other e
 
 test('a notice is held back only while the window is focused on that agent', () => {
   const n = noticeFor(ev({ type: 'stall' }))!;
-  assert.equal(agentOfHash(hashOfAgent('handline.architect')), 'handline.architect');
-  assert.equal(suppressed(n, { focused: true, hash: hashOfAgent('handline.architect') }), true);
-  assert.equal(suppressed(n, { focused: false, hash: hashOfAgent('handline.architect') }), false);
-  assert.equal(suppressed(n, { focused: true, hash: hashOfAgent('handline.auditor') }), false);
-  assert.equal(suppressed(n, { focused: true, hash: '' }), false);
+  assert.equal(suppressed(n, { focused: true, agent: 'handline.architect' }), true);
+  assert.equal(suppressed(n, { focused: false, agent: 'handline.architect' }), false);
+  assert.equal(suppressed(n, { focused: true, agent: 'handline.auditor' }), false);
+  assert.equal(suppressed(n, { focused: true, agent: null }), false); // before the page has called screen
+  assert.equal(
+    suppressed(noticeFor(ev({ type: 'account_out', agent: null, data: { account: 'alpha' } }))!, { focused: true, agent: null }),
+    false,
+  );
 });
 
 function ports() {
@@ -49,8 +52,8 @@ function ports() {
     badge: [] as string[],
     notices: [] as string[],
     clicks: [] as (() => void)[],
-    opened: [] as (string | null)[],
-    screen: { focused: false, hash: '' },
+    opened: [] as Notice[],
+    screen: { focused: false, agent: null as string | null },
   };
   const p: Ports = {
     setBadge: (t) => log.badge.push(t),
@@ -59,7 +62,7 @@ function ports() {
       log.clicks.push(click);
     },
     screen: () => log.screen,
-    open: (a) => log.opened.push(a),
+    open: (n) => log.opened.push(n),
   };
   return { log, p };
 }
@@ -72,13 +75,16 @@ test('the desk raises one notice per event, none on screen, and a click opens th
   await desk.start();
   daemon.emit('notifications', 'stall', { agent: 'handline.architect' });
   await until(() => log.notices.length === 1, 'a notice');
-  log.screen = { focused: true, hash: hashOfAgent('handline.auditor') };
+  log.screen = { focused: true, agent: 'handline.auditor' };
   daemon.emit('notifications', 'stall', { agent: 'handline.auditor' });
   daemon.emit('notifications', 'task_done', { agent: 'handline.pc-build', data: { task: 7 } });
   await until(() => log.notices.length === 2, 'the second notice');
   assert.deepEqual(log.notices, ['handline.architect is stalled', 'Task 7 done']);
   log.clicks[0]!();
-  assert.deepEqual(log.opened, ['handline.architect']);
+  assert.deepEqual(
+    log.opened.map((n) => [n.agent, n.target, n.event]),
+    [['handline.architect', { screen: 'agent', id: 'handline.architect' }, 'stall']],
+  );
   desk.stop();
   client.close();
 });

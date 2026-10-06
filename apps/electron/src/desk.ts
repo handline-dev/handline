@@ -8,8 +8,9 @@ export type Feed = Pick<DaemonClient, 'onEvent' | 'onGap' | 'onState' | 'subscri
 export interface Ports {
   setBadge(text: string): void;
   notify(n: Notice, onClick: () => void): void;
-  screen(): { focused: boolean; hash: string };
-  open(agent: string | null): void;
+  screen(): { focused: boolean; agent: string | null };
+  /** A notice was clicked: show the window, and take the page to the notice's target if it has one. */
+  open(n: Notice): void;
 }
 
 /** Keeps the badge on the daemon's unread count and raises one native notice per notifications event. */
@@ -64,6 +65,6 @@ export class Desk {
     if (!n || this.seen.has(e.cursor)) return;
     this.seen.add(e.cursor);
     if (suppressed(n, this.ports.screen())) return;
-    this.ports.notify(n, () => this.ports.open(n.agent));
+    this.ports.notify(n, () => this.ports.open(n));
   }
 }

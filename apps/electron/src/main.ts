@@ -1,10 +1,10 @@
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, Notification, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
-import { hashOfAgent } from './notices.ts';
+import { Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -30,7 +30,23 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
     const web = await serveDir(dist);
-    win = new BrowserWindow({ width: 1280, height: 860, title: 'Handline', show: false });
+    const origin = new URL(web.url).origin;
+    const page = new Page(origin);
+    ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
+    ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    win = new BrowserWindow({
+      width: 1280,
+      height: 860,
+      title: 'Handline',
+      show: false,
+      // The page gets window.handline from the preload and nothing else (docs/electron-bridge.md §2).
+      webPreferences: {
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        preload: path.join(import.meta.dirname, 'preload.cjs'),
+      },
+    });
     win.once('ready-to-show', show);
     // The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback origin.
     win.webContents.setWindowOpenHandler(({ url }) => {
@@ -38,7 +54,7 @@ if (!app.requestSingleInstanceLock()) {
       return { action: 'deny' };
     });
     win.webContents.on('will-navigate', (e, url) => {
-      if (new URL(url).origin !== new URL(web.url).origin) e.preventDefault();
+      if (new URL(url).origin !== origin) e.preventDefault();
     });
     await win.loadURL(ws ? `${web.url}?daemon=${encodeURIComponent(ws)}` : web.url);
     app.on('activate', show);
@@ -47,7 +63,12 @@ if (!app.requestSingleInstanceLock()) {
 
     const updater = new Updater({
       build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
-      idle: async () => !!win && !win.isDestroyed() && !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true)),
+      // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
+      idle: async () => {
+        if (!win || win.isDestroyed()) return false;
+        if (page.unsent !== null) return !page.unsent;
+        return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
+      },
       ask: async () =>
         (
           await dialog.showMessageBox(win!, {
@@ -76,10 +97,10 @@ if (!app.requestSingleInstanceLock()) {
         notice.on('click', onClick);
         notice.show();
       },
-      screen: () => ({ focused: !!win?.isFocused(), hash: new URL(win?.webContents.getURL() || web.url).hash }),
-      open: (agent) => {
+      screen: () => ({ focused: !!win?.isFocused(), agent: page.agent }),
+      open: (n) => {
         show();
-        if (agent && win) void win.webContents.executeJavaScript(`location.hash = ${JSON.stringify(hashOfAgent(agent))}`);
+        if (n.target && win) win.webContents.send(CHANNELS.navigate, { screen: n.target.screen, id: n.target.id, event: n.event });
       },
     });
     // The client reconnects once it has been up; a daemon that is down at launch is retried here.

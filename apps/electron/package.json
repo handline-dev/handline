@@ -12,6 +12,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@handline/app-core": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/client-node": "workspace:*"
   },

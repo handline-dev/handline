@@ -15,7 +15,9 @@ export function shell(call: Call): ShellApi | null {
 /** Something in the page a restart would lose: a box is open, a field holds text, or a send is in flight (a row the daemon has not numbered). */
 export function holdsUnsent(doc: Document): boolean {
   if (doc.querySelector('dialog[open], [aria-modal="true"]')) return true;
-  for (const f of Array.from(doc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input[type="text"], input:not([type])')))
+  for (const f of Array.from(
+    doc.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input[type="text"], input:not([type])'),
+  ))
     if (f.value.trim()) return true;
   return !!doc.querySelector('[data-id^="-"], [data-pending]');
 }
@@ -38,7 +40,12 @@ export function useShell(agent: string): void {
     };
     tell();
     const watch = new MutationObserver(tell);
-    watch.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'data-pending', 'data-id'] });
+    watch.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['open', 'data-pending', 'data-id'],
+    });
     document.addEventListener('input', tell, true);
     return () => {
       watch.disconnect();

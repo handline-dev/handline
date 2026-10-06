@@ -41,6 +41,9 @@ importers:
 
   apps/electron:
     dependencies:
+      '@handline/app-core':
+        specifier: workspace:*
+        version: link:../../packages/app-core
       '@handline/client':
         specifier: workspace:*
         version: link:../../packages/client

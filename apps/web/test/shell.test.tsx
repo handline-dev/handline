@@ -98,19 +98,19 @@ describe('with the shell', () => {
     expect(sh.log.unsent).toEqual([false, true, false]);
   });
 
-  it('says unsent while a send is in flight', async () => {
+  it('says unsent while a write is in flight, and not after', async () => {
     const sh = stubShell();
-    const s = await mount(ARCH);
+    const s = await mount('handline.term-build');
     await until(() => sh.log.unsent.length > 0, 'the first value');
-    await until(() => [...box.querySelectorAll('button')].some((b) => /Start|Stop|Interrupt|Take control/.test(b.textContent ?? '')), 'a write button');
+    const start = () => [...box.querySelectorAll('button')].find((b) => /Start$/.test(b.textContent ?? ''));
+    await until(start, 'Start');
     s.daemon.knobs.latency(400);
-    const take = [...box.querySelectorAll('button')].find((b) => b.textContent === 'Take control')!;
-    await act(async () => void take.click());
+    await act(async () => void start()!.click());
     await until(() => sh.log.unsent.at(-1) === true, 'unsent while the write is in flight');
     await until(() => sh.log.unsent.at(-1) === false, 'not unsent after', 600);
   });
 
-  it("a clicked notice goes to the route its target names; one with no route does nothing", async () => {
+  it('a clicked notice goes to the route its target names; one with no route does nothing', async () => {
     const sh = stubShell();
     await mount(ARCH);
     await until(() => sh.hasListener(), 'the listener');
