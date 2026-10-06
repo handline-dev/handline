@@ -35,8 +35,9 @@ def _err(code, message, **data):
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
-    def __init__(self, role: str, mutate=None):
-        self.role, self.mutate = role, mutate or (lambda reply: reply)
+    def __init__(self, role: str, mutate=None, lacks=(), broken=()):
+        """`lacks`: methods this daemon does not have (not listed, -32601). `broken`: listed, yet answered -32601."""
+        self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -73,6 +74,10 @@ class FakeDaemon:
                     reply, said_hello = self._answer(line, said_hello)
                     conn.sendall(json.dumps(self.mutate(reply)).encode() + b"\n")
 
+    def _methods(self) -> list:
+        return [{"name": n, "since": 1, "role": m["x-role"], "allowed": RANK[m["x-role"]] <= RANK[self.role]}
+                for n, m in METHODS.items() if n not in self.lacks]
+
     def _answer(self, line: bytes, said_hello: bool):
         try:
             req = json.loads(line)
@@ -90,19 +95,19 @@ class FakeDaemon:
                 return fail({"code": -32002, "message": "refused", "data": {
                     "code": "refused", "gate": "protocol", "reason": "too old", "hint": "hl service install"}}), said_hello
             kind = {"founder": "person", "agent": "agent", "anonymous": "anonymous"}[self.role]
-            methods = [{"name": n, "since": 1, "role": m["x-role"], "allowed": RANK[m["x-role"]] <= RANK[self.role]}
-                       for n, m in METHODS.items()]
             return ok({"protocol": 1, "min_client": 1, "daemon": "fake", "schema": 1, "role": self.role,
-                       "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": methods,
+                       "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": self._methods(),
                        "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text"]}}), True
         if method == "batch" or not said_hello:
             return fail(_err(-32600, "bad_request")), said_hello
+        if method in self.lacks or method in self.broken:
+            return fail({"code": -32601, "message": "no such method", "data": {"code": "bad_request", "method": method}}), said_hello
         m = METHODS.get(method)
         if m is None or RANK[m["x-role"]] > RANK[self.role]:
             return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "role"}}), said_hello
         if method == "whoami":
             return ok({"caller": {"kind": "person" if self.role == "founder" else self.role, "name": "x"}, "role": self.role,
-                       "methods": [n for n, mm in METHODS.items() if RANK[mm["x-role"]] <= RANK[self.role]]}), said_hello
+                       "methods": self._methods()}), said_hello
         if method == "agent.get":
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
@@ -113,8 +118,12 @@ class FakeDaemon:
 FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
 
 
-def _fakes(*roles: str, mutate=None) -> dict:
-    return {r: FakeDaemon(r, mutate).connect for r in roles}
+def _fakes(*roles: str, mutate=None, **kw) -> dict:
+    return {r: FakeDaemon(r, mutate, **kw).connect for r in roles}
+
+
+KEY = {"founder_key": "k"}
+KEYARG = ["--var", "founder_key=k"]
 
 
 def _count(results, status: str) -> int:
@@ -122,14 +131,14 @@ def _count(results, status: str) -> int:
 
 
 def test_the_fixtures_pass_against_a_fake_daemon() -> None:
-    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous"), {})
+    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous"), KEY)
     bad = [(n, why) for s, why, n in results if s != "pass"]
     check("conformance: every fixture passes against the fake daemon", not bad and results, str(bad))
     check("conformance: each fixture is reported by name", {"hello.ok", "errors.not_found"} <= {n for _, _, n in results})
 
 
 def test_a_role_without_a_socket_is_skipped_not_passed() -> None:
-    results = conformance.run_all(FILES, _fakes("founder"), {})
+    results = conformance.run_all(FILES, _fakes("founder"), KEY)
     skipped = {n for s, _, n in results if s == "skip"}
     check("conformance: fixtures for roles with no socket are skipped", {"whoami.agent", "errors.refused_by_role"} <= skipped and not _count(results, "fail"), str(results))
 
@@ -161,8 +170,43 @@ def test_the_command_line_runs_against_a_socket_path(td) -> None:
 
 
 def _first_fixture_fails(mutate, needle: str, name: str) -> None:
-    [(status, why, _)] = conformance.run_all(FILES, _fakes("founder", mutate=mutate), {}, "hello.ok")
+    [(status, why, _)] = conformance.run_all(FILES, _fakes("founder", mutate=mutate), KEY, "hello.ok")
     check(name, status == "fail" and needle in why, f"{status}: {why}")
+
+
+def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
+    [(status, why, _)] = conformance.run_all(FILES, _fakes("founder"), {}, "hello.ok")
+    check("conformance: a fixture needing a --var is reported needvar without it", status == "needvar" and "founder_key" in why, why)
+    results = conformance.run_all(FILES, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
+    by = {n: (s, why) for s, why, n in results}
+    check("conformance: a fixture whose method the daemon does not list is reported missing, with the reason",
+          by["errors.not_found"] == ("missing", "method not implemented by this daemon")
+          and by["errors.invalid_params"][0] == "missing" and by["hello.ok"][0] == "pass", str(by))
+    check("conformance: nothing else is hidden by it", not [n for n, (s, _) in by.items() if s == "fail"], str(by))
+    results = conformance.run_all(FILES, _fakes("founder", broken={"agent.get"}), KEY, "errors.not_found")
+    check("conformance: a method the daemon lists and then answers -32601 for fails",
+          results[0][0] == "fail" and "-32001" in results[0][1], str(results))
+
+
+def test_the_fixtures_run_against_the_python_daemon(home) -> None:
+    from handline.daemon import socket_server
+    from handline.infra import sessiontoken
+    use_home(home)
+    sessiontoken.ensure_founder_key()
+    key = sessiontoken.founder_key_held()
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    results = conformance.run_all(FILES, {"founder": connect, "anonymous": connect}, {"founder_key": key})
+    by = {n: (s, why) for s, why, n in results}
+    failed = {n: why for n, (s, why) in by.items() if s == "fail"}
+    check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
+    check("conformance: the Python daemon passes the hello, whoami and error fixtures it can",
+          all(by[n][0] == "pass" for n in ("hello.ok", "hello.must_come_first", "whoami.founder", "errors.parse_error")), str(by))
+    check("conformance: what it lacks is reported missing, not passed", by["terminal.format_is_text"][0] == "missing", str(by))
+    print("python daemon:", ", ".join(f"{s.upper()} {n}" for n, (s, _) in sorted(by.items())))
 
 
 def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
@@ -184,9 +228,9 @@ def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
 def test_a_run_that_skipped_is_not_green(td) -> None:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        only_founder = conformance.main([], _fakes("founder"))
-        allowed = conformance.main(["--allow-skip"], _fakes("founder"))
-        all_roles = conformance.main([], _fakes("founder", "agent", "anonymous"))
+        only_founder = conformance.main(KEYARG, _fakes("founder"))
+        allowed = conformance.main(["--allow-skip", *KEYARG], _fakes("founder"))
+        all_roles = conformance.main(KEYARG, _fakes("founder", "agent", "anonymous"))
     check("conformance: a run with only the founder socket exits 3, not 0", only_founder == 3, out.getvalue())
     check("conformance: --allow-skip makes the same run exit 0", allowed == 0)
     check("conformance: a run with every role passes with exit 0", all_roles == 0)
@@ -195,6 +239,34 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
     with contextlib.redirect_stdout(io.StringIO()):
         skipped_all = conformance.main([str(path)], _fakes("founder"))
     check("conformance: a run where everything skipped exits 3", skipped_all == 3)
+
+
+def _run(args, **fake) -> tuple[int, str]:
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = conformance.main(args, _fakes("founder", "agent", "anonymous", **fake))
+    return code, out.getvalue()
+
+
+def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
+    code, out = _run(["--allow-skip", *KEYARG], lacks={"agent.get"})
+    check("conformance: a daemon that omits a method its fixtures pin fails even with --allow-skip", code == 1 and "MISSING" in out and "not in --allow-missing: agent.get" in out, out)
+    code, out = _run(["--allow-skip", "--allow-missing", "agent.get", *KEYARG], lacks={"agent.get"})
+    check("conformance: the same run with --allow-missing for that method exits 0", code == 0, out)
+    listing = Path(td) / "missing.txt"
+    listing.write_text("# methods Go lacks\n\nagent.get  # soon\n")
+    code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
+    check("conformance: --allow-missing-file lists methods one per line, comments allowed", code == 0, out)
+    code, out = _run(["--allow-skip", "--allow-missing", "whoami", *KEYARG], lacks={"agent.get"})
+    check("conformance: allowing a different method does not cover it", code == 1, out)
+    code, out = _run(["--allow-skip"])
+    check("conformance: a run without the founder key var and --allow-skip exits non-zero", code == 1 and "NEEDVAR" in out and "needs --var founder_key" in out, out)
+    code, out = _run(["--allow-skip", *KEYARG])
+    check("conformance: the summary counts each kind apart",
+          "0 failed, 0 skipped by role, 0 not implemented, 0 needing a var" in out, out)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bad = conformance.main(["--allow-missing-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
+    check("conformance: an unreadable --allow-missing-file is a usage error", bad == 2)
 
 
 def test_matchers() -> None:
@@ -241,8 +313,11 @@ def main() -> int:
         run(lambda: test_a_role_without_a_socket_is_skipped_not_passed())
         run(lambda: test_a_wrong_reply_fails_that_fixture(td))
         run(lambda: test_the_command_line_runs_against_a_socket_path(td))
+        run(lambda: test_skips_for_a_missing_var_and_a_method_the_daemon_lacks())
+        run(lambda: test_the_fixtures_run_against_the_python_daemon(Path(td) / 'pyd'))
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))
+        run(lambda: test_only_role_skips_are_covered_by_allow_skip(td))
         run(lambda: test_matchers())
         run(lambda: test_fixtures_follow_the_format_and_the_spec())
     return run_area(tests)

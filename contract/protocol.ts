@@ -670,6 +670,14 @@ export type SettingsChanges = {
   input_hold_idle_s?: number | null;
 };
 
+/** One method as a daemon lists it: its role and whether this caller may call it. */
+export type MethodInfo = {
+  name: string;
+  since: number;
+  role: Role;
+  allowed: boolean;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -693,17 +701,13 @@ export interface Methods {
     capabilities: Capabilities;
     /** How this connection is protected. */
     transport: "local" | "tls";
-    methods: {
-      name: string;
-      since: number;
-      role: Role;
-      allowed: boolean;
-    }[];
+    methods: MethodInfo[];
   } };
   "whoami": { params: { [key: string]: unknown }; result: {
     caller: Caller;
     role: Role;
-    methods: string[];
+    /** The same list hello gives, with allowed flags for this caller. */
+    methods: MethodInfo[];
   } };
   "subscribe": { params: {
   topics: Topic[];

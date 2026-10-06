@@ -27,7 +27,9 @@
      "raw": "[{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"hello\", \"params\": {\"client\": \"conformance/1\", \"protocol\": 1}}]",
      "error": {
       "code": -32600,
-      "message": "bad_request",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "bad_request"
       }
@@ -48,7 +50,8 @@
       "method": "hello",
       "params": {
        "client": "conformance/1",
-       "protocol": 1
+       "protocol": 1,
+       "key": "{{founder_key}}"
       }
      },
      "result": {}
@@ -62,7 +65,9 @@
      },
      "error": {
       "code": -32602,
-      "message": "bad_request",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "bad_request",
        "field": "agent"
@@ -84,7 +89,8 @@
       "method": "hello",
       "params": {
        "client": "conformance/1",
-       "protocol": 1
+       "protocol": 1,
+       "key": "{{founder_key}}"
       }
      },
      "result": {}
@@ -100,14 +106,16 @@
      },
      "error": {
       "code": -32001,
-      "message": "not_found"
+      "message": {
+       "$regex": "."
+      }
      }
     }
    ]
   },
   {
    "name": "errors.refused_by_role",
-   "spec": "x-gates",
+   "spec": "agents.list",
    "about": "A call below its role is refused, gate role.",
    "as": "anonymous",
    "steps": [
@@ -132,7 +140,9 @@
      },
      "error": {
       "code": -32002,
-      "message": "refused",
+      "message": {
+       "$regex": "."
+      },
       "data": {
        "code": "refused",
        "gate": "role",

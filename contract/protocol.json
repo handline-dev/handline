@@ -468,27 +468,7 @@
       "methods": {
        "type": "array",
        "items": {
-        "type": "object",
-        "properties": {
-         "name": {
-          "type": "string"
-         },
-         "since": {
-          "type": "integer"
-         },
-         "role": {
-          "$ref": "#/components/schemas/Role"
-         },
-         "allowed": {
-          "type": "boolean"
-         }
-        },
-        "required": [
-         "name",
-         "since",
-         "role",
-         "allowed"
-        ]
+        "$ref": "#/components/schemas/MethodInfo"
        }
       }
      },
@@ -537,8 +517,9 @@
       "methods": {
        "type": "array",
        "items": {
-        "type": "string"
-       }
+        "$ref": "#/components/schemas/MethodInfo"
+       },
+       "description": "The same list hello gives, with allowed flags for this caller."
       }
      },
      "required": [
@@ -9043,6 +9024,30 @@
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
+   },
+   "MethodInfo": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "since": {
+      "type": "integer"
+     },
+     "role": {
+      "$ref": "#/components/schemas/Role"
+     },
+     "allowed": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "since",
+     "role",
+     "allowed"
+    ],
+    "description": "One method as a daemon lists it: its role and whether this caller may call it."
    }
   },
   "errors": {
