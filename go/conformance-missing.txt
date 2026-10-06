@@ -50,3 +50,4 @@ chat.messages
 chat.transcript
 chat.locate
 chat.search
+hr.list

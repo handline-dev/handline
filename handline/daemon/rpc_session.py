@@ -75,7 +75,7 @@ def _run(ctx, name: str, params, fn, hold: bool = False) -> dict:
                     result = fn(con, agent)
             if not hold:
                 result = fn(con, agent)
-        db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
+        db.record_effect(con, ctx.caller.writer, params["request_id"], name, result)
         termchannel.marker(con, agent, "control", ctx.caller.actor_info, text=name)
         return result
     finally:
