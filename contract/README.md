@@ -28,6 +28,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 
 - Founder: the connection proves it by the founder key, which a fixture sends as `{{founder_key}}` in `hello`. Pass it with `--var founder_key=KEY`. The Python daemon keeps it in its protected store (`sessiontoken.founder_key_held()`, minted by `sessiontoken.ensure_founder_key()`); the Go daemon's own test harness mints one.
 - Anonymous: the same socket, a hello without the key.
+- A role limit can sit inside one method: an agent may call `session.stop` with mode exit or close, never kill (refused, gate `role`). `session_stop.json` pins the kill refusal.
 - Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0.
 - A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.
 

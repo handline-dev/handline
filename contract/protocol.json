@@ -1218,6 +1218,7 @@
   {
    "name": "session.stop",
    "summary": "exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process.",
+   "description": "An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1273,6 +1274,7 @@
     }
    ],
    "x-gates": [
+    "role",
     "terminal_lock",
     "state"
    ]
