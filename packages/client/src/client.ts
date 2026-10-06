@@ -98,6 +98,7 @@ export class DaemonClient {
   private gapHandlers = new Set<Handler<Notifications['gap']>>();
   private stateHandlers = new Set<Handler<ConnectionState>>();
   private views = new Map<string, TerminalView>();
+  private holders = new Map<string, number>(); // how many screens hold each agent's view
   private requestCounter = 0;
   private closing = false;
 
@@ -282,18 +283,26 @@ export class DaemonClient {
 
   // ---- terminal channel ----
 
-  /** Attaches a view that stays current, through reconnects, until detached. */
+  /** Attaches a view that stays current, through reconnects, until every holder has detached. Holders share one view per agent. */
   async attachTerminal(agent: string): Promise<TerminalView> {
     const v = this.views.get(agent) ?? new TerminalView(agent);
     this.views.set(agent, v);
-    try { await this.attach(v); } catch (e) { this.views.delete(agent); throw e; }
+    this.holders.set(agent, (this.holders.get(agent) ?? 0) + 1);
+    try { await this.attach(v); } catch (e) { this.release(agent); throw e; }
     return v;
   }
+  /** Lets go of one hold; the daemon is told to stop only when the last holder does. */
   async detachTerminal(agent: string): Promise<void> {
     const v = this.views.get(agent);
-    if (!v) return;
-    this.views.delete(agent);
+    if (!v || !this.release(agent)) return;
     await this.call('terminal.detach', { terminal: v.terminal });
+  }
+  /** Drops one hold; true when it was the last, and the view is gone. */
+  private release(agent: string): boolean {
+    const n = (this.holders.get(agent) ?? 1) - 1;
+    if (n > 0) { this.holders.set(agent, n); return false; }
+    this.holders.delete(agent); this.views.delete(agent);
+    return true;
   }
   private async attach(v: TerminalView): Promise<void> {
     const snap = await (this.state === 'open' ? this.call('terminal.attach', { agent: v.agent, history: 100 })

@@ -23,7 +23,7 @@ test('the page, its styles and its scripts are served; scripts have their types 
   assert.equal((await get('/')).loc, '/ui/');
   assert.match((await get('/ui/')).text, /<div id="app"/);
   assert.match((await get('/ui/style.css')).type, /text\/css/);
-  const app = await get('/ui/model.ts');
+  const app = await get('/app-core/model.ts');
   assert.match(app.type, /text\/javascript/);
   assert.doesNotMatch(app.text, /: AgentView\b/);
   assert.match((await get('/src/index.ts')).text, /export \*/);
