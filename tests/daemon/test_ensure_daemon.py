@@ -434,6 +434,64 @@ def test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(h
     con.close()
 
 
+def test_a_hook_stamped_in_the_future_counts_from_its_arrival_not_from_its_stamp(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    now = int(time.time())
+    con = db.connect()
+    real = time.time
+    time.time = lambda: now - 10        # the future-stamped hook arrives ten seconds before the rest
+    try:
+        db.set_agent_state(con, "worker", dmn_states.RUNNING)
+        _hook(con, "UserPromptSubmit", now - 20, "pre-1")
+        _hook(con, "PostToolUse", now + 3600, "future-1")
+    finally:
+        time.time = real
+    check("future: its stored time is its arrival, not its stamp",
+          con.execute("SELECT at FROM hook_applied WHERE request_id = 'future-1'").fetchone()[0] == now - 10)
+    _hook(con, "Stop", now - 1, "real-1")
+    check("future: a real Stop stamped after it arrived still moves the agent",
+          db.get_agent_state(con, "worker")["state"] == "IDLE", db.get_agent_state(con, "worker")["state"])
+    db.set_agent_state(con, "worker", dmn_states.RUNNING)
+    _hook(con, "Stop", now - 15, "early-1")
+    check("future: one stamped before the future one arrived is late as before: it moves nothing",
+          db.get_agent_state(con, "worker")["state"] == "RUNNING")
+    con.close()
+
+
+def test_pruning_keeps_each_agents_newest_applied_row(home: Path) -> None:
+    support.use_home(home)
+    agents.register("worker")
+    agents.register("other")
+    now = int(time.time())
+    old = now - 3 * 24 * 3600
+    con = db.connect()
+    for rid, agent, at in (("w-old", "worker", old - 50), ("w-new", "worker", old), ("o-only", "other", old - 5)):
+        con.execute("INSERT INTO hook_applied(request_id, ts, agent, at) VALUES(?, ?, ?, ?)", (rid, old, agent, at))
+    con.execute("INSERT INTO hook_applied(request_id, ts) VALUES('nobody', ?)", (old,))
+    _hook(con, "Stop", now, "prune-1", agent="third")
+    got = {r[0] for r in con.execute("SELECT request_id FROM hook_applied")}
+    check("prune: the older row of an agent goes, its newest stays, and so does a quiet agent's only one",
+          got == {"w-new", "o-only", "prune-1"}, got)
+    con.close()
+
+
+def test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(home: Path) -> None:
+    support.use_home(home)
+    rejected = spool.path().with_name(spool.REJECTED)
+    row = lambda: next((r for r in doctor.run().rows if "hook line" in r[1]), None)  # noqa: E731
+    check("doctor: no rejected file, no note", row() is None)
+    rejected.write_text("")
+    check("doctor: an empty one, no note", row() is None)
+    rejected.write_text(json.dumps({"rejected_at": 1760000000, "error": "KeyError", "message": "'kind'", "line": "{}"}) + "\n"
+                        + json.dumps({"rejected_at": 1760000500, "error": "ValueError", "message": "x", "line": "y"}) + "\n")
+    got = row()
+    check("doctor: a warning with the count, the size and the oldest",
+          got and got[0] == doctor.WARN and got[1].startswith("2 hook line(s)") and f"{rejected.stat().st_size} bytes" in got[1]
+          and "oldest set aside" in got[1], got)
+    check("doctor: and says what to do with them", got and "delete the file" in got[2] and str(rejected) in got[2], got)
+
+
 def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
     support._daemon_home(home, 20)
     spool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
@@ -589,6 +647,9 @@ def main() -> int:
         run(lambda: test_an_older_event_arriving_late_is_recorded_and_moves_nothing(Path(td) / "e22"))
         run(lambda: test_events_with_the_same_second_apply_in_the_order_they_arrive(Path(td) / "e23"))
         run(lambda: test_a_late_session_start_does_not_rebind_and_a_late_permission_request_leaves_no_wait(Path(td) / "e24"))
+        run(lambda: test_a_hook_stamped_in_the_future_counts_from_its_arrival_not_from_its_stamp(Path(td) / "e25"))
+        run(lambda: test_pruning_keeps_each_agents_newest_applied_row(Path(td) / "e26"))
+        run(lambda: test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(Path(td) / "e27"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 
