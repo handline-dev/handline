@@ -1814,6 +1814,15 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
         check("hook: with the session it was written by",
               st.session_id == "eeeeeeee-0000-4000-8000-000000000008", st.session_id)
 
+        write_transcript(home, "alpha", cwd, "ffffffff-0000-4000-8000-000000000009",
+                         turns=[("claude-opus-5", {"cache_read_input_tokens": 100_000})],
+                         at=int(time.time()) + 60)
+        hook("Stop")
+        st = status.read("alpha", paths.agent_status_file("backend"))
+        check("hook: a newer transcript of another agent in the same worktree is not taken",
+              st.session_id == "eeeeeeee-0000-4000-8000-000000000008" and st.ctx_pct == 45,
+              f"{st.session_id} {st.ctx_pct}")
+
         paths.agent_status_file("backend").unlink()
         hook("PermissionRequest", tool_name="Bash")
         check("hook: an event that is not a turn boundary does not collect",

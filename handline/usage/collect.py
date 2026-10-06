@@ -99,8 +99,8 @@ def locate(cwd: str | Path, accounts: list[str] | None = None,
     and the live session, while the statusLine was still reporting the 20%
     context of the session before the clear.
 
-    A project directory is keyed by working directory, and two agents can share one (orcapipe and
-    orcapipe.daemon do), so "the newest" is only the answer for a directory one agent uses. A caller
+    A project directory is keyed by working directory, and two agents can share one,
+    so "the newest" is only the answer for a directory one agent uses. A caller
     that knows the session - a hook's payload carries it - names it, and a directory without that
     transcript yields nothing rather than another agent's. `hl fold`'s `claude -p` does not land
     here: it runs from the daemon's directory, not the agent's.
