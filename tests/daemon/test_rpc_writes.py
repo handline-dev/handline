@@ -215,6 +215,29 @@ def test_whoami_says_who_and_what_they_may_call(home: Path) -> None:
           allowed["whoami"] and allowed["hello"] and not allowed["t.write"], str(allowed))
 
 
+def test_two_callers_may_use_the_same_request_id_and_each_gets_its_own_reply(home: Path) -> None:
+    use_home(home)
+    f = FakeWrite()
+    try:
+        w = Wire()
+        _hello(w)
+        founder = w.call("t.write", {"request_id": "same"})
+        w.close()
+        real = _as_agent("backend")
+        try:
+            w = Wire()
+            _hello(w)
+            agent = w.call("t.write", {"agent": "backend", "request_id": "same"})
+            w.close()
+        finally:
+            sessiontoken.agent_of = real
+    finally:
+        f.done()
+    check("request id: an agent and the founder using one id both run", f.runs == 2, str(f.runs))
+    check("request id: and neither gets the other's reply",
+          founder["result"] == {"accepted": True, "run": 1} and agent["result"] == {"accepted": True, "run": 2}, str((founder, agent)))
+
+
 def test_a_database_made_before_the_reply_store_gets_it_at_migration(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     p = home / "v1.db"
@@ -237,6 +260,7 @@ def main() -> int:
         run(lambda: test_every_write_leaves_an_event_naming_its_actor(Path(td) / "w5"))
         run(lambda: test_an_agent_cannot_write_as_another_agent_and_the_founder_can_name_any(Path(td) / "w6"))
         run(lambda: test_whoami_says_who_and_what_they_may_call(Path(td) / "w7"))
+        run(lambda: test_two_callers_may_use_the_same_request_id_and_each_gets_its_own_reply(Path(td) / "w9"))
         run(lambda: test_a_database_made_before_the_reply_store_gets_it_at_migration(Path(td) / "w8"))
     return run_area(tests)
 

@@ -128,7 +128,7 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
     rid = params.get("request_id")
     if not isinstance(rid, str) or not rid or len(rid) > REQUEST_ID_MAX:
         raise bad_request(f"{name} is a write: it takes a request_id, a string of 1 to {REQUEST_ID_MAX} characters", "request_id")
-    key = (ctx.caller.actor, rid)
+    key = (ctx.caller.actor, rid)       # the founder and every device share `human`: key by device id when devices land
     with _RETRY_LOCKS[hash(key) % len(_RETRY_LOCKS)]:
         con = db.connect()
         try:
