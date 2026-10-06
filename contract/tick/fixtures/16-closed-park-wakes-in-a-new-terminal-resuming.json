@@ -241,6 +241,27 @@
     "applied_at": 1760000000,
     "name": "rpc_replies",
     "version": 2
+   },
+   {
+    "__rowid": 3,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "agent_view",
+    "version": 3
+   },
+   {
+    "__rowid": 4,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "stream_log",
+    "version": 4
+   },
+   {
+    "__rowid": 5,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "hook_applied",
+    "version": 5
    }
   ]
  },
