@@ -58,10 +58,10 @@ A method marked write takes a required `request_id`.
 |---|---|---|---|---|---|---|
 | `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
 | `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
-| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` |  |  |
-| `unsubscribe` | agent |  | `topics` | `object` |  |  |
+| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` | `bad_request` |  |
+| `unsubscribe` | agent |  | `topics` | `object` | `bad_request` |  |
 | `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
-| `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` |  |  |
+| `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` | `bad_request` |  |
 | `operation.get` | member |  | `operation` | `Operation` | `not_found` |  |
 | `agents.list` | agent |  | none | `{agents}` |  |  |
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
@@ -180,11 +180,11 @@ The viewer, the device, the role and the methods allowed.
 
 ### `subscribe`
 
-Turn the connection into a stream of `event` notices; replays after `since` first.
+Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent.
 
 ### `unsubscribe`
 
-Stop some topics.
+Stop some topics; a subscription with no topics left ends. Result {}.
 
 ### `daemon.status`
 
@@ -192,7 +192,7 @@ Status bar: alive, versions, terminal host, agent counts, inbox count.
 
 ### `events.feed`
 
-Resumable feed of events with their deep-link targets.
+Resumable feed of events with their deep-link targets; the polling twin of subscribe. topics defaults to [notifications]; limit defaults to 50, at most 200. Without `since`: the newest events, oldest first. With `since`: the events after it; if `since` is older than retention the feed starts at the oldest kept event and `gap` is true. cursor is the newest cursor in the reply, or the current newest when there are no events.
 
 ### `operation.get`
 
@@ -208,7 +208,7 @@ One agent: the view plus session and terminal facts.
 
 ### `agent.timeline`
 
-State changes, deliveries, handoffs, key presses; newest first.
+The agent's recorded events, newest first. Today this is the agent's generic recorded events (the daemon's events table, rows of that agent): id is the event's id and `before` an event id; kind is the recorded kind; actor is the payload's `actor` when it is an object, else null; text is the payload's `text`, else `detail`, else `method`, else the kind; data is the whole payload ({} when it has none). State changes, deliveries and key presses appear only once they are recorded as events, which a later task does; clients must not expect them, and must treat kind as an open set.
 
 ### `agent.options`
 
@@ -703,7 +703,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 ## Notifications
 
 - `event`: Sent after subscribe, for the subscribed topics, in cursor order. Params: `Event`
-- `gap`: retention: refetch the topic's snapshot and resubscribe from the cursor. slow_client: the daemon then closes the connection. Params: `{   reason: "retention" | "slow_client";   cursor: number;   topic?: Topic; }`
+- `gap`: retention: the resume cannot be served (the cursor is older than the daemon keeps, or more than 5000 of the subscribed events behind); refetch the topic's snapshot; the connection stays open and the cursor is the newest. slow_client: more than 1000 live events were waiting to be written to this client; the daemon sends this and then closes the connection. A resume up to 5000 behind is replayed in full and does not count toward the 1000. The daemon sets no `topic` in v1. Params: `{   reason: "retention" | "slow_client";   cursor: number;   topic?: Topic; }`
 - `frame`: full:true carries every line and is what a slow client gets instead of a backlog. Params: `{   terminal: string;   seq: number;   full: boolean;   lines?: Row[];   changed?: {     y: number;     row: Row;   }[];   cursor: Cursor; }`
 - `resize`:  Params: `{   terminal: string;   seq: number;   cols: number;   rows: number; }`
 - `marker`: The daemon typed, or a control call happened, at this point in the stream. Params: `{   terminal: string;   seq: number;   at: Timestamp;   kind: "daemon_typed" | "control";   actor: Actor | null;   text?: string; }`

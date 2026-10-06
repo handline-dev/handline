@@ -3,3 +3,7 @@
 agent.get
 agents.list
 terminal.attach
+agent.timeline
+events.feed
+subscribe
+unsubscribe

@@ -1,0 +1,131 @@
+{
+ "fixtures": [
+  {
+   "name": "agents.list.rows_carry_the_state_column",
+   "spec": "agents.list",
+   "about": "Every row has the state word and the text drawn beside it; role is one line of at most 160 characters.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$type": "array",
+       "$each": {
+        "name": {
+         "$type": "string"
+        },
+        "state": {
+         "$type": "string"
+        },
+        "state_detail": {
+         "$type": "string"
+        },
+        "role": {
+         "$regex": "^.{0,160}$"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.timeline.unknown_agent",
+   "spec": "agent.timeline",
+   "about": "An agent that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.timeline",
+      "params": {
+       "agent": "no-such-agent.conformance"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "message": {
+       "$regex": "."
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.timeline.limit_is_a_positive_integer",
+   "spec": "agent.timeline",
+   "about": "limit 0 is invalid params naming limit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.timeline",
+      "params": {
+       "agent": "x",
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

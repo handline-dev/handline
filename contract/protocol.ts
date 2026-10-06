@@ -67,7 +67,7 @@ export type PromptOption = {
 };
 
 export type Prompt = {
-  /** Opaque; changes whenever the open prompt changes. */
+  /** Opaque; changes whenever the open prompt changes (the daemon uses the screen block's fingerprint). */
   id: string;
   agent: AgentName;
   /** e.g. permission, trust, dialog; open set. */
@@ -75,8 +75,11 @@ export type Prompt = {
   tool?: string | null;
   command?: string | null;
   reason?: string | null;
+  /** The dialog's panel as it is on screen, one string per line. */
   lines: string[];
+  /** The choices, parsed from the dialog. Empty until the session-control task fills it; a client falls back to lines. */
   options: PromptOption[];
+  /** When the daemon first saw this prompt open. */
   since: Timestamp;
 };
 
@@ -88,6 +91,7 @@ export type Block = {
 /** The stored per-agent view; the daemon decided every field. */
 export type AgentView = {
   name: AgentName;
+  /** The first line of the agent's ROLE.md that is not blank and not a heading, as one line, at most 160 characters; empty when there is none. */
   role: string;
   model: string | null;
   effort: string | null;
@@ -109,6 +113,8 @@ export type AgentView = {
   parent: AgentName | null;
   /** Who holds the input; one in v1, a list so more can later. */
   input_holders?: InputHolder[];
+  /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
+  state_detail: string;
 };
 
 export type AgentDetail = AgentView & {
@@ -124,6 +130,7 @@ export type AgentDetail = AgentView & {
     account: string | null;
     reason: string;
   };
+  /** The agent's open prompt, or null. */
   prompt: Prompt | null;
   settings?: AgentSettingValues;
 };
@@ -131,10 +138,12 @@ export type AgentDetail = AgentView & {
 export type TimelineEntry = {
   id: number;
   at: Timestamp;
-  /** state, task_delivered, handoff, key, input, interrupt, start, stop, ...; open set. */
+  /** The recorded event kind; open set. state, task_delivered, handoff, key, input, interrupt, start and stop are expected once those are recorded. */
   kind: string;
   actor: Actor | null;
+  /** One line to show; falls back to the kind. */
   text: string;
+  /** The event's whole payload. */
   data?: { [key: string]: unknown };
 };
 
@@ -202,6 +211,7 @@ export type InboxItem = {
 };
 
 export type Event = {
+  /** Opaque, increasing integer: the daemon's own stream position, not the id of any other table's row. A client keeps the newest one it saw and resumes from it. */
   cursor: number;
   topic: Topic;
   /** See x-topics for each topic's types. */
@@ -711,9 +721,9 @@ export interface Methods {
   } };
   "subscribe": { params: {
   topics: Topic[];
-  /** Last cursor seen. Absent: live only. */
+  /** Last cursor seen. Absent: live only. A cursor older than the daemon keeps, or with more than 5000 subscribed events after it, is answered by a `gap` notice (reason retention) instead of a replay; the connection stays open. Up to 5000 events behind, every missed event is replayed in full, in cursor order, before any live one. */
   since?: number;
-  /** Only events of this agent (events carry `agent`); events with no agent are not sent. Meant for the chat topic. */
+  /** Only events of this agent, plus events that carry no agent. Meant for the chat topic. */
   agent?: AgentName;
 }; result: {
     /** The newest cursor at subscribe time. */
