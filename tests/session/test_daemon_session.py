@@ -1820,7 +1820,7 @@ _REAL_LIVE_SESSIONS = obsmod.live_sessions      # before any test's world stands
 
 
 def test_a_process_table_the_daemon_cannot_read_is_said_in_its_log_with_the_cause(home: Path) -> None:
-    """T1916: `loop.run` hands the daemon's log to observe, so the reason a reading failed is in the log a person tails."""
+    """`loop.run` hands the daemon's log to observe, so the reason a reading failed is in the log a person tails."""
     import types
     _daemon_home(home, 20)
 
