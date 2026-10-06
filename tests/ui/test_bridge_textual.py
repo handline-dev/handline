@@ -2523,54 +2523,50 @@ def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
 
 async def test_changing_owners_on_the_task_board_does_not_hold_the_screen() -> None:
     """Founder #9423: assigning from the board froze it. `batch_task` is a handoff per task (~80 ms
-    each), and it ran on the event loop; it runs on its own thread now, and the loop keeps turning."""
+    each), and it ran on the event loop; it runs on its own thread now, and the loop keeps turning.
+    The write holds until the loop has answered it, so a write on the loop times out instead of passing."""
     import threading
     from handline.ui.components.tasks_view import TasksView
     _home("boardassign")
     agents.register("reviewer")
     ids = [actions.task_new("product", "backend", f"Task {i}", "the work and its done")[2] for i in range(3)]
     app = bt.BridgeApp()
-    on, lags = {}, []
+    on = {}
+    loop_answered = threading.Event()
 
     def slow_batch(con, verb, tids, who, arg):
         on["thread"] = threading.get_ident()
         on["calls"] = on.get("calls", 0) + 1
-        time.sleep(0.5)
+        on["loop_answered"] = loop_answered.wait(15)
         return [(t, True, "ok") for t in tids]
     real = actions.batch_task
     actions.batch_task = slow_batch
     try:
         async with app.run_test(size=(150, 40)) as pilot:
-            await pilot.pause(0.5)
+            await _until(pilot, lambda: app.screen.query(TasksView))
             view = app.screen.query_one(TasksView)
             view.display = True
-            await pilot.pause(0.5)
+            await pilot.pause()
             view.checked = set(ids)
-
-            async def beat():
-                while True:
-                    t = time.monotonic()
-                    await asyncio.sleep(0.01)
-                    lags.append(time.monotonic() - t - 0.01)
-            task = asyncio.create_task(beat())
             view.action_act("owner")
-            await pilot.pause(0.3)
+            await _until(pilot, lambda: isinstance(app.screen, TextPrompt))
             for ch in "reviewer":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await _until(pilot, lambda: isinstance(app.screen, Confirm))
             await pilot.press("y")
-            await pilot.pause(0.2)
+            await _until(pilot, lambda: on.get("calls"))
             view.action_act("priority")          # while the batch is writing
-            await pilot.pause(1.2)
-            task.cancel()
+            await pilot.pause()
+            loop_answered.set()
+            msgs = lambda: [n.message for n in app._notifications]
+            await _until(pilot, lambda: any(actions.task_ref(ids[0]) in m for m in msgs()))
             check("task board: the owner change ran", "thread" in on, str(on))
             check("task board: ... off the event loop", on.get("thread") != threading.get_ident(), str(on))
-            check("task board: ... and the screen kept turning while it ran", max(lags) < 0.3, f"{max(lags):.2f}s")
-            msgs = [n.message for n in app._notifications]
-            check("task board: its result is noted", any(actions.task_ref(ids[0]) in m for m in msgs), str(msgs))
+            check("task board: ... and the screen kept turning while it ran", on.get("loop_answered") is True, str(on))
+            check("task board: its result is noted", any(actions.task_ref(ids[0]) in m for m in msgs()), str(msgs()))
             check("task board: a second act during it was refused, and started no second batch",
-                  any("still changing 3 tasks" in m for m in msgs) and on["calls"] == 1, str((msgs, on)))
+                  any("still changing 3 tasks" in m for m in msgs()) and on["calls"] == 1, str((msgs(), on)))
     finally:
         actions.batch_task = real
 
@@ -2697,6 +2693,7 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
     import threading
     from handline.ui.chat_page import TaskDetail
+    from handline.ui.components.task_assign import TaskAssign
     _home("pageassign")
     agents.register("reviewer")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
@@ -2711,21 +2708,23 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     app = bt.BridgeApp()
     try:
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause(0.5)
+            await pilot.pause()
             app.push_screen(TaskDetail(tid))
-            await pilot.pause(0.8)
+            await _until(pilot, lambda: isinstance(app.screen, TaskDetail))
+            await pilot.pause()
             await pilot.press("a")
-            await pilot.pause(0.5)
+            await _until(pilot, lambda: isinstance(app.screen, TaskAssign))
             for ch in "ok":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(0.2)
+            await _until(pilot, lambda: on.get("calls") and isinstance(app.screen, TaskDetail))
+            await pilot.pause()
             await pilot.press("a")                  # a second assign while the first is writing
-            await pilot.pause(0.3)
+            await _until(pilot, lambda: isinstance(app.screen, TaskAssign))
             for ch in "ok":
                 await pilot.press(ch)
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await _until(pilot, lambda: any("still changing 1 task" in str(n.message) for n in app._notifications))
             check("task page assign: a second one during it is refused, with a note, and makes no second handoff",
                   on["calls"] == 1 and any("still changing 1 task" in str(n.message) for n in app._notifications),
                   str((on, [n.message for n in app._notifications])))
@@ -2756,9 +2755,10 @@ async def test_a_second_assign_answered_before_the_first_worker_starts_is_refuse
         await pilot.pause(0.8)
         started = []
 
-        def hold(coro, **kw):       # the worker has not started: what a loaded loop looks like
-            started.append(1)
-            coro.close()
+        def hold(work, **kw):       # the worker has not started: what a loaded loop looks like
+            if asyncio.iscoroutine(work):       # the page's own poll runs a function here: not the assign
+                started.append(1)
+                work.close()
         body = page._body()
         body.run_worker = hold
         answers = []
@@ -3108,10 +3108,14 @@ async def test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of
 
     app = Host()
     async with app.run_test(size=(80, 30)) as pilot:
-        await pilot.pause(0.5)
+        def fits() -> bool:
+            rows = list(app.query(".tl_row"))
+            return len(rows) >= 31 and all(r.query(".tl_text") and r.size.height >= len(r.query_one(".tl_text").content.plain.split("\n"))
+                                           for r in rows)
+        await _until(pilot, fits)
         pane = app.query_one("#detail_pane", VerticalScroll)
         rows = list(app.query(".tl_row"))
-        check("timeline scroll: no row is cut below its lines", all(r.size.height >= len(r.query_one(".tl_text").content.plain.split("\n")) for r in rows),
+        check("timeline scroll: no row is cut below its lines", fits(),
               str([r.size.height for r in rows]))
         pane.scroll_end(animate=False)
         await pilot.pause()
@@ -4285,36 +4289,45 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
         import html, re
         return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
 
-    async with app.run_test(size=(100, 30)) as pilot:
-        page = cp.ChatPage("reviewer")
-        await app.push_screen(page)
-        await pilot.pause()
-        page._sig = None
-        page.refresh_conversation()
-        await pilot.pause()
-        before = list(page.query(cp.ChatMessage))
-        page.agent_state = ("RUNNING", "")
-        page._sig = None        # what a flip of the word does (refresh_agent_state)
-        page.refresh_conversation()
-        await pilot.pause()
-        check("noflash: the messages are the same widgets after the agent starts working",
-              before and list(page.query(cp.ChatMessage)) == before)
-        line = page.query(cp.WorkLine).first()
-        check("noflash: and the screen now spins", line.working is True and "working" in screen_text())
-        page.agent_state = ("IDLE", "waiting for x's reply (#1)")
-        page._sig = None
-        page.refresh_conversation()
-        await pilot.pause()
-        shown = screen_text()
-        check("noflash: back to idle with a wait, the screen shows the wait, not 'working'",
-              "working" not in shown and "waiting for x's reply (#1)" in shown
-              and list(page.query(cp.ChatMessage)) == before)
-        page.agent_state = ("IDLE", "waiting for y's reply (#2)")
-        page._sig = None
-        page.refresh_conversation()
-        await pilot.pause()
-        check("noflash: a change of the wait text alone shows on the screen",
-              "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
+    want = [("IDLE", "")]               # the page's 2s poll re-reads the state: what it reads is set here, not by hand
+    real_state = cp.agent_state_of
+    cp.agent_state_of = lambda con, agent: want[0]
+    try:
+        async with app.run_test(size=(100, 30)) as pilot:
+            page = cp.ChatPage("reviewer")
+            await app.push_screen(page)
+            await pilot.pause()
+            page._sig = None
+            page.refresh_conversation()
+            await pilot.pause()
+            before = list(page.query(cp.ChatMessage))
+            page.agent_state = want[0] = ("RUNNING", "")
+            page._sig = None        # what a flip of the word does (refresh_agent_state)
+            page.refresh_conversation()
+            await pilot.pause()
+            check("noflash: the messages are the same widgets after the agent starts working",
+                  before and list(page.query(cp.ChatMessage)) == before)
+            line = page.query(cp.WorkLine).first()
+            await _until(pilot, lambda: line.working is True and "working" in screen_text())
+            check("noflash: and the screen now spins", line.working is True and "working" in screen_text())
+            page.agent_state = want[0] = ("IDLE", "waiting for x's reply (#1)")
+            page._sig = None
+            page.refresh_conversation()
+            await pilot.pause()
+            await _until(pilot, lambda: "working" not in screen_text() and "waiting for x's reply (#1)" in screen_text())
+            shown = screen_text()
+            check("noflash: back to idle with a wait, the screen shows the wait, not 'working'",
+                  "working" not in shown and "waiting for x's reply (#1)" in shown
+                  and list(page.query(cp.ChatMessage)) == before)
+            page.agent_state = want[0] = ("IDLE", "waiting for y's reply (#2)")
+            page._sig = None
+            page.refresh_conversation()
+            await pilot.pause()
+            await _until(pilot, lambda: "waiting for y's reply (#2)" in screen_text())
+            check("noflash: a change of the wait text alone shows on the screen",
+                  "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
+    finally:
+        cp.agent_state_of = real_state
 
 
 async def test_neither_tasks_tab_scrolls_sideways() -> None:

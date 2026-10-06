@@ -178,6 +178,23 @@ describe('writes', () => {
     expect(store.error).toBeNull();
   });
 
+  it('hr.withdraw is a decided write from the UI: it calls the daemon, shows pending, and a refusal says why', async () => {
+    const wait = deferred();
+    const stub = stubClient(() => wait.promise);
+    const store = openStore(stub);
+    const w = probe(() => ({ write: useWrite('hr.withdraw', 'proposal'), pending: usePending('hr.withdraw') }));
+    await mount(store, w.node);
+    expect(writes['hr.withdraw']!.kind).toBe('decided');
+    act(() => w.get().write.mutate({ proposal: 4 }));
+    await until(() => stub.count('hr.withdraw') === 1, 'the call');
+    expect(stub.calls.find((c) => c.method === 'hr.withdraw')!.params).toEqual({ proposal: 4 });
+    expect(w.get().pending).toEqual([{ proposal: 4 }]);
+    wait.reject(refuse('that proposal is already decided', 'state', 'it cannot be taken back'));
+    await until(() => w.get().write.isError, 'the refusal');
+    expect(w.get().pending).toEqual([]);
+    expect(store.error).toMatch(/withdraw: that proposal is already decided \(it cannot be taken back\)/);
+  });
+
   it("a refusal does not put an old value over an event that arrived while the write was in flight (the daemon's event wins)", async () => {
     const wait = deferred();
     const stub = stubClient(() => wait.promise);

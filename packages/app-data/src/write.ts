@@ -1,6 +1,6 @@
 // `useWrite`: the one door every UI write goes through (docs/turborepo-layout.md §8.5). An authored write edits the cache first and puts
 // it back if the daemon refuses; a decided write leaves the cache alone and is shown by its pending mark.
-import { useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { CallParams, MethodName, Methods } from '@handline/client';
 import { useData } from './provider.ts';
@@ -79,3 +79,6 @@ export function usePending<M extends WriteMethod>(method: M): CallParams<M>[] {
     select: (m) => m.state.variables as CallParams<M>,
   });
 }
+
+/** True while any write is in flight (the desktop shell holds back a restart over it). */
+export const useBusy = (): boolean => useIsMutating() > 0;

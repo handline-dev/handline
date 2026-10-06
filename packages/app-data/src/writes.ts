@@ -345,6 +345,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.decide': 'decide',
+    'hr.withdraw': 'withdraw',
     'account.login': 'log in',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
@@ -376,6 +377,7 @@ export const writes: Record<string, WriteSpec> = {
   'session.input': uncached('type'),
   'session.keys': uncached('key'),
   'session.type': uncached('type'),
+  'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
 };
 
@@ -394,7 +396,6 @@ export const NOT_FROM_UI = [
   'land.pass',
   'hook.record',
   'hr.propose',
-  'hr.withdraw',
   'trust.propose',
   'input.ask',
   'task.begin',

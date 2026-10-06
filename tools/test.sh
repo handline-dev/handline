@@ -3,7 +3,7 @@
 #   tools/test.sh                          the whole suite (tests/test_ocp.py)
 #   tools/test.sh -k reconcile             the tests whose name has "reconcile"
 #   tools/test.sh tests/ui/test_x.py [-k]  one area file, optionally one test in it
-#                                          (not tests/ui/test_bridge_textual.py: it has no -k and refuses it)
+#                                          (the bridge file is out of the whole suite for now)
 # It runs under the machine's venv python (the bridge tests need its textual and are
 # skipped without it), with OCP_AGENT unset (an agent's own would make every ocp a
 # test subject's), unbuffered (a test that hangs shows where, not silence) and with
@@ -26,9 +26,10 @@ fi
 echo "tools/test.sh: $py -u ${target[*]} $*" >&2
 env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@" | tee "$scratch/run.log"
 status=${PIPESTATUS[0]}
-# The whole suite includes the Go daemon's required check (go test -race ./...).
+# The whole suite includes the Go daemon's required check (go test -race ./...); OCP_TEST_GO names another
+# command for it (tests/infra/test_test_sh.py runs this script with a stub, not a nested go test -race).
 if [ -n "$whole" ]; then
-    tools/test-go.sh || status=1
+    "${OCP_TEST_GO:-tools/test-go.sh}" || status=1
 fi
 # What failed is said last: the Go run's output follows the suite's own list of failures and would bury it.
 if [ "$status" -ne 0 ] && grep -qE '^(FAIL |  FAILED:)' "$scratch/run.log"; then
