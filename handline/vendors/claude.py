@@ -436,6 +436,9 @@ class Claude:
 # claude's folder-trust screen ("Quick safety check: Is this a project you
 # created or one you trust?").
 TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+# The variant for a folder whose settings pre-approve tools (Claude Code 2.1.291): the same
+# workspace line and the same two options under a different question.
+TRUST_PROMPT_MARKERS = (TRUST_PROMPT_MARKER, "This folder pre-approves")
 # The line the prompt names its folder under. Wrapped at terminal width with
 # no separator, so its continuation lines are joined bare, not with a space.
 WORKSPACE_MARKER = "Accessing workspace:"
@@ -472,7 +475,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
     missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
     text = "\n".join(str(x) for x in tail)
-    if TRUST_PROMPT_MARKER not in text:
+    if not any(m in text for m in TRUST_PROMPT_MARKERS):
         return None
     lines = text.split("\n")
     try:
@@ -482,7 +485,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     parts = []
     for ln in lines[start:]:
         stripped = ln.strip()
-        if not stripped or TRUST_PROMPT_MARKER in stripped:
+        if not stripped or any(m in stripped for m in TRUST_PROMPT_MARKERS):
             break
         parts.append(stripped)
     return "".join(parts)

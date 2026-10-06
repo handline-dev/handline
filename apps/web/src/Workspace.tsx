@@ -28,6 +28,7 @@ export interface WorkspaceCtx {
   ws: Workspace;
   detail: AgentDetail;
   agent: string;
+  storage: KV | null;
   apply: (f: (w: Workspace) => Workspace) => void;
   /** Runs a drag-and-drop result; a refusal (a fifth pane) is said in the toast. */
   drop: (next: Workspace | null) => void;
@@ -104,6 +105,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     ws,
     detail,
     agent,
+    storage,
     dragging,
     setDragging,
     apply: (f) => setWs(f),

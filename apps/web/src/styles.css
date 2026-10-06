@@ -274,6 +274,73 @@ kbd {
   white-space: pre;
   outline-offset: -2px;
 }
+.grid-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+.grid-skeleton .sk {
+  background: color-mix(in srgb, var(--term-ink) 16%, transparent);
+}
+.grid-skeleton:empty {
+  display: none;
+}
+.xterm-host {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: hidden;
+}
+.take-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--wait);
+  border-bottom: 1px solid var(--line);
+}
+.xterm-host > div {
+  height: 100%;
+}
+.daemon-tick {
+  border-left: 2px solid var(--accent);
+  opacity: 0.6;
+}
+.xterm-pane {
+  position: relative;
+}
+.term-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 10px;
+  background: var(--term-bg);
+}
+.term-skeleton-row {
+  height: 13px;
+  border-radius: 3px;
+  background: var(--line);
+  opacity: 0.6;
+  animation: term-pulse 1.2s ease-in-out infinite;
+}
+@keyframes term-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .term-skeleton-row {
+    animation: none;
+  }
+}
+.xterm-pane.dim .xterm-host {
+  opacity: 0.55;
+}
 .grid-input {
   position: absolute;
   left: 0;
@@ -412,6 +479,122 @@ kbd {
   min-width: 0;
   padding: 12px;
 }
+/* chat tab */
+.chat-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.chat-tab {
+  padding: 4px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+.chat-tab.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.stream.col {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.stream.col > * {
+  flex: none;
+}
+.older {
+  align-self: center;
+}
+.msg {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.msg.person {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.msg.agent {
+  align-self: flex-start;
+}
+.msg.other {
+  align-self: flex-start;
+  opacity: 0.8;
+  border-style: dashed;
+}
+.msg[data-landing='withdrawn'],
+.msg[data-landing='dismissed'] {
+  opacity: 0.55;
+}
+.msg[data-landing='withdrawn'] .msg-body {
+  text-decoration: line-through;
+}
+.msg-body {
+  white-space: pre-wrap;
+}
+.msg-meta,
+.msg-from {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.msg .msg.answer {
+  margin-top: 8px;
+  max-width: 100%;
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 0 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+}
+.ask {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.line {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.line.tool {
+  align-self: flex-start;
+  font-family: var(--mono);
+}
+.line.working {
+  align-self: flex-start;
+  color: var(--run);
+}
+
+.msg.failed {
+  border-color: var(--block);
+}
+.msg[data-pending='true'] {
+  opacity: 0.7;
+}
+.failed-line {
+  color: var(--block);
+}
+.stream.col > .skeleton {
+  align-self: stretch;
+}
+
 .workspace {
   position: relative;
   flex: 1;
@@ -733,4 +916,41 @@ summary {
 }
 summary::-webkit-details-marker {
   display: none;
+}
+
+.badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge.dialog {
+  border-color: var(--wait);
+  color: var(--wait);
+  font-weight: 600;
+}
+.badge.stalled {
+  border-color: var(--block);
+  color: var(--block);
+}
+.badge.you {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.badge.no_terminal {
+  border-style: dashed;
+}
+.badge[role='button'] {
+  cursor: pointer;
+}
+.unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--wait);
 }

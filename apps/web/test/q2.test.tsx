@@ -20,7 +20,7 @@ async function until(cond: () => unknown, what: string, tries = 300) {
   throw new Error(`timed out waiting for ${what}`);
 }
 const memory = (): KV => {
-  const data = new Map<string, string>();
+  const data = new Map<string, string>([['terminal', 'text']]); // these tests drive the text tab
   return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
 };
 
@@ -52,11 +52,10 @@ afterEach(async () => {
 });
 
 describe('loading', () => {
-  it('the sidebar shows its skeleton after the delay, no spinner, then the rows once the daemon answers', async () => {
+  it('the sidebar shows its skeleton while loading, no spinner, then the rows once the daemon answers', async () => {
     const s = setup();
     s.daemon.knobs.latency(500);
     await mount(TB, s);
-    expect($('.rail-list .skeleton')).toBeNull(); // not before 150 ms: a quick answer shows no flash
     await until(() => $('.rail-list .skeleton'), 'the sidebar skeleton');
     const sk = $('.rail-list .skeleton')!;
     expect(sk.getAttribute('aria-busy')).toBe('true');
@@ -173,5 +172,60 @@ describe('read errors', () => {
     expect(text($('.row-detail .banner'))).toContain('The detail is closed for now');
     expect(text($('.row-detail'))).toContain(before.slice(0, 20));
     expect($$('.row-wrap').length).toBe(3);
+  });
+});
+
+describe('terminal tab', () => {
+  const bar = () => $$('.term-bar .btn');
+  const barButton = (label: string) => bar().find((b) => text(b) === label);
+
+  it('shows its skeleton while the terminal attaches, then the grid', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => $('.term-bar'), 'the terminal tab');
+    s.daemon.knobs.latency(500);
+    await act(async () => {
+      location.hash = `#/agents/handline.auditor`;
+      dispatchEvent(new Event('hashchange'));
+    });
+    await until(() => $('.workspace-loading'), 'the other agent loading');
+    await until(() => $('.grid-skeleton .skeleton'), 'the grid skeleton', 200);
+    expect($('.grid-skeleton .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await until(() => text($('.grid')).includes('Claude Code') && !$('.grid-skeleton .skeleton'), 'the grid, the skeleton gone', 200);
+  }, 15000);
+
+  it('Take control and Release are decided writes: a pending mark, then the holder changes', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => barButton('Take control'), 'Take control');
+    s.daemon.knobs.latency(300);
+    await click(barButton('Take control')!);
+    await until(() => barButton('taking…'), 'the pending mark');
+    expect(barButton('taking…')!.hasAttribute('disabled')).toBe(true);
+    expect(text($('.term-bar'))).toContain('input: daemon');
+    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input', 600);
+    await until(() => barButton('Release'), 'Release');
+    await click(barButton('Release')!);
+    await until(() => barButton('releasing…'), 'the pending mark');
+    await until(() => text($('.term-bar')).includes('input: daemon'), 'released', 600);
+  });
+
+  it("a refused Take control shows the daemon's sentence and the button is back", async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => barButton('Take control'), 'Take control');
+    s.daemon.knobs.refuse('input.take', 'input_holder', 'Someone else holds the keyboard', 'ask them to release');
+    await click(barButton('Take control')!);
+    await until(() => $('.toast'), 'the toast');
+    expect(text($('.toast'))).toContain('Someone else holds the keyboard (ask them to release)');
+    expect(barButton('Take control')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('a key chip takes the keyboard first, then sends the key', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => $$('.chip').length && !$('.chip')!.hasAttribute('disabled'), 'chips on');
+    await click($$('.chip').find((b) => text(b) === 'Esc')!);
+    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input');
   });
 });

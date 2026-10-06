@@ -1,8 +1,10 @@
 // One pane: its own tab strip, the active tab, and while a tab is dragged, the edges it can be dropped on.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   activate,
   applyPreset,
+  badgesOf,
+  needsAttention,
   closeTab,
   CHAT,
   moveTab,
@@ -15,7 +17,11 @@ import {
   type Preset,
   type Tab,
 } from '@handline/app-core';
+import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
+import { Badges } from './Badges.tsx';
+import { BytesTab } from './BytesTab.tsx';
+import { wantsBytes } from './terminal/choose.ts';
 import { TerminalTab } from './TerminalTab.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -30,9 +36,25 @@ const PRESETS: [Preset, string][] = [
 const EDGES: Edge[] = ['left', 'right', 'top', 'bottom'];
 
 export function Pane({ group }: { group: Group }) {
-  const { ws, detail, agent, apply, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
+  const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
+  const badges = badgesOf(detail, store.me);
+  // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
+  // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
+  const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal');
+  const termShown = termId !== undefined && termId === group.activeTab;
+  const attention = needsAttention(badges);
+  const wasAttention = useRef(attention);
+  const [unread, setUnread] = useState(false);
+  useEffect(() => {
+    if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
+    wasAttention.current = attention;
+  }, [attention, termId, termShown]);
+  useEffect(() => {
+    if (termShown) setUnread(false);
+  }, [termShown]);
 
   const dropOnStrip = (e: React.DragEvent) => {
     if (!dragging) return;
@@ -77,6 +99,12 @@ export function Pane({ group }: { group: Group }) {
               }}
             >
               <span className="tab-label">{label(t)}</span>
+              {t.kind === 'terminal' ? (
+                <>
+                  <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
+                  {unread && id !== group.activeTab ? <span className="unread-dot" title="Needs you" /> : null}
+                </>
+              ) : null}
               {id === CHAT ? null : (
                 <button
                   className="x"
@@ -139,7 +167,11 @@ export function Pane({ group }: { group: Group }) {
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'terminal' ? (
-          <TerminalTab agent={agent} detail={detail} />
+          wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
+            <BytesTab agent={agent} detail={detail} />
+          ) : (
+            <TerminalTab agent={agent} detail={detail} />
+          )
         ) : (
           <div className="empty big">
             <strong>{label(tab)}</strong>

@@ -5,6 +5,7 @@ import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useAgents, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { useSelectedAgent } from './route.ts';
+import { useShell } from './shell.ts';
 import { Sidebar } from './Sidebar.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
@@ -23,6 +24,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
+  useShell(agent);
   const waiting = (useAgents().data?.agents ?? []).filter((a) => dotOf(a) === 'waiting').length;
   const error = useError();
   const store = useStore();

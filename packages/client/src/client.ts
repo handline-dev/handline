@@ -8,10 +8,13 @@ import {
   type Notifications,
   type Prompt,
   type RequestId,
+  type Row,
+  type TerminalSnapshot,
   type Topic,
 } from './protocol.ts';
 import type { Transport } from './transport.ts';
 import { RpcError } from './errors.ts';
+import { BytesChannel } from './bytes-channel.ts';
 import { TerminalView } from './terminal-view.ts';
 
 /** A call's params; the client fills in request_id on writes. */
@@ -52,6 +55,12 @@ export class DaemonClient {
   private gapHandlers = new Set<Handler<Notifications['gap']>>();
   private stateHandlers = new Set<Handler<ConnectionState>>();
   private views = new Map<string, TerminalView>();
+  /** The terminal channel in format `bytes`, for a pane that renders the host's own escape codes. */
+  readonly bytes = new BytesChannel(
+    (m, p) => this.call(m, p),
+    (m, p) => this.callNow(m, p),
+    (agent) => this.reattachText(agent),
+  );
   private holders = new Map<string, number>(); // how many screens hold each agent's view
   private requestCounter = 0;
   private closing = false;
@@ -118,11 +127,13 @@ export class DaemonClient {
   private async establish(): Promise<void> {
     if (this.topics.size) await this.callNow('subscribe', { topics: [...this.topics], since: this.cursor });
     for (const v of this.views.values()) await this.attach(v);
+    await this.bytes.reattachAll();
   }
 
   private lost(t: Transport): void {
     if (t !== this.transport || this.closing) return;
     this.transport = null;
+    this.bytes.markStale();
     this.failInflightInternal();
     const r = this.opts.reconnect;
     if (r === false) {
@@ -263,9 +274,15 @@ export class DaemonClient {
         for (const fn of this.gapHandlers) fn(g);
         break;
       }
+      case 'output':
+      case 'snapshot':
+      case 'holder':
+        this.bytes.notice(method, params);
+        break;
       case 'frame':
       case 'resize':
       case 'marker': {
+        if (method === 'marker' && this.bytes.notice(method, params)) return; // the bytes attach owns this terminal, not the text one
         const n = params as { terminal: string; seq: number };
         const v = [...this.views.values()].find((x) => x.terminal === n.terminal);
         if (!v) return;
@@ -301,6 +318,12 @@ export class DaemonClient {
     const v = this.views.get(agent);
     if (!v || !this.release(agent)) return;
     await this.call('terminal.detach', { terminal: v.terminal });
+    await this.bytes.reattach(agent); // the daemon's detach drops every attach of the terminal, the bytes one too
+  }
+  /** After a bytes detach: the text view, if one is still held, attaches again. */
+  private async reattachText(agent: string): Promise<void> {
+    const v = this.views.get(agent);
+    if (v) await this.attach(v).catch(() => {});
   }
   /** Drops one hold; true when it was the last, and the view is gone. */
   private release(agent: string): boolean {
@@ -315,9 +338,9 @@ export class DaemonClient {
   }
   private async attach(v: TerminalView): Promise<void> {
     const snap = await (this.state === 'open'
-      ? this.call('terminal.attach', { agent: v.agent, history: 100 })
-      : this.callNow('terminal.attach', { agent: v.agent, history: 100 }));
-    v.setSnapshot(snap);
+      ? this.call('terminal.attach', { agent: v.agent, format: 'text', history: 100 })
+      : this.callNow('terminal.attach', { agent: v.agent, format: 'text', history: 100 }));
+    v.setSnapshot(snap as TerminalSnapshot);
   }
 
   /** Fetches older scrollback into the view. Lines that scrolled off while attached arrive on a fresh attach. */
@@ -325,7 +348,7 @@ export class DaemonClient {
     const h = await this.call('terminal.history', { terminal: v.terminal, before: v.historyFirst, limit });
     v.prependHistory(
       h.first,
-      h.lines.map((r) => r.text),
+      (h.lines as Row[]).map((r) => r.text),
       h.more,
     );
   }
