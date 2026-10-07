@@ -134,6 +134,7 @@ A method marked write takes a required `request_id`.
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused` |  |
 | `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused` |  |
 | `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused` |  |
@@ -467,6 +468,10 @@ Cancel a task.
 ### `task.edit`
 
 Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
+
+### `task.ask`
+
+The founder asks an agent a question about a task: a message linked to the task, whose holder does not change. The agent's reply joins the task.
 
 ### `say`
 

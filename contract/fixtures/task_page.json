@@ -1,0 +1,316 @@
+{
+ "fixtures": [
+  {
+   "name": "task.get.carries_what_the_task_page_draws",
+   "spec": "task.get",
+   "about": "A task opened by an agent for itself: its detail says who it answers to, its clock, its sub-tasks and parent by title, its timeline as text already stripped of control characters, whom to ask, and the fields of a discard and a merge as null; tasks.list says when it last moved. Runs as an agent: no --var.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "the page task",
+       "body": "a brief the page shows",
+       "time_box": "1h",
+       "request_id": "conf-page-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "asker": {
+       "$type": "string"
+      },
+      "discarded": {
+       "$type": "null"
+      },
+      "merged_into": {
+       "$type": "null"
+      },
+      "time": {
+       "length_s": 3600,
+       "default": {
+        "$type": "boolean"
+       },
+       "start": {
+        "$oneOf": [
+         {
+          "$type": "timestamp"
+         },
+         {
+          "$type": "null"
+         }
+        ]
+       },
+       "end": {
+        "$oneOf": [
+         {
+          "$type": "timestamp"
+         },
+         {
+          "$type": "null"
+         }
+        ]
+       },
+       "overdue_since": {
+        "$oneOf": [
+         {
+          "$type": "timestamp"
+         },
+         {
+          "$type": "null"
+         }
+        ]
+       },
+       "told": {
+        "$type": "integer"
+       }
+      },
+      "parent_title": {
+       "$type": "null"
+      },
+      "subtasks": [],
+      "timeline": {
+       "$type": "array"
+      },
+      "people": {
+       "recent": {
+        "$type": "array"
+       },
+       "team": {
+        "$type": "array"
+       },
+       "others": {
+        "$type": "array"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "tasks.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "id": "{{tid}}",
+        "last_activity": {
+         "$type": "timestamp"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.ask.no_such_task",
+   "spec": "task.ask",
+   "about": "A task that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.ask",
+      "params": {
+       "task": 999999999,
+       "to": "nobody.here",
+       "text": "why?",
+       "request_id": "conf-page-2"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.ask.needs_a_request_id",
+   "spec": "task.ask",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.ask",
+      "params": {
+       "task": 1,
+       "to": "nobody.here",
+       "text": "why?"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.ask.an_empty_question_is_bad_request",
+   "spec": "task.ask",
+   "about": "A text that is empty is bad_request naming it, before the task is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.ask",
+      "params": {
+       "task": 1,
+       "to": "nobody.here",
+       "text": "  ",
+       "request_id": "conf-page-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.ask.an_agent_session_is_refused_by_role",
+   "spec": "task.ask",
+   "about": "It is the founder's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.ask",
+      "params": {
+       "task": 1,
+       "to": "nobody.here",
+       "text": "why?",
+       "request_id": "conf-page-4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -172,6 +172,8 @@ export type Task = {
   evidence: string | null;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it. */
+  last_activity?: Timestamp;
 };
 
 export type TaskDetail = Task & {
@@ -194,6 +196,51 @@ export type TaskDetail = Task & {
     to: string;
     note: string;
   }[];
+  /** Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder. */
+  asker: string;
+  discarded: {
+    by: string;
+    reason: string;
+    at: Timestamp;
+  } | null;
+  merged_into: number | null;
+  time: {
+    /** The time box in seconds. */
+    length_s: number;
+    /** True when the length is the daemon's default, none was set. */
+    default: boolean;
+    start: Timestamp | null;
+    end: Timestamp | null;
+    overdue_since: Timestamp | null;
+    /** How many overrun notices the opener has had. */
+    told: number;
+  } | null;
+  parent_title: string | null;
+  /** The sub-tasks by number: `children` with their titles and states. */
+  subtasks: {
+    id: number;
+    title: string;
+    state: string;
+  }[];
+  /** What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one) and the requests linked to it. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay. */
+  timeline: {
+    at: Timestamp;
+    /** The author, or `from → to` for a handoff. */
+    who: string;
+    kind: "memo" | "handoff" | "request";
+    /** Already stripped of control characters: a client draws it as it is. */
+    text: string;
+    memo: number | null;
+    edited_at: Timestamp | null;
+  }[];
+  /** Whom the founder can ask about the task (task.ask), each agent once. */
+  people: {
+    /** Who the founder last chatted with, latest first. */
+    recent: string[];
+    /** The rest of the holder's team, in team.yaml order. */
+    team: string[];
+    others: string[];
+  };
 };
 
 export type DecisionOption = {
@@ -1347,6 +1394,13 @@ export interface Methods {
   priority?: 1 | 2 | 3;
   request_id: RequestId;
 }; result: Accepted };
+  "task.ask": { params: {
+  task: number;
+  to: AgentName;
+  /** The question; not empty. */
+  text: string;
+  request_id: RequestId;
+}; result: Accepted };
   "say": { params: {
   target: string;
   body: string;
@@ -1696,6 +1750,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "task.cancel": { role: "member", callers: null, write: true, since: 1 },
   "task.edit": { role: "agent", callers: null, write: true, since: 1 },
+  "task.ask": { role: "member", callers: null, write: true, since: 1 },
   "say": { role: "agent", callers: null, write: true, since: 1 },
   "ask": { role: "agent", callers: null, write: true, since: 1 },
   "push": { role: "agent", callers: null, write: true, since: 1 },
