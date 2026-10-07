@@ -239,8 +239,8 @@ def _notifications(con, state: dict) -> None:
                            (last, *kinds)).fetchall():
         payload = json.loads(row["payload"]) if row["payload"] and row["payload"][0] == "{" else {}
         if row["kind"] == "mark_task_done":
-            if payload.get("done", True):
-                tid = payload.get("task_id")
+            tid = payload.get("task_id")
+            if payload.get("done", True) and tid is not None:       # the spec's data is {task}: a mark that names no task has nothing to say
                 emit(con, "notifications", "task_done", {"task": tid}, agent=row["agent"], title=f"task {tid} done",
                      target={"screen": "task", "id": str(tid)})
         else:
