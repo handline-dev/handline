@@ -878,8 +878,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
             rescued = False
             acct, pct = wait.account, wait.pct
             wait_kind = "usage_7d" if wait.is_long else "usage"
-            elsewhere = handoff._move_plan(con, agent, wait_kind)[0] if session and not wait.assumed \
-                and not handoff._handoff_backing_off(con, agent) else None
+            elsewhere, plan_why = (handoff._move_plan(con, agent, wait_kind) if session and not wait.assumed
+                                   and not handoff._handoff_backing_off(con, agent) else (None, ""))
             if elsewhere:
                 hid = uuid.uuid4().hex[:12]
                 db.start_handoff(con, hid, agent, session, "pinned",
@@ -906,7 +906,8 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 # Returned, not logged: this is reached on every retry for as
                 # long as the window lasts, and each caller says it in its own
                 # place - the tick once per reason, a command at once.
-                return False, launch.describe_wake_wait(wait)
+                # The reason it did not move rides along, so the wait does not read as if nothing had looked elsewhere.
+                return False, launch.describe_wake_wait(wait) + (f"; not moved: {plan_why}" if plan_why else "")
         # The shell is still there; put the agent back into it. Resuming the
         # same session is what makes closing cheap, so it is tried first and
         # a fresh start is the fallback, not the plan.
