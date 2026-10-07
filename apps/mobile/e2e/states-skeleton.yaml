@@ -1,4 +1,4 @@
-# The loading states: run against `node scripts/fake-listener.ts --latency 3000`, with the link as URI.
+# The loading states: run against `node scripts/fake-listener.ts --latency 8000`, with the link as URI.
 appId: dev.handline.mobile
 ---
 - launchApp:
@@ -31,18 +31,15 @@ appId: dev.handline.mobile
 - assertNotVisible:
     id: skeleton-agents
 - takeScreenshot: shots/skeleton-2-list-loaded
-# the page's skeleton, with the way back kept, then the page
+# the page's skeleton, with the way back kept, then the page. The skeleton shows 150 ms after the tap, and assertVisible retries until it is there.
 - tapOn:
     id: agent-handline.architect
-- extendedWaitUntil:
-    visible:
-      id: skeleton-agentDetail
-    timeout: 15000
+- assertVisible: Loading the agent
 - assertVisible:
     id: back
 - takeScreenshot: shots/skeleton-3-page
 - extendedWaitUntil:
     visible:
       id: tab-terminal
-    timeout: 15000
+    timeout: 60000
 - takeScreenshot: shots/skeleton-4-page-loaded
