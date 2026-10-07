@@ -139,6 +139,8 @@ def _normal(method: str, reply: dict) -> dict:
         r["result"] = {k: res[k] for k in ("alive", "protocol", "schema", "agents", "inbox")}
     if method == "agent.get" and res:
         res.pop("account_pick", None)
+    if method == "chat.requests" and res:
+        res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
     r.pop("id", None)
     return r
 
@@ -175,6 +177,23 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"agent": "worker", "limit": 2}),
         (None, "inbox.list", {"before": ids["card"]}),
         (None, "inbox.list", {"wait_s": 601}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine"}),
+        (None, "chat.messages", {"agent": "worker", "scope": "all", "limit": 2}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": ids["card"]}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "since": ids["ask"]}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": 3, "since": 1}),
+        (None, "chat.requests", {"agent": "worker", "scope": "mine"}),
+        (None, "chat.requests", {"agent": "worker", "scope": "all", "limit": 2}),
+        (None, "chat.requests", {"agent": "worker", "scope": "mine", "since": ids["ask"]}),
+        (None, "chat.transcript", {"agent": "worker"}),
+        (None, "chat.transcript", {"agent": "worker", "limit": 2}),
+        (None, "chat.transcript", {"agent": "manager"}),
+        (None, "chat.locate", {"request": ids["ask"]}),
+        (None, "chat.locate", {"request": ids["ask"], "agent": "backend", "limit": 3}),
+        (None, "chat.locate", {"request": 99999}),
+        (None, "chat.search", {"query": "plan"}),
+        (None, "chat.search", {"query": "a", "agent": "worker", "scope": "all", "limit": 3}),
+        (None, "chat.search", {"query": "100%_"}),
         ("manager", "tasks.list", {}),
         ("worker", "tasks.list", {}),
         ("backend", "tasks.list", {}),

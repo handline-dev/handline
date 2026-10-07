@@ -238,6 +238,11 @@ func (e *Env) openPrompt(name string) (any, error) {
 	if err != nil || r == nil || time.Now().Unix()-r.i("last_seen") > promptStaleS {
 		return nil, err
 	}
+	return promptOf(name, r), nil
+}
+
+// promptOf is a prompt_blocks row as the spec's Prompt.
+func promptOf(name string, r row) map[string]any {
 	detail := decodeObject(r.str("detail"))
 	var panel []any
 	json.Unmarshal([]byte(r.str("panel")), &panel)
@@ -253,7 +258,7 @@ func (e *Env) openPrompt(name string) (any, error) {
 		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
 		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
 		"multi": truthy(detail["multi_select"]),
-	}, nil
+	}
 }
 
 func (e *Env) agentTimeline(c *rpc.Conn, params map[string]any) (any, error) {
