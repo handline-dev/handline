@@ -1404,7 +1404,7 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
-|||||||ef77be6f .card .since {
+.card .since {
   font-weight: 400;
 }
 .card .stale {
