@@ -47,7 +47,6 @@ chat.answer
 chat.dismiss
 chat.withdraw
 task.done
-task.reopen
 task.discard
 task.merge
 task.queue
