@@ -458,6 +458,34 @@ describe('the chat tab', () => {
     await until(() => $('chat-input'), 'the chat');
   }
 
+  it('shows its skeleton while the chat read is slow, then the rows', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    m.daemon.knobs.latency(500);
+    await press($(`agent-${ARCH}`));
+    await until(() => $('skeleton-chat'), 'the chat skeleton', 5000);
+    expect(msgOf('Use the contract fixtures.')).toBeUndefined();
+    await until(() => msgOf('Use the contract fixtures.'), 'the messages', 5000);
+    await sleep(400); // the skeleton stays at least 300 ms once shown
+    expect($('skeleton-chat')).toBeNull();
+    m.store.stop();
+  });
+
+  it('shows the daemon’s sentence when the chat read is refused, and Retry reads again', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    m.daemon.knobs.refuse('chat.messages', 'state', 'the daemon is resting', 'try again later');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('error'), 'the error block');
+    expect($('error')!.textContent).toContain('the daemon is resting (try again later)');
+    expect(msgOf('Use the contract fixtures.')).toBeUndefined();
+    m.daemon.knobs.clear();
+    await press([...box.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === 'Retry') ?? null);
+    await until(() => msgOf('Use the contract fixtures.'), 'the messages after Retry');
+    expect($('error')).toBeNull();
+    m.store.stop();
+  });
+
   it('shows the conversation with how far each message got, and Mine hides what agents tell each other', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
