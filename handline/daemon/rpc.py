@@ -114,6 +114,13 @@ class DeviceCaller(Caller):
         return f"device:{self.info['device']}"
 
 
+def _terminal_capabilities() -> dict:
+    """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text and bytes, Orca text."""
+    from ..session import backends
+    hosts = {name: (["text", "bytes"] if cls.serves_bytes else ["text"]) for name, cls in backends.KNOWN.items()}
+    return {"terminal_format": sorted({f for formats in hosts.values() for f in formats}, key=["text", "bytes"].index), "terminal_hosts": hosts}
+
+
 def _hello(ctx: "Connection", params: dict) -> dict:
     client, protocol = params.get("client"), params.get("protocol")
     if not isinstance(client, str) or not client:
@@ -127,7 +134,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     ctx.caller = caller = ctx.caller_for(params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, **_terminal_capabilities()},
             "transport": "local",
             "methods": _methods(caller)}
 

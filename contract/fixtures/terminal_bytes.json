@@ -3,7 +3,7 @@
   {
    "name": "terminal.attach.format_is_text_or_bytes",
    "spec": "terminal.attach",
-   "about": "NOT_YET_IN_PYTHON: A format that is neither word is bad_request naming it.",
+   "about": "A format that is neither word is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -397,7 +397,7 @@
   {
    "name": "terminal.history.format_is_text_or_bytes",
    "spec": "terminal.history",
-   "about": "NOT_YET_IN_PYTHON: A format that is neither word is bad_request naming it.",
+   "about": "A format that is neither word is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1538,7 +1538,7 @@
   {
    "name": "terminal.input.data_is_base64_and_bounded",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: Data that is not base64, is empty, or decodes to more than 16384 bytes is bad_request naming it.",
+   "about": "Data that is not base64, is empty, or decodes to more than 16384 bytes is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1616,7 +1616,7 @@
   {
    "name": "terminal.input.needs_a_request_id",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1655,7 +1655,7 @@
   {
    "name": "terminal.input.unknown_terminal_is_not_found",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: A handle no agent has is not_found.",
+   "about": "A handle no agent has is not_found.",
    "as": "founder",
    "steps": [
     {
