@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
@@ -53,6 +54,7 @@ type Daemon struct {
 	cfg     Config
 	db      *sql.DB
 	hooks   *hooks.Recorder
+	prompts *prompts.Env  // nil on a gateway: the Python daemon alone presses keys
 	stop    chan struct{} // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
@@ -97,6 +99,7 @@ func Start(cfg Config) (*Daemon, error) {
 	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
+		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	}
 	if cfg.Gateway {
@@ -135,6 +138,13 @@ func Start(cfg Config) (*Daemon, error) {
 		d.wg.Add(1)
 		go d.spoolLoop()
 	}
+	if d.prompts != nil {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.prompts.Run(d.stop, cfg.Log)
+		}()
+	}
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
 }
@@ -147,6 +157,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.hooks != nil {
 		d.hooks.Register(s)
 		taskwrites.Register(s, d.cfg.Home)
+		prompts.Register(s, d.prompts)
 	}
 	if transport == "network" {
 		s.Net = d.dev
