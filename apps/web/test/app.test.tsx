@@ -183,16 +183,27 @@ describe('the sidebar', () => {
     const { daemon } = await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     await until(() => $('.row-actions .btn.primary'), 'Start on the selected row');
-    expect($('.row-actions summary')).toBeNull(); // nothing to stop yet
+    expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual(['Move account']); // nothing to stop yet
     await click($('.row-actions .btn.primary')!);
     await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
     await until(() => $('.row-actions summary'), 'the ⋯ menu');
-    expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual(['Interrupt', 'Exit', 'Close', 'Kill']);
+    expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual([
+      'Restart',
+      'Restart fresh',
+      'Close',
+      'Park',
+      'Fold into handoff',
+      'Move account',
+      'Interrupt',
+      'Exit',
+      'Kill',
+    ]);
     vi.stubGlobal('confirm', () => false);
     await click($$('.row-actions .menu-item').find((b) => text(b).startsWith('Kill'))!);
     expect($('.row-actions summary')).not.toBeNull(); // refused at the confirm
     vi.stubGlobal('confirm', () => true);
     await click($$('.row-actions .menu-item').find((b) => text(b).startsWith('Close'))!);
+    await click($$('.verb-sheet .btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
     await until(() => $$('.row-actions .btn').some((b) => text(b).includes('Resume')), 'Resume after close');
   });
 

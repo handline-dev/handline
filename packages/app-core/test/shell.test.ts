@@ -11,6 +11,10 @@ test('a target lands on the route its screen names, with the id encoded', () => 
 test('a finished task lands on the inbox, any other task event on the task', () => {
   assert.equal(routeOfTarget({ screen: 'task', id: '7' }, 'task_done'), '#/inbox');
   assert.equal(routeOfTarget({ screen: 'task', id: '7' }, 'task_blocked'), '#/tasks/7');
+  const unread = [{ id: 41, task: 7 }];
+  assert.equal(routeOfTarget({ screen: 'task', id: '7' }, 'task_done', unread), '#/inbox/41');
+  assert.equal(routeOfTarget({ screen: 'task', id: '8' }, 'task_done', unread), '#/tasks/8');
+  assert.equal(routeOfTarget({ screen: 'task', id: '7' }, 'task_done', []), '#/tasks/7');
 });
 
 test('no target, an empty id, the id "None" or a screen it does not know is no route', () => {

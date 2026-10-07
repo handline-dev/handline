@@ -28,7 +28,7 @@ MAX_QUEUE = 1000            # a subscriber this far behind is dropped with a gap
 REPLAY_MAX = 5000           # a resume further behind than this is a gap too
 PRUNED = "stream:pruned"    # cursors: the newest id retention has removed
 
-TOPICS = ("status", "accounts", "agents", "inbox", "tasks", "notifications", "operations", "chat")
+TOPICS = ("status", "accounts", "agents", "inbox", "tasks", "notifications", "operations", "chat", "hr")
 
 
 def _ts(epoch: int) -> str:
@@ -317,7 +317,13 @@ def _chat(con, state: dict) -> None:
                 emit(con, "chat", "chat.working", working, agent=name, target={"screen": "agent", "id": name})
 
 
-DETECTORS = [_agents, _notifications, _chat]
+def _hr(con, state: dict) -> None:
+    """The hr topic: a proposal raised, one decided or withdrawn or whose apply ran again (the store is files, so the watcher also looks at them)."""
+    from . import rpc_hr
+    rpc_hr.check(con)
+
+
+DETECTORS = [_agents, _notifications, _chat, _hr]
 
 
 class Watcher:
@@ -344,7 +350,8 @@ class Watcher:
                 self.log(f"  stream: prune: {type(e).__name__}: {e}")
 
     def changed(self, con) -> bool:
-        v = con.execute("PRAGMA data_version").fetchone()[0]
+        from . import rpc_hr
+        v = (con.execute("PRAGMA data_version").fetchone()[0], rpc_hr.signature())     # the HR proposals are files, not rows
         moved, self.version = v != self.version, v
         return moved
 
