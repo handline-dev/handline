@@ -4,9 +4,10 @@ import { dotOf, type KV, type Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useAgents, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
-import { useSelectedAgent } from './route.ts';
+import { useSelectedAgent, useTasksRoute } from './route.ts';
 import { useShell } from './shell.ts';
 import { Sidebar } from './Sidebar.tsx';
+import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
 const Box: BoxComponent = (p) => <div {...p} />;
@@ -24,6 +25,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
+  const tasks = useTasksRoute();
   useShell(agent);
   const waiting = (useAgents().data?.agents ?? []).filter((a) => dotOf(a) === 'waiting').length;
   const error = useError();
@@ -40,14 +42,16 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   return (
     <div id="app" data-rail={railOpen ? 'open' : 'closed'}>
       {railOpen ? (
-        <Sidebar selected={agent} storage={storage} onToggle={toggle} />
+        <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
       ) : (
         <button className="rail-handle" aria-label="Show the agent list" title="Show the agent list" onClick={toggle}>
           ☰
         </button>
       )}
       <main className="main" aria-label="Agent workspace">
-        {agent ? (
+        {tasks !== null ? (
+          <TasksPage storage={storage} route={tasks} />
+        ) : agent ? (
           <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
         ) : (
           <div className="empty big">
