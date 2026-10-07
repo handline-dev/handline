@@ -76,3 +76,5 @@ schedules.list
 stats.get
 settings.get
 task.ask
+chat.cancel
+chat.seen

@@ -2,3 +2,4 @@
 # --allow-needvar-file reads one per line. The Go task owns this file: delete a line when it supplies the var, so a listed
 # fixture that no longer needs one fails the run.
 devices.revoke_closes_a_terminal_attach
+agent.get.cwd_and_can

@@ -46,7 +46,8 @@
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
   "session_token": "Session token and peer-pid check, unchanged.",
   "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
-  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now."
+  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
+  "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -2418,7 +2419,7 @@
   },
   {
    "name": "chat.send",
-   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.",
+   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2451,6 +2452,14 @@
       "required": [
        "title"
       ]
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that is not between the person and agent is refused (gate state). request in the result is then the message replied to, for an answer, or the new message."
      }
     },
     {
@@ -2676,6 +2685,106 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "chat.cancel",
+   "summary": "Take back a message the person sent, delivered or not.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "confirm",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state)."
+  },
+  {
+   "name": "chat.seen",
+   "summary": "Record that the person has an agent's messages in front of them, up to a message number.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "up_to",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "The highest message number seen. A lower number than before changes nothing: what arrives later has a higher one, so nothing unseen is hidden."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary."
   },
   {
    "name": "terminal.attach",
@@ -6934,6 +7043,10 @@
      "proposal": {
       "$ref": "#/components/schemas/Proposal",
       "description": "With gates proposal_changed and proposal_settled: the proposal as it is now."
+     },
+     "plan": {
+      "type": "string",
+      "description": "With gate confirm: what the call would do and who is told."
      }
     },
     "required": [
@@ -7352,6 +7465,179 @@
        },
        "settings": {
         "$ref": "#/components/schemas/AgentSettingValues"
+       },
+       "cwd": {
+        "type": "string",
+        "description": "The directory a shell command for this agent runs in: its worktree when that is on disk, else the daemon's home directory. worktree.path is what the agent's record holds and may name a directory that is gone; cwd is always usable."
+       },
+       "can": {
+        "type": "object",
+        "description": "Whether each action of the chat page's menu is worth offering now, by the daemon's own rules: ok, and why not when it is not.",
+        "properties": {
+         "terminal": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "wake": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "close": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "restart": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "park": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "fold": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "move": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         }
+        },
+        "required": [
+         "terminal",
+         "wake",
+         "close",
+         "restart",
+         "park",
+         "fold",
+         "move"
+        ]
        }
       },
       "required": [
@@ -7361,7 +7647,9 @@
        "session_open",
        "input_holders",
        "account_pick",
-       "prompt"
+       "prompt",
+       "cwd",
+       "can"
       ]
      }
     ]
