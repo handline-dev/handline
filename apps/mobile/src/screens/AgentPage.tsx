@@ -8,6 +8,7 @@ import { radius, space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { dotColor, usePalette } from '../theme.ts';
+import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
@@ -130,17 +131,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         {tab('terminal', 'Terminal')}
       </Row>
       {detail.prompt && <PermissionCard prompt={detail.prompt} />}
-      {current === 'chat' ? <ChatEmpty /> : <Terminal detail={detail} />}
-    </View>
-  );
-}
-
-function ChatEmpty() {
-  const c = usePalette();
-  return (
-    <View style={{ padding: space.xl, gap: space.sm }}>
-      <Text style={{ color: c.ink, fontWeight: '600' }}>Chat is not available yet</Text>
-      <Text style={{ color: c.muted }}>This daemon does not serve chat. Use the Terminal tab to talk to the agent.</Text>
+      {current === 'chat' ? <Chat detail={detail} /> : <Terminal detail={detail} />}
     </View>
   );
 }
