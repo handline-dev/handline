@@ -71,7 +71,8 @@ def _start(ctx, params) -> dict:
 
 
 def _progress(ctx, params) -> dict:
-    tid, note = rpc_tasks._task_id(params), rpc_tasks._text(params, "note", required=False)
+    tid = None if params.get("task") is None else rpc_tasks._task_id(params)
+    note = rpc_tasks._text(params, "note", required=False)
     if note is None:
         raise rpc.bad_request("note is text (empty clears it)", "note", rpc.INVALID_PARAMS)
     me = ctx.caller.actor
@@ -79,6 +80,9 @@ def _progress(ctx, params) -> dict:
         raise rpc.bad_request(f"note is at most {handoffmod.PROGRESS_MAX} characters: keep what is done and what is left", "note", rpc.INVALID_PARAMS)
 
     def run(con):
+        if tid is None:         # what `hl progress` does: the note goes where the caller's own state says, task held or not
+            ok, where = handoffmod.set_progress(con, me, note)
+            return ok, f"progress on {where} kept; the handoff and the wake prompt carry it", {}
         row = db.get_task(con, tid)
         if row is None:
             return False, f"no task T{tid}", {}

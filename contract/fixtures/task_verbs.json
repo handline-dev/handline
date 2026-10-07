@@ -197,6 +197,104 @@
    ]
   },
   {
+   "name": "task.progress.no_task_keeps_the_note",
+   "spec": "task.progress",
+   "about": "With no task the note is the caller's own, kept where hl progress keeps it even when the caller holds no task, and progress.get reads it back.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.progress",
+      "params": {
+       "note": "done: the parser. left: the tests",
+       "request_id": "conf-np-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "progress.get",
+      "params": {}
+     },
+     "result": {
+      "note": "done: the parser. left: the tests"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.progress",
+      "params": {
+       "note": "",
+       "request_id": "conf-np-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.progress.task_is_a_number",
+   "spec": "task.progress",
+   "about": "A task that is given but is not a task number is bad_request naming it, not taken for no task.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.progress",
+      "params": {
+       "task": "T5",
+       "note": "n",
+       "request_id": "conf-np-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "task.progress.no_such_task",
    "spec": "task.progress",
    "about": "A task nobody has is not_found.",
