@@ -39,9 +39,10 @@ def _founder_items(con, since_id: int = 0) -> list[dict]:
     return out
 
 
-def _agent_items(con, agent: str, since_id: int = 0) -> list[dict]:
+def _agent_items(con, agent: str, since_id: int = 0, only: int | None = None) -> list[dict]:
     rows = con.execute(f"SELECT id, ts, requester, kind, body, read_at, state, {db.ANSWER_SQL} FROM requests "
-                       "WHERE target = ? AND id >= ? AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", (agent, since_id)).fetchall()
+                       f"WHERE target = ? AND {'id = ?' if only is not None else 'id >= ?'} AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id",
+                       (agent, since_id if only is None else only)).fetchall()
     return [_item(con, id=r["id"], kind=r["kind"] or "ask", agent=r["requester"], body=r["body"], ts=r["ts"],
                   read=r["read_at"] is not None or r["state"] != "queued", answered=r["answer"] is not None) for r in rows]
 

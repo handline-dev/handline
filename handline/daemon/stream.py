@@ -324,11 +324,12 @@ def _hr(con, state: dict) -> None:
 
 
 _TASK_PRINT = ("SELECT t.id, t.title, t.owner, t.opened_by, t.priority, t.sent_at, t.queued_by, t.done_evidence, t.done_at, t.discarded_by, t.discarded_at, "
-               "t.timeout_s, t.parent_task, t.edited_at, t.delivered_at, "
-               "(SELECT COUNT(*) || ':' || COALESCE(MAX(m.id), 0) || ':' || COALESCE(MAX(m.edited_at), 0) FROM task_memos m WHERE m.task_id = t.id) AS memos, "
-               "(SELECT COUNT(*) || ':' || COALESCE(MAX(r.state_at), 0) FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = t.id) AS reqs, "
-               "(SELECT COUNT(*) FROM task_blocks b WHERE b.task_id = t.id AND b.dormant = 0) AS blocks "
-               "FROM tasks t WHERE (t.done_evidence IS NULL AND t.discarded_by IS NULL) OR COALESCE(t.done_at, t.discarded_at, 0) >= ?")
+               "t.timeout_s, t.parent_task, t.edited_at, t.delivered_at FROM tasks t "
+               "WHERE (t.done_evidence IS NULL AND t.discarded_by IS NULL) OR COALESCE(t.done_at, t.discarded_at, 0) >= ?")
+# What else makes a task change, each in one grouped read of its own table rather than a subquery per task.
+_TASK_MEMOS = "SELECT task_id, COUNT(*), MAX(id), MAX(edited_at) FROM task_memos GROUP BY task_id"
+_TASK_REQS = "SELECT l.task_id, COUNT(*), MAX(r.state_at) FROM task_requests l JOIN requests r ON r.id = l.request_id GROUP BY l.task_id"
+_TASK_BLOCKS = "SELECT task_id, COUNT(*) FROM task_blocks WHERE dormant = 0 GROUP BY task_id"
 RECENT_S = 86400        # a task or inbox item that ended or was made longer ago than this is no longer looked at for change
 
 
@@ -336,7 +337,8 @@ def _tasks(con, state: dict) -> None:
     """The tasks topic: a task that appeared or changed (its fields, a memo, a request linked to it), as the spec's Task. The first look says nothing."""
     from . import rpc_taskview
     from ..actions import task_state
-    now = {r["id"]: tuple(r) for r in con.execute(_TASK_PRINT, (int(time.time()) - RECENT_S,)).fetchall()}
+    extra = [{r[0]: tuple(r) for r in con.execute(q)} for q in (_TASK_MEMOS, _TASK_REQS, _TASK_BLOCKS)]
+    now = {r["id"]: (*r, *(x.get(r["id"]) for x in extra)) for r in con.execute(_TASK_PRINT, (int(time.time()) - RECENT_S,)).fetchall()}
     before = state.get("seen")
     state["seen"] = now
     if before is None:
@@ -349,28 +351,62 @@ def _tasks(con, state: dict) -> None:
              target={"screen": "tasks", "id": str(tid)})
 
 
+_READ_TOUCHED_SQL = "SELECT id, read_at AS touched FROM requests WHERE id >= :floor AND read_at >= :last"
+_FLOOR_EVERY_S = 600
+
+
 def _inbox(con, state: dict) -> None:
     """The inbox topic: an item that arrived (inbox.added) or changed, read or answered (inbox.changed), in the founder's inbox and in every agent's.
-    The first look says nothing."""
+    Change-driven as the chat detector is: a pass reads the requests touched since the last one (the requests_touched and requests_settles_ts
+    indexes, and read_at within the last day's ids) and builds items for those alone; the founder's inbox, which is a view over several
+    requests and the `for_you_seen` cursors, is rebuilt only when one of its requests was touched or a cursor moved. The first look says nothing."""
     from . import rpc_inbox
-    from ..infra import paths
-    floor = con.execute("SELECT COALESCE(MIN(id), 0) FROM requests WHERE ts >= ?", (int(time.time()) - RECENT_S,)).fetchone()[0]
-    now: dict = {}
-    for i in rpc_inbox._founder_items(con, floor):
-        now[i["id"]] = ({**i}, i["agent"])
-    for agent in paths.list_agents():
-        for i in rpc_inbox._agent_items(con, agent, floor):
-            now[i["id"]] = ({**i}, agent)
-    before = state.get("seen")
-    state["seen"] = {k: v[0] for k, v in now.items()}
-    if before is None:
+    now = time.time()
+    if "last" not in state:
+        state.update(since=int(now), floor_at=now, seen={}, cursors=_for_you_cursors(con),
+                     last=con.execute("SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests "
+                                      "UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)").fetchone()[0])
+        state["floor"] = con.execute("SELECT COALESCE(MIN(id), 0) FROM requests WHERE ts >= ?", (int(now) - RECENT_S,)).fetchone()[0]
+        state["founder"] = {i["id"]: i for i in rpc_inbox._founder_items(con, state["floor"])}
+        for r in con.execute(CHAT_TOUCHED_SQL, {"last": state["last"]}).fetchall():        # the ones in the second the cursor is at are seen, not news
+            req = con.execute("SELECT target, notice FROM requests WHERE id = ?", (r["id"],)).fetchone()
+            if req is not None and req["target"] != db.HUMAN and not req["notice"]:
+                for item in rpc_inbox._agent_items(con, req["target"], only=r["id"]):
+                    state["seen"][r["id"]] = item
         return
-    for iid, (item, agent) in sorted(now.items()):
-        was = before.get(iid)
-        if was == item:
+    if now - state["floor_at"] > _FLOOR_EVERY_S:
+        state["floor_at"] = now
+        state["floor"] = con.execute("SELECT COALESCE(MIN(id), 0) FROM requests WHERE ts >= ?", (int(now) - RECENT_S,)).fetchone()[0]
+    last, since, seen = state["last"], state["since"], state["seen"]
+    touched = con.execute(CHAT_TOUCHED_SQL, {"last": last}).fetchall() + con.execute(_READ_TOUCHED_SQL, {"floor": state["floor"], "last": last}).fetchall()
+    cursors = _for_you_cursors(con)
+    founder_dirty, state["cursors"] = cursors != state["cursors"], cursors
+    for iid in sorted({r["id"] for r in touched}):
+        r = con.execute("SELECT target, requester, notice, ts FROM requests WHERE id = ?", (iid,)).fetchone()
+        if r is None:
             continue
-        emit(con, "inbox", "inbox.added" if was is None else "inbox.changed", item, agent=agent, title=item["title"],
-             target={"screen": "inbox", "id": str(iid)})
+        if db.HUMAN in (r["target"], r["requester"]):
+            founder_dirty = True
+        if r["target"] == db.HUMAN or r["notice"]:
+            continue
+        for item in rpc_inbox._agent_items(con, r["target"], only=iid):
+            if seen.get(iid) != item:
+                emit(con, "inbox", "inbox.changed" if iid in seen or r["ts"] < since else "inbox.added", item, agent=r["target"], title=item["title"],
+                     target={"screen": "inbox", "id": str(iid)})
+                seen[iid] = item
+    if founder_dirty:
+        old, state["founder"] = state["founder"], {i["id"]: i for i in rpc_inbox._founder_items(con, state["floor"])}
+        for iid, item in sorted(state["founder"].items()):
+            if old.get(iid) != item:
+                ts = con.execute("SELECT ts FROM requests WHERE id = ?", (iid,)).fetchone()
+                emit(con, "inbox", "inbox.changed" if iid in old or (ts and ts["ts"] < since) else "inbox.added", item, agent=item["agent"],
+                     title=item["title"], target={"screen": "inbox", "id": str(iid)})
+    if touched:
+        state["last"] = max([last, *(r["touched"] for r in touched if r["touched"] is not None)])
+
+
+def _for_you_cursors(con) -> tuple:
+    return tuple(tuple(r) for r in con.execute("SELECT name, value FROM meta WHERE name >= 'for_you_seen:' AND name < 'for_you_seen;' ORDER BY name"))
 
 
 DETECTORS = [_agents, _notifications, _chat, _hr, _tasks, _inbox]

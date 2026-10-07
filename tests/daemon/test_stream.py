@@ -257,6 +257,36 @@ def test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_befo
     con.close()
 
 
+def test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    for i in range(300):        # a long history: none of it is touched again
+        db.add_request(con, "manager", "backend", f"old {i}", None, None, "fire_and_forget", "task", 0, None)
+    con.execute("UPDATE requests SET ts = ts - 100000 - id, state_at = ts - 100000 - id")      # each in a second of its own, as a real history is
+    con.commit()
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)
+    from handline.daemon import rpc_inbox
+    built = []
+    real = rpc_inbox._item
+    rpc_inbox._item = lambda *a, **k: (built.append(k["id"]), real(*a, **k))[1]
+    try:
+        watcher.scan(con)
+        check("inbox: a pass with nothing touched builds at most the one request of the second it stands at, whatever the history", len(built) <= 1, str(built))
+        built.clear()
+        rid = db.add_request(con, "manager", "backend", "one new", None, None, "fire_and_forget", "task", 0, None)
+        watcher.scan(con)
+        check("inbox: a request touched builds that item and the boundary one, no more", rid in built and len(built) <= 3, str(built))
+        check("inbox: none of the old history was said again", not [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] != rid], "")
+    finally:
+        rpc_inbox._item = real
+    for sql in (stream.CHAT_TOUCHED_SQL, stream._READ_TOUCHED_SQL):
+        plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + sql, {"last": 0, "floor": 0}).fetchall())
+        check("inbox: the touched queries search requests by index, never scan it", "SCAN requests" not in plan and "SCAN a" not in plan, plan)
+    con.close()
+
+
 def test_feed_unsubscribe_and_bad_requests(home: Path) -> None:
     _fresh(home)
     con = db.connect()
@@ -501,6 +531,7 @@ def main() -> int:
         run(lambda: test_the_notification_detectors_say_what_happened_once_and_not_what_came_before(Path(td) / "s7"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "ti"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "s7b"))
+        run(lambda: test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(Path(td) / "s7c"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))
         run(lambda: test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(Path(td) / "s11"))
