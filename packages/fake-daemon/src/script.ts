@@ -1,6 +1,6 @@
 // What the scripted sessions do: the screen text, the turn script, the prompt and the session lifecycle. The daemon owns
 // the connections and the event log; this class reaches them through `Host`.
-import type { Actor, Caller, Notifications, Prompt, Timestamp, Topic } from '@handline/contract';
+import type { Actor, Caller, Notifications, Prompt, Schedule, Timestamp, Topic } from '@handline/contract';
 import { BANNER, PROMPT_LINES } from './fixtures.ts';
 import { badRequest, refused } from './errors.ts';
 import { outputFor, snapshotOf, typedParts } from './bytes.ts';
@@ -19,6 +19,8 @@ const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c'
 
 export class Script {
   private timelineId = 0;
+  readonly schedules: Schedule[] = [];
+  scheduleId = 0;
   private host: Host;
   constructor(host: Host) {
     this.host = host;

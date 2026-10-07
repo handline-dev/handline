@@ -1003,3 +1003,92 @@ button.opt {
     white-space: pre;
   }
 }
+
+.settings {
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+  overflow: auto;
+}
+.settings-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.shead {
+  margin: 18px 0 6px;
+  font-size: 11px;
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.frow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  min-height: 36px;
+}
+.flabel {
+  flex: 0 0 160px;
+}
+.fcontrol {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.fnote {
+  flex-basis: 100%;
+  margin-left: 170px;
+  font-size: 12px;
+}
+.fnote.bad {
+  color: var(--block);
+}
+.fnote.warn {
+  color: var(--wait);
+}
+.sites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 4px 0 8px;
+}
+.chip .btn {
+  border: 0;
+  padding: 0 4px;
+}
+.verb-sheet.danger {
+  flex-basis: 100%;
+  border-color: var(--block);
+}
+.schedule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 4px 0;
+}
+.smsg {
+  flex: 1;
+  min-width: 12ch;
+}
+@media (max-width: 640px) {
+  .flabel {
+    flex-basis: 100%;
+  }
+  .fnote {
+    margin-left: 0;
+  }
+  .frow input,
+  .frow select,
+  .frow .btn {
+    min-height: 44px;
+  }
+}

@@ -1,5 +1,6 @@
 import type { AgentDetail, AgentView, InputHolder, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
+import { defaultSettings } from './settings.ts';
 
 export const ROWS = 24,
   COLS = 80;
@@ -23,6 +24,7 @@ export interface Session {
   prompt: Prompt | null;
   queue: (() => void)[]; // the scripted turn, one step per tick
   counter: number;
+  settings: Record<string, string>; // agent.set's values
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
@@ -53,6 +55,7 @@ export function newSession(fx: AgentFixture, since: Timestamp): Session {
     prompt: null,
     queue: [],
     counter: 0,
+    settings: defaultSettings(fx.model, fx.effort),
     received: [],
   };
 }
@@ -92,5 +95,6 @@ export function detail(s: Session): AgentDetail {
     input_holders: [s.holder],
     account_pick: { account: s.fx.account, reason: 'fixture' },
     prompt: s.prompt,
+    settings: s.settings as AgentDetail['settings'],
   };
 }

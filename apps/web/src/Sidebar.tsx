@@ -18,7 +18,7 @@ import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
 import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
-import { goAgent } from './route.ts';
+import { goAgent, goSettings } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({ selected, storage, onToggle }: { selected: string; storage: KV | null; onToggle: () => void }) {
@@ -247,6 +247,9 @@ function Detail({ agent: a, account, setAccount }: { agent: AgentView; account: 
       {row('session', d?.session_id)}
       {row('terminal', d?.terminal)}
       {row('cache until', a.cache_until ? new Date(a.cache_until).toLocaleTimeString() : null)}
+      <button className="btn" onClick={() => goSettings(a.name)}>
+        Settings
+      </button>
       <Timeline agent={a.name} />
     </div>
   );
