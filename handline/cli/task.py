@@ -11,6 +11,7 @@ from ..infra import timefmt
 from ..team import ask as askmod
 from ..daemon import client as dmn_client, taskholds
 from .. import db
+from . import client
 from ..session import handoff as handoffmod
 from ..infra import gitrun, names, paths
 from ..infra import textsafe
@@ -118,25 +119,17 @@ def cmd_task_done(args) -> int:
     if me is None:
         print(_who_refusal("mark a task done"))
         return 1
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        sha, reason = None, None
-        if args.evidence is not None:
-            # Words are a reason; hex is a sha and must resolve to one, or it
-            # is refused - a sha mistyped must not quietly become a reason
-            # and skip the ancestor check. --reason forces the words reading.
-            sha = None if args.reason or not actions.looks_like_sha(args.evidence) else args.evidence
-            reason = None if sha else args.evidence
-        ok, msg = actions.mark_task_done(con, args.task, me, sha=sha, request_id=args.request,
-                                         reason=reason,
-                                         repo=Path(args.repo) if args.repo else None)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    # Words are a reason; hex is a sha and must resolve to one, or it is refused - a sha mistyped must not
+    # quietly become a reason and skip the ancestor check. --reason forces the words reading. The daemon
+    # decides which; a sha is checked against the repo this is typed in unless --repo names another.
+    params = {"task": args.task, "repo": str(Path(args.repo) if args.repo else Path.cwd())}
+    if args.evidence is not None:
+        params["evidence"] = args.evidence
+        if args.reason:
+            params["reason"] = True
+    if args.request is not None:
+        params["request"] = args.request
+    return client.said(*client.write("task.done", params))
 
 
 def cmd_task_discard(args) -> int:
@@ -146,13 +139,7 @@ def cmd_task_discard(args) -> int:
     if me is None:
         print(_who_refusal("discard a task"))
         return 1
-    con = db.connect()
-    try:
-        ok, msg = actions.discard_task(con, args.task, me, args.reason)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.discard", {"task": args.task, "reason": args.reason}))
 
 
 def _cmd_task_queue(args, queued: bool) -> int:
@@ -160,15 +147,11 @@ def _cmd_task_queue(args, queued: bool) -> int:
     if me is None:
         print(_who_refusal("queue a task" if queued else "draft a task"))
         return 1
-    con = db.connect()
-    try:
-        failed = 0
-        for tid in args.tasks:
-            ok, msg = actions.set_queued(con, tid, me, queued)
-            print(msg)
-            failed += not ok
-    finally:
-        con.close()
+    failed = 0
+    for tid in args.tasks:          # one call each: a refusal of one does not hold back the rest
+        ok, msg = client.write("task.queue" if queued else "task.draft", {"tasks": [tid]})
+        print(msg)
+        failed += not ok
     return 1 if failed else 0
 
 
@@ -189,16 +172,7 @@ def cmd_task_reopen(args) -> int:
     if me is None:
         print(_who_refusal("reopen a task"))
         return 1
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        ok, msg = actions.reopen_task(con, args.task, me, args.reason)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.reopen", {"task": args.task, "note": args.reason}))
 
 
 def cmd_task_release(args) -> int:
@@ -208,16 +182,7 @@ def cmd_task_release(args) -> int:
     if me is None:
         print(_who_refusal("release a task"))
         return 1
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        ok, msg = actions.release_task(con, args.task, me)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.release", {"task": args.task}))
 
 
 def _task_owner_ok(name: str) -> bool:
@@ -326,14 +291,12 @@ def cmd_task_begin(args) -> int:
     if not title:
         print("a task needs a title")
         return 1
-    con = db.connect()
-    try:
-        ok, msg, _ = actions.task_begin(con, me, title, args.chat, args.why,
-                                        priority=args.priority, expects=args.expects)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    params = {"title": title, "message": args.chat, "why": args.why}
+    if args.priority is not None:
+        params["priority"] = args.priority
+    if args.expects is not None:
+        params["expects"] = args.expects
+    return client.said(*client.write("task.begin", params))
 
 
 def cmd_task_handoff(args) -> int:
@@ -346,12 +309,8 @@ def cmd_task_handoff(args) -> int:
     if err:
         print(err)
         return 1
-    con = db.connect()
-    try:
-        ok, msg = actions.task_handoff(con, me, args.task, args.to, note)
-        print(msg)
-    finally:
-        con.close()
+    ok, msg = client.write("task.handoff", {"task": args.task, "to": args.to, "note": note})
+    print(msg)
     behind = gitrun.commits_behind_main(Path.cwd()) if ok else None
     if behind is not None and behind > gitrun.BEHIND_WARN:
         print(f"warning (T935): this branch was forked {behind} commits before main's tip. "
@@ -366,13 +325,7 @@ def cmd_task_start(args) -> int:
     if me is None:
         print(_who_refusal("start a task"))
         return 1
-    con = db.connect()
-    try:
-        ok, msg = actions.task_start(con, me, args.task)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.start", {"task": args.task}))
 
 
 def cmd_task_note(args) -> int:
@@ -382,13 +335,7 @@ def cmd_task_note(args) -> int:
     if me is None:
         print(_who_refusal("write a memo"))
         return 1
-    con = db.connect()
-    try:
-        ok, msg, _ = actions.memo_add(con, args.task, me, args.text)
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.memo.add", {"task": args.task, "text": args.text}))
 
 
 def cmd_task_memo(args) -> int:
@@ -412,37 +359,31 @@ def cmd_task_memo(args) -> int:
                "edit": "edit takes the memo id, then the new text",
                "delete": "delete takes the memo id"}[verb])
         return 1
-    con = db.connect()
-    try:
-        if db.get_task(con, args.task) is None:
-            print(f"no task T{args.task}")
-            return 1
-        if verb == "list":
+    if verb == "list":
+        con = db.connect()
+        try:
+            if db.get_task(con, args.task) is None:
+                print(f"no task T{args.task}")
+                return 1
             memos = actions.memos_of(con, args.task)
-            for m in memos:
-                edited = f", edited {timefmt.stamp(m['edited_at'])}" if m["edited_at"] else ""
-                print(f"memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}{edited}\n  {m['body']}")
-            if not memos:
-                print(f"T{args.task} has no memos")
-            return 0
-        if verb == "add":
-            ok, msg, _ = actions.memo_add(con, args.task, me, rest[0])
-        else:
-            try:
-                mid = int(rest[0])
-            except ValueError:
-                print(f"{rest[0]!r} is not a memo id - `hl task memo T{args.task} list` shows them")
-                return 1
-            memo = db.get_memo(con, mid)
-            if memo is None or memo["task_id"] != args.task:
-                print(f"T{args.task} has no memo {mid}")
-                return 1
-            ok, msg = (actions.memo_edit(con, mid, me, rest[1]) if verb == "edit"
-                       else actions.memo_delete(con, mid, me))
-        print(msg)
-        return 0 if ok else 1
-    finally:
-        con.close()
+        finally:
+            con.close()
+        for m in memos:
+            edited = f", edited {timefmt.stamp(m['edited_at'])}" if m["edited_at"] else ""
+            print(f"memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}{edited}\n  {m['body']}")
+        if not memos:
+            print(f"T{args.task} has no memos")
+        return 0
+    if verb == "add":
+        return client.said(*client.write("task.memo.add", {"task": args.task, "text": rest[0]}))
+    try:
+        mid = int(rest[0])
+    except ValueError:
+        print(f"{rest[0]!r} is not a memo id - `hl task memo T{args.task} list` shows them")
+        return 1
+    if verb == "edit":
+        return client.said(*client.write("task.memo.edit", {"task": args.task, "memo": mid, "text": rest[1]}))
+    return client.said(*client.write("task.memo.delete", {"task": args.task, "memo": mid}))
 
 
 def cmd_task_edit(args) -> int:
@@ -539,13 +480,7 @@ def cmd_task_merge(args) -> int:
     if me is None:
         print(_who_refusal("merge tasks"))
         return 1
-    con = db.connect()
-    try:
-        ok, msg = actions.merge_tasks(con, args.keep, args.tasks, me)
-    finally:
-        con.close()
-    print(msg)
-    return 0 if ok else 1
+    return client.said(*client.write("task.merge", {"into": args.keep, "tasks": args.tasks}))
 
 
 def _print_board(con, tasks: list) -> None:

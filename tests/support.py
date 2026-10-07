@@ -101,6 +101,39 @@ _dmn_sends.RUN_INLINE = True
 _cli_ask.dmn_client = _types.SimpleNamespace(
     send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
 
+# The commands' method calls (`cli/client.py`) go to the daemon's own serving code on a thread of this process. The
+# caller is whoever OCP_AGENT names, as the daemon would find from the session's process; else the founder.
+import socket as _socket  # noqa: E402
+import threading as _threading  # noqa: E402
+from handline.cli import client as _cli_client  # noqa: E402
+from handline.daemon import rpc as _dmn_rpc  # noqa: E402
+from handline.infra import sessiontoken as _sessiontoken  # noqa: E402
+
+
+class _CliConnection(_dmn_rpc.Connection):
+    def caller_for(self, key) -> "_dmn_rpc.Caller":
+        caller = _dmn_rpc.Caller(None, key)
+        agent = askmod.current_agent()
+        if agent:
+            caller.role, caller.info = "agent", {"kind": "agent", "name": agent}
+        return caller
+
+
+def _serve_cli() -> _socket.socket:
+    _sessiontoken.ensure_founder_key()
+    a, b = _socket.socketpair()
+
+    def serve() -> None:
+        try:
+            _CliConnection(b, lambda _m: None, dmn_socket_server._handle_request).serve()
+        finally:
+            b.close()
+    _threading.Thread(target=serve, daemon=True).start()
+    return a
+
+
+_cli_client.connect = _serve_cli
+
 def _ask_row(payload: dict, log=None) -> dict:
     """A request row written and told the way the removed `ocp ask` did (T560): the
     delivery tests need a plain row in an agent's queue, and no verb makes one now."""
