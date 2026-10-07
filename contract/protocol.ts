@@ -1276,10 +1276,12 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
+  /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
+  reason_gaps?: boolean;
 }; result: {
     items: Task[];
     more: boolean;
-    /** How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list. */
+    /** Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list. */
     reason_gaps?: {
       retirements: number;
       retirements_blank: number;

@@ -154,12 +154,20 @@ def test_the_list_row_says_what_hl_task_list_prints_and_the_board_says_who_holds
     _call("task.memo.edit", {"task": tid, "memo": 1, "text": "second", "request_id": "l2"})
     got = _get(tid)
     check("task.get: a memo says when it was edited, and null before", got["memos"][0]["edited_at"] is not None, str(got["memos"]))
-    row = _call("tasks.list", {"everyone": True}, as_agent=None)["result"]
+    real = actions.reason_gaps
+    actions.reason_gaps = lambda *a, **k: (_ for _ in ()).throw(AssertionError("a plain tasks.list counted the reason gaps"))
+    try:
+        row = _call("tasks.list", {"everyone": True}, as_agent=None)
+    finally:
+        actions.reason_gaps = real
+    check("tasks.list: a plain call does not count the reason gaps", "result" in row and "reason_gaps" not in row["result"], str(row)[:300])
+    row = row["result"]
     item = next(i for i in row["items"] if i["id"] == tid)
     check("tasks.list: a row carries asker, edited_by, discarded, mismatch and its linked requests",
           item["asker"] == "manager" and item["edited_by"] is None and item["discarded"] is None and item["mismatch"].startswith("draft with work out")
           and [(r["from"], r["to"]) for r in item["requests"]] == [("manager", "worker")], str(item))
-    check("tasks.list: the result carries the 30-day reason gaps", set(row["reason_gaps"]) == {
+    row = _call("tasks.list", {"everyone": True, "reason_gaps": True}, as_agent=None)["result"]
+    check("tasks.list: asked for, the result carries the 30-day reason gaps", set(row["reason_gaps"]) == {
         "retirements", "retirements_blank", "closures_sha", "closures_request", "closures_reason"}, str(row.get("reason_gaps")))
     board = _call("task.board", {}, as_agent="manager")["result"]
     mine = [r for r in board["reports"] if r["task"]["id"] == tid]

@@ -3355,6 +3355,14 @@
       "type": "boolean",
       "description": "Every team's tasks, not only the caller's and its reports'."
      }
+    },
+    {
+     "name": "reason_gaps",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks."
+     }
     }
    ],
    "result": {
@@ -3373,7 +3381,7 @@
       },
       "reason_gaps": {
        "type": "object",
-       "description": "How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+       "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
        "properties": {
         "retirements": {
          "type": "integer"

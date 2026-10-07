@@ -95,6 +95,7 @@ def _scope(ctx, params) -> set[str] | None:
 def _tasks_list(ctx, params) -> dict:
     owner, opener, state = _str(params, "owner"), _str(params, "from"), _str(params, "state")
     parent, before, limit, ended = _int(params, "parent"), _int(params, "before"), _limit(params), _flag(params, "all")
+    gaps = _flag(params, "reason_gaps")
     owners = _scope(ctx, params)
     if owner is not None and owners is not None and owner not in owners:
         raise rpc.refused(f"{owner} is not you or one of your reports: everyone shows every team's tasks")
@@ -107,8 +108,10 @@ def _tasks_list(ctx, params) -> dict:
                 and (before is None or r["id"] < before)]
         rows.sort(key=lambda r: -r["id"])
         page = rows[:limit]
-        return {"items": [task_of(con, r["row"], r["state"]) for r in page], "more": len(rows) > limit,
-                "reason_gaps": actions.reason_gaps(con)}
+        out = {"items": [task_of(con, r["row"], r["state"]) for r in page], "more": len(rows) > limit}
+        if gaps:        # only when asked: it counts a month of requests, seconds on a large database
+            out["reason_gaps"] = actions.reason_gaps(con)
+        return out
     finally:
         con.close()
 
