@@ -58,7 +58,6 @@ func (t *Term) driver(handle string) Driver {
 	return DriverFor(DefaultVendor)
 }
 
-
 // screen is the rendered screen of handle, or nil when it cannot be read: a source other than the screen is the accumulated
 // stream, whose history is the conversation and not what is drawn now.
 func (t *Term) screen(handle string, limit int) *Screen {
