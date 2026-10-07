@@ -197,6 +197,13 @@ def test_locate_finds_the_chat_a_message_is_drawn_in_and_the_page_around_it(home
         check(f"chat.locate: {params} is not_found", _code(_call("chat.locate", params)) == "not_found")
     data = _call("chat.locate", {"request": ids["alone"]})["error"]["data"]
     check("chat.locate: a message no chat draws says what it was", (data.get("from"), data.get("to"), data.get("body")) == (db.HUMAN, "worker", "taken back"), str(data))
+    con = db.connect()
+    answer = db.add_request(con, "worker", db.HUMAN, "the answer to a message never read", None, None, None, "say", 0, None)
+    con.execute("UPDATE requests SET settles = ? WHERE id = ?", (ids["alone"], answer))
+    con.close()
+    for params in ({"request": answer}, {"request": answer, "agent": "worker"}):
+        d = _call("chat.locate", params)["error"]["data"]
+        check(f"chat.locate: {params} names the answer asked for, not the message it settles", d.get("name") == str(answer) and d.get("body") == "the answer to a message never read", str(d))
     check("chat.locate: a message that does not exist says nothing of one", "body" not in _call("chat.locate", {"request": 99999})["error"]["data"])
     check("chat.locate: a message that is not a number is bad_request", _code(_call("chat.locate", {"request": "1"})) == "bad_request")
 

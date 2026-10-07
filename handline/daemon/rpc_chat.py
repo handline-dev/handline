@@ -232,9 +232,8 @@ def _locate(ctx, params) -> dict:
             raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no message {mid}", what="message", name=str(mid))
         agent = _agent(con, params, required=False)
         if agent is None:
-            if row["settles"]:
-                row = db.get_request(con, row["settles"]) or row
-            agent = _owner_of_chat(row)
+            owner = db.get_request(con, row["settles"]) or row if row["settles"] else row
+            agent = _owner_of_chat(owner)
         if agent is None:
             raise _alone(row)
         found = chatreads.locate_message(con, mid, agent, False)
