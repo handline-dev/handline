@@ -121,6 +121,8 @@ def test_accounts_say_what_the_account_page_shows(home: Path) -> None:
     check("accounts.list: the weekly use", acct["weekly"]["used_pct"] == 10.0, str(acct["weekly"]))
     check("accounts.list: the agents on it, and the move that brought one", acct["agents"] == ["worker"]
           and acct["moves"] and acct["moves"][0]["agent"] == "worker" and acct["moves"][0]["from"] == "beta" and acct["moves"][0]["reason"] == "pinned", str(acct))
+    check("accounts.list: how many agents are on it, how many run, and how many are unplaced", acct["agents_assigned"] == 1
+          and acct["agents_running"] == 0 and acct["agents_unplaced"] == 0, str(acct))
     check("accounts.list: no cap of its own follows the default one", acct["cap"] is None and acct["cap_effective"] >= 1, str(acct))
     r = _call("account.set", {"account": "alpha", "cap": 3, "label": "main", "recover": True, "request_id": "s1"})
     acct = next(a for a in _call("accounts.list")["result"]["accounts"] if a["name"] == "alpha")

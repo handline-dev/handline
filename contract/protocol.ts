@@ -394,6 +394,12 @@ export type Account = {
     /** end is the next monthly anniversary of the subscription start, not typed. */
     end_is_default: boolean;
   };
+  /** Agents on this account, running or not (the figure `hl account list` prints). */
+  agents_assigned?: number;
+  /** Those of them that are mid-turn or otherwise running. */
+  agents_running?: number;
+  /** Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
+  agents_unplaced?: number;
 };
 
 export type DaemonStatus = {
@@ -1668,6 +1674,19 @@ export interface Methods {
 }; result: Accepted & {
     terminal: string;
   } };
+  "account.remove": { params: {
+  account: string;
+  /** Change nothing: answer `plan` and `would_remove`. A dry run needs no `confirm`. */
+  dry_run?: boolean;
+  /** The account's name, as the founder typed it; required unless dry_run. */
+  confirm?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** Dry run only: whether the removal would go ahead. */
+    would_remove?: boolean;
+    /** Dry run only: what it would do, line by line, or the one line that says why it would refuse. */
+    plan?: string[];
+  } };
   "repos.list": { params: { [key: string]: unknown }; result: {
     repos: Repo[];
   } };
@@ -1889,6 +1908,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "account.set_cap": { role: "founder", callers: null, write: true, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
+  "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },

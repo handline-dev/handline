@@ -162,6 +162,7 @@ A method marked write takes a required `request_id`.
 | `account.set_cap` | founder | yes | `account`, `cap`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {terminal}` | `refused`, `not_found` |  |
+| `account.remove` | founder | yes | `account`, `dry_run?`, `confirm?`, `request_id` | `Accepted & {would_remove, plan}` | `refused`, `not_found`, `bad_request` |  |
 | `repos.list` | member |  | none | `{repos}` |  |  |
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
 | `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
@@ -580,6 +581,10 @@ The account Settings form in one call: alias, cap, usage recovery and the month 
 ### `account.login`
 
 Start a login; returns a terminal for terminal.attach.
+
+### `account.remove`
+
+Log an account out and take it off the roster; dry_run names what would happen. The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account, when claude's logout fails, or when the backup gate says no. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.
 
 ### `repos.list`
 

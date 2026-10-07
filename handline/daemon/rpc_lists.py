@@ -52,11 +52,13 @@ def _login(acct: str) -> str:
     return "unknown" if state is None else "ok" if state else "needs_login"
 
 
-def _account(con, acct: str, names: list[str]) -> dict:
+def _account(con, acct: str, names: list[str], roster: dict, unplaced: int) -> dict:
+    assigned, running = roster.get(acct, (0, 0))
     st = status.read(acct)
     end = cycle.end_date(acct)
     return {"name": acct, "login_state": _login(acct), "five_hour": _window(st.short), "weekly": _window(st.long),
-            "agents": [a for a in names if agents.current_account(a, con) == acct], "moves": _moves(con, acct),
+            "agents": [a for a in names if agents.current_account(a, con) == acct],
+            "agents_assigned": assigned, "agents_running": running, "agents_unplaced": unplaced, "moves": _moves(con, acct),
             "label": loadmod.label_of(acct), "cap": loadmod.own_cap(acct), "cap_effective": loadmod.cap_of(acct),
             "recover": loadmod.usage_recover_enabled(acct),
             "cycle": {"on": cycle.enabled(acct), "end": end.isoformat() if end else None, "end_is_default": cycle.end_is_default(acct)}}
@@ -66,7 +68,8 @@ def _accounts(ctx, params) -> dict:
     con = db.connect()
     try:
         names = paths.list_agents()
-        return {"accounts": [_account(con, a, names) for a in paths.list_accounts()]}
+        roster, unplaced = loadmod.roster(con)
+        return {"accounts": [_account(con, a, names, roster, unplaced) for a in paths.list_accounts()]}
     finally:
         con.close()
 
