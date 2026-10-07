@@ -65,20 +65,20 @@ def _opencode_working(handle: str) -> bool | None:
     return working
 
 
-def _background_detail(con, agent: str) -> str:
+def _background_detail(con, agent: str, now: int | None = None) -> str:
     """How long the session has reported background work, and "stale" once the
     agent has shown nothing beside it for `delivery.STALE_BG_S`."""
-    now = int(time.time())
+    now = int(time.time()) if now is None else now
     since = dmn_delivery.bg_since(con, agent)
     return (f"background {timefmt.ago(now - since)}" if since else "background work") \
         + (", stale" if dmn_delivery.bg_stale(con, agent, now) else "") \
         + (", told to finish or stop it" if dmn_delivery.bg_prompted_at(con, agent) else "")
 
 
-def screen_state(con, row) -> tuple[str, str]:
+def screen_state(con, row, now: int | None = None) -> tuple[str, str]:
     """`_screen_state`, with an idle agent whose task waits on a child of its own or is
-    blocked saying so."""
-    word, detail = _screen_state(con, row)
+    blocked saying so. `now` is the caller's clock, for a caller that compares two reads."""
+    word, detail = _screen_state(con, row, now)
     if word == "IDLE" and not detail and row:
         detail = oneline(actions.child_wait(con, row["agent"]) or actions.block_wait(con, row["agent"]) or "")
     return word, detail
@@ -109,7 +109,7 @@ def wire_state(con, row, word: str, detail: str) -> tuple[str, str]:
     return "idle", detail
 
 
-def _screen_state(con, row) -> tuple[str, str]:
+def _screen_state(con, row, now: int | None = None) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn
     here and read by `hl ps` (handline/cli/) alike, through this one function, so
@@ -155,7 +155,7 @@ def _screen_state(con, row) -> tuple[str, str]:
         if detail.startswith(dmn_states.MOVING_MARK):
             return "MOVING", ""
         if dmn_delivery.has_background_work(con, row["agent"]):
-            return "IDLE", _background_detail(con, row["agent"])      # nothing is being said: not working
+            return "IDLE", _background_detail(con, row["agent"], now)      # nothing is being said: not working
         return "PENDING", ""
     if state in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED):
         if detail.startswith(dmn_states.MOVING_MARK):
@@ -172,7 +172,7 @@ def _screen_state(con, row) -> tuple[str, str]:
         # A wake_at already in the past is a tick the daemon has not run yet,
         # not a clock face worth printing - "due" says so the way the
         # countdown this replaced always did.
-        until = "due" if row["wake_at"] <= int(time.time()) \
+        until = "due" if row["wake_at"] <= (int(time.time()) if now is None else now) \
             else timefmt.stamp(row["wake_at"], timefmt.CLOCK)
         return "PENDING", until
     # An opencode agent never writes RUNNING - its hooks do not exist - so an
@@ -186,7 +186,7 @@ def _screen_state(con, row) -> tuple[str, str]:
     # A row the daemon marked with work still running behind the prompt says so beside
     # its word; it is not working (the founder asked for this).
     if state == dmn_states.IDLE and dmn_delivery.has_background_work(con, row["agent"]):
-        return "IDLE", _background_detail(con, row["agent"])
+        return "IDLE", _background_detail(con, row["agent"], now)
     # IDLE, and anything not written above (section 8.4's own DONE, never
     # actually written - see daemon.WAKER): shown as IDLE rather than a raw
     # internal name a person was never meant to read.

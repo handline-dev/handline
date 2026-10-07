@@ -50,7 +50,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
     if table is _READ:
         table = actions.routing()
     row = db.get_agent_state(con, name)
-    word, detail = screen_state(con, row)
+    word, detail = screen_state(con, row, now)
     wire, detail = wire_state(con, row, word, detail)
     try:
         cfg = agents.read(name)

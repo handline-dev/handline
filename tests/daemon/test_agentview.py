@@ -24,15 +24,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
 
 
-def _ui_row(con, name):
-    rows, _ = tui.agents_data(con)
+def _ui_row(con, name, now):
+    rows, _ = tui.agents_data(con, now)
     return next(r for r in rows if r.name == name)
 
 
 def _drift(con, label: str, now: int) -> None:
     """The stored view agrees with the screen's own row and with the daemon's own deciders."""
     agentview.refresh(con, now)
-    view, row, ui = agentview.stored(con, "backend"), db.get_agent_state(con, "backend"), _ui_row(con, "backend")
+    view, row, ui = agentview.stored(con, "backend"), db.get_agent_state(con, "backend"), _ui_row(con, "backend", now)
     check(f"{label}: the state word and what is said beside it are the screen's", agentview.screen_word(view) == (ui.state, ui.until),
           f"{view['state']} {view['state_detail']!r} vs {ui.state} {ui.until!r}")
     check(f"{label}: the state column renders from the view alone",
@@ -61,7 +61,7 @@ def test_the_stored_view_does_not_drift_from_what_the_screens_work_out(home: Pat
         _drift(con, "parked", now)
         db.set_agent_state(con, "backend", dmn_states.IDLE)
         db.set_cursor(con, "bgwork:backend", 1)
-        _drift(con, "background", now)
+        _drift(con, "background", max(now, int(time.time())))        # one clock for both sides, after the cursor was stamped
         check("background: the view says since when", agentview.stored(con, "backend")["background_since"] is not None)
         db.clear_cursor(con, "bgwork:backend")
         db.block_open(con, "backend", term.MODAL, "pick one", "", now, now - 1)

@@ -405,7 +405,7 @@ def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
     return count
 
 
-def agents_data(con) -> tuple[list[AgentRow], list[str]]:
+def agents_data(con, now: int | None = None) -> tuple[list[AgentRow], list[str]]:
     """What the AGENTS panel shows, before any of it is laid out: one row per
     drawn agent, in tree order, and the notes under them."""
     drawn_tree = _walk_tree()
@@ -432,7 +432,7 @@ def agents_data(con) -> tuple[list[AgentRow], list[str]]:
         # among them.
         urgency = hidden_urgency(con, hidden) if under else None
         row = state_rows[name]
-        s, until = screen_state(con, row)
+        s, until = screen_state(con, row, now)
         try:
             cfg = agents.read(name)
         except Exception as e:  # noqa: BLE001
