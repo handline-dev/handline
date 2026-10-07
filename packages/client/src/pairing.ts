@@ -1,15 +1,24 @@
 // Pairing a device with a daemon's network listener: the founder's `device.pair` gives a code and a
 // `handline://pair?host=&fp=&code=` uri (a QR on a phone); `redeemPairing` trades the code for a token that
 // later hellos carry. The uri's fingerprint is the SHA-256 of the listener's certificate, which the
-// transport must check: the certificate is self-signed.
+// transport must check: the certificate is self-signed. A plain gateway on a Tailscale address has no certificate and no
+// fingerprint: Tailscale's own tunnel encrypts it, and it is served as ws://.
 import { RpcError } from './errors.ts';
 import type { ErrorCode } from './protocol.ts';
 import type { Transport } from './transport.ts';
 
 export interface PairingOffer {
   host: string; // address of the listener, host:port
-  fingerprint: string; // lower-case hex SHA-256 of the certificate
+  fingerprint: string | null; // lower-case hex SHA-256 of the certificate; null for a plain Tailscale gateway
   code: string;
+}
+
+/** A Tailscale address: 100.64.0.0/10 or a *.ts.net name. `host` is host:port. */
+export function isTailscaleHost(host: string): boolean {
+  const name = host.replace(/:\d+$/, '').replace(/\.$/, '').toLowerCase();
+  if (name.endsWith('.ts.net')) return true;
+  const ip = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(name);
+  return !!ip && ip.slice(1).every((n) => +n <= 255) && +ip[1] === 100 && +ip[2] >= 64 && +ip[2] <= 127;
 }
 
 export function parsePairingUri(uri: string): PairingOffer {
@@ -17,12 +26,15 @@ export function parsePairingUri(uri: string): PairingOffer {
   const host = u.searchParams.get('host'),
     fp = u.searchParams.get('fp'),
     code = u.searchParams.get('code');
-  if (u.protocol !== 'handline:' || u.hostname !== 'pair' || !host || !fp || !code) throw new Error('not a handline pairing uri');
-  return { host, fingerprint: fp.toLowerCase(), code };
+  if (u.protocol !== 'handline:' || u.hostname !== 'pair' || !host || !code) throw new Error('not a handline pairing uri');
+  if (fp) return { host, fingerprint: fp.toLowerCase(), code };
+  if (!isTailscaleHost(host))
+    throw new Error(`this pairing link has no certificate fingerprint, and ${host} is not a Tailscale address, so it cannot be trusted`);
+  return { host, fingerprint: null, code };
 }
 
-/** Where the listener serves its WebSocket. */
-export const listenerUrl = (host: string): string => `wss://${host}/rpc`;
+/** Where the listener serves its WebSocket: wss with a pinned certificate, ws for a plain Tailscale gateway (`pinned` false). */
+export const listenerUrl = (host: string, pinned = true): string => `${pinned ? 'wss' : 'ws'}://${host}/rpc`;
 
 /**
  * Trades a pairing code for a device token. `connect` must verify the listener's fingerprint. An unpaired
