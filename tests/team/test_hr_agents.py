@@ -4234,6 +4234,29 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     rc, out = _cli(["hr", "reject", "--all"], as_agent="worker")
     check("batch: an agent cannot reject", rc == 1, out)
 
+    for m in ("two", "three"):
+        schedmod.schedule_add("worker", "0 7 * * *", m)
+    diff.write_text("changes:\n"
+                    "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"1\"\n"
+                    "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"2\"\n")
+    rc, out = _cli(["hr", "diff", "--file", str(diff), "--why", "tidy up"], as_agent="worker")
+    props = _new_props(seen)
+    ok, said = _approve(props[0]["id"])
+    check("schedule: two removes by number remove exactly the two that were shown",
+          rc == 0 and ok and [s["message"] for s in schedules.load("worker")] == ["three"],
+          f"{out} {said} {schedules.load('worker')}")
+    schedmod.schedule_add("worker", "0 7 * * *", "four")
+    rc, out = _cli(["schedule", "remove", "--agent", "worker", "--index", "1", "--why", "done with it"],
+                   as_agent="worker")
+    props = _new_props(seen)
+    check("schedule: the card names the schedule by what it is", "three" in hr.card(props[0])["text"],
+          hr.card(props[0])["text"])
+    schedmod.schedule_remove("worker", 1)
+    schedmod.schedule_add("worker", "0 7 * * *", "five")
+    ok, said = _approve(props[0]["id"])
+    check("schedule: when what was shown has moved, the proposal is refused, not applied to another",
+          not ok and [s["message"] for s in schedules.load("worker")] == ["four", "five"], said)
+
 
 def main() -> int:
     def tests(td):

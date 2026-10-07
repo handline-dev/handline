@@ -209,7 +209,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
             if problem:
                 return {}, problem
     if kind == "schedule":
-        err = _schedule_problem(name, sets or {}, name in coming)
+        sets, err = _schedule_draft(name, sets or {}, name in coming)
         if err:
             return {}, err
     if kind == "global":
@@ -260,33 +260,38 @@ def _draft(kind: str, name: str, requester: str, why: str,
     return prop, ""
 
 
-def _schedule_problem(agent: str, sets: dict, coming: bool) -> str | None:
-    """Why a `schedule` proposal's `sets` (action, and cron, message, index as it needs) cannot be
-    applied to `agent`'s schedules as they are now, or None."""
+def _schedule_draft(agent: str, sets: dict, coming: bool) -> tuple[dict, str]:
+    """A `schedule` proposal's `sets` (action, and cron, message, index as it needs) checked against
+    `agent`'s schedules as they are now, or why not. An edit or a remove also names the schedule it
+    acts on by what it is (`sid`, and its cron and message for the card), not by its number: numbers
+    shift when another change lands first."""
     from ..actions import schedule as schedmod
     from ..daemon import schedules
     action = sets.get("action")
     if action not in SCHEDULE_ACTIONS:
-        return f"a schedule change is one of {', '.join(SCHEDULE_ACTIONS)}"
+        return {}, f"a schedule change is one of {', '.join(SCHEDULE_ACTIONS)}"
     unknown = sorted(set(sets) - {"action", "cron", "message", "index"})
     if unknown:
-        return f"not part of a schedule: {', '.join(unknown)}"
+        return {}, f"not part of a schedule: {', '.join(unknown)}"
     if action != "add" and not str(sets.get("index", "")).isdigit():
-        return f"{action} needs the schedule's number (--index)"
+        return {}, f"{action} needs the schedule's number (--index)"
     if action != "remove" and not (sets.get("cron") and sets.get("message")):
-        return f"{action} needs a cron and a message"
+        return {}, f"{action} needs a cron and a message"
     if coming:
-        return None
+        return ({}, f"{agent} has no schedules yet to {action}") if action != "add" else (sets, "")
     try:
         items = schedules.load(agent)
         if action != "add" and not 1 <= int(sets["index"]) <= len(items):
-            return f"{agent} has no schedule {sets['index']}: 1..{len(items)}"
+            return {}, f"{agent} has no schedule {sets['index']}: 1..{len(items)}"
         if action != "remove":
             schedules.parse([{"cron": sets["cron"], "message": sets["message"]}])
             schedmod.schedule_words(sets["cron"])
     except ValueError as e:
-        return str(e)
-    return None
+        return {}, str(e)
+    if action == "add":
+        return sets, ""
+    old = items[int(sets["index"]) - 1]
+    return {**sets, "sid": schedules.sid(old), "cron_was": old["cron"], "message_was": old["message"]}, ""
 
 
 def _context_problem(texts: dict[str, str] | None) -> str | None:
@@ -719,9 +724,11 @@ def _body(prop: dict, caveat: bool) -> list[str]:
         from ..actions import schedule as schedmod
         st = _sets_of(prop)
         when = schedmod.schedule_words(st["cron"]) if st.get("cron") else ""
+        shown = (f"{prop['agent']}'s schedule {st.get('index')} ({schedmod.schedule_words(st['cron_was'])}: "
+                 f"{st.get('message_was')})" if st.get("sid") else "")
         lines += [{"add": f"{prop['agent']} would be typed, {when}: {st.get('message')}",
-                   "edit": f"{prop['agent']}'s schedule {st.get('index')} would become, {when}: {st.get('message')}",
-                   "remove": f"{prop['agent']}'s schedule {st.get('index')} would be removed"}[st["action"]],
+                   "edit": f"{shown} would become, {when}: {st.get('message')}",
+                   "remove": f"{shown} would be removed"}[st["action"]],
                   "Written to its agent.yaml; the daemon reads it on its next tick."]
     elif prop["kind"] == "global":
         lines += [f"The global switch {prop['agent']} ({GLOBAL_SWITCHES[prop['agent']][1]}) would be set to "
@@ -1381,16 +1388,23 @@ def _context(prop: dict, con) -> tuple[bool, str]:
 def _schedule(prop: dict, con) -> tuple[bool, str]:
     """Exactly the schedule change that was proposed, through the one schedule write path."""
     from ..actions import schedule as schedmod
+    from ..daemon import schedules
     st = _sets_of(prop)
-    problem = _schedule_problem(prop["agent"], st, False)
-    if problem:
-        return False, problem
-    if st["action"] == "add":
-        schedmod.schedule_add(prop["agent"], st["cron"], st["message"])
-    elif st["action"] == "edit":
-        schedmod.schedule_edit(prop["agent"], int(st["index"]), st["cron"], st["message"])
-    else:
-        schedmod.schedule_remove(prop["agent"], int(st["index"]))
+    try:
+        if st["action"] == "add":
+            schedmod.schedule_add(prop["agent"], st["cron"], st["message"])
+            return True, f"{prop['agent']}'s schedules: add done"
+        at = [schedules.sid(it) for it in schedules.load(prop["agent"])]
+        if st.get("sid") not in at:
+            return False, (f"{prop['agent']}'s schedule '{st.get('message_was')}' is no longer there "
+                           f"as it was shown; nothing changed")
+        index = at.index(st["sid"]) + 1
+        if st["action"] == "edit":
+            schedmod.schedule_edit(prop["agent"], index, st["cron"], st["message"])
+        else:
+            schedmod.schedule_remove(prop["agent"], index)
+    except ValueError as e:
+        return False, str(e)
     return True, f"{prop['agent']}'s schedules: {st['action']} done"
 
 
