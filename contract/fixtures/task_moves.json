@@ -1,0 +1,551 @@
+{
+ "fixtures": [
+  {
+   "name": "task.done.unknown_task_is_not_found",
+   "spec": "task.done",
+   "about": "A task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.done",
+      "params": {
+       "task": 999999,
+       "evidence": "checked",
+       "request_id": "conf-tm-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.done.evidence_and_request_are_one_or_the_other",
+   "spec": "task.done",
+   "about": "Evidence and a request together, or neither, is bad_request naming evidence.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.done",
+      "params": {
+       "task": 1,
+       "evidence": "x",
+       "request": 2,
+       "request_id": "conf-tm-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "evidence"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.reopen.unknown_task_is_not_found",
+   "spec": "task.reopen",
+   "about": "A task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.reopen",
+      "params": {
+       "task": 999999,
+       "note": "wrong",
+       "request_id": "conf-tm-3"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.reopen.note_is_text",
+   "spec": "task.reopen",
+   "about": "A note that is not text is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.reopen",
+      "params": {
+       "task": 1,
+       "note": 5,
+       "request_id": "conf-tm-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "note"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.discard.unknown_task_is_not_found",
+   "spec": "task.discard",
+   "about": "A task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.discard",
+      "params": {
+       "task": 999999,
+       "reason": "not wanted",
+       "request_id": "conf-tm-5"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.discard.reason_is_required",
+   "spec": "task.discard",
+   "about": "Discarding takes a reason: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.discard",
+      "params": {
+       "task": 1,
+       "request_id": "conf-tm-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "reason"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.merge.unknown_task_is_not_found",
+   "spec": "task.merge",
+   "about": "Tasks nobody opened are not_found, and nothing merges.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.merge",
+      "params": {
+       "into": 999999,
+       "tasks": [
+        999998
+       ],
+       "request_id": "conf-tm-7"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.merge.tasks_is_a_list_of_numbers",
+   "spec": "task.merge",
+   "about": "An empty list of tasks is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.merge",
+      "params": {
+       "into": 1,
+       "tasks": [],
+       "request_id": "conf-tm-8"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "tasks"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.queue.unknown_task_is_not_found",
+   "spec": "task.queue",
+   "about": "A task nobody opened is not_found, and none of the batch is queued.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.queue",
+      "params": {
+       "tasks": [
+        999999
+       ],
+       "request_id": "conf-tm-9"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.queue.tasks_is_a_list_of_numbers",
+   "spec": "task.queue",
+   "about": "An empty list of tasks is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.queue",
+      "params": {
+       "tasks": [],
+       "request_id": "conf-tm-10"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "tasks"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.draft.unknown_task_is_not_found",
+   "spec": "task.draft",
+   "about": "A task nobody opened is not_found, and none of the batch is drafted.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.draft",
+      "params": {
+       "tasks": [
+        999999
+       ],
+       "request_id": "conf-tm-11"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.draft.tasks_is_a_list_of_numbers",
+   "spec": "task.draft",
+   "about": "An empty list of tasks is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.draft",
+      "params": {
+       "tasks": [],
+       "request_id": "conf-tm-12"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "tasks"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.release.unknown_task_is_not_found",
+   "spec": "task.release",
+   "about": "A task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.release",
+      "params": {
+       "task": 999999,
+       "request_id": "conf-tm-13"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.release.to_is_not_served_yet",
+   "spec": "task.release",
+   "about": "A destination is refused as bad_request until a release can be sent to one.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.release",
+      "params": {
+       "task": 1,
+       "to": "queued",
+       "request_id": "conf-tm-14"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "to"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

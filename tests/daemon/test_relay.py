@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
-from handline.daemon import relay, stream  # noqa: E402
+from handline.daemon import relay, rpc, stream  # noqa: E402
 from handline.infra import protected, sessiontoken  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -184,6 +184,28 @@ def test_without_a_gateway_the_daemon_serves_as_it_did(home: Path) -> None:
     w.close()
 
 
+def test_a_devices_task_writes_are_recorded_under_the_device_so_its_retry_finds_them(home: Path) -> None:
+    from handline.daemon import rpc_tasks
+    support._board_world(home)
+    _record_gateway(os.getpid())
+    ok, _, tid = actions.task_new("manager", "worker", "first", "do it", timeout_s=3600)
+    a = Relay()
+    a.open("dev_a", "phone")
+    got = a.call("task.memo.add", {"task": tid, "text": "a note", "request_id": "m1"})
+    con = db.connect()
+    rows = [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = 'm1'")]
+    con.close()
+    check("device retry: a memo written by a device is recorded under device:<id>, not as human", got.get("result", {}).get("accepted") is True and rows == ["device:dev_a"], str((got, rows)))
+    import types
+    ctx = types.SimpleNamespace(caller=rpc.DeviceCaller("dev_a", "phone"))
+    con = db.connect()
+    rpc_tasks._recorded(ctx, {"request_id": "d1"}, "task.done")(con, "done")
+    rows = [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = 'd1'")]
+    con.close()
+    check("device retry: so is what an action records in its own transaction (done, reopen, merge, queue, release)", rows == ["device:dev_a"], str(rows))
+    a.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_peer_that_is_not_the_gateway_gets_nothing(Path(td) / "r1"))
@@ -191,6 +213,7 @@ def main() -> int:
         run(lambda: test_a_relayed_write_is_the_devices_own(Path(td) / "r3"))
         run(lambda: test_a_closed_connection_ends_the_devices_subscriptions(Path(td) / "r4"))
         run(lambda: test_without_a_gateway_the_daemon_serves_as_it_did(Path(td) / "r5"))
+        run(lambda: test_a_devices_task_writes_are_recorded_under_the_device_so_its_retry_finds_them(Path(td) / "r6"))
     return run_area(tests)
 
 
