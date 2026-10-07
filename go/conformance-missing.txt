@@ -33,9 +33,6 @@ settings.set
 settings.trust
 task.cancel
 task.edit
-task.memo.add
-task.memo.delete
-task.memo.edit
 task.new
 task.withdraw
 terminal.attach
