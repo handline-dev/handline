@@ -35,28 +35,79 @@ def _send(payload: dict) -> int:
     return 0 if reply.get("ok") else 1
 
 
-def _tested_tree(sha: str) -> str | None:
-    """The tree of the merge `land.sh --check` tested, run here, in the caller's own sandbox."""
-    r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", sha], capture_output=True,
+def _passed_flag(sha: str) -> list[str]:
+    """`--passed` when the auditor's PASS for `sha` is on record, so land.sh can skip a rerun of the
+    suite the auditor already ran on that very tree; anything unreadable means a full run."""
+    try:
+        full = subprocess.run(["git", "rev-parse", "--verify", f"{sha}^{{commit}}"], capture_output=True,
+                              text=True, cwd=paths.repo_root()).stdout.strip()
+        con = db.connect()
+        try:
+            known = con.execute("SELECT 1 FROM land_passes WHERE sha = ?", (full,)).fetchone()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - no db or no sha: the suite runs
+        return []
+    return ["--passed"] if known else []
+
+
+def _tested_trees(shas: list[str]) -> list[str] | None:
+    """The tree after each merge `land.sh --check` tested, in order, run here, in the caller's own sandbox.
+    A single passed sha may skip the suite rerun (`--passed`); a train's merge is never one sha's tree."""
+    flag = _passed_flag(shas[0]) if len(shas) == 1 else []
+    r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", *flag, *shas], capture_output=True,
                        text=True, cwd=paths.repo_root())
     sys.stderr.write(r.stderr[-2000:])
     out = r.stdout.strip().splitlines()
-    return out[-1] if r.returncode == 0 and out else None
+    return out[-len(shas):] if r.returncode == 0 and len(out) >= len(shas) else None
+
+
+def train(shas: list[str], check=None) -> tuple[list[tuple[str, str]], list[str]]:
+    """Test `shas` merged onto main in order with one check; on red, split the batch in half and check each
+    half on top of what already tested green. ((sha, tree) to land in that order, the shas dropped)."""
+    check = check or _tested_trees
+    kept: list[str] = []
+    trees: list[str] = []
+    dropped: list[str] = []
+
+    def go(batch: list[str]) -> None:
+        nonlocal kept, trees
+        if not batch:
+            return
+        got = check(kept + batch)
+        if got is not None:
+            kept, trees = kept + batch, got
+        elif len(batch) == 1:
+            dropped.append(batch[0])
+        else:
+            go(batch[:len(batch) // 2])
+            go(batch[len(batch) // 2:])
+    go(list(shas))
+    return list(zip(kept, trees)), dropped
 
 
 def cmd_land(args) -> int:
     if args.list:
         return _list()
-    if not args.sha:
-        print("usage: hl land --check <sha> | hl land <sha> <merge message> --tree <tree> | hl land --pass <sha> | hl land --list")
-        return 1
     if args.check:
-        tree = _tested_tree(args.sha)
-        if tree is None:
-            print("the merge did not test green here; nothing to record")
-            return 1
-        print(tree)
-        return 0
+        if len(args.check) == 1:
+            trees = _tested_trees(args.check)
+            if trees is None:
+                print("the merge did not test green here; nothing to record")
+                return 1
+            print(trees[0])
+            return 0
+        kept, dropped = train(args.check)
+        for sha, tree in kept:
+            print(f"{sha} {tree}")
+        for sha in dropped:
+            print(f"dropped {sha}: it does not test green on top of the others; send it back to its owner")
+        if kept:
+            print("land them in this order: `hl land <sha> <merge message> --tree <tree>` for each")
+        return 0 if kept else 1
+    if not args.sha:
+        print("usage: hl land --check <sha>... | hl land <sha> <merge message> --tree <tree> | hl land --pass <sha> | hl land --list")
+        return 1
     if args.passed:
         return _send({"verb": "land_pass", "sha": args.sha})
     if not args.message or not args.tree:

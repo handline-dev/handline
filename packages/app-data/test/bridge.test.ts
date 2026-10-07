@@ -32,6 +32,10 @@ describe('agents', () => {
       session_open: false,
     });
   });
+  it('agent.changed also reads an open detail again, since the row lacks the terminal and who may type', () => {
+    applyEvent(c, ev('agent.changed', agent('a', 'working')));
+    expect(stale(qk.agent(D, 'a'))).toBe(true);
+  });
   it('agent.changed adds an agent the list did not have, and leaves an uncached detail uncached', () => {
     applyEvent(c, ev('agent.changed', agent('c')));
     expect(qc.getQueryData<{ agents: unknown[] }>(qk.agents(D))!.agents).toHaveLength(3);

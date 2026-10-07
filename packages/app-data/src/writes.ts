@@ -345,6 +345,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.decide': 'decide',
+    'hr.withdraw': 'withdraw',
     'account.login': 'log in',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
@@ -369,12 +370,14 @@ export const writes: Record<string, WriteSpec> = {
       if ((e as { code?: string }).code !== 'stale_prompt') return false;
       const agent = as<{ agent: string }>(p).agent;
       c.qc.setQueryData(qk.prompts(c.d, agent), { prompts: current ? [current] : [] });
+      edit<{ prompt: unknown }>(c.qc, qk.agent(c.d, agent), (d) => ({ ...d, prompt: current ?? null }));
       return true;
     },
   },
   'session.input': uncached('type'),
   'session.keys': uncached('key'),
   'session.type': uncached('type'),
+  'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
 };
 
@@ -393,7 +396,6 @@ export const NOT_FROM_UI = [
   'land.pass',
   'hook.record',
   'hr.propose',
-  'hr.withdraw',
   'trust.propose',
   'input.ask',
   'task.begin',

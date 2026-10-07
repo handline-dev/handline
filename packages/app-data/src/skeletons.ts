@@ -33,6 +33,8 @@ export const skeletons = {
   team: { repeat: 5, of: item(rowHeight.agent, [bar('50%'), bar('30%', 12)]) },
   stats: { col: [bar('100%', 96), bar('100%', 96)], gap: space.md },
   terminal: { col: [bar('100%', 240)], gap: space.sm },
+  /** The terminal tab's grid: lines of text, more than any pane shows, clipped by the pane. */
+  terminalGrid: { repeat: 60, of: { col: [bar('70%', 14)], h: 22 } },
 } satisfies Record<string, SkeletonNode>;
 
 export type SkeletonName = keyof typeof skeletons;

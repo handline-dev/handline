@@ -706,6 +706,41 @@ def _composer_box(tail: list) -> tuple[int, int] | None:
     return None
 
 
+def composer_text(tail: list) -> str | None:
+    """What sits in the composer, whitespace-free, "" when it is empty, None when no box is drawn.
+    The box is the last two rules; its content may wrap over several rows (`_composer_box` is one)."""
+    rules = [i for i, r in enumerate(tail) if _COMPOSER_RULE.match(str(r).strip())]
+    if len(rules) < 2 or len(tail) - rules[-1] > 6 or not 1 < rules[-1] - rules[-2] <= 13:
+        return None
+    rows = [str(r).strip() for r in tail[rules[-2] + 1:rules[-1]]]
+    rows[0] = rows[0].lstrip("\u276f")
+    return "".join("".join(rows).split())
+
+
+# A scrolled box shows only part of a long text; less than this of it is not told from a person's draft.
+_OWN_PART = 20
+_PASTED = re.compile(r"\[Pastedtext#\d+\+(\d+)lines\]")
+
+
+def is_text_typed(box: str, typed: str) -> bool:
+    """Is the composer's content the text ocp typed? Equal ignoring whitespace, a stretch of it (what a
+    scrolled box shows, never longer than the text), or the placeholder a multi-line paste collapses to.
+    Anything else - a person's draft, words of theirs typed after ours - is not ocp's to send."""
+    want = "".join(typed.split())
+    if not box or not want:
+        return False
+    if box == want or (len(box) >= _OWN_PART and box in want):
+        return True
+    m = _PASTED.fullmatch(box)
+    return bool(m) and "\n" in typed and int(m.group(1)) in (typed.count("\n"), typed.count("\n") + 1)
+
+
+def composer_on_screen(handle: str) -> str | None:
+    """`composer_text` of this terminal's screen, None when it cannot be read."""
+    tail = _screen_tail(handle)
+    return None if tail is None else composer_text(tail)
+
+
 def _composer_shape(tail: list) -> bool:
     """Whether the tail holds a recognized composer box - never what is in
     it; see screen_blocker for why."""
@@ -883,6 +918,7 @@ def screen_blocker_cached(handle: str, not_before: float = 0.0) -> Blocker | Non
 
 CLEARED, STILL_OPEN, NOT_PRESSED = "cleared", "still-open", "not-pressed"
 NO_DIALOG = "no dialog is open"
+SCREEN_UNREAD = "its screen could not be read"
 # How long a dialog is given to go after Esc, read again each time.
 PRESS_SETTLE_S, PRESS_SETTLE_READS = 0.5, 4
 
@@ -951,7 +987,7 @@ def _press_dialog(handle: str, pick, key_name: str, allow_truncated: bool = True
     """
     tail, footer, dialog = _read_dialog(handle, allow_truncated)
     if tail is None:
-        return NOT_PRESSED, "", "its screen could not be read"
+        return NOT_PRESSED, "", SCREEN_UNREAD
     if footer is None:
         return NOT_PRESSED, "", NO_DIALOG
     if dialog is None:
@@ -1270,7 +1306,7 @@ def answer_question(handle: str, seen: tuple[str, ...], choices: tuple[int, ...]
     term = _screen(handle)
     tail = term.get("tail") if term else None
     if not isinstance(tail, list) or term.get("source") != "screen":
-        return NOT_PRESSED, "", "its screen could not be read"
+        return NOT_PRESSED, "", SCREEN_UNREAD
     found = driver.ask_question(tail)
     if found is None:
         return NOT_PRESSED, "", NO_DIALOG

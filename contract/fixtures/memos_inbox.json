@@ -1,0 +1,437 @@
+{
+ "fixtures": [
+  {
+   "name": "task.memo.add.unknown_task_is_not_found",
+   "spec": "task.memo.add",
+   "about": "A memo on a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.memo.add",
+      "params": {
+       "task": 999999,
+       "text": "a memo",
+       "request_id": "conf-mi-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.text_is_not_empty",
+   "spec": "task.memo.add",
+   "about": "A memo needs text: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.memo.add",
+      "params": {
+       "task": 1,
+       "text": "  ",
+       "request_id": "conf-mi-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.edit.unknown_task_is_not_found",
+   "spec": "task.memo.edit",
+   "about": "A memo of a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.memo.edit",
+      "params": {
+       "task": 999999,
+       "memo": 1,
+       "text": "new",
+       "request_id": "conf-mi-3"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.delete.memo_is_a_number",
+   "spec": "task.memo.delete",
+   "about": "memo is an integer: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.memo.delete",
+      "params": {
+       "task": 1,
+       "memo": "one",
+       "request_id": "conf-mi-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "memo"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.mark_read.ids_is_a_list_of_numbers",
+   "spec": "inbox.mark_read",
+   "about": "ids is a non-empty list of integers.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.mark_read",
+      "params": {
+       "ids": [
+        "a"
+       ],
+       "request_id": "conf-mi-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "ids"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.mark_read.an_item_that_is_not_yours_is_not_found",
+   "spec": "inbox.mark_read",
+   "about": "An id that is not in the caller's inbox is not_found, and nothing is marked.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.mark_read",
+      "params": {
+       "ids": [
+        999999
+       ],
+       "request_id": "conf-mi-6"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.answer.is_refused_to_an_agent_session",
+   "spec": "inbox.answer",
+   "about": "Below the method's role (member): refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.answer",
+      "params": {
+       "id": 1,
+       "text": "yes",
+       "request_id": "conf-mi-7"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.answer.an_answer_is_text_or_an_option_not_both",
+   "spec": "inbox.answer",
+   "about": "Neither or both of option and text: bad_request.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.answer",
+      "params": {
+       "id": 1,
+       "request_id": "conf-mi-8"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.answer.an_item_that_is_not_there_is_not_found",
+   "spec": "inbox.answer",
+   "about": "An id in nobody's mailbox is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.answer",
+      "params": {
+       "id": 999999,
+       "text": "yes",
+       "request_id": "conf-mi-9"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.reply.an_item_that_is_not_yours_is_not_found",
+   "spec": "inbox.reply",
+   "about": "An agent replies only to what was sent to it: another id is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.reply",
+      "params": {
+       "id": 999999,
+       "text": "ok",
+       "request_id": "conf-mi-10"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.reply.text_is_not_empty",
+   "spec": "inbox.reply",
+   "about": "A reply needs text: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.reply",
+      "params": {
+       "id": 1,
+       "text": "",
+       "request_id": "conf-mi-11"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

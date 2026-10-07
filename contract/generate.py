@@ -94,7 +94,9 @@ def gen_ts(spec: dict) -> str:
     out += ["};", "", "export interface Notifications {"]
     for n, d in spec["x-notifications"].items():
         out.append(f"  {n}: {ts(d['params']) if isinstance(d['params'], dict) else d['params']};")
-    out += ["}", "", "export const ROLE_ORDER: Role[] = " + json.dumps(spec["x-roles"]["order"]) + ";", ""]
+    out += ["}", "", "/** The state words the daemon sends; an open set, so a client keeps a fallback. */",
+            "export const STATE_WORDS = " + json.dumps(list(spec["x-state-words"]["words"])) + " as const;", "",
+            "export const ROLE_ORDER: Role[] = " + json.dumps(spec["x-roles"]["order"]) + ";", ""]
     return "\n".join(out)
 
 
@@ -145,10 +147,15 @@ def gen_md(spec: dict) -> str:
     o += ["## Topics", "", "| Topic | Event types (data) | Snapshot method |", "|---|---|---|"]
     for t, d in spec["x-topics"].items():
         o.append(f"| `{t}` | {', '.join(f'`{k}` ({v})' for k, v in d['data'].items())} | `{d['snapshot']}` |")
+    sw = spec["x-state-words"]
+    o += ["", "## State words", "", sw["rule"], "", "| Word | Meaning |", "|---|---|"] + [f"| `{w}` | {cell(m)} |" for w, m in sw["words"].items()]
+    o += ["", "What the daemon sends for each of its own states:", "", "| Daemon state | Word |", "|---|---|"] + [f"| {cell(k)} | `{v}` |" for k, v in sw["from_daemon"].items()]
+    o += ["", sw["pending"]]
     o += ["", "## Notifications", ""]
     for n, d in spec["x-notifications"].items():
         o.append(f"- `{n}`: {d.get('note', '')} Params: `{ts(d['params']).replace(chr(10), ' ') if isinstance(d['params'], dict) else d['params']}`")
-    o += ["", "## Terminal channel", "", spec["x-terminal"], "", "## Legacy verbs", "", "| Legacy verb | Method |", "|---|---|"]
+    o += ["", "## Terminal channel", "", spec["x-terminal"], "", "### Format bytes", ""] + [f"- **{k.replace('_', ' ').capitalize()}.** {v}" for k, v in spec["x-terminal-bytes"].items()]
+    o += ["", "## Legacy verbs", "", "| Legacy verb | Method |", "|---|---|"]
     o += [f"| `{k}` | {f'`{v}`' if v else 'none: the daemon types `say` itself'} |" for k, v in spec["x-legacy"].items()]
     return "\n".join(o) + "\n"
 
