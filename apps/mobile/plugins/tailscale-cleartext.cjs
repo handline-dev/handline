@@ -1,6 +1,6 @@
 // Expo config plugin: the phone reaches a plain Tailscale gateway as ws://, which the OS refuses by default. Cleartext is allowed
 // for *.ts.net only, never globally (Tailscale's tunnel encrypts it). Android's network security config names domains, not CIDR
-// ranges, so 100.64.0.0/10 cannot be listed there; iOS does not apply ATS to IP addresses at all.
+// ranges; the app trusts a no-fingerprint link only for a *.ts.net name, never a bare IP.
 const fs = require('node:fs');
 const path = require('node:path');
 const { withAndroidManifest, withDangerousMod, withInfoPlist } = require('@expo/config-plugins');
