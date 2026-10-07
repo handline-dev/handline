@@ -86,6 +86,9 @@ export function view(s: Session): AgentView {
     parent: s.fx.parent,
   };
 }
+/** The actions of the chat page's menu (AgentDetail.can); the fake daemon offers every one. */
+const MENU = ['terminal', 'wake', 'close', 'restart', 'park', 'fold', 'move'];
+
 export function detail(s: Session): AgentDetail {
   return {
     ...view(s),
@@ -97,6 +100,8 @@ export function detail(s: Session): AgentDetail {
     account_pick: { account: s.fx.account, reason: 'fixture' },
     prompt: s.prompt,
     settings: s.settings as AgentDetail['settings'],
+    cwd: s.fx.worktree,
+    can: Object.fromEntries(MENU.map((k) => [k, { ok: true, why: null }])) as AgentDetail['can'],
   };
 }
 

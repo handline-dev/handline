@@ -50,13 +50,14 @@ export const reads = {
   'operation.get': { resource: 'operation', id: by('operation'), feed: 'operations' },
 } as const satisfies Partial<Record<MethodName, ReadSpec>>;
 
-/** Reads that are not cache entries: the handshake, the subscription, the event log (the bridge reads events itself), and the terminal stream. */
+/** Reads that are not cache entries: the handshake, the subscription, the event log (the bridge reads events itself), the terminal stream, and the agent's own progress note (`hl progress`; no screen draws it). */
 export const NOT_QUERIES = [
   'hello',
   'whoami',
   'subscribe',
   'unsubscribe',
   'events.feed',
+  'progress.get',
   'terminal.attach',
   'terminal.history',
   'terminal.detach',

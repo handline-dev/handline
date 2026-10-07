@@ -110,7 +110,10 @@ export class FakeTasks {
       deliveries: t.delivered ? [{ at: t.delivered, how: 'typed', outcome: 'delivered' }] : [],
       events: [{ topic: 'tasks', type: 'task.opened', at: t.created, actor: null, agent: t.to, title: t.title, target: null, data: {} }],
       memos: [],
-      blockers: t.blockers,
+      blockers: t.blockers.map((b) => {
+        const held = this.rows.find((r) => r.id === b.task);
+        return { ...b, owner: held?.to ?? '', title: held?.title ?? '' };
+      }),
       children: this.rows.filter((r) => r.parent === t.id).map((r) => r.id),
       handoffs: [],
       asker: t.from,
@@ -118,7 +121,7 @@ export class FakeTasks {
       merged_into: null,
       time: null,
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
-      subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, state: r.state })),
+      subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, owner: r.to, state: r.state })),
       timeline: [],
       people: { recent: [], team: [], others: [] },
     };
