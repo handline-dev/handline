@@ -328,6 +328,7 @@ def main() -> int:
         run(lambda: test_a_new_database_is_stamped_and_a_second_connect_changes_nothing(Path(td) / "v1"))
         run(lambda: test_a_plain_connect_runs_the_additive_steps_and_stops_at_one_that_is_not(Path(td) / "v2"))
         run(lambda: test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(Path(td) / "v2a"))
+        run(lambda: test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(Path(td) / "v2e"))
         run(lambda: test_the_command_a_refusal_names_parses(Path(td) / "v2b"))
         run(lambda: test_the_daemon_migrates_a_database_waiting_for_a_step_once(Path(td) / "v2c"))
         run(lambda: test_a_migrator_that_holds_the_lock_too_long_is_named(Path(td) / "v2d"))
