@@ -578,7 +578,7 @@ describe('the chat tab', () => {
 });
 
 describe('the agent verbs menu', () => {
-  async function openMenu(m: Awaited<ReturnType<typeof mount>>) {
+  async function openMenu() {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('verbs-open'), 'the page');
@@ -587,7 +587,7 @@ describe('the agent verbs menu', () => {
 
   it('lists what applies to the row, without Close and Clear stall', async () => {
     const m = await mount(() => {}, undefined, 'founder');
-    await openMenu(m);
+    await openMenu();
     for (const id of ['restart', 'restart_fresh', 'park', 'fold', 'move']) expect($(`verb-${id}`)).not.toBeNull();
     expect($('verb-close')).toBeNull();
     expect($('verb-clear_stall')).toBeNull();
@@ -597,7 +597,7 @@ describe('the agent verbs menu', () => {
 
   it('asks before parking, sends nothing on Cancel, shows the gerund while the daemon decides, then the daemon has parked it', async () => {
     const m = await mount(() => {}, undefined, 'founder');
-    await openMenu(m);
+    await openMenu();
     await press($('verb-park'));
     expect(text()).toContain(`Park ${ARCH}?`);
     expect(text()).toContain('Its session ends; it wakes on the next task.');
@@ -615,7 +615,7 @@ describe('the agent verbs menu', () => {
 
   it('puts the reason on the page when the daemon refuses, and the mark goes', async () => {
     const m = await mount((s) => s.daemon.knobs.refuse('agent.fold', 'state', 'it is mid-turn'), undefined, 'founder');
-    await openMenu(m);
+    await openMenu();
     await press($('verb-fold'));
     await press($('sheet-submit'));
     await until(() => text().includes('it is mid-turn'), 'the reason');
@@ -625,7 +625,7 @@ describe('the agent verbs menu', () => {
 
   it('moves the account after choosing one, and restarts fresh', async () => {
     const m = await mount(() => {}, undefined, 'founder');
-    await openMenu(m);
+    await openMenu();
     await press($('verb-move'));
     expect($('sheet-submit')?.getAttribute('aria-disabled')).toBe('true'); // no account chosen yet
     await press($('account-beta'));
