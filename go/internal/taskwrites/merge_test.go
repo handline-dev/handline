@@ -59,13 +59,13 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 	refused("a wait cycle", merge("boss", "a8", 1, 2), "T4 waits on T2; waiting on T1 instead would be a cycle")
 	db.Exec("DELETE FROM task_blocks WHERE task_id = 1 AND blocks_on = 4")
 	refused("an unknown kept task", merge("boss", "b1", 98, 2), fmt.Sprintf("no task T%d", 98))
-	refused("a discarded kept task", merge("boss", "b2", 10, 2), "task T10 is discarded - nothing can merge into it")
+	refused("a discarded kept task", merge("boss", "b2", 10, 2), fmt.Sprintf("task T%d is discarded - nothing can merge into it", 10))
 	refused("a done folded task", merge("boss", "b3", 1, 9), "task T9 is done - it is not merged")
-	refused("a discarded folded task", merge("boss", "b4", 1, 10), "task T10 is already discarded")
+	refused("a discarded folded task", merge("boss", "b4", 1, 10), fmt.Sprintf("task T%d is already discarded", 10))
 	refused("no tasks", call(t, mk("boss"), `{"jsonrpc":"2.0","id":2,"method":"task.merge","params":{"into":1,"tasks":[],"request_id":"b5"}}`)[0], "tasks is a list of task numbers")
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM tasks WHERE discarded_by IS NOT NULL").Scan(&n)
-	if n != 1 { // only the T10 the test seeded
+	if n != 1 { // only the one the test seeded
 		t.Fatalf("refusals change nothing: %d discarded", n)
 	}
 
