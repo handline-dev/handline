@@ -2,7 +2,7 @@
 import type { TerminalView } from '@handline/client';
 import { h } from './dom.ts';
 import { keyFrom } from '@handline/app-core';
-import type { Store } from '@handline/app-core';
+import type { Store } from '../legacy/store.ts';
 
 export class TerminalPane {
   el: HTMLElement;

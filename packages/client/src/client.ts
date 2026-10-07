@@ -15,6 +15,7 @@ import {
 import type { Transport } from './transport.ts';
 import { RpcError } from './errors.ts';
 import { BytesChannel } from './bytes-channel.ts';
+import { toBase64 } from './byte-terminal-view.ts';
 import { TerminalView } from './terminal-view.ts';
 
 /** A call's params; the client fills in request_id on writes. */
@@ -376,6 +377,14 @@ export class DaemonClient {
   /** `enter: false` types without pressing Enter; Enter is its own keystroke. */
   sendInput(agent: string, text: string, enter = true) {
     return this.call('session.input', { agent, text, enter });
+  }
+  /** True when the daemon serves the bytes format: typing then goes through `terminal.input`, which `screen_blocker` does not refuse. */
+  get typesBytes(): boolean {
+    return !!this.hello?.capabilities.terminal_format?.includes('bytes');
+  }
+  /** The `terminal.input` params for typed text; Enter is a carriage return. */
+  typedBytes(terminal: string, text: string, enter: boolean) {
+    return { terminal, data: toBase64(new TextEncoder().encode(enter ? `${text}\r` : text)) };
   }
   sendKeys(agent: string, ...keys: string[]) {
     return this.call('session.keys', { agent, keys });

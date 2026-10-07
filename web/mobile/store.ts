@@ -1,6 +1,6 @@
 // The phone view of the shared store (@handline/app-core): the one state object views.ts draws.
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
-import type { PageTab, Store } from '@handline/app-core';
+import type { PageTab, Store } from '../legacy/store.ts';
 
 export { KEY_STRIP } from '@handline/app-core';
 export type Tab = PageTab;

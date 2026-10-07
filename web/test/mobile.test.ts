@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Store } from '@handline/app-core';
+import { Store } from '../legacy/store.ts';
 import { toState } from '../mobile/store.ts';
 import http from 'node:http';
 import { handler, listenOptions } from '../mobile/server.ts';
