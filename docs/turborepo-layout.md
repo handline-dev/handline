@@ -14,6 +14,8 @@ Written against main @2f7de798. Choices not yet confirmed by the founder: repo-r
 | Mobile | **Expo (React Native), dev client / prebuild, not Expo Go** | The client's WebSocket transport is already React Native-ready. Pairing pins a certificate fingerprint (design §7), which needs a native module Expo Go cannot load (see §6, spike). |
 | Web | **React + Vite, a static SPA** | RN is React, so hooks and state code are shared only if the web is React too. No SSR is needed: the page talks to a daemon. Replaces the no-framework, no-build `web/ui/`. |
 | Sharing level | **logic and tokens shared; screens written twice** | `react-native-web` would share screens but ties the web's layout to RN primitives; the terminal grid and the PC layout want DOM. Revisit per screen later; nothing here blocks it. |
+| Server state | **React Query** (`@tanstack/react-query` v5) in a **new package `@handline/app-data`**, shared by `apps/web` and `apps/mobile` | One tested place for reads, loading and error states, event-driven freshness and optimistic writes (§8), so a screen cannot do them by hand and differ. A new package, not `app-react`: that one has no dependency but `react`, and the store-only consumers should stay light. |
+| Loading | **skeleton screens**, never spinners or blank panes; one shared `Skeleton` in `app-data` (§8.6) | Founder rule. |
 | Packages | **source-only ("just-in-time")**: `exports` points at `.ts`, no build step per package | Keeps the current Node type-stripping tests; Vite and Metro compile the source themselves. |
 
 ## 2. Layout
@@ -28,12 +30,13 @@ packages/
   fake-daemon/      @handline/fake-daemon scripted daemon + ws server (Node only: tests, dev)
   app-core/         @handline/app-core    Store, pure screen decisions, key tables; no React, no DOM, no RN
   app-react/        @handline/app-react   DaemonProvider, useStore and selector hooks; React only
+  app-data/         @handline/app-data    React Query hooks over the client, event bridge, write table, Skeleton (§8); React + @tanstack/react-query
   tokens/           @handline/tokens      colors, spacing, type scale, breakpoints as TS constants
   config/           @handline/config      base tsconfigs
 contract/           @handline/contract    protocol.ts / protocol.json stay put; a package.json joins them to the workspace
 ```
 
-Dependency direction is one way: `contract` → `client` → `app-core` → `app-react` → `apps/*`.
+Dependency direction is one way: `contract` → `client` → `app-core` → `app-react` → `app-data` → `apps/*`.
 `client-node` and `fake-daemon` depend on `client` and are never imported by an app (they appear only in `devDependencies`).
 `protocol.ts` stays generated; nothing hand-edits it.
 
@@ -42,7 +45,8 @@ Dependency direction is one way: `contract` → `client` → `app-core` → `app
 | Shared (packages) | Source today | Separate per app |
 |---|---|---|
 | JSON-RPC client, reconnect, cursors, terminal views | `web/src/client.ts`, `transport.ts` | WebSocket construction details (certificate trust: browser uses the page's origin, RN uses the pinned fingerprint) |
-| Store: agents, details, notes, open-agent page, terminal view | `web/ui/store.ts` and `web/mobile/store.ts` (two near-copies today) | Persistence of the paired daemon (web: `localStorage`; mobile: secure store) |
+| Store (what stays after §8): connection, who I am, capabilities, the error toast, notes, open-agent page, terminal view | `web/ui/store.ts` and `web/mobile/store.ts` (two near-copies today) | Persistence of the paired daemon (web: `localStorage`; mobile: secure store) |
+| Server state: queries, event bridge, writes with optimistic updates, `Skeleton` and the per-view skeleton specs | the store's `agents`, `details`, `refresh`, `act` today | Only how a skeleton box is drawn (web `div`, mobile `View`) |
 | Screen decisions: `dotOf`, `railGroups`, `ago`, `DAEMON_KEYS`, `KEY_STRIP`, which screens exist | `web/ui/model.ts`, `web/mobile/store.ts` | Layout, navigation (web: router; mobile: Expo Router), gestures, safe areas |
 | Terminal grid logic: view to lines and cells | `web/ui/terminal-pane.ts` (the DOM part stays) | Rendering (web: `<pre>`; mobile: monospace `<Text>`) and typing (web: hidden textarea + IME events; mobile: `TextInput` + key strip) |
 | Tokens and breakpoints | `web/ui/style.css` | Where they land (web: CSS variables from the constants; mobile: used directly) |
@@ -54,10 +58,10 @@ decided in `app-core`; CSS only decides how they are laid out. Electron (design:
 
 ## 4. Tasks and tests
 
-Root `turbo.json` has `test`, `typecheck` and `build`; `test` and `typecheck` depend on the same task of the packages they use
+Root `turbo.json` has `test`, `typecheck`, `lint` and `build`; `test` and `typecheck` depend on the same task of the packages they use
 (`^test`). Package tests keep `node --test` on `.ts` (workspace links resolve outside `node_modules`, so type stripping still
 applies). Apps add their own: `apps/web` Vite build and a DOM smoke test; `apps/mobile` `tsc` and Jest on pure modules.
-The merge gate is `pnpm turbo test typecheck` from the root.
+The merge gate is `pnpm turbo test typecheck lint` plus `pnpm format:check` from the root. Lint rules and size limits live in `packages/config/eslint`. It also runs the data-layer guard tests of §8.7, and the auditor's list in §9 applies to every unit that shows daemon data.
 
 Today's 46 tests: client 17, transports 2, ui-model 9, ui-store 4, serve-ui 4, mobile 10. Where each goes is in §5.
 
@@ -73,6 +77,7 @@ Every step ends with the root gate green, and the tests of code that has not mov
 3. **Core.** `packages/app-core`: one `Store` that covers both old stores (the PC store's `details` and `notes`, the mobile store's `page` and terminal view),
    plus `model.ts`, the key tables and `workspace.ts`; then `packages/tokens` and `packages/app-react`. `web/ui` and `web/mobile` move onto the unified store and **keep running**:
    the phone keeps a working UI until `apps/web` has a phone layout. The store cases of `mobile.test.ts` fold into `ui-store`'s file.
+3b. **Data layer** (units Q1–Q4, §6). `packages/app-data` lands with its guard tests (Q1); `apps/web` (Q2) and `apps/mobile` (Q3) move their reads and writes onto it, each keeping the old store fields working for the other; only then does the store drop what the cache owns (Q4).
 4. **Web.** `apps/web` is built beside `web/ui`. Then, when it shows everything `web/ui` and `web/mobile` show at desktop and phone width, `web/ui`, `web/mobile` and `serve-ui.ts` are deleted.
    The hardening cases of `serve-ui.ts` and `mobile/server.ts` (6 tests: loopback-only without `--cert`, TLS rule, path hardening, a malformed or directory URL answered with an error and not a crash, plain http refused off loopback)
    move to the static server that serves `dist`; the `views.ts` cases (escaped daemon text, only the grid redraws while streaming) are rewritten for the terminal tab. They do not drop out between steps.
@@ -82,7 +87,7 @@ Every step ends with the root gate green, and the tests of code that has not mov
 
 ## 6. Work units
 
-The first column is a suggestion; the manager assigns. Units 1–3 touch the repo root and `packages/`, so they run in order;
+The first column is a suggestion; the manager assigns. Units 1–3, Q1 and Q4 touch the repo root and `packages/`, so they run in order;
 4a and 5 touch disjoint directories and run in parallel after 3; 6 can start now.
 
 | # | Unit | Suggested owner | After | Done when |
@@ -90,9 +95,13 @@ The first column is a suggestion; the manager assigns. Units 1–3 touch the rep
 | 1 | Scaffold and the client move (steps 1, 2) | term-build (wrote the client) | — | `pnpm install && pnpm turbo test` green; client 17 and transports 2 run from `packages/`; the other 27 still run from `web/` |
 | 2 | `app-core` (with `workspace.ts` and its tests, see web-main-view §4–5), `tokens`, `app-react`; `web/ui` and `web/mobile` onto the unified store (step 3) | pc-build (wrote `ui/store`), mobile-build reviews the merged store | 1 | `ui-model` 9, `ui-store` 4, the folded mobile store cases and the workspace tests pass from `app-core`; `web/ui` and `web/mobile` still run; the commit lists where each of the 10 mobile tests went |
 | 3 | `apps/web` shell: sidebar with the agent controls, tab strip and split panes on `app-react`, tabs Chat and Terminal on today's API (step 4, first half) | pc-build | 2 | every control of the old agent header works from the sidebar and the main view has no header and no per-agent tab row, and each pane has its own tab strip; up to 4 panes, close rules and reload restore verified in a DOM test and screenshots |
+| Q1 | **`app-data`** (§8): query provider, key factory, hooks for every read in `docs/pc-app-gaps.md`, event bridge, write table with optimistic update and rollback, `Skeleton` and the per-view specs, fake-daemon `latency` and `refuse` knobs, the guard tests (§8.7) | pc-build (wrote the store); mobile-build reviews | 3 | `pnpm turbo test typecheck` green; every read method and every UI write method of `contract/protocol.json` is in a table; each row of §8.4 and §8.5 has a test; the §9 list passes for the package |
+| Q2 | `apps/web` onto `app-data`: sidebar rows and detail block, the prompt card, Start / Resume / stop and Take control / Release as writes; the store is left as it is; skeletons for the sidebar, detail block and Terminal tab | pc-build | Q1 | no component outside `app-data` calls `client.call` for data (guard test); the unit-3 tests still pass or move with a note of where each went; screenshots of the loading state at 375, 768 and 1280 px; §9 passes |
+| Q3 | `apps/mobile` onto `app-data`: the agent list and agent page (now reading `s.agents` and `s.details`) move to the query hooks and the shared skeleton specs; the screens that follow (inbox, tasks, accounts) start on it | mobile-build | Q1, 5 | each screen shows its skeleton, then data, and a write shows at once and rolls back on refusal, against the fake daemon with `latency` and `refuse`; §9 passes; the store is left as it is |
+| Q4 | Store cleanup: remove `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act`, `run`; `openAgent` only attaches (§8.1) | pc-build | Q2, Q3 | no app reads a removed field (typecheck is the proof); the store tests that covered them move to `app-data` with a note of where each went; the gate is green |
 | 4a | Responsive collapse, drawer sidebar, phone width; then delete `web/ui`, `web/mobile`, `serve-ui.ts` (step 4, second half) | pc-build | 3 | screenshots at 375, 768 and 1280 px; the 6 hardening tests pass against the static server for `dist`; nothing `web/ui` or `web/mobile` showed is missing |
-| 4b–4e | Shell, Markdown, Web and Emulator tabs | pc-build | 4a and the daemon request each needs | per tab as in `docs/web-main-view.md` §3 and §6 |
-| 5 | `apps/mobile`: Expo skeleton, pair, agent list, agent page (step 5) | mobile-build | 2 | runs on a device or simulator against the fake daemon over `wss`; list, page, terminal text, key strip and permission card work |
+| 4b–4e | Shell, Markdown, Web and Emulator tabs | pc-build | 4a, Q2 and the daemon request each needs | per tab as in `docs/web-main-view.md` §3 and §6 |
+| 5 | `apps/mobile`: Expo skeleton, pair, agent list, agent page (step 5) | mobile-build | 2; its data screens follow Q1 (unit Q3) | runs on a device or simulator against the fake daemon over `wss`; list, page, terminal text, key strip and permission card work |
 | 6 | **Spike**: RN WebSocket to a daemon with a self-signed certificate pinned by fingerprint (design §7) | mobile-build | — | a written result: works in Expo dev client or needs prebuild; the code if a config plugin is needed. Decides Expo vs bare. |
 | 7 | Cleanup (step 6) | architect | 4a, 5 | `web/` gone; no doc names it |
 
@@ -104,5 +113,126 @@ Each unit goes through the auditor before merge, and the unit's task note gives 
   or the daemon issues a local CA the phone installs. Unit 6 settles it; the answer changes the pairing flow in design §7 and the daemon, not this layout.
 - **Who serves the built web app.** `apps/web/dist` is static. Serving it from the daemon's own TLS port keeps the page same-origin (it connects to its own host, as today);
   that is a daemon decision for the daemon team. Until then a small static server in `apps/web` serves it for development.
-- **Dependencies.** The repo has had none in `web/`. React, Vite, Expo and TypeScript are the first; the packages `client`, `client-node`, `fake-daemon` and `app-core` stay dependency-free
+- **Dependencies.** The repo has had none in `web/`. React, Vite, Expo, TypeScript and `@tanstack/react-query` (only in `app-data`) are the first; the packages `client`, `client-node`, `fake-daemon` and `app-core` stay dependency-free
   so the contract tests do not depend on a UI toolchain.
+
+## 8. Server state: React Query, loading, optimistic writes
+
+Founder's rule: use **React Query**, shared; **loading** and **optimistic updates** are part of the design; **skeletons** show loading; the verification step checks all of it.
+Written against the store on main @1048b3f5 and `contract/protocol.json` (111 methods, 72 of them writes). Everything here lives in `packages/app-data`; `apps/web` and `apps/mobile` import it and write no data-fetching of their own.
+
+### 8.1 Where state lives
+
+| State | Owner | Why |
+|---|---|---|
+| Anything the daemon answers: agents, agent detail, tasks, task detail, inbox, chat messages and transcript, accounts, team, proposals, schedules, stats, settings, worktrees, open prompts | **React Query cache** | one place for loading, error, freshness, refetch and optimism |
+| Connection state, who I am, `hello` capabilities and methods, the error toast, notes (what happened to an agent while this page watched), the open-agent page and tab (phone) | **`app-core` Store** (stays) | not a daemon answer, or built from events rather than fetched; every screen needs it at once |
+| The terminal stream (snapshot, frames, scrollback, resize) | **Store's `TerminalView`** (stays) | a stream with sequence numbers and backpressure, not a request and a reply; `terminal.attach` / `detach` are the only calls and are not cached. Its loading state is the Skeleton until the snapshot arrives |
+| Layout (`Workspace`), drafts, filters, rail group, scroll | `app-core` model and the app's own storage (design: per browser) | UI state; no daemon call |
+| Which daemon (`daemonId`) | provider prop | every query key starts with it, so two daemons never share an entry |
+
+The cache replaces the store's `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act` and `run`, but **they are removed only in unit Q4, after both apps have moved** (§6): `apps/mobile` reads `s.agents`, `s.details` and `openAgent` today, and breaks if they go first. Until Q4 the two coexist and no screen reads both.
+`useAgents()`, `useAgentDetail()` and the other hooks of `app-data` return the **query result** (`data`, `isPending`, `isFetching`, `error`), which is what draws the five states of §8.3; a call site changes once, when its app moves (Q2, Q3). After Q4 `openAgent` only attaches the terminal and sets `page` (`agent`, `tab`, `view`); it no longer watches or loads detail. The page's agent row and detail come from `useAgent(page.agent)` and `useAgentDetail(page.agent)`, and a `not_found` there shows "<agent> is gone" and closes the page, as the store's `loadDetail` does now.
+
+### 8.2 Queries and keys
+
+`qk` is the only key factory: `['d', daemonId, <resource>, ...params]`, e.g. `qk.agents()`, `qk.agent(name)`, `qk.tasks(filter)`, `qk.task(id)`, `qk.inbox(filter)`, `qk.chat(agent, scope)` (infinite, paged by `before`), `qk.transcript(agent)`, `qk.accounts()`. A hook is `useQuery` over `client.call(method, params)`; nothing else in the app calls a read.
+- **Fed by a topic** (`agents`, `inbox`, `tasks`, `accounts`, `status`, `chat`): `staleTime: Infinity`, no refetch on focus or interval; the event bridge (§8.4) keeps it fresh.
+- **Snapshot only** (`stats.get`, `settings.get`, `schedules.list`, `team.get`, `hr.list`, `worktrees.list`, `answers.list`): `staleTime` 30 s, refetch on mount and on reconnect.
+- **Gated on the connection and the daemon's method list**: `enabled` only while the connection is `open` **and** `hello.methods` lists the method (`useServes(method)`). A method the daemon does not serve is not an error: the view shows "this daemon does not serve <thing>", as `docs/web-main-view.md` §3 does for tabs, and nothing is called.
+- Filters keep the previous rows on screen while the next page loads (`placeholderData: keepPreviousData`), so changing a filter never flashes a skeleton.
+- `networkMode: 'always'`: the connection is to a daemon, not the internet, and the client already waits for `open` and, in `DaemonClient.open()`, **re-sends every pending call after a reconnect** (reads too; writes with their old `request_id`, so the daemon answers from its stored reply). React Query does not retry a write; it would double that.
+
+### 8.3 Loading and errors
+
+Every view has five states, each drawn on purpose: **loading** (first load, no data: the skeleton, §8.6), **refreshing** (data shown, a quiet marker only), **empty** (loaded, nothing: a sentence and the next action), **error**, **not served**.
+Errors are classified once in `app-data`, from `RpcError.code`:
+
+| Code | Shown |
+|---|---|
+| `transport` | nothing in the view: the connection banner speaks, the data stays, a reconnect refetches (as `Store.act` does today) |
+| `not_found` | the empty state of that view ("No agent named X"), not an error |
+| `refused` (gate, reason, hint) | the daemon's own sentence with its hint, in the view or the toast; reads are not retried; gate `unsupported` is the "not served" state below |
+| `bad_request` with `data.method` (JSON-RPC -32601, an unknown method), or gate `unsupported` | the "not served" state (most never reach the wire: `useServes` gates on `hello.methods`) |
+| `daemon_busy` (`retry_after_ms`) | the read waits that long and tries again; no Retry block |
+| `protocol` (client too old) | the provider's fatal sentence for the whole app, not a view error |
+| anything else | an error block with **Retry**; the last data stays visible beneath it |
+
+### 8.4 Events into the cache
+
+One **event bridge**, started with the provider, subscribes to the topics a mounted view needs and turns each event into a cache operation. Operations are batched in a microtask, as the store batches detail reloads today.
+
+| Event | Cache operation |
+|---|---|
+| `agent.changed` | upsert into `qk.agents()`; patch `qk.agent(name)` when cached |
+| `agent.removed` | remove from the list; `removeQueries(qk.agent(name))` |
+| `agent.control` | append to the store's notes; invalidate `qk.agent(name)` |
+| `task.changed` | upsert `qk.task(id)`; invalidate the cached `qk.tasks(*)` lists (filters make a patch unsafe) |
+| `inbox.added` / `inbox.changed` | upsert into unfiltered `qk.inbox`; invalidate filtered ones; the bell count is a selector over the cache |
+| `account.changed`, `status.changed` | upsert the account; set `qk.status()` |
+| `chat.message` | upsert by message id (or by `request_id`, replacing the optimistic row, §8.5); `chat.transcript` appends by item id; `chat.working` sets `qk.working(agent)` |
+| `prompt_asked`, `task_done`, `stall`, `account_out` | toast and notification (E2 of `docs/pc-app-gaps.md`); `prompt_asked` also invalidates `qk.prompts(agent)` |
+| `gap` | invalidate every active query (the snapshot is the truth again) |
+| connection back to `open` | invalidate every active query; the resume cursor fills what it can first |
+
+An event is the daemon's truth and always wins over an optimistic value.
+
+### 8.5 Writes: optimistic, with rollback
+
+Every UI write goes through one helper, `useWrite(spec)`, over `useMutation`. A **spec** is a row of one table in `app-data` (`writes`) with its method, its **kind** and what it does to the cache. No component calls a write method directly.
+
+Two kinds, because the cache must never invent what only the daemon decides:
+- **Authored**: data the person creates or edits (a message, a task, a memo, a read mark, a setting). On `onMutate` the helper cancels the affected queries, snapshots them, and **patches the cache at once**. On error it restores the snapshot and shows the refusal; the person's text is kept in the box.
+- **Decided**: state only the daemon decides (a session starting, a prompt answered, an account login, a hold taken, a proposal approved). The cache is **not changed**. The view reads the in-flight write with `useMutationState` and shows a **pending mark** ("starting…", the card's buttons disabled and "answering…"); on error the mark goes and the reason shows. Nothing to roll back, nothing faked.
+
+Rules for both: the write is idempotent through the `request_id` the client adds; writes on one target (an agent, a task) run in order (`scope: { id }`); on settle the helper invalidates only the keys no topic feeds; an event for the same thing overrides the optimistic value; a destructive write (Kill, Close terminal, discard) keeps its confirmation and is **Decided**.
+
+| Write | Kind | Immediately | Rollback / failure |
+|---|---|---|---|
+| `chat.send` | authored | a message row with `state: sending`, keyed by its `request_id`, at the top of *mine* | the row turns `failed` with **Retry** and **Discard**; the text is never lost |
+| `chat.withdraw` `chat.dismiss` `chat.answer` | authored | the message's flag or answer | restore the message |
+| `task.new` | authored | a provisional row (negative id, `pending`) | row removed, form refilled |
+| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
+| `task.merge` | authored | merged rows leave the list | restore the list |
+| `task.memo.add` `task.memo.edit` `task.memo.delete` | authored | the memo in the list | restore |
+| `inbox.mark_read` `inbox.answer` `inbox.reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
+| `agent.set` `settings.set` `account.set` `account.set_cap` `schedule.add` `schedule.edit` `schedule.remove` `answer.add` `answer.remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
+| `session.start` `session.wake` `session.restart` `session.park` `session.stop` `session.interrupt` `agent.fold` `agent.move` `agent.create` | decided | pending mark on the row; `agent.create` follows its `operation.progress` | the mark goes, the reason shows |
+| `prompt.answer` | decided | the card shows "answering…" and keeps its buttons off; it leaves when the prompt's id changes by event | `stale_prompt`: refetch the prompt, the card refreshes; any other refusal: buttons back, reason shown |
+| `input.take` `input.release` `hr.decide` `hr.withdraw` `account.login` `terminal.close` `task.discard` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke`, `terminal.close`, `hr.withdraw` and `task.discard` keep their confirmation, and `task.discard` its reason) | the mark goes, the reason shows |
+| `settings.trust` | authored | the folder in the trusted list (G11) | restore the list |
+| `device.redeem` | pairing, before `hello` and outside the cache | the app's pair flow calls it, not a view | the flow shows the reason |
+| `session.input` `session.keys` `session.type` `terminal.resize` | **not cached** | none: the terminal stream is the answer, and the app draws no local echo | refusal shown in the terminal tab's status |
+| The "not from the UI" list, read by guard test 2: `ask` `say` `push` `push.answer` `push.cancelled` `land` `land.authorize` `land.pass` `hook.record` `hr.propose` `trust.propose` `input.ask` `task.begin` `task.start` `task.progress` `task.handoff` | agent commands | none | none |
+
+### 8.6 Skeleton
+
+`Skeleton` is one shared component with the shapes of every view in `packages/app-data/skeletons`: a spec is a small tree of `box` (width, height, radius), `row`, `col` and `repeat`, drawn through a `Box` primitive each app gives the provider (web `div`, mobile `View`). The specs are shared, so the phone and the PC agree on shape; the per-view list is in `docs/web-main-view.md` §9 and `docs/pc-app-gaps.md` §4.
+- Shown only on **first load** (loading, no data); a refetch keeps the data and shows the quiet marker.
+- **Same size as the real content**: a skeleton row takes its height and gaps from `@handline/tokens`, the same constants the real row uses, so nothing shifts when data arrives.
+- **150 ms delay** before it appears (a fast answer shows no flash) and **at least 300 ms** once shown.
+- `aria-busy="true"` on the region and one visually hidden "Loading <thing>"; the shimmer is off under `prefers-reduced-motion` (web) and when the OS asks for reduced motion (mobile).
+- **No spinner anywhere** for a view or a panel. A write in flight is the pending mark of §8.5, not a spinner.
+- Loaded and empty replaces it with the empty state; an error replaces it with the error block (§8.3).
+
+### 8.7 Guard tests (in `app-data`, run by the root gate)
+
+1. **No hand-made data calls**: a test scans `apps/` for `client.call(`, `.act(` and imports of write method names outside `app-data`, with an allow-list that holds only the terminal attach.
+2. **Every write is classified**: the test reads `contract/protocol.json`; each method with `x-write` must be in the `writes` table or in the "not from the UI" list, so a new write method fails the gate until someone decides.
+3. **Every read has a key and a hook**: the same for read methods the UI uses, so a key cannot be built by hand.
+4. **Fake daemon knobs**: `latency(ms)` and `refuse(method, gate, reason, hint)` on `@handline/fake-daemon`, so loading and rollback are tested with real timing and real refusals.
+
+## 9. Auditor's checklist for a unit that shows daemon data
+
+Each item is pass or fail with a test or a screenshot as evidence in the task note.
+
+1. **Reads**: every read in the unit is a hook over `qk`; no `client.call` for data in the unit's files (guard test 1 green).
+2. **Writes**: every write in the unit has a row in §8.5 with the right kind; guard test 2 green.
+3. **Loading**: each view has its skeleton spec; with `latency(500)` the skeleton shows after 150 ms, stays 300 ms at least, and is replaced by the content; no spinner and no blank pane in the loading state; skeleton and content use the same token heights (a test compares the two).
+4. **Empty and error**: each view shows its empty sentence; a `refused` read shows the daemon's sentence and hint; `transport` shows nothing in the view; `bad_request` with `data.method` and gate `unsupported` show the "not served" state; `daemon_busy` waits `retry_after_ms`; the last data stays under an error.
+5. **Optimistic (authored)**: with `latency(500)` the change is on screen **before** the call resolves; with `refuse(...)` the cache equals the snapshot from before (deep equal) and the person's input is still in the box; a `chat.send` that fails keeps its text and offers Retry.
+6. **Decided**: the cache is untouched while the write is in flight; the pending mark shows; on refusal the mark goes and the reason shows; `prompt.answer` with a changed prompt sends nothing and the card refreshes.
+7. **Events**: an event for the same thing replaces an optimistic value; two writes on one target keep their order; a `gap` and a reconnect refetch every active query (fake daemon test).
+8. **Accessibility**: `aria-busy` on a loading region; no shimmer under reduced motion.
+9. **Screens**: screenshots of the loading state and the optimistic state at 375, 768 and 1280 px (web) or on the phone simulator (mobile).
+10. **Evidence**: test counts before and after, and what was removed from the store.

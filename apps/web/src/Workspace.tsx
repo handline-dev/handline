@@ -2,17 +2,33 @@
 // Nothing sits above the panes: each pane has its own tab strip.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  arrange, defaultWorkspace, groupOf, groupsOf, loadWorkspace, MAX_GROUPS, openTab, saveWorkspace, setSplit, splitTab, storageKey,
-  type KV, type Node, type Path, type Workspace,
+  arrange,
+  defaultWorkspace,
+  groupOf,
+  groupsOf,
+  loadWorkspace,
+  MAX_GROUPS,
+  openTab,
+  saveWorkspace,
+  setSplit,
+  splitTab,
+  storageKey,
+  type KV,
+  type Node,
+  type Path,
+  type Workspace,
 } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { useAgentDetail, useConnection, useSelector, useStore } from '@handline/app-react';
+import { useConnection, useStore } from '@handline/app-react';
+import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
+import { View } from './View.tsx';
 import { DropZones, Pane } from './Pane.tsx';
 
 export interface WorkspaceCtx {
   ws: Workspace;
   detail: AgentDetail;
   agent: string;
+  storage: KV | null;
   apply: (f: (w: Workspace) => Workspace) => void;
   /** Runs a drag-and-drop result; a refusal (a fifth pane) is said in the toast. */
   drop: (next: Workspace | null) => void;
@@ -27,12 +43,27 @@ export const useWorkspace = (): WorkspaceCtx => {
 };
 
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
-  const detail = useAgentDetail(agent);
-  const known = useSelector((s) => s.agents.has(agent));
+  const q = useAgentDetail(agent);
+  const list = useAgents();
+  const { served } = useServes('agent.get');
   const conn = useConnection();
-  if (!known) return <div className="empty big"><p className="muted">{conn === 'open' ? `No agent named ${agent}.` : 'Connecting…'}</p></div>;
-  if (!detail) return <div className="empty big"><p className="muted">Loading…</p></div>;
-  return <Loaded agent={agent} detail={detail} daemon={daemon} storage={storage} />;
+  const gone = (list.data && !list.data.agents.some((a) => a.name === agent)) || (q.isError && classify(q.error).kind === 'not_found');
+  if (gone)
+    return (
+      <div className="empty big">
+        <p className="muted">No agent named {agent}.</p>
+      </div>
+    );
+  if (!q.data)
+    return (
+      <div className="workspace-loading">
+        {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
+        <View q={q} served={served} shape="terminal" what={`${agent}'s workspace`}>
+          {null}
+        </View>
+      </div>
+    );
+  return <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} />;
 }
 
 function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: AgentDetail; daemon: string; storage: KV | null }) {
@@ -47,7 +78,9 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   useLayoutEffect(() => {
     const el = root.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => { if (el.clientWidth) setSize({ w: el.clientWidth, h: el.clientHeight }); });
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth) setSize({ w: el.clientWidth, h: el.clientHeight });
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -60,25 +93,38 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
       setWs((w) => {
         const opened = openTab(w, 'terminal', { handle: terminal });
         const g = groupOf(opened, `terminal:${terminal}`)!;
-        return g.tabs.length > 1 && groupsOf(opened.root).length < MAX_GROUPS ? splitTab(opened, `terminal:${terminal}`, g.id, 'right') ?? opened : opened;
+        return g.tabs.length > 1 && groupsOf(opened.root).length < MAX_GROUPS
+          ? (splitTab(opened, `terminal:${terminal}`, g.id, 'right') ?? opened)
+          : opened;
       });
     }
     had.current = !!terminal;
   }, [terminal]);
 
   const value: WorkspaceCtx = {
-    ws, detail, agent, dragging, setDragging,
+    ws,
+    detail,
+    agent,
+    storage,
+    dragging,
+    setDragging,
     apply: (f) => setWs(f),
-    drop: (next) => { setDragging(null); if (next) setWs(next); else store.fail(`At most ${MAX_GROUPS} panes. Drop a tab on another pane's tab strip to merge it.`); },
+    drop: (next) => {
+      setDragging(null);
+      if (next) setWs(next);
+      else store.fail(`At most ${MAX_GROUPS} panes. Drop a tab on another pane's tab strip to merge it.`);
+    },
   };
   const arr = arrange(ws, size.w, size.h);
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
   return (
     <Ctx.Provider value={value}>
       <div className="workspace" ref={root} data-panes={groupsOf(ws.root).length} data-merged={arr.merged}>
-        {arr.merged
-          ? <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
-          : <Tree node={ws.root} path={[]} />}
+        {arr.merged ? (
+          <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
+        ) : (
+          <Tree node={ws.root} path={[]} />
+        )}
         {dragging ? <DropZones root /> : null}
       </div>
     </Ctx.Provider>
@@ -97,11 +143,21 @@ function Tree({ node, path }: { node: Node; path: Path }): ReactNode {
   };
   return (
     <div className={`split split-${node.dir}`} ref={box}>
-      <div className="cell" style={{ flex: `${node.at} 1 0` }}><Tree node={node.a} path={[...path, 'a']} /></div>
-      <div className="divider" role="separator" aria-orientation={row ? 'vertical' : 'horizontal'} title="Drag to resize; double-click to reset"
-        onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)} onPointerMove={drag}
-        onDoubleClick={() => apply((w) => setSplit(w, path, 0.5))} />
-      <div className="cell" style={{ flex: `${1 - node.at} 1 0` }}><Tree node={node.b} path={[...path, 'b']} /></div>
+      <div className="cell" style={{ flex: `${node.at} 1 0` }}>
+        <Tree node={node.a} path={[...path, 'a']} />
+      </div>
+      <div
+        className="divider"
+        role="separator"
+        aria-orientation={row ? 'vertical' : 'horizontal'}
+        title="Drag to resize; double-click to reset"
+        onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+        onPointerMove={drag}
+        onDoubleClick={() => apply((w) => setSplit(w, path, 0.5))}
+      />
+      <div className="cell" style={{ flex: `${1 - node.at} 1 0` }}>
+        <Tree node={node.b} path={[...path, 'b']} />
+      </div>
     </div>
   );
 }

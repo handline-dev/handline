@@ -26,7 +26,7 @@ def _wrote(ctx, params, name: str, said: str) -> dict:
     result = {"accepted": True, "said": said}
     con = db.connect()
     try:
-        db.record_effect(con, ctx.caller.actor, params["request_id"], name, result)
+        db.record_effect(con, ctx.caller.writer, params["request_id"], name, result)
     finally:
         con.close()
     return result

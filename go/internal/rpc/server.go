@@ -414,7 +414,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			c.release()
 		}
 		c.device, c.release = id, release
-		c.Caller = Caller{"member", map[string]any{"kind": "device", "id": id, "name": name}}
+		c.Caller = Caller{"member", map[string]any{"kind": "device", "device": id, "name": name}}
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}

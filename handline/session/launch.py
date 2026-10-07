@@ -598,6 +598,11 @@ def _your_team(agent: str) -> str:
                      "prose. Check main before you assign, so nobody rebuilds what landed. Quote "
                      "the founder's own words in the task you open for their request, and answer "
                      "the founder through `hl`, never in chat.")
+        lines.append("Finding the bottleneck is your job. At each periodic check, look at each report's "
+                     "queued count, its oldest wait and the work blocked behind it, and compare with the "
+                     "last check. When a wait passes 1h or a queue grows two checks in a row, ask that "
+                     "agent what slows it and open the work that fixes the cause. No dead or stalled "
+                     "agent does not mean healthy.")
     lines.append("`hl team` shows who you may reach and what each is doing now. "
                  "A decision or a block only the founder can clear is a task of theirs: "
                  "`hl task new --owner human -t <time> \"<title>\" \"<body>\"`.")

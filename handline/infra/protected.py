@@ -68,6 +68,14 @@ def get(namespace: str, name: str) -> str | None:
         return None
 
 
+def written_at(namespace: str, name: str) -> float | None:
+    """When the entry was last written, or None when there is none or it cannot be read."""
+    try:
+        return _entry(namespace, name).stat().st_mtime
+    except (OSError, ValueError):
+        return None
+
+
 def is_off(namespace: str, name: str) -> bool:
     """Whether the founder recorded `off`. A store that cannot be read (an agent's sandbox)
     or holds no entry is not off: a gate that reads it stays on, so a sandbox can never
@@ -93,7 +101,7 @@ def ensure(namespace: str) -> None:
     _founder_only()
     folder = root() / namespace
     if not folder.exists():
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)       # another thread or process may make it between the check and here
         for d in (root(), folder):
             d.chmod(0o700)
 

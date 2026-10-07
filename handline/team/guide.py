@@ -81,8 +81,9 @@ There is one kind of message, and one thing that is not a message. A say reaches
 its target at once and asks nothing. Everything that needs an answer or a result
 is a task, and a task ends with `hl task done` or is handed on: the result is
 what the asker reads, so nobody sends a second task repeating it. An agent is
-given one task at a time - the head of its queue - so nobody has to hold eleven
-in their head; the next arrives once it is done or handed on. An agent that goes
+told what is queued once a minute, in one message (at once when it holds the
+founder's request); it works the head of its queue, one task at a time, and the
+next is its turn once the head is done or handed on. An agent that goes
 idle with its task still open is reminded once after 10 minutes; if it is still
 idle 30 minutes after it last did anything, the screen's STUCK panel shows it,
 with what is queued behind it. A wait is recorded on the task (`hl task edit
