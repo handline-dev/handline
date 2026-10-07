@@ -15,6 +15,7 @@ from support import *  # noqa: E402,F401,F403
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import _code  # noqa: E402
+from test_rpc_task_moves import _dies_then_retries  # noqa: E402
 from test_rpc_tasks import _call, _count, _lose_the_reply, _new  # noqa: E402
 
 
@@ -67,6 +68,13 @@ def test_chat_send_now_marks_the_founders_queued_message_and_a_retry_marks_nothi
           _code(r) == "bad_request" and r["error"]["data"]["field"] == "request", str(r))
     check("chat.send_now: an agent session is refused by role",
           _code(_call("chat.send_now", {"request": rid, "request_id": "s5"})) == "refused")
+    con = db.connect()
+    second = db.add_request(con, db.HUMAN, "worker", "another", None, None, "fire_and_forget", "say", 0, None)
+    con.commit()
+    con.close()
+    marked = lambda: _count("SELECT COUNT(*) FROM requests WHERE id = ? AND send_now IS NOT NULL", second) == 1
+    _dies_then_retries("chat.send_now", {"request": second, "request_id": "s7"}, None, after=marked, unchanged=lambda: not marked())
+    check("chat.send_now: the kept effect is one row", _count("SELECT COUNT(*) FROM write_effects WHERE request_id = 's7'") == 1)
     con = db.connect()
     con.execute("UPDATE requests SET state = 'closed' WHERE id = ?", (rid,))
     con.commit()

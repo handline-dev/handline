@@ -71,12 +71,24 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     const open = s.prompt;
     if (!open || open.id !== p.prompt)
       throw new Failure('stale_prompt', 'That prompt is no longer the open one; nothing was sent.', { current: open });
-    if (typeof p.choice !== 'string') throw badRequest('this prompt takes one of its option keys', 'choice');
-    const key = p.choice;
-    if (!open.options.some((o) => o.key === key)) throw badRequest(`${key} is not offered by this prompt`, 'choice');
-    script.record(s, 'key', key, actor.name);
-    script.control(s, actor, 'prompt.answer', `${actor.name} answered ${key}`);
-    script.answer(s, key, actor);
+    const keys = open.options.map((o) => o.key);
+    const text = (p.choice as { text?: unknown } | null)?.text;
+    let given: string[];
+    if (typeof p.choice === 'string') {
+      if (!keys.includes(p.choice)) throw badRequest(`${p.choice} is not offered by this prompt`, 'choice');
+      given = [p.choice];
+    } else if (Array.isArray(p.choice)) {
+      if (!open.multi) throw badRequest('this prompt takes one option key, not a list', 'choice');
+      if (!p.choice.length || !p.choice.every((k) => typeof k === 'string' && keys.includes(k)))
+        throw badRequest('the list holds keys this prompt offers', 'choice');
+      given = p.choice as string[];
+    } else if (typeof text === 'string' && text.trim()) {
+      if (open.kind !== 'question') throw badRequest('typed text answers only a question', 'choice');
+      given = [text]; // typed text answers a question or dialog that asks for it
+    } else throw badRequest('this prompt takes one of its option keys', 'choice');
+    for (const k of given) script.record(s, 'key', k, actor.name);
+    script.control(s, actor, 'prompt.answer', `${actor.name} answered ${given.join(', ')}`);
+    script.answer(s, given[0]!, actor);
     return script.accepted('Answered.');
   },
   'input.take': (h) => {

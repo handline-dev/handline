@@ -2,39 +2,14 @@
 // replies, tool lines and task events follow in time, and a question from the agent can be answered or dismissed here.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { AgentDetail, Prompt } from '@handline/client';
-import { offered, timeline } from '@handline/app-core';
+import type { AgentDetail } from '@handline/client';
+import { timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { Skeleton, classify, sentence, usePending, useChat, useWrite, type ChatScope } from '@handline/app-data';
+import { Skeleton, classify, sentence, useChat, type ChatScope } from '@handline/app-data';
+import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
-
-export function PromptCard({ agent, prompt: p }: { agent: string; prompt: Prompt }) {
-  const answer = useWrite('prompt.answer', agent);
-  const answering = usePending('prompt.answer').some((v) => v.agent === agent);
-  const what = p.kind === 'permission' ? `Permission: ${p.tool ?? ''}` : `Dialog: ${p.kind}`;
-  return (
-    <div className="card prompt" role="alert">
-      <div className="card-title">⚠ {what}</div>
-      {p.command ? <code className="cmd">{p.command}</code> : <pre className="lines">{p.lines.join('\n')}</pre>}
-      {p.reason ? <p className="muted">{p.reason}</p> : null}
-      <div className="card-actions">
-        {offered(p).map((o) => (
-          <button
-            key={o.key}
-            className={`btn${o.answer === 'yes' ? ' primary' : ''}`}
-            disabled={answering}
-            onClick={() => answer.mutate({ agent, prompt: p.id, choice: o.key })}
-          >
-            {o.label} <kbd>{o.key}</kbd>
-          </button>
-        ))}
-      </div>
-      {answering ? <p className="muted">answering…</p> : null}
-    </div>
-  );
-}
 
 function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
@@ -45,7 +20,9 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
           <p>This daemon does not serve the conversation. Use the terminal tab to work with the agent.</p>
         </div>
       </div>
-      <div className="cards">{detail.prompt ? <PromptCard agent={agent} prompt={detail.prompt} /> : null}</div>
+      <div className="cards">
+        <PromptSlot agent={agent} prompt={detail.prompt} />
+      </div>
       <div className="compose-row">
         <textarea
           className="compose"
@@ -134,7 +111,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           </div>
         ) : null}
       </div>
-      <div className="cards">{detail.prompt ? <PromptCard agent={agent} prompt={detail.prompt} /> : null}</div>
+      <div className="cards">
+        <PromptSlot agent={agent} prompt={detail.prompt} />
+      </div>
       <Compose key={agent} agent={agent} storage={storage} canSend={canSend} history={history} />
     </section>
   );
