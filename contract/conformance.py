@@ -13,6 +13,7 @@ one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import socket
@@ -84,6 +85,19 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
             elif op == "$regex":
                 if not (isinstance(got, str) and re.search(arg, got)):
                     raise Mismatch(f"{at}: wanted /{arg}/, got {json.dumps(got)}")
+            elif op in ("$above", "$next"):
+                base = saved.get(arg)
+                if not isinstance(base, int) or isinstance(base, bool):
+                    raise Mismatch(f"{at}: {op} {arg} names no saved integer")
+                if not (isinstance(got, int) and not isinstance(got, bool)) or (got <= base if op == "$above" else got != base + 1):
+                    raise Mismatch(f"{at}: wanted {'above' if op == '$above' else 'exactly one above'} {base}, got {json.dumps(got)}")
+            elif op == "$b64regex":
+                try:
+                    text = base64.b64decode(got, validate=True).decode("utf-8", "replace") if isinstance(got, str) else None
+                except ValueError:
+                    text = None
+                if text is None or not re.search(arg, text):
+                    raise Mismatch(f"{at}: wanted base64 of text matching /{arg}/, got {json.dumps(got)[:200]}")
             elif op == "$save":
                 saved[arg] = got
             elif op in ("$absent", "$exact"):
@@ -197,8 +211,26 @@ class Connection:
                 continue
             raise Mismatch(f"a reply for id {json.dumps(msg.get('id'))} while waiting for {json.dumps(rid)}")
 
-    def notice(self, want: dict, saved: dict) -> None:
-        deadline = time.time() + NOTICE_WAIT_S
+    def next_notice(self, want: dict, saved: dict, wait: float) -> None:
+        """The very next notice, not a later one, must match: no other may come before it."""
+        deadline = time.time() + wait
+        while not self.notices:
+            left = deadline - time.time()
+            if left <= 0:
+                raise Mismatch(f"no notice came; wanted {json.dumps(want)}")
+            try:
+                msg = self.read_line(left)
+            except socket.timeout:
+                continue
+            if msg is None:
+                raise Mismatch("the connection closed while waiting for a notice")
+            check_envelope(msg, True)
+            self.notices.append(msg)
+        got = self.notices.pop(0)
+        matches(want, got, saved)
+
+    def notice(self, want: dict, saved: dict, wait: float = NOTICE_WAIT_S) -> None:
+        deadline = time.time() + wait
         while True:
             for i, n in enumerate(self.notices):
                 try:
@@ -209,7 +241,7 @@ class Connection:
                 return
             left = deadline - time.time()
             if left <= 0:
-                raise Mismatch(f"no notice matched {json.dumps(want)}; saw {json.dumps(self.notices)}")
+                raise Mismatch(f"no notice matched {json.dumps(want)}; saw {json.dumps(self.notices)[:600]}")
             try:
                 msg = self.read_line(left)
             except socket.timeout:
@@ -333,8 +365,10 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                         if "error" not in reply:
                             raise Mismatch(f"wanted an error, got {json.dumps(reply)}")
                         matches(substitute(step["error"], saved), reply["error"], saved, "error")
+                if "notice_next" in step:
+                    conn.next_notice(step["notice_next"], saved, step.get("notices_within_s", NOTICE_WAIT_S))
                 for want in step.get("notices", []):
-                    conn.notice(want, saved)
+                    conn.notice(want, saved, step.get("notices_within_s", NOTICE_WAIT_S))
             except (Mismatch, socket.timeout, ConnectionError, json.JSONDecodeError) as e:
                 return "fail", f"step {n}: {type(e).__name__ + ': ' if not isinstance(e, Mismatch) else ''}{e}"
         return "pass", ""
