@@ -5,6 +5,7 @@ account.remove
 account.set
 account.set_cap
 agent.create
+agent.strip
 hr.decide
 inbox.answer
 inbox.mark_read
@@ -36,6 +37,7 @@ terminal.history
 terminal.input
 terminal.resize
 worktree.set_status
+chat.refs
 chat.send
 chat.answer
 chat.dismiss
@@ -57,7 +59,6 @@ ask
 push
 push.answer
 push.cancelled
-schedules.list
 settings.get
 task.ask
 chat.cancel

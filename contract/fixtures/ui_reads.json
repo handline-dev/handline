@@ -1,0 +1,226 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.strip.unknown_agent_is_not_found",
+   "spec": "agent.strip",
+   "about": "An agent the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.strip",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.strip.needs_an_agent",
+   "spec": "agent.strip",
+   "about": "No agent name is bad_request naming agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.strip",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.strip.is_refused_to_anonymous",
+   "spec": "agent.strip",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.strip",
+      "params": {
+       "agent": "a"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.refs.unknown_agent_is_not_found",
+   "spec": "chat.refs",
+   "about": "An agent the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.refs",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.refs.needs_an_agent",
+   "spec": "chat.refs",
+   "about": "No agent name is bad_request naming agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.refs",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.refs.is_refused_to_anonymous",
+   "spec": "chat.refs",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.refs",
+      "params": {
+       "agent": "a"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
