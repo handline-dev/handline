@@ -950,6 +950,12 @@ export type ChatRequestItem = {
   handoff?: string | null;
 };
 
+export type ScheduleError = {
+  target: AgentName;
+  /** Why the agent's `schedules` value cannot be read, as `hl schedule list` says it. */
+  error: string;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1683,7 +1689,7 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "schedules.list": { params: { [key: string]: unknown }; result: {
-    schedules: Schedule[];
+    schedules: (Schedule | ScheduleError)[];
   } };
   "schedule.add": { params: {
   target: AgentName;

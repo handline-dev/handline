@@ -599,7 +599,7 @@ Set a worktree's status.
 
 ### `schedules.list`
 
-Schedules.
+Schedules. An agent whose `schedules` value is bad is listed once as a ScheduleError (target and the error text), not as an agent with no schedules.
 
 ### `schedule.add`
 

@@ -108,7 +108,14 @@ def _schedules(ctx, params) -> dict:
     con = db.connect()
     try:
         for agent in paths.list_agents():
-            for item in rpc_schedules.schedules.of(agent):
+            try:
+                items = rpc_schedules.schedules.load(agent)
+            except ValueError as e:     # a bad value is said, not shown as no schedules (what `hl schedule list --agent` prints)
+                out.append({"target": agent, "error": str(e)})
+                continue
+            except Exception:  # noqa: BLE001 - an agent.yaml that cannot be read is doctor's to report, as schedules.of treats it
+                continue
+            for item in items:
                 last = _fired(con, agent, item)
                 handled = db.get_cursor(con, f"schedule_at:{agent}:{rpc_schedules.schedules.sid(item)}")
                 nxt = cron.next_after(cron.parse(item["cron"]), max(last or 0, handled or 0, now if not (last or handled) else 0))

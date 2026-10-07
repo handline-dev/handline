@@ -17,7 +17,7 @@ from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
 from handline.daemon import rpc_schedules, rpc_team  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.team import hr  # noqa: E402
+from handline.team import agents, hr  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
@@ -154,6 +154,15 @@ def test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(home: Pa
     check("schedules.list: a firing is its last run", got[0]["last_run"] is not None, str(got))
     _call("schedule.remove", {"schedule": sid, "request_id": "c2"})
     check("schedules.list: removed, it is gone", _call("schedules.list")["result"]["schedules"] == [])
+
+
+def test_schedules_list_says_a_bad_value_and_not_none(home: Path) -> None:
+    _world(home)
+    agents.write("worker", {**agents.read("worker"), "schedules": "not json"})
+    got = _call("schedules.list")["result"]["schedules"]
+    check("schedules.list: a bad value is listed with its error", len(got) == 1 and got[0]["target"] == "worker"
+          and got[0]["error"].startswith("schedules is not JSON") and set(got[0]) == {"target", "error"}, str(got))
+    check("schedules.list: that answer is in the spec's schema", _invalid(_call("schedules.list")["result"], RESULT["schedules.list"]) is None)
 
 
 def test_stats_count_a_window(home: Path) -> None:

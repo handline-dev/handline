@@ -6262,7 +6262,14 @@
       "schedules": {
        "type": "array",
        "items": {
-        "$ref": "#/components/schemas/Schedule"
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/Schedule"
+         },
+         {
+          "$ref": "#/components/schemas/ScheduleError"
+         }
+        ]
        }
       }
      },
@@ -6273,7 +6280,8 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "An agent whose `schedules` value is bad is listed once as a ScheduleError (target and the error text), not as an agent with no schedules."
   },
   {
    "name": "schedule.add",
@@ -11142,6 +11150,22 @@
     "required": [
      "type",
      "at"
+    ]
+   },
+   "ScheduleError": {
+    "type": "object",
+    "properties": {
+     "target": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "error": {
+      "type": "string",
+      "description": "Why the agent's `schedules` value cannot be read, as `hl schedule list` says it."
+     }
+    },
+    "required": [
+     "target",
+     "error"
     ]
    }
   },
