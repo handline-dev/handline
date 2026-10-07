@@ -2115,7 +2115,7 @@
   {
    "name": "terminal.detach.format_is_text_or_bytes",
    "spec": "terminal.detach",
-   "about": "NOT_YET_IN_PYTHON: A format that is neither word is bad_request naming format.",
+   "about": "A format that is neither word is bad_request naming format.",
    "as": "founder",
    "steps": [
     {
