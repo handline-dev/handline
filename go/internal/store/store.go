@@ -147,6 +147,22 @@ func newerStepsOnlyAdd(db *sql.DB, latest int) (bool, error) {
 	return n == 0, err
 }
 
+// byHand are the steps tools/go_schema.py cannot dump because they change a table an earlier step made: ported here,
+// run after the step's generated SQL (a comment only).
+var byHand = map[int]func(*sql.Tx) error{
+	10: addExtraWorktrees, // agent_extra_worktrees
+}
+
+// addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
+func addExtraWorktrees(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_table_info('agent_state') WHERE name = 'extra_worktrees'").Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := tx.Exec("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
+	return err
+}
+
 func bringUp(db *sql.DB, path string) error {
 	ms, err := migrations()
 	if err != nil {
@@ -203,6 +219,12 @@ func bringUp(db *sql.DB, path string) error {
 		if _, err := tx.Exec(m.sql); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
+		}
+		if step := byHand[m.version]; step != nil {
+			if err := step(tx); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
+			}
 		}
 		if _, err := tx.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, " +
 			"name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)"); err != nil {

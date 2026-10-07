@@ -103,7 +103,7 @@ def test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(ho
     dbschema.connect(p).close()
     raw = sqlite3.connect(p)
     raw.execute("ALTER TABLE agent_state DROP COLUMN extra_worktrees")
-    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+    raw.execute("DELETE FROM schema_version WHERE version >= 10")
     raw.commit()
     raw.close()
     con = dbschema.connect(p)
