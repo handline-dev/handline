@@ -2,7 +2,7 @@ package db
 
 import "database/sql"
 
-// Pending is one pending_messages row: text the daemon still owes an agent's terminal (T351).
+// Pending is one pending_messages row: text the daemon still owes an agent's terminal.
 type Pending struct {
 	ID, TS int64
 	Agent  string

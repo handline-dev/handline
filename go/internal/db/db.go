@@ -117,7 +117,7 @@ func ClearMeta(q Q, name string) error {
 	return err
 }
 
-// AgentProgressKey is the meta name of an agent's progress note when it has no request or task in hand (T366).
+// AgentProgressKey is the meta name of an agent's progress note when it has no request or task in hand.
 func AgentProgressKey(agent string) string { return "progress-agent:" + agent }
 
 // Cursor is db.get_cursor: the row id under name, 0 when unset.

@@ -135,7 +135,7 @@ func LinkRequest(q Q, tid, rid int64) error {
 	return RefreshSent(q, tid)
 }
 
-// RefreshSent is db.refresh_sent (T751): sent_at is set once while a request that asks something is out on the task, cleared
+// RefreshSent is db.refresh_sent: sent_at is set once while a request that asks something is out on the task, cleared
 // when none is left.
 func RefreshSent(q Q, tid int64) error {
 	_, err := q.Exec("UPDATE tasks SET sent_at = CASE WHEN EXISTS "+
@@ -207,7 +207,7 @@ func DiscardTask(q Q, tid int64, by, reason string) (bool, error) {
 	return false, nil
 }
 
-// StampTaskDelivered is db.stamp_task_delivered (T720): request rid reached its target's session, so the task it delivers to that
+// StampTaskDelivered is db.stamp_task_delivered: request rid reached its target's session, so the task it delivers to that
 // same owner is delivered from now. Once.
 func StampTaskDelivered(q Q, rid int64) error {
 	_, err := q.Exec("UPDATE tasks SET delivered_at = ? WHERE delivered_at IS NULL AND owner = "+

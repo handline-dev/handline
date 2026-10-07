@@ -457,7 +457,7 @@ func MarkDelivered(q Q, rid int64) (bool, error) {
 	if err := q.QueryRow("SELECT target FROM requests WHERE id = ?", rid).Scan(&target); err != nil {
 		return false, err
 	}
-	if err := SetMeta(q, AgentProgressKey(target), ""); err != nil { // work arrived: the idle spell's progress note ends (T366)
+	if err := SetMeta(q, AgentProgressKey(target), ""); err != nil { // work arrived: the idle spell's progress note ends
 		return false, err
 	}
 	if target == Human { // the founder has no transcript to land in: drawn is delivered
@@ -578,8 +578,8 @@ type CloseOpts struct {
 	Announced       bool   // the answering say is written already told
 	DismissedBy     string // a dismissal, by whom
 	DismissedReason string
-	AnsweredBy      int64 // a reply row that is itself the answer (T361)
-	NoSettle        bool  // the request closes because its task is being handed on: the decision task stays open (T684)
+	AnsweredBy      int64 // a reply row that is itself the answer
+	NoSettle        bool  // the request closes because its task is being handed on: the decision task stays open
 }
 
 // CloseIfQueued is db.close_if_queued: close a request still open, atomically; true only if this call closed it.

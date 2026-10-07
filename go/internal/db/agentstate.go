@@ -86,7 +86,7 @@ func SetTask(q Q, agent, task string) error {
 }
 
 // SetCurrentTask is db.set_current_task: the one board task the agent holds now. Giving it a task ends the idle spell its
-// agent-level progress note was written in (T366). set false clears it.
+// agent-level progress note was written in. Passing set false clears it.
 func SetCurrentTask(q Q, agent string, tid int64, set bool) error {
 	if set {
 		if _, err := q.Exec("INSERT INTO meta(name, value, updated) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value, updated=excluded.updated",
