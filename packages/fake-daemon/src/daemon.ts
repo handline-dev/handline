@@ -18,10 +18,11 @@ import {
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import { AGENTS, seedChat } from './fixtures.ts';
+import { FakeTasks, taskCall } from './tasks.ts';
 import { ChatFailure, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
-import { Failure, badRequest, refused } from './errors.ts';
+import { Failure, badRequest, refused, storeFailure } from './errors.ts';
 import { Knobs } from './knobs.ts';
 import { detail, newSession, tid, view, type Attach, type Session } from './session.ts';
 
@@ -56,6 +57,7 @@ export class FakeDaemon {
   readonly chat: FakeChat;
   /** Topics `subscribe` refuses as the daemon's stream does for one it has no list for; `hr` is in the contract but not yet served. */
   readonly unservedTopics = new Set<Topic>(['hr']);
+  readonly tasks = new FakeTasks(this, () => this.iso());
   private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
@@ -73,8 +75,9 @@ export class FakeDaemon {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));
         if (a?.format === 'text') this.notify(c, method, params);
-        // Bytes watchers get the same markers and holders in their own counter, and no frames or resizes.
-        else if (a && (method === 'marker' || method === 'holder')) this.notify(c, method, { ...(params as object), seq: ++a.seq });
+        // Bytes watchers get the same markers and holders in their own counter, marked `bytes`, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder'))
+          this.notify(c, method, { ...(params as object), format: 'bytes', seq: ++a.seq });
       }
     },
     broadcastBytes: (s, method, build) => {
@@ -187,6 +190,7 @@ export class FakeDaemon {
       kind: 'daemon_typed',
       actor: { kind: 'daemon', name: 'daemon' },
       text,
+      format: 'text',
     }));
   }
 
@@ -323,7 +327,7 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => this.serveChat || !name.startsWith('chat.'))
+          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && this.tasks.lists(name))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -340,6 +344,7 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
+    if (this.tasks.serves(method)) return taskCall(this.tasks, method, p, c.caller.name, this.script);
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
@@ -435,11 +440,7 @@ export class FakeDaemon {
       return fn();
     } catch (e) {
       if (!(e instanceof ChatFailure)) throw e;
-      throw e.code === 'refused'
-        ? refused(e.gate ?? 'state', e.message)
-        : e.code === 'bad_request'
-          ? badRequest(e.message)
-          : new Failure('not_found', e.message);
+      throw storeFailure(e);
     }
   }
 

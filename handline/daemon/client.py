@@ -79,6 +79,13 @@ def ensure_daemon(timeout: float = TIMEOUT_S, wait_s: float = START_WAIT_S) -> s
     if service._plist_installed() is not True:
         raise DaemonDown("no service is installed to start it (`hl service install`)")
     res = service.run_launchctl(["kickstart", service.service_target()])
+    if res.returncode != 0 and "could not find service" in f"{res.stderr} {res.stdout}".lower():
+        # Installed and not loaded (a bootout, a login that did not load it): load what is installed, and start it. Nothing is
+        # rewritten and no daemon is started here; a service that is loaded is never bootstrapped.
+        loaded, said = service.load()
+        if not loaded:
+            raise DaemonDown(f"the service is installed but not loaded, and launchd would not load it: {said[:200]} (`hl service install`)")
+        res = service.run_launchctl(["kickstart", service.service_target()])
     if res.returncode != 0:
         raise DaemonDown(f"launchd would not start it: {(res.stderr or res.stdout).strip()[:200] or 'no reason given'}")
     deadline = time.monotonic() + wait_s

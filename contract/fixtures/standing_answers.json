@@ -1,0 +1,330 @@
+{
+ "fixtures": [
+  {
+   "name": "answers.list.shape",
+   "spec": "answers.list",
+   "about": "The saved answers, possibly none.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answers.list",
+      "params": {}
+     },
+     "result": {
+      "answers": {
+       "$type": "array",
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "key": {
+         "$type": "array"
+        },
+        "text": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "answers.list.an_agent_is_refused",
+   "spec": "answers.list",
+   "about": "An agent session may not read the founder's saved answers: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answers.list",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "answer.add.a_folder_or_a_rule_is_needed",
+   "spec": "answer.add",
+   "about": "Nothing given is bad_request naming folder.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answer.add",
+      "params": {
+       "request_id": "conf-sa-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "folder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "answer.add.an_agent_is_refused",
+   "spec": "answer.add",
+   "about": "An agent session may not save an answer: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answer.add",
+      "params": {
+       "folder": "/tmp",
+       "request_id": "conf-sa-4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "answer.remove.kind_is_trust_or_dialog",
+   "spec": "answer.remove",
+   "about": "Any other kind is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answer.remove",
+      "params": {
+       "kind": "other",
+       "key": [
+        "x"
+       ],
+       "request_id": "conf-sa-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "kind"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "answer.remove.no_such_answer_is_not_found",
+   "spec": "answer.remove",
+   "about": "A folder nobody trusted is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "answer.remove",
+      "params": {
+       "kind": "trust",
+       "key": [
+        "/no/such/trusted/folder"
+       ],
+       "request_id": "conf-sa-6"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.get.no_such_request_is_not_found",
+   "spec": "inbox.get",
+   "about": "A request number nothing has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.get",
+      "params": {
+       "id": 999999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.get.id_is_a_number",
+   "spec": "inbox.get",
+   "about": "An id that is not a number is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.get",
+      "params": {
+       "id": "1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "id"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -27,14 +27,18 @@ func (e *Env) roleLine(name string) string {
 	return ""
 }
 
+// noView is the state word of an agent the tick has stored no view for (x-state-words in protocol.json).
+const noView = "no_terminal"
+
 // viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view). An agent with no
-// stored view yet gets what can be read without the tick's judgement of its screen: its state is "unknown".
+// stored view yet gets what can be read without the tick's judgement of its screen: no terminal is known for it, so its
+// state is the spec's word for that.
 func (e *Env) viewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
 	if v, ok := stored[name]; ok {
 		return v, nil
 	}
 	view := map[string]any{
-		"name": name, "role": e.roleLine(name), "model": nil, "effort": nil, "state": "unknown", "state_detail": "",
+		"name": name, "role": e.roleLine(name), "model": nil, "effort": nil, "state": noView, "state_detail": "",
 		"state_since": nil, "block": nil, "wall_reason": nil, "background_since": nil, "would_wake": false,
 		"blocker": nil, "account": nil, "task": nil, "cache_until": nil, "has_dialog": false, "parent": nil,
 	}
@@ -201,6 +205,26 @@ func optionsOf(kind string, answerable bool, detail map[string]any) []any {
 	return append(out, cancelOption())
 }
 
+// truthy is Python's bool() of a decoded JSON value.
+func truthy(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case []any:
+		return len(x) > 0
+	case map[string]any:
+		return len(x) > 0
+	}
+	if n, ok := rpc.AsInt(v); ok {
+		return n != 0
+	}
+	return true
+}
+
 func orNil(m map[string]any, k string) any {
 	if s, ok := m[k].(string); ok && s != "" {
 		return s
@@ -228,6 +252,7 @@ func (e *Env) openPrompt(name string) (any, error) {
 		"id": r.str("fingerprint"), "agent": name, "kind": r.str("kind"), "tool": orNil(detail, "tool"),
 		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
 		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
+		"multi": truthy(detail["multi_select"]),
 	}, nil
 }
 

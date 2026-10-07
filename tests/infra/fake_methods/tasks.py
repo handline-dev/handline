@@ -8,6 +8,8 @@ def tasks(role, method, params):
         return "fail", err(-32600, "bad_request", field="request_id")
     if params.get("waits_on") is not None:
         return "fail", err(-32602, "bad_request", field="waits_on")
+    if params.get("priority") is not None and (isinstance(params["priority"], bool) or params["priority"] not in (1, 2, 3)):
+        return "fail", err(-32602, "bad_request", field="priority")
     if method == "task.new":
         if role != "agent":
             return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}

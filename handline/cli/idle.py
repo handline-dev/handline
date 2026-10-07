@@ -8,8 +8,16 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..infra import timefmt
+from ..infra import protected, timefmt
 from ..session import autoaccept, idle_close
+
+
+def _proposed(switch: str, value, args) -> int | None:
+    """From an agent's session, setting a global switch is a `global` HR proposal; None otherwise."""
+    if value is None or getattr(args, "agent", None) or not protected.in_agent_session():
+        return None
+    from .hr import propose_for_session
+    return propose_for_session("global", switch, {"value": str(value)}, args.why)
 
 
 def seconds_or_never(text: str) -> int:
@@ -38,6 +46,9 @@ def _describe_timeout(seconds: int) -> str:
 
 
 def cmd_idle_timeout(args) -> int:
+    proposed = _proposed("idle-timeout", None if args.seconds is None else ("never" if args.seconds == idle_close.NEVER else args.seconds), args)
+    if proposed is not None:
+        return proposed
     if args.clear and not args.agent:
         print("--clear only applies with --agent", file=sys.stderr)
         return 1
@@ -91,6 +102,9 @@ def cmd_idle_background(args) -> int:
 
 def cmd_notice_digest(args) -> int:
     """How long after its first waiting result an agent is woken once with a digest of them."""
+    proposed = _proposed("notice-digest", None if args.span is None else f"{args.span}s", args)
+    if proposed is not None:
+        return proposed
     if args.clear and not args.agent:
         print("--clear only applies with --agent", file=sys.stderr)
         return 1
@@ -108,6 +122,9 @@ def cmd_notice_digest(args) -> int:
 
 
 def cmd_auto_accept(args) -> int:
+    proposed = _proposed("auto-accept", args.state, args)
+    if proposed is not None:
+        return proposed
     if args.state is not None:
         try:
             autoaccept.set_enabled(args.state == "on")
@@ -126,6 +143,9 @@ def _describe_cache(on: bool) -> str:
 
 
 def cmd_ignore_cache_expiry(args) -> int:
+    proposed = _proposed("ignore-cache-expiry", args.state, args)
+    if proposed is not None:
+        return proposed
     if args.clear and not args.agent:
         print("--clear only applies with --agent", file=sys.stderr)
         return 1

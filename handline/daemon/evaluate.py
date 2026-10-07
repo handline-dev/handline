@@ -283,7 +283,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         if closed:
             actions.append(f"{agent}: cache expired; session closed, the wake delivers")
             row = db.get_agent_state(con, agent)
-        if closed is None:
+        # Our own text still in its box, Enter lost: pressed again, and nothing else is typed this tick.
+        if closed is None and not delivery.recover_unsent(con, agent, log):
             delivery.deliver_answers(con, agent, log)
             # A task told past an idle head starts a turn: the nudge about that head waits.
             if not delivery.deliver_queued(con, agent, log):

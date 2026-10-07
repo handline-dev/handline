@@ -18,10 +18,20 @@ import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
 import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
-import { goAgent } from './route.ts';
+import { goAgent, goTasks } from './route.ts';
 import { View } from './View.tsx';
 
-export function Sidebar({ selected, storage, onToggle }: { selected: string; storage: KV | null; onToggle: () => void }) {
+export function Sidebar({
+  selected,
+  onTasks,
+  storage,
+  onToggle,
+}: {
+  selected: string;
+  onTasks: boolean;
+  storage: KV | null;
+  onToggle: () => void;
+}) {
   const list = useAgents();
   const { served } = useServes('agents.list');
   const agents = list.data?.agents ?? [];
@@ -51,7 +61,13 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
           </span>
         ) : null}
       </div>
-      <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
+      <div className="rail-nav">
+        {later('Inbox')}
+        <button className="nav" aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
+          Tasks
+        </button>
+        {['Team', 'Accounts'].map(later)}
+      </div>
       <div className="rail-opts">
         <input
           className="search"

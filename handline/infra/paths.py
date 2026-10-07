@@ -89,6 +89,11 @@ def relay_socket_file() -> Path:
     return home() / "relay.sock"
 
 
+def gateway_socket_file() -> Path:
+    """The gateway's local socket, for the founder's `hl device` commands (never the daemon's)."""
+    return home() / "gateway.sock"
+
+
 def mcp_config() -> Path:
     """The MCP server registry every launch passes via `--mcp-config`.
 
