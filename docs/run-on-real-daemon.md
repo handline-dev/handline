@@ -37,6 +37,7 @@ The Python daemon is not running, or is not the version of this checkout. Start 
 Step 1 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
 
 **Common failure:** the window shows "Pair this computer": the app could not pair itself. Run `hl device pair` and paste the `code:` value, or the whole `handline://` line, into the window.
+If the window fails to connect, an older gateway on another address (loopback, say) is still running and the app reused it: stop it, then start the app again.
 If that command says `no gateway is running (nothing listens on <home>/gateway.sock)`, the gateway is not running: step 1.
 
 ### Browser
@@ -64,6 +65,10 @@ You should see the agent list, then an agent's page.
 
 ## 4. Android
 
+**Not working on the plain gateway yet.** An Android release build refuses cleartext `ws://`, and the app has no cleartext setting, so Pair fails with `cannot connect`. Until that is added to `apps/mobile`, use the LAN section below (a certificate the phone pins), or skip Android.
+
+The steps, for when it works:
+
 1. Tailscale on the phone, signed in to the same tailnet.
 2. Build the release app once (about 9 minutes) and install it on the phone with USB debugging on. `apps/mobile/android` is not in the repo, so generate it first.
 
@@ -76,7 +81,7 @@ You should see the agent list, then an agent's page.
 
 You should see the agent list.
 
-**Common failure:** the same as the iPhone's: the phone cannot reach `<ip>:7443`.
+**Common failure:** `cannot connect` on a phone that reaches `<ip>:7443` in its browser: the cleartext limit above.
 
 ## Not on Tailscale: a LAN with a certificate
 
