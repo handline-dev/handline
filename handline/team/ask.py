@@ -262,8 +262,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
         kind: str | None = None,
         send_now: bool = False,
         on_behalf_of: bool = False, speaker=_ENV,
-        notify: bool = True, card: bool = True) -> tuple[bool, str, int | None]:
+        notify: bool = True, card: bool = True, within=None) -> tuple[bool, str, int | None]:
     """Route and, if allowed, enqueue. Returns (allowed, message, request id).
+
+    `within(con, rid, message)` is more to write in the transaction that writes the row: the row and
+    what `within` writes stand or fall together, and the request is dropped into the inbox once they commit.
 
     `kind` overrides the routing edge's own `decision.kind` on the request
     row - T292's `task new` uses it to write 'task' regardless of what the
@@ -367,26 +370,35 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                            f"next slot frees at {when}; wait for it rather than retrying, "
                            f"because a refusal sends nothing. Your text is kept as #{rid}."), None
 
-        rid = db.add_request(con, requester, target, body, files, decision.relation,
-                             decision.response, kind or decision.kind,
-                             depth, parent_id,
-                             chain_id=chain_id)
-        if send_now:
-            db.mark_send_now(con, rid)
-        if card and target == HUMAN and kind is None and decision.kind == "task":
-            # What is asked of the founder is a decision task, and this row its card;
-            # `task new` opens its own task and says `card=False`.
-            tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
-                              HUMAN, requester, expects="decision")
-            db.set_task_queued(con, tid, HUMAN)
-            db.link_request(con, tid, rid)
+        if within:
+            con.execute("BEGIN IMMEDIATE")
+        try:
+            rid = db.add_request(con, requester, target, body, files, decision.relation,
+                                 decision.response, kind or decision.kind,
+                                 depth, parent_id,
+                                 chain_id=chain_id)
+            if send_now:
+                db.mark_send_now(con, rid)
+            if card and target == HUMAN and kind is None and decision.kind == "task":
+                # What is asked of the founder is a decision task, and this row its card;
+                # `task new` opens its own task and says `card=False`.
+                tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
+                                  HUMAN, requester, expects="decision")
+                db.set_task_queued(con, tid, HUMAN)
+                db.link_request(con, tid, rid)
+            db.add_event(con, requester, "ask", {
+                "request_id": rid, "target": target, "relation": decision.relation,
+                "response": decision.response, "chain_depth": depth,
+            })
+            note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
+            if within:
+                within(con, rid, note)
+                con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
         deliver(rid, requester, target, body, files, decision)
-        db.add_event(con, requester, "ask", {
-            "request_id": rid, "target": target, "relation": decision.relation,
-            "response": decision.response, "chain_depth": depth,
-        })
-
-        note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
         if notify:
             note += "\n" + push(con, target, rid)
         return True, note, rid
@@ -402,38 +414,51 @@ def replies_to(parent, requester: str, target: str) -> bool:
 
 def say(target: str, body: str, requester: str | None = None,
         parent_id: int | None = None, speaker=_ENV,
-        notify: bool = True) -> tuple[bool, str, int | None]:
+        notify: bool = True, within=None) -> tuple[bool, str, int | None]:
     """T293 (#1655/#1657): a question answered from a look-up, not new work
     - always ahead of the queue, never a head, and the sender is never parked
     on it (T628: nobody parks waiting on a peer). `parent_id` replies to and
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
+
+    `within(con, message)` is more to write in the transaction that writes the reply and settles the request
+    it answers.
     """
+    settled: list = []
+
+    def together(con, rid, note):
+        if parent_id is not None:
+            settled.append(_close_replied(con, parent_id, rid, body))
+        if within:
+            within(con, note)
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
                       kind=SAY_KIND,
-                      speaker=speaker, notify=notify)
-    if ok and parent_id is not None and rid is not None:
-        _close_replied(parent_id, rid, body)
+                      speaker=speaker, notify=notify, within=together if parent_id is not None or within else None)
+    if ok and settled and settled[0]:
+        con = db.connect()
+        try:
+            _after_close(con, *settled[0])
+        finally:
+            con.close()
     return ok, msg, rid
 
 
-def _close_replied(parent_id: int, reply_id: int, reply_body: str) -> None:
+def _close_replied(con, parent_id: int, reply_id: int, reply_body: str):
     """A reply settles the request it answers (T361), silently - the reply is what the asker
     is told, and it is marked as the answer, so there is one message. Only when it comes from
     the request's own target, to its requester, and the request is no roster proposal (those
-    are decided with approve or reject) and no task (that is handed on or finished)."""
+    are decided with approve or reject) and no task (that is handed on or finished).
+    Written on the reply's own transaction; the arguments of `_after_close` for the caller to run once it commits, or None."""
     from . import trust
-    con = db.connect()
-    try:
-        parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)
-        proposal = parent is not None and trust.open_proposal_of(parent_id)
-    finally:
-        con.close()
+    parent, reply = db.get_request(con, parent_id), db.get_request(con, reply_id)
+    proposal = parent is not None and trust.open_proposal_of(parent_id)
     if (parent is not None and parent["state"] == "queued" and not proposal
             and parent["kind"] != "task"        # a task ends by handoff or done, never by a reply
             and reply is not None and reply["requester"] == parent["target"]
-            and reply["target"] == parent["requester"]):
-        resolve(parent_id, reply_body, notify=False, answered_by=reply_id)
+            and reply["target"] == parent["requester"]
+            and db.close_if_queued(con, parent_id, "done", reply_body, announced=True, answered_by=reply_id)):
+        return parent_id, parent, "done", False
+    return None
 
 
 # T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
@@ -459,7 +484,7 @@ def push(con, target: str, rid: int | None = None) -> str:
 
     `rid`, when it names a message (anything but a task), is typed at once
     (`messaging.tell_now`, T398), and so is a task marked send-now - a handoff (T596), or one the
-    founder pressed send now on; any other task still waits for a free agent, one at a time.
+    founder pressed send now on; any other task goes out with the next batch (`delivery.BATCH_EVERY_S`).
 
     One command has to do the whole job. An agent that asks a subordinate for
     something and is told "queued" has not dispatched anything - it has left a
@@ -632,12 +657,25 @@ def _close_and_tell(con, rid: int, row, verdict: str, notify: bool, settle: bool
     None if this call lost that race; else `(target, after_close_msg, said)`,
     `said` being what was told to the target, if anything.
     """
+    if not _close_write(con, rid, row, verdict, notify, settle):
+        return None
+    return _close_tell(con, rid, row, verdict, notify)
+
+
+def _close_write(con, rid: int, row, verdict: str, notify: bool, settle: bool = True) -> bool:
+    """The write of `_close_and_tell`, alone: what a caller that holds a transaction runs inside it. False if this
+    call lost the race to close the row."""
+    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify, settle=settle):
+        return False
+    db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": row["target"]})
+    return True
+
+
+def _close_tell(con, rid: int, row, verdict: str, notify: bool):
+    """What follows `_close_write` once it has committed: the target told to stop, the requester told, the queue moved up."""
     from ..daemon import delivery as dmn_delivery
 
     target = row["target"]
-    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify, settle=settle):
-        return None
-    db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": target})
     said = []
     if row["delivered_at"]:
         typed, why = dmn_delivery.notify_cancelled(con, row, verdict)
@@ -704,21 +742,33 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None,
     `settle=False`: the task stays open when this request is its decision card
     (a release takes the task back to draft; it is not discarded).
     """
+    ok, why, after = retire_write(con, rid, verdict, notify, settle)
+    return (True, retire_tell(con, after)) if ok else (False, why)
+
+
+def retire_write(con, rid: int, verdict: str, notify: bool | None = None, settle: bool = True):
+    """The write of `retire_open`: (True, "", what `retire_tell` needs) or (False, why, None). For a caller
+    that holds a transaction: it commits, then tells."""
     row = db.get_request(con, rid)
     if row is None:
-        return False, f"#{rid} is gone"
+        return False, f"#{rid} is gone", None
     if notify is None:
         notify = row["requester"] != HUMAN
     if row["state"] != "queued":
-        return False, f"#{rid} is already {row['state']} - nothing to retire"
-    closed = _close_and_tell(con, rid, row, verdict, notify, settle)
-    if closed is None:
+        return False, f"#{rid} is already {row['state']} - nothing to retire", None
+    if not _close_write(con, rid, row, verdict, notify, settle):
         if db.is_still_queued(con, rid):
-            return False, f"#{rid} was not retired - it is still queued"
-        return False, f"#{rid} was closed while this ran - nothing to retire"
-    target, msg, said = closed
-    return True, (f"#{rid} to {target} retired"
-                  + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
+            return False, f"#{rid} was not retired - it is still queued", None
+        return False, f"#{rid} was closed while this ran - nothing to retire", None
+    return True, "", (rid, row, verdict, notify)
+
+
+def retire_tell(con, after) -> str:
+    """What `retire_open` says once `retire_write` has committed."""
+    rid, row, verdict, notify = after
+    target, msg, said = _close_tell(con, rid, row, verdict, notify)
+    return (f"#{rid} to {target} retired"
+            + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
 
 
 def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
@@ -767,7 +817,7 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
 def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = True,
             open_tasks=None, dismissed_by: str | None = None,
             dismissed_reason: str | None = None,
-            answered_by: int | None = None, settle: bool = True) -> tuple[bool, str]:
+            answered_by: int | None = None, settle: bool = True, effect=None) -> tuple[bool, str]:
     """`settle=False`: close the request without settling the decision task it is the card of
     (a handoff closes the old holder's request, T684).
 
@@ -777,7 +827,9 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
 
     `open_tasks(con) -> list[int]` opens tasks in the same transaction as the
     close, and their numbers are appended to the verdict: a close that loses
-    the race to another answer takes the tasks back with it."""
+    the race to another answer takes the tasks back with it.
+
+    `effect(con, message)` is more to write in the transaction of the close: the daemon's record of it."""
     con = db.connect()
     try:
         row = db.get_request(con, rid)
@@ -785,7 +837,8 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
             return False, f"request {rid} does not exist"
         from . import trust
         proposal = trust.open_proposal_of(rid) if row["state"] == "queued" else None
-        if open_tasks is not None:
+        txn = open_tasks is not None or effect is not None
+        if txn:
             con.execute("BEGIN IMMEDIATE")
         try:
             if open_tasks is not None:
@@ -798,11 +851,13 @@ def resolve(rid: int, verdict: str | None, state: str = "done", notify: bool = T
                                         dismissed_by=dismissed_by,
                                         dismissed_reason=dismissed_reason,
                                         answered_by=answered_by, settle=settle)
+            if closed and effect:
+                effect(con, f"#{rid} answered")
         except Exception:
-            if open_tasks is not None:
+            if txn:
                 con.execute("ROLLBACK")
             raise
-        if open_tasks is not None:
+        if txn:
             con.execute("COMMIT" if closed else "ROLLBACK")
         if not closed:
             fresh = db.get_request(con, rid)

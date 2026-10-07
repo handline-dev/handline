@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.session import term  # noqa: E402
 from handline.daemon import noticedigest, states as dmn_states  # noqa: E402
 from handline.session import idle_close  # noqa: E402
 
@@ -252,9 +253,16 @@ def test_work_that_cannot_be_given_is_told_once_it_is_on_the_founders_list(home:
         check("blocked: before it is on the founder's list, nobody is told", sent == [], str(sent))
         noticedigest.sweep(con, lambda _m: None, now + 180)
         check("blocked: once it is, the opener is told at once", len(sent) == 1
-              and "worker is blocked: a permission prompt" in sent[0][1], str(sent))
+              and "worker is blocked: dialog open: a permission prompt" in sent[0][1], str(sent))
         noticedigest.sweep(con, lambda _m: None, now + 200)
         check("blocked: once per spell", len(sent) == 1, str(sent))
+        db.block_clear(con, "worker")
+        noticedigest.sweep(con, lambda _m: None, now + 210)
+        db.block_open(con, "worker", term.UNREADABLE, "", "T1", now, show_at=now)
+        noticedigest.sweep(con, lambda _m: None, now + 220)
+        check("blocked: a block with no detail still says what is in the way",
+              len(sent) == 2 and "\nworker is blocked: its screen could not be read\n" in sent[1][1],
+              str(sent))
     finally:
         con.close()
 

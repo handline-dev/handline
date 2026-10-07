@@ -2,6 +2,7 @@ package peer
 
 import (
 	"fmt"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -25,4 +26,13 @@ func Lookup(pid int) (Proc, bool) {
 	}
 	st := k.Proc.P_starttime
 	return Proc{PPid: int(k.Eproc.Ppid), Start: fmt.Sprintf("%d.%06d", st.Sec, st.Usec)}, true
+}
+
+// Started is when pid began; ok is false when no such process runs.
+func Started(pid int) (time.Time, bool) {
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || int(k.Proc.P_pid) != pid {
+		return time.Time{}, false
+	}
+	return time.Unix(int64(k.Proc.P_starttime.Sec), int64(k.Proc.P_starttime.Usec)*1000), true
 }

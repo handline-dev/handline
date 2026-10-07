@@ -92,9 +92,12 @@ export const STOP_MODES: { mode: StopMode; label: string; hint: string }[] = [
 export const needsConfirm = (mode: StopMode, a: AgentView): boolean =>
   mode === 'kill' || (mode === 'close' && (a.state === 'running' || a.has_dialog));
 
+/** An option that saves a standing rule ("Yes, and don't ask again"). */
+export const isAlways = (o: PromptOption): boolean => /\balways\b|don.t ask again/i.test(o.label);
+
 /** Options a card offers: a permission prompt only ever offers yes and no, never "always". */
 export function offered(p: Prompt): PromptOption[] {
-  return p.kind === 'permission' ? p.options.filter((o) => o.answer === 'yes' || o.answer === 'no') : p.options;
+  return p.kind === 'permission' ? p.options.filter((o) => (o.answer === 'yes' || o.answer === 'no') && !isAlways(o)) : p.options;
 }
 
 export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };

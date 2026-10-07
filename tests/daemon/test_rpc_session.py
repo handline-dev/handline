@@ -318,6 +318,8 @@ def test_the_legacy_verbs_and_commands_these_methods_re_expose_still_work_from_a
             check("hl close: works at role agent", rc == 0 and a.named("close") == [("close", ("worker", False), {})], out)
             rc, out = support._cli(["restart", "worker", "--fresh"])
             check("hl restart: works at role agent", rc == 0 and a.named("restart")[-1][1][:2] == ("worker", True), out)
+            rc, out = support._cli(["resume", "worker"])
+            check("hl resume (session.wake's command): works at role agent, and wakes the agent it names", rc == 0 and a.named("wake")[-1][1][:1] == ("worker",), out)
             for verb in ("wake", "park", "start"):
                 reply = socket_server._handle_request({"verb": verb, "agent": "worker"}, lambda m: None)
                 check(f"the {verb} verb: still answers {{ok, said}} to a legacy caller", reply["ok"] is True and a.named(verb), str(reply))
