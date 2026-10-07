@@ -63,7 +63,7 @@ class ProposalsView(Vertical):
     Approve / Reject. `refresh_rows` redraws it and is called on the page's tick."""
 
     BINDINGS = [Binding("a", "approve", "approve"), Binding("A", "approve_all", "approve all"),
-                Binding("r", "reject", "reject"),
+                Binding("r", "reject", "reject"), Binding("R", "reject_all", "reject all"),
                 Binding("w", "withdraw", "withdraw"), Binding("e", "edit", "edit settings")]
     DEFAULT_CSS = """
     ProposalsView { height: 1fr; }
@@ -84,6 +84,7 @@ class ProposalsView(Vertical):
         yield DataTable(id="hr_agents", cursor_type="row", zebra_stripes=True)
         with ActionBar():
             yield Button("Approve all  A", id="hr_approve_all", compact=True)
+            yield Button("Reject all  R", id="hr_reject_all", compact=True)
             yield Button("Withdraw  w", id="hr_withdraw", compact=True)
             yield Button("Edit settings  e", id="hr_edit", compact=True)
 
@@ -143,6 +144,7 @@ class ProposalsView(Vertical):
             detail.mount(hr_card.HrCard(entry))
         self.query_one("#hr_withdraw", Button).disabled = p is None
         self.query_one("#hr_approve_all", Button).disabled = not self.cards
+        self.query_one("#hr_reject_all", Button).disabled = not self.cards
 
     @property
     def card(self) -> hr_card.HrCard | None:
@@ -183,6 +185,22 @@ class ProposalsView(Vertical):
         ok, lines = hr.decide_many(entries, "approved", actions.HUMAN)
         self._say(ok, f"{len(entries)} approved" if ok else "; ".join(lines))
 
+    def action_reject_all(self) -> None:
+        """Every proposal waiting on the founder rejected in one decision; each proposer is told once."""
+        ids = [c["id"] for c in hr.pending()]
+        if not ids:
+            self.app.notify("nothing is waiting for your decision", timeout=5, markup=False)
+            return
+        self.app.push_screen(
+            Confirm(f"Reject all {len(ids)}", "Nothing is changed; each proposer is told and may raise it again.",
+                    yes="Reject all", danger=True),
+            lambda yes: yes and self._say(*self._reject_all(ids)))
+
+    @staticmethod
+    def _reject_all(ids: list[str]) -> tuple[bool, str]:
+        ok, lines = hr.decide_many([(pid, "") for pid in ids], "rejected", actions.HUMAN)
+        return ok, f"{len(ids)} rejected" if ok else "; ".join(lines)
+
     def action_withdraw(self) -> None:
         p = self.current
         if p is None:
@@ -222,4 +240,4 @@ class ProposalsView(Vertical):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         {"hr_withdraw": self.action_withdraw, "hr_edit": self.action_edit,
-         "hr_approve_all": self.action_approve_all}[event.button.id]()
+         "hr_approve_all": self.action_approve_all, "hr_reject_all": self.action_reject_all}[event.button.id]()

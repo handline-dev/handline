@@ -1,3 +1,6 @@
+import type { FakeChat } from './chat.ts';
+import type { FakeTasks } from './tasks.ts';
+
 export interface AgentFixture {
   name: string;
   role: string;
@@ -59,3 +62,92 @@ export const AGENTS: AgentFixture[] = [
 /** What the scripted fake session shows; the permission prompt belongs to the first turn. */
 export const BANNER = ['Claude Code v2.1 (fake)', 'cwd: {worktree}', ''];
 export const PROMPT_LINES = ['Bash command', '  git push origin {branch}', 'Do you want to proceed?', '  1. Yes', '  2. No'];
+
+/** A little history for the architect, one of each message state and transcript kind, so a UI has something to draw on first load. */
+export function seedChat(chat: FakeChat, at: string): void {
+  const A = 'handline.architect',
+    me = 'founder';
+  const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
+  chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'answered' });
+  chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered_unanswered' });
+  chat.seed(A, { from: me, to: A, body: 'Hold that, scope changed.', at: ago(20), landing: 'withdrawn' });
+  chat.seed(A, { from: me, to: A, body: 'Also add the list of gaps.', at: ago(5), landing: 'typed', landed_at: null, delivered_at: null });
+  chat.seed(A, {
+    from: A,
+    to: me,
+    body: 'Which gap list should come first?',
+    at: ago(10),
+    kind: 'question',
+    is_task_question: true,
+    landing: 'delivered_unanswered',
+  });
+  chat.seed(A, { from: 'handline.auditor', to: A, body: 'Review is done, see the notes.', at: ago(40), landing: 'delivered' });
+  chat.seedItem(A, { at: ago(49), kind: 'reply', text: 'Here is the plan: three units, chat first.' });
+  chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
+  chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 7, request: null, evidence: null } });
+  chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 7, request: null, evidence: 'auditor PASS' } });
+}
+
+/** A small tree of tasks: a parent with two children, one running, one blocked, and a done one. */
+export function seedTasks(tasks: FakeTasks, at: string): void {
+  const base = Date.parse(at);
+  const ago = (min: number) => new Date(base - min * 60_000).toISOString();
+  const me = 'founder';
+  tasks.seed({
+    id: 1684,
+    from: me,
+    to: 'handline.architect',
+    title: 'Web UI design',
+    state: 'doing',
+    priority: 1,
+    created: ago(300),
+    delivered: ago(240),
+    time_box: '8h',
+    body: 'Plan the web UI.\n\nThree units, chat first.',
+  });
+  tasks.seed({
+    id: 1688,
+    from: 'handline.architect',
+    to: 'handline.term-build',
+    title: 'Terminal pane on the bytes channel',
+    state: 'doing',
+    parent: 1684,
+    created: ago(200),
+    delivered: ago(180),
+    time_box: '4h',
+    body: 'Build the pane.',
+  });
+  tasks.seed({
+    id: 1690,
+    from: 'handline.architect',
+    to: 'handline.auditor',
+    title: 'Audit the terminal pane',
+    state: 'queued',
+    parent: 1684,
+    created: ago(90),
+    time_box: '1h',
+    priority: 3,
+    blockers: [{ task: 1688, reason: 'waits for the pane' }],
+  });
+  tasks.seed({
+    id: 1700,
+    from: me,
+    to: 'handline.term-build',
+    title: 'Draft: pair the web UI with the real daemon',
+    state: 'draft',
+    created: ago(60),
+    time_box: '2h',
+  });
+  tasks.seed({
+    id: 1650,
+    from: me,
+    to: 'handline.architect',
+    title: 'Contract fixtures',
+    state: 'done',
+    created: ago(2000),
+    delivered: ago(1900),
+    done: ago(1500),
+    evidence: 'abc1234',
+    priority: 2,
+  });
+}

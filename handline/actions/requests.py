@@ -39,7 +39,7 @@ def decision_task_of(con, row) -> int | None:
     return db.decision_task_of_card(con, row["id"])
 
 
-def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
+def answer_ok(con, rid: int, verdict: str, effect=None) -> tuple[bool, str]:
     """Reply to one row of the human's mailbox, whichever way it is pointing.
 
     Two rows land in that mailbox and the same key has to work on both. A
@@ -48,6 +48,8 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
     replying to it is a new request back to the agent that answered - in that
     answer's thread, which is the one place in this system where a parent id is
     known for certain rather than guessed at.
+
+    `effect(con, message)` is the daemon's record of the write, made in the transaction that settles the row.
     """
     if not verdict.strip():
         return False, "nothing sent: no answer typed"
@@ -57,17 +59,19 @@ def answer_ok(con, rid: int, verdict: str) -> tuple[bool, str]:
     tid = decision_task_of(con, row)
     if tid is not None:
         from . import tasks
-        return tasks.decide(con, tid, verdict)
+        return tasks.decide(con, tid, verdict, effect=effect)
     if _is_answer_to_human(row):
         said = db.answer_row_of(con, rid)
-        ok, msg, _ = askmod.say(row["target"], verdict, requester=HUMAN,
-                                parent_id=said["id"] if said else rid)
-        if ok:
+        def sent(c, note, _rid=None):
             # Replied to is read: leaving it in the mailbox would ask the human
             # to dismiss what they have just answered.
-            db.mark_announced(con, [rid])
+            db.mark_announced(c, [rid])
+            if effect:
+                effect(c, note)
+        ok, msg, _ = askmod.say(row["target"], verdict, requester=HUMAN,
+                                parent_id=said["id"] if said else rid, within=sent)
         return ok, msg
-    return askmod.resolve(rid, verdict)
+    return askmod.resolve(rid, verdict, effect=effect)
 
 
 def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | None,
@@ -81,7 +85,7 @@ def record_human_resolve(con, rid: int, tasks: list[int] | None, no_task: str | 
 
 
 def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
-            tasks: list[int] | None = None, no_task: str | None = None) -> tuple[bool, str]:
+            tasks: list[int] | None = None, no_task: str | None = None, effect=None) -> tuple[bool, str]:
     """Take one row off the mailbox without replying to it. A still-queued
     row is closed as dismissed - by `me`, with `reason` as typed, at the
     time it closed - and carries no answer, so nothing draws it as
@@ -91,7 +95,8 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
     Read by whoever asked for it (`me`, when known), it is marked told - the
     same thing the daemon does when it reads an answer out to an agent - and
     that marking is idempotent, so dismissing the same row twice is as
-    harmless as once. Read instead by the one who *wrote* that verdict (the
+    harmless as once. `effect(con, message)` is the daemon's record of the dismissal, made in the transaction that
+    closes the row (or, for one already answered, in the one that marks it told). Read instead by the one who *wrote* that verdict (the
     target dismissing its own answered request), there is nothing left to
     do: stamping it told would announce it on the real requester's behalf,
     and the requester would never actually be told.
@@ -110,8 +115,12 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
             return False, refusal
     if row["state"] != "queued":
         if me is not None and me == row["target"]:
+            if effect:
+                effect(con, f"#{rid} was already answered - nothing more for you to do")
             return True, f"#{rid} was already answered - nothing more for you to do"
         db.mark_announced(con, [rid])
+        if effect:
+            effect(con, f"#{rid} marked read")
         return True, f"#{rid} marked read"
     by = me or "unknown"
     if guarded or tasks or no_task:
@@ -123,7 +132,7 @@ def dismiss(con, rid: int, me: str | None = None, reason: str | None = None,
     # (`_after_close`), and resolve() closes it already told, in the same write as
     # the state change.
     ok, msg = askmod.resolve(rid, None, state="done", notify=False,
-                             dismissed_by=by, dismissed_reason=reason)
+                             dismissed_by=by, dismissed_reason=reason, effect=effect)
     return ok, f"{msg} (dismissed; {row['requester']} is not told)"
 
 

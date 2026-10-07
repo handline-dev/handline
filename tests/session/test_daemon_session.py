@@ -1600,19 +1600,27 @@ def test_service_launchctl_gated(home: Path) -> None:
               "bootout" not in [c[0] for c in calls])
         check("service: install() bootstraps the built plist",
               calls[0] == ["bootstrap", service.domain_target(), str(plist_file)])
-        check("service: install() enables the job", calls[1][0] == "enable")
+        check("service: install() confirms launchd lists the job, then enables it",
+              [c[0] for c in calls[1:3]] == ["print", "enable"], str(calls))
 
-        # Reinstalling over a job the fake now reports as loaded (`print`
-        # returns 0) must bootout first, so a stale plist is not left running.
+        # Reinstalling over a loaded job must bootout first, so a stale plist is not left running.
         calls.clear()
+        launchd = {"loaded": True, "bootstraps": 0, "fail_first": False}
 
-        def fake_loaded(args):
+        def fake_launchd(args):
             calls.append(args)
             if args[0] == "print":
-                return FakeResult(0, "\tpid = 1\n", "")
+                return FakeResult(0, "\tpid = 1\n", "") if launchd["loaded"] else FakeResult(113, "", "")
+            if args[0] == "bootout":
+                launchd["loaded"] = False
+            elif args[0] == "bootstrap":
+                launchd["bootstraps"] += 1
+                if launchd["fail_first"] and launchd["bootstraps"] == 1:
+                    return FakeResult(1, "", "boom")
+                launchd["loaded"] = True
             return FakeResult(0, "", "")
 
-        service.run_launchctl = fake_loaded
+        service.run_launchctl = fake_launchd
         ok, msg = service.install(home=home)
         check("service: reinstalling over a loaded job boots it out first",
               ok and calls[1][0] == "bootout", str(calls))
@@ -1620,22 +1628,11 @@ def test_service_launchctl_gated(home: Path) -> None:
         # If the new plist fails to load, a previously-working job must not
         # end up unsupervised - the old plist is restored and reloaded.
         calls.clear()
-        attempts = {"n": 0}
-
-        def fake_bootstrap_fails_once(args):
-            calls.append(args)
-            if args[0] == "print":
-                return FakeResult(0, "\tpid = 1\n", "")
-            if args[0] == "bootstrap":
-                attempts["n"] += 1
-                return FakeResult(0, "", "") if attempts["n"] > 1 else FakeResult(1, "", "boom")
-            return FakeResult(0, "", "")
-
-        service.run_launchctl = fake_bootstrap_fails_once
+        launchd.update(loaded=True, bootstraps=0, fail_first=True)
         ok, msg = service.install(home=home)
         check("service: install() reports failure when bootstrap fails", not ok, msg)
         check("service: a failed reinstall still retries bootstrap with the restored plist",
-              attempts["n"] == 2)
+              launchd["bootstraps"] == 2)
 
         calls.clear()
 
@@ -1659,6 +1656,76 @@ def test_service_launchctl_gated(home: Path) -> None:
     finally:
         service.plist_path = orig_plist_path
         service.run_launchctl = orig_runner
+
+
+def test_service_reinstall_waits_for_the_old_job_to_exit(home: Path) -> None:
+    """launchd keeps the label for a while after bootout, until the old daemon has exited; a bootstrap
+    in that window failed with `5: Input/output error` and the restore failed the same way, leaving
+    no job loaded until a second install."""
+    home.mkdir(parents=True, exist_ok=True)
+    plist_file = home / "LaunchAgents" / f"{service.LABEL}.plist"
+    service.write_plist(path=plist_file, home=home)
+    calls: list[str] = []
+    launchd = {"loaded": True, "exiting": 0}
+
+    class Res:
+        def __init__(self, code=0, err=""):
+            self.returncode, self.stdout, self.stderr = code, ("\tpid = 1\n" if code == 0 else ""), err
+
+    def fake(args):
+        calls.append(args[0])
+        if args[0] == "print":
+            if launchd["exiting"]:
+                launchd["exiting"] -= 1
+                return Res()
+            return Res() if launchd["loaded"] else Res(113)
+        if args[0] == "bootout":
+            launchd["loaded"] = False
+            launchd["exiting"] = 3
+        elif args[0] == "bootstrap":
+            if launchd["loaded"] or launchd["exiting"]:
+                return Res(5, "Bootstrap failed: 5: Input/output error")
+            launchd["loaded"] = True
+        return Res()
+
+    orig = service.plist_path, service.run_launchctl, service.UNLOAD_WAIT_S
+    try:
+        service.plist_path = lambda: plist_file
+        service.run_launchctl = fake
+        ok, msg = service.install(home=home)
+        check("service: one reinstall over a running job leaves it loaded", ok and launchd["loaded"], msg)
+        check("service: it bootstraps only once launchd has dropped the old label, and only once",
+              calls.count("bootstrap") == 1 and calls.index("bootstrap") > calls.index("bootout") + 3,
+              str(calls))
+
+        calls.clear()
+        launchd.update(loaded=True, exiting=10**6)
+        service.UNLOAD_WAIT_S = 0.3
+        ok, msg = service.install(home=home)
+        check("service: an old job that will not exit is reported, not raced with a bootstrap",
+              not ok and "still exiting" in msg and "bootstrap" not in calls, msg)
+    finally:
+        service.plist_path, service.run_launchctl, service.UNLOAD_WAIT_S = orig
+
+
+def test_service_install_names_only_a_daemon_launchd_does_not_run_as_hand_started(home: Path) -> None:
+    import contextlib
+    import io
+    from handline.cli import service as cli_service
+    orig = cli_service.dmn_locks.running_elsewhere, service.status, service.install
+    try:
+        service.install = lambda: (True, "installed")
+        cli_service.dmn_locks.running_elsewhere = lambda: 4242
+        for launchd_pid, noted in ((4242, False), (None, True), (77, True)):
+            service.status = lambda p=launchd_pid: {"installed": True, "loaded": p is not None,
+                                                    "pid": p, "last_exit_code": None}
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cli_service.cmd_service_install(None)
+            check(f"service install: the 'running by hand' note {'shows' if noted else 'is quiet'} "
+                  f"when launchd's pid is {launchd_pid}", ("by hand" in out.getvalue()) == noted, out.getvalue())
+    finally:
+        cli_service.dmn_locks.running_elsewhere, service.status, service.install = orig
 
 
 def test_service_status_when_not_installed(home: Path) -> None:
@@ -1816,6 +1883,28 @@ def test_the_daemon_logs_the_code_sha_it_started_on(home: Path) -> None:
           "  code: unknown\n" in out, out[:300])
 
 
+_REAL_LIVE_SESSIONS = obsmod.live_sessions      # before any test's world stands a stub in its place
+
+
+def test_a_process_table_the_daemon_cannot_read_is_said_in_its_log_with_the_cause(home: Path) -> None:
+    """`loop.run` hands the daemon's log to observe, so the reason a reading failed is in the log a person tails."""
+    import types
+    _daemon_home(home, 20)
+
+    def no_ps(cmd, **kw):
+        raise FileNotFoundError(2, "no ps")
+    real = (obsmod.live_sessions, obsmod.subprocess, obsmod.report, obsmod._failing)
+    obsmod.live_sessions = _REAL_LIVE_SESSIONS
+    obsmod.subprocess = types.SimpleNamespace(run=no_ps, TimeoutExpired=real[1].TimeoutExpired, SubprocessError=real[1].SubprocessError)
+    obsmod._failing = False
+    try:
+        out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    finally:
+        obsmod.live_sessions, obsmod.subprocess, obsmod.report, obsmod._failing = real
+    check("daemon log: a process table that cannot be read is said with its cause", "process table could not be read: ps -Ao could not run: FileNotFoundError 2" in out, out[-600:])
+    check("daemon log: once for the episode, however many ticks and readers asked", out.count("process table could not be read") == 1, out[-600:])
+
+
 def test_service_log_rotation(tmp: Path) -> None:
     tmp.mkdir(parents=True, exist_ok=True)
     log = tmp / "daemon.out.log"
@@ -1908,8 +1997,9 @@ def test_a_running_agent_is_told_when_work_arrives(home: Path) -> None:
         termmod.idle_now = lambda h: True
         head = db.head_of_queue(con, "backend")
         sent.clear()
+        db.set_cursor(con, "batch:backend", 0)            # the minute is up
         askmod.resolve(head["id"], "done")
-        check("deliver: resolving the head delivers the one behind it, right away",
+        check("deliver: resolving the head delivers what is behind it once the minute is up",
               sent and "and this" in sent[-1] and "look at this" not in sent[-1], str(sent))
     finally:
         termmod.alive, termmod.idle_now, termmod.send, termmod.available = real
@@ -5472,12 +5562,15 @@ def main() -> int:
         run(lambda: test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(Path(td) / 'd6d'))
         run(lambda: test_service_plist(Path(td) / 'svc1'))
         run(lambda: test_service_launchctl_gated(Path(td) / 'svc2'))
+        run(lambda: test_service_reinstall_waits_for_the_old_job_to_exit(Path(td) / 'svc2b'))
+        run(lambda: test_service_install_names_only_a_daemon_launchd_does_not_run_as_hand_started(Path(td) / 'svc2c'))
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
         run(lambda: test_service_status_when_the_plist_cannot_be_looked_at(Path(td) / 'svc3b'))
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))
+        run(lambda: test_a_process_table_the_daemon_cannot_read_is_said_in_its_log_with_the_cause(Path(td) / 'ptlog'))
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_a_running_agent_is_told_when_work_arrives(Path(td) / 'deliver'))

@@ -24,6 +24,8 @@ ROLES = ("anonymous", "agent", "member", "founder")     # lowest first
 
 BAD_REQUEST, NOT_FOUND, REFUSED, INTERNAL = -32600, -32001, -32002, -32603
 STALE_PROMPT = -32003
+BUSY = -32004
+MAX_INFLIGHT = 32           # calls being served at once on one connection; the next is answered `daemon_busy`
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
 # A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
 # calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.
@@ -89,8 +91,36 @@ class Caller:
         """The spec's `Actor` for an event: a person is a `user` there."""
         return {**self.info, "kind": "user" if self.info["kind"] == "person" else self.info["kind"]}
 
+    @property
+    def writer(self) -> str:
+        """Whose request_ids a write is kept under: the actor, except a device, which has its own."""
+        return self.actor
+
     def allows(self, role: str) -> bool:
         return ROLES.index(self.role) >= ROLES.index(role)
+
+
+class DeviceCaller(Caller):
+    """A paired device the gateway speaks for (`relay.py`): a member, whatever it says. It writes as `human`, as the
+    founder does, so every check on who may do what reads the same; its request_ids and its events are its own."""
+
+    def __init__(self, device_id: str, name: str) -> None:
+        self.role, self.info = "member", {"kind": "device", "name": name, "device": device_id}
+
+    @property
+    def actor(self) -> str:
+        return db.HUMAN
+
+    @property
+    def writer(self) -> str:
+        return f"device:{self.info['device']}"
+
+
+def _terminal_capabilities() -> dict:
+    """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text and bytes, Orca text."""
+    from ..session import backends
+    hosts = {name: (["text", "bytes"] if cls.serves_bytes else ["text"]) for name, cls in backends.KNOWN.items()}
+    return {"terminal_format": sorted({f for formats in hosts.values() for f in formats}, key=["text", "bytes"].index), "terminal_hosts": hosts}
 
 
 def _hello(ctx: "Connection", params: dict) -> dict:
@@ -103,10 +133,10 @@ def _hello(ctx: "Connection", params: dict) -> dict:
         raise refused(f"this daemon serves clients of protocol {MIN_CLIENT} or newer; yours speaks {protocol}",
                       gate="protocol", hint="hl service install")
     from .loop import _loaded_sha       # loop imports this module's server, so not at the top
-    ctx.caller = caller = Caller(ctx.peer, params.get("key"))
+    ctx.caller = caller = ctx.caller_for(params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, **_terminal_capabilities()},
             "transport": "local",
             "methods": _methods(caller)}
 
@@ -120,7 +150,7 @@ class Method(NamedTuple):
     role: str               # the lowest role that may call it
     write: bool = False     # takes a request_id, keeps its reply a day, and is logged under its actor
     own_event: bool = False  # it writes its own event, under its actor, so no generic one is added
-    waits: bool = False     # it may hold its answer for a long time: served on a thread of its own, so the calls behind it are answered
+    waits: bool = False     # no longer read: every call past hello is served on a thread of its own, so a long one holds up none behind it
 
 
 # Every method a later task adds is a line here.
@@ -148,7 +178,7 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
     rid = params.get("request_id")
     if not isinstance(rid, str) or not rid or len(rid) > REQUEST_ID_MAX:
         raise bad_request(f"{name} is a write: it takes a request_id, a string of 1 to {REQUEST_ID_MAX} characters", "request_id")
-    key = (ctx.caller.actor, rid)       # the founder and every device share `human`: key by device id when devices land
+    key = (ctx.caller.writer, rid)
     with _RETRY_LOCKS[hash(key) % len(_RETRY_LOCKS)]:
         con = db.connect()
         try:
@@ -188,8 +218,22 @@ class Connection:
         self._send_lock = threading.Lock()      # replies and event notices are written by different threads
         self.subs: list = []
         self.on_close: list = []
-        self.after_reply: list = []             # run once the reply to the call in hand is sent
-        self.closed = threading.Event()         # set when the connection ends
+        self._call = threading.local()          # the call this thread is serving: what it asks to run once its reply is sent
+        self._slots = threading.BoundedSemaphore(MAX_INFLIGHT)
+        self.eof = threading.Event()            # set when the client sends no more calls (EOF, a bad frame, a hang-up)
+        self.closed = threading.Event()         # set when the connection ends, once every call in flight has been answered
+        self.idle_s: float | None = IDLE_TIMEOUT_S
+
+    def caller_for(self, key) -> Caller:
+        """Who `hello` finds on the other end."""
+        return Caller(self.peer, key)
+
+    @property
+    def after_reply(self) -> list:
+        """What the call in hand (this thread's) asks to run once its reply is sent: a subscribe's start. Never another call's."""
+        if not hasattr(self._call, "after"):
+            self._call.after = []
+        return self._call.after
 
     def _line(self) -> bytes | None:
         """The next line, or what is left at EOF; None at a clean EOF. A line past the limit is bad_request."""
@@ -200,7 +244,7 @@ class Connection:
                 return line
             if len(self._buf) > MAX_LINE_BYTES:
                 raise bad_request(f"a line is at most {MAX_LINE_BYTES} bytes")
-            self.conn.settimeout(IDLE_TIMEOUT_S if self.said_hello and not self._buf else RECV_TIMEOUT_S)
+            self.conn.settimeout(self.idle_s if self.said_hello and not self._buf else RECV_TIMEOUT_S)
             chunk = self.conn.recv(65536)
             if not chunk:       # a client that shuts its write side after one object needs no newline
                 line, self._buf = self._buf, b""
@@ -219,8 +263,8 @@ class Connection:
             self.conn.sendall(json.dumps(obj).encode("utf-8") + b"\n")
 
     def hung_up(self) -> bool:
-        """Whether the client is gone, for a call that waits to stop waiting."""
-        return self.closed.is_set()
+        """Whether the client will send no more, for a call that waits to stop waiting; its reply is still sent."""
+        return self.eof.is_set()
 
     def hang_up(self) -> None:
         """End the connection from another thread: the read in `serve` then returns."""
@@ -233,6 +277,9 @@ class Connection:
         try:
             self._serve()
         finally:
+            self.eof.set()
+            for _ in range(MAX_INFLIGHT):       # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight
+                self._slots.acquire()
             self.closed.set()
             for fn in self.on_close:
                 fn()
@@ -263,15 +310,23 @@ class Connection:
         rid = msg.get("id") if isinstance(msg, dict) else None
         if isinstance(rid, bool) or not isinstance(rid, (int, str, type(None))):
             rid = None
-        entry = METHODS.get(msg.get("method")) if isinstance(msg, dict) and isinstance(msg.get("method"), str) else None
-        if entry is not None and entry.waits and self.said_hello and "id" in msg and self.caller.allows(entry.role):
-            threading.Thread(target=self._answer, args=(msg, rid, True), daemon=True).start()
-            return True
-        return self._answer(msg, rid)
+        if not self.said_hello:
+            return self._answer(msg, rid)       # hello first, and alone: nothing else on the connection is read before it is answered
+        if not self._slots.acquire(blocking=False):
+            return self._send({"jsonrpc": "2.0", "id": rid, "error": RpcError(BUSY, "daemon_busy", f"{MAX_INFLIGHT} calls are in flight on this connection: wait for a reply").wire()})
+        threading.Thread(target=self._serve_call, args=(msg, rid), daemon=True).start()
+        return True
 
-    def _answer(self, msg, rid, own_thread: bool = False) -> bool:
-        """Answer one call. Only the reading loop runs what `after_reply` holds (a subscribe's start): a call answered on a
-        thread of its own must not take the one a later call queued."""
+    def _serve_call(self, msg, rid) -> None:
+        try:
+            self._answer(msg, rid)
+        finally:
+            self._slots.release()
+
+    def _answer(self, msg, rid) -> bool:
+        """Answer one call, then run what it asked to run after its reply. A call is served on its own thread (past `hello`), so replies
+        come in the order the calls finish and a call that waits holds up none behind it."""
+        self._call.after = []
         try:
             result = self._dispatch(msg)
         except RpcError as e:
@@ -285,10 +340,9 @@ class Connection:
             if isinstance(msg, dict) and "id" not in msg:
                 return True     # a notification is never answered
             sent = self._send({"jsonrpc": "2.0", "id": rid, "result": result})
-            if not own_thread:
-                todo, self.after_reply = self.after_reply, []
-                for fn in todo:
-                    fn()
+            todo, self._call.after = self._call.after, []
+            for fn in todo:
+                fn()
             return sent
         return self._send({"jsonrpc": "2.0", "id": rid, "error": error.wire()})
 

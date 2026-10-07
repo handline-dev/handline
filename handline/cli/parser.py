@@ -15,6 +15,7 @@ from .memory import cmd_memory_migrate, cmd_memory_status
 from .agent import cmd_agent_move, cmd_agent_register, cmd_agent_set, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
+from .device import cmd_device
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
@@ -109,6 +110,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
                    help="start its sessions without asking before they act (default off); "
                    "applies from the next launch; on re-registration, omit to keep the current one")
+    p.add_argument("--extra-worktrees", type=int, default=None, choices=range(agents.MAX_EXTRA_WORKTREES + 1), metavar="N",
+                   help=f"worktrees it has besides its first (0 to {agents.MAX_EXTRA_WORKTREES}, default 0): made beside the first when it is next "
+                   "started, writable to it alone; on re-registration, omit to keep the current one")
     p.add_argument("--chrome", default=None, choices=["on", "off"],
                    help="start its sessions with the Claude in Chrome integration (default off, "
                    "every other agent keeps --no-chrome); its browser dialog is yours to answer, "
@@ -117,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="MCP servers for this agent alone, from a {\"mcpServers\": {...}} file (kept "
                    "in its agent.yaml and passed as --mcp-config, so no per-account approval of a "
                    "project .mcp.json); 'off' removes them; on re-registration, omit to keep them")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_agent_register)
 
     p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
@@ -258,9 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
-    q = hrsub.add_parser("reject", help="the founder rejects a proposal; the proposer is told")
-    q.add_argument("id")
+    q = hrsub.add_parser("reject", help="the founder rejects a proposal, or --all; each proposer is told once")
+    q.add_argument("id", nargs="?", default=None)
     q.add_argument("reason", nargs="?", default="", help="why, told to the proposer")
+    q.add_argument("--all", action="store_true", help="every proposal waiting on you (a reason goes with --reason)")
+    q.add_argument("--reason", dest="all_reason", default="", help="with --all: why, told to each proposer")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
@@ -268,6 +276,18 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     p.set_defaults(fn=cmd_hr)
+
+    p = sub.add_parser("device", help="the founder's: pair, list and revoke the phones and tablets that reach the gateway")
+    dsub = p.add_subparsers(dest="device_cmd", required=True)
+    q = dsub.add_parser("pair", help="make a one-time pairing code (and the uri and address a device needs)")
+    q.add_argument("--name", default=None, help="what to call the device")
+    q.set_defaults(device=None)
+    q = dsub.add_parser("list", help="the paired devices, last seen and connected")
+    q.set_defaults(name=None, device=None)
+    q = dsub.add_parser("revoke", help="cancel a device and close its connections at once")
+    q.add_argument("device", help="the device id from `hl device list`")
+    q.set_defaults(name=None)
+    p.set_defaults(fn=cmd_device)
 
     p = sub.add_parser("trust", help="declare a folder ocp may answer claude's trust prompt in")
     trsub = p.add_subparsers(dest="trust_cmd", required=True)
@@ -380,6 +400,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("dev-mode",
                        help="daemon restarts itself when its own code changes - off by default")
     p.add_argument("state", nargs="?", choices=["on", "off"], help="omit to print the current state")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_dev_mode)
 
     sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
@@ -413,6 +435,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_idle_timeout)
 
     p = sub.add_parser("idle-background", help="show or set when an idle agent still running background "
@@ -438,6 +462,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_notice_digest)
 
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "
@@ -448,16 +474,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
 
     p = sub.add_parser("land", help="the merger tests a branch's merge in its own sandbox and records it "
-                       "(`land --check <sha>`, then `land <sha> <message> --tree <tree>`); the auditor records a PASS (`land --pass <sha>`); the "
+                       "(`land --check <sha>...`, then `land <sha> <message> --tree <tree>` for each); the auditor records a PASS (`land --pass <sha>`); the "
                        "daemon, which runs no branch code, merges and fast-forwards main. A sha lands once")
     p.add_argument("sha", nargs="?")
     p.add_argument("message", nargs="?")
     p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha")
     p.add_argument("--list", action="store_true", help="the recent lands and where each stands")
-    p.add_argument("--check", action="store_true", help="test the merge here and print its tree; records nothing")
+    p.add_argument("--check", nargs="+", default=None, metavar="SHA",
+                   help="test the merge of these shas onto main here, in order, with one suite run, and print the "
+                        "tree for each; on red, split the batch and drop the shas that break it. Records nothing")
     p.add_argument("--tree", default=None, help="the tree `--check` printed; `land <sha> <message> --tree <tree>` records it")
     p.set_defaults(fn=cmd_land)
 
@@ -469,12 +499,16 @@ def build_parser() -> argparse.ArgumentParser:
                    "local time - e.g. '*/30 * * * *'")
     p.add_argument("--message", default=None, help="add, edit: what is typed at the agent, one line")
     p.add_argument("--index", type=int, default=None, help="edit, remove: which one, as list numbers them")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_schedule)
 
     p = sub.add_parser("auto-accept", help="show or set whether ocp answers the dialogs a working "
                        "agent meets all day: a browser tool's prompt, a declared folder's trust screen (T64)")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None,
                    help="omit to show the current value")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_auto_accept)
 
     p = sub.add_parser("unstall", help="clear STALLED (humans only)")

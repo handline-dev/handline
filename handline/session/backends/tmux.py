@@ -41,7 +41,9 @@ IDLE_POLL_S = 0.5
 _KEYS = {"\x1b[A": "Up", "\x1b[B": "Down", "\x1b[C": "Right", "\x1b[D": "Left", "\x1b": "Escape", "\x03": "C-c"}
 
 _PANE = re.compile(r"^%\d+$")
-_NO_SERVER = ("no server running", "error connecting to", "no sessions", "can't find session")
+# What tmux says when nothing listens: not "error connecting" alone, which a socket the caller may not use says too ("Operation not permitted").
+_NO_SERVER = ("no server running", "no sessions", "can't find session",
+              "(no such file or directory)", "(connection refused)")
 
 
 def _socket() -> str:
@@ -68,6 +70,17 @@ def _git(repo: str, *args: str) -> tuple[int, str]:
 
 class TmuxBackend(Backend):
     name = "tmux"
+    serves_bytes = True
+
+    def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
+        """The bytes as keystrokes: `send-keys -H` takes each as a hex number, so nothing in them is read as a key name or a command."""
+        if not _PANE.match(handle or ""):
+            return False, f"not a tmux pane: {handle!r}"
+        for i in range(0, len(data), 256):
+            code, _o, err = _tmux(["send-keys", "-t", handle, "-H", *[f"{b:02x}" for b in data[i:i + 256]]])
+            if code != 0:
+                return False, err
+        return True, ""
 
     def available(self) -> bool:
         return shutil.which("tmux") is not None

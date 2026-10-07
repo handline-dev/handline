@@ -271,3 +271,34 @@ func takeLock(file string) (*os.File, error) {
 	f.WriteString(strconv.Itoa(os.Getpid()))
 	return f, nil
 }
+
+// OpenShared opens a database another daemon owns and migrates: it creates nothing and changes no schema, and
+// refuses a database that is not already at this code's schema or an additive step ahead of it. A gateway uses it,
+// so the Python daemon is the only one that brings the database forward.
+func OpenShared(path string) (*sql.DB, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("%w: %s does not exist: the daemon that owns it brings it up first", ErrSchema, path)
+	}
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMS) + ")&_txlock=immediate"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	have, err := version(db)
+	if err == nil {
+		if latest := LatestVersion(); have < latest {
+			err = fmt.Errorf("%w: %s is at schema version %d, older than the %d this code needs: start the daemon that owns it first",
+				ErrSchema, path, have, latest)
+		} else if have > latest {
+			var ok bool
+			if ok, err = newerStepsOnlyAdd(db, latest); err == nil && !ok {
+				err = tooNew(path, have, latest)
+			}
+		}
+	}
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}

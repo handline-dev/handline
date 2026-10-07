@@ -65,7 +65,8 @@ def prompt_of(block: dict) -> dict:
     return {"id": block["fingerprint"], "agent": name, "kind": kind, "tool": detail.get("tool") or None,
             "command": detail.get("command") or None, "reason": detail.get("reason") or None,
             "lines": list(block["panel"]), "options": options_of(block),
-            "since": agentview._ts(block.get("first_seen") or block["last_seen"])}
+            "since": agentview._ts(block.get("first_seen") or block["last_seen"]),
+            "multi": bool(detail.get("multi_select"))}
 
 
 def _prompt(con, name: str) -> dict | None:

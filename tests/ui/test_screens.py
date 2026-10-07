@@ -1622,6 +1622,8 @@ edges:
         check("team: a supervisor is given the manager rules, a report is not",
               all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
               and "--blocked-by" not in dev, mgr)
+        check("team: a supervisor is told finding the bottleneck is its job, a report without reports is not",
+              "Finding the bottleneck is your job" in mgr and "bottleneck" not in dev, mgr)
         check("team: a report is told who it reports to",
               "You report to `manager`" in dev and "Your reports" not in dev, dev)
         check("team: an agent nobody supervises reports to the founder",
@@ -2003,8 +2005,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               "the next tick wakes it" in said, said)
 
         _, said = world(*live, dmn_states.RUNNING, told=False)
-        check("agree: a working agent is named as working, not as idle",
-              "mid-turn" in said, said)
+        check("agree: a request waiting for a working agent's turn to end is not drawn as stuck", not said, said)
+        check("agree: but the chat page still says why it waits",
+              "mid-turn" in actions.queue_reason(con, "backend", rid), actions.queue_reason(con, "backend", rid))
 
         # Told, and now working on it: the age is of the request, not of the
         # wait, so a two-day-old ask handed over a minute ago is a queue doing
@@ -2557,6 +2560,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
     # a new command is neither here nor driven until someone decides which.
     skipped = {
         "init": "creates the home and the shared settings",
+        "device pair": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
+        "device list": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
+        "device revoke": "talks to the gateway's socket as the founder; driven with a fake gateway in tests/team/test_hl_device.py",
         "login": "interactive: hands the terminal to claude",
         "account add": "interactive login", "account remove": "interactive logout and a confirm",
         "account register": "creates an account directory; prints its path",

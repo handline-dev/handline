@@ -699,6 +699,23 @@ def _screen(path: Path, pane: str, rows: list[str]) -> None:
     path.write_text(json.dumps(st))
 
 
+def test_a_tmux_socket_that_cannot_be_used_is_no_answer_not_no_terminals(home: Path) -> None:
+    use_home(home)
+    tm = tmuxbackend.TmuxBackend()
+    real = tmuxbackend._tmux
+    try:
+        for err, want in (("error connecting to /tmp/tmux-501/ocp (Operation not permitted)", None),
+                          ("error connecting to /tmp/tmux-501/ocp (Permission denied)", None),
+                          ("error connecting to /tmp/tmux-501/ocp (No such file or directory)", set()),
+                          ("error connecting to /tmp/tmux-501/ocp (Connection refused)", set()),
+                          ("no server running on /tmp/tmux-501/ocp", set())):
+            tmuxbackend._tmux = lambda args, timeout=10, stdin=None, err=err: (1, "", err)
+            check(f"tmux: {err.split(' (')[-1].rstrip(')') if '(' in err else err}: {'no answer' if want is None else 'no terminals'}",
+                  tm.list_terminals() == want, str(tm.list_terminals()))
+    finally:
+        tmuxbackend._tmux = real
+
+
 def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
     use_home(home)
     real_path = os.environ["PATH"]
@@ -912,6 +929,7 @@ def main() -> int:
         run(lambda: test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(Path(td) / "b12"))
         run(lambda: test_a_saved_terminal_of_the_other_host_is_named_by_the_doctor(Path(td) / "b13"))
         run(lambda: test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_about_labels(Path(td) / "b14"))
+        run(lambda: test_a_tmux_socket_that_cannot_be_used_is_no_answer_not_no_terminals(Path(td) / "b6a"))
         run(lambda: test_the_tmux_backend_drives_windows_over_tmux_verbs(Path(td) / "b6"))
         run(lambda: test_tmux_idle_is_a_screen_that_has_stopped_and_shows_no_turn_in_progress(Path(td) / "b7"))
         run(lambda: test_tmux_own_terminal_is_a_pane_on_our_server_only(Path(td) / "b8"))

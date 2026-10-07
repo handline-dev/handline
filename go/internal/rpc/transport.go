@@ -84,3 +84,7 @@ func (t *WSTransport) WriteMessage(b []byte) error {
 	t.ws.SetWriteDeadline(time.Now().Add(RecvTimeout))
 	return t.ws.WriteMessage(websocket.TextMessage, b)
 }
+
+func (t *LineTransport) Close() error { return t.conn.Close() }
+
+func (t *WSTransport) Close() error { return t.ws.Close() }

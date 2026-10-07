@@ -9,9 +9,12 @@ before it is given back when the holder leaves. A terminal `account.login` opene
 has no holder, and is not resized; the daemon forgets it when it restarts."""
 from __future__ import annotations
 
+import base64
+import binascii
+
 from .. import db
 from ..infra import paths
-from . import inputhold, rpc, termchannel
+from . import inputhold, rpc, rpc_gates, termbytes, termchannel
 
 DEFAULT_HISTORY, MAX_HISTORY, MAX_COLS, MAX_ROWS = 100, 2000, 500, 200
 LOGIN_TERMINALS: set[str] = set()       # handles of the terminals account.login opened
@@ -22,6 +25,24 @@ def _int(params, key, lo, hi):
     if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
         raise rpc.bad_request(f"{key} is an integer from {lo} to {hi}", key, rpc.INVALID_PARAMS)
     return v
+
+
+MAX_INPUT = 16384
+
+
+def _format(params) -> str:
+    fmt = params.get("format", "text")
+    if fmt not in ("text", "bytes"):
+        raise rpc.bad_request("format is text or bytes", "format", rpc.INVALID_PARAMS)
+    return fmt
+
+
+def _serves_bytes() -> None:
+    """Refuse, gate `unsupported`, a bytes request on a terminal host that cannot serve it: nothing is attached."""
+    from ..session import backends
+    host = backends.current()
+    if not host.serves_bytes or not host.available():
+        raise rpc.refused(f"the terminal host ({host.name}) does not serve the bytes format: ask for text", gate="unsupported")
 
 
 def _handle(con, params) -> tuple[str, str | None]:
@@ -52,39 +73,86 @@ def _attach(ctx, params) -> dict:
     history = params.get("history", DEFAULT_HISTORY)
     if isinstance(history, bool) or not isinstance(history, int) or not 0 <= history <= MAX_HISTORY:
         raise rpc.bad_request(f"history is an integer from 0 to {MAX_HISTORY}", "history", rpc.INVALID_PARAMS)
+    fmt = _format(params)
     con = db.connect()
     try:
         handle, agent = _handle(con, params)
         holders = inputhold.view(con, agent) if agent else []
     finally:
         con.close()
+    if fmt == "bytes":
+        return _attach_bytes(ctx, handle, history, holders)
     client = termchannel.Client(ctx.send_line, ctx.hang_up)
     ch = termchannel.HUB.attach(handle, client)
     ctx.after_reply.append(lambda: ch.begin(client))
-    ctx.on_close.append(lambda: ch.detach(client))
-    ctx.terminals = getattr(ctx, "terminals", {})
-    ctx.terminals.setdefault(handle, []).append(client)
+    _hold(ctx, handle, "text", ch, client)
     return ch.snapshot(history, holders)
+
+
+def _hold(ctx, handle: str, fmt: str, ch, client) -> None:
+    """Keep the attach of `handle` in `fmt` on this connection: one a terminal and format, so a second attach replaces the first (its client leaves
+    the channel at once, and is sent nothing after this reply). The other format is independent, and closing the connection ends them all."""
+    if not hasattr(ctx, "terminals"):
+        ctx.terminals = {}
+        ctx.on_close.append(lambda: [och.detach(oc) for och, oc in list(ctx.terminals.values())])
+    old = ctx.terminals.get((handle, fmt))
+    ctx.terminals[(handle, fmt)] = (ch, client)
+    if old is not None:
+        old[0].detach(old[1])
+
+
+def _attach_bytes(ctx, handle: str, history: int, holders: list[dict]) -> dict:
+    _serves_bytes()
+    link = termbytes.link()
+    if not link.start():
+        raise rpc.refused("the terminal host could not be reached", gate="state")
+    client = termbytes.BytesClient(ctx.send_line, ctx.hang_up)
+    ch = termbytes.HUB.channel(handle, link)
+    snap = ch.attach(client, history)
+    if snap is None:
+        raise rpc.refused("the terminal's screen could not be read", gate="state")
+    ctx.after_reply.append(lambda: ch.begin(client))
+    _hold(ctx, handle, "bytes", ch, client)
+    return {"terminal": handle, "format": "bytes", "seq": client.seq, **termbytes._encode(snap), "history": snap["history"],
+            "holder": holders[0] if holders else inputhold.DAEMON, "holders": holders}
 
 
 def _detach(ctx, params) -> dict:
     handle = params.get("terminal")
     if not isinstance(handle, str) or not handle:
         raise rpc.bad_request("terminal is a handle", "terminal", rpc.INVALID_PARAMS)
-    ch = termchannel.HUB.channels.get(handle)
-    for client in getattr(ctx, "terminals", {}).pop(handle, []):
-        if ch is not None:
-            ch.detach(client)
+    fmt = params.get("format")
+    if fmt is not None and fmt not in ("text", "bytes"):
+        raise rpc.bad_request("format is text or bytes", "format", rpc.INVALID_PARAMS)
+    con = db.connect()
+    try:
+        _handle(con, {"terminal": handle})          # not_found for a handle that does not exist; nothing to end is not an error
+    finally:
+        con.close()
+    held = getattr(ctx, "terminals", {})
+    for key in [k for k in held if k[0] == handle and fmt in (None, k[1])]:
+        ch, client = held.pop(key)
+        ch.detach(client)
     return {}
 
 
 def _history(ctx, params) -> dict:
     before, limit = _int(params, "before", 0, 2**40), _int(params, "limit", 1, MAX_HISTORY)
+    fmt = _format(params)
     con = db.connect()
     try:
         handle, _ = _handle(con, {"terminal": params.get("terminal")})
     finally:
         con.close()
+    if fmt == "bytes":
+        _serves_bytes()
+        link = termbytes.link()
+        if not link.start():
+            raise rpc.refused("the terminal host could not be reached", gate="state")
+        page = termbytes.history_page(link, handle, before, limit)
+        if page is None:
+            raise rpc.refused("the terminal's scrollback could not be read", gate="state")
+        return page
     ch = termchannel.HUB.open_for(handle)       # scrollback is kept while someone watches: none for a terminal nobody does
     return ch.history_page(before, limit) if ch else {"first": 0, "lines": [], "more": False}
 
@@ -110,8 +178,52 @@ def _resize(ctx, params) -> dict:
         if ch is not None:
             ch.cols, ch.rows = cols, rows
             ch.notify("resize", cols=cols, rows=rows)
+        termbytes.resized(handle)       # a bytes attach is sent a snapshot, reason resize, and no resize notice
         inputhold.touch(con, agent, ctx.caller.info["name"])
         return {"accepted": True, "said": f"{agent}: terminal is {cols} by {rows}"}
+    finally:
+        con.close()
+
+
+def _input(ctx, params) -> dict:
+    """Keystrokes and pasted bytes, from the input holder alone: refused while the daemon holds the input, and for a login terminal, which has
+    none. Recorded as an event of the agent (kind `type`) by who sent it, with the byte count and never the bytes."""
+    data = params.get("data")
+    if not isinstance(data, str):
+        raise rpc.bad_request("data is base64", "data", rpc.INVALID_PARAMS)
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise rpc.bad_request("data is base64", "data", rpc.INVALID_PARAMS) from None
+    if not 1 <= len(raw) <= MAX_INPUT:
+        raise rpc.bad_request(f"data is 1 to {MAX_INPUT} bytes", "data", rpc.INVALID_PARAMS)
+    con = db.connect()
+    try:
+        handle, agent = _handle(con, {"terminal": params.get("terminal")})
+        if agent is None:
+            raise rpc.refused("a login terminal has no input holder to take its keystrokes", gate="input_holder")
+        rpc_gates.terminal_lock(agent)
+        holder = inputhold.holder(con, agent)
+        if holder is None:
+            raise rpc.refused(f"{agent}'s input is held by the daemon: take it first", gate="input_holder")
+        if holder["name"] != ctx.caller.info["name"]:
+            raise rpc.refused(inputhold.held_why(agent, holder["name"]), gate="input_holder")
+        from ..session import backends
+        host = backends.current()
+        if not host.available() or not host.serves_bytes:
+            raise rpc.refused(f"the terminal host ({host.name}) cannot send raw bytes", gate="unsupported")
+        from ..infra import lock
+        with lock.terminal(agent) as mine:
+            if not mine:
+                raise rpc.refused(f"{agent}: typing is going on elsewhere", gate="terminal_lock")
+            ok, why = host.send_bytes(handle, raw)
+        if not ok:
+            raise rpc.refused(f"{agent}: nothing sent - {why}", gate="state")
+        db.add_event(con, agent, "type", {"actor": ctx.caller.actor_info, "bytes": len(raw)})
+        inputhold.touch(con, agent, ctx.caller.info["name"])
+        result = {"accepted": True, "said": f"{agent}: {len(raw)} bytes sent"}
+        db.record_effect(con, ctx.caller.writer, params["request_id"], "terminal.input", result)
+        return result
     finally:
         con.close()
 
@@ -120,3 +232,4 @@ rpc.METHODS["terminal.attach"] = rpc.Method(_attach, "member")
 rpc.METHODS["terminal.detach"] = rpc.Method(_detach, "member")
 rpc.METHODS["terminal.history"] = rpc.Method(_history, "member")
 rpc.METHODS["terminal.resize"] = rpc.Method(_resize, "member", write=True)
+rpc.METHODS["terminal.input"] = rpc.Method(_input, "member", write=True)

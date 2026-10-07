@@ -354,8 +354,7 @@ def eligible_worktrees() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         found = []
         for name in paths.list_agents():
             row = db.get_agent_state(con, name)
-            wt = spawnmod.worktree_path(row["worktree"]) if row else None
-            if wt:
+            for wt in spawnmod.all_paths(row):
                 found.append((name, wt))
     finally:
         con.close()

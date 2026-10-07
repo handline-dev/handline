@@ -8,10 +8,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/version"
@@ -29,16 +31,26 @@ func resolveHome(flagHome string, allowReal bool) (string, error) {
 	return paths.Home(), nil
 }
 
+// defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here.
+const defaultNative = "daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list"
+
 func main() {
 	home := flag.String("home", "", "the handline home (required while the daemon is in development)")
 	allowReal := flag.Bool("allow-real-home", false, "with no -home, use the default home, which a running install uses")
 	db := flag.String("db", "", "database file (default: <home>/db.sqlite)")
 	sock := flag.String("socket", "", "local socket (default: <home>/daemon.sock)")
-	listen := flag.String("listen", "", "address for the network listener, an encrypted WebSocket; off when empty")
-	cert := flag.String("cert", "", "certificate for the network listener (default: one made in memory)")
+	listen := flag.String("listen", "", "address for the network listener; off when empty. With -gateway and no -cert, :PORT binds the Tailscale address")
+	cert := flag.String("cert", "", "certificate for the network listener (default: one made in memory; a gateway with none serves plain HTTP on Tailscale)")
 	key := flag.String("key", "", "private key for the network listener")
 	serveFDs := flag.String("serve-fds", "", "comma-separated file descriptors of connections already open (socketpairs "+
 		"made by the parent, for a run where no socket can be bound); each is served and no socket file is made")
+	gateway := flag.Bool("gateway", false, "run as the network front door of the Python daemon that owns the home: needs -listen (with -cert and -key for TLS, without them plain HTTP on the Tailscale address); "+
+		"opens the database without changing it, writes only the devices table and the pid file, relays what it does not serve")
+	relaySock := flag.String("relay-socket", "", "the Python daemon's relay socket, for -gateway (default: <home>/relay.sock)")
+	pidFile := flag.String("pid-file", "", "where -gateway records its pid (default: the founder's protected store, gateway/pid, which no agent sandbox can write)")
+	native := flag.String("native", defaultNative, "with -gateway: the methods served here rather than relayed, besides hello, whoami and the device methods")
+	web := flag.String("web", "", "the built web UI to serve on the listener's own origin; empty serves none")
+	advertise := flag.String("advertise", "", "the host:port a pairing code names, when it differs from -listen (a Tailscale host name)")
 	serveNetFDs := flag.String("serve-net-fds", "", "like -serve-fds, but each connection is served as one of the network listener's "+
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
@@ -51,7 +63,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("handlined: %v", err)
 	}
-	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf}
+	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
+		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise}
+	if *gateway {
+		for _, n := range strings.Split(*native, ",") {
+			if n = strings.TrimSpace(n); n != "" {
+				cfg.Native = append(cfg.Native, n)
+			}
+		}
+		if cfg.RelaySocket == "" {
+			cfg.RelaySocket = filepath.Join(homeDir, "relay.sock")
+		}
+		if cfg.PidFile == "" {
+			cfg.PidFile = filepath.Join(authority.Root(homeDir), "gateway", "pid")
+		}
+		if cfg.SocketFile == "" && *serveFDs == "" && *serveNetFDs == "" {
+			cfg.SocketFile = filepath.Join(homeDir, "gateway.sock")
+		}
+	}
 	if cfg.DBFile == "" {
 		cfg.DBFile = paths.DBFile(homeDir)
 	}

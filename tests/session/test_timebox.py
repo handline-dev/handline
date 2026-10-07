@@ -507,6 +507,8 @@ def test_background_work_is_checked_every_n_minutes_naming_each_command(home: Pa
         check("check: told once, naming the command still running and not the one that ended",
               len(sent) == 1 and "pytest -x tests/" in sent[0][1] and "npm run watch" not in sent[0][1]
               and "Stop what you no longer need" in sent[0][1], str(sent))
+        check("check: and says a wait on another task is a --blocked-by, not a watch",
+              "set `--blocked-by T<n>` on your task instead" in sent[0][1], str(sent))
         timebox.sweep(con, lambda _m: None, now + 5)
         check("check: not again before N minutes", len(sent) == 1, str(sent))
         every = idle_close.bg_check_s("marina")

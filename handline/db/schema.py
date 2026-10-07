@@ -1559,6 +1559,9 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
     # After the column exists, on an old db as on a new one (SCHEMA runs before this):
     # the chat page looks up the answer of every row it draws by this.
     con.execute("CREATE INDEX IF NOT EXISTS requests_settles ON requests(settles)")
+    # The chat topic's detector asks for what was touched since a time, by these two (a request: its state_at else its ts; an answer: its ts).
+    con.execute("CREATE INDEX IF NOT EXISTS requests_touched ON requests(COALESCE(state_at, ts))")
+    con.execute("CREATE INDEX IF NOT EXISTS requests_settles_ts ON requests(settles, ts)")
     for col in ("dismissed_by", "dismissed_reason"):
         if legacy and col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")
@@ -1649,6 +1652,10 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
     if "launch_fingerprint" not in state_cols:
         # No backfill: an existing row reads as drifted, which is right.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
+    if "extra_worktrees" not in state_cols:
+        # The agent's further worktrees (agent.yaml `extra_worktrees`), as a JSON list of paths: the first one stays in `worktree`.
+        # Written once when one is made; a row without it has none.
+        con.execute("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
     if "notified_session" not in state_cols:
         # The session the notify cursor's head was typed into. A delivery
         # belongs to the session that read it, not to the agent.

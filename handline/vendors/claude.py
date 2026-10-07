@@ -132,7 +132,8 @@ class Claude:
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
                     chrome: bool = False, sandbox: bool = True,
-                    mcp_approved: list[str] | None = None) -> list[str]:
+                    mcp_approved: list[str] | None = None,
+                    extra_dirs: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -143,16 +144,20 @@ class Claude:
         # `chrome: true` in its agent.yaml (T875) opts in with --chrome.
         argv += ["--chrome" if chrome else "--no-chrome"]
         argv += mcp
+        if extra_dirs:
+            argv += ["--add-dir", *extra_dirs]
         if preamble:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        if hide or no_write:
+        if hide or no_write or extra_dirs:
             fs = {}
             if hide:
                 fs["denyRead"] = hide
             if no_write:
                 fs["denyWrite"] = no_write
+            if extra_dirs:
+                fs["allowWrite"] = extra_dirs       # a working directory is readable; Bash may write it only when it is named here
             settings["sandbox"] = {"filesystem": fs}
         if not sandbox:
             # The founder's choice for this agent: commands run unsandboxed. The Read/Edit denies below
@@ -436,6 +441,9 @@ class Claude:
 # claude's folder-trust screen ("Quick safety check: Is this a project you
 # created or one you trust?").
 TRUST_PROMPT_MARKER = "Is this a project you created or one you trust"
+# The variant for a folder whose settings pre-approve tools (Claude Code 2.1.291): the same
+# workspace line and the same two options under a different question.
+TRUST_PROMPT_MARKERS = (TRUST_PROMPT_MARKER, "This folder pre-approves")
 # The line the prompt names its folder under. Wrapped at terminal width with
 # no separator, so its continuation lines are joined bare, not with a space.
 WORKSPACE_MARKER = "Accessing workspace:"
@@ -472,7 +480,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     """`Driver.trust_screen`'s contract: "" for a shown dialog whose folder a
     missing workspace line, a cut-off or a mid-redraw screen leaves unparsed."""
     text = "\n".join(str(x) for x in tail)
-    if TRUST_PROMPT_MARKER not in text:
+    if not any(m in text for m in TRUST_PROMPT_MARKERS):
         return None
     lines = text.split("\n")
     try:
@@ -482,7 +490,7 @@ def _trust_screen(term, tail: list[str]) -> str | None:
     parts = []
     for ln in lines[start:]:
         stripped = ln.strip()
-        if not stripped or TRUST_PROMPT_MARKER in stripped:
+        if not stripped or any(m in stripped for m in TRUST_PROMPT_MARKERS):
             break
         parts.append(stripped)
     return "".join(parts)

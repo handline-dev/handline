@@ -138,7 +138,7 @@ The cache replaces the store's `agents`, `details`, `watch` and its refcount, `r
 
 `qk` is the only key factory: `['d', daemonId, <resource>, ...params]`, e.g. `qk.agents()`, `qk.agent(name)`, `qk.tasks(filter)`, `qk.task(id)`, `qk.inbox(filter)`, `qk.chat(agent, scope)` (infinite, paged by `before`), `qk.transcript(agent)`, `qk.accounts()`. A hook is `useQuery` over `client.call(method, params)`; nothing else in the app calls a read.
 - **Fed by a topic** (`agents`, `inbox`, `tasks`, `accounts`, `status`, `chat`): `staleTime: Infinity`, no refetch on focus or interval; the event bridge (§8.4) keeps it fresh.
-- **Snapshot only** (`stats.get`, `settings.get`, `schedules.list`, `team.get`, `hr.list`, `worktrees.list`, `answers.list`): `staleTime` 30 s, refetch on mount and on reconnect.
+- **Snapshot only** (`stats.get`, `stats.outlook`, `settings.get`, `schedules.list`, `team.get`, `hr.list`, `worktrees.list`, `answers.list`): `staleTime` 30 s, refetch on mount and on reconnect.
 - **Gated on the connection and the daemon's method list**: `enabled` only while the connection is `open` **and** `hello.methods` lists the method (`useServes(method)`). A method the daemon does not serve is not an error: the view shows "this daemon does not serve <thing>", as `docs/web-main-view.md` §3 does for tabs, and nothing is called.
 - Filters keep the previous rows on screen while the next page loads (`placeholderData: keepPreviousData`), so changing a filter never flashes a skeleton.
 - `networkMode: 'always'`: the connection is to a daemon, not the internet, and the client already waits for `open` and, in `DaemonClient.open()`, **re-sends every pending call after a reconnect** (reads too; writes with their old `request_id`, so the daemon answers from its stored reply). React Query does not retry a write; it would double that.
@@ -192,18 +192,18 @@ Rules for both: the write is idempotent through the `request_id` the client adds
 | `chat.send` | authored | a message row with `state: sending`, keyed by its `request_id`, at the top of *mine* | the row turns `failed` with **Retry** and **Discard**; the text is never lost |
 | `chat.withdraw` `chat.dismiss` `chat.answer` | authored | the message's flag or answer | restore the message |
 | `task.new` | authored | a provisional row (negative id, `pending`) | row removed, form refilled |
-| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.discard` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
+| `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
 | `task.merge` | authored | merged rows leave the list | restore the list |
 | `task.memo.add` `task.memo.edit` `task.memo.delete` | authored | the memo in the list | restore |
 | `inbox.mark_read` `inbox.answer` `inbox.reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
 | `agent.set` `settings.set` `account.set` `account.set_cap` `schedule.add` `schedule.edit` `schedule.remove` `answer.add` `answer.remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
 | `session.start` `session.wake` `session.restart` `session.park` `session.stop` `session.interrupt` `agent.fold` `agent.move` `agent.create` | decided | pending mark on the row; `agent.create` follows its `operation.progress` | the mark goes, the reason shows |
 | `prompt.answer` | decided | the card shows "answering…" and keeps its buttons off; it leaves when the prompt's id changes by event | `stale_prompt`: refetch the prompt, the card refreshes; any other refusal: buttons back, reason shown |
-| `input.take` `input.release` `hr.decide` `account.login` `terminal.close` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke` keeps its confirmation) | the mark goes, the reason shows |
+| `input.take` `input.release` `chat.send_now` `hr.decide` `hr.withdraw` `account.login` `terminal.close` `task.discard` `worktree.set_status` `device.pair` `device.revoke` | decided | pending mark (`device.pair` then shows the code; `device.revoke`, `terminal.close`, `hr.withdraw` and `task.discard` keep their confirmation, and `task.discard` its reason) | the mark goes, the reason shows |
 | `settings.trust` | authored | the folder in the trusted list (G11) | restore the list |
 | `device.redeem` | pairing, before `hello` and outside the cache | the app's pair flow calls it, not a view | the flow shows the reason |
 | `session.input` `session.keys` `session.type` `terminal.resize` | **not cached** | none: the terminal stream is the answer, and the app draws no local echo | refusal shown in the terminal tab's status |
-| The "not from the UI" list, read by guard test 2: `ask` `say` `push` `push.answer` `push.cancelled` `land` `land.authorize` `land.pass` `hook.record` `hr.propose` `hr.withdraw` `trust.propose` `input.ask` `task.begin` `task.start` `task.progress` `task.handoff` | agent commands | none | none |
+| The "not from the UI" list, read by guard test 2: `ask` `say` `push` `push.answer` `push.cancelled` `land` `land.authorize` `land.pass` `hook.record` `hr.propose` `trust.propose` `input.ask` `task.begin` `task.start` `task.progress` `task.handoff` | agent commands | none | none |
 
 ### 8.6 Skeleton
 

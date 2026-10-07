@@ -33,11 +33,11 @@ func addAgent(t *testing.T, e *Env, name, role string) {
 	}
 }
 
-func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndAnUnknownState(t *testing.T) {
+func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndTheNoTerminalState(t *testing.T) {
 	e := testEnv(t)
 	addAgent(t, e, "worker", "# worker\n\n  Does   the work.\nSecond.\n")
 	addAgent(t, e, "manager", "")
-	if _, err := e.DB.Exec(`INSERT INTO agent_view(agent, view, updated) VALUES('manager', '{"name":"manager","state":"IDLE"}', 0)`); err != nil {
+	if _, err := e.DB.Exec(`INSERT INTO agent_view(agent, view, updated) VALUES('manager', '{"name":"manager","state":"idle"}', 0)`); err != nil {
 		t.Fatal(err)
 	}
 	got, err := e.agentsList(nil, nil)
@@ -47,9 +47,27 @@ func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndAnUnknownState(t *testing.
 	b, _ := json.Marshal(got)
 	var out struct{ Agents []map[string]any }
 	json.Unmarshal(b, &out)
-	if len(out.Agents) != 2 || out.Agents[0]["state"] != "IDLE" || out.Agents[1]["name"] != "worker" ||
-		out.Agents[1]["state"] != "unknown" || out.Agents[1]["role"] != "Does   the work." {
+	if len(out.Agents) != 2 || out.Agents[0]["state"] != "idle" || out.Agents[1]["name"] != "worker" ||
+		out.Agents[1]["state"] != "no_terminal" || out.Agents[1]["role"] != "Does   the work." {
 		t.Fatalf("%s", b)
+	}
+}
+
+func TestTheWordForNoStoredViewIsOneOfTheSpecs(t *testing.T) {
+	raw, err := os.ReadFile("../../../contract/protocol.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec struct {
+		Words struct {
+			Words map[string]any `json:"words"`
+		} `json:"x-state-words"`
+	}
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := spec.Words.Words[noView]; !ok {
+		t.Fatalf("%q is not in x-state-words", noView)
 	}
 }
 

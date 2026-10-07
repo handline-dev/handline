@@ -41,7 +41,7 @@ class FakeLaunchd:
     def launchctl(self, args):
         self.calls.append(args)
         self.up = self.rc == 0
-        return subprocess.CompletedProcess(["launchctl", *args], self.rc, "", "Could not find service" if self.rc else "")
+        return subprocess.CompletedProcess(["launchctl", *args], self.rc, "", "launchd said no" if self.rc else "")
 
     def connect(self, timeout=0):
         if not self.up:
@@ -67,6 +67,79 @@ def test_ensure_daemon_asks_launchd_once_and_waits_for_the_socket(home: Path) ->
     check("ensure: after one kickstart of the service, never -k (which would kill a running one)",
           f.calls == [["kickstart", service.service_target()]], str(f.calls))
     check("ensure: and it retried while launchd started it", f.tries == 4, str(f.tries))
+
+
+class UnloadedLaunchd(FakeLaunchd):
+    """A service that is installed and not loaded: `kickstart` says it cannot find it until `bootstrap` loads it."""
+
+    def __init__(self, bootstrap_rc=0, **kw) -> None:
+        super().__init__(**kw)
+        self.loaded, self.bootstrap_rc = False, bootstrap_rc
+
+    def launchctl(self, args):
+        self.calls.append(args)
+        if args[0] == "bootstrap":
+            self.loaded = self.bootstrap_rc == 0
+            return subprocess.CompletedProcess(["launchctl", *args], self.bootstrap_rc, "", "Bootstrap failed: 5: Input/output error" if self.bootstrap_rc else "")
+        if args[0] == "kickstart":
+            self.up = self.loaded
+            return subprocess.CompletedProcess(["launchctl", *args], 0 if self.loaded else 113, "",
+                                               "" if self.loaded else "Could not find service \"dev.orcapipe.daemon\" in domain for user gui: 501")
+        return subprocess.CompletedProcess(["launchctl", *args], 0, "", "")
+
+
+def test_a_service_that_is_installed_and_not_loaded_is_loaded_then_started(home: Path) -> None:
+    support.use_home(home)
+    f = UnloadedLaunchd(after=1)
+    real = client.START_POLL_S
+    client.START_POLL_S = 0.01
+    try:
+        got = client.ensure_daemon()
+    finally:
+        client.START_POLL_S = real
+        f.restore()
+    verbs = [c[0] for c in f.calls]
+    check("ensure: kickstart finds no service, the installed plist is bootstrapped, then it is kickstarted again", verbs[:3] == ["kickstart", "bootstrap", "enable"]
+          and verbs[3:] == ["kickstart"] and got is not None, str(f.calls))
+    check("ensure: it is bootstrapped into the user's domain from the installed plist, never rewritten", f.calls[1] == ["bootstrap", service.domain_target(), str(service.plist_path())], str(f.calls[1]))
+    f = UnloadedLaunchd(bootstrap_rc=5)
+    try:
+        try:
+            client.ensure_daemon(wait_s=0.2)
+            err = None
+        except client.DaemonDown as e:
+            err = e
+    finally:
+        f.restore()
+    check("ensure: a bootstrap launchd refuses is daemon_down with launchd's words and hl service install", err is not None
+          and "Input/output error" in str(err) and "hl service install" in str(err) and [c[0] for c in f.calls] == ["kickstart", "bootstrap"], str(err))
+    f = FakeLaunchd(kickstart_rc=113)
+    try:
+        try:
+            client.ensure_daemon(wait_s=0.2)
+        except client.DaemonDown:
+            pass
+    finally:
+        f.restore()
+    check("ensure: a kickstart that fails for another reason is never answered with a bootstrap", [c[0] for c in f.calls] == ["kickstart"], str(f.calls))
+    f = FakeLaunchd(installed=None)
+    try:
+        try:
+            client.ensure_daemon()
+            err = None
+        except client.DaemonDown as e:
+            err = e
+    finally:
+        f.restore()
+    check("ensure: a sandbox that cannot see the plist falls through at once, asking launchd nothing", err is not None and f.calls == [], str(f.calls))
+    f = FakeLaunchd(after=1)
+    try:
+        client.START_POLL_S, real = 0.01, client.START_POLL_S
+        client.ensure_daemon()
+    finally:
+        client.START_POLL_S = real
+        f.restore()
+    check("ensure: a loaded service (kickstart works) is never bootstrapped", all(c[0] != "bootstrap" for c in f.calls), str(f.calls))
 
 
 def test_a_daemon_that_is_there_is_not_started_again(home: Path) -> None:
@@ -625,6 +698,7 @@ def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Pa
 def main() -> int:
     def tests(td):
         run(lambda: test_ensure_daemon_asks_launchd_once_and_waits_for_the_socket(Path(td) / "e1"))
+        run(lambda: test_a_service_that_is_installed_and_not_loaded_is_loaded_then_started(Path(td) / "e2a"))
         run(lambda: test_a_daemon_that_is_there_is_not_started_again(Path(td) / "e2"))
         run(lambda: test_ensure_daemon_failing_is_daemon_down_with_the_log_path_and_nothing_done(Path(td) / "e3"))
         run(lambda: test_the_legacy_send_starts_the_service_when_it_is_installed_and_says_none_when_it_cannot(Path(td) / "e4"))

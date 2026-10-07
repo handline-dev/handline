@@ -134,6 +134,22 @@ def service_target() -> str:
     return f"{domain_target()}/{LABEL}"
 
 
+# launchd sends the old job SIGTERM on bootout and SIGKILL after its ExitTimeOut (20s by default).
+UNLOAD_WAIT_S = 30.0
+
+
+def _await_unloaded(timeout: float | None = None) -> bool:
+    """Whether launchd has let go of the label within `timeout`. bootout returns while the old daemon
+    is still exiting and launchd keeps the label until it has: a bootstrap in that window fails with
+    `5: Input/output error`, and so does the restore of the old plist, leaving no job loaded."""
+    deadline = time.monotonic() + (UNLOAD_WAIT_S if timeout is None else timeout)
+    while status()["loaded"]:
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
 def install(home: Path | None = None) -> tuple[bool, str]:
     home = home or paths.home()
     log_dir(home).mkdir(parents=True, exist_ok=True)
@@ -144,6 +160,9 @@ def install(home: Path | None = None) -> tuple[bool, str]:
     # `install` is idempotent (reinstalling after editing config, say).
     if was_loaded:
         run_launchctl(["bootout", service_target()])
+        if not _await_unloaded():
+            return False, (f"the old job was still exiting after {UNLOAD_WAIT_S:.0f}s; launchd still has "
+                           f"{LABEL} - run `hl service install` again once `hl service status` says not loaded")
     res = run_launchctl(["bootstrap", domain_target(), str(path)])
     if res.returncode != 0:
         # A daemon that was supervised and running before this call must not
@@ -153,8 +172,20 @@ def install(home: Path | None = None) -> tuple[bool, str]:
             path.write_bytes(prior)
             run_launchctl(["bootstrap", domain_target(), str(path)])
         return False, (res.stderr or res.stdout or "launchctl bootstrap failed").strip()
+    if not status()["loaded"]:
+        return False, f"launchctl bootstrap succeeded but launchd does not list {LABEL}"
     run_launchctl(["enable", service_target()])
     return True, f"installed {path}, label {LABEL}"
+
+
+def load() -> tuple[bool, str]:
+    """Load the installed plist into launchd, as `install` does but without writing it: for a service that is installed and not
+    loaded (after `launchctl bootout`, or a login that did not load it). (True, "") or (False, launchd's own words)."""
+    res = run_launchctl(["bootstrap", domain_target(), str(plist_path())])
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or "launchctl bootstrap failed").strip()
+    run_launchctl(["enable", service_target()])
+    return True, ""
 
 
 def uninstall() -> tuple[bool, str]:

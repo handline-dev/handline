@@ -10,7 +10,7 @@ from ..team import agent_settings, agents, ask as askmod, hr
 from ..daemon import client as dmn_client, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
 from .. import db
 from ..session import launch, term
-from ..infra import names, protected
+from ..infra import names, paths, protected
 from ..team import spawn as spawnmod
 
 
@@ -37,19 +37,46 @@ def cmd_agent_move(args) -> int:
     return 0 if ok else 1
 
 
+def _propose_register(args) -> int:
+    """`agent register` from an agent's session, where writing agent.yaml is the founder's: what it asks
+    for is raised as HR proposals instead - a new agent as an `add`, with the settings an `add` does not
+    take as a `settings` step of the same diff; an existing agent's as one `settings` proposal."""
+    if args.mcp_config is not None:
+        print("an agent's own MCP servers are the founder's to set, from a terminal or the screen, "
+              "not an agent's", file=sys.stderr)
+        return 1
+    if args.role or args.role_file:
+        print("a role is proposed with `hl hr context <name> --role-file FILE --why ...`", file=sys.stderr)
+        return 1
+    if not (args.why or "").strip():
+        print("from an agent's session registering is the founder's to approve: say why with --why, "
+              "and it is raised as a proposal", file=sys.stderr)
+        return 1
+    me, new = askmod.asking_agent(), args.name not in paths.list_agents()
+    sets = {k: v for k, v in (("skip_permissions", args.skip_permissions), ("weight", args.weight),
+                              ("browser", {"on": "chrome", "off": "off"}.get(args.chrome)))
+            if v is not None}
+    if not new:
+        sets.update({k: v for k, v in (("model", args.model), ("effort", args.effort), ("repo", args.repo))
+                     if v is not None})
+        if not sets:
+            print(f"{args.name} is already an agent and nothing to change was given", file=sys.stderr)
+            return 1
+        ok, said = hr.propose("settings", args.name, requester=me, why=args.why, sets=sets)
+    elif sets:
+        add = {k: v for k, v in (("kind", "add"), ("name", args.name), ("repo", args.repo), ("model", args.model),
+                                 ("effort", args.effort), ("vendor", args.vendor)) if v is not None}
+        ok, said = hr.propose_bundle([add, {"kind": "settings", "name": args.name, "sets": sets}], me, args.why)
+    else:
+        ok, said = hr.propose("add", args.name, requester=me, why=args.why, repo=args.repo, model=args.model,
+                              effort=args.effort, vendor=args.vendor)
+    print(said, file=None if ok else sys.stderr)
+    return 0 if ok else 1
+
+
 def cmd_agent_register(args) -> int:
-    if args.skip_permissions and protected.in_agent_session():
-        print("skipping permission prompts is the founder's to turn on or off, from a "
-              "terminal or the screen, not an agent's", file=sys.stderr)
-        return 1
-    if args.chrome and protected.in_agent_session():
-        print("the browser integration is the founder's to turn on or off, from a "
-              "terminal or the screen, not an agent's", file=sys.stderr)
-        return 1
-    if args.mcp_config is not None and protected.in_agent_session():
-        print("an agent's own MCP servers are the founder's to set, from a terminal or the "
-              "screen, not an agent's", file=sys.stderr)
-        return 1
+    if protected.in_agent_session():
+        return _propose_register(args)
     mcp_text = None
     if args.mcp_config is not None:
         if args.mcp_config == "off":
@@ -75,12 +102,14 @@ def cmd_agent_register(args) -> int:
                         skip_permissions=None if args.skip_permissions is None
                         else args.skip_permissions == "on",
                         chrome=None if args.chrome is None else args.chrome == "on",
-                        mcp_config=mcp_text)
+                        mcp_config=mcp_text, extra_worktrees=args.extra_worktrees)
     print(f"registered agent '{args.name}': {d}")
     if args.skip_permissions:
         print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     if args.chrome:
         print(f"chrome {args.chrome}: applies from its next launch")
+    if args.extra_worktrees is not None:
+        print(f"extra-worktrees {args.extra_worktrees}: made when it is next started")
     if args.mcp_config:
         print(f"mcp-config {args.mcp_config}: applies from its next launch")
     print(f"launch it from {term.host_title()} with:")

@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -25,13 +26,25 @@ type Config struct {
 	Home       string
 	DBFile     string
 	SocketFile string
-	// Listen is the address the network listener binds; empty leaves it off. It is always an encrypted
-	// WebSocket, and a Tailscale or LAN address is only the address it binds.
+	// Listen is the address the network listener binds; empty leaves it off. It is an encrypted
+	// WebSocket, except in a gateway's Tailscale mode (see Gateway).
 	Listen string
 	// CertFile and KeyFile are the listener's certificate; with neither, one is made in memory for this run.
 	CertFile, KeyFile string
 	Log               func(format string, args ...any)
 	Auth              authority.Authority // nil: the protected store of Home
+
+	// Gateway makes this daemon the network front door of a Python daemon that owns Home: it opens the database
+	// without changing it, writes nothing but its devices table and its pid file, serves natively only the device
+	// methods and Native, and relays every other call a paired device may make to RelaySocket. It needs Listen, and its
+	// local socket is never the Python daemon's. With no CertFile and KeyFile it is in Tailscale mode: Listen is
+	// ":PORT" (the Tailscale address is found) or a Tailscale or loopback address, and it serves plain HTTP/ws.
+	Gateway     bool
+	RelaySocket string   // the Python daemon's relay socket
+	PidFile     string   // where the gateway records its pid, for the relay's trust check
+	Native      []string // methods served here rather than relayed, besides hello, whoami and the device methods
+	WebDir      string   // the built web UI the listener serves on its own origin; empty serves none
+	Advertise   string   // the host:port a pairing code names, when it differs from where the listener binds
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -45,6 +58,8 @@ type Daemon struct {
 	local   *rpc.Server
 	net     *networkListener
 	dev     *devices.Manager // nil unless the network listener is on
+	pidFile *pidFile
+	hub     *stream.Hub
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
@@ -58,21 +73,49 @@ func Start(cfg Config) (*Daemon, error) {
 	if cfg.Auth == nil {
 		cfg.Auth = authority.New(cfg.Home)
 	}
-	db, err := store.Open(cfg.DBFile)
+	if cfg.plain() && cfg.Listen != "" {
+		addr, err := plainAddr(cfg.Listen)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Listen = addr
+	}
+	if cfg.Gateway {
+		if err := checkGateway(cfg); err != nil {
+			return nil, err
+		}
+	}
+	open := store.Open
+	if cfg.Gateway {
+		open = store.OpenShared
+	}
+	db, err := open(cfg.DBFile)
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{}),
-		hooks: &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}}
-	d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
-	if cfg.Listen != "" {
-		d.dev = devices.New(devices.NewMemStore()) // until the database has its devices table
+	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
+	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
+		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
+		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	}
+	if cfg.Gateway {
+		pid, err := takePidFile(cfg.PidFile)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		d.pidFile = pid
+	}
+	if cfg.Listen != "" {
+		d.dev = devices.New(devices.SQLStore{DB: db})
+	}
+	d.hub = stream.NewHub()
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
 		if err != nil {
 			db.Close()
+			d.pidFile.remove()
 			return nil, err
 		}
 		d.ln = ln
@@ -87,8 +130,10 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.net = nl
 	}
-	d.wg.Add(1)
-	go d.spoolLoop()
+	if d.hooks != nil {
+		d.wg.Add(1)
+		go d.spoolLoop()
+	}
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
 }
@@ -97,14 +142,19 @@ func Start(cfg Config) (*Daemon, error) {
 func (d *Daemon) newServer(transport string) *rpc.Server {
 	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
 	s.DB = d.db
+	s.NoEvents = d.cfg.Gateway
 	if d.hooks != nil {
 		d.hooks.Register(s)
 	}
 	if transport == "network" {
 		s.Net = d.dev
 	}
-	devices.Register(s, d.dev)
+	devices.Register(s, d.dev, d.hub.Emit)
+	stream.Register(s, d.hub)
 	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+	if d.cfg.Gateway {
+		d.gatewayMethods(s, transport)
+	}
 	return s
 }
 
@@ -247,6 +297,7 @@ func (d *Daemon) Close() {
 		d.net.close()
 	}
 	d.wg.Wait()
+	d.pidFile.remove()
 	if d.db != nil {
 		d.db.Close()
 	}

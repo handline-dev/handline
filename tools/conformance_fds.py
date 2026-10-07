@@ -8,11 +8,14 @@ socketpairs as its connections: the role `unpaired`. Roles with no connection of
 SKIP, as in a real run."""
 import os
 import re
+import json
 import secrets
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +23,34 @@ sys.path.insert(0, str(ROOT / "contract"))
 import conformance  # noqa: E402
 
 PAIRS = 128
+# The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.
+STATES = ["running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"]
+
+
+def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
+    """An agent per state word: its agent.yaml and a stored view, which the daemon serves as it is. The schema is the daemon's,
+    so the views go in once it has made the database. Returns the --var for each."""
+    names = {w: f"s.{w}" for w in STATES}
+    for n in names.values():
+        (home / "agents" / n).mkdir(parents=True)
+        (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
+    for _ in range(200):
+        try:
+            con = sqlite3.connect(home / "db.sqlite", timeout=5)
+            for w, n in names.items():
+                view = {"name": n, "role": "seeded by conformance_fds", "model": None, "effort": None, "state": w, "state_detail": "",
+                        "state_since": None, "block": None, "wall_reason": None, "background_since": None, "would_wake": False,
+                        "blocker": None, "account": None, "task": None, "cache_until": None, "has_dialog": w == "waiting",
+                        "parent": None}
+                con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
+            con.commit()
+            con.close()
+            return {f"state_{w}": n for w, n in names.items()}
+        except sqlite3.Error:
+            if daemon.poll() is not None:
+                break
+            time.sleep(0.05)
+    raise RuntimeError("the daemon's database did not come up to seed")
 
 
 def main(argv: list[str]) -> int:
@@ -58,7 +89,9 @@ def main(argv: list[str]) -> int:
         local = taker(pairs)
         rc = 1
         try:
-            rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}", *rest],
+            seeded = seed_states(home, daemon)
+            rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}",
+                                   *(a for k, v in seeded.items() for a in ("--var", f"{k}={v}")), *rest],
                                   connectors={"founder": local, "anonymous": local, "unpaired": taker(net_pairs)})
             return rc
         finally:
