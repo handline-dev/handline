@@ -64,7 +64,7 @@ def task_of(con, row, state: str) -> dict:
         "delivered": agentview._ts(row["delivered_at"]), "done": agentview._ts(row["done_at"]),
         "hold_reason": taskholds.wait_line(con, row, state),
         "block_reason": ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers)) if blockers else None,
-        "evidence": row["done_evidence"],
+        "evidence": row["done_evidence"], "priority": row["priority"],
     }
 
 

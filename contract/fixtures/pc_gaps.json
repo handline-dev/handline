@@ -3,7 +3,7 @@
   {
    "name": "chat.send_now.no_such_request",
    "spec": "chat.send_now",
-   "about": "NOT_YET_IN_PYTHON: A request the daemon does not have is not_found.",
+   "about": "A request the daemon does not have is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -41,7 +41,7 @@
   {
    "name": "chat.send_now.request_is_an_integer",
    "spec": "chat.send_now",
-   "about": "NOT_YET_IN_PYTHON: A request that is not an integer is bad_request naming it.",
+   "about": "A request that is not an integer is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -80,7 +80,7 @@
   {
    "name": "chat.send_now.needs_a_request_id",
    "spec": "chat.send_now",
-   "about": "NOT_YET_IN_PYTHON: A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -118,7 +118,7 @@
   {
    "name": "chat.send_now.an_agent_session_is_refused_by_role",
    "spec": "chat.send_now",
-   "about": "NOT_YET_IN_PYTHON: It is a person's: a call from an agent session is refused, gate role.",
+   "about": "It is a person's: a call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -156,7 +156,7 @@
   {
    "name": "task.edit.priority_is_one_to_three",
    "spec": "task.edit",
-   "about": "NOT_YET_IN_PYTHON: A priority other than 1, 2 or 3 is bad_request naming it.",
+   "about": "A priority other than 1, 2 or 3 is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -196,7 +196,7 @@
   {
    "name": "stats.outlook.range_is_a_known_span",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: A range the spec does not list is bad_request naming it.",
+   "about": "A range the spec does not list is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -234,7 +234,7 @@
   {
    "name": "stats.outlook.the_shape",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: The outlook states its range and keeps what was recorded apart from what is guessed.",
+   "about": "The outlook states its range and keeps what was recorded apart from what is guessed.",
    "as": "founder",
    "steps": [
     {
@@ -286,7 +286,7 @@
   {
    "name": "stats.outlook.an_agent_session_is_refused_by_role",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: A call from an agent session is refused, gate role.",
+   "about": "A call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -323,7 +323,7 @@
   {
    "name": "prompt.answer.choice_may_be_an_array_of_keys",
    "spec": "prompt.answer",
-   "about": "NOT_YET_IN_PYTHON: An array of keys passes the choice check (it answers a multi prompt); an array of anything else is bad_request naming choice.",
+   "about": "An array of keys passes the choice check (it answers a multi prompt); an array of anything else is bad_request naming choice.",
    "as": "founder",
    "steps": [
     {
