@@ -327,13 +327,14 @@ KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", 
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1"]
 
 def _ready() -> list[Path]:
-    """FILES less the NOT_YET_IN_PYTHON fixtures the fake does not pass (it lacks the method, or KEY cannot seed it)."""
+    """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed. One the fake runs and fails stays in,
+    so a fixture edit or a fake regression fails the fake runs instead of dropping out."""
     results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
-    passes = {n for st, _, n in results if st == "pass"}
+    dropped = {n for st, _, n in results if st in ("missing", "needvar", "skip")}
     out = Path(tempfile.mkdtemp(prefix="conformance-"))
     for p in FILES:
         doc = json.loads(p.read_text())
-        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] in passes]
+        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] not in dropped]
         (out / p.name).write_text(json.dumps(doc))
     return sorted(out.glob("*.json"))
 
