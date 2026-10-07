@@ -12,7 +12,7 @@ import time
 from .. import actions, db
 from ..actions import requests as requests_actions
 from ..team import ask as askmod
-from . import agentview, rpc
+from . import agentview, delivery, rpc
 
 DEFAULT_LIMIT, MAX_LIMIT, MAX_WAIT_S = 50, 200, 600
 POLL_S = 0.5
@@ -43,8 +43,16 @@ def _agent_items(con, agent: str, since_id: int = 0, only: int | None = None) ->
     rows = con.execute(f"SELECT id, ts, requester, kind, body, read_at, state, {db.ANSWER_SQL} FROM requests "
                        f"WHERE target = ? AND {'id = ?' if only is not None else 'id >= ?'} AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id",
                        (agent, since_id if only is None else only)).fetchall()
-    return [_item(con, id=r["id"], kind=r["kind"] or "ask", agent=r["requester"], body=r["body"], ts=r["ts"],
-                  read=r["read_at"] is not None or r["state"] != "queued", answered=r["answer"] is not None) for r in rows]
+    return [{**_item(con, id=r["id"], kind=r["kind"] or "ask", agent=r["requester"], body=r["body"], ts=r["ts"],
+                     read=r["read_at"] is not None or r["state"] != "queued", answered=r["answer"] is not None),
+             "how_to_close": _how_to_close(con, r)} for r in rows]
+
+
+def _how_to_close(con, r) -> str:
+    """The line `hl inbox` ends an item with: what the agent does to close it."""
+    if r["kind"] == "task":
+        return delivery.answer_verb(con, r)
+    return f"`hl say {r['requester']} --parent <id> \"<answer>\"` answers it"
 
 
 def answered_now(con, rid: int) -> bool:
@@ -72,13 +80,18 @@ def _page(ctx, params) -> dict:
     before, limit = _int(params, "before"), _int(params, "limit", 1, MAX_LIMIT) or DEFAULT_LIMIT
     con = db.connect()
     try:
-        items = _agent_items(con, ctx.caller.info["name"]) if ctx.caller.role == "agent" else _founder_items(con)
+        mine = ctx.caller.role == "agent"
+        items = _agent_items(con, ctx.caller.info["name"]) if mine else _founder_items(con)
+        behind = max(db.queue_depth(con, ctx.caller.info["name"]) - 1, 0) if mine else None
     finally:
         con.close()
     items = [i for i in items if (not unread or not i["read"]) and (kind is None or i["kind"] == kind)
              and (agent is None or i["agent"] == agent) and (before is None or i["id"] < before)]
     items.sort(key=lambda i: -i["id"])
-    return {"items": items[:limit], "more": len(items) > limit}
+    page = {"items": items[:limit], "more": len(items) > limit}
+    if behind is not None:
+        page["more_waiting"] = behind
+    return page
 
 
 def _inbox_list(ctx, params) -> dict:

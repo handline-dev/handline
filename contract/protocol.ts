@@ -320,6 +320,8 @@ export type InboxItem = {
   answered: boolean;
   options: DecisionOption[];
   prompt: Prompt | null;
+  /** An agent's own item only: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). Absent for the founder. */
+  how_to_close?: string;
 };
 
 export type Event = {
@@ -1300,6 +1302,8 @@ export interface Methods {
 }; result: {
     items: InboxItem[];
     more: boolean;
+    /** An agent caller only: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
+    more_waiting?: number;
   } };
   "inbox.get": { params: {
   id: number;

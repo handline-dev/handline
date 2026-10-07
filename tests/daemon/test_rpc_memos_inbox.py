@@ -148,6 +148,19 @@ def test_inbox_mark_read_reads_what_the_caller_may_and_keeps_what_is_owed(home: 
     check("inbox.mark_read: a retry is replayed", again["result"].get("replayed") is True, str(again))
 
 
+def test_an_agents_inbox_says_how_to_close_each_item_and_how_many_wait_behind(home: Path) -> None:
+    support._board_world(home)
+    _, _, first = askmod.ask("worker", "look at this", requester="manager")
+    askmod.ask("worker", "and this", requester="manager")
+    got = _call("inbox.list", as_agent="worker")["result"]
+    by = {i["id"]: i for i in got["items"]}
+    check("inbox.list: an ask is closed by a say that names the asker", by[first]["how_to_close"] == '`hl say manager --parent <id> "<answer>"` answers it',
+          str(by[first]))
+    check("inbox.list: an agent is told how many wait behind the head", got["more_waiting"] == 1, str(got))
+    mail = _call("inbox.list", as_agent=None)["result"]
+    check("inbox.list: the founder's mailbox carries neither", "more_waiting" not in mail and all("how_to_close" not in i for i in mail["items"]), str(mail))
+
+
 def test_inbox_answer_settles_what_the_founder_was_asked(home: Path) -> None:
     support._board_world(home)
     ask = _to_founder("may I deploy?", who="manager", kind="ask")

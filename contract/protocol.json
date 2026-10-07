@@ -3196,6 +3196,11 @@
       },
       "more": {
        "type": "boolean"
+      },
+      "more_waiting": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "An agent caller only: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one)."
       }
      },
      "required": [
@@ -8460,6 +8465,10 @@
         "type": "null"
        }
       ]
+     },
+     "how_to_close": {
+      "type": "string",
+      "description": "An agent's own item only: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). Absent for the founder."
      }
     },
     "required": [
