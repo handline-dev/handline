@@ -25,7 +25,7 @@ import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { Knobs } from './knobs.ts';
-import { detail, newSession, tid, view, type Attach, type Session } from './session.ts';
+import { accountsReply, detail, newSession, tid, view, type Attach, type Session } from './session.ts';
 
 const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
 
@@ -375,6 +375,8 @@ export class FakeDaemon {
           inbox: { unread: this.inbox.unread() },
         };
       }
+      case 'accounts.list':
+        return accountsReply(this.knobs.accounts, [...this.sessions.values()]);
       case 'agents.list':
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':

@@ -7,3 +7,4 @@ export * from './tasks.ts';
 export * from './workspace.ts';
 export * from './badges.ts';
 export * from './task-table.ts';
+export * from './verbs.ts';

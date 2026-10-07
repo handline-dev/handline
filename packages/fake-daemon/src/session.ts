@@ -1,5 +1,6 @@
 import type { AgentDetail, AgentView, InputHolder, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
+import { refused } from './errors.ts';
 
 export const ROWS = 24,
   COLS = 80;
@@ -93,4 +94,22 @@ export function detail(s: Session): AgentDetail {
     account_pick: { account: s.fx.account, reason: 'fixture' },
     prompt: s.prompt,
   };
+}
+
+/** accounts.list for a daemon given account names (each with the agents whose fixture names it); refused as unsupported without them. */
+export function accountsReply(names: string[] | null, sessions: Session[]) {
+  if (!names) throw refused('unsupported', 'the fake daemon does not serve accounts.list');
+  const accounts = names.map((name) => ({
+    name,
+    label: name,
+    login_state: 'ok' as const,
+    five_hour: null,
+    weekly: null,
+    agents: sessions.filter((s) => s.fx.account === name).map((s) => s.fx.name),
+    moves: [],
+    cap: null,
+    cap_effective: 3,
+    recover: false,
+  }));
+  return { accounts };
 }
