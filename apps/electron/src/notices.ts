@@ -13,8 +13,24 @@ export interface Notice {
 
 const text = (v: unknown): string => (typeof v === 'string' || typeof v === 'number' ? String(v) : '');
 
-/** The notice a `notifications` event raises, or null for an event that is not one of the four. */
+/** An HR proposal's title as notice text: control characters dropped, cut at 200 characters. */
+const plain = (v: string): string =>
+  [...v]
+    .filter((c) => {
+      const k = c.codePointAt(0)!;
+      return k > 0x1f && (k < 0x7f || k > 0x9f);
+    })
+    .slice(0, 200)
+    .join('');
+
+/** The notice an event raises, or null for an event that is not one of the four notifications or an `hr.raised`. */
 export function noticeFor(e: Event): Notice | null {
+  // Agent null: an HR notice asks for a decision, so no agent on screen holds it back.
+  if (e.topic === 'hr') {
+    return e.type === 'hr.raised'
+      ? { title: 'HR proposal', body: plain(e.title ?? '') || 'A proposal is waiting', agent: null, target: e.target, event: e.type }
+      : null;
+  }
   if (e.topic !== 'notifications') return null;
   const who = e.agent ?? text(e.data.agent);
   switch (e.type) {

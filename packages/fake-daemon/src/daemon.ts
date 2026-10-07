@@ -61,6 +61,7 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;
@@ -390,13 +391,13 @@ export class FakeDaemon {
         return detail(agent());
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
+        for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');
         c.topics = new Set(p.topics as Topic[]);
         return { cursor: this.head };
       }
-      case 'unsubscribe': {
+      case 'unsubscribe':
         for (const t of (p.topics as Topic[] | undefined) ?? []) c.topics?.delete(t);
         return {};
-      }
       case 'prompt.list': {
         const s = agent();
         return { prompts: s.prompt ? [s.prompt] : [] };
