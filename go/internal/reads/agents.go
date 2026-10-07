@@ -27,14 +27,18 @@ func (e *Env) roleLine(name string) string {
 	return ""
 }
 
+// noView is the state word of an agent the tick has stored no view for (x-state-words in protocol.json).
+const noView = "no_terminal"
+
 // viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view). An agent with no
-// stored view yet gets what can be read without the tick's judgement of its screen: its state is "unknown".
+// stored view yet gets what can be read without the tick's judgement of its screen: no terminal is known for it, so its
+// state is the spec's word for that.
 func (e *Env) viewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
 	if v, ok := stored[name]; ok {
 		return v, nil
 	}
 	view := map[string]any{
-		"name": name, "role": e.roleLine(name), "model": nil, "effort": nil, "state": "unknown", "state_detail": "",
+		"name": name, "role": e.roleLine(name), "model": nil, "effort": nil, "state": noView, "state_detail": "",
 		"state_since": nil, "block": nil, "wall_reason": nil, "background_since": nil, "would_wake": false,
 		"blocker": nil, "account": nil, "task": nil, "cache_until": nil, "has_dialog": false, "parent": nil,
 	}
