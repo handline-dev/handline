@@ -2364,6 +2364,206 @@
    "description": "not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for. When the request exists and only no chat draws it, the not_found data also carries `from`, `to` and `body` of that request (body as typed, control characters stripped), so a client can say what it was; for a request that does not exist it carries none of them."
   },
   {
+   "name": "agent.strip",
+   "summary": "The line under an agent's chat header: model, account, context, prompt-cache life and the screen word.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "agent",
+      "model",
+      "account",
+      "ctx_pct",
+      "ctx_used",
+      "ctx_limit",
+      "cache_left_s",
+      "screen_word",
+      "screen_detail"
+     ],
+     "properties": {
+      "agent": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "model": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "account": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "ctx_pct": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Percent of the context window used, as far as the session's own report is trusted."
+      },
+      "ctx_used": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Tokens in use."
+      },
+      "ctx_limit": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The window the model has, with the agent's own setting applied."
+      },
+      "cache_left_s": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Seconds until the prompt cache lapses; negative once it has; null with nothing to measure from."
+      },
+      "screen_word": {
+       "oneOf": [
+        {
+         "type": "string",
+         "enum": [
+          "RUNNING",
+          "IDLE",
+          "PENDING",
+          "MOVING",
+          "DIALOG",
+          "FATAL"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The agent's state as the screens draw it (`tui.screen_state`), not the wire `state`; null when it never started."
+      },
+      "screen_detail": {
+       "type": "string",
+       "description": "The text drawn beside screen_word."
+      }
+     }
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Context figures come from the usage snapshot of the agent's own session, so they are null for an agent with no account or no snapshot."
+  },
+  {
+   "name": "chat.refs",
+   "summary": "What a # in the composer can point at: the agent's newest requests.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "requests"
+     ],
+     "properties": {
+      "requests": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "request",
+         "from",
+         "to",
+         "line"
+        ],
+        "properties": {
+         "request": {
+          "type": "integer"
+         },
+         "from": {
+          "type": "string"
+         },
+         "to": {
+          "type": "string"
+         },
+         "line": {
+          "type": "string",
+          "description": "The first line of the body, at most 60 characters."
+         }
+        }
+       },
+       "description": "Up to 30, newest first: every request the agent sent or received that was not withdrawn or turned away."
+      }
+     }
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The agent's tasks are `tasks.list` with `owner` or `from`. A request that no chat shows is read with `chat.locate`, whose not_found carries from, to and body."
+  },
+  {
    "name": "chat.search",
    "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).",
    "paramStructure": "by-name",
