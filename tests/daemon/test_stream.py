@@ -275,6 +275,20 @@ def test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_a
           and got[1]["agent"] == "backend", f"{msg} {got}")
     watcher.scan(con)
     check("inbox: and not again", len([e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]) == 2)
+    # what leaves the list is not always an answer: a say seen, an ask dismissed
+    say = db.add_request(con, "backend", "human", "fyi", None, None, "fire_and_forget", "say", 0, None, state="landed")
+    con.execute("UPDATE requests SET landed_at = ts WHERE id = ?", (say,))
+    ask = db.add_request(con, "backend", "human", "may I again?", None, None, "async", "ask", 0, None)
+    con.commit()
+    watcher.scan(con)
+    actions.for_you_seen(con, "backend", 10 ** 9)
+    ok, msg = actions.dismiss(con, ask, "human", "not now")
+    con.execute("UPDATE requests SET read_at = ? WHERE id = ?", (int(time.time()), say))
+    con.commit()
+    watcher.scan(con)
+    left = {e["data"]["id"]: e["data"] for e in stream.since(con, 0, ["inbox"]) if e["type"] == "inbox.changed" and e["data"]["id"] in (say, ask)}
+    check("inbox: a dismissed ask is read, not answered", ok and left.get(ask, {}).get("answered") is False and left[ask]["read"] is True, f"{msg} {left}")
+    check("inbox: a say that was seen is read, not answered", left.get(say, {}).get("answered") is False, str(left))
     con.close()
 
 

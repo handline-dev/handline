@@ -401,9 +401,9 @@ def _inbox(con, state: dict) -> None:
                 ts = con.execute("SELECT ts FROM requests WHERE id = ?", (iid,)).fetchone()
                 emit(con, "inbox", "inbox.changed" if iid in old or (ts and ts["ts"] < since) else "inbox.added", item, agent=item["agent"],
                      title=item["title"], target={"screen": "inbox", "id": str(iid)})
-        for iid, item in sorted(old.items()):       # the founder's inbox lists what still waits: an item that left it was answered or read
+        for iid, item in sorted(old.items()):       # the founder's inbox lists what still waits: an item that left it was answered, seen, dismissed or withdrawn
             if iid not in state["founder"] and iid >= state["floor"]:
-                emit(con, "inbox", "inbox.changed", {**item, "read": True, "answered": True}, agent=item["agent"], title=item["title"],
+                emit(con, "inbox", "inbox.changed", {**item, "read": True, "answered": rpc_inbox.answered_now(con, iid)}, agent=item["agent"], title=item["title"],
                      target={"screen": "inbox", "id": str(iid)})
     if touched:
         state["last"] = max([last, *(r["touched"] for r in touched if r["touched"] is not None)])
