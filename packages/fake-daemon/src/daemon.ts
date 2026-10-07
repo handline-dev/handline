@@ -27,9 +27,10 @@ import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { Knobs } from './knobs.ts';
+import { watcherNotice } from './watchers.ts';
 import { accountsReply, detail, newSession, tid, view, type Attach, type Session } from './session.ts';
 
-const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
+const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
@@ -86,10 +87,8 @@ export class FakeDaemon {
     broadcast: (s, method, params) => {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));
-        if (a?.format === 'text') this.notify(c, method, params);
-        // Bytes watchers get the same markers and holders in their own counter, marked `bytes`, and no frames or resizes.
-        else if (a && (method === 'marker' || method === 'holder'))
-          this.notify(c, method, { ...(params as object), format: 'bytes', seq: ++a.seq });
+        const n = watcherNotice(a, method, params, s.cols);
+        if (n) this.notify(c, method, n);
       }
     },
     broadcastBytes: (s, method, build) => {
@@ -271,9 +270,8 @@ export class FakeDaemon {
       // The listener's one reply to anyone unpaired, the same words whatever was asked.
       return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
     }
-    const wait = this.knobs.waits(req.method);
-    if (wait > 0) setTimeout(() => this.handle(c, req.id!, req.method!, params), wait);
-    else this.handle(c, req.id, req.method, params);
+    const { id, method } = req;
+    this.knobs.defer(method, () => this.handle(c, id, method, params));
   }
 
   private handle(c: Conn, id: number | string, method: string, params: Record<string, unknown>) {

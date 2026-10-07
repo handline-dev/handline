@@ -1,4 +1,4 @@
-// The Accounts page (#/accounts, #/accounts/:name): a card per account with its gauges, state and agents, and one account in three tabs.
+// The Accounts page (#/accounts, #/accounts/:name): one line per account with its gauges, state and agents, and one account in three tabs.
 import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span } from '@handline/app-core';
 import type { Account } from '@handline/client';
@@ -7,35 +7,67 @@ import { useAccounts, useAgents, useServes, useWrite } from '@handline/app-data'
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
 import { goAgent } from './route.ts';
+import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
 
+const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
+  needs_login: 'warn',
+  out: 'full',
+  in_use: 'working',
+  idle: 'idle',
+  unknown: 'help',
+};
+
+/** The state as a glyph and a word: the colour of the chip is never the only sign. */
 export function StateChip({ a, now }: { a: Account; now: number }) {
   const state = stateOf(a);
   const until = state === 'out' ? outUntil(a) : null;
   return (
-    <span className={`badge acct-state ${state}`} data-state={state}>
-      {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
+    <span className="acct-state-wrap">
+      <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
+      <span className={`badge acct-state ${state}`} data-state={state}>
+        {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
+      </span>
     </span>
   );
 }
 
 export const agentsLine = (a: Account) => `${a.agents.length} / cap ${a.cap_effective}`;
 
-function Card({ a, now }: { a: Account; now: number }) {
+function Row({ a, now }: { a: Account; now: number }) {
   return (
-    <a className="acct-card" href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
-      <span className="acct-head">
+    <a className="acct-row" href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
+      <span className="acct-name">
         <strong>{a.label}</strong>
         {a.label !== a.name ? <span className="muted mono">{a.name}</span> : null}
-        <StateChip a={a} now={now} />
       </span>
+      <StateChip a={a} now={now} />
       <Gauge label="5 h" window={a.five_hour} now={now} />
       <Gauge label="week" window={a.weekly} now={now} />
-      <span className="muted acct-agents">agents {agentsLine(a)}</span>
+      <span className="acct-agents" title={`Agents on it, and its cap: ${agentsLine(a)}`}>
+        <Icon name="agent" size={14} label="Agents" />
+        {a.agents.length}/{a.cap_effective}
+      </span>
     </a>
+  );
+}
+
+/** The daemon has no add or remove call for an account (only login, alias, cap and the month), so adding one is a host command. */
+function AddAccount() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button icon="plus" label="Add an account" onClick={() => setOpen(true)} />
+      {open ? (
+        <Dialog title="Add an account" onClose={() => setOpen(false)}>
+          <p className="muted">The daemon adds accounts from the host. Run there:</p>
+          <p className="mono">hl account add &lt;name&gt;</p>
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 
@@ -47,17 +79,18 @@ export function AccountsPage({ name }: { name: string | null }) {
   const one = name === null ? null : list.find((a) => a.name === name);
   return (
     <section className="accounts" aria-label="Accounts">
-      <header className="inbox-top">
-        <h2>
-          {name === null ? (
-            'Accounts'
-          ) : (
-            <>
-              <a href="#/accounts">Accounts</a>
-              <span className="muted"> / {one?.label ?? name}</span>
-            </>
-          )}
-        </h2>
+      <header className="accounts-head">
+        {name === null ? (
+          <h2>Accounts</h2>
+        ) : (
+          <>
+            <Button className="back" icon="back" label="Back to accounts" onClick={() => (location.hash = '#/accounts')}>
+              Accounts
+            </Button>
+            <h2>{one?.label ?? name}</h2>
+          </>
+        )}
+        {name === null ? <AddAccount /> : null}
       </header>
       <View
         q={q}
@@ -69,7 +102,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         {name === null ? (
           <div className="acct-list">
             {list.map((a) => (
-              <Card key={a.name} a={a} now={now} />
+              <Row key={a.name} a={a} now={now} />
             ))}
           </div>
         ) : one ? (
@@ -93,7 +126,7 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
   return (
     <div className="acct-one">
       <p className="acct-head">
-        <strong>{a.label}</strong> <StateChip a={a} now={now} />
+        <StateChip a={a} now={now} />
       </p>
       <div role="tablist" className="chat-tabs" aria-label="Account">
         {TABS.map((t) => (
@@ -106,15 +139,15 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
         <div className="acct-overview">
           <Gauge label="5 h" window={a.five_hour} now={now} detail />
           <Gauge label="week" window={a.weekly} now={now} detail />
-          <p>
-            <span className="muted">Month: </span>
+          <p className="acct-fact">
+            <Icon name="schedules" size={14} label="Month" />
             {a.cycle.on
               ? `ends ${a.cycle.end ?? 'at the next anniversary'}${a.cycle.end_is_default ? ' (the monthly anniversary)' : ''}`
               : 'renewing'}
           </p>
-          <p>
-            <span className="muted">Usage recovery: </span>
-            {a.recover ? 'on' : 'off'}
+          <p className="acct-fact">
+            <Icon name="refresh" size={14} label="Usage recovery" />
+            {a.recover ? 'recovers a dead read' : 'no recovery'}
           </p>
           <Login a={a} />
         </div>
@@ -156,23 +189,19 @@ function Login({ a }: { a: Account }) {
   const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.login';
   return (
     <div className="acct-login">
-      <button
-        className="btn desktop-only"
+      <Button
+        className="desktop-only"
+        label={login.isPending ? '…' : a.login_state === 'ok' ? 'Log in again' : 'Log in'}
         disabled={!!off || login.isPending || inProgress}
-        title={off}
+        title={off ?? `Or from the host: hl login ${a.name}`}
         onClick={() => login.mutate({ account: a.name })}
-      >
-        {login.isPending ? '…' : a.login_state === 'ok' ? 'Log in again' : 'Log in'}
-      </button>
+      />
       <span className="muted phone-only">Log in from a computer.</span>
       {inProgress ? (
         <p className="muted" role="status">
           Login in progress in terminal <span className="mono">{terminal}</span>.
         </p>
       ) : null}
-      <p className="muted">
-        Or from the host: <span className="mono">hl login {a.name}</span>
-      </p>
     </div>
   );
 }

@@ -12,10 +12,14 @@ appId: dev.handline.mobile
     when: { visible: { id: back } }
     commands: [{ tapOn: { id: back } }]
 - runFlow:
+    when: { visible: { id: nav-agents } }
+    commands: [{ tapOn: { id: nav-agents } }]
+- runFlow:
     when: { visible: Unpair this phone }
     commands: [{ tapOn: Unpair this phone }]
 - tapOn:
     id: pair-uri
+- eraseText: 400
 - inputText: ${URI}
 - tapOn: Pair with a daemon
 - takeScreenshot: shots/1-pair

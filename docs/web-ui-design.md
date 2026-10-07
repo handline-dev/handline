@@ -345,6 +345,6 @@ Closed by the API spec (checked against its text and types):
 - **Chat**: paged messages with landing state, transcript, send, answer/dismiss/withdraw, locate and search, and a `chat` topic (the earlier `requests` topic is replaced by `chat` and `inbox`).
 - **Holders**: `AgentDetail.input_holders` is a list; `input.ask` is reserved and refused until implemented, as this document reserves it.
 
-Still open: **styled terminal rows**. The v1 stream is a text grid; the spec reserves styled rows and leaves the colour decision to the founder.
+**Styled terminal rows** are specified (format `styled`, `contract/protocol.md`); the daemon side is not built, and until it is the text grid is plain.
 
 Open, smaller: where the Electron wrapper differs (native notifications, open-in-editor); whether a person's chat messages carry a task as the bridge's can (§8 chat data 7 assumes yes); how long a hold lasts idle before it returns to the daemon.

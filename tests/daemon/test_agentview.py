@@ -119,6 +119,22 @@ limits:
         con.close()
 
 
+def test_the_view_carries_the_context_the_strip_reads(home: Path) -> None:
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        agentview.refresh(con, now)
+        check("ctx_pct: an agent on no account has none", agentview.stored(con, "backend")["ctx_pct"] is None)
+        db.set_account(con, "backend", "alpha")
+        write_status(home, "alpha", pct_5h=20, pct_7d=50)
+        write_agent_status("backend", "alpha", ctx_pct=61, session_id="s1")
+        agentview.refresh(con, now)
+        check("ctx_pct: the figure of the agent's own session, as the strip reads it", agentview.stored(con, "backend")["ctx_pct"] == 61)
+    finally:
+        con.close()
+
+
 def test_one_agents_failure_does_not_stale_the_others(home: Path) -> None:
     support._daemon_home(home, 20)
     agents.register("frontend")
@@ -324,6 +340,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_stored_view_does_not_drift_from_what_the_screens_work_out(Path(td) / "a1"))
         run(lambda: test_the_fields_a_quiet_agent_never_sets_are_checked_where_they_are_set(Path(td) / "a2a"))
+        run(lambda: test_the_view_carries_the_context_the_strip_reads(Path(td) / "a2c"))
         run(lambda: test_one_agents_failure_does_not_stale_the_others(Path(td) / "a2b"))
         run(lambda: test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(Path(td) / "a2"))
         run(lambda: test_the_tick_stores_every_agents_view(Path(td) / "a3"))

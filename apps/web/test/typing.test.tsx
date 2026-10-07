@@ -54,7 +54,7 @@ async function typeLine(daemon?: { bytes?: boolean }) {
   s.daemon.knobs.refuse('session.input', 'screen_blocker', REFUSAL, 'use session.keys or prompt.answer');
   await until(() => !box.querySelector('.grid-status')?.textContent, 'the tab to attach');
   const el = input()!;
-  await until(() => ![...box.querySelectorAll('button')].some((b) => b.textContent?.includes('Take control')), 'the keyboard');
+  await until(() => !!box.querySelector('.holder.mine'), 'the keyboard');
   await act(async () => {
     el.value = 'run the tests';
     el.dispatchEvent(new Event('input', { bubbles: true }));

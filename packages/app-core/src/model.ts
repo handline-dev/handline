@@ -2,36 +2,46 @@
 import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
 import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 
-export type Dot = 'running' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
+export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
 /** The rail dot: the daemon's state word plus its block kinds. Unknown words read as idle. */
 export function dotOf(a: AgentView): Dot {
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';
-  if (a.state === 'parked' || a.state === 'queued') return 'parked';
+  if (a.state === 'queued') return 'waking';
+  if (a.state === 'parked') return 'parked';
   if (a.state === 'running') return 'running';
   return 'idle';
 }
 
-const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, idle: 3, parked: 4, none: 5 };
-export type GroupBy = 'role' | 'state' | 'account';
+const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, waking: 3, idle: 4, parked: 5, none: 6 };
+export type GroupBy = 'team' | 'state' | 'account';
 
 export interface RailGroup {
   title: string;
   rows: { agent: AgentView; depth: number }[];
 }
 
-/** Groups agents; waiting ones sort up, and a child nests under the parent that spawned it. */
-export function railGroups(agents: AgentView[], by: GroupBy, opts: { hideParked?: boolean; search?: string } = {}): RailGroup[] {
+/** The team an agent belongs to: the part of its name before the first dot. A bare name is its own team when others carry it as a prefix, else it stands in "agents". */
+export function teamOf(name: string, names: readonly string[]): string {
+  const dot = name.indexOf('.');
+  if (dot > 0) return name.slice(0, dot);
+  return names.some((n) => n.startsWith(`${name}.`)) ? name : 'agents';
+}
+
+/** What a row shows of the name: inside its team, the part after the team's prefix. */
+export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
+
+/** Groups agents; waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter row has switched off. */
+export function railGroups(agents: AgentView[], by: GroupBy, opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailGroup[] {
   const q = (opts.search ?? '').trim().toLowerCase();
+  const all = agents.map((a) => a.name);
   const shown = agents.filter(
-    (a) =>
-      !(opts.hideParked && dotOf(a) === 'parked') &&
-      (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
+    (a) => !opts.hidden?.has(dotOf(a)) && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
   );
   const names = new Set(shown.map((a) => a.name));
-  const key = (a: AgentView) => (by === 'role' ? a.role : by === 'account' ? (a.account ?? 'no account') : dotOf(a));
+  const key = (a: AgentView) => (by === 'team' ? teamOf(a.name, all) : by === 'account' ? (a.account ?? 'no account') : dotOf(a));
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const groups = new Map<string, AgentView[]>();
   for (const a of shown) if (!a.parent || !names.has(a.parent)) (groups.get(key(a)) ?? groups.set(key(a), []).get(key(a))!).push(a);

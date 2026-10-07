@@ -34,7 +34,8 @@ const type = (v: string) =>
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v);
     t.dispatchEvent(new Event('input', { bubbles: true }));
   });
-const buttonNamed = (label: string, within = box) => [...within.querySelectorAll('button')].find((b) => text(b).trim() === label);
+const buttonNamed = (label: string, within = box) =>
+  [...within.querySelectorAll('button')].find((b) => (text(b).trim() || b.getAttribute('aria-label')) === label);
 const inCompose = (label: string) => buttonNamed(label, $('.compose-row')!);
 
 async function mount() {
@@ -72,7 +73,7 @@ const stub = (over: object = {}) => {
 
 async function sendMessage(body: string) {
   await type(body);
-  await click(buttonNamed('Send ↵')!);
+  await click(inCompose('Send')!);
   await until(() => $$('.msg-body').some((b) => text(b).includes(body.split(' ')[0]!)), 'the message');
 }
 

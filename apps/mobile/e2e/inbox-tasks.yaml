@@ -1,0 +1,22 @@
+# After pair-and-page.yaml (the phone is paired): the Inbox and Tasks tabs against `pnpm fake-listener`.  maestro test e2e/inbox-tasks.yaml
+appId: dev.handline.mobile
+---
+- tapOn:
+    id: nav-inbox
+- assertVisible: Mark all read
+- assertVisible:
+    id: inbox-open-.*
+- tapOn:
+    id: inbox-open-.*
+- assertVisible:
+    id: inbox-reply-.*
+- tapOn:
+    id: nav-tasks
+- assertVisible: Tasks
+- tapOn:
+    id: task-.*
+- assertVisible:
+    id: task-detail
+- tapOn:
+    id: task-back
+- assertVisible: Tasks

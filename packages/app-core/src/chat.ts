@@ -5,7 +5,7 @@ import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
 export type TimelineEntry =
   { kind: 'message'; at: string; id: number; message: ChatMessage } | { kind: 'item'; at: string; id: number; item: TranscriptItem };
 
-/** Everything on screen for one agent, oldest first: the person's messages and the agent's transcript by time. */
+/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. */
 export function timeline(messages: ChatMessage[], items: TranscriptItem[]): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.map((m): TimelineEntry => ({ kind: 'message', at: m.at, id: m.id, message: m })),

@@ -1,4 +1,4 @@
 {
   "extends": "@handline/config/tsconfig.node.json",
-  "include": ["src", "test", "build.ts"]
+  "include": ["src", "test", "build.ts", "follow-start.ts"]
 }

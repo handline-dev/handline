@@ -292,11 +292,8 @@ def _item_id(ts: int, source: int, row: int) -> int:
 
 
 def replies_of(r: dict, agent: str) -> list[dict]:
-    """What `agent` said in this request of its chat with the person: its message to them, and its answer to theirs."""
+    """What `agent` said in this request that chat.messages does not serve: its answer to the person's message."""
     out = []
-    if r["requester"] == agent and r["target"] == db.HUMAN and r["body"]:
-        at = r["landed_at"] or r["ts"]
-        out.append({"id": _item_id(at, _REPLY, r["id"] * 2), "at": _TS(at), "kind": "reply", "text": r["body"]})
     shown = db.shown_verdict(r)
     if r["requester"] == db.HUMAN and r["target"] == agent and shown and r["answer_id"] and not db.dismissal(r)[0]:
         at = db.answered_at(r)

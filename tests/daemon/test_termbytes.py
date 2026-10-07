@@ -653,8 +653,8 @@ def test_hello_says_which_hosts_serve_which_formats(home: Path) -> None:
     w = Wire()
     caps = w.call("hello", _hp())["result"]["capabilities"]
     w.close()
-    check("hello: terminal_hosts is text and bytes for tmux, text for Orca", caps["terminal_hosts"] == {"orca": ["text"], "tmux": ["text", "bytes"]}, str(caps))
-    check("hello: terminal_format is the union, in the spec's order", caps["terminal_format"] == ["text", "bytes"], str(caps))
+    check("hello: terminal_hosts is text, bytes and styled for tmux, text for Orca", caps["terminal_hosts"] == {"orca": ["text"], "tmux": ["text", "bytes", "styled"]}, str(caps))
+    check("hello: terminal_format is the union, in the spec's order", caps["terminal_format"] == ["text", "bytes", "styled"], str(caps))
 
 
 def main() -> int:

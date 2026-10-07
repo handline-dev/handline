@@ -5,7 +5,7 @@ import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
 import { HR_HANDLERS, teamOf } from './hr.ts';
-import { DAEMON_HOLDER, row, scrolledOff, tid, visible, type Attach, type Session } from './session.ts';
+import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from './session.ts';
 
 export interface Who {
   caller: Caller;
@@ -22,10 +22,10 @@ export interface Call {
 }
 
 /** The format an attach or history call asks for: text unless it says bytes; anything else is a bad request. */
-function formatOf(p: Record<string, unknown>): 'text' | 'bytes' {
+function formatOf(p: Record<string, unknown>): 'text' | 'bytes' | 'styled' {
   if (p.format === undefined || p.format === 'text') return 'text';
-  if (p.format === 'bytes') return 'bytes';
-  throw badRequest(`format is text or bytes, not ${String(p.format)}`, 'format');
+  if (p.format === 'bytes' || p.format === 'styled') return p.format;
+  throw badRequest(`format is text, bytes or styled, not ${String(p.format)}`, 'format');
 }
 
 export const HANDLERS: Record<string, (h: Call) => unknown> = {
@@ -145,15 +145,16 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
       return { ...snapshotOf(s, want, [s.holder]), seq: at.seq };
     }
     c.attached.set(tid(s), { format, seq: s.seq });
+    const rowOf = format === 'styled' ? (l: string) => styledRow(l, s.cols) : row;
     return {
       terminal: tid(s),
-      format: 'text',
+      format,
       seq: s.seq,
       cols: s.cols,
       rows: s.rows,
-      lines: visible(s).map(row),
+      lines: visible(s).map(rowOf),
       cursor: null,
-      history: { first, lines: s.lines.slice(first, off).map(row), more: first > 0 },
+      history: { first, lines: s.lines.slice(first, off).map(rowOf), more: first > 0 },
       holder: s.holder,
     };
   },
@@ -168,7 +169,9 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     const end = Math.min(Number(p.before), scrolledOff(s)),
       first = Math.max(0, end - Number(p.limit));
     const lines = s.lines.slice(first, end);
-    return { first, lines: formatOf(p) === 'bytes' ? lines.map((l) => coded(l, s.cols)) : lines.map(row), more: first > 0 };
+    const format = formatOf(p);
+    const rowOf = format === 'styled' ? (l: string) => styledRow(l, s.cols) : row;
+    return { first, lines: format === 'bytes' ? lines.map((l) => coded(l, s.cols)) : lines.map(rowOf), more: first > 0 };
   },
   'terminal.resize': (h) => {
     const { c, p, script, byTerminal } = h;

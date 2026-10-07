@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useServes, useWrite } from '@handline/app-data';
+import { Field, Icon, Switch } from './ui/index.ts';
 
 export function AccountSettings({ account: a }: { account: Account }) {
   const save = useWrite('account.set', a.name);
@@ -24,72 +25,62 @@ export function AccountSettings({ account: a }: { account: Account }) {
       aria-label={`Settings of ${a.label}`}
       data-pending={pending ? '' : undefined}
     >
-      <label>
-        Alias
-        <input
-          value={alias}
-          placeholder={a.name}
-          disabled={!!off}
-          title={off}
-          onChange={(e) => setAlias(e.target.value)}
-          onBlur={() => alias.trim() !== (a.label === a.name ? '' : a.label) && save.mutate({ account: a.name, label: alias.trim() })}
-        />
-      </label>
-      <label>
-        Cap <span className="muted">(most agents mid-turn at once; now {a.cap_effective})</span>
-        <input
-          type="number"
-          min={1}
-          value={cap}
-          placeholder={String(a.cap_effective)}
-          disabled={!!off}
-          title={off}
-          onChange={(e) => setCap(e.target.value)}
-          onBlur={() => {
-            const n = Number(cap);
-            if (cap !== '' && Number.isInteger(n) && n >= 1 && n !== a.cap) save.mutate({ account: a.name, cap: n });
-          }}
-        />
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={a.recover}
-          disabled={!!off}
-          title={off}
-          onChange={(e) => save.mutate({ account: a.name, recover: e.target.checked })}
-        />
-        Usage recovery <span className="muted">(a dead usage read may spend one real turn to fix itself)</span>
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={a.cycle.on}
-          disabled={!!off}
-          title={off}
-          onChange={(e) => save.mutate({ account: a.name, cycle: e.target.checked })}
-        />
-        Ends this month
-      </label>
-      <label>
-        Last day <span className="muted">(YYYY-MM-DD; blank means the next monthly anniversary)</span>
-        <input
-          type="date"
-          value={end}
-          disabled={!!off}
-          title={off}
-          onChange={(e) => setEnd(e.target.value)}
-          onBlur={() =>
-            end !== (a.cycle.end_is_default ? '' : (a.cycle.end ?? '')) && save.mutate({ account: a.name, cycle_end: end || null })
-          }
-        />
-      </label>
+      <Field
+        label="Alias"
+        value={alias}
+        placeholder={a.name}
+        disabled={!!off}
+        title={off}
+        onChange={(e) => setAlias(e.target.value)}
+        onBlur={() => alias.trim() !== (a.label === a.name ? '' : a.label) && save.mutate({ account: a.name, label: alias.trim() })}
+      />
+      <Field
+        label="Cap"
+        unit="agents"
+        type="number"
+        min={1}
+        value={cap}
+        placeholder={String(a.cap_effective)}
+        disabled={!!off}
+        title={off ?? `The most agents mid-turn at once; now ${a.cap_effective}`}
+        note={`now ${a.cap_effective}`}
+        onChange={(e) => setCap(e.target.value)}
+        onBlur={() => {
+          const n = Number(cap);
+          if (cap !== '' && Number.isInteger(n) && n >= 1 && n !== a.cap) save.mutate({ account: a.name, cap: n });
+        }}
+      />
+      <div className="acct-switch" title="A dead usage read may spend one real turn to fix itself">
+        <Switch label="Usage recovery" on={a.recover} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, recover: on })} />
+        <span>Usage recovery</span>
+      </div>
+      <div className="acct-switch">
+        <Switch label="Ends this month" on={a.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, cycle: on })} />
+        <span>Ends this month</span>
+      </div>
+      <Field
+        label="Last day"
+        type="date"
+        value={end}
+        disabled={!!off}
+        title={off ?? 'Blank means the next monthly anniversary'}
+        onChange={(e) => setEnd(e.target.value)}
+        onBlur={() =>
+          end !== (a.cycle.end_is_default ? '' : (a.cycle.end ?? '')) && save.mutate({ account: a.name, cycle_end: end || null })
+        }
+      />
       {pending ? (
-        <p className="muted" role="status">
-          <i>○ saving…</i>
+        <p className="ui-note" role="status">
+          <Icon name="sending" size={14} />
+          saving
         </p>
       ) : null}
-      {off ? <p className="muted">Locked: {off}.</p> : null}
+      {off ? (
+        <p className="ui-note warn">
+          <Icon name="warn" size={14} label="Locked" />
+          Locked: {off}.
+        </p>
+      ) : null}
     </form>
   );
 }

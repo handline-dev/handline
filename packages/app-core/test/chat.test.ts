@@ -40,6 +40,14 @@ test('the timeline puts messages and transcript items in time order, a message f
   );
 });
 
+test("a reply with the same words as a message is still shown: the agent answering 'ok' to 'ok'", () => {
+  const out = timeline([msg({ id: 3, body: 'ok' })], [item({ id: 8, text: 'ok' })]);
+  assert.deepEqual(
+    out.map((e) => `${e.kind}${e.id}`),
+    ['message3', 'item8'],
+  );
+});
+
 test('who a message is from, whether an ask is open and whether a message can still be taken back', () => {
   const mine = msg({ landing: 'typed' });
   const ask = msg({ from: A, to: 'founder', landing: 'delivered_unanswered' });

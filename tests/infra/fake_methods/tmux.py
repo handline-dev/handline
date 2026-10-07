@@ -71,9 +71,9 @@ class World:
     def tell(self, method, **params):
         """Output and snapshot notices are bytes attaches' (a text attach is told of output by a frame, below); the rest go to every attach."""
         for att in list(self.attaches):
-            if method in ("output", "snapshot") and att.fmt == "text":
+            if method in ("output", "snapshot") and att.fmt != "bytes":
                 if method == "output":
-                    self.push(att, "frame", full=True, lines=[{"text": r} for r in self.rows], cursor=None)
+                    self.push(att, "frame", full=True, lines=[{"text": r} for r in self.rows], cursor=None, **({"format": "styled"} if att.fmt == "styled" else {}))
             else:
                 self.push(att, method, **params)
 
@@ -108,11 +108,11 @@ def world(ctx) -> World:
 
 def attach(ctx, params):
     fmt = params.get("format", "text")
-    if ctx is None or (fmt == "text" and params.get("agent") != AGENT and params.get("terminal") != HANDLE):
+    if ctx is None or (fmt != "bytes" and params.get("agent") not in (AGENT, TEXT_ONLY if fmt == "styled" else AGENT) and params.get("terminal") != HANDLE):
         return None             # a connection with no tmux world (the fake network's) serves text only; other text terminals are static
     w = world(ctx)
     agent = params.get("agent")
-    if agent == TEXT_ONLY and fmt == "bytes":
+    if agent == TEXT_ONLY and fmt in ("bytes", "styled"):
         return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "unsupported", "reason": "this terminal's host serves text only"}}
     if agent not in (None, AGENT) or params.get("terminal") not in (None, HANDLE):
         return None
@@ -121,9 +121,9 @@ def attach(ctx, params):
         detach(w, ctx, fmt)         # one attach per terminal and format: a second one replaces the first
         att = Attach(ctx, fmt)
         w.attaches.append(att)
-        lines = [] if w.alt or fmt == "text" else w.scroll[-n:] if n else []
-        if fmt == "text":
-            result = {"terminal": HANDLE, "format": "text", "seq": att.seq, "cols": w.size[0], "rows": w.size[1], "lines": [{"text": r} for r in w.rows], "cursor": None,
+        lines = [] if w.alt or fmt != "bytes" else w.scroll[-n:] if n else []
+        if fmt != "bytes":
+            result = {"terminal": HANDLE, "format": fmt, "seq": att.seq, "cols": w.size[0], "rows": w.size[1], "lines": [{"text": r} for r in w.rows], "cursor": None,
                       "history": {"first": 0, "lines": [], "more": False}, "holder": w.holders()[0], "holders": w.holders()}
         else:
             result = {"terminal": HANDLE, "format": "bytes", "seq": att.seq, **w.snapshot_fields(), "history": {"first": len(w.scroll) - len(lines), "lines": lines, "more": False},
@@ -188,8 +188,10 @@ def terminal(ctx, method, params):
             detach(w, ctx, params.get("format"))
             return "ok", {}
         if method == "terminal.history":
-            if params.get("format") != "bytes":
+            if params.get("format") not in ("bytes", "styled"):
                 return None
+            if params["format"] == "styled":
+                return "ok", {"first": 0, "lines": [], "more": False}
             lines = [] if w.alt else w.scroll[-params["limit"]:]
             return "ok", {"first": len(w.scroll) - len(lines), "lines": lines, "more": False}
         if w.holder != ctx.id:

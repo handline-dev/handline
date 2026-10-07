@@ -80,6 +80,40 @@ export class Owner {
     throw new Error(`the ${name} did not answer in time`);
   }
 
+  /**
+   * Moves a gateway this app started to another address. False, with `reason` in the tray, when the gateway is not this app's to move (it
+   * kills nothing then) or the new address does not answer either.
+   */
+  async moveGateway(cmd: Cmd, answers: () => Promise<boolean>, reason: string): Promise<boolean> {
+    if (this.owned().includes('gateway')) {
+      await this.replaceGateway(cmd);
+      if (this.state === 'running' && (await answers())) return true;
+    }
+    this.fail(reason);
+    return false;
+  }
+
+  /** Shows a reason in the tray without touching what runs. */
+  fail(reason: string): void {
+    this.set('failed', reason);
+  }
+
+  /** Starts the gateway again with another command (another address), leaving the daemon alone. */
+  async replaceGateway(cmd: Cmd): Promise<void> {
+    this.set('starting');
+    for (const s of this.started.filter((x) => x.name === 'gateway')) s.child.kill();
+    this.started = this.started.filter((x) => x.name !== 'gateway');
+    // Its socket goes when it exits; a new one must not mistake the old for itself.
+    for (let i = 0; i < 40 && (await this.d.gatewayUp()); i++) await this.d.wait(250);
+    this.d.gateway = cmd;
+    try {
+      await this.ensure('gateway', () => this.d.gatewayUp(), cmd);
+      this.set('running');
+    } catch (e) {
+      this.set('failed', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   /** Stops what this app started, the gateway before the daemon behind it. */
   stop(): void {
     this.stopping = true;
@@ -95,10 +129,18 @@ export class Owner {
 }
 
 /** The two commands, from the environment: a checkout runs `bin/ocp daemon` and `go/handlined`; a packaged app names its own binaries. */
-export function commands(env: (k: string) => string | undefined, root: string, listen: string): { python: Cmd; gateway: Cmd } {
+export function commands(
+  env: (k: string) => string | undefined,
+  root: string,
+  listen: string,
+  advertise: string | null = null,
+): { python: Cmd; gateway: Cmd } {
   const homeArgs = env('HOME') ? ['-home', env('HOME')!] : ['-allow-real-home'];
   return {
     python: { file: env('OCP') ?? `${root}/bin/ocp`, args: ['daemon'] },
-    gateway: { file: env('HANDLINED') ?? `${root}/go/handlined`, args: ['-gateway', ...homeArgs, '-listen', listen] },
+    gateway: {
+      file: env('HANDLINED') ?? `${root}/go/handlined`,
+      args: ['-gateway', ...homeArgs, '-listen', listen, ...(advertise ? ['-advertise', advertise] : [])],
+    },
   };
 }

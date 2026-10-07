@@ -7,6 +7,7 @@ import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
+import { IDLE_MS } from '../src/useInputHold.ts';
 import { BytesTab } from '../src/BytesTab.tsx';
 import { guard, paint, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
@@ -259,27 +260,48 @@ describe('the pane', () => {
     expect(box.querySelector('.xterm-pane.dim')).toBeNull();
   });
 
-  it('asks before taking control: a first key or a click shows the confirm, and nothing is sent until it is accepted', async () => {
+  it("takes the input by itself on the first key, sends what was typed in order, and ignores the terminal's own reports", async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
     await act(async () => m.term().input('\x1b[<0;5;5M\x1b[I')); // a mouse and a focus report are not typing
-    expect(box.querySelector('.take-confirm')).toBeNull();
-    await act(async () => m.term().input('x'));
-    await until(() => box.querySelector('.take-confirm'), 'the confirm');
-    expect(box.querySelector('.take-confirm')!.textContent).toContain('The daemon pauses delivering tasks and keys');
-    expect(m.daemon.sessions.get(ARCH)!.holder.kind).toBe('daemon');
-    await act(async () => box.querySelector<HTMLElement>('.take-confirm .btn:last-child')!.click()); // Cancel
-    expect(box.querySelector('.take-confirm')).toBeNull();
-    await act(async () => box.querySelector<HTMLElement>('.chips .chip')!.click()); // a key chip asks too, and its key is discarded
-    await until(() => box.querySelector('.take-confirm'), 'the confirm from a chip');
     expect(m.daemon.sessions.get(ARCH)!.holder.kind).toBe('daemon');
     expect(m.daemon.sessions.get(ARCH)!.received).toEqual([]);
-    await act(async () => box.querySelector<HTMLElement>('.take-confirm .btn:last-child')!.click());
-    await act(async () => box.querySelector<HTMLElement>('.term-bar .btn')!.click()); // the strip's button asks too
-    await until(() => box.querySelector('.take-confirm'), 'the confirm from the strip');
-    await act(async () => box.querySelector<HTMLElement>('.take-confirm .btn')!.click());
+    await act(async () => m.term().input('x'));
+    await act(async () => m.term().input('y')); // typed while the take is still going through
     await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
+    await until(
+      () =>
+        m.daemon.sessions
+          .get(ARCH)!
+          .received.map((r) => r.value)
+          .join('') === 'xy',
+      'both keys, in order',
+    );
     expect(box.querySelector('.take-confirm')).toBeNull();
+    await act(async () => m.term().input('z'));
+    await until(() => m.daemon.sessions.get(ARCH)!.received.some((r) => r.value === 'z'), 'a key while holding');
+  });
+
+  it('a key chip takes the input and sends its key', async () => {
+    const m = await mount();
+    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
+    await act(async () => box.querySelector<HTMLElement>('.chips .chip')!.click());
+    await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
+    await until(() => m.daemon.sessions.get(ARCH)!.received.length > 0, 'the key');
+  });
+
+  it('gives the input back after a quiet spell', async () => {
+    const m = await mount();
+    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await act(async () => m.term().input('x'));
+      await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
+      await act(async () => void (await vi.advanceTimersByTimeAsync(IDLE_MS + 500)));
+      await until(() => m.daemon.sessions.get(ARCH)!.holder.kind === 'daemon', 'the input given back');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows a skeleton of the screen while the first attach is pending, never a blank pane', async () => {
@@ -299,17 +321,6 @@ describe('the pane', () => {
     }
   });
 
-  it('types into the agent only while this device holds the input', async () => {
-    const m = await mount();
-    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
-    await act(async () => m.term().input('x'));
-    expect(m.daemon.sessions.get(ARCH)!.received).toEqual([]); // read-only: nothing was sent
-    await act(async () => void (await m.store.client.takeInput(ARCH)));
-    await until(() => box.querySelector('.term-bar .btn')?.textContent === 'Release', 'the hold');
-    await act(async () => m.term().input('hi'));
-    await until(() => m.daemon.sessions.get(ARCH)!.received.some((r) => r.value === 'hi'), 'the typed bytes');
-  });
-
   it("puts the daemon's own typing in the gutter as a marker, not in the stream", async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
@@ -321,7 +332,7 @@ describe('the pane', () => {
   it('keeps a hidden terminal for 30 s: switching back shows the last screen at once, with no new xterm', async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
-    // The pane unmounts (another tab shows) while the app, and so its cache, stays.
+    // Only the tab goes away: unmounting the daemon provider would stop the store.
     const around = (child: React.ReactNode) => (
       <DaemonProvider store={m.store}>
         <DataProvider daemonId="test" box={Box}>

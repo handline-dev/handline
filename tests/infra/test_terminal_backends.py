@@ -896,6 +896,16 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         tm.send(pane, "echo second-line-ok")
         time.sleep(1)
         check("real tmux: a typed line lands", "second-line-ok" in "\n".join((tm.read_screen(pane) or {}).get("tail", [])))
+        tm.send(pane, "printf '\\033[1;31mred-ok\\033[0m\\n'")
+        time.sleep(1)
+        coded = "\n".join(tm.read_screen_ansi(pane) or [])
+        from handline.infra import ansi
+        runs = [(t, sp) for t, sp in map(ansi.parse, (tm.read_screen_ansi(pane) or [])) if t == "red-ok"]
+        check("real tmux: capture-pane -e keeps the SGR codes the plain read drops", "\x1b[" in coded and runs and runs[0][1][0]["style"] == {"bold": True, "fg": 1}, coded)
+        cur = tm.cursor(pane)
+        size = tm.size(pane)
+        check("real tmux: the cursor is read with the pane's height and its empty bottom rows", cur is not None and size is not None and cur["visible"] and cur["height"] == size[1]
+              and 0 <= cur["y"] < cur["height"] and cur["blank_below"] == cur["height"] - 1 - cur["y"], str(cur))
         closed = tm.close_terminal(pane)[0]
         left = tm.list_terminals()          # an empty set (no server left) is an answer; None is not
         check("real tmux: closing it removes it", closed and left is not None and pane not in left)

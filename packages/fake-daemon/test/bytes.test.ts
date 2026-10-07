@@ -13,10 +13,10 @@ async function watch(client: ReturnType<typeof setup>['client']) {
   return { view, events };
 }
 
-test('the daemon says it serves bytes, and a format that is neither word is bad_request', async () => {
+test('the daemon says it serves bytes and styled, and a format that is neither word is bad_request', async () => {
   const { client } = setup();
   const h = await client.start();
-  assert.deepEqual(h.capabilities.terminal_format, ['text', 'bytes']);
+  assert.deepEqual(h.capabilities.terminal_format, ['text', 'bytes', 'styled']);
   await assert.rejects(client.call('terminal.attach', { agent: A, format: 'ansi' as never }), (e: RpcError) => e.data?.field === 'format');
   client.close();
 });

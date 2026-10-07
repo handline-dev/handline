@@ -2,7 +2,7 @@
 
 A `Channel` is one terminal while someone is attached. One poller thread reads its frame at most `RATE_S` apart however many
 clients watch, and ends when the last one leaves; detaching never touches the agent. A frame is text rows (the backends
-give text; `Row.spans` stays unset). Each client has a writer thread of its own and a bounded queue of the notices that
+give text; `Row.spans` is set only on a `styled` channel, whose rows come from the host with their SGR codes). Each client has a writer thread of its own and a bounded queue of the notices that
 must not be lost (markers, holders, resizes) beside one flag for the frame: a client that falls behind on frames is sent the
 newest frame whole, never a backlog, and one that falls `CLIENT_QUEUE` notices behind is hung up to attach again, since no
 frame can make those good. Rows that scroll off the top are kept (`HISTORY_MAX`) under absolute line indexes, found by
@@ -14,6 +14,7 @@ from __future__ import annotations
 import collections
 import threading
 import time
+import unicodedata
 
 from . import agentview
 
@@ -32,6 +33,25 @@ def read_rows(handle: str, rows: int) -> list[str] | None:
     return [str(r) for r in tail] if isinstance(tail, list) and term.get("source") == "screen" else None
 
 
+def read_styled(handle: str, rows: int) -> list[dict] | None:
+    """The same rows as read_rows with their style runs: `{"text", "spans"}`, spans left out of a row that has none."""
+    from ..infra import ansi
+    from ..session import backends
+    raw = backends.current().read_screen_ansi(handle, rows)
+    if raw is None:
+        return None
+    out = []
+    for r in raw:
+        text, spans = ansi.parse(r)
+        out.append({"text": text, **({"spans": spans} if spans else {})})
+    return out
+
+
+def read_cursor(handle: str) -> dict | None:
+    from ..session import backends
+    return backends.current().cursor(handle)
+
+
 def read_size(handle: str) -> tuple[int, int] | None:
     from ..session import backends
     return backends.current().size(handle)
@@ -42,8 +62,28 @@ def do_resize(handle: str, cols: int, rows: int) -> tuple[bool, str]:
     return backends.current().resize(handle, cols, rows)
 
 
-def _row(text: str) -> dict:
-    return {"text": text}
+def _row(line) -> dict:
+    return line if isinstance(line, dict) else {"text": line}
+
+
+def _code_points(text: str, cells: int) -> int:
+    """How many code points of `text` the first `cells` terminal cells hold (a wide character is two cells, a combining one none); cells past
+    the end of the text are blanks, one code point each."""
+    used = i = 0
+    while i < len(text) and used < cells:
+        used += _width(text[i])
+        i += 1
+        while i < len(text) and _width(text[i]) == 0:
+            i += 1
+    return i + max(cells - used, 0)
+
+
+def _width(ch: str) -> int:
+    return 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+
+
+def _text(line) -> str:
+    return line["text"] if isinstance(line, dict) else line
 
 
 class Client:
@@ -112,16 +152,17 @@ class Client:
 
 
 class Channel:
-    def __init__(self, handle: str, hub: "Hub") -> None:
-        self.handle, self.hub = handle, hub
+    def __init__(self, handle: str, hub: "Hub", fmt: str = "text") -> None:
+        self.handle, self.hub, self.fmt = handle, hub, fmt
         self.lock = threading.RLock()
         self.clients: list[Client] = []
         self.seq = 0
-        self.lines: list[str] = []
-        self.prev: list[str] = []           # the frame before the newest, for the one diff a client one step behind is owed
+        self.cur: dict | None = None        # the host's cursor as read; `cursor` gives it in the frame's own rows
+        self.lines: list = []               # str on a text channel, a {"text", "spans"} row on a styled one
+        self.prev: list = []           # the frame before the newest, for the one diff a client one step behind is owed
         self.changed: list[int] = []
         self.cols, self.rows = 80, ROWS
-        self.history: list[str] = []
+        self.history: list = []
         self.history_first = 0              # the absolute index of history[0]
         self.thread: threading.Thread | None = None
         self.reads = 0
@@ -142,37 +183,65 @@ class Channel:
                     break
             self.reads += 1
             try:
-                rows = read_rows(self.handle, self.rows)
+                rows = self._read()
             except Exception:  # noqa: BLE001 - a host that breaks is a frame not read, not a dead poller
                 rows = None
             if rows is not None:
-                self._offer(rows)
+                self._offer(rows, self._read_cursor())
             wait = RATE_S - (time.monotonic() - started)
             if wait > 0:
                 time.sleep(wait)
-        self.hub.reap(self.handle)      # nobody watches: the channel and its scrollback are dropped
+        self.hub.reap(self.handle, self.fmt)      # nobody watches: the channel and its scrollback are dropped
 
-    def _offer(self, rows: list[str]) -> None:
+    def _read(self) -> list | None:
+        return (read_styled if self.fmt == "styled" else read_rows)(self.handle, self.rows)
+
+    def _read_cursor(self) -> dict | None:
+        try:
+            return read_cursor(self.handle)
+        except Exception:  # noqa: BLE001 - no cursor is an answer, as for a host that does not say
+            return None
+
+    @property
+    def cursor(self) -> dict | None:
+        """`{x, y}` of the cursor in the frame's own rows, x counted in code points of the row's text as spans are (the host's cells: a wide
+        character is two). None when the host does not say, the cursor is hidden, or it is above the frame. y may be len(lines) or more: the
+        cursor on a blank row the frame drops."""
+        c, n = self.cur, len(self.lines)
+        if not c or not c["visible"]:
+            return None
+        y = c["y"] - (c["height"] - 1 - c["blank_below"]) + (n - 1)
+        return {"x": _code_points(_text(self.lines[y]) if 0 <= y < n else "", c["x"]), "y": y} if y >= 0 else None
+
+    def _offer(self, rows: list, cur: dict | None = None) -> None:
         with self.lock:
             if rows == self.lines:
+                before = self.cursor
+                self.cur = cur
+                if self.cursor != before:   # the cursor moved over the same rows: a frame with nothing changed, only the cursor
+                    self.prev, self.changed = self.lines, []
+                    self.seq += 1
+                    for c in list(self.clients):
+                        c.owe_frame()
                 return
+            self.cur = cur
             self._scrolled(self.lines, rows)
             self.prev, self.lines = self.lines, rows
             n = max(len(rows), len(self.prev))
             self.changed = [y for y in range(n) if (rows[y] if y < len(rows) else None) != (self.prev[y] if y < len(self.prev) else None)]
             self.seq += 1
-            self.cols = max([self.cols, *[len(r) for r in rows]])
+            self.cols = max([self.cols, *[len(_text(r)) for r in rows]])
             for c in list(self.clients):
                 c.owe_frame()
 
-    def _scrolled(self, old: list[str], new: list[str]) -> None:
+    def _scrolled(self, old: list, new: list) -> None:
         """Keep the rows that left the top: the smallest k such that the old frame from row k on is the new frame's start. A
         heuristic: a screen that happens to redraw with the old tail as its head is read as a scroll."""
         if not old or not new:
             return
         for k in range(1, len(old)):
             tail = old[k:]
-            if new[:len(tail)] == tail and any(r.strip() for r in old[:k]):
+            if new[:len(tail)] == tail and any(_text(r).strip() for r in old[:k]):
                 self.history.extend(old[:k])
                 if len(self.history) > HISTORY_MAX:
                     drop = len(self.history) - HISTORY_MAX
@@ -185,7 +254,8 @@ class Channel:
         with self.lock:
             incremental = client.sent_seq == self.seq - 1 and self.seq > 1 and len(self.changed) <= FULL_ABOVE * max(len(self.lines), 1)
             client.sent_seq = self.seq
-            params = {"terminal": self.handle, "seq": self.seq, "full": not incremental, "cursor": None}
+            params = {"terminal": self.handle, "seq": self.seq, "full": not incremental, "cursor": self.cursor,
+                      **({"format": "styled"} if self.fmt == "styled" else {})}
             if incremental:
                 params["changed"] = [{"y": y, "row": _row(self.lines[y] if y < len(self.lines) else "")} for y in self.changed]
             else:
@@ -196,8 +266,8 @@ class Channel:
         with self.lock:
             lines = self.history[-history:] if history > 0 else []
             first = self.history_first + len(self.history) - len(lines)
-            return {"terminal": self.handle, "format": "text", "seq": self.seq, "cols": self.cols, "rows": self.rows,
-                    "lines": [_row(r) for r in self.lines], "cursor": None,
+            return {"terminal": self.handle, "format": self.fmt, "seq": self.seq, "cols": self.cols, "rows": self.rows,
+                    "lines": [_row(r) for r in self.lines], "cursor": self.cursor,
                     "history": {"first": first, "lines": [_row(r) for r in lines], "more": first > self.history_first},
                     "holder": holders[0], "holders": holders}
 
@@ -218,9 +288,9 @@ class Channel:
             size = read_size(self.handle)
             if size:
                 self.cols, self.rows = size
-            rows = read_rows(self.handle, self.rows)
+            rows = self._read()
             if rows is not None:
-                self._offer(rows)
+                self._offer(rows, self._read_cursor())
         with self.lock:
             client.sent_seq = self.seq         # the snapshot already carries it
             client.frame_owed = False
@@ -246,41 +316,51 @@ class Channel:
 
 
 class Hub:
-    """The open channels by terminal handle. A channel lives while someone is attached and goes with its poller (`reap`)."""
+    """The open channels by terminal handle, text ones in `channels` and styled ones in `styled`. A channel lives while someone is
+    attached and goes with its poller (`reap`)."""
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.channels: dict[str, Channel] = {}
+        self.styled: dict[str, Channel] = {}
         self.restore: dict[str, tuple[int, int]] = {}      # handle -> the size before a resize, put back when its holder leaves
 
-    def channel(self, handle: str) -> Channel:
-        with self.lock:
-            return self.channels.setdefault(handle, Channel(handle, self))
+    def _store(self, fmt: str) -> dict[str, Channel]:
+        return self.styled if fmt == "styled" else self.channels
 
-    def open_for(self, handle: str) -> Channel | None:
+    def channel(self, handle: str, fmt: str = "text") -> Channel:
         with self.lock:
-            ch = self.channels.get(handle)
+            return self._store(fmt).setdefault(handle, Channel(handle, self, fmt))
+
+    def open_for(self, handle: str, fmt: str = "text") -> Channel | None:
+        with self.lock:
+            ch = self._store(fmt).get(handle)
         if ch is None:
             return None
         with ch.lock:
             return ch if ch.clients else None
 
-    def attach(self, handle: str, client: Client) -> Channel:
-        """The channel of `handle` with `client` on it, made and joined under the hub's lock so `reap` cannot drop it between."""
+    def open_all(self, handle: str) -> list[Channel]:
+        """The text and the styled channel of `handle`, those with someone attached."""
+        return [ch for fmt in ("text", "styled") if (ch := self.open_for(handle, fmt)) is not None]
+
+    def attach(self, handle: str, client: Client, fmt: str = "text") -> Channel:
+        """The channel of `handle` in `fmt` with `client` on it, made and joined under the hub's lock so `reap` cannot drop it between."""
         with self.lock:
-            ch = self.channels.setdefault(handle, Channel(handle, self))
+            ch = self._store(fmt).setdefault(handle, Channel(handle, self, fmt))
             with ch.lock:
                 ch.clients.append(client)
         ch.attach(client)
         return ch
 
-    def reap(self, handle: str) -> None:
+    def reap(self, handle: str, fmt: str = "text") -> None:
         with self.lock:
-            ch = self.channels.get(handle)
+            store = self._store(fmt)
+            ch = store.get(handle)
             if ch is not None:
                 with ch.lock:
                     if not ch.clients and ch.thread is None:
-                        del self.channels[handle]
+                        del store[handle]
 
 
 HUB = Hub()
@@ -290,9 +370,8 @@ def marker(con, agent: str, kind: str, actor: dict, text: str = "") -> None:
     """Tell whoever watches `agent`'s terminal that the daemon typed (`daemon_typed`) or a control call happened (`control`)."""
     from .. import db
     handle = db.get_terminal(con, agent)
-    ch = HUB.open_for(handle) if handle else None
-    if ch is not None:
-        ch.notify("marker", at=agentview._ts(time.time()), kind=kind, actor=actor, format="text", **({"text": text} if text else {}))
+    for ch in HUB.open_all(handle) if handle else []:
+        ch.notify("marker", at=agentview._ts(time.time()), kind=kind, actor=actor, format=ch.fmt, **({"text": text} if text else {}))
     if handle:
         from . import termbytes
         termbytes.notify(handle, "marker", at=agentview._ts(time.time()), kind=kind, actor=actor, **({"text": text} if text else {}))
@@ -306,15 +385,16 @@ def holders_changed(con, agent: str, holders: list[dict]) -> None:
     if not handle:
         return
     from . import termbytes
-    ch = HUB.open_for(handle)
-    if ch is not None:
-        ch.notify("holder", holders=holders, format="text")
+    open_channels = HUB.open_all(handle)
+    for ch in open_channels:
+        ch.notify("holder", holders=holders, format=ch.fmt)
     termbytes.notify(handle, "holder", holders=holders)
     if holders[0]["kind"] == "daemon" and handle in HUB.restore:
         cols, rows = HUB.restore.pop(handle)
         ok, _ = do_resize(handle, cols, rows)
-        if ok and ch is not None:
-            ch.rows, ch.cols = rows, cols
-            ch.notify("resize", cols=cols, rows=rows)
+        if ok:
+            for ch in open_channels:
+                ch.rows, ch.cols = rows, cols
+                ch.notify("resize", cols=cols, rows=rows)
         if ok:
             termbytes.resized(handle)

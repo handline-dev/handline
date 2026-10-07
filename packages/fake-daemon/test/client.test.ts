@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RpcError } from '@handline/client';
 import { type Event } from '@handline/client';
+import { refused } from '../src/errors.ts';
 import { flush, second, setup, until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
@@ -100,6 +101,46 @@ test('session started, text streamed, input sent, Esc sent, prompt answered', as
   const again = await client.attachTerminal(A);
   assert.deepEqual(again.text(), daemon.sessions.get(A)!.lines.slice(0, again.text().length));
   assert.equal(again.text().length, daemon.sessions.get(A)!.lines.length);
+  client.close();
+});
+
+test('a styled attach carries colour in the snapshot, the frames and the scrollback', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  await client.startSession(A);
+  for (let i = 0; i < 40; i++) daemon.daemonTypes(A, `line ${i}`);
+  const view = await client.attachTerminal(A);
+  assert.equal(view.format, 'styled');
+  const prompt = view.lines().find((r) => r.text === '> line 39');
+  assert.deepEqual(prompt?.spans, [{ from: 0, to: 1, style: { fg: 6 } }]);
+  daemon.daemonTypes(A, 'later');
+  await until(() => view.lines().some((r) => r.text === '> later' && r.spans), 'a coloured frame row');
+  await until(() => view.markers.length > 0, 'the marker');
+  daemon.daemonTypes(A, 'and again'); // the marker took the attach's counter, so the next frame still fits
+  await until(() => view.lines().some((r) => r.text === '> and again' && r.spans), 'the frame after the marker');
+  while (view.historyMore) await client.loadOlder(view, 9);
+  assert.ok(
+    view
+      .lines()
+      .filter((r) => r.text.startsWith('> line'))
+      .every((r) => r.spans?.[0]?.style.fg === 6),
+  );
+  client.close();
+});
+
+test('a host that cannot serve styled is asked again for plain text', async () => {
+  const { client, daemon } = setup();
+  const inner = daemon as unknown as { dispatch(c: unknown, m: string, p: { format?: string }): object };
+  const dispatch = inner.dispatch.bind(daemon);
+  inner.dispatch = (c, m, p) => {
+    if (m === 'terminal.attach' && p.format === 'styled') throw refused('unsupported', 'this host has no cell attributes');
+    return dispatch(c, m, p);
+  };
+  await client.start();
+  await client.startSession(A);
+  const view = await client.attachTerminal(A);
+  assert.equal(view.format, 'text');
+  assert.ok(view.lines().every((r) => !r.spans));
   client.close();
 });
 

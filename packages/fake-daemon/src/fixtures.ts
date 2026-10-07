@@ -26,7 +26,7 @@ export const AGENTS: AgentFixture[] = [
     state: 'parked',
     account: null,
     task: null,
-    parent: null,
+    parent: 'handline.architect',
     worktree: '/work/handline.term-build',
     branch: 'buddyron/handline.term-build',
     session: null,
@@ -52,7 +52,7 @@ export const AGENTS: AgentFixture[] = [
     state: 'idle',
     account: 'beta',
     task: null,
-    parent: null,
+    parent: 'handline.architect',
     worktree: '/work/handline.auditor',
     branch: 'buddyron/handline.auditor',
     session: 's-aud-1',
@@ -84,6 +84,13 @@ export function seedChat(chat: FakeChat, at: string): void {
   });
   chat.seed(A, { from: 'handline.auditor', to: A, body: 'Review is done, see the notes.', at: ago(40), landing: 'delivered' });
   chat.seedItem(A, { at: ago(49), kind: 'reply', text: 'Here is the plan: three units, chat first.' });
+  chat.seedItem(A, { at: ago(52), kind: 'session', session: { id: 's1', started: ago(52), handoff: null } });
+  chat.seedItem(A, {
+    at: ago(46),
+    kind: 'prompt',
+    open: false,
+    prompt: { id: 'p1', agent: A, kind: 'permission', tool: 'Bash', command: 'git status', lines: [], options: [], since: ago(46) },
+  });
   chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
   chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 7, request: null, evidence: null } });
   chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 7, request: null, evidence: 'auditor PASS' } });

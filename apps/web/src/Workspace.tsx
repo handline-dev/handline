@@ -2,16 +2,16 @@
 // Nothing sits above the panes: each pane has its own tab strip.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  addTab,
   arrange,
+  CHAT,
   defaultWorkspace,
   groupOf,
   groupsOf,
   loadWorkspace,
   MAX_GROUPS,
-  openTab,
   saveWorkspace,
   setSplit,
-  splitTab,
   storageKey,
   type KV,
   type Node,
@@ -85,19 +85,11 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     return () => ro.disconnect();
   }, []);
 
-  // A session that starts while this workspace is open gets its terminal beside the others; one already running was handled on load.
+  // A session that starts while this workspace is open gets its Claude Code tab, second and not shown; one already running was handled on load.
   const terminal = detail.terminal ?? null;
   const had = useRef(!!terminal);
   useEffect(() => {
-    if (terminal && !had.current) {
-      setWs((w) => {
-        const opened = openTab(w, 'terminal', { handle: terminal });
-        const g = groupOf(opened, `terminal:${terminal}`)!;
-        return g.tabs.length > 1 && groupsOf(opened.root).length < MAX_GROUPS
-          ? (splitTab(opened, `terminal:${terminal}`, g.id, 'right') ?? opened)
-          : opened;
-      });
-    }
+    if (terminal && !had.current) setWs((w) => addTab(w, 'terminal', { handle: terminal }, groupOf(w, CHAT)?.id));
     had.current = !!terminal;
   }, [terminal]);
 

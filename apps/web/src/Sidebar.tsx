@@ -6,6 +6,8 @@ import {
   controlsOf,
   dotOf,
   railGroups,
+  shortName,
+  type Dot,
   STOP_MODES,
   asks,
   verbsOf,
@@ -15,15 +17,17 @@ import {
   type KV,
   type StopMode,
 } from '@handline/app-core';
-import type { AgentDetail, AgentView } from '@handline/client';
-import { useConnection, useSelector, useStore } from '@handline/app-react';
+import type { AgentView } from '@handline/client';
+import { useConnection, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@handline/app-data';
 import { unserved, useServed, useVerbMark, useVerbRun, VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
-import { UsagePopup } from './UsagePopup.tsx';
+import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
+import { useNow } from './Gauge.tsx';
+import { Button, Icon } from './ui/index.ts';
 import { setting } from './daemon.ts';
-import { goAgent, goInbox, goSettings, goTasks, goTeam, useInboxRoute, useTeamRoute } from './route.ts';
+import { goAgent, goInbox, goSettings, goTasks, goTeam, useAccountsRoute, useInboxRoute, usePageRoute, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({
@@ -42,21 +46,36 @@ export function Sidebar({
   const agents = list.data?.agents ?? [];
   const conn = useConnection();
   const [search, setSearch] = useState('');
-  const [by, setBy] = useState(() => setting(storage, 'group', 'role').value as GroupBy);
-  const [hideParked, setHide] = useState(() => setting(storage, 'hideParked', '').value === '1');
-  const groups = railGroups(agents, by, { hideParked, search });
+  const [by, setBy] = useState<GroupBy>(() => {
+    const v = setting(storage, 'group', 'team').value;
+    return v === 'state' || v === 'account' ? v : 'team';
+  });
+  const [hidden, setHidden] = useState<Set<Dot>>(
+    () => new Set(setting(storage, 'hiddenDots', '').value.split(',').filter(Boolean) as Dot[]),
+  );
+  const [folded, setFolded] = useState<Set<string>>(() => new Set(setting(storage, 'folded', '').value.split('|').filter(Boolean)));
+  const flip = <T extends string>(set: Set<T>, k: T, key: string, sep: string): Set<T> => {
+    const next = new Set(set);
+    if (!next.delete(k)) next.add(k);
+    setting(storage, key, '').save([...next].join(sep));
+    return next;
+  };
+  const groups = railGroups(agents, by, { hidden, search });
+  const counts = new Map<Dot, number>();
+  for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
   const onInbox = useInboxRoute().open;
-  const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
+  const onAccounts = useAccountsRoute().open;
+  const pageRoute = usePageRoute();
+  const onPage = onAccounts ? 'accounts' : pageRoute;
   return (
     <nav className="rail" aria-label="Agents">
       <div className="rail-top">
-        <button className="icon" aria-label="Hide the agent list" onClick={onToggle}>
-          ☰
-        </button>
-        <strong className="brand">Handline</strong>
+        <Button icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
+        <Button icon="back" label="Back (⌘[)" onClick={() => history.back()} />
+        <Button icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
         {unread ? (
           <button className="bell" title="Unread in the inbox" aria-label={`${unread} unread in the inbox`} onClick={goInbox}>
             {unread}
@@ -65,23 +84,20 @@ export function Sidebar({
       </div>
       <div className="rail-nav">
         <button className={`nav${onInbox ? ' on' : ''}`} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
-          Inbox{unread ? ` ${unread}` : ''}
+          <Icon name="inbox" size={14} aria-hidden /> Inbox{unread ? ` ${unread}` : ''}
         </button>
-        <button className="nav" aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
-          Tasks
+        <button className={`nav${onTasks ? ' on' : ''}`} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
+          <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
         <button className={`nav${onTeam ? ' on' : ''}`} onClick={() => goTeam(hr ? 'hr' : 'team')}>
-          Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
+          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
         </button>
-        <a className="nav" href="#/accounts">
-          Accounts
-        </a>
-        <a className="nav" href="#/stats">
-          Stats
-        </a>
-        <a className="nav" href="#/settings">
-          Settings
-        </a>
+        <button className={`nav${onPage === 'accounts' ? ' on' : ''}`} onClick={() => void (location.hash = '#/accounts')}>
+          <Icon name="accounts" size={14} aria-hidden /> Accounts
+        </button>
+        <button className={`nav${onPage === 'stats' ? ' on' : ''}`} onClick={() => void (location.hash = '#/stats')}>
+          <Icon name="stats" size={14} aria-hidden /> Stats
+        </button>
       </div>
       <div className="rail-opts">
         <input
@@ -100,81 +116,148 @@ export function Sidebar({
             setting(storage, 'group', '').save(e.target.value);
           }}
         >
-          {['role', 'state', 'account'].map((o) => (
+          {['team', 'state', 'account'].map((o) => (
             <option key={o} value={o}>
               by {o}
             </option>
           ))}
         </select>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={hideParked}
-            onChange={(e) => {
-              setHide(e.target.checked);
-              setting(storage, 'hideParked', '').save(e.target.checked ? '1' : '');
-            }}
-          />{' '}
-          hide parked
-        </label>
+        <div className="filters" role="group" aria-label="Show agents that are">
+          {DOT_ORDER.map((d) => (
+            <button
+              key={d}
+              className={`filter${hidden.has(d) ? '' : ' on'}`}
+              aria-pressed={!hidden.has(d)}
+              aria-label={`${MARKS[d].label}: ${counts.get(d) ?? 0}`}
+              title={`${MARKS[d].label}: ${counts.get(d) ?? 0}. Click to ${hidden.has(d) ? 'show' : 'hide'}`}
+              onClick={() => setHidden(flip(hidden, d, 'hiddenDots', ','))}
+            >
+              <Mark dot={d} title={MARKS[d].label} />
+              <span className="count">{counts.get(d) ?? 0}</span>
+            </button>
+          ))}
+        </div>
       </div>
       <div className="rail-list">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {groups.map((g) => (
             <section className="group" key={g.title}>
-              <h3>{g.title}</h3>
-              {g.rows.map(({ agent, depth }) => (
-                <Row key={agent.name} agent={agent} depth={depth} selected={agent.name === selected} />
-              ))}
+              <h3>
+                <button
+                  className="fold"
+                  aria-expanded={!folded.has(g.title)}
+                  onClick={() => setFolded(flip(folded, g.title, 'folded', '|'))}
+                >
+                  <span aria-hidden>{folded.has(g.title) ? '▸' : '▾'}</span> {g.title}
+                </button>
+                <GroupMarks rows={g.rows.map((r) => r.agent)} />
+              </h3>
+              {folded.has(g.title)
+                ? null
+                : g.rows.map(({ agent, depth }) => (
+                    <Row
+                      key={agent.name}
+                      agent={agent}
+                      depth={depth}
+                      team={by === 'team' ? g.title : ''}
+                      selected={agent.name === selected}
+                    />
+                  ))}
             </section>
           ))}
         </View>
       </div>
-      <footer className="rail-status">
-        <span>
-          <span className={`dot ${dot}`} /> daemon {conn}
-        </span>
-        <span>
-          {agents.length} agents · {agents.filter((a) => a.state === 'running').length} running
-        </span>
-        <UsagePopup />
+      <footer className="rail-foot">
+        <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
+        <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
       </footer>
     </nav>
   );
 }
 
-function Row({ agent: a, depth, selected }: { agent: AgentView; depth: number; selected: boolean }) {
+/** What a collapsed or open team says at a glance: one mark and count per state present. */
+function GroupMarks({ rows }: { rows: AgentView[] }) {
+  const n = new Map<Dot, number>();
+  for (const a of rows) n.set(dotOf(a), (n.get(dotOf(a)) ?? 0) + 1);
+  return (
+    <span className="group-marks">
+      {DOT_ORDER.filter((d) => n.get(d)).map((d) => (
+        <span key={d} title={`${n.get(d)} ${MARKS[d].label}`}>
+          <Mark dot={d} />
+          {n.get(d)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** The minutes left in the prompt cache; '' when there is none on record, 'out' once it has lapsed. */
+function cacheLeft(until: string | null, now: number): string {
+  if (!until) return '';
+  const m = Math.ceil((Date.parse(until) - now) / 60_000);
+  return m <= 0 ? 'out' : `${m}m`;
+}
+
+/** The daemon's context figure for an agent, as a whole percent; absent until the view carries it. */
+const ctxOf = (a: AgentView): number | null => {
+  const v = (a as { ctx_pct?: number | null }).ctx_pct;
+  return typeof v === 'number' ? Math.round(v) : null;
+};
+
+function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: number; team: string; selected: boolean }) {
   const store = useStore();
   const dot = dotOf(a);
   const [account, setAccount] = useState(''); // for the next start only
   const [ask, setAsk] = useState<Verb | null>(null);
   const mark = useVerbMark(a.name);
+  const now = useNow();
+  const cache = cacheLeft(a.cache_until, now);
+  const ctx = ctxOf(a);
+  const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the mark already says it
+  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `#${a.task.id} ${a.task.title}` : ''].filter(Boolean).join(' · ');
   return (
     <div className={`row-wrap${selected ? ' on' : ''}`} data-agent={a.name}>
       <div className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''}`} style={{ paddingLeft: 10 + depth * 14 }}>
-        <button className="row-main" onClick={() => goAgent(a.name)} aria-current={selected ? 'true' : undefined}>
-          <span className={`dot ${dot}`} title={a.state} />
-          <span className="row-text">
-            <span className="name">{a.name}</span>
-            <span className="sub">
-              <Badges badges={badgesOf(a, store.me)} />
-              {mark ?? a.state} · {ago(a.state_since)}
-              {a.task ? ` · #${a.task.id} ${a.task.title}` : ''}
+        <button className="row-main" onClick={() => goAgent(a.name)} aria-current={selected ? 'true' : undefined} title={tip}>
+          <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
+          <span className="name">{shortName(a.name, team)}</span>
+          <Badges badges={badges} />
+          {a.task ? (
+            <span className="task-ref" title={a.task.title}>
+              #{a.task.id}
             </span>
-          </span>
-          {selected ? null : <span className="row-side">{[a.model, a.account].filter(Boolean).join(' · ')}</span>}
+          ) : null}
+          {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
+          {cache ? (
+            <span
+              className={`cache${cache === 'out' ? ' out' : ''}`}
+              title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
+            >
+              {cache}
+            </span>
+          ) : null}
         </button>
-        {selected ? <RowControls agent={a} account={account} onAsk={setAsk} /> : null}
+        {selected ? <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} /> : null}
       </div>
       {selected && ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
-      {selected ? <Detail agent={a} account={account} setAccount={setAccount} /> : null}
     </div>
   );
 }
 
 /** Start or Resume, and the ⋯ menu: the agent verbs the row's state allows, then the ways to stop. Which apply comes from the agent's detail. */
-function RowControls({ agent: a, account, onAsk }: { agent: AgentView; account: string; onAsk: (v: Verb) => void }) {
+function RowControls({
+  agent: a,
+  account,
+  setAccount,
+  onAsk,
+}: {
+  agent: AgentView;
+  account: string;
+  setAccount: (a: string) => void;
+  onAsk: (v: Verb) => void;
+}) {
+  const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x))];
   const agent = a.name;
   const store = useStore();
   const d = useAgentDetail(agent).data;
@@ -218,6 +301,21 @@ function RowControls({ agent: a, account, onAsk }: { agent: AgentView; account: 
           {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
         </summary>
         <div className="menu-list">
+          {c.start ? (
+            <select
+              aria-label="Account for this start"
+              title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+            >
+              <option value="">{`start on auto: ${d.account_pick.account ?? 'none'}`}</option>
+              {accounts.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {verbs.map((v) => (
             <button
               key={v.id}
@@ -230,6 +328,9 @@ function RowControls({ agent: a, account, onAsk }: { agent: AgentView; account: 
               {served(v) ? null : <span className="muted"> not served</span>}
             </button>
           ))}
+          <button className="menu-item" onClick={() => goSettings(agent)}>
+            <strong>Settings</strong>
+          </button>
           {c.stop
             ? STOP_MODES.filter((m) => m.mode !== 'close').map((m) => (
                 <button
@@ -246,82 +347,5 @@ function RowControls({ agent: a, account, onAsk }: { agent: AgentView; account: 
         </div>
       </details>
     </span>
-  );
-}
-
-function Detail({ agent: a, account, setAccount }: { agent: AgentView; account: string; setAccount: (a: string) => void }) {
-  const store = useStore();
-  const q = useAgentDetail(a.name);
-  const d: AgentDetail | undefined = q.data;
-  const { served } = useServes('agent.get');
-  const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x))];
-  const c = d ? controlsOf(d, store.me) : null;
-  const row = (k: string, v: string | null | undefined) =>
-    v ? (
-      <div className="kv" key={k}>
-        <span className="muted">{k}</span>
-        <span>{v}</span>
-      </div>
-    ) : null;
-  return (
-    <div className="row-detail" aria-label={`${a.name} details`}>
-      {a.block ? (
-        <div className="banner">
-          Blocked: {a.block.kind}
-          {a.wall_reason ? ` (${a.wall_reason})` : ''} since {ago(a.block.since)}
-        </div>
-      ) : null}
-      {row('model', [a.model, a.effort].filter(Boolean).join(' · '))}
-      {row('account', a.account)}
-      {c?.start && d ? (
-        <div className="kv">
-          <span className="muted">start on</span>
-          <select
-            aria-label="Account for this start"
-            title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
-            value={account}
-            onChange={(e) => setAccount(e.target.value)}
-          >
-            <option value="">{`auto: ${d.account_pick.account ?? 'none'}`}</option>
-            {accounts.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
-      <View q={q} served={served} shape="agentDetail" what={`${a.name} details`}>
-        {null}
-      </View>
-      {row('task', a.task ? `#${a.task.id} ${a.task.title}` : null)}
-      {row('worktree', d?.worktree?.branch)}
-      {row('session', d?.session_id)}
-      {row('terminal', d?.terminal)}
-      {row('cache until', a.cache_until ? new Date(a.cache_until).toLocaleTimeString() : null)}
-      <button className="btn" onClick={() => goSettings(a.name)}>
-        Settings
-      </button>
-      <Timeline agent={a.name} />
-    </div>
-  );
-}
-
-/** What happened to the agent since this page opened. */
-function Timeline({ agent }: { agent: string }) {
-  const notes = useSelector((s) => s.notes.get(agent) ?? []);
-  if (!notes.length) return null;
-  return (
-    <details className="timeline">
-      <summary className="muted">Timeline ({notes.length})</summary>
-      {notes
-        .slice()
-        .reverse()
-        .map((n, i) => (
-          <div className="note" key={i}>
-            <span className="muted">{ago(n.at)}</span> {n.text}
-          </div>
-        ))}
-    </details>
   );
 }

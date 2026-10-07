@@ -7,14 +7,20 @@ import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgentDetail, usePending, useServes, useSettings, useWrite } from '@handline/app-data';
 import { goAgent } from './route.ts';
 import { Schedules } from './Schedules.tsx';
+import { Button, Field as Input, Icon, Segmented, Select, Switch, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
-const SECTIONS: { id: Field['section']; title: string }[] = [
-  { id: 'model', title: 'model' },
-  { id: 'work', title: 'work' },
-  { id: 'session', title: 'session' },
-  { id: 'browser', title: 'browser' },
+const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
+  { id: 'model', title: 'Model', icon: 'agent' },
+  { id: 'work', title: 'Work', icon: 'tasks' },
+  { id: 'session', title: 'Session', icon: 'session' },
+  { id: 'browser', title: 'Browser', icon: 'open' },
 ];
+
+/** The unit as a suffix inside the field; what follows its comma ("min, 0 = never") goes in the tooltip. */
+const unitOf = (f: Field) => f.unit?.split(',')[0]?.trim();
+const moreOf = (f: Field) =>
+  [f.note, f.unit?.includes(',') ? f.unit.split(',').slice(1).join(',').trim() : undefined].filter(Boolean).join('; ');
 
 export function SettingsView({ agent }: { agent: string }) {
   const q = useAgentDetail(agent);
@@ -25,29 +31,37 @@ export function SettingsView({ agent }: { agent: string }) {
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
     <section className="settings" aria-label={`${agent} settings`}>
-      <header className="settings-head">
-        <button className="btn" onClick={() => goAgent(agent)}>
-          ← {agent}
-        </button>
+      <header className="settings-head settings-agent">
+        <Button className="back" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
+          {agent}
+        </Button>
         <h2>Settings</h2>
+        <p className="settings-lede">Each change saves as you make it.</p>
       </header>
       {served ? null : <p className="muted pad">This daemon does not edit agent settings.</p>}
       {served && !editable ? <p className="muted pad">Only the founder edits agent settings.</p> : null}
       <View q={q} served shape="settings" what={`${agent} settings`}>
         {d ? (
-          <div className="settings-body">
-            <h3 className="shead">agent</h3>
-            <div className="frow">
-              <span className="flabel">session runs on</span>
-              <span>{d.account ?? 'not chosen yet'}</span>
+          <div className="settings-body settings-agent">
+            <div className="scard">
+              <div className="srow">
+                <div className="srow-text">
+                  <span className="srow-title">Session runs on</span>
+                </div>
+                <div className="srow-ctl">{d.account ?? 'not chosen yet'}</div>
+              </div>
             </div>
             {SECTIONS.map((s) => (
-              <div key={s.id}>
-                <h3 className="shead">{s.title}</h3>
-                {FIELDS.filter((f) => f.section === s.id).map((f) => (
-                  <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
-                ))}
-              </div>
+              <section key={s.id}>
+                <h3 className="shead">
+                  <Icon name={s.icon} size={14} label={s.title} aria-hidden /> {s.title}
+                </h3>
+                <div className="scard">
+                  {FIELDS.filter((f) => f.section === s.id).map((f) => (
+                    <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
+                  ))}
+                </div>
+              </section>
             ))}
             <Schedules agent={agent} role={role} />
           </div>
@@ -90,40 +104,38 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
     if (f.kind === 'switch' && DANGER[f.key]?.to === v) return setAsk(v);
     send(v);
   };
-  const label = (o: string) =>
-    f.key === 'handoff_note' && o === 'default' ? `follow the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : o;
+  // Two or three options sit in one segmented control, more in a select with a chevron.
+  const options = f.kind === 'select' ? (f.options!.includes(value) ? f.options! : [value, ...f.options!]) : [];
   const control = () => {
+    if (f.kind === 'select' && options.length <= 3)
+      return (
+        <fieldset className="sctl" disabled={off}>
+          <Segmented label={f.label} value={value} onChange={choose} options={options.map((o) => ({ value: o, label: o }))} />
+        </fieldset>
+      );
     if (f.kind === 'select')
       return (
-        <select id={`s-${f.key}`} value={value} disabled={off} onChange={(e) => choose(e.target.value)}>
-          {(f.options!.includes(value) ? f.options! : [value, ...f.options!]).map((o) => (
-            <option key={o} value={o}>
-              {label(o)}
-            </option>
-          ))}
-        </select>
-      );
-    if (f.kind === 'switch')
-      return (
-        <input
-          id={`s-${f.key}`}
-          type="checkbox"
-          role="switch"
-          checked={stored === 'on'}
+        <Select
+          label={f.label}
+          value={value}
           disabled={off}
-          onChange={(e) => choose(e.target.checked ? 'on' : 'off')}
+          options={options.map((o) => ({ value: o, label: o }))}
+          onChange={(e) => choose(e.target.value)}
         />
       );
+    if (f.kind === 'switch')
+      return <Switch label={f.label} on={stored === 'on'} disabled={off} onChange={(on) => choose(on ? 'on' : 'off')} />;
     if (f.kind === 'sites') return <Sites value={stored} off={off} save={send} />;
     return (
       <>
-        <input
-          id={`s-${f.key}`}
-          type="text"
+        <Input
+          label={f.label}
           list={f.kind === 'model' ? 's-models' : undefined}
           inputMode={f.kind === 'number' ? 'numeric' : undefined}
+          unit={unitOf(f)}
           value={value}
           disabled={off}
+          tone={note ? 'bad' : undefined}
           onFocus={() => setBase(stored)}
           onChange={(e) => edit(e.target.value)}
           onBlur={() => draft !== null && commit(draft)}
@@ -142,32 +154,35 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             ))}
           </datalist>
         ) : null}
-        {f.unit ? <span className="muted"> {f.unit}</span> : null}
       </>
     );
   };
   const danger = ask ? DANGER[f.key] : undefined;
+  const follows =
+    f.key === 'handoff_note' ? `default follows the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : '';
+  const more = [moreOf(f), follows].filter(Boolean).join('; ');
   return (
-    <div className="frow" data-field={f.key}>
-      <label className="flabel" htmlFor={`s-${f.key}`}>
-        {pending ? <span title="saving">○ </span> : null}
-        {f.label}
-        {allowed ? null : <span title="founder only"> 🔒</span>}
-      </label>
-      <span className="fcontrol">{control()}</span>
-      {f.note && !note ? <span className="muted fnote">{f.note}</span> : null}
-      {draft !== null && stored !== base ? (
-        <span className="fnote warn">
-          changed elsewhere: {stored || 'empty'}{' '}
-          <button className="btn" onClick={() => (setDraft(null), setNote(''))}>
-            Use
-          </button>
+    <div className="srow" data-field={f.key}>
+      <div className="srow-text" title={more || undefined}>
+        <span className="srow-title">
+          {f.label}
+          {pending ? <Icon name="sending" size={14} label="Saving" /> : null}
+          {allowed ? null : <Icon name="permission" size={14} label="Founder only" />}
+          {more ? <Icon name="info" size={14} label={more} /> : null}
         </span>
+      </div>
+      <div className="srow-ctl">{control()}</div>
+      {draft !== null && stored !== base ? (
+        <p className="ui-note warn">
+          <Icon name="warn" size={14} label="Changed elsewhere" />
+          changed elsewhere: {stored || 'empty'} <Button label="Use" onClick={() => (setDraft(null), setNote(''))} />
+        </p>
       ) : null}
       {note ? (
-        <span className="fnote bad" role="alert">
+        <p className="ui-note bad" role="alert">
+          <Icon name="failed" size={14} label="Not saved" />
           {note}
-        </span>
+        </p>
       ) : null}
       {danger ? (
         <div className="verb-sheet danger" role="alertdialog" aria-label={danger.title}>
@@ -207,17 +222,20 @@ function Sites({ value, off, save }: { value: string; off: boolean; save: (v: st
   return (
     <span className="sites">
       {sites.map((s) => (
-        <span key={s} className="chip">
-          {s}{' '}
-          <button className="btn" disabled={off} aria-label={`Remove ${s}`} onClick={() => save(sites.filter((x) => x !== s).join(' '))}>
-            ✕
-          </button>
+        <span key={s} className="site-chip">
+          {s}
+          <Button
+            icon="close"
+            size="sm"
+            disabled={off}
+            label={`Remove ${s}`}
+            onClick={() => save(sites.filter((x) => x !== s).join(' '))}
+          />
         </span>
       ))}
       {off ? null : (
-        <input
-          type="text"
-          aria-label="Add a site"
+        <Input
+          label="Add a site"
           placeholder="https://…"
           value={text}
           onChange={(e) => setText(e.target.value)}

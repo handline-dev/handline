@@ -5,6 +5,7 @@ import { askedLines, cutError, diffLines, kindOf, isWaiting, ordered, stateWord,
 import type { Proposal } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useHr, usePending, useWrite } from '@handline/app-data';
+import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const useNarrow = (): boolean => {
@@ -18,6 +19,15 @@ const useNarrow = (): boolean => {
     return () => m.removeEventListener('change', f);
   }, []);
   return on;
+};
+
+/** A proposal's state as the shared state glyph: a shape per state, so the word's colour is never the only sign. */
+const STATE_KIND: Record<string, StateKind> = {
+  open: 'needs',
+  apply_failed: 'blocked',
+  approved: 'done',
+  rejected: 'rejected',
+  withdrawn: 'idle',
 };
 
 export function HrTab({ focus }: { focus: number | null }) {
@@ -45,7 +55,7 @@ export function HrTab({ focus }: { focus: number | null }) {
     void q.refetch();
   };
   return (
-    <View q={q} served shape="inbox" what="HR proposals" empty={list.length ? false : 'No proposal is waiting for your decision.'}>
+    <View q={q} served shape="inbox" what="HR proposals" empty={false}>
       <div className="hr">
         <div className="hr-head">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
@@ -73,7 +83,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             {all}
           </p>
         ) : null}
-        {list.length ? null : <p className="muted">Roster and role changes agents propose land here.</p>}
+        {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {waiting.map((p) => (
           <Card key={p.id} p={p} decider={decider} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
         ))}
@@ -141,33 +151,43 @@ function Card({
     sent(decide.mutateAsync({ proposal: p.id, decision: 'reject', note: why, subject: p.subject }), 'reject');
   };
   return (
-    <article className={`card hr-card${focus ? ' focus' : ''}`} data-proposal={p.id} ref={el}>
-      <div className="card-title">
-        HR · {textSafe(p.title)}
-        <span className={`hr-state ${state.tone}`}> {state.word}</span>
-        <span className="muted">
-          {' '}
-          {p.requested_by ? `${textSafe(p.requested_by)}, ` : ''}
-          {new Date(p.created).toLocaleString()}
+    <article className={`hr-card${focus ? ' focus' : ''}`} data-proposal={p.id} ref={el}>
+      <header className="hr-top">
+        <span className="hr-title">
+          <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>
-      </div>
-      {kindOf(p) ? <span className="muted">{kindOf(p)}</span> : null}
+        <span className={`hr-state ${state.tone}`}>
+          <State kind={STATE_KIND[p.state] ?? 'idle'} label={state.word} />
+          {state.word}
+        </span>
+      </header>
+      <p className="hr-meta">
+        {p.requested_by ? (
+          <span title="Asked by">
+            <Icon name="agent" size={14} label="Asked by" /> {textSafe(p.requested_by)}
+          </span>
+        ) : null}
+        <span title="Raised">
+          <Icon name="schedules" size={14} label="Raised" /> {new Date(p.created).toLocaleString()}
+        </span>
+        {kindOf(p) ? <span className="hr-kind">{kindOf(p)}</span> : null}
+      </p>
       {askedLines(p).map(([k, v]) => (
-        <div key={k} className="kv">
+        <div key={k} className="hr-kv">
           <span className="muted">{k}</span>
           <span>{v}</span>
         </div>
       ))}
       {p.reason ? (
-        <div className="kv">
+        <div className="hr-kv">
           <span className="muted">why</span>
           <span>{textSafe(p.reason)}</span>
         </div>
       ) : null}
       {narrow ? (
-        <button className="btn" onClick={() => setShowDiff(!showDiff)}>
+        <Button variant="outline" size="sm" label="Diff" icon={showDiff ? 'less' : 'more'} onClick={() => setShowDiff(!showDiff)}>
           {showDiff ? 'Hide diff' : `Show diff (${diff.length} change${diff.length === 1 ? '' : 's'})`}
-        </button>
+        </Button>
       ) : null}
       {showDiff ? (
         <pre className="lines hr-diff" aria-label="What approving does">
@@ -191,15 +211,22 @@ function Card({
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
         <div className="card-actions">
-          <button className="btn primary" disabled={busy || !!mark} onClick={approve}>
-            {mark === 'approve' || busy ? '…' : p.state === 'apply_failed' ? 'Retry' : 'Approve'} <kbd>a</kbd>
-          </button>
-          <button className="btn" disabled={busy || !!mark} onClick={() => setReason('')}>
-            Reject <kbd>r</kbd>
-          </button>
-          <button className="btn" disabled={busy || !!mark} onClick={() => setAsk(true)}>
-            Withdraw <kbd>w</kbd>
-          </button>
+          <Button
+            variant="solid"
+            icon="markRead"
+            label={p.state === 'apply_failed' ? 'Retry' : 'Approve'}
+            keys="a"
+            disabled={busy || !!mark}
+            onClick={approve}
+          >
+            {mark === 'approve' || busy ? '…' : p.state === 'apply_failed' ? 'Retry' : 'Approve'}
+          </Button>
+          <Button variant="outline" icon="close" label="Reject" keys="r" disabled={busy || !!mark} onClick={() => setReason('')}>
+            Reject
+          </Button>
+          <Button variant="ghost" icon="discard" label="Withdraw" keys="w" disabled={busy || !!mark} onClick={() => setAsk(true)}>
+            Withdraw
+          </Button>
         </div>
       ) : null}
       {reason !== null ? (

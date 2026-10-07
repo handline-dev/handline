@@ -5,6 +5,7 @@ import { useAgents, usePending, useRead, useServes, useWrite } from '@handline/a
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, Prompt } from '@handline/client';
 import { radius, space } from '@handline/tokens';
+import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { dotColor, usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
@@ -191,7 +192,7 @@ function Terminal(props: { detail: AgentDetail }) {
   const store = useStore();
   const me = useSelector((s) => s.me);
   const view = useSelector((s) => s.page!.view);
-  const lines = view.text();
+  const lines = view.lines();
   // An open session whose snapshot has not come yet.
   const waiting = props.detail.session_open && view.frame.length === 0 && view.history.length === 0;
   const [text, setText] = useState('');
@@ -244,7 +245,7 @@ function Terminal(props: { detail: AgentDetail }) {
           <Skeleton shape="terminal" loading label="the terminal" />
         ) : (
           <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: 11 }}>
-            {lines.join('\n') || 'No terminal output.'}
+            {lines.length ? drawRows(lines, c.termInk, c.termBg) : 'No terminal output.'}
           </Text>
         )}
       </ScrollView>

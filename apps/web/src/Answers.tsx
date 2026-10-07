@@ -1,11 +1,15 @@
-// The standing answers: what the daemon answers by itself (a trusted folder, a vendor's dialog and the option to choose). Add and remove are
-// authored: the row changes at once and comes back if the daemon refuses.
+// The standing answers: what the daemon answers by itself (a trusted folder, a vendor's dialog and the option to choose). One row each with a trash
+// icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
 import { useAnswers, useServes, useWrite } from '@handline/app-data';
+import { Button, Field, Icon, Select } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
-const keyOf = (a: { kind: string; key: string[] }) => `${a.kind}\0${a.key.join('\0')}`;
+const KINDS = [
+  { value: 'trust', label: 'Trust a folder' },
+  { value: 'dialog', label: 'Answer a dialog' },
+];
 
 function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void }) {
   const add = useWrite('answer.add');
@@ -22,22 +26,20 @@ function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void 
   };
   return (
     <form className="answer-form" onSubmit={submit} aria-label="Add a standing answer">
-      <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value as 'trust' | 'dialog')}>
-        <option value="trust">Trust a folder</option>
-        <option value="dialog">Answer a dialog</option>
-      </select>
+      <Select label="Kind" options={KINDS} value={kind} onChange={(e) => setKind(e.target.value as 'trust' | 'dialog')} />
       {kind === 'trust' ? (
-        <input aria-label="Folder" placeholder="/path/to/folder" value={f.folder} onChange={set('folder')} />
+        <Field label="Folder" placeholder="/path/to/folder" value={f.folder} onChange={set('folder')} />
       ) : (
         <>
-          <input aria-label="Vendor" placeholder="vendor" value={f.vendor} onChange={set('vendor')} />
-          <input aria-label="Prompt title" placeholder="prompt title" value={f.title} onChange={set('title')} />
-          <input aria-label="Option" placeholder="option to choose" value={f.label} onChange={set('label')} />
+          <Field label="Vendor" placeholder="claude" value={f.vendor} onChange={set('vendor')} />
+          <Field label="Prompt title" placeholder="Do you trust the files" value={f.title} onChange={set('title')} />
+          <Field label="Option" placeholder="Yes, I trust" value={f.label} onChange={set('label')} />
         </>
       )}
-      <button className="btn primary" type="submit" disabled={!!off} title={off}>
-        Add
-      </button>
+      <span className="answer-form-actions">
+        <Button variant="solid" type="submit" label="Add" disabled={!!off} title={off} />
+        <Button label="Cancel" onClick={onDone} />
+      </span>
     </form>
   );
 }
@@ -48,12 +50,11 @@ export function Answers() {
   const remove = useWrite('answer.remove');
   const off = useOff('answer.add');
   const offRemove = useOff('answer.remove');
-  const [picked, setPicked] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <h3>Standing answers</h3>
+      <h3 className="shead">Standing answers</h3>
       <View
         q={q}
         served={served}
@@ -61,40 +62,37 @@ export function Answers() {
         what="standing answers"
         empty={!rows.length && 'none - you are asked when a dialog shows'}
       >
-        <ul className="answers">
+        <ul className="scard answers">
           {rows.map((a) => (
-            <li key={keyOf(a)} data-answer={a.kind}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={picked.includes(keyOf(a))}
-                  onChange={(e) => setPicked(e.target.checked ? [...picked, keyOf(a)] : picked.filter((k) => k !== keyOf(a)))}
-                />{' '}
-                {a.text}
-              </label>
+            <li key={`${a.kind}\0${a.key.join('\0')}`} className="srow" data-answer={a.kind}>
+              <Icon
+                name={a.kind === 'trust' ? 'permission' : 'prompt'}
+                size={16}
+                label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
+              />
+              <span className="srow-title answer-text">{a.text}</span>
+              <Button
+                icon="dismiss"
+                label={`Remove ${a.text}`}
+                disabled={!!offRemove}
+                title={offRemove}
+                onClick={() => remove.mutate({ kind: a.kind, key: a.key })}
+              />
             </li>
           ))}
         </ul>
       </View>
       {served ? (
         <div className="answers-actions">
-          <button className="btn" disabled={!!off} title={off} onClick={() => setAdding(!adding)}>
-            Add…
-          </button>
-          <button
-            className="btn"
-            disabled={!picked.length || !!offRemove}
-            title={offRemove}
-            onClick={() => {
-              for (const a of rows.filter((r) => picked.includes(keyOf(r)))) remove.mutate({ kind: a.kind, key: a.key });
-              setPicked([]);
-            }}
-          >
-            Remove selected
-          </button>
+          {adding ? (
+            <AddForm off={off} onDone={() => setAdding(false)} />
+          ) : (
+            <Button icon="plus" label="Add" disabled={!!off} title={off} onClick={() => setAdding(true)}>
+              Add
+            </Button>
+          )}
         </div>
       ) : null}
-      {adding ? <AddForm off={off} onDone={() => setAdding(false)} /> : null}
     </>
   );
 }

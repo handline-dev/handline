@@ -54,20 +54,21 @@ afterEach(async () => {
 
 // Seeded: alpha 41% / 62% with the architect on it; beta (alias "review") 88% / 30% with the auditor; gamma needs login.
 describe('the list', () => {
-  it('shows the skeleton while loading, then a card per account with its gauges, state chip and agents', async () => {
+  it('shows the skeleton while loading, then a line per account with its gauges, state chip and agents', async () => {
     const s = setup();
     s.daemon.knobs.latency(400);
     await mount('#/accounts', s);
     await until(() => $('.accounts .skeleton'), 'the skeleton');
     expect($('.accounts .skeleton')!.getAttribute('aria-busy')).toBe('true');
-    await until(() => $$('.acct-card').length === 3, 'the cards', 600);
+    await until(() => $$('.acct-row').length === 3, 'the rows', 600);
     expect($('.accounts .skeleton')).toBeNull();
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
     expect(text(card('alpha').querySelector('[data-gauge="5 h"] .gauge-pct'))).toBe('41%');
-    expect(text(card('alpha').querySelector('[data-gauge="5 h"] .gauge-reset'))).toMatch(/^resets in 2 h/);
-    expect(text(card('alpha'))).toContain('agents 1 / cap 4');
+    expect(card('alpha').querySelector('[data-gauge="5 h"]')!.getAttribute('title')).toMatch(/^resets in 2 h/);
+    expect(text(card('alpha').querySelector('.acct-agents'))).toContain('1/4');
+    expect(card('alpha').querySelector('.acct-agents')!.getAttribute('title')).toContain('1 / cap 4');
     expect(text(card('gamma'))).toContain('no reading');
   });
 
@@ -76,10 +77,22 @@ describe('the list', () => {
     for (const p of [59, 60, 84, 85])
       s.daemon.accounts.add({ name: `p${p}`, five_hour: { used_pct: p, resets_at: null, source: 'measured' } });
     await mount('#/accounts', s);
-    await until(() => $$('.acct-card').length === 7, 'the cards');
+    await until(() => $$('.acct-row').length === 7, 'the rows');
     const tone = (n: string) => card(n).querySelector('[data-gauge="5 h"]')!.getAttribute('data-tone');
     expect([59, 60, 84, 85].map((p) => tone(`p${p}`))).toEqual(['ok', 'warn', 'warn', 'bad']);
     expect(text(card('p85').querySelector('.gauge-pct'))).toBe('85%');
+  });
+
+  it('from 80 percent a window has a warning glyph and a full one its own, so the hue is not the only sign', async () => {
+    const s = setup();
+    for (const p of [79, 80, 100])
+      s.daemon.accounts.add({ name: `g${p}`, five_hour: { used_pct: p, resets_at: null, source: 'measured' } });
+    await mount('#/accounts', s);
+    await until(() => card('g100'), 'the rows');
+    const glyph = (n: string) => card(n).querySelector('[data-gauge="5 h"] .gauge-glyph svg')?.getAttribute('data-icon') ?? null;
+    expect([79, 80, 100].map((p) => glyph(`g${p}`))).toEqual([null, 'warn', 'full']);
+    const shape = (n: string) => card(n).querySelector('[data-gauge="5 h"] .gauge-glyph svg')?.innerHTML;
+    expect(shape('g100')).not.toBe(shape('g80'));
   });
 
   it('an account whose window is full is out until the reset', async () => {
@@ -104,8 +117,8 @@ describe('the list', () => {
 describe('the usage popup', () => {
   it('the status bar item opens a line per account with gauges, agents and runway, linking to its page', async () => {
     await mount('#/agents/handline.architect', setup(), '1');
-    await until(() => $('.usage-btn') && text($('.usage-btn')).includes('alpha 41%'), 'the item');
-    expect(text($('.usage-btn'))).toBe('acct alpha 41% · review 88% · gamma –');
+    await until(() => $('.usage-btn') && ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
+    expect($('.usage-btn')?.getAttribute('title') ?? '').toBe('Account usage (5 h): alpha 41% · review 88% · gamma –');
     await click($('.usage-btn'));
     const rows = $$('.usage-row');
     expect(rows).toHaveLength(3);
@@ -120,16 +133,16 @@ describe('the usage popup', () => {
 
   it('follows the accounts topic', async () => {
     const s = await mount('#/agents/handline.architect', setup(), '1');
-    await until(() => text($('.usage-btn')).includes('alpha 41%'), 'the item');
+    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
     await act(async () => void s.daemon.accounts.set({ account: 'alpha', label: 'main' }));
-    await until(() => text($('.usage-btn')).includes('main 41%'), 'the new alias');
+    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('main 41%'), 'the new alias');
   });
 });
 
 describe('one account', () => {
   it('opens from the list with Overview, Agents and Settings', async () => {
     await mount();
-    await until(() => $$('.acct-card').length === 3, 'the cards');
+    await until(() => $$('.acct-row').length === 3, 'the rows');
     await click(card('alpha'));
     await act(async () => void dispatchEvent(new Event('hashchange'))); // happy-dom moves the hash without the event
     await until(() => $('.acct-one'), 'the account');
@@ -158,7 +171,7 @@ describe('one account', () => {
     await setValue(cap!, '6');
     await blur(cap!);
     await until(() => s.daemon.accounts.list().accounts[0]!.cap === 6, 'the cap');
-    const [recover, cycle] = $$('.acct-settings input[type="checkbox"]') as HTMLInputElement[];
+    const [recover, cycle] = $$('.acct-settings [role="switch"]');
     await click(recover);
     await until(() => s.daemon.accounts.list().accounts[0]!.recover, 'recovery');
     await click(cycle);
@@ -174,11 +187,11 @@ describe('one account', () => {
     await until(() => $('.acct-one'), 'the account');
     await click(button('Settings'));
     s.daemon.knobs.refuse('account.set', 'role', 'only the founder may change an account');
-    const [recover] = $$('.acct-settings input[type="checkbox"]') as HTMLInputElement[];
+    const [recover] = $$('.acct-settings [role="switch"]');
     await click(recover);
     await until(() => $('.toast'), 'the toast');
     expect(text($('.toast'))).toContain('only the founder');
-    expect(($$('.acct-settings input[type="checkbox"]')[0] as HTMLInputElement).checked).toBe(false);
+    expect($$('.acct-settings [role="switch"]')[0]!.getAttribute('aria-checked')).toBe('false');
   });
 
   it('login runs in a terminal the daemon opens: the page asks for no credential, and the progress ends when the topic says ok', async () => {
@@ -187,7 +200,7 @@ describe('one account', () => {
     expect($('input[type="password"], input[name*="token" i], input[name*="password" i]')).toBeNull();
     await click(button('Log in'));
     await until(() => text($('.acct-login')).includes('Login in progress in terminal term:login:gamma'), 'the progress');
-    expect(text($('.acct-login'))).toContain('hl login gamma');
+    expect(button('Log in')!.getAttribute('title')).toContain('hl login gamma');
     expect(($$('button').find((b) => text(b) === 'Log in') as HTMLButtonElement).disabled).toBe(true);
     await act(async () => void s.daemon.accounts.loggedIn('gamma'));
     await until(() => !text($('.acct-login')).includes('Login in progress'), 'the progress to end');

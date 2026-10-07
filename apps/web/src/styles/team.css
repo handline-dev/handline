@@ -1,0 +1,204 @@
+/* ---- Team and HR (docs/design-gaps.md §3.6, group F) ---- */
+.team {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--sp-5) var(--sp-7);
+}
+.hr {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.team-board {
+  display: grid;
+  gap: var(--sp-6);
+}
+.team-group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  font: var(--t-label);
+  color: var(--ink-3);
+}
+.team-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sp-4);
+}
+.team-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-5);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  cursor: pointer;
+}
+.team-card:hover,
+.team-card.open {
+  background: var(--bg-2);
+}
+.team-card header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.team-card p {
+  margin: 0;
+}
+.team-name {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: var(--t-name);
+  color: var(--ink);
+}
+.team-name:hover {
+  text-decoration: underline;
+}
+.team-role {
+  font: var(--t-body);
+  color: var(--ink-2);
+}
+.team-meta,
+.team-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-5);
+  font: var(--t-label);
+  color: var(--ink-2);
+}
+.team-meta span,
+.team-task {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.team-card .edges {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.team-card .edges > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.team-card .edges svg {
+  color: var(--ink-3);
+}
+.hr-dot {
+  color: var(--s-bad);
+}
+.hr-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-4) 0;
+}
+.hr-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-5);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.hr-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3) var(--sp-5);
+}
+.hr-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  font: var(--t-title);
+  overflow-wrap: anywhere;
+}
+.hr-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font: var(--t-label);
+  color: var(--ink-2);
+}
+.hr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-5);
+  margin: 0;
+  font: var(--t-label);
+  color: var(--ink-2);
+}
+.hr-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.hr-kind {
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+}
+.hr-kv {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  gap: var(--sp-4);
+  font: var(--t-body);
+  overflow-wrap: anywhere;
+}
+.hr-card .card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .hr-kv {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+.hr-card.focus {
+  outline: 2px solid var(--focus);
+}
+.hr-diff {
+  max-height: 20lh;
+  overflow: auto;
+}
+.hr-diff .del {
+  color: var(--s-bad);
+}
+.hr-diff .add {
+  color: var(--s-ok);
+}
+.team-more {
+  margin-left: auto;
+  display: inline-flex;
+  padding: var(--sp-2);
+  background: none;
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--ink-3);
+}
+.team-more:hover {
+  color: var(--ink);
+  background: var(--bg-3);
+}
