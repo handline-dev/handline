@@ -36,8 +36,9 @@ type Store struct {
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 
-// New is the store for home: ~/.config/orcapipe/protected/<the resolved home with every other character a dash>.
-func New(home string) *Store {
+// Root is the protected store kept for home: ~/.config/orcapipe/protected/<the resolved home with every other
+// character a dash>.
+func Root(home string) string {
 	if real, err := filepath.EvalSymlinks(home); err == nil {
 		home = real
 	}
@@ -45,10 +46,12 @@ func New(home string) *Store {
 	if err == nil {
 		home = abs
 	}
-	return &Store{
-		Root:   filepath.Join(paths.UserHome(), ".config", "orcapipe", "protected", nonAlnum.ReplaceAllString(home, "-")),
-		Lookup: peer.Lookup,
-	}
+	return filepath.Join(paths.UserHome(), ".config", "orcapipe", "protected", nonAlnum.ReplaceAllString(home, "-"))
+}
+
+// New is the store for home.
+func New(home string) *Store {
+	return &Store{Root: Root(home), Lookup: peer.Lookup}
 }
 
 func (s *Store) get(ns, name string) string {

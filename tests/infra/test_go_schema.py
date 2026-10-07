@@ -32,10 +32,16 @@ def test_go_knows_exactly_the_python_steps() -> None:
     check("go schema: every step has its sql file", all((MIGRATIONS / f"{v:04d}_{n}.sql").is_file() for v, n, _ in known))
 
 
+def test_generated_contract_table_is_current() -> None:
+    r = subprocess.run([sys.executable, str(ROOT / "tools" / "go_contract.py"), "--check"], capture_output=True, text=True)
+    check("go contract: the committed method table equals a fresh run of tools/go_contract.py", r.returncode == 0, r.stdout + r.stderr)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_generated_migrations_are_current())
         run(lambda: test_go_knows_exactly_the_python_steps())
+        run(lambda: test_generated_contract_table_is_current())
     return run_area(tests)
 
 

@@ -730,7 +730,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent."
+   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again."
   },
   {
    "name": "unsubscribe",
@@ -762,7 +762,8 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Naming devices follows the same rule as subscribe: on its own."
   },
   {
    "name": "daemon.status",
@@ -6540,7 +6541,7 @@
      "devices",
      "hr"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
    },
    "Caller": {
     "type": "object",
