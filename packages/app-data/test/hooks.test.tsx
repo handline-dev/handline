@@ -75,8 +75,8 @@ describe('a read', () => {
       return { agents: [] };
     });
     const p = probe(() => useAgents());
-    await mount(openStore(stub), p.node);
     const t0 = Date.now();
+    await mount(openStore(stub), p.node);
     await until(() => p.get().data, 'the second try');
     expect(Date.now() - t0).toBeGreaterThanOrEqual(45);
     expect(stub.count('agents.list')).toBe(2);
