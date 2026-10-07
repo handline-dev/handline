@@ -72,6 +72,9 @@
  "chat.send": {
   "role": "member"
  },
+ "chat.send_now": {
+  "role": "member"
+ },
  "chat.transcript": {
   "role": "member"
  },
@@ -235,6 +238,9 @@
   "role": "founder"
  },
  "stats.get": {
+  "role": "member"
+ },
+ "stats.outlook": {
   "role": "member"
  },
  "subscribe": {
