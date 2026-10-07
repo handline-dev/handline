@@ -199,7 +199,8 @@ class FakeDaemon:
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
             if str(params["agent"]).startswith("a.s."):
-                return ok(self._view(params["agent"])), said_hello
+                return ok({**self._view(params["agent"]), "cwd": "/",
+                           "can": {v: {"ok": True, "why": None} for v in ("terminal", "wake", "close", "restart", "park", "fold", "move")}}), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
         if method == "agents.list":
             return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": self.state_word("idle"), "state_detail": "3m"},
@@ -321,10 +322,10 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
 
 
 KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp", "hr_seeded": "1", "task_owner": "a.two"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle"}
 KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1", "--var", "task_owner=a.two"]
+          "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle"]
 
 def _ready() -> list[Path]:
     """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed. One the fake runs and fails stays in,

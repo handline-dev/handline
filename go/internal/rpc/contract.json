@@ -57,6 +57,9 @@
  "chat.answer": {
   "role": "member"
  },
+ "chat.cancel": {
+  "role": "member"
+ },
  "chat.dismiss": {
   "role": "member"
  },
@@ -70,6 +73,9 @@
   "role": "member"
  },
  "chat.search": {
+  "role": "member"
+ },
+ "chat.seen": {
   "role": "member"
  },
  "chat.send": {
