@@ -47,7 +47,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 		return nil, BadRequestError(fmt.Sprintf("%s is a write: it takes a request_id, a string of 1 to %d characters", name, requestIDMax),
 			"request_id", BadRequest)
 	}
-	db, actor := c.srv.DB, c.Caller.Actor()
+	db, actor, writer := c.srv.DB, c.Caller.Actor(), c.Caller.Writer()
 	if m.Unkept {
 		out, err := m.Handler(c, params)
 		if err == nil && !m.OwnEvent && !c.srv.NoEvents {
@@ -55,14 +55,14 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 		}
 		return out, err
 	}
-	mu := requestKey(actor, rid)
+	mu := requestKey(writer, rid)
 	mu.Lock()
 	defer mu.Unlock()
 	cutoff := time.Now().Add(-ReplyKeep).Unix()
 	pkey := paramsKey(params)
 	var method, kept, reply string
 	err := db.QueryRow("SELECT method, params, reply FROM rpc_replies WHERE caller = ? AND request_id = ? AND ts > ?",
-		actor, rid, cutoff).Scan(&method, &kept, &reply)
+		writer, rid, cutoff).Scan(&method, &kept, &reply)
 	switch {
 	case err == nil:
 		if method != name || kept != pkey {
@@ -74,7 +74,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 	}
 	var result string
 	err = db.QueryRow("SELECT method, result_json FROM write_effects WHERE caller = ? AND request_id = ? AND created_at > ?",
-		actor, rid, cutoff).Scan(&method, &result)
+		writer, rid, cutoff).Scan(&method, &result)
 	switch {
 	case err == nil: // the write landed and the daemon died before its reply was kept: answer, repeat nothing
 		if method != name {
@@ -107,7 +107,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 		return nil, err
 	}
 	_, err = db.Exec("INSERT OR REPLACE INTO rpc_replies(caller, request_id, method, params, reply, ts) VALUES(?,?,?,?,?,?)",
-		actor, rid, name, pkey, string(b), now)
+		writer, rid, name, pkey, string(b), now)
 	return out, err
 }
 
@@ -132,7 +132,7 @@ func (c *Conn) Effect(fn func(tx *sql.Tx) (map[string]any, error)) (map[string]a
 		return nil, err
 	}
 	if _, err := tx.Exec("INSERT OR REPLACE INTO write_effects(caller, request_id, method, result_json, created_at) VALUES(?,?,?,?,?)",
-		c.Caller.Actor(), c.callRID, c.callName, string(b), time.Now().Unix()); err != nil {
+		c.Caller.Writer(), c.callRID, c.callName, string(b), time.Now().Unix()); err != nil {
 		return nil, err
 	}
 	return out, tx.Commit()

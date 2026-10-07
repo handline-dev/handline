@@ -10,33 +10,62 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
-// writeClient serves one founder connection of a server over a real database, with test.effect registered.
-func writeClient(t *testing.T) (*client, *sql.DB, *int) {
+// fakeNet pairs the tokens "t1" and "t2" as devices d1 and d2.
+type fakeNet struct{}
+
+func (fakeNet) Know(token string) bool { return token == "t1" || token == "t2" }
+func (fakeNet) Login(token string, _ func()) (string, string, func(), bool) {
+	if !(fakeNet{}).Know(token) {
+		return "", "", nil, false
+	}
+	return "d" + token[1:], "phone" + token[1:], func() {}, true
+}
+func (fakeNet) Live(string) bool { return true }
+
+// writeServer is a server over db with test.effect registered; ran counts how often the effect ran.
+func writeServer(t *testing.T, db *sql.DB, ran *int, net NetGate) *Server {
+	t.Helper()
+	srv := NewServer(fakeAuth{key: "k"}, "abc1234", store.LatestVersion(), "local", func(string, ...any) {})
+	srv.DB, srv.Net = db, net
+	srv.Register("test.effect", Method{Role: "member", Write: true, Handler: func(c *Conn, p map[string]any) (any, error) {
+		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			*ran++
+			if p["fail"] == true {
+				return nil, BadRequestError("asked to fail", "fail", BadRequest)
+			}
+			return map[string]any{"n": *ran}, nil
+		})
+	}})
+	return srv
+}
+
+// connect serves one connection of srv and says hello with params.
+func connect(t *testing.T, srv *Server, hello string) *client {
+	t.Helper()
+	cl, sv := net.Pipe()
+	done := make(chan struct{})
+	go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
+	t.Cleanup(func() { cl.Close(); <-done })
+	c := &client{cl, bufio.NewReader(cl)}
+	c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":`+hello+`}`)
+	return c
+}
+
+func newDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	cl, sv := net.Pipe()
-	srv := NewServer(fakeAuth{key: "k"}, "abc1234", store.LatestVersion(), "local", func(string, ...any) {})
-	srv.DB = db
-	ran := 0
-	srv.Register("test.effect", Method{Role: "founder", Write: true, Handler: func(c *Conn, p map[string]any) (any, error) {
-		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			ran++
-			if p["fail"] == true {
-				return nil, BadRequestError("asked to fail", "fail", BadRequest)
-			}
-			return map[string]any{"n": ran}, nil
-		})
-	}})
-	done := make(chan struct{})
-	go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
-	t.Cleanup(func() { cl.Close(); <-done })
-	c := &client{cl, bufio.NewReader(cl)}
-	c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"key":"k"}}`)
-	return c, db, &ran
+	return db
+}
+
+// writeClient serves one founder connection over a real database.
+func writeClient(t *testing.T) (*client, *sql.DB, *int) {
+	t.Helper()
+	db, ran := newDB(t), new(int)
+	return connect(t, writeServer(t, db, ran, nil), `{"client":"t","protocol":1,"key":"k"}`), db, ran
 }
 
 func TestEffectIsRecordedWithTheWriteAndAnswersARetryAfterTheReplyWasLost(t *testing.T) {
@@ -72,5 +101,45 @@ func TestAnEffectThatFailsLeavesNoRecordAndALaterRetryRunsAgain(t *testing.T) {
 	}
 	if r := c.raw(t, `{"jsonrpc":"2.0","id":3,"method":"test.effect","params":{"request_id":"r2"}}`)["result"].(map[string]any); r["n"].(float64) != 2 || *ran != 2 {
 		t.Fatalf("%v", r)
+	}
+}
+
+func TestWritesAreKeptPerWriterSoTwoDevicesAndTheFounderMayUseOneRequestID(t *testing.T) {
+	db, ran := newDB(t), new(int)
+	call := `{"jsonrpc":"2.0","id":2,"method":"test.effect","params":{"request_id":"r1"}}`
+	clients := map[string]*client{
+		"founder": connect(t, writeServer(t, db, ran, nil), `{"client":"t","protocol":1,"key":"k"}`),
+		"d1":      connect(t, writeServer(t, db, ran, fakeNet{}), `{"client":"t","protocol":1,"token":"t1"}`),
+		"d2":      connect(t, writeServer(t, db, ran, fakeNet{}), `{"client":"t","protocol":1,"token":"t2"}`),
+	}
+	want := map[string]float64{"founder": 1, "d1": 2, "d2": 3}
+	for _, who := range []string{"founder", "d1", "d2"} {
+		r := clients[who].raw(t, call)["result"].(map[string]any)
+		if r["n"].(float64) != want[who] || r["replayed"] != nil {
+			t.Fatalf("%s: its own write runs once, not another's reply: %v", who, r)
+		}
+	}
+	for _, who := range []string{"founder", "d1", "d2"} {
+		r := clients[who].raw(t, call)["result"].(map[string]any)
+		if r["n"].(float64) != want[who] || r["replayed"] != true {
+			t.Fatalf("%s: a retry replays its own: %v", who, r)
+		}
+	}
+	if *ran != 3 {
+		t.Fatalf("each write ran once: %d", *ran)
+	}
+	rows, err := db.Query("SELECT caller FROM write_effects ORDER BY caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var c string
+		rows.Scan(&c)
+		got = append(got, c)
+	}
+	if len(got) != 3 || got[0] != "device:d1" || got[1] != "device:d2" || got[2] != "human" {
+		t.Fatalf("kept under the writer: %v", got)
 	}
 }
