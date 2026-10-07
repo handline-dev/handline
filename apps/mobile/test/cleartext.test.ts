@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 
 const plugin = createRequire(import.meta.url)('../plugins/tailscale-cleartext.cjs') as {
   androidXml(): string;
+  debugXml(): string;
   atsOf(ats?: object): { NSAllowsLocalNetworking?: boolean; NSExceptionDomains: Record<string, object> };
 };
 
@@ -19,4 +20,9 @@ test('iOS adds a ts.net exception and keeps what Info.plist already had', () => 
   assert.equal(ats.NSAllowsLocalNetworking, true);
   assert.deepEqual(ats.NSExceptionDomains['example.org'], {});
   assert.deepEqual(ats.NSExceptionDomains['ts.net'], { NSIncludesSubdomains: true, NSExceptionAllowsInsecureHTTPLoads: true });
+});
+
+test('the Debug variant has its own config that lets Metro load over cleartext, and the release one has no such base', () => {
+  assert.match(plugin.debugXml(), /<base-config cleartextTrafficPermitted="true"/);
+  assert.ok(!plugin.androidXml().includes('base-config'));
 });
