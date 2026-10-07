@@ -51,7 +51,15 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
           </span>
         ) : null}
       </div>
-      <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
+      <div className="rail-nav">
+        {['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}
+        <a className="nav" href="#/stats">
+          Stats
+        </a>
+        <a className="nav" href="#/settings">
+          Settings
+        </a>
+      </div>
       <div className="rail-opts">
         <input
           className="search"

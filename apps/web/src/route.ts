@@ -11,3 +11,9 @@ export const useSelectedAgent = (): string => useSyncExternalStore(subscribe, re
 export const goAgent = (name: string): void => {
   location.hash = `#/agents/${encodeURIComponent(name)}`;
 };
+
+/** Which of the page routes the URL names: `#/stats` or `#/settings`, or '' for neither. */
+export function usePageRoute(): 'stats' | 'settings' | '' {
+  const hash = useSyncExternalStore(subscribe, () => location.hash);
+  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : '';
+}

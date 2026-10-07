@@ -1003,3 +1003,279 @@ button.opt {
     white-space: pre;
   }
 }
+
+/* Stats and Settings pages */
+.stats,
+.settings {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+  overflow: auto;
+  height: 100%;
+}
+.settings {
+  max-width: 640px;
+}
+.segmented {
+  display: flex;
+}
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.stat-tile strong {
+  font-size: 26px;
+}
+.stat-tile[data-warn] strong {
+  color: var(--wait);
+}
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+.chart {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.chart h3,
+.settings h3 {
+  margin: 4px 0 8px;
+  font-size: 14px;
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(70px, 40%) 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+.bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bar {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--line);
+  overflow: hidden;
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--run);
+}
+.bar-fill.accent {
+  background: var(--accent);
+}
+.bar-fill.warn {
+  background: var(--wait);
+}
+.bar-fill.bad {
+  background: var(--block);
+}
+.bar-value {
+  font: 12px var(--mono);
+}
+.use-account {
+  margin-bottom: 8px;
+}
+.outlook {
+  margin-top: 12px;
+}
+.outlook-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.outlook-controls select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 4px 6px;
+}
+.outlook-svg {
+  width: 100%;
+  height: auto;
+}
+.outlook-svg .grid {
+  stroke: var(--line);
+}
+.outlook-svg .line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.outlook-svg .now {
+  stroke: var(--muted);
+  stroke-dasharray: 2 3;
+}
+.svg-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.cost {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 160px;
+}
+.cost-day {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.cost-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  min-height: 2px;
+}
+.cost-seg {
+  flex-basis: 0;
+}
+.cost-seg.c0 {
+  background: var(--accent);
+}
+.cost-seg.c1 {
+  background: var(--run);
+}
+.cost-seg.c2 {
+  background: var(--wait);
+}
+.cost-seg.c3 {
+  background: var(--idle);
+}
+.cost-label {
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+}
+.runway {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.data-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.setting {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+.setting.check {
+  grid-template-columns: auto 1fr;
+}
+.setting input:not([type='checkbox']) {
+  width: 8em;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 5px 8px;
+  font: inherit;
+}
+.field-note {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+.field-note.bad {
+  color: var(--block);
+}
+.answers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.answers li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.answers-actions,
+.answer-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.answer-form input,
+.answer-form select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 5px 8px;
+  font: inherit;
+}
+.settings-phone {
+  display: none;
+}
+@media (max-width: 640px) {
+  .stat-tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+  .charts {
+    grid-template-columns: 1fr;
+  }
+  .settings-body {
+    display: none;
+  }
+  .settings-phone {
+    display: block;
+  }
+}
+.cost-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.cost-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.cost-swatch.c0 {
+  background: var(--accent);
+}
+.cost-swatch.c1 {
+  background: var(--run);
+}
+.cost-swatch.c2 {
+  background: var(--wait);
+}
+.cost-swatch.c3 {
+  background: var(--idle);
+}
