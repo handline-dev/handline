@@ -48,6 +48,8 @@ export type RefusalData = {
   hint?: string;
   /** With gates proposal_changed and proposal_settled: the proposal as it is now. */
   proposal?: Proposal;
+  /** With gate confirm: what the call would do and who is told. */
+  plan?: string;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -137,6 +139,39 @@ export type AgentDetail = AgentView & {
   /** The agent's open prompt, or null. */
   prompt: Prompt | null;
   settings?: AgentSettingValues;
+  /** The directory a shell command for this agent runs in: its worktree when that is on disk, else the daemon's home directory. worktree.path is what the agent's record holds and may name a directory that is gone; cwd is always usable. */
+  cwd: string;
+  /** Whether each action of the chat page's menu is worth offering now, by the daemon's own rules: ok, and why not when it is not. */
+  can: {
+    terminal: {
+      ok: boolean;
+      why: string | null;
+    };
+    wake: {
+      ok: boolean;
+      why: string | null;
+    };
+    close: {
+      ok: boolean;
+      why: string | null;
+    };
+    restart: {
+      ok: boolean;
+      why: string | null;
+    };
+    park: {
+      ok: boolean;
+      why: string | null;
+    };
+    fold: {
+      ok: boolean;
+      why: string | null;
+    };
+    move: {
+      ok: boolean;
+      why: string | null;
+    };
+  };
 };
 
 export type TimelineEntry = {
@@ -1140,6 +1175,8 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
+  /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that is not between the person and agent is refused (gate state). request in the result is then the message replied to, for an answer, or the new message. */
+  parent?: number;
   request_id: RequestId;
 }; result: Accepted & {
     request: number;
@@ -1162,6 +1199,18 @@ export interface Methods {
   request: number;
   /** Why; stored as typed. Empty is bad_request. */
   reason?: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "chat.cancel": { params: {
+  request: number;
+  /** Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it. */
+  confirm?: boolean;
+  request_id: RequestId;
+}; result: Accepted };
+  "chat.seen": { params: {
+  agent: AgentName;
+  /** The highest message number seen. A lower number than before changes nothing: what arrives later has a higher one, so nothing unseen is hidden. */
+  up_to: number;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.attach": { params: {
@@ -1718,6 +1767,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.withdraw": { role: "agent", callers: null, write: true, since: 1 },
+  "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
+  "chat.seen": { role: "member", callers: null, write: true, since: 1 },
   "terminal.attach": { role: "member", callers: null, write: false, since: 1 },
   "terminal.history": { role: "member", callers: null, write: false, since: 1 },
   "terminal.resize": { role: "member", callers: null, write: true, since: 1 },

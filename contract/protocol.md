@@ -55,6 +55,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `session_token` | Session token and peer-pid check, unchanged. |
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
+| `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
 
 ## Methods
 
@@ -96,11 +97,13 @@ A method marked write takes a required `request_id`.
 | `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?`, `format?` | `TerminalSnapshot \| TerminalBytesSnapshot` | `not_found`, `bad_request`, `refused` | unsupported |
 | `terminal.history` | member |  | `terminal`, `before`, `limit`, `format?` | `HistoryPage \| HistoryBytesPage` | `not_found`, `refused`, `bad_request` | unsupported |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
@@ -319,7 +322,7 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 ### `chat.send`
 
-A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.
 
 ### `chat.send_now`
 
@@ -336,6 +339,14 @@ Dismiss a message.
 ### `chat.withdraw`
 
 Withdraw a message not yet landed.
+
+### `chat.cancel`
+
+Take back a message the person sent, delivered or not. The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state).
+
+### `chat.seen`
+
+Record that the person has an agent's messages in front of them, up to a message number. What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary.
 
 ### `terminal.attach`
 
