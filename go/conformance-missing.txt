@@ -59,5 +59,9 @@ task.queue
 task.draft
 task.release
 chat.send_now
+chat.messages
+chat.transcript
+chat.locate
+chat.search
 stats.outlook
 hr.list
