@@ -38,7 +38,7 @@ def _world(home: Path, rows, table: bool):
     termmod._screen = screen.read
     termmod.send = screen.send
     termmod.wait_idle = lambda h, timeout_ms=0: True
-    termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+    termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
     termmod.close_terminal = lambda h, tab=True: (True, "closed")
     db.set_terminal(con, "backend", "term_x", "wt")
     if not table:

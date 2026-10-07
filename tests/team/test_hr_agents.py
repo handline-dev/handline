@@ -2004,7 +2004,7 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
 
         # The suite stubs these; this test is about the real ones.
         for n in ("screen_blocker", "close_session", "clear_context"):
-            setattr(termmod, n, REAL_ORCA[n])
+            setattr(termmod, n, REAL_TERMINAL[n])
         looked: list[str] = []
         lookup = real["_lookup_driver"]
         termmod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
@@ -2101,7 +2101,7 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
               == ["opencode", "claude", "claude"])
 
         # What is in the way, read off opencode's own screen.
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
         shown = {"tail": OC_IDLE}
         termmod._screen = lambda h: _screen_of(shown["tail"])
         for name, tail, want in (("idle", OC_IDLE, None), ("start", OC_HOME, None),

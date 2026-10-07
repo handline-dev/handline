@@ -15,10 +15,9 @@ from support import *  # noqa: E402,F401,F403
 
 
 def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed() -> None:
-    """A test that starts `orca` itself is stopped and named; one that catches
-    the error still fails the run, because the attempt is kept; and a child
-    process that reaches `orca` reaches the stand-in on PATH, which records the
-    test that ran it. (Each is cleaned out here so it does not fail the run.)"""
+    """A test that starts `orca` itself is stopped and named; one that catches the error still fails the run,
+    because the attempt is kept; and a child process that reaches `orca` reaches the stand-in on PATH, which
+    records the test that ran it. (Each is cleaned out here so it does not fail the run.)"""
     n = len(ORCA_ATTEMPTS)
     try:
         subprocess.run(["orca", "terminal", "list", "--json"], capture_output=True)
@@ -32,14 +31,41 @@ def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed(
     check("orca guard: and the attempt is kept, so catching the error does not hide it",
           swallowed == [(CURRENT_TEST["name"], "orca terminal list --json")], str(swallowed))
     r = subprocess.run(["sh", "-c", "orca worktree list"], capture_output=True)
-    mine = [c for t, c in calls_that_reached_the_stand_in_orca().items() if t == CURRENT_TEST["name"]]
+    mine = [c for t, c in calls_that_reached_the_stand_in_orca() if t == CURRENT_TEST["name"]]
     check("orca guard: a child that runs orca reaches the stand-in, which exits 1 and logs the test",
-          r.returncode == 1 and mine and mine[0] == ["worktree list"], str((r.returncode, mine)))
+          r.returncode == 1 and mine == ["worktree list"], str((r.returncode, mine)))
     kept = [ln for ln in FAKE_ORCA_LOG.read_text().splitlines()
             if not ln.startswith(CURRENT_TEST["name"] + "\t")]
     FAKE_ORCA_LOG.write_text("".join(ln + "\n" for ln in kept))
     check("orca guard: which is the one place `orca` resolves to for this suite",
-          shutil.which("orca") == str(FAKE_ORCA_DIR / "orca"), str(shutil.which("orca")))
+          shutil.which("orca") == str(FAKE_BIN_DIR / "orca"), str(shutil.which("orca")))
+
+
+def test_the_guard_against_the_live_tmux_server_names_the_test_and_cannot_be_swallowed() -> None:
+    """A test that starts a tmux aimed at the live server is stopped and named; one that catches the error
+    still fails the run, because the attempt is kept; and a child process reaches the stand-in on PATH, which
+    refuses it and records the test that ran it. (Each is cleaned out here so it does not fail the run.)"""
+    n = len(TMUX_ATTEMPTS)
+    try:
+        subprocess.run(["tmux", "-L", "ocp", "list-panes", "-a"], capture_output=True)
+        said = ""
+    except AssertionError as e:
+        said = str(e)
+    swallowed = TMUX_ATTEMPTS[n:]
+    del TMUX_ATTEMPTS[n:]
+    check("tmux guard: a live-server tmux started in process raises, naming the test and the call",
+          CURRENT_TEST["name"] in said and "-L ocp list-panes" in said, said)
+    check("tmux guard: and the attempt is kept, so catching the error does not hide it",
+          swallowed == [(CURRENT_TEST["name"], "tmux -L ocp list-panes -a")], str(swallowed))
+    r = subprocess.run(["sh", "-c", "tmux list-panes -a"], capture_output=True)
+    mine = [c for t, c in calls_that_reached_live_tmux() if t == CURRENT_TEST["name"]]
+    check("tmux guard: a child that runs tmux with no socket reaches the stand-in, which refuses it and logs the test",
+          r.returncode == 1 and mine == ["list-panes -a"], str((r.returncode, mine)))
+    kept = [ln for ln in FAKE_TMUX_LOG.read_text().splitlines()
+            if not ln.startswith(CURRENT_TEST["name"] + "\t")]
+    FAKE_TMUX_LOG.write_text("".join(ln + "\n" for ln in kept))
+    check("tmux guard: which is the one place `tmux` resolves to for this suite",
+          shutil.which("tmux") == str(FAKE_BIN_DIR / "tmux"), str(shutil.which("tmux")))
 
 
 def test_the_suite_and_the_package_name_only_what_exists() -> None:
@@ -457,6 +483,7 @@ def main() -> int:
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
+        run(lambda: test_the_guard_against_the_live_tmux_server_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())
         run(lambda: test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory())
         run(lambda: test_run_recovers_from_an_uncaught_error())
