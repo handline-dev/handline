@@ -1,0 +1,316 @@
+{
+ "fixtures": [
+  {
+   "name": "task.begin.needs_a_why",
+   "spec": "task.begin",
+   "about": "Starting a task without saying what led to it is bad_request naming why.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.begin",
+      "params": {
+       "title": "t",
+       "message": 1,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "why"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.begin.the_founder_is_refused",
+   "spec": "task.begin",
+   "about": "A task is begun by an agent, never in the founder's name: the founder's call is refused.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.begin",
+      "params": {
+       "title": "t",
+       "message": 1,
+       "why": "w",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.begin.body_is_not_served",
+   "spec": "task.begin",
+   "about": "A body is not served: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.begin",
+      "params": {
+       "title": "t",
+       "body": "b",
+       "message": 1,
+       "why": "w",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "body"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.start.no_such_task",
+   "spec": "task.start",
+   "about": "A task nobody has is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.start",
+      "params": {
+       "task": 999999,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.progress.note_is_text",
+   "spec": "task.progress",
+   "about": "A note that is not text is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.progress",
+      "params": {
+       "task": 1,
+       "note": 5,
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "note"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.progress.no_such_task",
+   "spec": "task.progress",
+   "about": "A task nobody has is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.progress",
+      "params": {
+       "task": 999999,
+       "note": "n",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.handoff.no_such_agent",
+   "spec": "task.handoff",
+   "about": "Handing a task to an agent nobody has is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.handoff",
+      "params": {
+       "task": 1,
+       "to": "no.such.agent",
+       "note": "n",
+       "request_id": "conf-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.handoff.needs_a_request_id",
+   "spec": "task.handoff",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.handoff",
+      "params": {
+       "task": 1,
+       "to": "a.one",
+       "note": "n"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

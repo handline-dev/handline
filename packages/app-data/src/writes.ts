@@ -36,8 +36,8 @@ const verb = (name: TaskVerb, label: string): WriteSpec => ({
   label,
   touches: taskKeys,
   patch: (c, p) => {
-    const { task, tasks, owner, title, time_box } = as<{ task?: number; tasks?: number[] } & TaskEdit>(p);
-    changeTasks(c, tasks ?? [task!], (t) => taskAfter(name, t, c.now, { owner, title, time_box }));
+    const { task, tasks, owner, title, time_box, priority } = as<{ task?: number; tasks?: number[] } & TaskEdit>(p);
+    changeTasks(c, tasks ?? [task!], (t) => taskAfter(name, t, c.now, { owner, title, time_box, priority }));
   },
 });
 
@@ -346,6 +346,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.release': 'release',
     'hr.decide': 'decide',
     'hr.withdraw': 'withdraw',
+    'chat.send_now': 'send now',
     'account.login': 'log in',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
@@ -377,6 +378,7 @@ export const writes: Record<string, WriteSpec> = {
   'session.input': uncached('type'),
   'session.keys': uncached('key'),
   'session.type': uncached('type'),
+  'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
 };
 

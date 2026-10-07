@@ -124,3 +124,20 @@ func TestRevokeClosesOnlyThatDevicesConnectionsAndTheTokenDies(t *testing.T) {
 		t.Fatal("revoked twice")
 	}
 }
+
+func TestAHostQuietForAWholeWindowIsForgotten(t *testing.T) {
+	m := New(NewMemStore())
+	now := time.Now()
+	m.now = func() time.Time { return now }
+	for _, h := range []string{"a", "b", "c"} {
+		m.Redeem("WRONG", "p", h)
+	}
+	if len(m.wrongs) != 3 {
+		t.Fatal(len(m.wrongs))
+	}
+	now = now.Add(hostWindow + time.Second)
+	m.Redeem("WRONG", "p", "d")
+	if len(m.wrongs) != 1 {
+		t.Fatalf("%d hosts kept", len(m.wrongs))
+	}
+}

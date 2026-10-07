@@ -1,0 +1,3 @@
+# One name per line, order irrelevant: branches append and delete lines here, so git merges the two files as a union.
+go/conformance-missing.txt merge=union
+go/conformance-needvar.txt merge=union

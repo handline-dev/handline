@@ -33,7 +33,7 @@ def _drift(con, label: str, now: int) -> None:
     """The stored view agrees with the screen's own row and with the daemon's own deciders."""
     agentview.refresh(con, now)
     view, row, ui = agentview.stored(con, "backend"), db.get_agent_state(con, "backend"), _ui_row(con, "backend")
-    check(f"{label}: the state word and what is said beside it are the screen's", (view["state"], view["state_detail"]) == (ui.state, ui.until),
+    check(f"{label}: the state word and what is said beside it are the screen's", agentview.screen_word(view) == (ui.state, ui.until),
           f"{view['state']} {view['state_detail']!r} vs {ui.state} {ui.until!r}")
     check(f"{label}: the state column renders from the view alone",
           tui.state_cell_of_view(view) == tui.state_cell(ui.state, ui.until))
@@ -142,7 +142,7 @@ def test_one_agents_failure_does_not_stale_the_others(home: Path) -> None:
     finally:
         agentview.compute = real
     check("failure: the agent before it and the agent after it are refreshed",
-          agentview.stored(con, "backend")["state"] == "RUNNING" and agentview.stored(con, "marketing")["state"] == "RUNNING")
+          agentview.stored(con, "backend")["state"] == "running" and agentview.stored(con, "marketing")["state"] == "running")
     check("failure: the one that failed keeps its last view", agentview.stored(con, "frontend") == before)
     check("failure: and it is logged by name", any("frontend" in m and "unreadable" in m for m in logged), str(logged))
     con.close()
@@ -198,11 +198,11 @@ def test_the_methods_serve_the_view_and_the_agents_detail(home: Path) -> None:
     listed = w.call("agents.list", {})["result"]["agents"]
     mine = next(a for a in listed if a["name"] == "backend")
     check("agents.list: every registered agent, the stored view", {a["name"] for a in listed} == set(paths.list_agents())
-          and mine["state"] == "RUNNING" and mine["has_dialog"] is False, str(mine))
+          and mine["state"] == "running" and mine["has_dialog"] is False, str(mine))
     check("agents.list: the spec's required fields are all there", all(k in mine for k in (
         "name", "role", "model", "effort", "state", "state_since", "account", "task", "cache_until", "has_dialog", "parent")))
     got = w.call("agent.get", {"agent": "backend"})["result"]
-    check("agent.get: the view plus the session and terminal facts", got["state"] == "RUNNING" and got["terminal"] == "term_x"
+    check("agent.get: the view plus the session and terminal facts", got["state"] == "running" and got["terminal"] == "term_x"
           and got["session_open"] is True and got["input_holders"][0]["kind"] == "daemon"
           and set(got["account_pick"]) == {"account", "reason"} and got["prompt"] is None, str(got))
     check("agent.get: an agent that is not there is not_found", _code(w.call("agent.get", {"agent": "nobody"})) == "not_found")

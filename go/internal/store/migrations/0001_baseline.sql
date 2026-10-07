@@ -242,6 +242,8 @@ CREATE INDEX token_calls_account_ts ON token_calls(account, ts);
 CREATE INDEX token_calls_ts ON token_calls(ts);
 CREATE INDEX session_starts_agent ON session_starts(agent, id);
 CREATE INDEX requests_settles ON requests(settles);
+CREATE INDEX requests_touched ON requests(COALESCE(state_at, ts));
+CREATE INDEX requests_settles_ts ON requests(settles, ts);
 INSERT INTO cursors(name, row_id, updated) VALUES('legacy_request_columns_dropped', 1, CAST(strftime('%s','now') AS INTEGER));
 INSERT INTO cursors(name, row_id, updated) VALUES('migrated:english_digests', 1, CAST(strftime('%s','now') AS INTEGER));
 INSERT INTO cursors(name, row_id, updated) VALUES('migrated:escalations_are_tasks', 1, CAST(strftime('%s','now') AS INTEGER));

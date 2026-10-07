@@ -12,8 +12,10 @@ import { pinnedWebSocketTransport } from '@handline/client-node';
 import { FakeDaemon } from '../src/daemon.ts';
 import { serveWs } from '../src/serve.ts';
 
-/** The fake as the network listener: wss with a self-signed certificate, paired devices only. */
-async function listener(t: { skip(why: string): void; after(fn: () => void): void }) {
+/** One self-signed certificate for the whole file: generating a key per test made a loaded run spend its 10 s file budget in openssl. */
+let identity: { cert: Buffer; key: Buffer } | null | undefined;
+function certificate() {
+  if (identity !== undefined) return identity;
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'pair-'));
   try {
     execFileSync(
@@ -22,7 +24,9 @@ async function listener(t: { skip(why: string): void; after(fn: () => void): voi
         'req',
         '-x509',
         '-newkey',
-        'rsa:2048',
+        'ec',
+        '-pkeyopt',
+        'ec_paramgen_curve:prime256v1',
         '-nodes',
         '-days',
         '1',
@@ -35,18 +39,29 @@ async function listener(t: { skip(why: string): void; after(fn: () => void): voi
       ],
       { stdio: 'ignore' },
     );
+    identity = { cert: fs.readFileSync(`${dir}/c.pem`), key: fs.readFileSync(`${dir}/k.pem`) };
   } catch {
+    identity = null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return identity;
+}
+
+/** The fake as the network listener: wss with a self-signed certificate, paired devices only. */
+async function listener(t: { skip(why: string): void; after(fn: () => void): void }) {
+  const tls = certificate();
+  if (!tls) {
     t.skip('openssl is not available');
     return null;
   }
-  const cert = fs.readFileSync(`${dir}/c.pem`);
+  const { cert, key } = tls;
   const daemon = new FakeDaemon();
-  const server = serveWs(daemon, 0, '127.0.0.1', { cert, key: fs.readFileSync(`${dir}/k.pem`) }, true);
+  const server = serveWs(daemon, 0, '127.0.0.1', { cert, key }, true);
   await new Promise((ok) => server.once('listening', ok));
   t.after(() => {
     daemon.stop();
     server.close();
-    fs.rmSync(dir, { recursive: true, force: true });
   });
   const host = `127.0.0.1:${(server.address() as AddressInfo).port}`;
   const fingerprint = crypto.createHash('sha256').update(new crypto.X509Certificate(cert).raw).digest('hex');

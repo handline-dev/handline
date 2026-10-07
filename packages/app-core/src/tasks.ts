@@ -6,6 +6,7 @@ export interface TaskEdit {
   owner?: string;
   title?: string;
   time_box?: string;
+  priority?: 1 | 2 | 3;
 }
 
 /**
@@ -26,6 +27,7 @@ export function taskAfter(verb: TaskVerb, task: Task, now: string, edit: TaskEdi
         ...(edit.owner ? { to: edit.owner } : {}),
         ...(edit.title ? { title: edit.title } : {}),
         ...(edit.time_box ? { time_box: edit.time_box } : {}),
+        ...(edit.priority ? { priority: edit.priority } : {}),
       };
     default:
       return undefined; // reopen, release, withdraw and cancel: where the daemon puts the task depends on more than this knows

@@ -18,12 +18,15 @@ import {
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import { AGENTS, seedChat } from './fixtures.ts';
+import { FakeTasks, taskCall } from './tasks.ts';
 import { ChatFailure, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
-import { Failure, badRequest, refused } from './errors.ts';
+import { Failure, badRequest, refused, storeFailure } from './errors.ts';
 import { Knobs } from './knobs.ts';
-import { detail, newSession, tid, view, type Session } from './session.ts';
+import { detail, newSession, tid, view, type Attach, type Session } from './session.ts';
+
+const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
@@ -34,7 +37,7 @@ interface Conn {
   caller: Caller;
   helloed: boolean;
   topics: Set<Topic> | null;
-  attached: Set<string>; // terminal ids
+  attached: Map<string, Attach>; // terminal id -> how this connection watches it
   network: boolean; // came in through the paired-device listener
   paired: boolean; // a local connection always; a network one once hello carried a known token
 }
@@ -52,6 +55,7 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  readonly tasks = new FakeTasks(this, () => this.iso());
   private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
@@ -66,7 +70,19 @@ export class FakeDaemon {
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
     broadcast: (s, method, params) => {
-      for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'text') this.notify(c, method, params);
+        // Bytes watchers get the same markers and holders in their own counter, marked `bytes`, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder'))
+          this.notify(c, method, { ...(params as object), format: 'bytes', seq: ++a.seq });
+      }
+    },
+    broadcastBytes: (s, method, build) => {
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'bytes') this.notify(c, method, { ...build(), seq: ++a.seq });
+      }
     },
   });
   private tokens = new Map<string, { id: string; name: string }>();
@@ -100,7 +116,7 @@ export class FakeDaemon {
       caller: { kind, name },
       helloed: false,
       topics: null,
-      attached: new Set(),
+      attached: new Map(),
       network,
       paired: !network,
     };
@@ -172,7 +188,13 @@ export class FakeDaemon {
       kind: 'daemon_typed',
       actor: { kind: 'daemon', name: 'daemon' },
       text,
+      format: 'text',
     }));
+  }
+
+  /** Makes the bytes watchers of an agent fall behind: they are told to repaint, as the daemon does past 1 MiB unsent. */
+  slowClient(agent: string): void {
+    this.script.snapshotBytes(this.session(agent), 'slow_client');
   }
 
   private session(agent: unknown): Session {
@@ -300,10 +322,10 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: this.serveChat, review: false, input_ask: false, terminal_format: ['text'] },
+        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => this.serveChat || !name.startsWith('chat.'))
+          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && this.tasks.lists(name))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -320,6 +342,7 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
+    if (this.tasks.serves(method)) return taskCall(this.tasks, method, p, c.caller.name, this.script);
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
@@ -414,11 +437,7 @@ export class FakeDaemon {
       return fn();
     } catch (e) {
       if (!(e instanceof ChatFailure)) throw e;
-      throw e.code === 'refused'
-        ? refused(e.gate ?? 'state', e.message)
-        : e.code === 'bad_request'
-          ? badRequest(e.message)
-          : new Failure('not_found', e.message);
+      throw storeFailure(e);
     }
   }
 

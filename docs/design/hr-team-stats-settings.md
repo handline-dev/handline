@@ -2,21 +2,23 @@
 
 Layout, states and keys for units U15 (HR proposals and the Team table) and U16 (stats, home settings, standing answers) of `docs/pc-app-gaps.md` §4, in the frame of `docs/web-main-view.md`. Same form and shared rules as `docs/design/agents-accounts.md` and `docs/design/inbox-tasks-prompts.md` §1: tokens from `apps/web/src/styles.css` (no new colour), skeleton with `docs/turborepo-layout.md` §8.6 timing, the four list states, the key sheet on `?`, phone under 640 px. Write kinds are those of §8.5: **authored** (value changes at once, hollow dot `○`, reverts on refusal) and **decided** (no cache change, "…" on the clicked control, reason on error). Confirms, saves and thresholds below were read from the bridge (`proposals.py`, `hr_card.py`, `outlook_view.py`, `home.py` settings tab, `answer_add.py`), and role gates from `contract/protocol.json`. Docs only: nothing here is built.
 
-**Role gates (contract).** `hr.list` and `team.get` need only the agent role (so any proven caller), `stats.get` the member role; `hr.decide`, `settings.get`, `settings.set`, `answers.list`, `answer.add`, `answer.remove` and `settings.trust` are **founder-only** (`trust.remove` is agent-level, so any proven caller may call it). Rule for every page here: a control the role cannot use is hidden (an action) or locked `🔒` with "founder only" (a value shown read-only); the Settings page is not served to a non-founder ("Settings are for the founder.") because `settings.get` itself is founder-only.
+**Role gates (contract).** `hr.list` and `team.get` need only the agent role (so any proven caller), `stats.get` the member role, `hr.withdraw` the agent role (an agent takes back its own; the founder, any); `hr.decide`, `settings.get`, `settings.set`, `answers.list`, `answer.add`, `answer.remove` and `settings.trust` are **founder-only** (`trust.remove` is agent-level, so any proven caller may call it). Rule for every page here: a control the role cannot use is hidden (an action) or locked `🔒` with "founder only" (a value shown read-only); the Settings page is not served to a non-founder ("Settings are for the founder.") because `settings.get` itself is founder-only.
 
-**Pending:** the outlook graph and the longer stats ranges wait on **N5** (§3.2); they are drawn but hidden until `stats.outlook` is listed.
+**Pending:** nothing waits on the daemon for the outlook graph: `stats.outlook` is specified (ef77be6f, §3.2); the page shows it when the daemon lists the method.
 
 ## 1. U15 HR proposals
 
 ### 1.1 Where it lives
 
-Route `/team` has two tabs, **Team** and **HR**, and `/team/hr/:proposal` is a deep link to one card. The HR tab wears the bridge's dot while a proposal waits: a `●` in `--block` and the count as text ("HR 2"), shown on the tab, on the **Team** item of the top bar and in the status bar's host line, so it is seen from any page; colour is never alone. The count is the proposals whose contract state is `open` (waiting for the founder); it comes from `hr.list`. Until the daemon serves an apply-failed state (daemon request R2), an approved proposal is one that was applied and is not counted. There is **no `hr` topic** in the contract, and `hr.list` is a snapshot-only read (§8.2: stale after 30 s, refetched on mount and on reconnect), so the dot is as old as the last refetch for a proposal raised elsewhere; it also refetches when the person's own decide settles. A live dot needs the daemon to announce a new proposal (assumption 8). The same proposal also appears in Inbox as an HR card (`inbox-tasks-prompts.md` §3.1) and both show one state.
+Route `/team` has two tabs, **Team** and **HR**, and `/team/hr/:proposal` is a deep link to one card. The HR tab wears the bridge's dot while a proposal waits: a `●` in `--block` and the count as text ("HR 2"), shown on the tab, on the **Team** item of the top bar and in the status bar's host line, so it is seen from any page; colour is never alone. The count is the proposals in state `open` or `apply_failed` (both wait for the founder), counted by the client from `hr.list`. The contract has an **`hr` topic** (snapshot `hr.list`; events `hr.raised` and `hr.settled`, each carrying the Proposal as `data.proposal`, with the proposal's `agent` (null for a bundle), `title` and a `target` of screen `hr` and the id as text): the dot and the list update from the event with no refetch, so a proposal raised elsewhere shows at once and a decide made on another device drops the count at once. A client that missed events (a `gap`) refetches `hr.list`. An edit of a draft in place sends no event; the card learns of it from the `proposal_changed` refusal (§1.3). The native notice of the Electron app is raised from `hr.raised` on the same topic. HR proposals are **not** Inbox items: the contract's inbox is built from messages and requests only, so there is no HR card in Inbox (`inbox-tasks-prompts.md` §3.1 says so; N17 asks for one).
 
 ### 1.2 The HR tab
 
 ```
 ┌ HR · 2 waiting ───────────────────────────────────────────────── [Approve all] ┐
-│ ┌ HR · spawn handline.x   waiting for you   architect, 12 m ago ──────────────┐ │
+│ ┌ HR · add handline.x   waiting for you   architect, 12 m ago ───────────────┐ │
+│ │ vendor claude · model … · effort …        (asked, only the keys it asked)   │ │
+│ │ why  <the reason, plain text>                                                │ │
 │ │ ┌ diff ───────────────────────────────────────────────────────────────────┐ │ │
 │ │ │ - effort  high                                                          │ │ │
 │ │ │ + effort  max                                                           │ │ │
@@ -26,9 +28,9 @@ Route `/team` has two tabs, **Team** and **HR**, and `/team/hr/:proposal` is a d
 │ agents  agent · model · effort · browser · mode · sandbox     (read; Enter edits) │
 ```
 
-One column of cards, oldest first, 760 px at most. Each card is drawn from what the contract's Proposal serves (`id`, `agent`, `title`, `diff`, `subject`, `state`, `created`): head (the `title`, the `agent`, the state word, how long ago); the **diff** (the contract's `diff`) in `--mono`, one line per change, a `-` or `+` at the line start so colour is not the only mark (`--block` and `--run` on top of it), scrolling past 20 lines, never rendered as HTML; then the buttons. Who asked, the reason and the asked fields (vendor, model, team, repo, to, `set <key>`) are not served; they are daemon request R1 and are drawn as dashed placeholders only once R1 is listed. Every value came from an agent, so it is shown as text only, one line per field, no markup, no links, control characters dropped (the bridge's `textsafe`).
+One column of cards, waiting ones first and oldest first, 760 px at most. Each card is drawn from the contract's Proposal: head (`title`, which is the card's head line `<kind> <agent>`, with ` -> <to>` for link and unlink and `bundle <N> changes` for a bundle; the state word; `requested_by` and how long ago, from `created`); the **asked** fields in the bridge's order (vendor, model, effort, team, repo, to, then each `set <key>` from `asked.sets`, an object of key to value), only the keys the proposal asked for and none for a bundle, whose `diff` carries the changes; **why** (`reason`) as plain text; the **diff** (the contract's `diff`, which says in words what approving does, one change per line, not a unified diff) in `--mono`, one line per change; a line that starts with `-` or `+` gets `--block` or `--run` on top, so colour is never the only mark; scrolling past 20 lines, never rendered as HTML; then the buttons. `kind` (add, retire, rename, link, unlink, team, settings, context, bundle) is optional and an open set: when absent the page reads the first word of `title`, and a kind it does not know is drawn as its own word. A proposal the founder made directly is never listed (its `requested_by` is human), so there is no card for it. Every value came from an agent, so it is shown as text only, one line per field, no markup, no links, control characters dropped (the bridge's `textsafe`); an absent `requested_by`, `reason` or `asked` simply leaves its line out.
 
-State words follow the contract's `state`: `open` "waiting for you" (`--wait`), `approved` "approved and applied" (`--run`), `rejected` "rejected" (`--block`). "Approved, apply failed" with its error, and "withdrawn", wait on R2; until then a withdrawn proposal leaves the list. Settled cards stay for the session's recent history under a "Recent" rule, with no buttons.
+State words follow the contract's `state`, an open set: `open` "waiting for you" (`--wait`); `apply_failed` "approved, apply failed" (`--block`) with the `error` under it as plain text, cut at 400 characters (when `error` is null the apply never ran and the line reads "the change was not applied"); `approved` "approved and applied" (`--run`); `rejected` "rejected" (`--block`); `withdrawn` "withdrawn" (`--muted`). **Waiting** cards are `open` and `apply_failed`; they come first, oldest `created` first, and carry the buttons: an `apply_failed` card offers **Retry** (approve again, with its `subject`), **Reject** and **Withdraw** (the daemon takes back a proposal while it is `open` or `apply_failed`). Settled cards (`approved`, `rejected`, `withdrawn`) sit under a "Recent" rule, newest `settled` first, with no buttons; they come from `hr.list` (the last 7 days, at most 50). A state the page does not know is drawn as its word, with no buttons, and is not counted.
 
 Below the cards, an **agents** table (agent, model, effort, browser, mode, sandbox) as the bridge's: a read-only list; Enter or **Edit settings** opens that agent's settings page (U13, `agents-accounts.md` §2). An unreadable agent shows "unreadable" in its row and does not hide the others.
 
@@ -36,16 +38,16 @@ Below the cards, an **agents** table (agent, model, effort, browser, mode, sandb
 
 | Key | Verb | Call | Kind | Confirm |
 |---|---|---|---|---|
-| `a` | Approve | `hr.decide { decision: approve, subject }` | decided | none (the card is the confirmation) |
-| `r` | Reject | `hr.decide { decision: reject, note, subject }` | decided | a reason line opens under the buttons: "why - Enter rejects, Esc cancels"; an empty reason sends nothing |
-| `A` | Approve all | one `hr.decide` per waiting proposal, in order | decided | yes: "Approve all N" / "Each is applied as the card shows it; one that fails stays waiting." |
-| `w` | Withdraw | none | none | **not offered in the web** |
+| `a` | Approve (Retry on `apply_failed`) | `hr.decide { proposal, decision: approve, subject }` | decided | none (the card is the confirmation) |
+| `r` | Reject | `hr.decide { proposal, decision: reject, note, subject? }` | decided | a reason line opens under the buttons: "why - Enter rejects, Esc cancels"; an empty reason sends nothing |
+| `A` | Approve all | one `hr.decide { proposal, decision: approve, subject }` per waiting proposal (`open` and `apply_failed`), in order | decided | yes: "Approve all N" / "Each is applied as the card shows it; one that fails stays waiting." |
+| `w` | Withdraw | `hr.withdraw { proposal }` | decided | yes, danger: "Withdraw <kind> <agent>" (`kind` as above) / "Takes the proposal back; whoever raised it can raise it again." / **Withdraw**; offered on `open` and `apply_failed` cards |
 | `e` | Edit settings | opens U13 | none | none |
 
-- **`subject`**: an approve or reject is for the text the card showed (the bridge's `subject`). If the proposal changed under the click, the daemon refuses as stale; nothing is applied, the card refreshes in place with "This proposal changed" in `--wait`, and the person decides again on the new text. Never auto-retried.
-- **Withdraw** (`w`) is not drawn. The contract's `hr.withdraw` is "take back the caller's own undecided proposal": the founder did not raise the proposals on this page, so the call would be refused for them, and §8.5 lists it as a call the web never makes. The key sheet omits it; the founder can Reject instead.
+- **`subject`**: an approve or reject is for the text the card showed (the bridge's `subject`). Two refusals carry the proposal as it is now (gates `proposal_changed` and `proposal_settled`): for `proposal_changed` nothing is applied, the card refreshes in place from that proposal with "This proposal changed" in `--wait`, and the person decides again on the new text; for `proposal_settled` the card shows "already <state>" (approved, rejected or withdrawn) with no buttons. Any refusal also refetches `hr.list`. Never auto-retried. A refusal with no gate shows the daemon's sentence on the card.
+- **Withdraw** (`w`) is drawn: the contract lets the founder take back any undecided proposal (its author's own, or any for the founder), and the call is refused with `proposal_settled` once it is settled. The confirm is the bridge's, an inline sheet as `agents-accounts.md` §1, because it is destructive for the proposer. §8.5 lists `hr.withdraw` as a call the web never makes; the architect moves it to decided with this page (assumption 3).
 - **Approve all** sends the calls one after another and shows each card's own "approving…" mark; a partial failure leaves the refused ones waiting, with "2 of 3 approved" and each reason in the toast. The bridge also sends each proposer one summary message; the contract has no batch call, so the web promises only what the daemon does for each `hr.decide`.
-- `hr.decide` is **decided**: the card's two buttons read "…" and disable, the card changes only when the refetch of `hr.list` after the call shows it, and the dot count drops then. On refusal the buttons return and the reason shows in the card. The decide verbs, Withdraw and Edit settings are hidden for a role that is not founder; the cards stay readable.
+- `hr.decide` is **decided**: the card's two buttons read "…" and disable, the card changes only when the `hr.settled` event (or the refetch) shows it, and the dot count drops then. The mark ends on any `hr.settled` for that proposal, not only on a state change: a Retry that fails again is accepted, not refused, the card stays `apply_failed`, and the event brings the new `error` and returns the buttons. On refusal the buttons return and the reason shows in the card. The decide verbs, Withdraw and Edit settings are hidden for a role that is not founder; the cards stay readable.
 - Keys work only with no text field focused; `?` lists them; Escape closes the reject field, then leaves the page.
 
 ### 1.4 States
@@ -54,11 +56,19 @@ Below the cards, an **agents** table (agent, model, effort, browser, mode, sandb
 - **Empty**: "No proposal is waiting for your decision." (the bridge's words), and under it "Roster and role changes agents propose land here." The tab's dot is off.
 - **Error / not served**: the shared strip and the "not served" line; cached cards stay. Not served hides the HR tab.
 - **Disconnected**: decide buttons disabled with "daemon not connected".
-- **A new proposal** (seen on a refetch) arrives at the top of "waiting" with the 2 s left rule of the Inbox doc §3.3, and collects behind a "1 new" pill when the list is scrolled.
+- **A new proposal** (an `hr.raised` event, or a refetch) arrives at the top of "waiting" with the 2 s left rule of the Inbox doc §3.3, and collects behind a "1 new" pill when the list is scrolled.
 
-### 1.5 Phone
+### 1.5 Layouts at 375, 768 and 1280 px
 
-HR has no tab on the phone: proposals are Inbox cards (`web-ui-design.md` §7), with Approve and Reject as full-width 48 px buttons, the diff collapsed to "3 changes" and a "Show diff" toggle, the reject reason as a bottom sheet. The unread count of Inbox carries them. Approve all and Edit settings are desktop-only.
+| Width | HR | Team |
+|---|---|---|
+| 375 | read-only cards, one column, diff collapsed (below) | cards, flat list |
+| 768 | cards 640 px, one column; the agents table scrolls sideways under the cards; Approve, Reject and Edit settings in one row | table without the two file-time columns (shown in the row's expansion); tree toggle on |
+| 1280 | cards 760 px at the left, the agents table beside them at 1120 px content width | the full table |
+
+### 1.6 Phone
+
+HR has no tab on the phone: it is under Team as a read-only list of cards, the diff collapsed to "3 changes" with a "Show diff" toggle, and the dot from the `hr` topic. A paired phone is the member role and `hr.decide` and `hr.withdraw` for others are the founder's, so **no Approve, Reject or Withdraw is drawn there**; the card says "Decide on a computer." N17 asks for a way to decide from a device. Edit settings and Approve all are desktop-only.
 
 ## 2. U15 The Team table
 
@@ -81,22 +91,30 @@ Route `/stats`. Window switch **24 h | 7 d** (the contract's two windows; key `r
 
 A line under the title says the window's span from `since` and `until` ("12 Oct 14:00 to 13 Oct 14:00"). Both charts redraw on the window change without a skeleton (data is cached per window, and the previous window's figures stay until the new ones arrive).
 
-### 3.2 Outlook graph (**pending N5**)
+### 3.2 Outlook graph (`stats.outlook`, spec ef77be6f)
 
-The bridge's `OutlookView`: the week left of the accounts, recorded and guessed, a ±range (12 h, 24 h, 3 d, 7 d, 14 d), and a cost-per-day view (7 d, 14 d, 30 d) drilled team to agents. None of it is served: `Stats` has two windows and two percentages (N5 asks for `stats.outlook { range }`). Designed so the unit does not wait:
+`stats.outlook {range}` is member-level; `range` is `12h`, `24h`, `3d`, `7d`, `14d` or `30d` (any other is `bad_request`). It replaces the bridge's `OutlookView` and the "partly" of G10. The page has a **View** select and a **Range** select; `v` and `r` step them. Offered only when `stats.outlook` is listed, with no placeholder otherwise.
 
-- A **View** select ("session left" / "cost per day") and a **Range** select appear on the page only when `stats.outlook` is listed; until then the page shows tiles and the two charts of §3.1 and no placeholder.
-- *Session left*: a line chart per account (SVG, `--accent`, the guessed part dashed and labelled "guess"), a legend, a data table behind a "Table" toggle so the numbers are readable; a marker for "now".
-- *Cost per day*: stacked bars per day by team, the team's bar clicks into its agents, Backspace goes back (the bridge's `backspace`), values as a table behind the toggle.
-- Keys (the bridge's): `v` view, `r` range, `Backspace` back from a team; `?` lists them.
-- Loading: a chart-shaped skeleton (axis lines and three bar blocks) at the real chart height.
+- *Session left* (ranges 12 h to 14 d in the bridge; 30 d is for cost): one line chart of **the week left, in percent, averaged over the accounts with a reading** (`accounts` says how many; "3 accounts"). `past` is drawn solid in `--accent`; `future` is the daemon's guess (each account at the pace of its last day) drawn dashed in `--muted` with the label "guess" and **never joined to `past`**: a gap of one sample is left at "now" (the `now` marker, a vertical rule with its time). A `left_pct` of null breaks the line there. Under it a **runway** list, one row per account: the account name, "runs out in 2 d 4 h" from `runs_out_in_seconds`, "week resets <time>" from `week_resets_at`; null runs-out says "lasts until the reset" in `--muted` when `week_resets_at` is set, else "no burn or stale reading". A "Table" toggle shows `past` and `future` as rows (time, left %), the guess rows marked "guess".
+- *Cost per day* (7 d, 14 d, 30 d): a stacked bar per day from `cost_per_day`, one segment per agent, in US dollars at list price (the note says "list price, not your bill"); a day absent from the list has no bar and no label. Click a bar to see its agents in a table beside it; the Table toggle lists all days. The bridge's team-to-agent drill is not offered: the contract has agents only, and a team is not a field of it.
+- A range the view does not support is disabled in its select, not hidden.
+- Loading: a chart-shaped skeleton (axis lines, a flat line, three bar blocks) at the real chart height. Empty: `past` empty says "No usage recorded in this range."; `cost_per_day` empty says "No cost recorded in this range."
+- A `bad_request` refusal (a stale client with an old range word) resets to 7 d and shows the field note.
 
 ### 3.3 States and phone
 
 - **Loading**: four tile skeletons and two chart skeletons, real heights; the window switch is live at once.
 - **Empty** (a new daemon, nothing recorded): the tiles show 0 and the charts say "Nothing recorded in this window."
 - **Error / not served**: the shared strip; a non-member sees nothing here (`stats.get` is member-level).
-- **Phone**: tiles two across, charts stacked, the bar value labels stay; Stats is under More (`web-ui-design.md` §7); the window switch is a segmented control.
+- **Phone**: tiles two across, charts stacked, the bar value labels stay; Stats is under More (`web-ui-design.md` §7); the window switch is a segmented control. The outlook chart is full width at 220 px high, the Table toggle is the default under 400 px, and the runway rows stack.
+
+### 3.4 Layouts at 375, 768 and 1280 px
+
+| Width | Stats |
+|---|---|
+| 375 | one column: window and range controls, tiles two across, charts stacked, outlook table first |
+| 768 | tiles four across, the two §3.1 charts side by side, the outlook chart full width above its runway list |
+| 1280 | tiles four across, charts side by side, outlook chart at two thirds with the runway list at its right, content 1120 px at most |
 
 ## 4. U16 Home settings and standing answers
 
@@ -119,22 +137,22 @@ Per-agent overrides of idle close and cache expiry are the agent's own page (U13
 
 States: **loading**: field-shaped skeleton (label and control bars, four section heads, three list rows); **error**: the shared strip with fields read-only; **not served** (`settings.get` missing): "This daemon does not serve settings." A non-founder gets "Settings are for the founder." with no controls. A change from elsewhere replaces the field unless it is focused, in which case "changed elsewhere: <value>" and a Use button, as `agents-accounts.md` §2.4.
 
-**Keys**: Tab and Shift-Tab between fields, Enter saves a text field, Escape reverts the focused field, `?` lists them; no letter keys. **Phone**: the founder's settings are not on the phone (§7 of the design gives it only notifications and theme); the page says "Open this on a computer."
+**Keys**: Tab and Shift-Tab between fields, Enter saves a text field, Escape reverts the focused field, `?` lists them; no letter keys. **Layouts**: at 768 and 1280 the column stays 640 px, centred at 768 and at the left of the content at 1280 with the standing-answers table beside it from 1100 px; at 375 see Phone. **Phone**: the founder's settings are not on the phone (§7 of the design gives it only notifications and theme); the page says "Open this on a computer."
 
 ## 5. What the tests check
 
-- U15: HR card renders every state word from fixtures; the diff keeps its `+` and `-` marks with colour removed; approve and reject send `subject`, and a stale refusal sends nothing more and refreshes; an empty reason sends nothing; Approve all sends one call per proposal in order and shows partial failure; approve and reject send `approve` and `reject`; Withdraw is absent; the dot count equals `open` proposals; decide controls are absent for a non-founder; Team rows show edges both ways.
-- U16: tiles from a fixture of each window; gauge colours at 59, 60, 84 and 85 percent with the text always present; null percentages say "no data"; default cap `null` on empty; idle close converts minutes and seconds both ways; answer add and remove reverse on refusal; every founder-only control is absent for a member.
+- U15: HR card renders every state word from fixtures; the diff keeps its `+` and `-` marks with colour removed; approve and reject send `subject`, and a stale refusal sends nothing more and refreshes; an empty reason sends nothing; Approve all sends one call per proposal in order and shows partial failure; approve and reject send `approve` and `reject`; the dot count equals `open` plus `apply_failed` proposals, and an `hr.raised` event raises it with no refetch; an unknown state draws its word with no buttons and is not counted; an `apply_failed` card offers Retry and Reject and its error is cut at 400 characters; `proposal_changed` refreshes the card and `proposal_settled` shows "already <state>"; Withdraw asks the danger confirm and is offered on `open` and `apply_failed` cards; a Retry that fails again keeps the card `apply_failed`, shows the new error and returns the buttons, ending the "…" mark on `hr.settled` with an unchanged state; the phone shows no decide control; decide controls are absent for a non-founder; Team rows show edges both ways.
+- U16: the outlook line draws `past` solid and `future` dashed with a gap at "now" and a break at a null; runway null reads "lasts until the reset" with a `week_resets_at` and "no burn or stale reading" without; a day missing from `cost_per_day` has no bar; an unsupported range is disabled; tiles from a fixture of each window; gauge colours at 59, 60, 84 and 85 percent with the text always present; null percentages say "no data"; default cap `null` on empty; idle close converts minutes and seconds both ways; answer add and remove reverse on refusal; every founder-only control is absent for a member.
 - All: skeleton timing and heights of §8.6, no spinner in the DOM, light and dark, reduced motion, screenshots at 375 and 1280.
 
 ## 6. Assumptions to confirm
 
 1. HR and Team share the `/team` route as two tabs, with the HR dot on the Team item of the top bar. The alternative is a separate HR item in the top bar, which `web-ui-design.md` §2 does not list.
 2. Approve all is N calls in order, so the bridge's one summary message per proposer is not promised (no batch call in the contract).
-3. Withdraw is not on the web: the contract's `hr.withdraw` takes back only the caller's own proposal, and the founder's way to refuse is Reject. If the founder wants a founder-side take-back, the daemon must add it.
+3. Withdraw is on the web for the founder (the contract allows it) with the bridge's danger confirm; §8.5 still lists `hr.withdraw` as "not from the UI", so the architect must move it to decided before the page ships. If the founder does not want it, the row is dropped.
 4. Remove on a standing answer: the bridge removes at once with no confirm; the web adds a 6 s Undo that delays the write. If delaying is not wanted, the row is removed at once as the bridge does.
 5. Auto-accept and the other switches save with no confirmation, as the bridge does, although auto-accept lets the daemon answer dialogs by rule. Whether it deserves a danger confirm like skip prompts is the founder's call.
 6. Team stays read-only; role and base files are shown by path and update time and are not opened in the web.
-7. Stats ranges stop at 24 h and 7 d until N5; the 12 h, 3 d and 14 d ranges of the bridge are not offered.
-8. There is no push for HR proposals (no `hr` topic, and `notifications` is not specified to carry them), so the tab dot and the card list are as old as the last refetch for a proposal raised elsewhere. Asking the daemon team for an `hr` topic, or for the proposal to arrive as an inbox item, makes the dot live; E2's native notice for a proposal needs the same.
-9. Daemon requests for the HR card (the bridge shows these, the contract's Proposal does not serve them). R1: who asked, the reason and the asked fields. R2: the states "approved, apply failed" with its error, and "withdrawn". Until they are listed the card shows only title, agent, diff, state and age.
+7. `stats.get` keeps 24 h and 7 d for the tiles; the outlook ranges are `stats.outlook`'s own. The bridge's team-to-agent cost drill is dropped (no team field in `cost_per_day`).
+8. The tab dot is live through the `hr` topic; nothing polls.
+9. Daemon request N17 (continuing the list of `pc-app-gaps.md` §5): an inbox item per HR proposal carrying the proposal id, and a way for a paired device to decide it. Until then the phone is read-only and Inbox has no HR card.

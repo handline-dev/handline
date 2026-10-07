@@ -35,6 +35,14 @@ def _list(ctx, params) -> dict:
 def _answer_for(block: dict, choice) -> dict:
     """What `prompt_blocks.answer` takes for `choice` on this block; bad_request for one the prompt does not offer."""
     kind = block["kind"]
+    if isinstance(choice, list):
+        if not (block.get("detail") or {}).get("multi_select"):
+            raise rpc.bad_request("only a multi prompt takes an array of keys", "choice", rpc.INVALID_PARAMS)
+        offered = {o["key"] for o in rpc_agents.options_of(block)} - {"esc"}
+        bad = [k for k in choice if k not in offered]
+        if bad or len(set(choice)) != len(choice):
+            raise rpc.bad_request(f"this prompt offers {', '.join(sorted(offered)) or 'no choice'}, each at most once", "choice", rpc.INVALID_PARAMS)
+        return {"choices": [int(k) - 1 for k in choice], "text": None}
     if isinstance(choice, dict):
         text = choice.get("text")
         if set(choice) != {"text"} or not isinstance(text, str) or not text:
@@ -60,7 +68,10 @@ def _answer(ctx, params) -> dict:
     prompt, choice = params.get("prompt"), params.get("choice")
     if not isinstance(prompt, str) or not prompt:
         raise rpc.bad_request("prompt is the id of the prompt the caller saw", "prompt", rpc.INVALID_PARAMS)
-    if not isinstance(choice, (str, dict)):
+    if isinstance(choice, list):
+        if not all(isinstance(k, str) for k in choice):
+            raise rpc.bad_request("choice is an array of option keys", "choice", rpc.INVALID_PARAMS)
+    elif not isinstance(choice, (str, dict)):
         raise rpc.bad_request("choice is an option key, or {text} with the text", "choice", rpc.INVALID_PARAMS)
     name = _agent(params)
     rpc_gates.terminal_lock(name)

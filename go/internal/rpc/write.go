@@ -50,7 +50,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 	db, actor := c.srv.DB, c.Caller.Actor()
 	if m.Unkept {
 		out, err := m.Handler(c, params)
-		if err == nil && !m.OwnEvent {
+		if err == nil && !m.OwnEvent && !c.srv.NoEvents {
 			err = writeEvent(db, actor, c.Caller, name, rid, time.Now().Unix())
 		}
 		return out, err

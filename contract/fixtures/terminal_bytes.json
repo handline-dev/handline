@@ -1,0 +1,2155 @@
+{
+ "fixtures": [
+  {
+   "name": "terminal.attach.format_is_text_or_bytes",
+   "spec": "terminal.attach",
+   "about": "A format that is neither word is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "a.one",
+       "format": "ansi"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "format"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.text_format_is_unchanged",
+   "spec": "terminal.attach",
+   "about": "Asking for text by name is the default: the snapshot has rows and no byte fields. Needs --var terminal_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{terminal_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "format": "text",
+      "lines": {
+       "$each": {
+        "text": {
+         "$type": "string"
+        }
+       }
+      },
+      "data": {
+       "$absent": true
+      },
+      "alt_screen": {
+       "$absent": true
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.the_daemon_says_it_serves_bytes",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: A daemon that serves bytes says so in hello, per host. Needs --var bytes_agent (a tmux terminal).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "capabilities": {
+       "terminal_format": {
+        "$contains": "bytes"
+       },
+       "terminal_hosts": {
+        "tmux": {
+         "$contains": "bytes"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes"
+      }
+     },
+     "result": {
+      "format": "bytes"
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.bytes_snapshot_shape",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: The bytes snapshot: base64 data whose rows end in CR LF and never a bare LF, the size, the cursor, the alternate-screen flag, a history page of strings, the holders. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+       "$b64regex": "\\A(?:[^\\n]|(?<=\\r)\\n)*\\Z"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.a_text_only_host_refuses_bytes",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: A terminal whose host cannot serve bytes is refused, gate unsupported, and nothing is attached. Needs --var text_only_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{text_only_agent}}",
+       "format": "bytes"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "unsupported"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.history.bytes_lines_are_strings",
+   "spec": "terminal.history",
+   "about": "NOT_YET_IN_PYTHON: History in bytes is strings with their codes, one physical row each, the same paging as text. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.history",
+      "params": {
+       "terminal": "{{term}}",
+       "before": 1000000,
+       "limit": 5,
+       "format": "bytes"
+      }
+     },
+     "result": {
+      "first": {
+       "$type": "integer"
+      },
+      "lines": {
+       "$each": {
+        "$type": "string",
+        "$regex": "^[^\\n]*$"
+       }
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.history.format_is_text_or_bytes",
+   "spec": "terminal.history",
+   "about": "A format that is neither word is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.history",
+      "params": {
+       "terminal": "%1",
+       "before": 1,
+       "limit": 1,
+       "format": "ansi"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "format"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.output_follows_the_snapshot",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: After the snapshot the next notice is seq + 1 (no gap, no repeat) and typed output arrives as output notices above it. Needs --var bytes_agent: a tmux terminal at a shell prompt.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "seq": {
+        "$next": "s1"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "ZWNobyBieXRlcy0kKCg0MCsyKSkN",
+       "request_id": "conf-tb-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "output",
+       "params": {
+        "terminal": {
+         "$type": "string"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+         "$b64regex": "bytes-42"
+        },
+        "seq": {
+         "$above": "s1"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.reconnect_from_a_snapshot",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: A client that attaches again repaints from the new snapshot, which holds what was printed before, and the first notice after it is seq + 1. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "ZWNobyBieXRlcy0kKCg0MCsyKSkN",
+       "request_id": "conf-tb-5"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "output",
+       "params": {
+        "terminal": {
+         "$type": "string"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+         "$b64regex": "bytes-42"
+        },
+        "seq": {
+         "$above": "s1"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s2"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+       "$b64regex": "bytes-42"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "ZWNobyBhZ2Fpbi0kKCgyMCsxKSkN",
+       "request_id": "conf-tb-6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "output",
+      "params": {
+       "terminal": {
+        "$type": "string"
+       },
+       "data": {
+        "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+       },
+       "seq": {
+        "$next": "s2"
+       }
+      }
+     },
+     "notices": [
+      {
+       "method": "output",
+       "params": {
+        "terminal": {
+         "$type": "string"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+         "$b64regex": "again-21"
+        },
+        "seq": {
+         "$above": "s2"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-7"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.alt_screen_is_in_the_snapshot",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: A pane on the alternate screen says so, and the snapshot data starts by switching to it. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-8"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "cHJpbnRmICdcMDMzWz8xMDQ5aCcN",
+       "request_id": "conf-tb-9"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "output",
+       "params": {
+        "terminal": {
+         "$type": "string"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+         "$b64regex": "\\x1b\\[\\?1049h"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+       "$b64regex": "\\A\\x1b\\[\\?1049h"
+      },
+      "alt_screen": true,
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "lines": []
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "cHJpbnRmICdcMDMzWz8xMDQ5bCcN",
+       "request_id": "conf-tb-10"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "output",
+       "params": {
+        "terminal": {
+         "$type": "string"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$",
+         "$b64regex": "\\x1b\\[\\?1049l"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-11"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.resize_gives_watchers_a_snapshot",
+   "spec": "terminal.resize",
+   "about": "NOT_YET_IN_PYTHON: A watcher on bytes is told of the holder's resize, and of the restore, by a snapshot notice with the new size and no resize notice. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-12"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "seq": {
+        "$next": "s1",
+        "$save": "s2"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{term}}",
+       "cols": 100,
+       "rows": 30,
+       "request_id": "conf-tb-13"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "snapshot",
+      "params": {
+       "seq": {
+        "$next": "s2"
+       },
+       "reason": "resize",
+       "cols": 100,
+       "rows": 30,
+       "data": {
+        "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+       }
+      }
+     },
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-14"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "snapshot",
+       "params": {
+        "reason": "resize",
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.slow_client_gets_a_snapshot_not_a_gap",
+   "spec": "terminal.attach",
+   "about": "NOT_YET_IN_PYTHON: A watcher that reads nothing while 16 MiB are printed is sent one snapshot notice, reason slow_client, above every seq it missed; the connection stays open. The count is bytes, not seconds. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 5
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "data": {
+       "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+      },
+      "alt_screen": {
+       "$type": "boolean"
+      },
+      "cursor": {
+       "x": {
+        "$type": "integer"
+       },
+       "y": {
+        "$type": "integer"
+       }
+      },
+      "cursor_visible": {
+       "$type": "boolean"
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "$type": "string"
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      },
+      "holder": {
+       "kind": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "holders": {
+       "$each": {
+        "kind": {
+         "$type": "string"
+        },
+        "name": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-15"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "aGVhZCAtYyAxNjc3NzIxNiAvZGV2L3plcm8gfCB0ciAnXDAnIHgN",
+       "request_id": "conf-tb-16"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "snapshot",
+       "params": {
+        "reason": "slow_client",
+        "seq": {
+         "$above": "s1"
+        },
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 60
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{term}}",
+       "data": "Aw==",
+       "request_id": "conf-tb-17"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-18"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.input.refused_to_a_non_holder",
+   "spec": "terminal.input",
+   "about": "NOT_YET_IN_PYTHON: While the daemon holds the input nobody may send raw input: refused, gate input_holder. Needs --var terminal_handle: the handle of an agent's terminal nobody holds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "{{terminal_handle}}",
+       "data": "eA==",
+       "request_id": "conf-ti-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.input.data_is_base64_and_bounded",
+   "spec": "terminal.input",
+   "about": "Data that is not base64, is empty, or decodes to more than 16384 bytes is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%1",
+       "data": "!!not base64!!",
+       "request_id": "conf-ti-b0"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "data"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%1",
+       "data": "",
+       "request_id": "conf-ti-b1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "data"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%1",
+       "data": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=",
+       "request_id": "conf-ti-b2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "data"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.input.needs_a_request_id",
+   "spec": "terminal.input",
+   "about": "A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%1",
+       "data": "eA=="
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.input.unknown_terminal_is_not_found",
+   "spec": "terminal.input",
+   "about": "A handle no agent has is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%nope",
+       "data": "eA==",
+       "request_id": "conf-ti-2"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.input.an_agent_session_is_refused_by_role",
+   "spec": "terminal.input",
+   "about": "The channel is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.input",
+      "params": {
+       "terminal": "%1",
+       "data": "eA==",
+       "request_id": "conf-ti-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.a_second_attach_replaces_the_first",
+   "spec": "terminal.attach",
+   "about": "A second attach of the same terminal and format on one connection is accepted and replaces the first: the reply is a new snapshot, and the notices after it come once, each one above the last. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s2"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-19"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "s2",
+        "$save": "h1"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-20"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "h1"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.text_and_bytes_attaches_coexist",
+   "spec": "terminal.attach",
+   "about": "A text attach and a bytes attach of one terminal on one connection are independent: each gets the holder notice with its own format and its own counter, and the bytes attach is not told by a frame. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "text",
+      "seq": {
+       "$type": "integer",
+       "$save": "st"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "sb"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-21"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "holder",
+       "params": {
+        "format": "text",
+        "seq": {
+         "$next": "st"
+        }
+       }
+      },
+      {
+       "method": "holder",
+       "params": {
+        "format": "bytes",
+        "seq": {
+         "$next": "sb"
+        }
+       }
+      }
+     ],
+     "notices_any_order": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-22"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.detach_names_a_format",
+   "spec": "terminal.detach",
+   "about": "Detaching one format ends only that attach: the other goes on with its counter. Detaching with no format ends every attach of the terminal, and a second detach with nothing to end is accepted. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "seq": {
+       "$type": "integer",
+       "$save": "st"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "sb"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-23"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "holder",
+       "params": {
+        "format": "text",
+        "seq": {
+         "$next": "st"
+        }
+       }
+      },
+      {
+       "method": "holder",
+       "params": {
+        "format": "bytes",
+        "seq": {
+         "$next": "sb",
+         "$save": "hb"
+        }
+       }
+      }
+     ],
+     "notices_any_order": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}",
+       "format": "text"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-24"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "hb"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    }
+   ]
+  },
+  {
+   "name": "terminal.detach.format_is_text_or_bytes",
+   "spec": "terminal.detach",
+   "about": "A format that is neither word is bad_request naming format.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "t-a.term",
+       "format": "styled"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "format"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
