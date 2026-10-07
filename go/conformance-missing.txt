@@ -70,3 +70,7 @@ answers.list
 answer.add
 answer.remove
 inbox.get
+task.begin
+task.start
+task.handoff
+task.progress
