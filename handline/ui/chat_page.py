@@ -2151,11 +2151,7 @@ class ChatPage(JobsAware, Screen):
         when it is older; in another agent's chat, pushed over this one; shown alone when no chat has it."""
         if self._light(rid):
             return
-        con = db.connect()
-        try:
-            at = locate_message(con, rid, self.agent, self.everyone)
-        finally:
-            con.close()
+        at = self._located(rid)
         if at.kind == "chat":
             self.app.push_screen(ChatPage(at.agent, reveal=(rid, at.request), tab=at.tab))
         elif at.kind == "here":
@@ -2169,6 +2165,16 @@ class ChatPage(JobsAware, Screen):
             self.set_timer(0.2, self._reveal_step)
         else:
             self._show_alone(rid)
+
+    def _located(self, rid: int) -> Located:
+        """Where `chat.locate` puts message `rid`, from this chat's point of view."""
+        try:
+            got = api.call("chat.locate", {"request": rid, "agent": self.agent, "limit": 1})
+        except client.RpcError as e:
+            if e.code == "not_found":
+                return Located("alone")
+            raise
+        return Located("here" if got["agent"] == self.agent else "chat", got["message"]["id"], got["agent"], got["scope"])
 
     def _light(self, mid: int) -> bool:
         """Scroll to the message drawn for number `mid` and light it for a moment; False when none is."""
