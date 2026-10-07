@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -36,4 +37,31 @@ func Lookup(pid int) (Proc, bool) {
 		return Proc{}, false
 	}
 	return Proc{PPid: ppid, Start: f[19]}, true
+}
+
+// Started is when pid began, from its start tick (100 per second after boot) and the boot time in /proc/stat; ok is
+// false when it cannot be told.
+func Started(pid int) (time.Time, bool) {
+	p, ok := Lookup(pid)
+	if !ok {
+		return time.Time{}, false
+	}
+	ticks, err := strconv.ParseInt(p.Start, 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	b, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}, false
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "btime "); ok {
+			boot, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if err != nil {
+				return time.Time{}, false
+			}
+			return time.Unix(boot, 0).Add(time.Duration(ticks) * 10 * time.Millisecond), true
+		}
+	}
+	return time.Time{}, false
 }

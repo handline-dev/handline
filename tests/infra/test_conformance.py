@@ -52,6 +52,7 @@ class FakeDaemon:
         `unread`: the inbox holds an unread item (id 5), so an inbox.list that its filters do not exclude returns at once."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
         self.serial, self.unread = serial, unread
+        self._tl = threading.local()    # the connection a call is being answered on
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -74,6 +75,14 @@ class FakeDaemon:
 
     def _serve(self, conn):
         said_hello, buf, out = False, b"", threading.Lock()
+
+        def push(notice):
+            with out:
+                try:
+                    conn.sendall(json.dumps(notice).encode() + b"\n")
+                except OSError:
+                    pass
+        self._tl.push = push
 
         def send(reply):
             after = reply.pop("_notices", [])
@@ -165,7 +174,7 @@ class FakeDaemon:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
         if method == "agents.list":
-            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": "IDLE", "state_detail": "3m"}]}), said_hello
+            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": "idle", "state_detail": "3m"}]}), said_hello
         if method == "agent.timeline":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -175,6 +184,16 @@ class FakeDaemon:
             topics = params.get("topics")
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
+            if "devices" in topics:     # the gateway's own topic: alone, and the founder's
+                if len(topics) > 1:
+                    return fail(_err(-32602, "bad_request", field="topics")), said_hello
+                if method == "subscribe":
+                    if self.role != "founder":
+                        return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "role"}}), said_hello
+                    from fake_methods import devices as dev
+                    dev.WORLD["subs"].append(self._tl.push)
+                    return ok({"cursor": 0}), said_hello
+                return ok({}), said_hello
             return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
         if method == "events.feed":
             limit = params.get("limit", 50)
@@ -237,6 +256,8 @@ class FakeNetwork:
                             continue
                         d = {"id": f"d{len(dev.WORLD['devices']) + 1}", "name": params.get("name", ""), "token": f"tok-{len(dev.WORLD['devices']) + 1}"}
                         dev.WORLD["devices"][d["id"]] = d
+                        dev.emit("device.paired", {"id": d["id"], "name": d["name"], "role": "member", "created": "2026-10-06T00:00:00Z",
+                                                   "last_seen": None, "connected": False})
                         send({"jsonrpc": "2.0", "id": rid, "result": {"accepted": True, "token": d["token"], "device": d["id"]}})
                         continue
                     if req.get("method") == "hello" and not paired:
@@ -258,6 +279,21 @@ class FakeNetwork:
 
 
 FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
+NOT_YET = "NOT_YET_IN_PYTHON"      # a fixture whose `about` starts with this is pinned ahead of its implementation: the Python
+                                   # daemon may fail it (stale once it passes) and the fake runs below leave it out
+
+
+def _without_pending() -> list[Path]:
+    """FILES with the NOT_YET_IN_PYTHON fixtures cut out, for the runs against the fake."""
+    out = Path(tempfile.mkdtemp(prefix="conformance-"))
+    for p in FILES:
+        doc = json.loads(p.read_text())
+        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET)]
+        (out / p.name).write_text(json.dumps(doc))
+    return sorted(out.glob("*.json"))
+
+
+READY = _without_pending()
 
 
 def _fakes(*roles: str, mutate=None, **kw) -> dict:
@@ -278,14 +314,14 @@ def _count(results, status: str) -> int:
 
 
 def test_the_fixtures_pass_against_a_fake_daemon() -> None:
-    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
+    results = conformance.run_all(READY, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
     bad = [(n, why) for s, why, n in results if s != "pass"]
     check("conformance: every fixture passes against the fake daemon", not bad and results, str(bad))
     check("conformance: each fixture is reported by name", {"hello.ok", "errors.not_found"} <= {n for _, _, n in results})
 
 
 def test_a_role_without_a_socket_is_skipped_not_passed() -> None:
-    results = conformance.run_all(FILES, _fakes("founder"), KEY)
+    results = conformance.run_all(READY, _fakes("founder"), KEY)
     skipped = {n for s, _, n in results if s == "skip"}
     check("conformance: fixtures for roles with no socket are skipped", {"whoami.agent", "errors.refused_by_role"} <= skipped and not _count(results, "fail"), str(results))
 
@@ -343,7 +379,7 @@ def _first_fixture_fails(mutate, needle: str, name: str) -> None:
 def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
     [(status, why, _)] = conformance.run_all(FILES, _fakes("founder"), {}, "hello.ok")
     check("conformance: a fixture needing a --var is reported needvar without it", status == "needvar" and "founder_key" in why, why)
-    results = conformance.run_all(FILES, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
+    results = conformance.run_all(READY, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
     by = {n: (s, why) for s, why, n in results}
     check("conformance: a fixture whose method the daemon does not list is reported missing, with the reason",
           by["errors.not_found"] == ("missing", "method not implemented by this daemon")
@@ -371,7 +407,7 @@ def test_the_fixtures_run_against_the_python_daemon(home) -> None:
     by = {n: (s, why) for s, why, n in results}
     # A fixture whose `about` starts NOT_YET_IN_PYTHON pins what the spec added and the Python daemon has not got: it may fail
     # (or be missing, for a new method) here, and is a stale marker once it passes.
-    not_yet = {f["name"] for p in FILES for f in json.loads(p.read_text())["fixtures"] if f["about"].startswith("NOT_YET_IN_PYTHON")}
+    not_yet = {f["name"] for p in FILES for f in json.loads(p.read_text())["fixtures"] if f["about"].startswith(NOT_YET)}
     failed = {n: why for n, (s, why) in by.items() if s == "fail" and n not in not_yet}
     check("conformance: no fixture fails against the Python daemon", not failed, str(failed))
     stale = sorted(n for n in not_yet if by.get(n, ("",))[0] == "pass")
@@ -464,9 +500,9 @@ def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
 def test_a_run_that_skipped_is_not_green(td) -> None:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        only_founder = conformance.main(KEYARG, _fakes("founder"))
-        allowed = conformance.main(["--allow-skip", *KEYARG], _fakes("founder"))
-        all_roles = conformance.main(KEYARG, _fakes("founder", "agent", "anonymous", "unpaired"))
+        only_founder = conformance.main([*KEYARG, *map(str, READY)], _fakes("founder"))
+        allowed = conformance.main(["--allow-skip", *KEYARG, *map(str, READY)], _fakes("founder"))
+        all_roles = conformance.main([*KEYARG, *map(str, READY)], _fakes("founder", "agent", "anonymous", "unpaired"))
     check("conformance: a run with only the founder socket exits 3, not 0", only_founder == 3, out.getvalue())
     check("conformance: --allow-skip makes the same run exit 0", allowed == 0)
     check("conformance: a run with every role passes with exit 0", all_roles == 0)
@@ -480,7 +516,7 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
 def _run(args, **fake) -> tuple[int, str]:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        code = conformance.main(args, _fakes("founder", "agent", "anonymous", "unpaired", **fake))
+        code = conformance.main([*args, *map(str, READY)], _fakes("founder", "agent", "anonymous", "unpaired", **fake))
     return code, out.getvalue()
 
 
@@ -503,6 +539,23 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         bad = conformance.main(["--allow-missing-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
     check("conformance: an unreadable --allow-missing-file is a usage error", bad == 2)
+    _, out = _run(["--allow-skip"])
+    names = [ln.split()[1] for ln in out.splitlines() if ln.startswith("NEEDVAR")]
+    listing = Path(td) / "needvar.txt"
+    listing.write_text("# fixtures this run cannot seed\n" + "\n".join(sorted(names)) + "\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing)])
+    check("conformance: --allow-needvar-file covers the listed fixtures that need a var", code == 0 and "STALE" not in out, out)
+    listing.write_text("\n".join(sorted(names)[1:]) + "\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing)])
+    check("conformance: a needvar fixture not in the list still fails", code == 1 and "not in --allow-missing" in out, out)
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
+    check("conformance: a listed fixture that now has its var is stale and fails the run", code == 1 and "STALE" in out, out)
+    listing.write_text("no.such.fixture\n")
+    code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
+    check("conformance: a listed fixture that does not exist is stale", code == 1 and "STALE no.such.fixture" in out, out)
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bad = conformance.main(["--allow-needvar-file", str(Path(td) / "nope.txt"), *KEYARG], _fakes("founder"))
+    check("conformance: an unreadable --allow-needvar-file is a usage error", bad == 2)
 
 
 def test_matchers() -> None:

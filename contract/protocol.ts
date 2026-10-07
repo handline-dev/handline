@@ -10,7 +10,7 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
 export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr";
 
 export type Caller = {
@@ -97,7 +97,7 @@ export type AgentView = {
   role: string;
   model: string | null;
   effort: string | null;
-  /** The daemon's state word; open set, clients ignore unknown. */
+  /** One of x-state-words, lower case; an open set, clients treat an unknown word as idle. */
   state: string;
   state_since: Timestamp;
   block?: Block | null;
@@ -580,7 +580,10 @@ export type Capabilities = {
   review: boolean;
   /** input.ask is implemented; reserved. */
   input_ask: boolean;
-  terminal_format: ("text" | "styled")[];
+  /** Formats the daemon serves on at least one host; `styled` is reserved. */
+  terminal_format: ("text" | "bytes" | "styled")[];
+  /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has. */
+  terminal_hosts?: { [key: string]: string[] };
 };
 
 export type Listener = {
@@ -730,6 +733,37 @@ export type MethodInfo = {
   since: number;
   role: Role;
   allowed: boolean;
+};
+
+export type TerminalBytesSnapshot = {
+  terminal: string;
+  format: "bytes";
+  /** The last notice of this attach the screen includes; the next notice has seq+1. */
+  seq: number;
+  cols: number;
+  rows: number;
+  /** Base64. Written unchanged to a freshly reset terminal of cols by rows, it paints the screen, the modes and the cursor. */
+  data: string;
+  /** The pane is on the alternate screen; data begins by switching to it. */
+  alt_screen: boolean;
+  /** 0-based column and row; also where data leaves the cursor. */
+  cursor: {
+    x: number;
+    y: number;
+  };
+  cursor_visible: boolean;
+  history: HistoryBytesPage;
+  /** The first of holders; kept for clients written to the single value. */
+  holder: InputHolder;
+  /** Everyone who holds the input, oldest first; one in v1. */
+  holders: InputHolder[];
+};
+
+export type HistoryBytesPage = {
+  /** Absolute index of the first line, as in HistoryPage. */
+  first: number;
+  lines: string[];
+  more: boolean;
 };
 
 export interface Methods {
@@ -994,16 +1028,26 @@ export interface Methods {
   terminal?: string;
   /** History lines to include; default 100. */
   history?: number;
-}; result: TerminalSnapshot };
+  /** Default text. bytes is served on tmux-hosted terminals; see x-terminal-bytes. */
+  format?: "text" | "bytes";
+}; result: TerminalSnapshot | TerminalBytesSnapshot };
   "terminal.history": { params: {
   terminal: string;
   before: number;
   limit: number;
-}; result: HistoryPage };
+  /** Default text. */
+  format?: "text" | "bytes";
+}; result: HistoryPage | HistoryBytesPage };
   "terminal.resize": { params: {
   terminal: string;
   cols: number;
   rows: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "terminal.input": { params: {
+  terminal: string;
+  /** Base64 of the bytes a terminal sends for the keys (xterm's own: ESC [ A for up, 0x03 for ctrl-c, a bracketed paste with its markers); 1 to 16384 bytes decoded, else bad_request. */
+  data: string;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.close": { params: {
@@ -1518,6 +1562,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.attach": { role: "member", callers: null, write: false, since: 1 },
   "terminal.history": { role: "member", callers: null, write: false, since: 1 },
   "terminal.resize": { role: "member", callers: null, write: true, since: 1 },
+  "terminal.input": { role: "member", callers: null, write: true, since: 1 },
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
@@ -1641,6 +1686,30 @@ export interface Notifications {
   seq: number;
   holders: InputHolder[];
 };
+  output: {
+  terminal: string;
+  seq: number;
+  /** Base64 of what the program wrote. */
+  data: string;
+};
+  snapshot: {
+  terminal: string;
+  seq: number;
+  reason: "resize" | "slow_client";
+  cols: number;
+  rows: number;
+  /** Base64, as in the attach snapshot. */
+  data: string;
+  alt_screen: boolean;
+  cursor: {
+    x: number;
+    y: number;
+  };
+  cursor_visible: boolean;
+};
 }
+
+/** The state words the daemon sends; an open set, so a client keeps a fallback. */
+export const STATE_WORDS = ["running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
