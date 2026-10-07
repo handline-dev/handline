@@ -797,6 +797,10 @@ def _live_sessions_settled() -> dict[str, int] | None:
         time.sleep(pause)
 
 
+# The last reason each agent was not moved off a walled account, so one that lasts is said once.
+_NOT_MOVED: dict[str, str] = {}
+
+
 def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 force: bool = False, warm: bool = False, cause: str | None = None,
                 restarted_by: str | None = None, applying: list[str] | None = None) -> tuple[bool, str]:
@@ -878,8 +882,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
             rescued = False
             acct, pct = wait.account, wait.pct
             wait_kind = "usage_7d" if wait.is_long else "usage"
-            elsewhere = handoff._move_plan(con, agent, wait_kind)[0] if session and not wait.assumed \
-                and not handoff._handoff_backing_off(con, agent) else None
+            elsewhere, plan_why = (handoff._move_plan(con, agent, wait_kind) if session and not wait.assumed
+                                   and not handoff._handoff_backing_off(con, agent) else (None, ""))
+            if not elsewhere and plan_why and _NOT_MOVED.get(agent) != plan_why:
+                # Once per reason: the wake comes round every tick. Without it the wait reads as if nothing had looked elsewhere.
+                _NOT_MOVED[agent] = plan_why
+                log(f"  {agent}: waiting on {acct}'s {wait.window} window, and not moved: {plan_why}")
             if elsewhere:
                 hid = uuid.uuid4().hex[:12]
                 db.start_handoff(con, hid, agent, session, "pinned",
