@@ -104,7 +104,6 @@ class OrcaBackend(Backend):
     name = "orca"
     supports_runs = True
     supports_labels = True
-    supports_agent_hooks = True
 
     def manual(self, op: str, **a: str) -> str:
         if op == "terminal":

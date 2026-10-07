@@ -129,29 +129,11 @@ def _check_mcp_config(r: Report) -> None:
     r.add(OK, "shared mcp.json is valid", str(p))
 
 
-def _check_orca_hooks(r: Report) -> None:
-    if not term.has_agent_hooks():     # Orca's agent hooks mean nothing to another host
-        return
-    for h in vendors.state_hooks():
-        src, dst, drift = h.plan()
-        if not src:
-            where = "~/" + str(h.source_settings().relative_to(paths.user_home()))
-            r.add(WARN, f"no Orca hooks in {where}",
-                  "Orca has never run here, or its integration is off")
-        elif drift:
-            r.add(WARN, "Orca hooks have drifted from shared",
-                  f"{len(src)} events at source vs {len(dst)} in shared - "
-                  "run `hl hooks sync`, or let the watcher do it")
-        else:
-            r.add(OK, f"Orca hooks in sync ({len(src)} events)")
-
-
 def _check_ocp_hooks(r: Report) -> None:
-    """Ours, not Orca's mirror (`_check_orca_hooks`): the event hooks that carry
-    the memory guard and the T298 gates. `install()` only runs by hand, so a
-    wanted event added after the last run (T247's PreToolUse guard did this)
-    sits uninstalled forever on any machine nobody re-ran it on - the guard it
-    was meant to wire up does nothing, with no error anywhere to say so."""
+    """The event hooks that carry the memory guard and the hook gates. `install()` only runs by hand,
+    so a wanted event added after the last run (the PreToolUse guard did this) sits uninstalled
+    forever on any machine nobody re-ran it on - the guard it was meant to wire up does nothing,
+    with no error anywhere to say so."""
     wanted = events.CAPTURED | events.ANSWERS | events.GUARDS
     for h in vendors.state_hooks():
         gap = h.missing(wanted)
@@ -702,7 +684,6 @@ def _run() -> Report:
     _check_managed(r)
     _check_home(r)
     _check_mcp_config(r)
-    _check_orca_hooks(r)
     _check_terminal_handles(r)
     _check_ocp_hooks(r)
     _check_home_socket(r)

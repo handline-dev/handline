@@ -37,7 +37,7 @@ def conform(label: str, h: Harness) -> None:
 
     ck("it is there and says where it runs", b.available() is True and len(b.own_terminal()) == 2)
     ck("its optional abilities are flags",
-       all(isinstance(getattr(b, f), bool) for f in ("supports_runs", "supports_labels", "supports_agent_hooks")))
+       all(isinstance(getattr(b, f), bool) for f in ("supports_runs", "supports_labels")))
 
     # -- terminals: handles are opaque, unique, listed while alive, gone once closed
     first, why = b.create_terminal("echo one", h.cwd, "conform-1")

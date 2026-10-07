@@ -18,7 +18,7 @@ from .bridge import cmd_bridge
 from .device import cmd_device
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
-from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
+from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate
 from .hr import cmd_hr, cmd_trust
 from .land import cmd_land
 from .schedule import cmd_schedule
@@ -146,12 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("extra", nargs="*", help="passed through to claude")
     p.set_defaults(fn=cmd_launch)
 
-    hk = sub.add_parser("hooks", help="mirror Orca's agent hooks").add_subparsers(dest="sub", required=True)
-    p = hk.add_parser("sync", help="apply Orca's hooks to shared settings")
-    p.add_argument("--watch", action="store_true", help="watch and auto-apply")
-    p.add_argument("--interval", type=float, default=5.0)
-    p.set_defaults(fn=cmd_hooks_sync)
-    hk.add_parser("status", help="show drift").set_defaults(fn=cmd_hooks_status)
+    hk = sub.add_parser("hooks", help="ocp's hook gates").add_subparsers(dest="sub", required=True)
     p = hk.add_parser("gate", help="show or set one of T298's gates (on refuses; the founder can turn one off to only log)")
     p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)

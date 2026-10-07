@@ -84,10 +84,6 @@ class Backend:
     # Whether the host keeps labels and parent links on worktrees that `ocp rename` and a worktree move
     # must carry over, and answers the worktree methods about them.
     supports_labels = False
-    # Whether the host installs Claude hooks into ~/.claude/settings.json that `StateHooks` mirrors. A host
-    # without them has the agent's own `hl hook` entries as its witness, and the doctor does not look.
-    supports_agent_hooks = False
-
     # -- the host itself
     def available(self) -> bool:
         raise NotImplementedError

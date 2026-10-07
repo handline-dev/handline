@@ -136,20 +136,8 @@ class StateHooks(Protocol):
     no StateHooks (`Driver.state_hooks()` is None) and its state is read off the
     screen instead."""
 
-    def source_settings(self) -> Path:
-        """Where the host application (Orca) installs its own hooks."""
-
     def target_settings(self) -> Path:
         """The shared settings file every account of this vendor links to."""
-
-    def plan(self) -> tuple[dict, dict, bool]:
-        """(Orca's hooks at the source, those in the shared file, drifted?)."""
-
-    def sync(self, quiet: bool = False) -> bool:
-        """Mirror Orca's hooks into the shared file; True if it changed."""
-
-    def watch(self, interval: float = 5.0, once: bool = False) -> None:
-        """Re-apply `sync` whenever the source changes."""
 
     def install(self, exe: str, wanted: set[str]) -> tuple[list[str], int]:
         """Put `exe hook <event>` for each of `wanted` in the shared file, once

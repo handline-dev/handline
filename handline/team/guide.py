@@ -184,14 +184,9 @@ A session closed by its idle window cannot be renewed, and the default window is
 `cache_renewal` agent set `park_timeout_s` over 3600 (or 0, never) in its agent.yaml, which
 `hl idle-timeout 10800 --agent <name>` does.""",
 
-    "hooks": """Orca hooks
-  hl hooks status                 show drift
-  hl hooks sync                   apply once
-  hl hooks sync --watch           watch and auto-apply
-
-Orca integrates with Claude Code through hooks in ~/.claude/settings.json. If a
-per-account CLAUDE_CONFIG_DIR lacks those hooks, our agents disappear from the
-Orca dashboard.""",
+    "hooks": """ocp's hooks
+  hl install-hooks                add ocp's event hooks to the shared settings (doctor names a missing one)
+  hl hooks gate <name> [on|off]   show or set a gate: stop-wait, edit-task""",
     "team": """who may ask whom
   hl hr team <name> --member sea=<repo> --member shore --why "..."
                                    a manager and its members as one proposal, one approval
