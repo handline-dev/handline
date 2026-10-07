@@ -4235,8 +4235,8 @@ def test_an_agent_parks_through_the_usage_limit_dialog(home: Path) -> None:
     /clear refused at a modal, so the agent never parked and never moved.
     The property: it is parked, having been sent Esc and then /clear, in that order."""
     con, term = _park_behind(home, LIMIT_DIALOG)
-    termmod.clear_context = REAL_ORCA["clear_context"]
-    termmod.close_session = REAL_ORCA["close_session"]
+    termmod.clear_context = REAL_TERMINAL["clear_context"]
+    termmod.close_session = REAL_TERMINAL["close_session"]
     try:
         dmn_handoff.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
         row = db.get_agent_state(con, "keeper")

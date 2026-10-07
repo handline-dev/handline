@@ -175,6 +175,7 @@ def messages_of(items: list[dict], agent: str) -> list[dict]:
                          "held": held,
                          "unread": waiting_to_go,
                          "to": to,
+                         "agent": r["to"] if r["from"] == human else r["from"],
                          "kind": r["kind"] or None,
                          "tasks": tasks,
                          "task_title": r["tasks"][0]["title"] if r["tasks"] else None, "task_state": item["task_state"],
@@ -318,26 +319,10 @@ def clock_of(c: dict | None, state: str) -> dict | None:
     return out
 
 
-def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
-    """Send `body` as a reply to request `rid`, or as a plain message when `rid`
-    is None. Inside a decision card the reply is the decision, and inside a
-    legacy question to the human it is that request's verdict (both
-    `actions.answer_ok`); an answer to the human's own request gets a new request
-    and is marked read; anything else is a new request under the row, to the agent
-    on it - its target if the human asked it, else its requester - which in All
-    chat is not always the agent whose page this is."""
-    if rid is None:
-        return actions.chat_reply_ok(con, agent, body)
-    row = db.get_request(con, rid)
-    if row is None:
-        return False, f"#{rid} is gone"
-    if (row["target"] == actions.HUMAN and row["state"] == "queued") or actions._is_answer_to_human(row):
-        return actions.answer_ok(con, rid, body)
-    if not body.strip():
-        return False, "nothing sent: no message typed"
-    other = row["target"] if row["requester"] == actions.HUMAN else row["requester"]
-    ok, msg, _ = askmod.say(other, body, requester=actions.HUMAN, parent_id=rid)
-    return ok, msg
+def send_reply(agent: str, rid: int | None, body: str) -> tuple[bool, str]:
+    """Send `body` to `agent`, under message `rid` when it replies to one: the daemon says whether that is its answer or a
+    new message under it."""
+    return api.write("chat.send", {"agent": agent, "body": body, **({"parent": rid} if rid is not None else {})})
 
 
 def safe(value) -> str:
@@ -1496,6 +1481,7 @@ class ChatPage(JobsAware, Screen):
         self._fill_waits = 0
         self._tabbed = False     # the opening tab has been activated (that clears any reply target)
         self.replying: ChatMessage | None = None
+        self._seen = 0
         self._esc_at: float | None = None     # when the first Esc over typed text was pressed
         self.everyone = False
         self.showing_tasks = False
@@ -1768,7 +1754,10 @@ class ChatPage(JobsAware, Screen):
         con = db.connect()
         try:
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
-            actions.for_you_seen(con, self.agent, max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0))
+            seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
+            if seen > self._seen:      # a write only when something new is drawn
+                if api.write("chat.seen", {"agent": self.agent, "up_to": seen})[0]:
+                    self._seen = seen      # a refused write is sent again on the next refresh
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
         finally:
             con.close()
@@ -2287,7 +2276,7 @@ class ChatPage(JobsAware, Screen):
             self.run_slash(what)
             return
         rid = mid_of(self.replying.m) if self.replying else None
-        self.start_send(body, rid)
+        self.start_send(body, rid, agent=self.replying.m["agent"] if self.replying else None)
 
     def run_shell(self, body: str, command: str) -> None:
         """A `!` line is not sent: zsh runs it in the agent's worktree and a card shows the result."""
@@ -2321,60 +2310,45 @@ class ChatPage(JobsAware, Screen):
 
     def send_now(self, rid: int) -> None:
         def work() -> None:
-            con = db.connect()
-            try:
-                said = actions.send_now(con, rid)
-            finally:
-                con.close()
-            self.app.call_from_thread(self._sent_now, said)
+            ok, said = api.write("chat.send_now", {"request": rid})
+            self.app.call_from_thread(self._sent_now, ok, said)
         self.run_worker(work, thread=True, group="send_now", exit_on_error=False)
 
-    def _sent_now(self, said: str) -> None:
+    def _sent_now(self, ok: bool, said: str) -> None:
         if self.is_attached:
-            self.toast(said, not said.startswith("not sent"))
+            self.toast(said, ok)
             self.refresh_conversation(force=True)
 
     def on_hr_card_decided(self, event: hr_card.HrCard.Decided) -> None:
         self.toast(textsafe.oneline(event.said), event.ok)
         self.refresh_conversation(force=True)
 
-    def cancel_message(self, rid: int, body: str) -> bool:
+    def cancel_message(self, rid: int, body: str) -> None:
         """Take request `rid` back and put its text in the box. Not yet
         delivered, nobody is told and it just goes; delivered, the agent is
-        told to stop, so the plan is shown and asked first."""
-        con = db.connect()
-        try:
-            ok, plan = actions.cancel_plan(con, rid)
-            delivered = bool((db.get_request(con, rid) or {"delivered_at": None})["delivered_at"])
-        finally:
-            con.close()
-        if not ok:
-            self.notify(safe(plan), severity="error", timeout=10, markup=False)
-            return False
-        if delivered:
-            Confirm.ask(self.app, lambda: self._cancel_sent(rid, body), f"Cancel #{rid}", plan,
+        told to stop, so the daemon's plan is shown and asked first."""
+        self._cancel(rid, body, False)
+
+    def _cancel(self, rid: int, body: str, confirm: bool) -> None:
+        def work() -> None:
+            state, said = api.write_asking("chat.cancel", {"request": rid, **({"confirm": True} if confirm else {})})
+            self.app.call_from_thread(self._cancel_answered, rid, body, state, said)
+        self.run_worker(work, thread=True, group="cancel", exit_on_error=False)
+
+    def _cancel_answered(self, rid: int, body: str, state: str, said: str) -> None:
+        if not self.is_attached:
+            return
+        if state == "confirm":
+            Confirm.ask(self.app, lambda: self._cancel(rid, body, True), f"Cancel #{rid}", said,
                         yes="Cancel it", no="Keep", danger=True)
         else:
-            self._cancel_sent(rid, body)
-        return True
+            self._cancelled(said if state == "ok" else f"not cancelled - {said}", body)
 
     def _restore(self, body: str) -> None:
         box = self.query_one("#compose", ChatBox)
         box.text = body
         box.move_cursor(box.document.end)
         box.focus()
-
-    def _cancel_sent(self, rid: int, body: str) -> None:
-        def work() -> None:
-            con = db.connect()
-            try:
-                said = actions.cancel(con, rid)
-            except Exception as e:  # noqa: BLE001
-                said = f"not cancelled - {e}"
-            finally:
-                con.close()
-            self.app.call_from_thread(self._cancelled, said, body)
-        self.run_worker(work, thread=True, group="cancel", exit_on_error=False)
 
     def _cancelled(self, said: str, body: str) -> None:
         ok = not said.startswith("not cancelled")
@@ -2385,7 +2359,7 @@ class ChatPage(JobsAware, Screen):
                 self._restore(body)
         self.refresh_conversation(force=True)
 
-    def start_send(self, body: str, rid: int | None, typed: bool = True) -> None:
+    def start_send(self, body: str, rid: int | None, typed: bool = True, agent: str | None = None) -> None:
         """Hand `body` to a worker thread and give the box back at once: a send
         can wait a long while on an agent that is off or restarting, and the
         screen must not wait with it. The message shows as pending until the
@@ -2412,13 +2386,7 @@ class ChatPage(JobsAware, Screen):
 
         def work() -> None:
             with self._send_lock:
-                con = db.connect()
-                try:
-                    ok, said = send_reply(con, self.agent, rid, body)
-                except Exception as e:  # noqa: BLE001 - shown, never a crash of the screen
-                    ok, said = False, f"not sent: {e}"
-                finally:
-                    con.close()
+                ok, said = send_reply(agent or self.agent, rid, body)
             self.app.call_from_thread(self.sent, ok, said, body, rec)
         self.run_worker(work, thread=True, group="send", exit_on_error=False)
 

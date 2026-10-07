@@ -210,7 +210,7 @@ def test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_sc
     real, real_wait, real_blocker = termmod._screen, termmod.wait_idle, termmod.screen_blocker
     idle = lambda rows: termmod.idle_with_background("term_x")       # noqa: E731
     try:
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
         for label, rows, want in (
             ("nothing drawn but the finished turn's line and the count", said + box + [bg_hint], True),
             ("a spinner row above the composer", said + spinner + box + [bg_hint], False),
@@ -290,7 +290,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
     against a list of the dialogs somebody has seen."""
     restore_world()
     real = termmod._screen
-    termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+    termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
     try:
         termmod._screen = lambda h: _screen_of(EXIT_DIALOG)
         b = termmod.screen_blocker("term_x")
@@ -346,7 +346,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
               and "❯" not in b.detail and "─" not in b.detail, str(b))
         check("screen: and says why in a sentence",
               b and blockedmod.reason(b.kind, b.detail).startswith("its conversation moved to the background"))
-        check("screen: modal_open refuses it", REAL_ORCA["modal_open"]("term_x"))
+        check("screen: modal_open refuses it", REAL_TERMINAL["modal_open"]("term_x"))
         hostile_picker = ["\033]0;PWNED\x07\033[31mYour conversation moved to the background"] \
             + BACKGROUND_PICKER[1:]
         termmod._screen = lambda h: _screen_of(hostile_picker)
@@ -683,8 +683,8 @@ def test_a_stale_draft_never_blocks_delivery_again(home: Path) -> None:
     termmod.live_terminals = lambda: {"term_x"}
     real = (termmod._screen, termmod.screen_blocker, termmod.modal_open)
     try:
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
-        termmod.modal_open = REAL_ORCA["modal_open"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
+        termmod.modal_open = REAL_TERMINAL["modal_open"]
         # draft = the literal text ocp last sent this agent ('hl inbox',
         # #1130's own case) - not stale garbage, the ordinary steady state.
         termmod._screen = lambda h: {"handle": h, "status": "running", "source": "screen",
@@ -2194,7 +2194,7 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
     try:
         orca_idle()
         termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
         termmod._screen = lambda h: _screen_of(LIVE_TRUST_PROMPT_CAPTURE.split("\n"))
         sessions_are("backend")
         seen = termmod.screen_blocker("term_x")
@@ -2571,9 +2571,9 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
 
         # The reader itself, against what tmux captures. A pane it cannot capture is `captured` False.
-        termmod.modal_open = REAL_ORCA["modal_open"]
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
-        termmod._screen = REAL_ORCA["_screen"]
+        termmod.modal_open = REAL_TERMINAL["modal_open"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
+        termmod._screen = REAL_TERMINAL["_screen"]
         screen = {"captured": True}
 
         def fake_tmux(args, timeout=10, stdin=None):
@@ -2622,17 +2622,17 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
             termmod.wait_idle = lambda h, t=0: True
             termmod.alive = lambda h: True
             termmod.send = lambda h, text, enter=True: (sent_.append(text), (True, ""))[1]
-            ok_c, why_c = REAL_ORCA["close_session"]("%1")
+            ok_c, why_c = REAL_TERMINAL["close_session"]("%1")
             check("composer: /exit is typed even with text in the box", ok_c and sent_ == ["/exit"], why_c)
             sent_.clear()
-            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
+            ok_c, why_c = REAL_TERMINAL["clear_context"]("%1")
             check("composer: /clear is typed even with text in the box", ok_c and sent_ == ["/clear"], why_c)
             sent_.clear()
             screen["tail"] = ["Confirm?", "Enter to confirm · Esc to cancel"]
-            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
+            ok_c, why_c = REAL_TERMINAL["clear_context"]("%1")
             check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
             screen["tail"] = COMPOSER_EMPTY
-            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
+            ok_c, why_c = REAL_TERMINAL["clear_context"]("%1")
             check("composer: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
             tmuxbackend._tmux = real_tmux
@@ -3546,7 +3546,7 @@ def test_a_close_gets_past_the_dialog_before_it_types_exit(home: Path) -> None:
     through the one function, so the dialog is got past there and not only
     on a park."""
     con, term = _park_behind(home, LIMIT_DIALOG)
-    termmod.close_session = REAL_ORCA["close_session"]
+    termmod.close_session = REAL_TERMINAL["close_session"]
     real = dmn_delivery._wait_session_gone, dmn_delivery.session_still_drawn
     dmn_delivery._wait_session_gone = lambda agent: True
     dmn_delivery.session_still_drawn = lambda handle, wait=True: False     # the fake terminal never repaints
