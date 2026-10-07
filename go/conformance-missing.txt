@@ -32,7 +32,6 @@ settings.trust
 task.cancel
 task.edit
 task.new
-task.withdraw
 terminal.attach
 terminal.close
 terminal.detach
@@ -47,7 +46,6 @@ chat.answer
 chat.dismiss
 chat.withdraw
 task.done
-task.discard
 task.merge
 task.queue
 task.draft

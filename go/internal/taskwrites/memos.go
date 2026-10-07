@@ -14,7 +14,9 @@ import (
 const human = "human"
 
 // Register adds the task writes to the server's table.
-func Register(s *rpc.Server) {
+func Register(s *rpc.Server, home string) {
+	s.Register("task.discard", rpc.Method{Role: "agent", Write: true, Handler: discardMethod(home)})
+	s.Register("task.withdraw", rpc.Method{Role: "agent", Write: true, Handler: withdrawMethod(home)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd})
