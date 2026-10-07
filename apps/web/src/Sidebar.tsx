@@ -76,6 +76,12 @@ export function Sidebar({
         <a className="nav" href="#/accounts">
           Accounts
         </a>
+        <a className="nav" href="#/stats">
+          Stats
+        </a>
+        <a className="nav" href="#/settings">
+          Settings
+        </a>
       </div>
       <div className="rail-opts">
         <input

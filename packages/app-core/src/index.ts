@@ -11,3 +11,4 @@ export * from './verbs.ts';
 export * from './settings.ts';
 export * from './accounts.ts';
 export * from './proposals.ts';
+export * from './stats.ts';

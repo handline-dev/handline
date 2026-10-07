@@ -19,6 +19,7 @@ import {
 import type { Transport } from '@handline/client';
 import { AGENTS, seedChat } from './fixtures.ts';
 import { FakeAccounts } from './accounts.ts';
+import { FakeAdmin } from './admin.ts';
 import { FakeInbox } from './inbox.ts';
 import { FakeTasks, taskCall } from './tasks.ts';
 import { chatMethod, FakeChat } from './chat.ts';
@@ -48,6 +49,7 @@ export interface FakeDaemonOptions {
   retention?: number; // events kept for resume; older ones give `gap`
   now?: () => Date;
   accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
+  admin?: boolean; // serve stats, outlook, settings and standing answers (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
 }
@@ -62,6 +64,7 @@ export class FakeDaemon {
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;
+  readonly admin: FakeAdmin;
   private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
@@ -100,6 +103,7 @@ export class FakeDaemon {
     this.serveChat = opts.chat ?? true;
     this.inbox = new FakeInbox(this, () => this.iso(), opts.inbox ?? true);
     this.accounts = new FakeAccounts(this, () => this.iso(), opts.accounts ?? true);
+    this.admin = new FakeAdmin(() => this.iso(), opts.admin ?? true);
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
@@ -334,13 +338,7 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(
-            ([name]) =>
-              (this.serveChat || !name.startsWith('chat.')) &&
-              this.accounts.lists(name) &&
-              this.inbox.lists(name) &&
-              this.tasks.lists(name),
-          )
+          .filter(([name]) => this.served.every((m) => m.lists(name)))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -353,18 +351,13 @@ export class FakeDaemon {
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
-    if ((method.startsWith('chat.') && !this.serveChat) || !this.inbox.lists(method) || !this.accounts.lists(method))
-      throw refused('unsupported', `the fake daemon does not serve ${method}`);
+    if (!this.served.every((m) => m.lists(method))) throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
-    if (method === 'accounts.list' && this.knobs.accounts) return accountsReply(this.knobs.accounts, [...this.sessions.values()]);
-    if (/^accounts?\./.test(method)) return this.accounts.call(method, p, (said, extra) => ({ ...this.script.accepted(said), ...extra }));
-    if (method.startsWith('chat.')) {
-      const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
-      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id));
-    }
-    if (method.startsWith('inbox.')) return this.inbox.call(method, p, c.caller.name, (said) => this.script.accepted(said));
-    if (this.tasks.serves(method)) return taskCall(this.tasks, method, p, c.caller.name, this.script);
+    const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
+    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id));
+    const owned = this.moduleCall(c, method, p, ok);
+    if (owned) return owned.value;
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
@@ -429,6 +422,22 @@ export class FakeDaemon {
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
+  }
+
+  /** Everything that may leave a method out of what this daemon lists and serves. */
+  private get served(): { lists(name: string): boolean }[] {
+    return [this.tasks, this.inbox, this.accounts, this.admin, { lists: (name) => this.serveChat || !name.startsWith('chat.') }];
+  }
+
+  /** The fake modules' methods (accounts, stats and settings, inbox, tasks); null for a method none of them owns. */
+  private moduleCall(c: Conn, method: string, p: Record<string, unknown>, ok: (said: string, extra?: object) => object) {
+    if (method === 'accounts.list' && this.knobs.accounts)
+      return { value: accountsReply(this.knobs.accounts, [...this.sessions.values()]) };
+    if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
+    if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
+    if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
+    if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
+    return null;
   }
 
   private byTerminal(id: unknown): Session {

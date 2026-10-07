@@ -6,7 +6,9 @@ import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handl
 import { setting } from './daemon.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
-import { useAccountsRoute, useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute, useTeamRoute } from './route.ts';
+import { SettingsPage } from './Settings.tsx';
+import { StatsPage } from './Stats.tsx';
+import { useAccountsRoute, useInboxRoute, usePageRoute, useSelectedAgent, useSettingsOpen, useTasksRoute, useTeamRoute } from './route.ts';
 import { useShell } from './shell.ts';
 import { SettingsView } from './SettingsView.tsx';
 import { TeamPage } from './TeamPage.tsx';
@@ -33,6 +35,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const settings = useSettingsOpen();
   const accounts = useAccountsRoute();
   const team = useTeamRoute();
+  const page = usePageRoute();
   useShell(agent);
   const inbox = useInboxRoute();
   const unread = useUnread().length;
@@ -65,6 +68,10 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           <AccountsPage name={accounts.name} />
         ) : tasks !== null ? (
           <TasksPage storage={storage} route={tasks} />
+        ) : page === 'stats' ? (
+          <StatsPage />
+        ) : page === 'settings' ? (
+          <SettingsPage />
         ) : agent && settings ? (
           <SettingsView key={agent} agent={agent} />
         ) : agent ? (

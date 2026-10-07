@@ -62,3 +62,9 @@ export const useTeamRoute = (): { tab: 'team' | 'hr'; proposal: number | null } 
 export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
   location.hash = tab === 'hr' ? '#/team/hr' : '#/team';
 };
+
+/** Which of the page routes the URL names: `#/stats` or `#/settings`, or '' for neither. */
+export function usePageRoute(): 'stats' | 'settings' | '' {
+  const hash = useSyncExternalStore(subscribe, () => location.hash);
+  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : '';
+}
