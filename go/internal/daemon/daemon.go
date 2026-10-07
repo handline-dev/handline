@@ -146,7 +146,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	s.NoEvents = d.cfg.Gateway
 	if d.hooks != nil {
 		d.hooks.Register(s)
-		taskwrites.Register(s)
+		taskwrites.Register(s, d.cfg.Home)
 	}
 	if transport == "network" {
 		s.Net = d.dev
