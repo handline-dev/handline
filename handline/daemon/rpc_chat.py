@@ -14,7 +14,7 @@ import json
 
 from .. import actions, db
 from ..actions import chatreads, prompt_blocks
-from ..infra import paths
+from ..infra import paths, textsafe
 from . import agentview, landing, rpc, rpc_agents
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
@@ -214,6 +214,12 @@ def _owner_of_chat(row) -> str | None:
     return next((n for n in (row["target"], row["requester"]) if n != db.HUMAN), None)
 
 
+def _alone(row) -> rpc.RpcError:
+    """The message exists but no chat draws it (withdrawn, or never reached its target): not_found that says what it was."""
+    return rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no chat shows message {row['id']}", what="message", name=str(row["id"]),
+                        **{"from": row["requester"], "to": row["target"], "body": textsafe.text(row["body"] or "")})
+
+
 def _locate(ctx, params) -> dict:
     mid = params.get("request")
     if isinstance(mid, bool) or not isinstance(mid, int):
@@ -230,10 +236,10 @@ def _locate(ctx, params) -> dict:
                 row = db.get_request(con, row["settles"]) or row
             agent = _owner_of_chat(row)
         if agent is None:
-            raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no chat shows message {mid}", what="message", name=str(mid))
+            raise _alone(row)
         found = chatreads.locate_message(con, mid, agent, False)
         if found.kind == "alone":
-            raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no chat shows message {mid}", what="message", name=str(mid))
+            raise _alone(row)
         chat_agent, everyone = (agent, found.tab == "all") if found.kind == "here" else (found.agent, found.tab == "all")
         back, older = chatreads.requests_page(con, chat_agent, everyone, before=found.request + 1, limit=limit // 2 + 1)
         ahead, newer = chatreads.requests_after(con, chat_agent, everyone, found.request, limit - len(back))

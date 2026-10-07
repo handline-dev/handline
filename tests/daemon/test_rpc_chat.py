@@ -195,6 +195,9 @@ def test_locate_finds_the_chat_a_message_is_drawn_in_and_the_page_around_it(home
     check("chat.locate: a message between two agents is in the all-chat", side["scope"] == "all", str(side["scope"]))
     for params in ({"request": 99999}, {"request": ids["alone"]}):
         check(f"chat.locate: {params} is not_found", _code(_call("chat.locate", params)) == "not_found")
+    data = _call("chat.locate", {"request": ids["alone"]})["error"]["data"]
+    check("chat.locate: a message no chat draws says what it was", (data.get("from"), data.get("to"), data.get("body")) == (db.HUMAN, "worker", "taken back"), str(data))
+    check("chat.locate: a message that does not exist says nothing of one", "body" not in _call("chat.locate", {"request": 99999})["error"]["data"])
     check("chat.locate: a message that is not a number is bad_request", _code(_call("chat.locate", {"request": "1"})) == "bad_request")
 
 
