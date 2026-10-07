@@ -956,8 +956,14 @@ def test_a_chat_the_daemon_cannot_be_read_for_keeps_what_is_on_screen() -> None:
     with mock.patch.object(cp, "read_requests", down):
         got = ChatPage.read_if_changed(page, ())
     check("chat: a failed read leaves the page as it is", got is None and (page.oldest, page.more, page._sig) == (40, True, ("v1", ())))
-    with mock.patch.object(cp, "read_requests", lambda *a, **k: ([], False, "v1")):
-        check("chat: an unchanged version reads nothing more", ChatPage.read_if_changed(page, ()) is None)
+    calls = []
+
+    def same(agent, everyone, before=None, since=None, want=None, limit=None):
+        calls.append({"since": since, "limit": limit})
+        return [], False, "v1"
+    with mock.patch.object(cp, "read_requests", same):
+        got = ChatPage.read_if_changed(page, ())
+    check("chat: an unchanged version costs one limit=1 read and no page read", got is None and calls == [{"since": None, "limit": 1}], str(calls))
 
 
 def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
