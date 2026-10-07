@@ -101,8 +101,8 @@ def _send_under(ctx, params, agent: str, parent: int, body: str) -> dict:
     con = db.connect()
     try:
         row = _message(con, parent)
-        if {row["target"], row["requester"]} != {db.HUMAN, agent}:
-            raise rpc.refused(f"#{parent} is not between the person and {agent}", gate="state")
+        if agent not in (row["target"], row["requester"]):
+            raise rpc.refused(f"{agent} is not on #{parent}", gate="state")
         if _waits_on_person(row):
             ok, msg = actions.answer_ok(con, parent, body, effect=_record(ctx, params, "chat.send", request=parent))
             if not ok:

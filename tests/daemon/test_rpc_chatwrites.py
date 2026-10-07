@@ -241,9 +241,13 @@ def test_send_under_a_message_answers_it_or_says_under_it(home: Path) -> None:
     side = _add("manager", "worker", "between two agents")
     n = _count("SELECT COUNT(*) FROM requests")
     for params, code in (({"parent": 999}, "not_found"), ({"parent": "1"}, "bad_request"), ({"parent": True}, "bad_request"), ({"parent": mine, "task": {"title": "t"}}, "bad_request"),
-                         ({"parent": side}, "refused")):
+                         ({"parent": mine, "agent": "manager"}, "refused")):
         check(f"chat.send: {params} is {code}", _code(_call("chat.send", {"agent": "worker", "body": "x", **params, "request_id": f"p-{params}"})) == code)
     check("chat.send: none of those sent anything", _count("SELECT COUNT(*) FROM requests") == n)
+    r = _call("chat.send", {"agent": "manager", "body": "why?", "parent": side, "request_id": "p5"})
+    new = r["result"]["request"]
+    check("chat.send with parent: a message between two other agents is replied to by a say to the agent named, under it",
+          (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"]) == (db.HUMAN, "manager", side) and _row(side)["state"] == "queued", str(r))
     again = _add("worker", db.HUMAN, "another question", "ask", "async")
     _dies_then_retries("chat.send", {"agent": "worker", "body": "yes", "parent": again, "request_id": "p3"}, None,
                        after=lambda: _row(again)["state"] != "queued", unchanged=lambda: _row(again)["state"] == "queued")
