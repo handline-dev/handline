@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, locks, stream  # noqa: E402
+from handline.daemon import agentview, locks, schedules, stream  # noqa: E402
 from handline.infra import protected, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 
@@ -107,6 +107,9 @@ def _seed(home: Path) -> dict:
     git(extra_tree, "init", "-q", "-b", "side"), git(extra_tree, "commit", "-q", "--allow-empty", "-m", "x")
     agents.write("worker", {**(agents.read("worker") or {}), "repo": str(repo)})
     agents.write("manager", {**(agents.read("manager") or {}), "repo": str(boss_tree)})
+    sched = [{"cron": "*/15 9-17 * * 1-5", "message": "check  the board"}, {"cron": "0 8 1 * *", "message": "monthly"}, {"cron": "30 2 * * 0,7", "message": "weekly"}]
+    agents.write("worker", {**(agents.read("worker") or {}), "schedules": json.dumps(sched)})
+    agents.write("backend", {**(agents.read("backend") or {}), "schedules": "not json"})
     db.set_agent_state(con, "worker", "idle")
     con.execute("UPDATE agent_state SET worktree = ?, terminal = 't-1', resume_session = 'sess-9' WHERE agent = 'worker'", (str(repo),))
     db.set_agent_state(con, "manager", "idle")
@@ -128,6 +131,8 @@ def _seed(home: Path) -> dict:
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
     _seed_accounts(home, con, now)
+    db.add_event(con, "worker", "schedule_fired", {"cron": "0 8 1 * *"})
+    db.set_cursor(con, f"schedule_at:worker:{schedules.sid({'cron': '30 2 * * 0,7', 'message': 'weekly'})}", now - 7200)
     stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
     stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
     stream.append(con, "notifications", "plain", {})
@@ -203,6 +208,9 @@ def _normal(method: str, reply: dict) -> dict:
         for t in res.get("items", [res]):
             for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
+    if method == "schedules.list" and res:
+        for e in res.get("errors", []):
+            e["error"] = e["error"].split(": ")[0] + ":" if e["error"].startswith("schedules is not JSON: ") else e["error"]    # the decoder's own words are not compared
     if method == "stats.get" and res:
         res["since"], res["until"] = None, None     # the clock: now less the window, read a second apart
     r.pop("id", None)
@@ -257,6 +265,8 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "worktree.diff", {}),
         (None, "team.get", {}),
         ("worker", "team.get", {}),
+        (None, "schedules.list", {}),
+        ("worker", "schedules.list", {}),
         (None, "agent.options", {}),
         ("worker", "agent.options", {}),
         (None, "operation.get", {"operation": "op-1"}),
