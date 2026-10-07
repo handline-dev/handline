@@ -14,6 +14,6 @@ appId: dev.handline.mobile
 - tapOn:
     id: pair-go
 - extendedWaitUntil:
-    visible: ".*(fingerprint|cannot connect|pinned).*"
+    visible: ".*certificate does not match the pinned fingerprint.*"
     timeout: 15000
 - takeScreenshot: pin-mismatch
