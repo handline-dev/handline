@@ -15,7 +15,6 @@ prompt.answer
 schedule.add
 schedule.edit
 schedule.remove
-schedules.list
 session.input
 session.interrupt
 session.keys
@@ -58,6 +57,7 @@ ask
 push
 push.answer
 push.cancelled
+schedules.list
 settings.get
 task.ask
 chat.cancel
