@@ -41,10 +41,6 @@ terminal.resize
 worktree.diff
 worktree.set_status
 worktrees.list
-device.pair
-device.redeem
-device.revoke
-devices.list
 chat.send_now
 stats.outlook
 hr.list
