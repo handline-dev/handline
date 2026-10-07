@@ -26,7 +26,7 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   return (
     <View style={{ padding: space.lg, gap: space.md }}>
       <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Pair with a daemon</Text>
-      <Text style={{ color: c.muted }}>On the computer: Settings, Pair device. Paste the pairing link it shows.</Text>
+      <Text style={{ color: c.muted }}>On the computer, run hl device pair. Paste the pairing link it prints.</Text>
       <TextInput
         testID="pair-uri"
         value={uri}
@@ -34,7 +34,7 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
         autoCapitalize="none"
         autoCorrect={false}
         multiline
-        placeholder="handline://pair?host=…&fp=…&code=…"
+        placeholder="handline://pair?host=…&code=…"
         placeholderTextColor={c.muted}
         style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.md, minHeight: 90 }}
       />
