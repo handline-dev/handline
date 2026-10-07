@@ -1465,6 +1465,22 @@ def test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request() 
     check("page calls: a reply goes to the message's agent, not the page's", ("reply", "backend", 6) in calls, str(calls))
 
 
+def test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to() -> None:
+    """on_text_box_send hands start_send the replied-to message's agent, which is not the page's."""
+    from handline.ui import chat_page as cp
+    sent = []
+    box = type("B", (), {"text": "yes"})()
+
+    class Stub:
+        agent = "reviewer"
+        replying = type("R", (), {"m": {"agent": "backend", "rid": 9}})()
+        _highlighted = lambda self: None
+        query_one = lambda self, sel, *a: box
+        start_send = lambda self, body, rid, **kw: sent.append((body, rid, kw.get("agent")))
+    cp.ChatPage.on_text_box_send(Stub(), type("E", (), {"stop": lambda self: None})())
+    check("reply in all chat: the message's agent is passed to start_send", sent == [("yes", 9, "backend")], str(sent))
+
+
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
     from handline.ui import chat_page as cp
@@ -4823,18 +4839,26 @@ async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() ->
                   [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [late])
         finally:
             con.close()
+        from handline.daemon import client
         real_call = api.call
         seen_calls = []
-        api.call = lambda method, params=None: (seen_calls.append(method) if method == "chat.seen" else None) or real_call(method, params)
+
+        def counting(method, params=None):
+            if method != "chat.seen":
+                return real_call(method, params)
+            seen_calls.append(method)
+            if len(seen_calls) == 1:
+                raise client.RpcError({"message": "refused", "data": {"code": "refused"}})
+            return real_call(method, params)
+        api.call = counting
         try:
-            page.refresh_conversation(force=True)
-            await pilot.pause()
-            page.refresh_conversation(force=True)
-            await pilot.pause()
+            for _ in range(3):
+                page.refresh_conversation(force=True)
+                await pilot.pause()
         finally:
             api.call = real_call
-        check("for-you chat: chat.seen is written once for a new id, not on a refresh that draws nothing new",
-              len(seen_calls) == 1, str(seen_calls))
+        check("for-you chat: a refused chat.seen is sent again, then not again once it went",
+              len(seen_calls) == 2, str(seen_calls))
         con = db.connect()
         try:
             check("for-you chat: once drawn it is seen too",
@@ -5726,6 +5750,7 @@ async def _run_all() -> None:
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
     test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down()
     test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request()
+    test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
