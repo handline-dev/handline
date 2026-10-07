@@ -238,7 +238,14 @@ const settings: Record<string, WriteSpec> = {
     label: 'save account',
     touches: (d) => [qk.accounts(d)],
     patch: (c, p) => {
-      const { account, label, cap, recover } = as<{ account: string; label?: string; cap?: number; recover?: boolean }>(p);
+      const { account, label, cap, recover, cycle, cycle_end } = as<{
+        account: string;
+        label?: string;
+        cap?: number;
+        recover?: boolean;
+        cycle?: boolean;
+        cycle_end?: string | null;
+      }>(p);
       const set = {
         ...(label !== undefined ? { label: label || account } : {}),
         ...(cap !== undefined ? { cap, cap_effective: cap } : {}),
@@ -247,7 +254,23 @@ const settings: Record<string, WriteSpec> = {
       edit<List<'accounts', Account>>(
         c.qc,
         qk.accounts(c.d),
-        listOf('accounts', (l) => l.map((a) => (a.name === account ? { ...a, ...set } : a))),
+        listOf('accounts', (l) =>
+          l.map((a) => {
+            if (a.name !== account) return a;
+            if (cycle === undefined && cycle_end === undefined) return { ...a, ...set };
+            // A date alone turns the cycle on, as the daemon does; null puts the end back to the monthly anniversary.
+            const was = a.cycle;
+            return {
+              ...a,
+              ...set,
+              cycle: {
+                on: cycle ?? (cycle_end ? true : was.on),
+                end: cycle_end === undefined ? was.end : cycle_end,
+                end_is_default: cycle_end === undefined ? was.end_is_default : cycle_end === null,
+              },
+            };
+          }),
+        ),
       );
     },
   },

@@ -17,6 +17,7 @@ import type { AgentDetail, AgentView } from '@handline/client';
 import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
 import { Badges } from './Badges.tsx';
+import { UsagePopup } from './UsagePopup.tsx';
 import { setting } from './daemon.ts';
 import { goAgent } from './route.ts';
 import { View } from './View.tsx';
@@ -31,7 +32,6 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
   const [hideParked, setHide] = useState(() => setting(storage, 'hideParked', '').value === '1');
   const groups = railGroups(agents, by, { hideParked, search });
   const waiting = agents.filter((a) => dotOf(a) === 'waiting').length;
-  const accounts = [...new Set(agents.map((a) => a.account).filter(Boolean))];
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
   const later = (t: string) => (
     <button key={t} className="nav" disabled title="Not built yet">
@@ -51,7 +51,12 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
           </span>
         ) : null}
       </div>
-      <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
+      <div className="rail-nav">
+        {['Inbox', 'Tasks', 'Team'].map(later)}
+        <a className="nav" href="#/accounts">
+          Accounts
+        </a>
+      </div>
       <div className="rail-opts">
         <input
           className="search"
@@ -107,7 +112,7 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
         <span>
           {agents.length} agents · {agents.filter((a) => a.state === 'running').length} running
         </span>
-        {accounts.length ? <span className="muted">accounts {accounts.join(', ')}</span> : null}
+        <UsagePopup />
       </footer>
     </nav>
   );
