@@ -117,6 +117,7 @@ describe('U9 prompt cards', () => {
         options: [
           { key: '1', label: 'main', answer: 'other' },
           { key: '2', label: 'dev', answer: 'other' },
+          { key: 'esc', label: 'Cancel (Esc)', answer: 'other' },
         ],
       }),
     );
@@ -139,7 +140,10 @@ describe('U9 prompt cards', () => {
         kind: 'question',
         multi: true,
         lines: ['Which targets?'],
-        options: ['a', 'b', 'c'].map((l, i) => ({ key: String(i + 1), label: l, answer: 'other' as const })),
+        options: [
+          ...['a', 'b', 'c'].map((l, i) => ({ key: String(i + 1), label: l, answer: 'other' as const })),
+          { key: 'esc', label: 'Cancel (Esc)', answer: 'other' as const },
+        ],
       }),
     );
     expect(button('Submit')!.hasAttribute('disabled')).toBe(true);
@@ -151,6 +155,32 @@ describe('U9 prompt cards', () => {
     expect(received(s)).toEqual(['1', '3']);
   });
 
+  it('a multi-select keeps Cancel out of the checkboxes and sends only esc from its own button', async () => {
+    const s = await show(
+      prompt({
+        kind: 'question',
+        multi: true,
+        options: [
+          { key: '1', label: 'a', answer: 'other' },
+          { key: 'esc', label: 'Cancel (Esc)', answer: 'other' },
+        ],
+      }),
+    );
+    expect($$('.card input[type=checkbox]')).toHaveLength(1);
+    await click(button('Cancel')!);
+    await until(() => received(s).length, 'the answer');
+    expect(received(s)).toEqual(['esc']);
+  });
+
+  it('the fake refuses typed text on a prompt that is not a question', async () => {
+    const s = await show(prompt({ options: YES_NO }));
+    await expect(
+      s.client.call('prompt.answer', { agent: ARCH, prompt: 'p1', choice: { text: 'x' }, request_id: 'r1' }),
+    ).rejects.toMatchObject({
+      code: 'bad_request',
+    });
+  });
+
   it('an option key pressed on the card answers it; Enter answers the highlighted option', async () => {
     const s = await show(prompt({ options: YES_NO }));
     await act(async () => {
@@ -160,6 +190,15 @@ describe('U9 prompt cards', () => {
     expect(received(s)).toEqual(['2']);
   });
 
+  it('Enter on the card answers the highlighted option', async () => {
+    const s = await show(prompt({ options: YES_NO }));
+    await act(async () => {
+      $('.card.prompt')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await until(() => received(s).length, 'the answer');
+    expect(received(s)).toEqual(['1']);
+  });
+
   it('a prompt that changed under the click sends nothing, says so, and shows the new prompt in place', async () => {
     const s = await show(prompt({ kind: 'permission', tool: 'Bash', command: 'git push old', options: YES_NO }));
     s.daemon.sessions.get(ARCH)!.prompt = prompt({ id: 'p2', kind: 'permission', tool: 'Bash', command: 'git push new', options: YES_NO });
@@ -167,6 +206,18 @@ describe('U9 prompt cards', () => {
     await until(() => text($('.card.prompt')).includes('git push new'), 'the new prompt');
     expect(text($('.card.prompt'))).toContain('This prompt changed');
     expect(received(s)).toEqual([]);
+  });
+
+  it('after a refusal that showed the new prompt, answering that one does not claim it was answered elsewhere', async () => {
+    const s = await show(prompt({ kind: 'permission', tool: 'Bash', command: 'git push old', options: YES_NO }));
+    s.daemon.sessions.get(ARCH)!.prompt = prompt({ id: 'p2', kind: 'permission', tool: 'Bash', command: 'git push new', options: YES_NO });
+    await click(button('Yes')!);
+    await until(() => text($('.card.prompt')).includes('git push new'), 'the new prompt');
+    await click(button('Yes')!);
+    await until(() => !$('.card.prompt'), 'the card to go');
+    await wait(50);
+    expect(text($('.cards'))).not.toContain('Answered elsewhere');
+    expect(received(s)).toEqual(['1']);
   });
 
   it('a prompt that is gone when answered collapses to "Answered elsewhere"', async () => {

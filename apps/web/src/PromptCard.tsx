@@ -48,7 +48,9 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     return () => clearTimeout(t);
   }, [answering]);
 
-  const opts = choices(p, rules);
+  const all = choices(p, rules);
+  const cancel = p.kind === 'question' ? all.find((o) => o.key === 'esc') : undefined; // its own button, never a checkbox or a numbered row
+  const opts = cancel ? all.filter((o) => o !== cancel) : all;
   const multi = p.multi === true;
   const question = p.kind === 'question';
   const send = (choice: string | string[] | { text: string }, mark: string) => {
@@ -76,8 +78,8 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     if (t.tagName === 'INPUT' && (t as HTMLInputElement).type === 'text') return;
     if (e.key === 'Escape') return t.blur();
     if (multi) return;
-    const hit = opts.find((o) => o.key === e.key.toLowerCase());
-    const choice = hit ?? (e.key === 'Enter' && t.tagName !== 'BUTTON' ? opts.find((o) => o.highlighted) : undefined);
+    const hit = all.find((o) => o.key === e.key.toLowerCase());
+    const choice = hit ?? (e.key === 'Enter' && t.tagName !== 'BUTTON' ? all.find((o) => o.highlighted) : undefined);
     if (choice) {
       e.preventDefault();
       send(choice.key, choice.key);
@@ -167,6 +169,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           </button>
         )
       ) : null}
+      {cancel ? (
+        <div className="card-actions">
+          <button className="btn" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
+            {mark(cancel.key, 'Cancel')} <kbd>esc</kbd>
+          </button>
+        </div>
+      ) : null}
       {answering ? <p className="muted">{slow ? 'still waiting' : 'answering…'}</p> : null}
     </div>
   );
@@ -178,7 +187,7 @@ export function PromptSlot({ agent, prompt }: { agent: string; prompt: Prompt | 
   const [refused, setRefused] = useState(false);
   useEffect(() => {
     if (!prompt && refused) setGone(true);
-    if (!prompt) setRefused(false);
+    setRefused(false); // a refusal that left a prompt open is over once the card shows it
   }, [prompt, refused]);
   useEffect(() => {
     if (!gone) return;

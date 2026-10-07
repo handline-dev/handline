@@ -83,6 +83,7 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
         throw badRequest('the list holds keys this prompt offers', 'choice');
       given = p.choice as string[];
     } else if (typeof text === 'string' && text.trim()) {
+      if (open.kind !== 'question') throw badRequest('typed text answers only a question', 'choice');
       given = [text]; // typed text answers a question or dialog that asks for it
     } else throw badRequest('this prompt takes one of its option keys', 'choice');
     for (const k of given) script.record(s, 'key', k, actor.name);
