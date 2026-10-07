@@ -182,19 +182,8 @@ func (t *Term) DeclineDialog(handle string) (string, string, string) {
 	return t.pressDialog(handle, DecliningKey, "Esc", false)
 }
 
-// StopWorkAndExit presses Enter on the exit dialog over background work, when StoppingKey allows.
-func (t *Term) StopWorkAndExit(handle string) (string, string, string) {
-	return t.pressDialog(handle, StoppingKey, "Enter", false)
-}
-
 // AcceptsTool is whether a permission prompt for tool on this terminal may be said yes to.
 func (t *Term) AcceptsTool(handle, tool string) bool { return t.driver(handle).AcceptsTool(tool) }
-
-// AcceptDialog presses the vendor's one-time yes on its prompt to run tool, if and only if the screen just read is exactly that.
-func (t *Term) AcceptDialog(handle, tool string) (string, string, string) {
-	d := t.driver(handle)
-	return t.pressDialog(handle, func(dlg *Dialog) (string, string) { return d.AcceptingKey(dlg, tool) }, "Enter", true)
-}
 
 // AnswerDialog presses the number of the option choose(vendor, dialog) names on the dialog on this terminal's screen. The number
 // is read off the screen just read, never remembered. A vendor's folder-trust screen is never answered here: that stays with the

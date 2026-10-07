@@ -262,3 +262,41 @@ func TestTheFolderTrustScreenNamesItsFolderAndIsNotAPrompt(t *testing.T) {
 		t.Fatalf("the trust screen has its own path and reads as none, got %s", kind)
 	}
 }
+
+// A vendor whose digit only moves the highlight: the dialog stays, the chosen option now carries the cursor and the footer says
+// Enter confirms. Enter is then pressed once, and only on that screen.
+func TestADigitThatOnlyMovesTheHighlightIsFollowedByOneEnterOnAFreshRead(t *testing.T) {
+	before := []string{"earlier output", rule, "   Bash command", "     rm -rf build", "   Do you want to proceed?",
+		"     1. Yes", "   ❯ 2. No", "   Enter to confirm · Esc to cancel"}
+	moved := []string{"earlier output", rule, "   Bash command", "     rm -rf build", "   Do you want to proceed?",
+		"   ❯ 1. Yes", "     2. No", "   Enter to confirm · Esc to cancel"}
+	h := &fakeHost{screenAt: func(n int) []string {
+		switch n {
+		case 0:
+			return before
+		case 1:
+			return moved
+		}
+		return cleared
+	}}
+	seen := newTerm(&fakeHost{screenAt: func(int) []string { return before }}).ConfirmationOnScreen("%1")
+	if seen == nil {
+		t.Fatal("the permission prompt is not recognized")
+	}
+	outcome, _, why := newTerm(h).AnswerConfirmation("%1", true, seen.Lines, nil)
+	if outcome != Cleared || len(h.sent) != 2 || h.sent[0] != "1/false" || h.sent[1] != "/true" {
+		t.Fatalf("%s %q %q", outcome, why, h.sent)
+	}
+
+	// the footer does not say Enter confirms: the digit is not followed by Enter
+	noFooter := append(append([]string{}, moved[:7]...), "   Esc to cancel")
+	h = &fakeHost{screenAt: func(n int) []string {
+		if n == 0 {
+			return before
+		}
+		return noFooter
+	}}
+	if outcome, _, _ := newTerm(h).AnswerConfirmation("%1", true, seen.Lines, nil); outcome == Cleared || len(h.sent) != 1 {
+		t.Fatalf("%s %q", outcome, h.sent)
+	}
+}

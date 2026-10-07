@@ -59,6 +59,9 @@ func testEnv(t *testing.T) (*Env, *host) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HANDLINE_HOME", home)
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir()) // the protected store lives under the user home
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_AGENT", "")
 	db, err := store.Open(filepath.Join(home, "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
