@@ -954,3 +954,52 @@ summary::-webkit-details-marker {
   border-radius: 50%;
   background: var(--wait);
 }
+
+.card .since {
+  font-weight: 400;
+}
+.card .stale {
+  color: var(--wait);
+  margin: 0 0 6px;
+}
+.card .note {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.cmd,
+.lines {
+  max-height: 12lh;
+  overflow: auto;
+}
+.opts {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+button.opt {
+  width: 100%;
+  margin-top: 0;
+}
+@media (max-width: 640px) {
+  .card-actions {
+    flex-direction: column-reverse;
+  }
+  .card-actions .btn,
+  button.opt {
+    min-height: 48px;
+    width: 100%;
+  }
+  .cmd,
+  .lines {
+    overflow-x: auto;
+    white-space: pre;
+  }
+}

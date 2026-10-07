@@ -552,10 +552,14 @@ export type ChatMessage = {
     title: string;
   }[];
   is_task_question: boolean;
+  /** Only in chat.search hits: the agent whose chat shows the message. */
+  agent?: string;
+  /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
+  scope?: "mine" | "all";
 };
 
 export type TranscriptItem = {
-  /** Ordered and stable, so a client appends and never redraws. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. */
   id: number;
   at: Timestamp;
   kind: "reply" | "tool" | "prompt" | "task_event" | "session";
@@ -805,6 +809,33 @@ export type HistoryBytesPage = {
   more: boolean;
 };
 
+export type ChatRequestItem = {
+  type: "request" | "task_event" | "session";
+  /** Where it sits in time: a request where its agent read it (landed_at) or else when it was made. */
+  at: Timestamp;
+  /** request only. */
+  message?: ChatMessage;
+  dismissal?: {
+    by: string | null;
+    reason: string | null;
+  } | null;
+  task_state?: string | null;
+  /** task_event only. */
+  task?: number;
+  /** task_event only: the task's title. */
+  title?: string;
+  /** task_event only: who did it. */
+  who?: string;
+  /** task_event only: `queued -> doing`, `handed to X`, `assigned to X`, `title changed`, `priority 2 -> 1`. An open set: a client draws a word it does not know as text. */
+  change?: string;
+  /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
+  note?: string;
+  request?: number | null;
+  /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
+  cause?: string;
+  handoff?: string | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -999,6 +1030,25 @@ export interface Methods {
     messages: ChatMessage[];
     more: boolean;
   } };
+  "chat.requests": { params: {
+  agent: AgentName;
+  /** mine: person and this agent; all: everything it sent or received. */
+  scope: "mine" | "all";
+  /** Request id: read the page just older than it. */
+  before?: number;
+  /** Request id: read every request from it on (no `more`); how a window already drawn is brought up to date. Not with `before`. */
+  since?: number;
+  /** Requests in a page; default 10. */
+  limit?: number;
+}; result: {
+    items: ChatRequestItem[];
+    /** Older requests remain (never true with `since`). */
+    more: boolean;
+    /** Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again. */
+    version: string;
+    /** The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it. */
+    cursor: number;
+  } };
   "chat.transcript": { params: {
   agent: AgentName;
   before?: number;
@@ -1100,6 +1150,8 @@ export interface Methods {
 }; result: Accepted };
   "terminal.detach": { params: {
   terminal: string;
+  /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
+  format?: "text" | "bytes";
 }; result: { [key: string]: unknown } };
   "inbox.list": { params: {
   unread?: boolean;
@@ -1602,6 +1654,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "input.ask": { role: "member", callers: null, write: true, since: 1 },
   "input.release": { role: "member", callers: null, write: true, since: 1 },
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
+  "chat.requests": { role: "member", callers: null, write: false, since: 1 },
   "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
@@ -1732,11 +1785,15 @@ export interface Notifications {
   kind: "daemon_typed" | "control";
   actor: Actor | null;
   text?: string;
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   holder: {
   terminal: string;
   seq: number;
   holders: InputHolder[];
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   output: {
   terminal: string;

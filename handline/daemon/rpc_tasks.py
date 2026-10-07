@@ -50,6 +50,15 @@ def _span(params, key: str = "time_box") -> int | None:
         raise rpc.bad_request(str(e), key, rpc.INVALID_PARAMS) from None
 
 
+def _priority(params) -> int | None:
+    v = params.get("priority")
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, int) or v not in (1, 2, 3):
+        raise rpc.bad_request("priority is 1, 2 or 3", "priority", rpc.INVALID_PARAMS)
+    return v
+
+
 def _unserved(params, keys=_NOT_SERVED) -> None:
     for k in keys:
         if params.get(k) is not None:
@@ -112,9 +121,9 @@ def _edit(ctx, params) -> dict:
     _unserved(params)
     tid = _task_id(params)
     owner, title, body = (_text(params, k, required=False) for k in ("owner", "title", "body"))
-    secs = _span(params)
-    if owner is None and title is None and body is None and secs is None:
-        raise rpc.bad_request("edit needs an owner, a title, a body or a time_box", None, rpc.INVALID_PARAMS)
+    secs, prio = _span(params), _priority(params)
+    if owner is None and title is None and body is None and secs is None and prio is None:
+        raise rpc.bad_request("edit needs an owner, a title, a priority, a body or a time_box", None, rpc.INVALID_PARAMS)
     if owner is not None and owner != db.HUMAN and owner not in paths.list_agents():
         raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
     me = ctx.caller.actor
@@ -123,7 +132,7 @@ def _edit(ctx, params) -> dict:
         was_owner = (db.get_task(con, tid) or {"owner": None})["owner"]
         con.execute("BEGIN IMMEDIATE")
         try:
-            ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, timeout_s=secs, body=body)
+            ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, priority=prio, timeout_s=secs, body=body)
             if ok:
                 db.record_effect(con, ctx.caller.writer, params["request_id"], "task.edit", _accepted(msg))
             con.execute("COMMIT" if ok else "ROLLBACK")
