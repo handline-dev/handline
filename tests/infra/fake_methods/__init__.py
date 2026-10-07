@@ -5,7 +5,15 @@ imported here, so a branch adding a family adds a file and touches no line anoth
 from __future__ import annotations
 
 import importlib
+import threading
 import pkgutil
+
+# the connection the call came in on, set by the fake's serve loop: id, send, state (the daemon's), after (run once the reply is sent), on_close
+class _Current(threading.local):
+    ctx = None
+
+
+CURRENT = _Current()
 
 # method -> handler(role, method, params) returning ("ok", result) or ("fail", error), or None to leave the call to the daemon's own branches
 HANDLERS: dict = {}

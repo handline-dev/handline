@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// MemStore keeps devices in memory: for a daemon whose database has no devices table yet, and for tests.
+// MemStore keeps devices in memory, for tests of what does not need the database.
 type MemStore struct {
 	mu     sync.Mutex
 	byID   map[string]Device

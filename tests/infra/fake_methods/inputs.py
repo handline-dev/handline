@@ -1,5 +1,5 @@
 """input.take, input.release, input.ask, prompt.list and prompt.answer."""
-from . import err, fake
+from . import CURRENT, err, fake, tmux
 
 KNOWN = ("a.one",)
 NOT_FOUND = {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "agent"}}
@@ -14,8 +14,11 @@ def inputs(role, method, params):
     if method == "prompt.answer":
         if not isinstance(params.get("prompt"), str) or not params["prompt"]:
             return "fail", err(-32602, "bad_request", field="prompt")
-        if not isinstance(params.get("choice"), (str, dict)):
+        choice = params.get("choice")
+        if not isinstance(choice, (str, dict, list)) or (isinstance(choice, list) and not all(isinstance(k, str) for k in choice)):
             return "fail", err(-32602, "bad_request", field="choice")
+    if params.get("agent") == tmux.AGENT and method in ("input.take", "input.release"):
+        return tmux.take(CURRENT.ctx, method)
     if params.get("agent") not in KNOWN:
         return "fail", NOT_FOUND
     return "ok", {"prompts": []} if method == "prompt.list" else {"accepted": True, "said": "done"}
