@@ -1600,7 +1600,7 @@
     "wall",
     "screen_blocker"
    ],
-   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
   },
   {
    "name": "session.keys",
@@ -2459,7 +2459,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that is not between the person and agent is refused (gate state). request in the result is then the message replied to, for an answer, or the new message."
+      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message."
      }
     },
     {
@@ -3464,6 +3464,14 @@
       "type": "boolean",
       "description": "Every team's tasks, not only the caller's and its reports'."
      }
+    },
+    {
+     "name": "reason_gaps",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks."
+     }
     }
    ],
    "result": {
@@ -3479,6 +3487,34 @@
       },
       "more": {
        "type": "boolean"
+      },
+      "reason_gaps": {
+       "type": "object",
+       "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+       "properties": {
+        "retirements": {
+         "type": "integer"
+        },
+        "retirements_blank": {
+         "type": "integer"
+        },
+        "closures_sha": {
+         "type": "integer"
+        },
+        "closures_request": {
+         "type": "integer"
+        },
+        "closures_reason": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "retirements",
+        "retirements_blank",
+        "closures_sha",
+        "closures_request",
+        "closures_reason"
+       ]
       }
      },
      "required": [
@@ -3540,7 +3576,7 @@
     },
     {
      "name": "body",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -3881,6 +3917,40 @@
    "x-gates": [
     "not_self"
    ],
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "progress.get",
+   "summary": "The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "note": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The note, or null when none is kept."
+      }
+     },
+     "required": [
+      "note"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
    "x-callers": [
     "agent"
    ]
@@ -4468,9 +4538,18 @@
   },
   {
    "name": "task.board",
-   "summary": "The caller's open tasks and its reports', and who holds each now.",
+   "summary": "The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's open tasks, not only the caller's and its reports'."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -4584,7 +4663,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
+   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4641,6 +4720,22 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them."
+     }
+    },
+    {
+     "name": "unblock",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
      }
     },
     {
@@ -7806,6 +7901,91 @@
      "last_activity": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
+     },
+     "edited_by": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who last changed the task's owner, title, priority or brief; null when never."
+     },
+     "asker": {
+      "type": "string",
+      "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
+     },
+     "discarded": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "type": "string"
+         },
+         "reason": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "by",
+         "reason",
+         "at"
+        ],
+        "description": "Who threw the task away, why and when."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null when the task was not discarded."
+     },
+     "mismatch": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree."
+     },
+     "requests": {
+      "type": "array",
+      "description": "The requests linked to the task, oldest first.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "from": {
+         "type": "string"
+        },
+        "to": {
+         "type": "string"
+        },
+        "state": {
+         "type": "string"
+        },
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        }
+       },
+       "required": [
+        "id",
+        "from",
+        "to",
+        "state",
+        "at"
+       ]
+      }
      }
     },
     "required": [
@@ -8074,7 +8254,7 @@
           },
           "who": {
            "type": "string",
-           "description": "The author, or `from \u2192 to` for a handoff."
+           "description": "The author, or `from → to` for a handoff."
           },
           "kind": {
            "type": "string",
@@ -9585,6 +9765,17 @@
      },
      "text": {
       "type": "string"
+     },
+     "edited_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the memo's text was last changed; null if never."
      }
     },
     "required": [
@@ -9609,6 +9800,40 @@
        {
         "type": "null"
        }
+      ]
+     },
+     "now": {
+      "type": "object",
+      "description": "Who has the task now, read from its linked requests: `waiting` on open blocker tasks (`tasks`); `held` by the agents a request is with (`agents`); `sub_task` when an open child task's request is with them (`agents`); `held_as_sub_task` while an open child shares a request with it (`tasks`, `agents` their owners); `result_in` when the last request came back done from someone other than the caller or the founder; else `nobody`.",
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "waiting",
+         "held",
+         "sub_task",
+         "held_as_sub_task",
+         "result_in",
+         "nobody"
+        ]
+       },
+       "agents": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "kind",
+       "agents",
+       "tasks"
       ]
      }
     },

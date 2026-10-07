@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, locks  # noqa: E402
+from handline.daemon import agentview, locks, stream  # noqa: E402
 from handline.infra import protected, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _hp  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-PAIRS = 64
+PAIRS = 128
 
 
 def _task(title: str, owner: str = "worker", by: str = "manager") -> int:
@@ -108,6 +108,15 @@ def _seed(home: Path) -> dict:
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
     _seed_accounts(home, con, now)
+    stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
+    stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
+    stream.append(con, "notifications", "plain", {})
+    stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
+    stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
+    stream.append(con, "notifications", "plain", {})
+    db.set_cursor(con, stream.PRUNED, 2)
+    protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
+    protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
     agentview.refresh(con, int(time.time()))
     con.close()
     return {"tasks": [a, b, c, done], "ask": ask, "card": card}
@@ -170,8 +179,9 @@ def _normal(method: str, reply: dict) -> dict:
     if method == "chat.requests" and res:
         res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
     if method in ("tasks.list", "task.get") and res:
+        res.pop("reason_gaps", None)
         for t in res.get("items", [res]):
-            for k in ("last_activity", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
+            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
     if method == "stats.get" and res:
         res["since"], res["until"] = None, None     # the clock: now less the window, read a second apart
@@ -218,6 +228,31 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         ("manager", "stats.get", {"window": "7d"}),
         (None, "stats.get", {"window": "1h"}),
         (None, "stats.get", {}),
+        (None, "answers.list", {}),
+        ("manager", "answers.list", {}),
+        (None, "inbox.get", {"id": ids["ask"]}),
+        (None, "inbox.get", {"id": ids["card"]}),
+        (None, "inbox.get", {"id": ids["ask"], "wait_s": 1}),
+        (None, "inbox.get", {"id": 99999}),
+        (None, "inbox.get", {"id": "x"}),
+        (None, "inbox.get", {"id": ids["ask"], "wait_s": 601}),
+        ("worker", "inbox.get", {"id": ids["ask"]}),
+        ("manager", "inbox.get", {"id": ids["card"]}),
+        (None, "events.feed", {}),
+        (None, "events.feed", {"topics": ["tasks", "notifications"], "limit": 2}),
+        (None, "events.feed", {"since": 1}),
+        (None, "events.feed", {"since": 0, "limit": 3}),
+        (None, "events.feed", {"since": 2}),
+        (None, "events.feed", {"since": 3, "topics": ["notifications"]}),
+        (None, "events.feed", {"since": 99, "topics": ["tasks"]}),
+        (None, "events.feed", {"topics": ["devices"]}),
+        (None, "events.feed", {"topics": []}),
+        (None, "events.feed", {"since": -1}),
+        (None, "events.feed", {"limit": 0}),
+        (None, "prompt.list", {"agent": "worker"}),
+        (None, "prompt.list", {"agent": "backend"}),
+        (None, "prompt.list", {"agent": "nobody.here"}),
+        (None, "prompt.list", {}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine"}),
         (None, "chat.messages", {"agent": "worker", "scope": "all", "limit": 2}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": ids["card"]}),

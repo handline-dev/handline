@@ -725,6 +725,13 @@ def _devices(con) -> None:
     """)
 
 
+def _agent_extra_worktrees(con) -> None:
+    """The column `agent.yaml extra_worktrees` is kept in: step 1 adds it to a new database only, so one made
+    before it had none and every read of it failed. Additive: a process that does not know it never reads it."""
+    if "extra_worktrees" not in _cols(con, "agent_state"):
+        con.execute("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -735,6 +742,7 @@ MIGRATIONS = [
     (7, "input_holders", _input_holders, True),
     (8, "operations", _operations, True),
     (9, "devices", _devices, True),
+    (10, "agent_extra_worktrees", _agent_extra_worktrees, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

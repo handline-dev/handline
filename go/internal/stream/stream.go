@@ -216,3 +216,7 @@ func check(p map[string]any) (map[string]bool, error) {
 	}
 	return names, nil
 }
+
+// Daemon reports whether name is a topic the Python daemon's stream_log holds (every topic but devices, which is this
+// gateway's own).
+func Daemon(name string) bool { return topics[name] && name != devicesTopic }

@@ -5,7 +5,6 @@ account.set
 account.set_cap
 agent.create
 agent.options
-events.feed
 hr.decide
 inbox.answer
 inbox.mark_read
@@ -15,7 +14,6 @@ input.release
 input.take
 operation.get
 prompt.answer
-prompt.list
 repos.list
 schedule.add
 schedule.edit
@@ -57,10 +55,8 @@ task.draft
 task.release
 chat.send_now
 stats.outlook
-answers.list
 answer.add
 answer.remove
-inbox.get
 task.begin
 task.start
 task.handoff
@@ -76,3 +72,4 @@ settings.get
 task.ask
 chat.cancel
 chat.seen
+progress.get

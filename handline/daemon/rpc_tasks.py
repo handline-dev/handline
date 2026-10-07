@@ -80,7 +80,9 @@ def _new(ctx, params) -> dict:
     _unserved(params)
     if ctx.caller.role != "agent":
         raise rpc.refused("a task is opened by an agent, never in the founder's name")
-    owner, title, body = _text(params, "owner"), _text(params, "title"), _text(params, "body")
+    owner, title, body = _text(params, "owner"), _text(params, "title"), _text(params, "body", required=False)
+    if body is not None and not body.strip():
+        raise rpc.bad_request("body is text and not empty", "body", rpc.INVALID_PARAMS)
     secs = _span(params)
     if secs is None:
         raise rpc.bad_request("time_box is required", "time_box", rpc.INVALID_PARAMS)
@@ -110,11 +112,20 @@ def _new(ctx, params) -> dict:
             actions.add_block(con, tid, blocker, me)
         db.record_effect(con, ctx.caller.writer, params["request_id"], "task.new", _accepted(f"task T{tid} opened for {owner}", task=tid))
 
-    ok, msg, tid = actions.task_new(me, owner, textsafe.oneline(title).strip(), textsafe.text(body).strip(), parent=parent,
+    ok, msg, tid = actions.task_new(me, owner, textsafe.oneline(title).strip(), textsafe.text(body).strip() if body else None, parent=parent,
                                     expects=expects, priority=prio, timeout_s=secs, effect=effect)
     if not ok:
         raise _fail(msg)
     return _accepted(msg, task=tid)
+
+
+def _task_number(params, key: str) -> int | None:
+    v = params.get(key)
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise rpc.bad_request(f"{key} is a task number", key, rpc.INVALID_PARAMS)
+    return v
 
 
 def _edit(ctx, params) -> dict:
@@ -122,8 +133,10 @@ def _edit(ctx, params) -> dict:
     tid = _task_id(params)
     owner, title, body = (_text(params, k, required=False) for k in ("owner", "title", "body"))
     secs, prio = _span(params), _priority(params)
-    if owner is None and title is None and body is None and secs is None and prio is None:
-        raise rpc.bad_request("edit needs an owner, a title, a priority, a body or a time_box", None, rpc.INVALID_PARAMS)
+    blocker, unblock = _task_number(params, "blocked_by"), _task_number(params, "unblock")
+    fields = owner is not None or title is not None or body is not None or secs is not None or prio is not None
+    if not fields and blocker is None and unblock is None:
+        raise rpc.bad_request("edit needs an owner, a title, a priority, a body, a time_box, blocked_by or unblock", None, rpc.INVALID_PARAMS)
     if owner is not None and owner != db.HUMAN and owner not in paths.list_agents():
         raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
     me = ctx.caller.actor
@@ -132,7 +145,19 @@ def _edit(ctx, params) -> dict:
         was_owner = (db.get_task(con, tid) or {"owner": None})["owner"]
         con.execute("BEGIN IMMEDIATE")
         try:
-            ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, priority=prio, timeout_s=secs, body=body)
+            ok, msgs, freed = True, [], None        # every part in one transaction: a later refusal undoes the earlier parts
+            if fields:
+                ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, priority=prio, timeout_s=secs, body=body)
+                msgs.append(msg)
+            if ok and blocker is not None:
+                ok, msg = actions.add_block(con, tid, blocker, me)
+                msgs.append(msg)
+            if ok and unblock is not None:
+                ok, msg = actions.unblock(con, tid, unblock, me)
+                msgs.append(msg)
+                if ok and not db.task_blockers(con, tid):
+                    freed = db.get_task(con, tid)["owner"]
+            msg = "; ".join(msgs) if ok else msgs[-1]
             if ok:
                 db.record_effect(con, ctx.caller.writer, params["request_id"], "task.edit", _accepted(msg))
             con.execute("COMMIT" if ok else "ROLLBACK")
@@ -146,6 +171,8 @@ def _edit(ctx, params) -> dict:
             actions.tell_body_edited(con, tid, me)
         if owner is not None:       # the task goes to its new owner now, outside the transaction
             actions.send_moved_task(con, tid, was_owner, me)
+        if freed is not None and actions.advance_current_task(con, freed):      # the last blocker cleared: the owner's turn is reconsidered
+            askmod.push(con, freed)
     finally:
         con.close()
     return _accepted(msg)

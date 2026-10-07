@@ -297,6 +297,13 @@
     "applied_at": 1760000000,
     "name": "devices",
     "version": 9
+   },
+   {
+    "__rowid": 10,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "agent_extra_worktrees",
+    "version": 10
    }
   ]
  },
