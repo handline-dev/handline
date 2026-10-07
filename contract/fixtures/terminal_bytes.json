@@ -3,7 +3,7 @@
   {
    "name": "terminal.attach.format_is_text_or_bytes",
    "spec": "terminal.attach",
-   "about": "NOT_YET_IN_PYTHON: A format that is neither word is bad_request naming it.",
+   "about": "A format that is neither word is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -397,7 +397,7 @@
   {
    "name": "terminal.history.format_is_text_or_bytes",
    "spec": "terminal.history",
-   "about": "NOT_YET_IN_PYTHON: A format that is neither word is bad_request naming it.",
+   "about": "A format that is neither word is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1538,7 +1538,7 @@
   {
    "name": "terminal.input.data_is_base64_and_bounded",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: Data that is not base64, is empty, or decodes to more than 16384 bytes is bad_request naming it.",
+   "about": "Data that is not base64, is empty, or decodes to more than 16384 bytes is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1616,7 +1616,7 @@
   {
    "name": "terminal.input.needs_a_request_id",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -1655,7 +1655,7 @@
   {
    "name": "terminal.input.unknown_terminal_is_not_found",
    "spec": "terminal.input",
-   "about": "NOT_YET_IN_PYTHON: A handle no agent has is not_found.",
+   "about": "A handle no agent has is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -1725,6 +1725,427 @@
       "data": {
        "code": "refused",
        "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.a_second_attach_replaces_the_first",
+   "spec": "terminal.attach",
+   "about": "A second attach of the same terminal and format on one connection is accepted and replaces the first: the reply is a new snapshot, and the notices after it come once, each one above the last. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s2"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-19"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "s2",
+        "$save": "h1"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-20"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "h1"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.text_and_bytes_attaches_coexist",
+   "spec": "terminal.attach",
+   "about": "A text attach and a bytes attach of one terminal on one connection are independent: each gets the holder notice with its own format and its own counter, and the bytes attach is not told by a frame. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "text",
+      "seq": {
+       "$type": "integer",
+       "$save": "st"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "sb"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-21"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "holder",
+       "params": {
+        "format": "text",
+        "seq": {
+         "$next": "st"
+        }
+       }
+      },
+      {
+       "method": "holder",
+       "params": {
+        "format": "bytes",
+        "seq": {
+         "$next": "sb"
+        }
+       }
+      }
+     ],
+     "notices_any_order": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-22"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.bytes.detach_names_a_format",
+   "spec": "terminal.detach",
+   "about": "Detaching one format ends only that attach: the other goes on with its counter. Detaching with no format ends every attach of the terminal, and a second detach with nothing to end is accepted. Needs --var bytes_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "seq": {
+       "$type": "integer",
+       "$save": "st"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "sb"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "input.take",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-23"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "holder",
+       "params": {
+        "format": "text",
+        "seq": {
+         "$next": "st"
+        }
+       }
+      },
+      {
+       "method": "holder",
+       "params": {
+        "format": "bytes",
+        "seq": {
+         "$next": "sb",
+         "$save": "hb"
+        }
+       }
+      }
+     ],
+     "notices_any_order": true
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}",
+       "format": "text"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "input.release",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "request_id": "conf-tb-24"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "holder",
+      "params": {
+       "format": "bytes",
+       "seq": {
+        "$next": "hb"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    }
+   ]
+  },
+  {
+   "name": "terminal.detach.format_is_text_or_bytes",
+   "spec": "terminal.detach",
+   "about": "A format that is neither word is bad_request naming format.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "t-a.term",
+       "format": "styled"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "format"
       }
      }
     }

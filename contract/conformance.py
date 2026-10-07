@@ -13,6 +13,7 @@ one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import socket
@@ -84,6 +85,19 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
             elif op == "$regex":
                 if not (isinstance(got, str) and re.search(arg, got)):
                     raise Mismatch(f"{at}: wanted /{arg}/, got {json.dumps(got)}")
+            elif op in ("$above", "$next"):
+                base = saved.get(arg)
+                if not isinstance(base, int) or isinstance(base, bool):
+                    raise Mismatch(f"{at}: {op} {arg} names no saved integer")
+                if not (isinstance(got, int) and not isinstance(got, bool)) or (got <= base if op == "$above" else got != base + 1):
+                    raise Mismatch(f"{at}: wanted {'above' if op == '$above' else 'exactly one above'} {base}, got {json.dumps(got)}")
+            elif op == "$b64regex":
+                try:
+                    text = base64.b64decode(got, validate=True).decode("utf-8", "replace") if isinstance(got, str) else None
+                except ValueError:
+                    text = None
+                if text is None or not re.search(arg, text):
+                    raise Mismatch(f"{at}: wanted base64 of text matching /{arg}/, got {json.dumps(got)[:200]}")
             elif op == "$save":
                 saved[arg] = got
             elif op in ("$absent", "$exact"):
@@ -197,19 +211,37 @@ class Connection:
                 continue
             raise Mismatch(f"a reply for id {json.dumps(msg.get('id'))} while waiting for {json.dumps(rid)}")
 
-    def notice(self, want: dict, saved: dict) -> None:
-        deadline = time.time() + NOTICE_WAIT_S
+    def next_notice(self, want: dict, saved: dict, wait: float) -> None:
+        """The very next notice, not a later one, must match: no other may come before it."""
+        deadline = time.time() + wait
+        while not self.notices:
+            left = deadline - time.time()
+            if left <= 0:
+                raise Mismatch(f"no notice came; wanted {json.dumps(want)}")
+            try:
+                msg = self.read_line(left)
+            except socket.timeout:
+                continue
+            if msg is None:
+                raise Mismatch("the connection closed while waiting for a notice")
+            check_envelope(msg, True)
+            self.notices.append(msg)
+        got = self.notices.pop(0)
+        matches(want, got, saved)
+
+    def notice(self, want: dict, saved: dict, wait: float = NOTICE_WAIT_S, any_order: bool = False) -> None:
+        deadline = time.time() + wait
         while True:
             for i, n in enumerate(self.notices):
                 try:
                     matches(want, n, saved)
                 except Mismatch:
                     continue
-                del self.notices[: i + 1]
+                del self.notices[(i if any_order else 0):i + 1]
                 return
             left = deadline - time.time()
             if left <= 0:
-                raise Mismatch(f"no notice matched {json.dumps(want)}; saw {json.dumps(self.notices)}")
+                raise Mismatch(f"no notice matched {json.dumps(want)}; saw {json.dumps(self.notices)[:600]}")
             try:
                 msg = self.read_line(left)
             except socket.timeout:
@@ -333,8 +365,10 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                         if "error" not in reply:
                             raise Mismatch(f"wanted an error, got {json.dumps(reply)}")
                         matches(substitute(step["error"], saved), reply["error"], saved, "error")
+                if "notice_next" in step:
+                    conn.next_notice(step["notice_next"], saved, step.get("notices_within_s", NOTICE_WAIT_S))
                 for want in step.get("notices", []):
-                    conn.notice(want, saved)
+                    conn.notice(want, saved, step.get("notices_within_s", NOTICE_WAIT_S), step.get("notices_any_order", False))
             except (Mismatch, socket.timeout, ConnectionError, json.JSONDecodeError) as e:
                 return "fail", f"step {n}: {type(e).__name__ + ': ' if not isinstance(e, Mismatch) else ''}{e}"
         return "pass", ""
@@ -383,10 +417,14 @@ def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = No
     return out
 
 
-def read_methods(path: str) -> set:
-    """One method per line; blank lines and #-comments are ignored."""
+def read_lines(path: str) -> list:
+    """One name per line, in file order; blank lines and #-comments are ignored."""
     lines = (ln.split("#", 1)[0].strip() for ln in Path(path).read_text().splitlines())
-    return {ln for ln in lines if ln}
+    return [ln for ln in lines if ln]
+
+
+def read_methods(path: str) -> set:
+    return set(read_lines(path))
 
 
 def main(argv: list[str], connectors: dict | None = None) -> int:
@@ -394,6 +432,7 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     sockets: dict = {}
     vars_: dict = {}
     only, files, rest, i, allow_skip, allow_missing, allow_needvar = None, [], [], 0, False, set(), set()
+    listed: list = []       # the names of --allow-missing-file, as written
     while i < len(argv):
         a = argv[i]
         if a in ("--as", "--var") and i + 1 < len(argv) and "=" in argv[i + 1]:
@@ -407,7 +446,8 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
             i += 2
         elif a == "--allow-missing-file" and i + 1 < len(argv):
             try:
-                allow_missing |= read_methods(argv[i + 1])
+                listed += read_lines(argv[i + 1])
+                allow_missing |= set(listed)
             except OSError as e:
                 print(f"cannot read {argv[i + 1]}: {e}", file=sys.stderr)
                 return 2
@@ -438,8 +478,11 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     counts = {"pass": 0, "fail": 0, "skip": 0, "missing": 0, "needvar": 0}
     unallowed = 0
     stale = {n for n in allow_needvar if not only and n not in spec_of}
+    served: set = set()     # specs a fixture reached on a daemon that lists them
     for status, why, name in run_all(files, sockets, vars_, only):
         counts[status] += 1
+        if status in ("pass", "fail"):
+            served.add(spec_of[name])
         if name in allow_needvar and status != "needvar":
             stale.add(name)
         allowed = status == "needvar" and name in allow_needvar
@@ -451,7 +494,16 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
           f"{counts['missing']} not implemented, {counts['needvar']} needing a var ({unallowed} of those not allowed)")
     for name in sorted(stale):
         print(f"STALE {name}  - in --allow-needvar-file but it did not need a var (passed, failed, or no such fixture): delete the line")
-    if counts["fail"] or unallowed or stale:
+    # The missing file is a set, read one name per line, so branches may append to it without conflicts: what keeps it
+    # honest is here. A name twice, or one whose method the daemon now serves (a fixture reached it, or hello lists it
+    # for a method no fixture covers), is stale.
+    dup = sorted({n for n in listed if listed.count(n) > 1})
+    gone = sorted(set(listed) & (served | (listed_methods(sockets["founder"]) or set()))) if not only else []
+    for name in dup:
+        print(f"STALE {name}  - listed more than once in --allow-missing-file: keep one line")
+    for name in gone:
+        print(f"STALE {name}  - in --allow-missing-file but the daemon serves it: delete the line")
+    if counts["fail"] or unallowed or stale or dup or gone:
         return 1
     return 3 if counts["skip"] and not allow_skip else 0
 

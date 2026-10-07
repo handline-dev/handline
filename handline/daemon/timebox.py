@@ -211,6 +211,7 @@ def sweep_background_check(con, log, now: int) -> None:
             listing += ("; " if listing else "") + f"{unnamed} that ocp cannot name"
         text = (f"Background work has been running for {timefmt.ago(now - since)}: {listing or 'something ocp cannot name'}. "
                 f"Stop what you no longer need, and for each one you keep say in a line why. "
+                f"If it watches for another task, stop it and set `--blocked-by T<n>` on your task instead. "
                 f"You are asked again in {timefmt.ago(every)} while any runs.")
         # The event goes in before the typing: its id is what separates the turn that ended
         # before the check from the one that answers it (`delivery.bg_last_shown`).

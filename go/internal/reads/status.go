@@ -14,7 +14,7 @@ func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
 	names := e.listAgents()
 	byState := map[string]int{}
 	for _, n := range names {
-		state := "unknown"
+		state := noView
 		if v, ok := stored[n]; ok {
 			var view struct {
 				State string `json:"state"`

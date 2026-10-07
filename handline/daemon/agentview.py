@@ -15,7 +15,7 @@ from ..infra.yamlcompat import ConfigError
 from ..session import blocked as blockedmod, term
 from ..team import agents
 from . import delivery, handoff_note, lifecycle
-from .screenstate import DETAIL_CAP, screen_state
+from .screenstate import DETAIL_CAP, screen_state, wire_state
 
 
 def _ts(epoch) -> str | None:
@@ -32,6 +32,15 @@ def _role_line(name: str) -> str:
     return oneline(body)[:160]
 
 
+def screen_word(view: dict) -> tuple[str, str]:
+    """A view's state word and detail as the screens draw them (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL): the way back from the spec's
+    lower-case words, which are what the view holds."""
+    state, detail = view["state"], view.get("state_detail", "")
+    if state == "parked" and detail == "moving":
+        return "MOVING", ""
+    return {"running": "RUNNING", "queued": "PENDING", "parked": "PENDING", "waiting": "DIALOG", "stalled": "FATAL"}.get(state, "IDLE"), detail
+
+
 _READ = object()
 
 
@@ -42,6 +51,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         table = actions.routing()
     row = db.get_agent_state(con, name)
     word, detail = screen_state(con, row)
+    wire, detail = wire_state(con, row, word, detail)
     try:
         cfg = agents.read(name)
     except (OSError, ConfigError):
@@ -57,7 +67,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "role": _role_line(name),
         "model": model,
         "effort": effort,
-        "state": word,
+        "state": wire,
         "state_detail": detail,
         "state_since": _ts(row["updated"]) if row else None,
         "block": {"kind": shown["kind"], "since": _ts(shown["since"])} if shown else None,

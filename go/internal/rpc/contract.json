@@ -66,10 +66,16 @@
  "chat.messages": {
   "role": "member"
  },
+ "chat.requests": {
+  "role": "member"
+ },
  "chat.search": {
   "role": "member"
  },
  "chat.send": {
+  "role": "member"
+ },
+ "chat.send_now": {
   "role": "member"
  },
  "chat.transcript": {
@@ -235,6 +241,9 @@
   "role": "founder"
  },
  "stats.get": {
+  "role": "member"
+ },
+ "stats.outlook": {
   "role": "member"
  },
  "subscribe": {

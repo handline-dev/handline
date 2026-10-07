@@ -83,6 +83,8 @@ export type Prompt = {
   options: PromptOption[];
   /** When the daemon first saw this prompt open. */
   since: Timestamp;
+  /** Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request. */
+  multi?: boolean;
 };
 
 export type Block = {
@@ -168,6 +170,8 @@ export type Task = {
   hold_reason: string | null;
   block_reason: string | null;
   evidence: string | null;
+  /** 1 high, 2 default, 3 low (written P1-P3). */
+  priority?: 1 | 2 | 3;
 };
 
 export type TaskDetail = Task & {
@@ -548,13 +552,17 @@ export type ChatMessage = {
     title: string;
   }[];
   is_task_question: boolean;
+  /** Only in chat.search hits: the agent whose chat shows the message. */
+  agent?: string;
+  /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
+  scope?: "mine" | "all";
 };
 
 export type TranscriptItem = {
-  /** Ordered and stable, so a client appends and never redraws. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. */
   id: number;
   at: Timestamp;
-  kind: "reply" | "tool" | "prompt" | "task_event";
+  kind: "reply" | "tool" | "prompt" | "task_event" | "session";
   text?: string;
   tool?: string;
   /** Prompt card; `open` says whether it can still be answered. */
@@ -565,6 +573,12 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+  };
+  /** For kind session: a session of this agent began here. */
+  session?: {
+    id: string;
+    started: Timestamp;
+    handoff: string | null;
   };
 };
 
@@ -735,6 +749,35 @@ export type MethodInfo = {
   allowed: boolean;
 };
 
+export type Outlook = {
+  range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
+  now: Timestamp;
+  /** How many accounts have a reading. */
+  accounts: number;
+  /** What usage samples recorded, oldest first. */
+  past: {
+    at: Timestamp;
+    left_pct: number | null;
+  }[];
+  /** A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it. */
+  future: {
+    at: Timestamp;
+    left_pct: number | null;
+  }[];
+  runway: {
+    account: string;
+    runs_out_in_seconds: number | null;
+    week_resets_at: Timestamp | null;
+  }[];
+  /** Oldest first; a day with no calls is absent. */
+  cost_per_day: {
+    /** Local calendar day, YYYY-MM-DD. */
+    day: string;
+    /** List-price cost in US dollars of each agent that day. */
+    agents: { [key: string]: number };
+  }[];
+};
+
 export type TerminalBytesSnapshot = {
   terminal: string;
   format: "bytes";
@@ -764,6 +807,33 @@ export type HistoryBytesPage = {
   first: number;
   lines: string[];
   more: boolean;
+};
+
+export type ChatRequestItem = {
+  type: "request" | "task_event" | "session";
+  /** Where it sits in time: a request where its agent read it (landed_at) or else when it was made. */
+  at: Timestamp;
+  /** request only. */
+  message?: ChatMessage;
+  dismissal?: {
+    by: string | null;
+    reason: string | null;
+  } | null;
+  task_state?: string | null;
+  /** task_event only. */
+  task?: number;
+  /** task_event only: the task's title. */
+  title?: string;
+  /** task_event only: who did it. */
+  who?: string;
+  /** task_event only: `queued -> doing`, `handed to X`, `assigned to X`, `title changed`, `priority 2 -> 1`. An open set: a client draws a word it does not know as text. */
+  change?: string;
+  /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
+  note?: string;
+  request?: number | null;
+  /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
+  cause?: string;
+  handoff?: string | null;
 };
 
 export interface Methods {
@@ -929,8 +999,8 @@ export interface Methods {
   "prompt.answer": { params: {
   agent: AgentName;
   prompt: string;
-  /** A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. */
-  choice: string | {
+  /** A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. An array only answers a `multi` prompt. */
+  choice: string | string[] | {
     text: string;
   };
   request_id: RequestId;
@@ -959,6 +1029,25 @@ export interface Methods {
 }; result: {
     messages: ChatMessage[];
     more: boolean;
+  } };
+  "chat.requests": { params: {
+  agent: AgentName;
+  /** mine: person and this agent; all: everything it sent or received. */
+  scope: "mine" | "all";
+  /** Request id: read the page just older than it. */
+  before?: number;
+  /** Request id: read every request from it on (no `more`); how a window already drawn is brought up to date. Not with `before`. */
+  since?: number;
+  /** Requests in a page; default 10. */
+  limit?: number;
+}; result: {
+    items: ChatRequestItem[];
+    /** Older requests remain (never true with `since`). */
+    more: boolean;
+    /** Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again. */
+    version: string;
+    /** The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it. */
+    cursor: number;
   } };
   "chat.transcript": { params: {
   agent: AgentName;
@@ -1007,6 +1096,11 @@ export interface Methods {
 }; result: Accepted & {
     request: number;
   } };
+  "chat.send_now": { params: {
+  /** A ChatMessage.id still in state queued. */
+  request: number;
+  request_id: RequestId;
+}; result: Accepted };
   "chat.answer": { params: {
   request: number;
   text: string;
@@ -1056,6 +1150,8 @@ export interface Methods {
 }; result: Accepted };
   "terminal.detach": { params: {
   terminal: string;
+  /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
+  format?: "text" | "bytes";
 }; result: { [key: string]: unknown } };
   "inbox.list": { params: {
   unread?: boolean;
@@ -1121,7 +1217,7 @@ export interface Methods {
   parent?: number;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
-  /** 1 high, 2 default, 3 low (written P1-P3). */
+  /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   expects?: Expects;
   /** Also answer the founder's message with text, where {task} is this task's real number. */
@@ -1247,6 +1343,8 @@ export interface Methods {
   time_box?: Duration;
   /** Owner only: what the task waits on. */
   waits_on?: string;
+  /** 1 high, 2 default, 3 low (written P1-P3). */
+  priority?: 1 | 2 | 3;
   request_id: RequestId;
 }; result: Accepted };
   "say": { params: {
@@ -1453,6 +1551,10 @@ export interface Methods {
   "stats.get": { params: {
   window: "24h" | "7d";
 }; result: Stats };
+  "stats.outlook": { params: {
+  /** Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1). */
+  range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
+}; result: Outlook };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
@@ -1552,10 +1654,12 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "input.ask": { role: "member", callers: null, write: true, since: 1 },
   "input.release": { role: "member", callers: null, write: true, since: 1 },
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
+  "chat.requests": { role: "member", callers: null, write: false, since: 1 },
   "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
+  "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
   "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.withdraw": { role: "agent", callers: null, write: true, since: 1 },
@@ -1624,6 +1728,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
+  "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "settings.trust": { role: "founder", callers: null, write: true, since: 1 },
@@ -1680,11 +1785,15 @@ export interface Notifications {
   kind: "daemon_typed" | "control";
   actor: Actor | null;
   text?: string;
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   holder: {
   terminal: string;
   seq: number;
   holders: InputHolder[];
+  /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
+  format: "text" | "bytes";
 };
   output: {
   terminal: string;

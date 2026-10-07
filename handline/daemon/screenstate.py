@@ -84,6 +84,31 @@ def screen_state(con, row) -> tuple[str, str]:
     return word, detail
 
 
+# The words that leave the daemon (contract x-state-words): lower case, by what the agent's row says, never by reading `detail`.
+WIRE_WORDS = ("running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal")
+
+
+def wire_state(con, row, word: str, detail: str) -> tuple[str, str]:
+    """The screen word (`screen_state`'s) as the spec's lower-case state word and its state_detail. PENDING is two words, by what the
+    row waits for: `parked` when a wake time stands in the way, `queued` when only the next tick does; MOVING is `parked` with the
+    detail `moving`; an idle row with no terminal to show is `no_terminal`."""
+    if word == "RUNNING":
+        return "running", detail
+    if word == "DIALOG":
+        return "waiting", detail
+    if word == "FATAL":
+        return "stalled", detail
+    if word == "MOVING":
+        return "parked", "moving"
+    if word == "PENDING":
+        timed = (row is not None and row["state"] in (dmn_states.PARKED, dmn_states.DEGRADED, dmn_states.THROTTLED) and bool(row["wake_at"])
+                 and not dmn_lifecycle.restart_retry_note(con, row["agent"], row))
+        return ("parked" if timed else "queued"), detail
+    if row is None or not row["terminal"]:
+        return "no_terminal", detail
+    return "idle", detail
+
+
 def _screen_state(con, row) -> tuple[str, str]:
     """The one word this agent's row shows - from SCREEN_WORDS - and what to
     say beside it: a clock time, or what it is doing or waiting for. Drawn

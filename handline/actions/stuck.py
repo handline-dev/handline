@@ -23,9 +23,10 @@ from .routing import HUMAN
 # heard. A reason that does not resolve itself counts at once.
 STUCK_AFTER_S = dmn_states.STUCK_RUNNING_S
 
-# A closed agent with nothing to wake it for needs no one to act, so it is not shown.
-# One the daemon is about to wake is shown only once it has waited past STUCK_AFTER_S.
-QUIET_CLOSED = ("closed, nothing to wake it",)
+# States that need no one to act, so they are not shown: a closed agent with nothing to wake it for, and
+# an agent mid-turn, whose queue is told when the turn ends. One the daemon is about to wake is shown
+# only once it has waited past STUCK_AFTER_S.
+QUIET = ("closed, nothing to wake it", "mid-turn")
 
 
 def _delivery_state(con, agent: str, sessions: dict | None,
@@ -209,7 +210,7 @@ def stuck(con) -> list[dict]:
         age, what = now - int(r["ts"]), f"#{r['id']} {r['requester']} → {r['target']}"
         landed = dmn_landing.state(r, now)
         word, why, self_clearing = _delivery_state(con, r["target"], sessions, handles, alive)
-        if word in QUIET_CLOSED:
+        if word in QUIET:
             continue
         if not why:
             # The daemon can deliver it. Either it is about to, or it has
