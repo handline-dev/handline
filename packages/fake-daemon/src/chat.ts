@@ -1,5 +1,6 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
+import { Failure, badRequest, refused } from './errors.ts';
 import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
 
 type Emit = (
@@ -7,6 +8,20 @@ type Emit = (
   agent: string,
   data: ChatMessage | TranscriptItem | Working,
 ) => void;
+/** Runs a chat call and gives its failure as the JSON-RPC error the daemon sends. */
+export function chatCall<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    if (!(e instanceof ChatFailure)) throw e;
+    throw e.code === 'refused'
+      ? refused(e.gate ?? 'state', e.message)
+      : e.code === 'bad_request'
+        ? badRequest(e.message)
+        : new Failure('not_found', e.message);
+  }
+}
+
 export class ChatFailure extends Error {
   code: 'not_found' | 'refused' | 'bad_request';
   gate?: string;

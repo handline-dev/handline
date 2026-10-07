@@ -26,17 +26,29 @@ export interface ShellApi {
  * The route a notice's target lands on, or null when there is none to go to (no target, an empty id, the string `None` the daemon
  * emits for a task_done without a task, or a screen this does not know).
  */
-export function routeOfTarget(target: { screen: string; id: string } | null, eventType: string): string | null {
+export function routeOfTarget(
+  target: { screen: string; id: string } | null,
+  eventType: string,
+  /** The inbox's unread items, when the caller has them: a finished task opens its card, and goes to the task once none is left. */
+  unread?: readonly { id: number; task: number | null }[],
+): string | null {
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {
     case 'agent':
       return `#/agents/${id}`;
     case 'task':
-      return eventType === 'task_done' ? '#/inbox' : `#/tasks/${id}`;
+      return eventType === 'task_done' ? doneRoute(target.id, unread) : `#/tasks/${id}`;
     case 'account':
       return `#/accounts/${id}`;
     default:
       return null;
   }
+}
+
+/** A finished task: its unread inbox card when the caller knows the inbox and has one, the task itself when none is left, `#/inbox` when the inbox is unknown. */
+function doneRoute(task: string, unread: readonly { id: number; task: number | null }[] | undefined): string {
+  if (!unread) return '#/inbox';
+  const card = unread.find((i) => String(i.task) === task);
+  return card ? `#/inbox/${card.id}` : `#/tasks/${encodeURIComponent(task)}`;
 }

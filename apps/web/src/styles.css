@@ -1003,3 +1003,156 @@ button.opt {
     white-space: pre;
   }
 }
+||||||| parent of 9ee52cf3 (Web Inbox page: list, kind and agent filters, bell from the inbox list, deep links)
+
+
+/* Inbox page */
+.inbox {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+  overflow: auto;
+  height: 100%;
+}
+.inbox-top {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  background: var(--bg);
+}
+.inbox-top h2 {
+  margin: 0 auto 0 0;
+  font-size: 18px;
+}
+.inbox-top select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 5px 6px;
+}
+.inbox-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.inbox-keys div {
+  display: flex;
+  gap: 6px;
+}
+.inbox-keys dd {
+  margin: 0;
+  color: var(--muted);
+}
+.inbox-keys dt {
+  margin: 0;
+}
+.inbox-confirm {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.inbox-card {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.inbox-card.on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.inbox-card.read .inbox-title,
+.inbox-card.read .inbox-body {
+  color: var(--muted);
+  font-weight: 400;
+}
+.inbox-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.inbox-dot {
+  color: var(--accent);
+}
+.inbox-card.read .inbox-dot {
+  color: var(--muted);
+}
+.inbox-age {
+  margin-left: auto;
+}
+.inbox-title {
+  margin: 6px 0 4px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.inbox-body {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.inbox-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.inbox-actions .grow {
+  flex: 1;
+}
+.inbox-mark {
+  margin: 4px 0;
+}
+.inbox-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.inbox-box textarea {
+  flex: 1 1 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 6px 8px;
+  font: inherit;
+}
+.inbox .btn {
+  text-decoration: none;
+  color: inherit;
+}
+.inbox .btn.primary {
+  color: var(--accent-ink);
+}
+@media (max-width: 640px) {
+  .inbox-actions .btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .inbox-actions .grow {
+    display: none;
+  }
+}
+.bell {
+  border: 0;
+}
+.nav.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

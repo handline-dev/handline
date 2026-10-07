@@ -17,8 +17,9 @@ import {
   type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS, seedChat } from './fixtures.ts';
-import { ChatFailure, FakeChat } from './chat.ts';
+import { AGENTS, seedChat, seedInbox } from './fixtures.ts';
+import { FakeInbox } from './inbox.ts';
+import { chatCall, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
@@ -45,6 +46,7 @@ export interface FakeDaemonOptions {
   retention?: number; // events kept for resume; older ones give `gap`
   now?: () => Date;
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
+  inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
 }
 
 type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
@@ -54,7 +56,9 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  readonly inbox: FakeInbox;
   private serveChat: boolean;
+  private serveInbox: boolean;
   private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
@@ -88,6 +92,12 @@ export class FakeDaemon {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;
+    this.serveInbox = opts.inbox ?? true;
+    this.inbox = new FakeInbox(
+      (type, item) =>
+        this.emit('inbox', type, { agent: item.agent ?? undefined, title: item.title, data: item as unknown as Record<string, unknown> }),
+      () => this.iso(),
+    );
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
@@ -96,6 +106,7 @@ export class FakeDaemon {
     );
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
     seedChat(this.chat, this.iso());
+    if (this.serveInbox) seedInbox(this.inbox, this.iso());
   }
 
   private iso(): Timestamp {
@@ -321,7 +332,7 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => this.serveChat || !name.startsWith('chat.'))
+          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && (this.serveInbox || !name.startsWith('inbox.')))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -334,10 +345,12 @@ export class FakeDaemon {
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
-    if (method.startsWith('chat.') && !this.serveChat) throw refused('unsupported', `the fake daemon does not serve ${method}`);
+    if ((method.startsWith('chat.') && !this.serveChat) || (method.startsWith('inbox.') && !this.serveInbox))
+      throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
+    if (method.startsWith('inbox.')) return this.inbox.call(method, p, c.caller.name, (said) => this.script.accepted(said));
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
@@ -361,7 +374,7 @@ export class FakeDaemon {
           started_at: this.iso(),
           terminal_host: { name: 'fake', health: 'ok' },
           agents: { total: this.sessions.size, by_state },
-          inbox: { unread: 0 },
+          inbox: { unread: this.inbox.unread() },
         };
       }
       case 'agents.list':
@@ -415,28 +428,16 @@ export class FakeDaemon {
         return this.chat.transcriptOf(p);
       case 'chat.send':
         agent();
-        return this.chatCall(() => ok('Sent.', this.chat.send(p, person)));
+        return chatCall(() => ok('Sent.', this.chat.send(p, person)));
       case 'chat.answer':
-        return this.chatCall(() => (this.chat.answer(p), ok('Answered.')));
+        return chatCall(() => (this.chat.answer(p), ok('Answered.')));
       case 'chat.dismiss':
-        return this.chatCall(() => (this.chat.dismiss(p), ok('Dismissed.')));
+        if (this.inbox.dismiss(p.request)) return ok('Dismissed.');
+        return chatCall(() => (this.chat.dismiss(p), ok('Dismissed.')));
       case 'chat.withdraw':
-        return this.chatCall(() => (this.chat.withdraw(p), ok('Withdrawn.')));
+        return chatCall(() => (this.chat.withdraw(p), ok('Withdrawn.')));
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
-    }
-  }
-
-  private chatCall<T>(fn: () => T): T {
-    try {
-      return fn();
-    } catch (e) {
-      if (!(e instanceof ChatFailure)) throw e;
-      throw e.code === 'refused'
-        ? refused(e.gate ?? 'state', e.message)
-        : e.code === 'bad_request'
-          ? badRequest(e.message)
-          : new Failure('not_found', e.message);
     }
   }
 

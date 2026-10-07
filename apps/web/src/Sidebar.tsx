@@ -15,10 +15,10 @@ import {
 } from '@handline/app-core';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { useConnection, useSelector, useStore } from '@handline/app-react';
-import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
+import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@handline/app-data';
 import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
-import { goAgent } from './route.ts';
+import { goAgent, goInbox, useInboxRoute } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({ selected, storage, onToggle }: { selected: string; storage: KV | null; onToggle: () => void }) {
@@ -30,7 +30,8 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
   const [by, setBy] = useState(() => setting(storage, 'group', 'role').value as GroupBy);
   const [hideParked, setHide] = useState(() => setting(storage, 'hideParked', '').value === '1');
   const groups = railGroups(agents, by, { hideParked, search });
-  const waiting = agents.filter((a) => dotOf(a) === 'waiting').length;
+  const unread = useUnread().length;
+  const onInbox = useInboxRoute().open;
   const accounts = [...new Set(agents.map((a) => a.account).filter(Boolean))];
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
   const later = (t: string) => (
@@ -45,13 +46,18 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
           ☰
         </button>
         <strong className="brand">Handline</strong>
-        {waiting ? (
-          <span className="bell" title="Agents waiting on you">
-            {waiting}
-          </span>
+        {unread ? (
+          <button className="bell" title="Unread in the inbox" aria-label={`${unread} unread in the inbox`} onClick={goInbox}>
+            {unread}
+          </button>
         ) : null}
       </div>
-      <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
+      <div className="rail-nav">
+        <button className={`nav${onInbox ? ' on' : ''}`} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
+          Inbox{unread ? ` ${unread}` : ''}
+        </button>
+        {['Tasks', 'Team', 'Accounts'].map(later)}
+      </div>
       <div className="rail-opts">
         <input
           className="search"
