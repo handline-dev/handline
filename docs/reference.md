@@ -16,6 +16,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl team init` / `seal` | Write a starter `team.yaml`; accept hand edits to `team.yaml` and `agent.yaml`. |
 | `hl trust add <folder>` | Let ocp answer Claude's "trust this folder" screen for a folder. |
 | `hl trust mcp <folder>` | Founder only: approve the MCP servers in a declared folder's `.mcp.json` as they read now, so a launch there enables them without Claude asking. A server added or changed later is asked about. |
+| `hl device pair [--name N]` / `list` / `revoke <id>` | Founder only, from your own terminal: make a one-time pairing code with its uri, address and fingerprint (none in Tailscale mode); list the paired devices; cancel one at once. They talk to the gateway's local socket (`<home>/gateway.sock`) and say plainly when no gateway runs. |
 | `hl backup install` | Snapshot `~/.orcapipe` every five minutes when it changed. |
 
 ## Run
@@ -58,9 +59,9 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 |---|---|
 | `hl team` | Who you may reach, and what each is doing. |
 | `hl hr team` / `add` / `retire` / `rename` / `link` / `unlink` | Propose a roster change. |
-| `hl hr diff --file F --why W` | Propose several roster changes as one: the founder decides once, they apply in order or not at all, you get one message. |
+| `hl hr diff --file F --why W` | Propose several changes as one (roster, `settings`, `schedule`, `global`): the founder decides once, they apply in order or not at all, you get one message. |
 | `hl hr links [--apply]` | Move team.yaml onto the name links (founder). |
-| `hl hr list [--json]` / `approve <id>… \| --all [--yes]` / `reject <id> [reason]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
+| `hl hr list [--json]` / `approve <id>… \| --all [--yes]` / `reject <id> [reason] \| --all [--reason R]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
 | `hl memory status` | Size of each agent's `ROLE.md` and `base.md` against its limit. |
-| `hl schedule` | Messages the daemon types at an agent on a cron schedule. |
+| `hl schedule` | Messages the daemon types at an agent on a cron schedule. From an agent's session, `add`/`edit`/`remove` with `--why` raise a proposal; so do `hl agent register` and setting a global switch (`idle-timeout`, `notice-digest`, `ignore-cache-expiry`, `auto-accept`, `dev-mode`). |
 | `hl fold [agent]` | Fold recorded events into the digest. The only command that calls a model. |

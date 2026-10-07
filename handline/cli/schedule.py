@@ -1,9 +1,12 @@
 """`ocp schedule` (T605): the messages the daemon types at an agent on a cron schedule. Reading is open;
-adding, editing and removing write agent.yaml, which only the founder's terminal may."""
+adding, editing and removing write agent.yaml, which only the founder's terminal may; from an agent's
+session they are raised as an HR proposal instead."""
 from __future__ import annotations
 
 from .. import actions
 from ..daemon import schedules
+from ..infra import protected
+from .hr import propose_for_session
 
 
 def _show(agent: str) -> None:
@@ -24,6 +27,10 @@ def cmd_schedule(args) -> int:
         if not args.agent:
             print("--agent is needed")
             return 1
+        if protected.in_agent_session():
+            sets = {"action": args.action, **{k: str(v) for k, v in (("cron", args.cron), ("message", args.message),
+                                                                     ("index", args.index)) if v is not None}}
+            return propose_for_session("schedule", args.agent, sets, args.why)
         if args.action == "add":
             if not args.cron or not args.message:
                 print("add needs --cron and --message")

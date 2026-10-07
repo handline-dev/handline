@@ -12,7 +12,7 @@ from .. import db
 from ..session import launch
 from ..session import observe as obs
 from ..session import term
-from ..infra import gitrun, paths, service
+from ..infra import gitrun, paths, protected, service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
 from ..ui import tui
@@ -33,6 +33,9 @@ def cmd_dev_mode(args) -> int:
     if args.state is None:
         print("on" if dmn_devmode.dev_mode_enabled() else "off")
         return 0
+    if protected.in_agent_session():
+        from .hr import propose_for_session
+        return propose_for_session("global", "dev-mode", {"value": args.state}, args.why)
     try:
         dmn_devmode.set_dev_mode(args.state == "on")
     except ConfigError as e:

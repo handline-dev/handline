@@ -1152,8 +1152,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     leaves no task row behind. The request is kind='task' except for a human
     owner (C3), whose card is the founder's gate while the task is open.
 
-    No `con`: like `ask`, this manages its own connection(s); the task row
-    and its link are one write, only the call into `ask` is separate.
+    No `con`: like `ask`, this manages its own connection(s); the delivery, the task row and its
+    link (and `effect`) are one write.
 
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
@@ -1180,28 +1180,21 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         finally:
             con.close()
     kind = None if owner == HUMAN else "task"
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False)
+    opened: list[int] = []
+
+    def together(con, rid: int, _note: str) -> None:
+        """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it."""
+        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s)
+        opened.append(tid)
+        _link_delivery(con, tid, owner, rid)
+        db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner, "expects": expects})
+        _block_parent_on_child(con, parent, tid, me)
+        if effect:
+            effect(con, tid)
+    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
     if not ok:
         return False, msg, None
-    con = db.connect()
-    try:
-        con.execute("BEGIN IMMEDIATE")      # the task, its link and `effect` (the daemon's record of the write) land together
-        try:
-            tid = db.new_task(con, title, owner, me, parent, priority, expects=expects,
-                              timeout_s=timeout_s)
-            _link_delivery(con, tid, owner, rid)
-            db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner,
-                                               "expects": expects})
-            _block_parent_on_child(con, parent, tid, me)
-            if effect:
-                effect(con, tid)
-            con.execute("COMMIT")
-        except BaseException:
-            if con.in_transaction:
-                con.execute("ROLLBACK")
-            raise
-    finally:
-        con.close()
+    tid = opened[0]
     limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
                   f"expects {expects}{limit}): {msg}"), tid

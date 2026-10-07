@@ -17,8 +17,9 @@ import {
   type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS, seedChat, seedInbox } from './fixtures.ts';
+import { AGENTS, seedChat } from './fixtures.ts';
 import { FakeInbox } from './inbox.ts';
+import { FakeTasks, taskCall } from './tasks.ts';
 import { chatCall, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
@@ -57,8 +58,8 @@ export class FakeDaemon {
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
   readonly inbox: FakeInbox;
+  readonly tasks = new FakeTasks(this, () => this.iso());
   private serveChat: boolean;
-  private serveInbox: boolean;
   private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
@@ -75,8 +76,9 @@ export class FakeDaemon {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));
         if (a?.format === 'text') this.notify(c, method, params);
-        // Bytes watchers get the same markers and holders in their own counter, and no frames or resizes.
-        else if (a && (method === 'marker' || method === 'holder')) this.notify(c, method, { ...(params as object), seq: ++a.seq });
+        // Bytes watchers get the same markers and holders in their own counter, marked `bytes`, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder'))
+          this.notify(c, method, { ...(params as object), format: 'bytes', seq: ++a.seq });
       }
     },
     broadcastBytes: (s, method, build) => {
@@ -92,12 +94,7 @@ export class FakeDaemon {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;
-    this.serveInbox = opts.inbox ?? true;
-    this.inbox = new FakeInbox(
-      (type, item) =>
-        this.emit('inbox', type, { agent: item.agent ?? undefined, title: item.title, data: item as unknown as Record<string, unknown> }),
-      () => this.iso(),
-    );
+    this.inbox = new FakeInbox(this, () => this.iso(), opts.inbox ?? true);
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
@@ -106,7 +103,6 @@ export class FakeDaemon {
     );
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
     seedChat(this.chat, this.iso());
-    if (this.serveInbox) seedInbox(this.inbox, this.iso());
   }
 
   private iso(): Timestamp {
@@ -196,6 +192,7 @@ export class FakeDaemon {
       kind: 'daemon_typed',
       actor: { kind: 'daemon', name: 'daemon' },
       text,
+      format: 'text',
     }));
   }
 
@@ -332,7 +329,7 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && (this.serveInbox || !name.startsWith('inbox.')))
+          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && this.inbox.lists(name) && this.tasks.lists(name))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -345,12 +342,13 @@ export class FakeDaemon {
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
-    if ((method.startsWith('chat.') && !this.serveChat) || (method.startsWith('inbox.') && !this.serveInbox))
+    if ((method.startsWith('chat.') && !this.serveChat) || (method.startsWith('inbox.') && !this.inbox.lists(method)))
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
     if (method.startsWith('inbox.')) return this.inbox.call(method, p, c.caller.name, (said) => this.script.accepted(said));
+    if (this.tasks.serves(method)) return taskCall(this.tasks, method, p, c.caller.name, this.script);
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });

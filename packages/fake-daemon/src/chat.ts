@@ -1,6 +1,6 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
-import { Failure, badRequest, refused } from './errors.ts';
+import { storeFailure } from './errors.ts';
 import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
 
 type Emit = (
@@ -14,11 +14,7 @@ export function chatCall<T>(fn: () => T): T {
     return fn();
   } catch (e) {
     if (!(e instanceof ChatFailure)) throw e;
-    throw e.code === 'refused'
-      ? refused(e.gate ?? 'state', e.message)
-      : e.code === 'bad_request'
-        ? badRequest(e.message)
-        : new Failure('not_found', e.message);
+    throw storeFailure(e);
   }
 }
 

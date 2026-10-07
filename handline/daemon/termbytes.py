@@ -448,7 +448,7 @@ class BytesChannel:
     def notify(self, method: str, **params) -> None:
         with self.lock:
             for c in list(self.clients):
-                c.put_notice(method, params)
+                c.put_notice(method, {**params, "format": "bytes"})
 
     def resized(self) -> None:
         """The size changed (a holder's or the restore): every client is sent a snapshot, reason `resize`, and no `resize` notice."""

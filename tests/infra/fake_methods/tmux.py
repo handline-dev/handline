@@ -20,8 +20,8 @@ b64 = lambda b: base64.b64encode(b).decode()
 
 
 class Attach:
-    def __init__(self, ctx):
-        self.ctx, self.seq, self.queue, self.queued = ctx, 100, collections.deque(), 0
+    def __init__(self, ctx, fmt):
+        self.ctx, self.fmt, self.seq, self.queue, self.queued = ctx, fmt, 100, collections.deque(), 0
         self.cond, self.go, self.dead = threading.Condition(), False, False
 
     def writer(self):
@@ -50,9 +50,12 @@ class World:
                 "cursor": {"x": len(rows[-1]) if rows else 0, "y": max(len(rows) - 1, 0)}, "cursor_visible": True}
 
     def push(self, att, method, **params):
-        """Give one notice the attach's next seq; a backlog past the limit is replaced by a snapshot, never thinned."""
+        """Give one notice the attach's next seq; a backlog past the limit is replaced by a snapshot, never thinned.
+        marker and holder are the one method for both formats, so each says which attach it belongs to."""
         with att.cond:
             att.seq += 1
+            if method in ("marker", "holder"):
+                params["format"] = att.fmt
             msg = {"jsonrpc": "2.0", "method": method, "params": {"terminal": HANDLE, "seq": att.seq, **params}}
             size = len(json.dumps(msg))
             if method == "output" and att.queued + size >= BACKLOG:
@@ -66,8 +69,13 @@ class World:
             att.cond.notify()
 
     def tell(self, method, **params):
-        for att in self.attaches:
-            self.push(att, method, **params)
+        """Output and snapshot notices are bytes attaches' (a text attach is told of output by a frame, below); the rest go to every attach."""
+        for att in list(self.attaches):
+            if method in ("output", "snapshot") and att.fmt == "text":
+                if method == "output":
+                    self.push(att, "frame", full=True, lines=[{"text": r} for r in self.rows], cursor=None)
+            else:
+                self.push(att, method, **params)
 
     def holders(self):
         return [{"kind": "person", "name": "x", "since": SINCE}] if self.holder else [{"kind": "daemon", "name": "daemon", "since": None}]
@@ -99,21 +107,27 @@ def world(ctx) -> World:
 
 
 def attach(ctx, params):
-    if ctx is None or params.get("format", "text") != "bytes":      # a connection with no tmux world (the fake network's) serves text only
-        return None
+    fmt = params.get("format", "text")
+    if ctx is None or (fmt == "text" and params.get("agent") != AGENT and params.get("terminal") != HANDLE):
+        return None             # a connection with no tmux world (the fake network's) serves text only; other text terminals are static
     w = world(ctx)
     agent = params.get("agent")
-    if agent == TEXT_ONLY:
+    if agent == TEXT_ONLY and fmt == "bytes":
         return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "unsupported", "reason": "this terminal's host serves text only"}}
     if agent not in (None, AGENT) or params.get("terminal") not in (None, HANDLE):
         return None
     n = params.get("history", 100)
     with w.lock:
-        att = Attach(ctx)
+        detach(w, ctx, fmt)         # one attach per terminal and format: a second one replaces the first
+        att = Attach(ctx, fmt)
         w.attaches.append(att)
-        lines = [] if w.alt else w.scroll[-n:] if n else []
-        result = {"terminal": HANDLE, "format": "bytes", "seq": att.seq, **w.snapshot_fields(), "history": {"first": len(w.scroll) - len(lines), "lines": lines, "more": False},
-                  "holder": w.holders()[0], "holders": w.holders()}
+        lines = [] if w.alt or fmt == "text" else w.scroll[-n:] if n else []
+        if fmt == "text":
+            result = {"terminal": HANDLE, "format": "text", "seq": att.seq, "cols": w.size[0], "rows": w.size[1], "lines": [{"text": r} for r in w.rows], "cursor": None,
+                      "history": {"first": 0, "lines": [], "more": False}, "holder": w.holders()[0], "holders": w.holders()}
+        else:
+            result = {"terminal": HANDLE, "format": "bytes", "seq": att.seq, **w.snapshot_fields(), "history": {"first": len(w.scroll) - len(lines), "lines": lines, "more": False},
+                      "holder": w.holders()[0], "holders": w.holders()}
 
     def begin():
         att.go = True
@@ -133,14 +147,15 @@ def watch(w, ctx):
 
 def leave(w, ctx):
     """A connection that closes stops watching and gives up the input it held."""
-    detach_all(w, ctx)
+    detach(w, ctx)
     if w.holder == ctx.id:
         take(ctx, "input.release")
 
 
-def detach_all(w, ctx):
+def detach(w, ctx, fmt=None):
+    """End this connection's attach in `fmt`, or every attach of the terminal when none is named."""
     with w.lock:
-        for att in [a for a in w.attaches if a.ctx is ctx]:
+        for att in [a for a in w.attaches if a.ctx is ctx and fmt in (None, a.fmt)]:
             w.attaches.remove(att)
             with att.cond:
                 att.dead = True
@@ -170,7 +185,7 @@ def terminal(ctx, method, params):
     w = world(ctx)
     with w.lock:
         if method == "terminal.detach":
-            detach_all(w, ctx)
+            detach(w, ctx, params.get("format"))
             return "ok", {}
         if method == "terminal.history":
             if params.get("format") != "bytes":

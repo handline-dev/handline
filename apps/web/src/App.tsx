@@ -5,9 +5,10 @@ import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { InboxPage } from './Inbox.tsx';
-import { useInboxRoute, useSelectedAgent } from './route.ts';
+import { useInboxRoute, useSelectedAgent, useTasksRoute } from './route.ts';
 import { useShell } from './shell.ts';
 import { Sidebar } from './Sidebar.tsx';
+import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
 const Box: BoxComponent = (p) => <div {...p} />;
@@ -25,6 +26,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
+  const tasks = useTasksRoute();
   useShell(agent);
   const inbox = useInboxRoute();
   const unread = useUnread().length;
@@ -42,7 +44,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   return (
     <div id="app" data-rail={railOpen ? 'open' : 'closed'}>
       {railOpen ? (
-        <Sidebar selected={agent} storage={storage} onToggle={toggle} />
+        <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
       ) : (
         <button className="rail-handle" aria-label="Show the agent list" title="Show the agent list" onClick={toggle}>
           ☰
@@ -51,6 +53,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       <main className="main" aria-label="Agent workspace">
         {inbox.open ? (
           <InboxPage item={inbox.item} />
+        ) : tasks !== null ? (
+          <TasksPage storage={storage} route={tasks} />
         ) : agent ? (
           <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
         ) : (

@@ -85,10 +85,20 @@ def _attach(ctx, params) -> dict:
     client = termchannel.Client(ctx.send_line, ctx.hang_up)
     ch = termchannel.HUB.attach(handle, client)
     ctx.after_reply.append(lambda: ch.begin(client))
-    ctx.on_close.append(lambda: ch.detach(client))
-    ctx.terminals = getattr(ctx, "terminals", {})
-    ctx.terminals.setdefault(handle, []).append((ch, client))
+    _hold(ctx, handle, "text", ch, client)
     return ch.snapshot(history, holders)
+
+
+def _hold(ctx, handle: str, fmt: str, ch, client) -> None:
+    """Keep the attach of `handle` in `fmt` on this connection: one a terminal and format, so a second attach replaces the first (its client leaves
+    the channel at once, and is sent nothing after this reply). The other format is independent, and closing the connection ends them all."""
+    if not hasattr(ctx, "terminals"):
+        ctx.terminals = {}
+        ctx.on_close.append(lambda: [och.detach(oc) for och, oc in list(ctx.terminals.values())])
+    old = ctx.terminals.get((handle, fmt))
+    ctx.terminals[(handle, fmt)] = (ch, client)
+    if old is not None:
+        old[0].detach(old[1])
 
 
 def _attach_bytes(ctx, handle: str, history: int, holders: list[dict]) -> dict:
@@ -102,9 +112,7 @@ def _attach_bytes(ctx, handle: str, history: int, holders: list[dict]) -> dict:
     if snap is None:
         raise rpc.refused("the terminal's screen could not be read", gate="state")
     ctx.after_reply.append(lambda: ch.begin(client))
-    ctx.on_close.append(lambda: ch.detach(client))
-    ctx.terminals = getattr(ctx, "terminals", {})
-    ctx.terminals.setdefault(handle, []).append((ch, client))
+    _hold(ctx, handle, "bytes", ch, client)
     return {"terminal": handle, "format": "bytes", "seq": client.seq, **termbytes._encode(snap), "history": snap["history"],
             "holder": holders[0] if holders else inputhold.DAEMON, "holders": holders}
 
@@ -113,7 +121,17 @@ def _detach(ctx, params) -> dict:
     handle = params.get("terminal")
     if not isinstance(handle, str) or not handle:
         raise rpc.bad_request("terminal is a handle", "terminal", rpc.INVALID_PARAMS)
-    for ch, client in getattr(ctx, "terminals", {}).pop(handle, []):
+    fmt = params.get("format")
+    if fmt is not None and fmt not in ("text", "bytes"):
+        raise rpc.bad_request("format is text or bytes", "format", rpc.INVALID_PARAMS)
+    con = db.connect()
+    try:
+        _handle(con, {"terminal": handle})          # not_found for a handle that does not exist; nothing to end is not an error
+    finally:
+        con.close()
+    held = getattr(ctx, "terminals", {})
+    for key in [k for k in held if k[0] == handle and fmt in (None, k[1])]:
+        ch, client = held.pop(key)
         ch.detach(client)
     return {}
 

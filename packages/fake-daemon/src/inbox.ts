@@ -1,18 +1,33 @@
 // The fake daemon's inbox: results, decisions, blocks and prompts for the founder, newest first, on the inbox topic.
 import type { InboxItem, Timestamp } from '@handline/contract';
 import { Failure, refused } from './errors.ts';
+import { seedInbox } from './fixtures.ts';
 
-type Emit = (type: 'inbox.added' | 'inbox.changed', item: InboxItem) => void;
+/** What the inbox needs of the daemon that hosts it: to emit on its topic. */
+interface Host {
+  emit(topic: 'inbox', type: string, f: { agent?: string; title?: string; data: Record<string, unknown> }): void;
+}
 
 export class FakeInbox {
   private items: InboxItem[] = [];
   private nextId = 1;
-  private emit: Emit;
+  private host: Host;
   private now: () => Timestamp;
+  private on: boolean;
 
-  constructor(emit: Emit, now: () => Timestamp) {
-    this.emit = emit;
+  /** `on` false is a daemon that does not serve the inbox: it lists none of its methods and holds no items. */
+  constructor(host: Host, now: () => Timestamp, on: boolean) {
+    this.host = host;
     this.now = now;
+    this.on = on;
+    if (on) seedInbox(this, now());
+  }
+
+  /** Whether the daemon lists this method. */
+  lists = (name: string): boolean => this.on || !name.startsWith('inbox.');
+
+  private emit(type: 'inbox.added' | 'inbox.changed', item: InboxItem) {
+    this.host.emit('inbox', type, { agent: item.agent ?? undefined, title: item.title, data: item as unknown as Record<string, unknown> });
   }
 
   /** One inbox method; `accepted` makes the reply of a write. */
