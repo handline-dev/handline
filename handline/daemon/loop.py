@@ -10,7 +10,7 @@ from ..infra import lock
 from ..infra import paths
 from ..infra import service, sessiontoken
 from ..infra import textsafe
-from ..session import triggers
+from ..session import observe as obs, triggers
 from ..team import ask as askmod
 
 from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server, spool
@@ -45,6 +45,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         # body, at the sink it reaches most often.
         if verbose:
             print(f"[{time.strftime('%H:%M:%S')}] {textsafe.oneline(msg)}", flush=True)
+    obs.report = log
 
     # Set inside the lock below, read after it releases - restarting (task
     # #64) happens only once the lock and the db connection are given up the

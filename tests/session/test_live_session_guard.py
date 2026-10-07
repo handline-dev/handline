@@ -435,6 +435,75 @@ def test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(home: P
         check(f"is_session: claude's own -p still makes {line[:40]!r} headless", not drv.is_session(line))
 
 
+def test_a_process_table_that_cannot_be_read_says_why_once_per_episode(home: Path) -> None:
+    import subprocess
+    import types
+    _daemon_home(home, 20)
+    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
+    real = (obsmod.subprocess, obsmod.report, obsmod.ENV_RETRY_S, obsmod._failing)
+    said: list[str] = []
+    mode = {"table": "ok", "eww": "ok"}
+    argv = "claude --resume abc"
+
+    def run(cmd, **kw):
+        out = lambda text="", rc=0, err="": types.SimpleNamespace(stdout=text, stderr=err, returncode=rc)
+        if cmd[:2] == ["ps", "-Ao"]:
+            if mode["table"] == "missing":
+                raise FileNotFoundError(2, "no ps")
+            if mode["table"] == "timeout":
+                raise subprocess.TimeoutExpired(cmd, 20)
+            if mode["table"] == "exit":
+                return out(rc=1, err="ps: Operation not permitted\nsecond line is not kept")
+            return out(f"900 {argv}\n")
+        if cmd[1] == "ww":
+            return out(argv + "\n")
+        if cmd[1] == "eww":
+            if mode["eww"] == "timeout":
+                raise subprocess.TimeoutExpired(cmd, 10)
+            if mode["eww"] == "other":
+                return out("something else entirely OCP_AGENT=backend SECRET_TOKEN=hunter2\n")
+            return out(argv + " OCP_AGENT=backend SECRET_TOKEN=hunter2\n")
+        return out()
+    try:
+        obsmod.ENV_RETRY_S = 0
+        obsmod.subprocess = types.SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired, SubprocessError=subprocess.SubprocessError)
+        obsmod.report = said.append
+        obsmod._failing = False
+        check("process table: a readable one lists the session and says nothing", obsmod.live_sessions() == {"backend": 900} and not said, str(said))
+        causes = []
+        for table, want in (("missing", "ps -Ao could not run: FileNotFoundError 2"), ("timeout", "ps -Ao timed out after 20s"),
+                            ("exit", "ps -Ao exited 1: ps: Operation not permitted")):
+            mode["table"] = table
+            said.clear()
+            obsmod._failing = False
+            check(f"process table: {table}: the reading is None", obsmod.live_sessions() is None)
+            obsmod.live_sessions()
+            check(f"process table: {table}: the cause is said once, naming the call and how it failed",
+                  len(said) == 1 and said[0] == f"process table could not be read: {want}", str(said))
+            causes.append(said[0])
+        mode["table"] = "ok"
+        said.clear()
+        obsmod.live_sessions()
+        check("process table: when it reads again, that is said once", said == ["process table readable again"], str(said))
+        mode["eww"] = "timeout"
+        obsmod._failing = False
+        said.clear()
+        check("process table: a process whose environment read times out fails the reading", obsmod.live_sessions() is None)
+        check("process table: and the cause names the pid, how many sessions, and which call", len(said) == 1
+              and "pid 900, one of 1 session processes of 1" in said[0] and "ps eww timed out after 10s" in said[0], str(said))
+        causes.append(said[0])
+        mode["eww"] = "other"
+        obsmod._failing = False
+        said.clear()
+        check("process table: an eww that does not begin with the argv is a distinct cause", obsmod.live_sessions() is None
+              and len(said) == 1 and "did not begin with ps ww's argv" in said[0], str(said))
+        causes.append(said[0])
+        check("process table: every cause is its own line, and no environment value is in any", len(set(causes)) == len(causes)
+              and not any("hunter2" in c or "SECRET" in c for c in causes), str(causes))
+    finally:
+        obsmod.subprocess, obsmod.report, obsmod.ENV_RETRY_S, obsmod._failing = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_screen_says_whether_a_session_is_drawn(Path(td) / "g1"))
@@ -451,6 +520,7 @@ def main() -> int:
         run(lambda: test_a_session_the_table_misses_is_a_block_the_founder_sees_with_how_the_table_read_it(Path(td) / "g9"))
         run(lambda: test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environment(Path(td) / "g10"))
         run(lambda: test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(Path(td) / "g11"))
+        run(lambda: test_a_process_table_that_cannot_be_read_says_why_once_per_episode(Path(td) / "g15"))
     return run_area(tests)
 
 
