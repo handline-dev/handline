@@ -51,3 +51,4 @@ chat.transcript
 chat.locate
 chat.search
 hr.list
+chat.requests

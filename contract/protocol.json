@@ -2068,6 +2068,102 @@
    ]
   },
   {
+   "name": "chat.requests",
+   "summary": "A chat's threads for the screen that draws them: the requests of an agent's chat oldest first, with the task changes and the session starts among them, and one version that changes when anything in the chat does.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "scope",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "mine: person and this agent; all: everything it sent or received."
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Request id: read the page just older than it."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Request id: read every request from it on (no `more`); how a window already drawn is brought up to date. Not with `before`."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Requests in a page; default 10."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ChatRequestItem"
+       }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "Older requests remain (never true with `since`)."
+      },
+      "version": {
+       "type": "string",
+       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
+      },
+      "cursor": {
+       "type": "integer",
+       "description": "The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it."
+      }
+     },
+     "required": [
+      "items",
+      "more",
+      "version",
+      "cursor"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `dismissal` and `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
+  },
+  {
    "name": "chat.transcript",
    "summary": "The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state.",
    "paramStructure": "by-name",
@@ -9686,6 +9782,125 @@
      "first",
      "lines",
      "more"
+    ]
+   },
+   "ChatRequestItem": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "request",
+       "task_event",
+       "session"
+      ]
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Where it sits in time: a request where its agent read it (landed_at) or else when it was made."
+     },
+     "message": {
+      "$ref": "#/components/schemas/ChatMessage",
+      "description": "request only."
+     },
+     "dismissal": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "reason": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "by",
+         "reason"
+        ],
+        "description": "request only: who dismissed it and why, when it was dismissed."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "task_state": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "request only: the live state of the task a task delivery carries, else null."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "task": {
+      "type": "integer",
+      "description": "task_event only."
+     },
+     "title": {
+      "type": "string",
+      "description": "task_event only: the task's title."
+     },
+     "who": {
+      "type": "string",
+      "description": "task_event only: who did it."
+     },
+     "change": {
+      "type": "string",
+      "description": "task_event only: `queued -> doing`, `handed to X`, `assigned to X`, `title changed`, `priority 2 -> 1`. An open set: a client draws a word it does not know as text."
+     },
+     "note": {
+      "type": "string",
+      "description": "task_event only: the text typed with a handoff, else empty. Text from an agent."
+     },
+     "request": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "task_event only: the delivery a handoff belongs to, when it has one."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cause": {
+      "type": "string",
+      "description": "session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set."
+     },
+     "handoff": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "session only: the handoff record the session was given, else null."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "type",
+     "at"
     ]
    }
   },

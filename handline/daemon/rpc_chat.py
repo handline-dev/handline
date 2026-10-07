@@ -98,6 +98,114 @@ def _messages(ctx, params) -> dict:
         con.close()
 
 
+# What a task event moves a task to; `doing` is not stored, so the two events that put a task in its owner's hands stand for it.
+_STATE_AFTER = {"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing", "mark_task_done": "done",
+                "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued"}
+PAGE = 10
+
+
+def _edit_notes(payload: dict) -> list[str]:
+    notes = []
+    if "owner" in payload:
+        notes.append(f"assigned to {payload['owner']['new']}")
+    if "title" in payload:
+        notes.append("title changed")
+    if "priority" in payload:
+        notes.append(f"priority {payload['priority']['old']} -> {payload['priority']['new']}")
+    return notes
+
+
+def _when(r: dict) -> int:
+    """Where a request sits in the chat: where its agent read it, else when it was made."""
+    return int(r["landed_at"] or r["ts"] or 0)
+
+
+def _task_events(con, rows: list[dict]) -> list[dict]:
+    """The changes, since the first of `rows`, of the tasks delivered in them: a state it reached, a handoff, an edit. A task starts as queued, and
+    a delivery that landed puts it in its owner's hands (doing)."""
+    cards = {sorted(int(t) for t in r["tasks"].split(","))[0]: r["task_title"] for r in rows if r["kind"] == "task" and r["tasks"]}
+    if not cards:
+        return []
+    since = min((_when(r) for r in rows if _when(r)), default=0)
+    kinds = (*_STATE_AFTER, "task_handoff", "edit_task")
+    events = con.execute(f"SELECT ts, agent, kind, payload, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
+                         f"AND {db.EVENT_TASK} IN ({','.join('?' * len(cards))}) ORDER BY id", (*kinds, *cards)).fetchall()
+    steps = []      # (time, task, who, the state it reaches or None, what to say instead, the note with it, the delivery it belongs to)
+    for e in events:
+        if e["kind"] in _STATE_AFTER:
+            steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None, "", None))
+            continue
+        payload = json.loads(e["payload"])
+        if e["kind"] == "task_handoff":
+            steps.append((e["ts"], e["tid"], e["agent"], None, f"handed to {payload['to']}", payload.get("note", ""), payload.get("request_id")))
+        else:
+            steps += [(e["ts"], e["tid"], e["agent"], None, note, "", None) for note in _edit_notes(payload)]
+    for r in rows:
+        if r["kind"] == "task" and r["tasks"] and landing.state(r) == "delivered" and _when(r):
+            steps.append((_when(r), sorted(int(t) for t in r["tasks"].split(","))[0], r["target"], "doing", None, "", None))
+    state: dict[int, str] = {}
+    out = []
+    for ts, tid, who, after, note, said, request in sorted(steps, key=lambda step: step[0]):
+        if after is not None:
+            before = state.get(tid, "queued")
+            state[tid] = after
+            if before == after:
+                continue
+            note = f"{before} -> {after}"
+        if ts >= since:
+            out.append({"type": "task_event", "at": _TS(ts), "task": tid, "title": cards[tid], "who": who, "change": note, "note": said,
+                        "request": request, "_ts": ts})
+    return out
+
+
+def _sessions(con, agent: str, rows: list[dict]) -> list[dict]:
+    since = min((_when(r) for r in rows if _when(r)), default=0)
+    return [{"type": "session", "at": _TS(r["ts"]), "cause": r["cause"], "handoff": r["text"] or None, "_ts": r["ts"]}
+            for r in db.session_starts(con, agent) if r["ts"] >= since and not r["resumed"]]
+
+
+def version_of(con, agent: str, everyone: bool) -> str:
+    """One string that changes whenever something in the chat does: a request made, answered, closed or changed, a task event, a session start."""
+    import hashlib
+    where, params = chatreads._scope(agent, everyone)
+    row = con.execute(
+        f"SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX({db.touched_sql('requests')}), 0), COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), "
+        "COALESCE(MAX(landed_at), 0), COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(state = 'queued'), 0) "
+        f"FROM requests WHERE state NOT IN {chatreads._GONE} AND {where}", params).fetchone()
+    events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
+                         f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
+    starts = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM session_starts WHERE agent = ?", (agent,)).fetchone()
+    return hashlib.sha256(repr((*row, *events, *starts)).encode()).hexdigest()[:24]
+
+
+def _request_item(con, r: dict) -> dict:
+    dismissed, by, reason = db.dismissal(r)
+    return {"type": "request", "at": _TS(_when(r)), "message": message_of(con, r), "dismissal": {"by": by, "reason": reason} if dismissed else None,
+            "task_state": r.get("task_state"), "_ts": _when(r), "_id": r["id"]}
+
+
+def _requests(ctx, params) -> dict:
+    from . import stream
+    everyone = _scope(params)
+    before, since, limit = _int(params, "before"), _int(params, "since"), _int(params, "limit", 1, MAX_LIMIT) or PAGE
+    if before is not None and since is not None:
+        raise rpc.bad_request("before and since are one or the other", "since", rpc.INVALID_PARAMS)
+    con = db.connect()
+    try:
+        agent = _agent(con, params)
+        cursor = stream.newest(con)
+        rows, more = (chatreads.requests_page(con, agent, everyone, since=since) if since is not None
+                      else chatreads.requests_page(con, agent, everyone, before=before, limit=limit))
+        items = [_request_item(con, r) for r in rows] + _task_events(con, rows) + _sessions(con, agent, rows)
+        items.sort(key=lambda i: (i["_ts"], 0 if i["type"] == "request" else 1, i.get("_id", 0)))
+        for i in items:
+            i.pop("_ts", None)
+            i.pop("_id", None)
+        return {"items": items, "more": more, "version": version_of(con, agent, everyone), "cursor": cursor}
+    finally:
+        con.close()
+
+
 def _owner_of_chat(row) -> str | None:
     """The agent whose chat a request is part of when none is named: its non-person end, the target first."""
     return next((n for n in (row["target"], row["requester"]) if n != db.HUMAN), None)
@@ -255,6 +363,7 @@ def _transcript(ctx, params) -> dict:
 
 
 rpc.METHODS["chat.messages"] = rpc.Method(_messages, "member")
+rpc.METHODS["chat.requests"] = rpc.Method(_requests, "member")
 rpc.METHODS["chat.transcript"] = rpc.Method(_transcript, "member")
 rpc.METHODS["chat.locate"] = rpc.Method(_locate, "member")
 rpc.METHODS["chat.search"] = rpc.Method(_search, "member")
