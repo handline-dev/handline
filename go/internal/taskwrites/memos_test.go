@@ -17,11 +17,16 @@ import (
 
 type auth struct{ agent string }
 
-func (a auth) AgentOf(int) string     { return a.agent }
-func (auth) FounderKeyOK(string) bool { return false }
+func (a auth) AgentOf(int) string         { return a.agent }
+func (a auth) FounderKeyOK(k string) bool { return a.agent == "" && k == "founder" }
 
 // call serves one connection as agent `as` over db and returns its replies to the calls given.
 func call(t *testing.T, srv *rpc.Server, calls ...string) []map[string]any {
+	t.Helper()
+	return callHello(t, srv, `{"client":"t","protocol":1,"key":"founder"}`, calls...)
+}
+
+func callHello(t *testing.T, srv *rpc.Server, hello string, calls ...string) []map[string]any {
 	t.Helper()
 	cl, sv := net.Pipe()
 	done := make(chan struct{})
@@ -30,7 +35,7 @@ func call(t *testing.T, srv *rpc.Server, calls ...string) []map[string]any {
 	r := bufio.NewReader(cl)
 	cl.SetDeadline(time.Now().Add(10 * time.Second))
 	var out []map[string]any
-	for _, line := range append([]string{`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1}}`}, calls...) {
+	for _, line := range append([]string{`{"jsonrpc":"2.0","id":1,"method":"hello","params":` + hello + `}`}, calls...) {
 		if _, err := cl.Write([]byte(line + "\n")); err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +62,7 @@ func TestMemosAreAddedEditedAndDeletedByTheirAuthorOrTheFounder(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s)
+		Register(s, t.TempDir())
 		return s
 	}
 	r := call(t, mk("worker"),
@@ -110,7 +115,7 @@ func TestReopenSendsADoneTaskBackOnTheAskersWordAndAReason(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s)
+		Register(s, t.TempDir())
 		return s
 	}
 	line := func(id int, task int, note, rid string) string {
@@ -160,7 +165,7 @@ func TestStartMakesATaskTheOwnersCurrentOneAndPutsItsRequestFirst(t *testing.T) 
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s)
+		Register(s, t.TempDir())
 		return s
 	}
 	line := func(id, task int, rid string) string {

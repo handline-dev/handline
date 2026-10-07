@@ -9,3 +9,4 @@ that when the layer exists nothing is missed. A write that tells nothing in Pyth
 | task.memo.add | actions.memo_add, tell_memo_holder("added") | the typed say "T<n> memo added by <who>: <text>" to the holder of a doing task |
 | task.memo.edit | actions.memo_edit, tell_memo_holder("edited") | the same say, "edited" |
 | task.memo.delete | actions.memo_delete, tell_memo_holder("deleted") | the same say, "deleted", with no text |
+| task.discard, task.withdraw | actions.discard_task, after the commit | typing the says it wrote (_deliver_unblocked), the stop-work say to an owner with the task in hand, advance_current_task (a table write, the owner's current task: until it is ported a discarded task stays their current one) and ask.push for the owner, and removing the inbox files of the requests it closed (ask.forget_inbox) |
