@@ -5,8 +5,9 @@ import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { InboxPage } from './Inbox.tsx';
-import { useInboxRoute, useSelectedAgent, useTasksRoute } from './route.ts';
+import { useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute } from './route.ts';
 import { useShell } from './shell.ts';
+import { SettingsView } from './SettingsView.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -27,6 +28,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
   const tasks = useTasksRoute();
+  const settings = useSettingsOpen();
   useShell(agent);
   const inbox = useInboxRoute();
   const unread = useUnread().length;
@@ -55,6 +57,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           <InboxPage item={inbox.item} />
         ) : tasks !== null ? (
           <TasksPage storage={storage} route={tasks} />
+        ) : agent && settings ? (
+          <SettingsView key={agent} agent={agent} />
         ) : agent ? (
           <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
         ) : (

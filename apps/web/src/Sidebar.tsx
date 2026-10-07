@@ -21,7 +21,7 @@ import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@hand
 import { unserved, useServed, useVerbMark, useVerbRun, VerbSheet } from './AgentVerbs.tsx';
 import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
-import { goAgent, goInbox, goTasks, useInboxRoute } from './route.ts';
+import { goAgent, goInbox, goSettings, goTasks, useInboxRoute } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({
@@ -290,6 +290,9 @@ function Detail({ agent: a, account, setAccount }: { agent: AgentView; account: 
       {row('session', d?.session_id)}
       {row('terminal', d?.terminal)}
       {row('cache until', a.cache_until ? new Date(a.cache_until).toLocaleTimeString() : null)}
+      <button className="btn" onClick={() => goSettings(a.name)}>
+        Settings
+      </button>
       <Timeline agent={a.name} />
     </div>
   );

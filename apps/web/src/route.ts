@@ -1,14 +1,23 @@
 import { useSyncExternalStore } from 'react';
 
-const read = () => decodeURIComponent(location.hash.match(/^#\/agents\/(.+)$/)?.[1] ?? '');
+const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?$/);
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
   return () => removeEventListener('hashchange', cb);
 };
+const hash = () => location.hash;
 
-/** The agent the URL names (`#/agents/:name`), or ''. */
-export const useSelectedAgent = (): string => useSyncExternalStore(subscribe, read);
+/** The agent the URL names (`#/agents/:name`, or `#/agents/:name/settings`), or ''. */
+export const useSelectedAgent = (): string => {
+  useSyncExternalStore(subscribe, hash);
+  return decodeURIComponent(read()?.[1] ?? '');
+};
+/** Whether the URL is the agent's settings page. */
+export const useSettingsOpen = (): boolean => {
+  useSyncExternalStore(subscribe, hash);
+  return !!read()?.[2];
+};
 export const goAgent = (name: string): void => {
   location.hash = `#/agents/${encodeURIComponent(name)}`;
 };
@@ -29,4 +38,7 @@ export const goInbox = (): void => {
 export const useTasksRoute = (): string | null => useSyncExternalStore(subscribe, readTasks);
 export const goTasks = (task?: number): void => {
   location.hash = task === undefined ? '#/tasks' : `#/tasks/${task}`;
+};
+export const goSettings = (name: string): void => {
+  location.hash = `#/agents/${encodeURIComponent(name)}/settings`;
 };
