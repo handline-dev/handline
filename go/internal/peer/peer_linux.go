@@ -65,3 +65,12 @@ func Started(pid int) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// Exe is the path of the program pid is running, from the kernel; "" when it cannot be told.
+func Exe(pid int) string {
+	p, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe")
+	if err != nil {
+		return ""
+	}
+	return p
+}
