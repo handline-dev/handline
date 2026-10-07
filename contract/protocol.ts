@@ -227,7 +227,8 @@ export type TaskDetail = Task & {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    kind: "memo" | "handoff" | "request";
+    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`). */
+    kind: "memo" | "handoff" | "request" | "edit" | "state";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
     memo: number | null;
