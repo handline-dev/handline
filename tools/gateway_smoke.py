@@ -244,7 +244,7 @@ class World:
         self.env = {**os.environ, "HANDLINE_HOME": str(self.home), "OCP_HOME": str(self.home),
                     "HANDLINE_TEST_ROOT": str(self.user), "OCP_TEST_ROOT": str(self.user), "OCP_TERMINAL": "tmux",
                     "HANDLINE_TERMINAL": "tmux", "OCP_TMUX_SOCKET": f"gwsmoke{os.getpid()}", "HANDLINE_TMUX_SOCKET": f"gwsmoke{os.getpid()}",
-                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
+                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh"}
         for k in ("OCP_AGENT", "HANDLINE_AGENT", "OCP_ACCOUNT", "HANDLINE_ACCOUNT", "CLAUDE_CONFIG_DIR", "SANDBOX_RUNTIME"):
             self.env.pop(k, None)
 
@@ -320,8 +320,7 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
         if built.returncode:
             raise SystemExit("could not build the Go daemon:\n" + built.stdout + built.stderr)
         out = open(self.log("gateway"), "w")
-        p = subprocess.Popen([str(binary), "-gateway", "-home", str(self.home), "-listen", f"127.0.0.1:{self.port}",
-                              "-pid-file", str(self.root / "gateway.pid")], env=self.env, stdout=out, stderr=subprocess.STDOUT)
+        p = subprocess.Popen([str(binary), "-gateway", "-home", str(self.home), "-listen", f"127.0.0.1:{self.port}"], env=self.env, stdout=out, stderr=subprocess.STDOUT)
         self.procs.append(p)
         self.wait_for(lambda: (self.home / "gateway.sock").exists() and port_open(self.port), 30, "the gateway", p, "gateway")
 
