@@ -55,8 +55,7 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
-  /** Topics `subscribe` refuses as the daemon's stream does for one it has no list for; `hr` is in the contract but not yet served. */
-  readonly unservedTopics = new Set<Topic>(['hr']);
+  readonly unservedTopics = new Set<Topic>(['hr']); // topics `subscribe` refuses; `hr` is not served yet
   readonly tasks = new FakeTasks(this, () => this.iso());
   private serveChat: boolean;
   private events: WireEvent[] = [];
@@ -381,10 +380,9 @@ export class FakeDaemon {
         c.topics = new Set(p.topics as Topic[]);
         return { cursor: this.head };
       }
-      case 'unsubscribe': {
+      case 'unsubscribe':
         for (const t of (p.topics as Topic[] | undefined) ?? []) c.topics?.delete(t);
         return {};
-      }
       case 'prompt.list': {
         const s = agent();
         return { prompts: s.prompt ? [s.prompt] : [] };
