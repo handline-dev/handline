@@ -41,12 +41,18 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("agent.timeline", rpc.Method{Role: "member", Handler: e.agentTimeline})
 	s.Register("tasks.list", rpc.Method{Role: "agent", Handler: e.tasksList})
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})
+	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
+	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})
+	s.Register("answers.list", rpc.Method{Role: "founder", Handler: e.answersList})
+	s.Register("inbox.get", rpc.Method{Role: "agent", Handler: e.inboxGet, Waits: true})
 	s.Register("chat.messages", rpc.Method{Role: "member", Handler: e.chatMessages})
 	s.Register("chat.requests", rpc.Method{Role: "member", Handler: e.chatRequests})
 	s.Register("chat.transcript", rpc.Method{Role: "member", Handler: e.chatTranscript})
 	s.Register("chat.locate", rpc.Method{Role: "member", Handler: e.chatLocate})
 	s.Register("chat.search", rpc.Method{Role: "member", Handler: e.chatSearch})
 	s.Register("hr.list", rpc.Method{Role: "agent", Handler: e.hrList})
+	s.Register("accounts.list", rpc.Method{Role: "agent", Handler: e.accountsList})
+	s.Register("stats.get", rpc.Method{Role: "member", Handler: e.statsGet})
 	s.Register("inbox.list", rpc.Method{Role: "agent", Handler: e.inboxList, Waits: true})
 }
 

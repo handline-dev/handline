@@ -3872,12 +3872,12 @@
   },
   {
    "name": "task.progress",
-   "summary": "Record progress on a task (hl progress).",
+   "summary": "Record progress (hl progress): on a task, or with no task on the caller's request in progress, else the task it holds, else the agent, even when it holds no task.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "task",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "integer"
      }
@@ -8062,11 +8062,19 @@
           },
           "reason": {
            "type": "string"
+          },
+          "owner": {
+           "type": "string"
+          },
+          "title": {
+           "type": "string"
           }
          },
          "required": [
           "task",
-          "reason"
+          "reason",
+          "owner",
+          "title"
          ]
         }
        },
@@ -8232,6 +8240,9 @@
           "title": {
            "type": "string"
           },
+          "owner": {
+           "type": "string"
+          },
           "state": {
            "type": "string"
           }
@@ -8239,10 +8250,11 @@
          "required": [
           "id",
           "title",
+          "owner",
           "state"
          ]
         },
-        "description": "The sub-tasks by number: `children` with their titles and states."
+        "description": "The sub-tasks by number: `children` with their titles, owners and states."
        },
        "timeline": {
         "type": "array",
