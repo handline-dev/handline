@@ -1258,7 +1258,7 @@ export interface Methods {
   "task.new": { params: {
   owner: string;
   title: string;
-  body: string;
+  body?: string;
   time_box: Duration;
   relation?: string;
   response?: string;
@@ -1393,6 +1393,10 @@ export interface Methods {
   waits_on?: string;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
+  blocked_by?: number;
+  /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */
+  unblock?: number;
   request_id: RequestId;
 }; result: Accepted };
   "task.ask": { params: {

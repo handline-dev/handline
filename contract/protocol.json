@@ -3431,7 +3431,7 @@
     },
     {
      "name": "body",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -4475,7 +4475,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
+   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4532,6 +4532,22 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them."
+     }
+    },
+    {
+     "name": "unblock",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
      }
     },
     {
@@ -7786,7 +7802,7 @@
           },
           "who": {
            "type": "string",
-           "description": "The author, or `from \u2192 to` for a handoff."
+           "description": "The author, or `from → to` for a handoff."
           },
           "kind": {
            "type": "string",
