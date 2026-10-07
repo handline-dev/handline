@@ -1559,6 +1559,9 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
     # After the column exists, on an old db as on a new one (SCHEMA runs before this):
     # the chat page looks up the answer of every row it draws by this.
     con.execute("CREATE INDEX IF NOT EXISTS requests_settles ON requests(settles)")
+    # The chat topic's detector asks for what was touched since a time, by these two (a request: its state_at else its ts; an answer: its ts).
+    con.execute("CREATE INDEX IF NOT EXISTS requests_touched ON requests(COALESCE(state_at, ts))")
+    con.execute("CREATE INDEX IF NOT EXISTS requests_settles_ts ON requests(settles, ts)")
     for col in ("dismissed_by", "dismissed_reason"):
         if legacy and col not in request_cols:
             con.execute(f"ALTER TABLE requests ADD COLUMN {col} TEXT")

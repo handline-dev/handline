@@ -34,6 +34,7 @@ from . import landauth, lands, messaging, relay, rpc, sends, stream
 from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
     rpc_accounts,
     rpc_agents,
+    rpc_chat,
     rpc_chatwrites,
     rpc_hooks,
     rpc_inbox,
