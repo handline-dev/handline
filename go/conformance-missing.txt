@@ -58,7 +58,6 @@ ask
 push
 push.answer
 push.cancelled
-schedules.list
 settings.get
 task.ask
 chat.cancel
