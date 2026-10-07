@@ -52,24 +52,32 @@ def _login(acct: str) -> str:
     return "unknown" if state is None else "ok" if state else "needs_login"
 
 
-def _account(con, acct: str, names: list[str], roster: dict, unplaced: int) -> dict:
-    assigned, running = roster.get(acct, (0, 0))
+def _account(con, acct: str, names: list[str]) -> dict:
     st = status.read(acct)
     end = cycle.end_date(acct)
     return {"name": acct, "login_state": _login(acct), "five_hour": _window(st.short), "weekly": _window(st.long),
-            "agents": [a for a in names if agents.current_account(a, con) == acct],
-            "agents_assigned": assigned, "agents_running": running, "agents_unplaced": unplaced, "moves": _moves(con, acct),
+            "agents": [a for a in names if agents.current_account(a, con) == acct], "moves": _moves(con, acct),
             "label": loadmod.label_of(acct), "cap": loadmod.own_cap(acct), "cap_effective": loadmod.cap_of(acct),
             "recover": loadmod.usage_recover_enabled(acct),
             "cycle": {"on": cycle.enabled(acct), "end": end.isoformat() if end else None, "end_is_default": cycle.end_is_default(acct)}}
 
 
 def _accounts(ctx, params) -> dict:
+    with_roster = params.get("roster", False)
+    if not isinstance(with_roster, bool):
+        raise rpc.bad_request("roster is true or false", "roster", rpc.INVALID_PARAMS)
     con = db.connect()
     try:
         names = paths.list_agents()
-        roster, unplaced = loadmod.roster(con)
-        return {"accounts": [_account(con, a, names, roster, unplaced) for a in paths.list_accounts()]}
+        roster, unplaced = loadmod.roster(con) if with_roster else ({}, 0)
+        out = []
+        for a in paths.list_accounts():
+            acct = _account(con, a, names)
+            if with_roster:
+                assigned, running = roster.get(a, (0, 0))
+                acct.update(agents_assigned=assigned, agents_running=running, agents_unplaced=unplaced)
+            out.append(acct)
+        return {"accounts": out}
     finally:
         con.close()
 

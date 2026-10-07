@@ -340,7 +340,7 @@ export type InboxItem = {
   answered: boolean;
   options: DecisionOption[];
   prompt: Prompt | null;
-  /** An agent's own item only: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). Absent for the founder. */
+  /** Only with inbox.list `queue: true`, for an agent's own item: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). */
   how_to_close?: string;
 };
 
@@ -414,11 +414,11 @@ export type Account = {
     /** end is the next monthly anniversary of the subscription start, not typed. */
     end_is_default: boolean;
   };
-  /** Agents on this account, running or not (the figure `hl account list` prints). */
+  /** Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints). */
   agents_assigned?: number;
-  /** Those of them that are mid-turn or otherwise running. */
+  /** Only with accounts.list `roster: true`. Those of them that are mid-turn or otherwise running. */
   agents_running?: number;
-  /** Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
+  /** Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
   agents_unplaced?: number;
 };
 
@@ -1328,10 +1328,12 @@ export interface Methods {
   limit?: number;
   /** Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
   wait_s?: number;
+  /** An agent caller: add each item's how_to_close and the result's more_waiting, as `hl inbox` prints them. Default false; ignored for the founder. */
+  queue?: boolean;
 }; result: {
     items: InboxItem[];
     more: boolean;
-    /** An agent caller only: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
+    /** Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
     more_waiting?: number;
   } };
   "inbox.get": { params: {
@@ -1670,7 +1672,10 @@ export interface Methods {
   subject?: string;
   request_id: RequestId;
 }; result: Accepted };
-  "accounts.list": { params: { [key: string]: unknown }; result: {
+  "accounts.list": { params: {
+  /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
+  roster?: boolean;
+}; result: {
     accounts: Account[];
   } };
   "account.set_cap": { params: {

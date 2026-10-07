@@ -114,8 +114,9 @@ def test_roles_decide_who_reads_what(home: Path) -> None:
 
 def test_accounts_say_what_the_account_page_shows(home: Path) -> None:
     _world(home)
-    got = _call("accounts.list")["result"]["accounts"]
+    got = _call("accounts.list", {"roster": True})["result"]["accounts"]
     acct = next(a for a in got if a["name"] == "alpha")
+    check("accounts.list: the roster is only there when asked for", "agents_assigned" not in _call("accounts.list")["result"]["accounts"][0])
     check("accounts.list: the five-hour use, reset and where it comes from", acct["five_hour"]["used_pct"] == 40.0
           and acct["five_hour"]["source"] == "measured" and acct["five_hour"]["resets_at"], str(acct["five_hour"]))
     check("accounts.list: the weekly use", acct["weekly"]["used_pct"] == 10.0, str(acct["weekly"]))
