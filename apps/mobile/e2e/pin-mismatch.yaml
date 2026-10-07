@@ -1,0 +1,19 @@
+# A pairing link whose fingerprint is not the daemon's certificate must be refused:  maestro test -e URI="<the link with the fp changed>" e2e/pin-mismatch.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- runFlow:
+    when: { visible: Unpair this phone }
+    commands: [{ tapOn: Unpair this phone }]
+- tapOn:
+    id: pair-uri
+- inputText: ${URI}
+- tapOn: Pair with a daemon
+- tapOn:
+    id: pair-go
+- extendedWaitUntil:
+    visible: ".*certificate does not match the pinned fingerprint.*"
+    timeout: 15000
+- takeScreenshot: pin-mismatch

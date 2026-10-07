@@ -7,6 +7,7 @@
     "node": ">=22.18"
   },
   "scripts": {
+    "app": "pnpm --filter @handline/web build && HANDLINE_GATEWAY=${HANDLINE_GATEWAY:-127.0.0.1:7443} pnpm --filter @handline/electron start",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "build": "turbo build",
