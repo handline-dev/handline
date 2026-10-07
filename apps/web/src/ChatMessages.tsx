@@ -4,6 +4,8 @@ import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { canWithdraw, isOpenAsk, landingLabel, sideOf } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgents, useChatActions } from '@handline/app-data';
+import { EditorButton } from './EditorButton.tsx';
+import { PathText } from './PathText.tsx';
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -30,7 +32,9 @@ export function Message({ m, agent }: { m: ChatMessage; agent: string }) {
           {m.from} → {m.to}
         </div>
       ) : null}
-      <div className="msg-body">{m.body}</div>
+      <div className="msg-body">
+        <PathText text={m.body} agent={agent} />
+      </div>
       <div className="msg-meta muted">
         {clock(m.at)}
         {side === 'person' && !failed ? (
@@ -59,7 +63,9 @@ export function Message({ m, agent }: { m: ChatMessage; agent: string }) {
       ) : null}
       {side === 'agent' && m.answer ? (
         <div className="msg person answer">
-          <div className="msg-body">{m.answer.text}</div>
+          <div className="msg-body">
+            <PathText text={m.answer.text} agent={agent} />
+          </div>
           <div className="msg-meta muted">{clock(m.answer.at)} · Your answer</div>
         </div>
       ) : null}
@@ -75,6 +81,7 @@ export function Message({ m, agent }: { m: ChatMessage; agent: string }) {
           }}
         >
           <input value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
+          <EditorButton text={answer} onText={setAnswer} />
           <button className="btn primary" disabled={!answer.trim()}>
             Answer
           </button>
@@ -93,7 +100,9 @@ export function Item({ i }: { i: TranscriptItem }) {
   if (i.kind === 'reply')
     return (
       <div className="msg agent" data-kind="reply">
-        <div className="msg-body">{i.text}</div>
+        <div className="msg-body">
+          <PathText text={i.text ?? ''} />
+        </div>
         <div className="msg-meta muted">{clock(i.at)}</div>
       </div>
     );

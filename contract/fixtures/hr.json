@@ -3,7 +3,7 @@
   {
    "name": "hr.list.state_is_text",
    "spec": "hr.list",
-   "about": "NOT_YET_IN_PYTHON: A state that is not text is bad_request naming it.",
+   "about": "A state that is not text is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -41,7 +41,7 @@
   {
    "name": "hr.list.shape",
    "spec": "hr.list",
-   "about": "NOT_YET_IN_PYTHON: The list is an array of proposals, empty when none waits or settled lately.",
+   "about": "The list is an array of proposals, empty when none waits or settled lately.",
    "as": "founder",
    "steps": [
     {
@@ -75,7 +75,7 @@
   {
    "name": "hr.list.only_a_proposal_in_the_state_asked",
    "spec": "hr.list",
-   "about": "NOT_YET_IN_PYTHON: With a state nothing else is served: a state no proposal has gives an empty list.",
+   "about": "With a state nothing else is served: a state no proposal has gives an empty list.",
    "as": "founder",
    "steps": [
     {
@@ -109,7 +109,7 @@
   {
    "name": "subscribe.hr_is_a_topic",
    "spec": "subscribe",
-   "about": "NOT_YET_IN_PYTHON: hr is a topic of the spec: the subscribe is answered with a cursor.",
+   "about": "hr is a topic of the spec: the subscribe is answered with a cursor.",
    "as": "founder",
    "steps": [
     {
@@ -147,7 +147,7 @@
   {
    "name": "hr.decide.a_proposal_changed_since_it_was_read_is_refused_with_it",
    "spec": "hr.decide",
-   "about": "NOT_YET_IN_PYTHON: An approve whose subject is not the proposal's own is refused, gate proposal_changed, and the refusal holds the proposal as it is. Needs --var hr_seeded=1: a daemon holding one open proposal and one rejected one.",
+   "about": "An approve whose subject is not the proposal's own is refused, gate proposal_changed, and the refusal holds the proposal as it is. Needs --var hr_seeded=1: a daemon holding one open proposal and one rejected one.",
    "as": "founder",
    "steps": [
     {
@@ -217,7 +217,7 @@
   {
    "name": "hr.decide.a_settled_proposal_is_refused_with_it",
    "spec": "hr.decide",
-   "about": "NOT_YET_IN_PYTHON: A decision on a proposal already rejected is refused, gate proposal_settled, and the refusal holds the proposal as it is; the settled check comes before the changed check. Needs --var hr_seeded=1.",
+   "about": "A decision on a proposal already rejected is refused, gate proposal_settled, and the refusal holds the proposal as it is; the settled check comes before the changed check. Needs --var hr_seeded=1.",
    "as": "founder",
    "steps": [
     {
@@ -281,7 +281,7 @@
   {
    "name": "hr.settled.is_sent_when_a_proposal_is_decided",
    "spec": "hr.decide",
-   "about": "NOT_YET_IN_PYTHON: Rejecting the open proposal sends hr.settled on the hr topic: the proposal's agent and title, a target {screen hr, id}, and the whole Proposal in data. Needs --var hr_seeded=1; it settles the open proposal, so it runs last of the file.",
+   "about": "Rejecting the open proposal sends hr.settled on the hr topic: the proposal's agent and title, a target {screen hr, id}, and the whole Proposal in data. Needs --var hr_seeded=1; it settles the open proposal, so it runs last of the file.",
    "as": "founder",
    "steps": [
     {

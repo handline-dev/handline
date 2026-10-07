@@ -3,6 +3,7 @@
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence } from './errors.ts';
 import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
+import { qk } from './reads.ts';
 import { patchMessage, type MsgPage } from './chat-events.ts';
 import type { WriteSpec } from './write-spec.ts';
 
@@ -86,8 +87,13 @@ export const chatWrites: Record<string, WriteSpec> = {
   'chat.dismiss': {
     kind: 'authored',
     label: 'dismiss',
-    touches: allChats,
-    patch: (c, p) => setRow(c, (p as { request: number }).request, { landing: 'dismissed', state: 'dismissed', dismissed: true }),
+    touches: (d) => [...allChats(d), qk.inboxes(d)],
+    patch: (c, p) => {
+      const { request } = p as { request: number };
+      setRow(c, request, { landing: 'dismissed', state: 'dismissed', dismissed: true });
+      // An inbox item is a request under the same id; a dismissed one leaves the mailbox.
+      edit<{ items: { id: number }[] }>(c.qc, qk.inboxes(c.d), (l) => ({ ...l, items: l.items.filter((i) => i.id !== request) }));
+    },
   },
   'chat.answer': {
     kind: 'authored',

@@ -216,6 +216,11 @@ def test_the_notification_detectors_say_what_happened_once_and_not_what_came_bef
     db.add_event(con, "backend", "mark_task_done", {"task_id": tid, "done": False})
     watcher.scan(con)
     check("notifications: a done mark taken back says nothing", sum(e["type"] == "task_done" for e in stream.since(con, 0, ["notifications"])) == 1)
+    db.add_event(con, "backend", "mark_task_done", {"done": True})
+    db.add_event(con, "backend", "mark_task_done", {"task_id": None, "done": True})
+    watcher.scan(con)
+    said = [e for e in stream.since(con, 0, ["notifications"]) if e["type"] == "task_done"]
+    check("notifications: a done mark that names no task says nothing, never a task 'None'", len(said) == 1 and "None" not in json.dumps(said), str(said))
     con.close()
 
 

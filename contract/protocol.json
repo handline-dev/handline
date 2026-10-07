@@ -4561,6 +4561,62 @@
    ]
   },
   {
+   "name": "task.ask",
+   "summary": "The founder asks an agent a question about a task: a message linked to the task, whose holder does not change. The agent's reply joins the task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "to",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The question; not empty."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "say",
    "summary": "A message typed at once; needs no answer, starts no work.",
    "paramStructure": "by-name",
@@ -4621,6 +4677,9 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -4695,6 +4754,9 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -4737,6 +4799,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
     }
    ]
   },
@@ -4772,6 +4840,9 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -4810,6 +4881,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -7440,6 +7514,10 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     },
+     "last_activity": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -7555,6 +7633,239 @@
           "note"
          ]
         }
+       },
+       "asker": {
+        "type": "string",
+        "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder."
+       },
+       "discarded": {
+        "oneOf": [
+         {
+          "type": "object",
+          "properties": {
+           "by": {
+            "type": "string"
+           },
+           "reason": {
+            "type": "string"
+           },
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           }
+          },
+          "required": [
+           "by",
+           "reason",
+           "at"
+          ],
+          "description": "Who threw the task away, why and when; null when it was not discarded."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "merged_into": {
+        "oneOf": [
+         {
+          "type": "integer",
+          "description": "The task this one was folded into (task.merge); null otherwise."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "time": {
+        "oneOf": [
+         {
+          "type": "object",
+          "properties": {
+           "length_s": {
+            "type": "integer",
+            "description": "The time box in seconds."
+           },
+           "default": {
+            "type": "boolean",
+            "description": "True when the length is the daemon's default, none was set."
+           },
+           "start": {
+            "oneOf": [
+             {
+              "$ref": "#/components/schemas/Timestamp",
+              "description": "When the current stretch began counting; null until the task is doing."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "end": {
+            "oneOf": [
+             {
+              "$ref": "#/components/schemas/Timestamp",
+              "description": "Its deadline; null until the task is doing."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "overdue_since": {
+            "oneOf": [
+             {
+              "$ref": "#/components/schemas/Timestamp",
+              "description": "The first deadline that was missed, which is not `end` once notices moved it; null while in time. A client derives time left and time over from `end`, `overdue_since` and its own clock."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "told": {
+            "type": "integer",
+            "description": "How many overrun notices the opener has had."
+           }
+          },
+          "required": [
+           "length_s",
+           "default",
+           "start",
+           "end",
+           "overdue_since",
+           "told"
+          ],
+          "description": "The task's clock; null once it is done or discarded."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "parent_title": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The title of `parent`."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "subtasks": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "title": {
+           "type": "string"
+          },
+          "state": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "id",
+          "title",
+          "state"
+         ]
+        },
+        "description": "The sub-tasks by number: `children` with their titles and states."
+       },
+       "timeline": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "who": {
+           "type": "string",
+           "description": "The author, or `from \u2192 to` for a handoff."
+          },
+          "kind": {
+           "type": "string",
+           "enum": [
+            "memo",
+            "handoff",
+            "request",
+            "edit",
+            "state"
+           ],
+           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`)."
+          },
+          "text": {
+           "type": "string",
+           "description": "Already stripped of control characters: a client draws it as it is."
+          },
+          "memo": {
+           "oneOf": [
+            {
+             "type": "integer",
+             "description": "A memo's id, for editing or deleting it; null for the others."
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "edited_at": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         },
+         "required": [
+          "at",
+          "who",
+          "kind",
+          "text",
+          "memo",
+          "edited_at"
+         ]
+        },
+        "description": "What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one) and the requests linked to it. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay."
+       },
+       "people": {
+        "type": "object",
+        "properties": {
+         "recent": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Who the founder last chatted with, latest first."
+         },
+         "team": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "The rest of the holder's team, in team.yaml order."
+         },
+         "others": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "recent",
+         "team",
+         "others"
+        ],
+        "description": "Whom the founder can ask about the task (task.ask), each agent once."
        }
       },
       "required": [
@@ -7564,7 +7875,15 @@
        "memos",
        "blockers",
        "children",
-       "handoffs"
+       "handoffs",
+       "asker",
+       "discarded",
+       "merged_into",
+       "time",
+       "parent_title",
+       "subtasks",
+       "timeline",
+       "people"
       ]
      }
     ]

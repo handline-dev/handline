@@ -2,7 +2,14 @@
 // Electron's own objects are injected, so this runs under node.
 import type { Fail } from '@handline/app-core';
 
-export const CHANNELS = { screen: 'handline:screen', unsent: 'handline:unsent', navigate: 'handline:navigate' } as const;
+export const CHANNELS = {
+  screen: 'handline:screen',
+  unsent: 'handline:unsent',
+  navigate: 'handline:navigate',
+  openPath: 'handline:openPath',
+  compose: 'handline:compose',
+  cancelCompose: 'handline:cancelCompose',
+} as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */
 export interface Sender {
