@@ -32,7 +32,9 @@ MARKER = "local-ref-ok"
 _L, _R = r"(?<![A-Za-z0-9_])", r"(?![A-Za-z0-9_])"
 
 PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("email", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z0-9-]*")),
+    # The domain ends in a label starting with a letter and does not start with two numbers, so a
+    # package pin (x@0.25.12, next@15.0.0-canary.abc) is not an address.
+    ("email", re.compile(r"[A-Za-z0-9._%+-]+@(?!\d+\.\d)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z0-9-]*")),
     ("home path", re.compile(r"(?:/Users|/home)/([A-Za-z0-9._-]+)|[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)")),
     ("task id", re.compile(_L + r"(?:T\d{2,}|t\d{3,})" + _R)),
     # 3-5 digits and a hard edge: a 6-digit colour and a hex run never match; a repo#123 or &#123; is not ours

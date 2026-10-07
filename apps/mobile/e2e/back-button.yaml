@@ -1,0 +1,36 @@
+# Android hardware back, run after pair-and-page.yaml has paired the phone:  maestro test e2e/back-button.yaml
+# From the agent page it goes to the list (the keyboard closes first); from the list it leaves the app.
+appId: dev.handline.mobile
+---
+- launchApp:
+    stopApp: false
+# pair-and-page leaves the agent page open; from the list open it
+- runFlow:
+    when:
+      visible:
+        id: agent-handline.architect
+    commands:
+      - tapOn:
+          id: agent-handline.architect
+- assertVisible:
+    id: tab-terminal
+- tapOn:
+    id: tab-terminal
+- tapOn:
+    id: composer
+- takeScreenshot: shots/back-1-keyboard-open
+# the first back closes the keyboard and stays on the agent page
+- back
+- assertVisible:
+    id: tab-terminal
+- takeScreenshot: shots/back-2-keyboard-closed
+# the next back goes to the list
+- back
+- assertVisible: Agents
+- assertNotVisible:
+    id: tab-terminal
+- takeScreenshot: shots/back-3-list
+# from the list back leaves the app
+- back
+- assertNotVisible: Agents
+- takeScreenshot: shots/back-4-left-app

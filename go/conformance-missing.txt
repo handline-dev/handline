@@ -48,3 +48,4 @@ device.revoke
 devices.list
 chat.send_now
 stats.outlook
+hr.list

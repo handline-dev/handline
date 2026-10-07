@@ -133,8 +133,8 @@ def test_session_gates_are_declared_and_defined() -> None:
 
 
 def test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text() -> None:
-    check("contract: topics are the plan's seven plus chat and devices", sorted(SPEC["x-topics"]) ==
-          sorted("status accounts agents inbox tasks notifications operations chat devices".split()))
+    check("contract: topics are the plan's seven plus chat, devices and hr", sorted(SPEC["x-topics"]) ==
+          sorted("status accounts agents inbox tasks notifications operations chat devices hr".split()))
     check("contract: every topic's snapshot method exists", all(t["snapshot"] in METHODS for t in SPEC["x-topics"].values()))
     check("contract: frames are text with a reserved place for styled rows",
           SPEC["components"]["schemas"]["TerminalSnapshot"]["properties"]["format"]["enum"] == ["text"]
