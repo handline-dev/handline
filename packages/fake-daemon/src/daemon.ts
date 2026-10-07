@@ -61,7 +61,7 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
-  readonly unservedTopics = new Set<Topic>(['hr']); // topics `subscribe` refuses; `hr` is not served yet
+  readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;

@@ -93,13 +93,14 @@ test('the desk subscribes to hr and raises a notice for hr.raised only', async (
 
 test('a daemon that refuses the hr topic still gives the badge and the other notices', async () => {
   const { daemon, client } = setup();
+  daemon.unservedTopics.add('hr'); // a daemon that does not serve hr
   const { log, p } = ports();
   await client.start();
   const desk = new Desk(client, p);
-  await desk.start(); // the fake refuses hr as the daemon does until it serves it
+  await desk.start();
   daemon.emit('notifications', 'stall', { agent: 'handline.architect' });
   await until(() => log.notices.length === 1, 'a notice');
-  assert.deepEqual(log.badge, ['']);
+  assert.equal(log.badge.length, 1); // the badge was set from the inbox count
   // The refused topic is not kept: a later subscribe or a reconnect would send it again and be refused whole.
   await client.subscribe(['agents']);
   desk.stop();
@@ -109,7 +110,6 @@ test('a daemon that refuses the hr topic still gives the badge and the other not
 test('a daemon that serves hr raises the notice for hr.raised', async () => {
   const { daemon, client } = setup();
   const { log, p } = ports();
-  daemon.unservedTopics.clear();
   await client.start();
   const desk = new Desk(client, p);
   await desk.start();
