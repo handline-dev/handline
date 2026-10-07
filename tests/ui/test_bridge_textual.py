@@ -30,7 +30,7 @@ from textual import events  # noqa: E402
 from handline.actions import dialogs as dialogs_mod  # noqa: E402
 from handline import actions, db
 from handline.team import accounts, agents, hr
-from handline.ui import bridge_textual as bt, jobs as jobsmod, tui
+from handline.ui import api, bridge_textual as bt, jobs as jobsmod, tui
 from handline.infra import timefmt  # noqa: E402
 from handline.daemon import states as dmn_states
 from handline.ui.chat_page import ChatMessage as cp_ChatMessage, ChatPage  # noqa: E402
@@ -65,6 +65,49 @@ def _home(tag: str) -> Path:
     home = Path(tempfile.mkdtemp(prefix=f"ocp_bt_{tag}_", dir=t.TEST_ROOT))
     t._daemon_home(home, 20)
     return home
+
+
+def _serve_in_process() -> "socket.socket":
+    """A connection to the daemon's own serving code on a thread of this process, in place of the daemon's socket."""
+    import socket
+    import threading
+    from handline.daemon import socket_server
+    from handline.infra import sessiontoken
+    sessiontoken.ensure_founder_key()
+    a, b = socket.socketpair()
+    threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+    return a
+
+
+api.connect = _serve_in_process
+
+
+def _items(agent: str, everyone: bool = False, **page) -> list[dict]:
+    """The `chat.requests` items of a chat, as the page reads them."""
+    return api.call("chat.requests", {"agent": agent, "scope": "all" if everyone else "mine", **page})["items"]
+
+
+def _version(agent: str, everyone: bool = False) -> str:
+    return api.call("chat.requests", {"agent": agent, "scope": "all" if everyone else "mine"})["version"]
+
+
+def _asks(items: list[dict]) -> list[dict]:
+    """The chat messages among `chat.requests` items."""
+    return [i["message"] for i in items if i["type"] == "request"]
+
+
+def _as_item(r: dict) -> dict:
+    """A hand-made request row (as the tables hold it) as the `chat.requests` item the page reads."""
+    stamp = lambda t: None if t is None else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+    answer = r.get("answer")
+    return {"type": "request", "at": stamp(r["ts"]), "dismissal": None, "task_state": r.get("task_state"),
+            "message": {"id": r["id"], "at": stamp(r["ts"]), "state_at": stamp(r["ts"]), "from": r["requester"], "to": r["target"],
+                        "state": r["state"], "landing": "queued", "sending_reason": None, "body": r["body"],
+                        "answer": {"id": r.get("answer_id") or r["id"] + 1000, "text": answer, "at": stamp(r["ts"])} if answer else None,
+                        "dismissed": bool(r.get("dismisser")), "delivered_at": stamp(r["delivered_at"]), "typed_at": stamp(r["typed_at"]),
+                        "landed_at": stamp(r["landed_at"]), "parent": r.get("parent_id"), "kind": r.get("kind") or "",
+                        "tasks": [{"id": int(t), "title": r.get("task_title") or ""} for t in (r.get("tasks") or "").split(",") if t],
+                        "is_task_question": bool(r.get("task_question"))}}
 
 
 def _screen_text(screen) -> str:
@@ -350,12 +393,12 @@ def test_the_chat_page_reads_a_tasks_state_only_for_a_task_delivery() -> None:
         say = actions.chat_parent(con, "reviewer")
         db.link_request(con, tid, say)
         con.commit()
-        by = {r["id"]: r for r in cp.requests_page(con, "reviewer", False)[0]}
-        card = next(r for r in by.values() if r["kind"] == "task")
+        by = {i["message"]["id"]: i for i in _items("reviewer", False) if i["type"] == "request"}
+        card = next(i for i in by.values() if i["message"]["kind"] == "task")
         live = actions.task_state(con, db.get_task(con, tid))
         check("chat page: a task delivery carries its task's live state",
-              ok and card["task_state"] == live and live is not None, str(dict(card)))
-        check("chat page: a say linked to a task carries no state", by[say]["task_state"] is None, str(dict(by[say])))
+              ok and card["task_state"] == live and live is not None, str(card))
+        check("chat page: a say linked to a task carries no state", by[say]["task_state"] is None, str(by[say]))
     finally:
         con.close()
 
@@ -393,18 +436,21 @@ def test_the_chat_numbers_an_answer_by_its_own_row() -> None:
         actions.chat_reply(con, "reviewer", "which one?")
         q = actions.chat_parent(con, "reviewer")
         askmod.resolve(q, "this one")
-        rows, _ = cp.requests_page(con, "reviewer", False)
+        con.commit()
+        rows = _asks(_items("reviewer"))
+        answer_id = rows[0]["answer"]["id"] if rows and rows[0]["answer"] else None
         check("chat: the answer row is not a request of its own in the page",
-              [r["id"] for r in rows] == [q] and rows[0]["answer_id"] is not None, str([dict(r) for r in rows]))
-        msgs = cp.messages_of(rows, "reviewer")
+              [r["id"] for r in rows] == [q] and answer_id is not None, str(rows))
+        msgs = cp.messages_of(_items("reviewer"), "reviewer")
         check("chat: the ask and the answer carry two different numbers",
-              [(m["part"], m["mid"]) for m in msgs] == [(0, q), (1, rows[0]["answer_id"])]
-              and rows[0]["answer_id"] != q, str(msgs))
-        askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=rows[0]["answer_id"])
-        after = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+              [(m["part"], m["mid"]) for m in msgs] == [(0, q), (1, answer_id)]
+              and answer_id != q, str(msgs))
+        askmod.ask("reviewer", "thanks", requester=actions.HUMAN, parent_id=answer_id)
+        con.commit()
+        after = cp.messages_of(_items("reviewer", False), "reviewer")
         check("chat: a reply to the answer names the answer's number, in time order",
-              [(m["part"], m["reply_to"]) for m in after] == [(0, None), (1, None), (0, rows[0]["answer_id"])]
-              and cp.mid_of(after[1]) == rows[0]["answer_id"], str(after))
+              [(m["part"], m["reply_to"]) for m in after] == [(0, None), (1, None), (0, answer_id)]
+              and cp.mid_of(after[1]) == answer_id, str(after))
     finally:
         con.close()
 
@@ -418,26 +464,30 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
     try:
         for body in ("one", "two", "three"):
             actions.chat_reply(con, "reviewer", body)
-        rows, more = cp.requests_page(con, "reviewer", False, limit=2)
+        con.commit()
+        got = api.call("chat.requests", {"agent": "reviewer", "scope": "mine", "limit": 2})
+        rows, more = _asks(got["items"]), got["more"]
         check("chat: a page is the newest requests, oldest first, and says more remain",
               [r["body"] for r in rows] == ["two", "three"] and more)
-        older, more = cp.requests_page(con, "reviewer", False, before=rows[0]["id"], limit=2)
+        got = api.call("chat.requests", {"agent": "reviewer", "scope": "mine", "before": rows[0]["id"], "limit": 2})
+        older, more = _asks(got["items"]), got["more"]
         check("chat: the page before it holds the rest", [r["body"] for r in older] == ["one"] and not more)
-        sig = cp.signature(con, "reviewer", False)
+        sig = _version("reviewer", False)
         second = rows[0]["id"]
         first = second - 1
         askmod.cancel(second)
+        con.commit()
         check("chat: a request taken back before delivery leaves the chat",
-              [r["body"] for r in cp.requests_page(con, "reviewer", False)[0]] == ["one", "three"])
-        check("chat: and the change is seen by the cheap reading", cp.signature(con, "reviewer", False) != sig)
-        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
+              [r["body"] for r in _asks(_items("reviewer", False))] == ["one", "three"])
+        check("chat: and the change is seen by the cheap reading", _version("reviewer", False) != sig)
+        msgs = cp.messages_of(_items("reviewer", False), "reviewer")
         check("chat: a queued message can be cancelled, not yet delivered",
               msgs[0]["queued"] and not msgs[0]["delivered"] and msgs[0]["side"] == "you", str(msgs[0]))
         con.execute("UPDATE requests SET delivered_at = ?, typed_at = ?, landed_at = ?, state = 'landed' WHERE id = ?",
                     (int(time.time()),) * 3 + (first,))
         con.commit()
         check("chat: once delivered it says so",
-              cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")[0]["delivered"])
+              cp.messages_of(_items("reviewer", False), "reviewer")[0]["delivered"])
         ok, msg = askmod.cancel(first)
         check("chat: once it landed it cannot be cancelled - it is landed, and stays as it was",
               not ok and "already landed" in msg and db.get_request(con, first)["state"] == "landed", msg)
@@ -447,7 +497,7 @@ def test_the_chat_is_paged_and_hides_what_never_reached_the_agent() -> None:
 
 def _page_rows(con, rid: int) -> list:
     from handline.ui import chat_page as cp
-    return [r for r in cp.requests_page(con, "reviewer", False)[0] if r["id"] == rid]
+    return [i for i in _items("reviewer") if i["type"] == "request" and i["message"]["id"] == rid]
 
 
 def test_an_hr_card_is_drawn_only_in_the_chats_it_concerns() -> None:
@@ -522,11 +572,13 @@ def test_a_message_number_finds_its_chat_and_its_page() -> None:
         con.execute("UPDATE requests SET state = 'withdrawn' WHERE id = ?", (ids["f_r"],))
         check("locate: one that never reached anyone, no chat draws, is alone",
               at(ids["f_r"], "backend", False).kind == "alone")
-        rows, more = cp.page_back_to(con, "backend", False, None, limit=3)
+        con.commit()
+        items, more, _ = cp.read_requests("backend", False, limit=3)
+        rows = _asks(items)
         check("page: with no message asked for it is the newest page",
               len(rows) == 3 and more and ids["old"] not in {r["id"] for r in rows})
-        rows, more = cp.page_back_to(con, "backend", False, ids["old"], limit=3)
-        got = [r["id"] for r in rows]
+        items, more, _ = cp.read_requests("backend", False, want=ids["old"], limit=3)
+        got = [m["id"] for m in _asks(items)]
         check("page: asked for an old one it reads pages back until that one is in, oldest first, and stops there",
               ids["old"] in got and got == sorted(got) and got[0] <= ids["old"] and len(got) > 3, str(got))
     finally:
@@ -641,7 +693,7 @@ def test_an_agents_queued_message_waits_below_the_line_without_buttons() -> None
         _, _, later = askmod.ask("backend", "asked after", requester="reviewer")
         con.execute("UPDATE requests SET ts = ts + 10 WHERE id = ?", (later,))
         con.commit()
-        rows = cp.requests_page(con, "reviewer", True)[0]
+        rows = _items("reviewer", True)
     finally:
         con.close()
     msgs = cp.messages_of(rows, "reviewer")
@@ -667,7 +719,7 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
         askmod.ask("backend", "reviewer's own, not delivered", requester="reviewer")
         _, _, below = askmod.ask("reviewer", "to reviewer, not read", requester="backend")
         con.commit()
-        msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
+        msgs = cp.messages_of(_items("reviewer", True), "reviewer")
         texts = [w.m["text"] if isinstance(w, cp.ChatMessage) else "--" for w in cp.transcript_widgets(msgs, False)]
         check("why: the one to the agent sits after the sent one",
               texts.index("reviewer's own, not delivered") < texts.index("to reviewer, not read"),
@@ -689,7 +741,7 @@ def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
     con = db.connect()
     try:
         con.commit()
-        msgs = cp.messages_of(cp.requests_page(con, "reviewer", True)[0], "reviewer")
+        msgs = cp.messages_of(_items("reviewer", True), "reviewer")
         check("all chat: a message from another agent is replyable", msgs and all(m["replyable"] for m in msgs), str(msgs))
         cp.send_reply(con, "reviewer", rid, "a word from the founder")
         kid = db.get_request(con, rid + 1)
@@ -1230,10 +1282,10 @@ def test_a_message_sits_where_the_agent_read_it_and_a_line_ahead_of_the_queue() 
                 "dismiss_reason": None, "delivered_at": delivered, "typed_at": delivered,
                 "landed_at": delivered, "landing_tries": None, "parent_id": None,
                 "kind": None, "tasks": None, "task_title": None, "task_state": None}
-    msgs = cp.messages_of([row(1, 100, 300), row(2, 200, 250), row(3, 150, None)], "reviewer")
+    msgs = cp.messages_of([_as_item(row(1, 100, 300)), _as_item(row(2, 200, 250)), _as_item(row(3, 150, None))], "reviewer")
     check("chat: yours are ordered by when the agent read them, unread ones last",
           [m["text"] for m in msgs] == ["m2", "m1", "m3"], str([m["text"] for m in msgs]))
-    between = cp.messages_of([row(1, 100, 400, "alpha"), row(2, 200, 300, "beta"), row(3, 150, None, "alpha")],
+    between = cp.messages_of([_as_item(row(1, 100, 400, "alpha")), _as_item(row(2, 200, 300, "beta")), _as_item(row(3, 150, None, "alpha"))],
                              "reviewer")
     check("chat: agents' messages to each other too, by when they were delivered, undelivered last",
           [m["text"] for m in between] == ["m2", "m1", "m3"], str([m["text"] for m in between]))
@@ -1258,7 +1310,7 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
                 "dismiss_reason": None, "delivered_at": typed, "typed_at": typed, "landed_at": landed,
                 "landing_tries": tries}
     def label_and_buttons(r):
-        m = cp.messages_of([r], "reviewer")[0]
+        m = cp.messages_of([_as_item(r)], "reviewer")[0]
         kids = cp.ChatMessage(m)._pending_children
         strip = [c for c in kids if type(c).__name__ == "Horizontal"][0]
         texts = [str(c.content) for c in strip._pending_children
@@ -1280,18 +1332,19 @@ def test_the_chat_says_typed_until_the_transcript_shows_the_line() -> None:
 def test_a_delivery_changes_the_chat_signature() -> None:
     from handline.ui import chat_page as cp
     _home("sigdeliver")
+    agents.register("reviewer")
     con = db.connect()
     try:
         rid = db.add_request(con, "alpha", "reviewer", "one", None, None, None, None, 0, None)
         con.commit()
-        before = cp.signature(con, "reviewer", True)
+        before = _version("reviewer", True)
         con.execute("UPDATE requests SET delivered_at = 5, typed_at = 5 WHERE id = ?", (rid,))
         con.commit()
-        typed = cp.signature(con, "reviewer", True)
+        typed = _version("reviewer", True)
         check("chat: a typing moves the signature though the state stays queued", typed != before)
         con.execute("UPDATE requests SET landed_at = 6 WHERE id = ?", (rid,))
         con.commit()
-        check("chat: and so does the line landing in its transcript", cp.signature(con, "reviewer", True) != typed)
+        check("chat: and so does the line landing in its transcript", _version("reviewer", True) != typed)
     finally:
         con.close()
 
@@ -3159,13 +3212,13 @@ async def test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it
         check("ask: the question and its answer are both in the task's timeline",
               any(e["kind"] == "request" and "archivist → human" in e["who"] for e in timeline)
               and any(e["kind"] == "request" and "human → archivist" in e["who"] for e in timeline), str(timeline))
-        rows, _ = cp.requests_page(con, "archivist", False)
-        shown = [(m["who"], m["text"]) for m in cp.messages_of(rows, "archivist")]
+        con.commit()
+        shown = [(m["who"], m["text"]) for m in cp.messages_of(_items("archivist"), "archivist")]
         check("ask: the chat shows the answer, not the founder's question",
               shown == [("archivist", "because of X")], str(shown))
         ok, _, plain = askmod.say("archivist", "an ordinary message", requester=actions.HUMAN)
         db.link_request(con, tid, plain)
-        shown = [m["text"] for m in cp.messages_of(cp.requests_page(con, "archivist", False)[0], "archivist")]
+        shown = [m["text"] for m in cp.messages_of(_items("archivist", False), "archivist")]
         check("ask: a founder message linked to the task another way is still drawn", "an ordinary message" in shown,
               str(shown))
         first = actions.question_targets("backend", ["archivist", "backend", "zed"], ["zed"])
@@ -4389,15 +4442,16 @@ def test_task_changes_are_set_among_the_messages_at_their_time() -> None:
         t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
         rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
         db.link_request(con, t, rid)
+        con.execute("UPDATE requests SET ts = 100 WHERE id = ?", (rid,))
         for ts, kind in ((200, "task_start"), (300, "mark_task_done"), (400, "reopen_task")):
             db.add_event(con, "reviewer", kind, {"task_id": t})
             con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (ts,))
         con.commit()
-        rows = cp.requests_page(con, "reviewer", False)[0]
-        msgs = cp.messages_of(rows, "reviewer")
+        items = _items("reviewer", False)
+        msgs = cp.messages_of(items, "reviewer")
         for m in msgs:
             m["when"], m["unread"] = 100, False
-        changes = cp.task_changes(con, msgs)
+        changes = cp.changes_of(items, "reviewer", msgs)
     finally:
         con.close()
     check("changes: each move of the task is one, from the state before",
@@ -4430,6 +4484,7 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
         t = db.new_task(con, "the work", "reviewer", actions.HUMAN)
         rid = db.add_request(con, actions.HUMAN, "reviewer", "do it", None, None, "fire_and_forget", "task", 0, None)
         db.link_request(con, t, rid)
+        con.execute("UPDATE requests SET ts = 100 WHERE id = ?", (rid,))
         con.commit()
         steps = (lambda: actions.edit_task(con, t, actions.HUMAN, title="the new work"),
                  lambda: actions.edit_task(con, t, actions.HUMAN, priority=1),
@@ -4440,10 +4495,9 @@ def test_a_change_names_who_made_it_and_an_assignment_says_to_whom() -> None:
             check(f"changes: the action itself worked ({at})", ok, said)
             con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
         con.commit()
-        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
-        for m in msgs:
-            m["when"] = 100
-        changes = [c for c in cp.task_changes(con, msgs, "reviewer") if c["when"] >= 300]
+        items = _items("reviewer", False)
+        msgs = cp.messages_of(items, "reviewer")
+        changes = [c for c in cp.changes_of(items, "reviewer", msgs) if c["when"] >= 300]
     finally:
         con.close()
     got = [(c["who"], c["change"]) for c in changes]
@@ -4467,9 +4521,9 @@ def test_a_handoff_is_one_card_not_a_changed_task_and_a_new_task() -> None:
         ok, said = actions.task_handoff(con, "reviewer", t, "backend", "yours now")
         check("handoff card: the action worked", ok, said)
         con.commit()
-        msgs = cp.messages_of(cp.requests_page(con, "backend", True)[0], "backend")
-        cp.fold_handoffs(con, msgs)
-        changes = cp.task_changes(con, msgs, "backend")
+        items = _items("backend", True)
+        msgs = cp.messages_of(items, "backend")
+        changes = cp.changes_of(items, "backend", msgs)
     finally:
         con.close()
     cards = [m for m in msgs if cp.is_card(m)]
@@ -4524,8 +4578,8 @@ def test_a_delivered_task_becomes_doing_when_it_landed_with_no_start_event() -> 
         db.add_event(con, "reviewer", "mark_task_done", {"task_id": t})
         con.execute("UPDATE events SET ts = 600 WHERE id = (SELECT MAX(id) FROM events)")
         con.commit()
-        msgs = cp.messages_of(cp.requests_page(con, "reviewer", False)[0], "reviewer")
-        changes = cp.task_changes(con, msgs)
+        items = _items("reviewer", False)
+        changes = cp.changes_of(items, "reviewer", cp.messages_of(items, "reviewer"))
     finally:
         con.close()
     check("changes: a delivery that landed is doing from then, before done",
@@ -4886,8 +4940,8 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
     con = db.connect()
     try:
         ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
-        rows, _ = cp.requests_page(con, "reviewer", False)
-        msgs = cp.messages_of(rows, "reviewer")
+        con.commit()
+        msgs = cp.messages_of(_items("reviewer"), "reviewer")
         reply = next(m for m in msgs if m["text"] == "yes, this")
         check("reply link: the founder's reply is a reply to the message it answers",
               ok and reply["reply_to"] == said, str(msgs))
@@ -4910,8 +4964,8 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
     con = db.connect()
     try:
         ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
-        rows, _ = cp.requests_page(con, "reviewer", False)
-        msgs = cp.messages_of(rows, "reviewer")
+        con.commit()
+        msgs = cp.messages_of(_items("reviewer"), "reviewer")
         mine = [m for m in msgs if m["text"] == "thanks, one question"]
         check("reply link: a reply to a report is drawn once, as a reply to it",
               ok and len(mine) == 1 and mine[0]["reply_to"] == said, f"{sent} {msgs}")
@@ -5219,14 +5273,14 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
         con.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (long_ago - 20, tid))
         seen = long_ago + 100
         db.set_cursor(con, "seen:reviewer", seen)
-        before = (actions.chat_unread(con, "reviewer"), cp.signature(con, "reviewer", False),
+        before = (actions.chat_unread(con, "reviewer"), _version("reviewer", False),
                   db.task_last_activity(con, tid))
         check("late answer: before it lands, nothing is new", before[0] == 0 and before[2] == long_ago, str(before))
         late = int(time.time()) + 900       # after everything else in the chat, as a signature's maximum needs
         con.execute("UPDATE requests SET ts = ? WHERE id = ?", (late, said))      # the same say, answered later
         check("late answer: chat_unread counts it although the request's state_at is older than the tab's last look",
               actions.chat_unread(con, "reviewer") == 1)
-        check("late answer: the chat signature moves", cp.signature(con, "reviewer", False) != before[1])
+        check("late answer: the chat signature moves", _version("reviewer", False) != before[1])
         check("late answer: the task's last activity is the say's time", db.task_last_activity(con, tid) == late,
               str(db.task_last_activity(con, tid)))
         row = next((r for r in actions.task_rows(con) if r["id"] == tid), None)
