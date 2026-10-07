@@ -38,7 +38,7 @@ function gateway(key: string) {
 }
 
 test('the key file is where the daemon keeps it, one folder per home', () => {
-  assert.equal(founderKeyFile('/Users/a', '/Users/a/.handline'), '/Users/a/.config/orcapipe/protected/-Users-a--handline/founder-keys/key');
+  assert.equal(founderKeyFile('/Users/a', '/Users/a/.handline'), '/Users/a/.config/orcapipe/protected/-Users-a--handline/founder-keys/key'); // local-ref-ok
 });
 
 test('pairSelf proves the key, asks for a code and trades it for a token; no key file is its own error', async () => {
