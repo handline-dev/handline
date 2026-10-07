@@ -20,6 +20,7 @@ import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@handline/app-data';
 import { unserved, useServed, useVerbMark, useVerbRun, VerbSheet } from './AgentVerbs.tsx';
 import { Badges } from './Badges.tsx';
+import { UsagePopup } from './UsagePopup.tsx';
 import { setting } from './daemon.ts';
 import { goAgent, goInbox, goSettings, goTasks, useInboxRoute } from './route.ts';
 import { View } from './View.tsx';
@@ -45,7 +46,6 @@ export function Sidebar({
   const groups = railGroups(agents, by, { hideParked, search });
   const unread = useUnread().length;
   const onInbox = useInboxRoute().open;
-  const accounts = [...new Set(agents.map((a) => a.account).filter(Boolean))];
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
   const later = (t: string) => (
     <button key={t} className="nav" disabled title="Not built yet">
@@ -72,7 +72,10 @@ export function Sidebar({
         <button className="nav" aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           Tasks
         </button>
-        {['Team', 'Accounts'].map(later)}
+        {later('Team')}
+        <a className="nav" href="#/accounts">
+          Accounts
+        </a>
       </div>
       <div className="rail-opts">
         <input
@@ -129,7 +132,7 @@ export function Sidebar({
         <span>
           {agents.length} agents · {agents.filter((a) => a.state === 'running').length} running
         </span>
-        {accounts.length ? <span className="muted">accounts {accounts.join(', ')}</span> : null}
+        <UsagePopup />
       </footer>
     </nav>
   );

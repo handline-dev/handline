@@ -4,8 +4,9 @@ import type { KV, Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
+import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
-import { useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute } from './route.ts';
+import { useAccountsRoute, useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute } from './route.ts';
 import { useShell } from './shell.ts';
 import { SettingsView } from './SettingsView.tsx';
 import { Sidebar } from './Sidebar.tsx';
@@ -29,6 +30,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
   const tasks = useTasksRoute();
   const settings = useSettingsOpen();
+  const accounts = useAccountsRoute();
   useShell(agent);
   const inbox = useInboxRoute();
   const unread = useUnread().length;
@@ -55,6 +57,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       <main className="main" aria-label="Agent workspace">
         {inbox.open ? (
           <InboxPage item={inbox.item} />
+        ) : accounts.open ? (
+          <AccountsPage name={accounts.name} />
         ) : tasks !== null ? (
           <TasksPage storage={storage} route={tasks} />
         ) : agent && settings ? (

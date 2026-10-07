@@ -1730,3 +1730,178 @@ button.opt {
     min-height: 44px;
   }
 }
+
+/* Accounts page and usage popup */
+.accounts {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+  overflow: auto;
+  height: 100%;
+}
+.acct-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+.acct-card,
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+}
+.acct-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.acct-state.out,
+.acct-state.needs_login {
+  border-color: var(--block);
+  color: var(--block);
+}
+.acct-state.in_use {
+  border-color: var(--run);
+  color: var(--run);
+}
+.gauge {
+  display: grid;
+  grid-template-columns: 3.2em 1fr 3em;
+  align-items: center;
+  gap: 2px 8px;
+}
+.acct-card,
+.usage-row {
+  container-type: inline-size;
+}
+.gauge-reset,
+.gauge-more {
+  grid-column: 2 / 4;
+  font-size: 12px;
+}
+.gauge-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--line);
+  overflow: hidden;
+}
+.gauge-fill {
+  display: block;
+  height: 100%;
+  background: var(--run);
+}
+.gauge[data-tone='warn'] .gauge-fill {
+  background: var(--wait);
+}
+.gauge[data-tone='bad'] .gauge-fill {
+  background: var(--block);
+}
+.gauge-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ink);
+  opacity: 0.6;
+}
+.gauge-pct {
+  text-align: right;
+  font: 12px var(--mono);
+}
+.acct-one {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.acct-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 420px;
+}
+.acct-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.acct-settings label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.acct-settings input:not([type='checkbox']) {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 5px 8px;
+  font: inherit;
+}
+.phone-only {
+  display: none;
+}
+.usage {
+  position: relative;
+}
+.usage-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.usage-pop {
+  position: fixed; /* the rail clips what overflows it */
+  bottom: 40px;
+  left: 8px;
+  z-index: 20;
+  width: min(360px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 4px 24px #0004;
+}
+.usage-all {
+  align-self: flex-end;
+}
+@container (max-width: 240px) {
+  .gauge-reset {
+    display: none;
+  }
+}
+@container (max-width: 170px) {
+  .gauge-pct {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .desktop-only {
+    display: none;
+  }
+  .phone-only {
+    display: inline;
+  }
+  .usage-pop {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: auto;
+    border-radius: 12px 12px 0 0;
+  }
+}
+.accounts h2 a {
+  color: inherit;
+}

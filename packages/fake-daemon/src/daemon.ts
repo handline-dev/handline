@@ -18,9 +18,10 @@ import {
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import { AGENTS, seedChat } from './fixtures.ts';
+import { FakeAccounts } from './accounts.ts';
 import { FakeInbox } from './inbox.ts';
 import { FakeTasks, taskCall } from './tasks.ts';
-import { chatCall, FakeChat } from './chat.ts';
+import { chatMethod, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
@@ -46,6 +47,7 @@ interface Conn {
 export interface FakeDaemonOptions {
   retention?: number; // events kept for resume; older ones give `gap`
   now?: () => Date;
+  accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
 }
@@ -59,6 +61,7 @@ export class FakeDaemon {
   readonly chat: FakeChat;
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
+  readonly accounts: FakeAccounts;
   private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
@@ -95,6 +98,7 @@ export class FakeDaemon {
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;
     this.inbox = new FakeInbox(this, () => this.iso(), opts.inbox ?? true);
+    this.accounts = new FakeAccounts(this, () => this.iso(), opts.accounts ?? true);
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
@@ -329,7 +333,13 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => (this.serveChat || !name.startsWith('chat.')) && this.inbox.lists(name) && this.tasks.lists(name))
+          .filter(
+            ([name]) =>
+              (this.serveChat || !name.startsWith('chat.')) &&
+              this.accounts.lists(name) &&
+              this.inbox.lists(name) &&
+              this.tasks.lists(name),
+          )
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -342,11 +352,16 @@ export class FakeDaemon {
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
-    if ((method.startsWith('chat.') && !this.serveChat) || (method.startsWith('inbox.') && !this.inbox.lists(method)))
+    if ((method.startsWith('chat.') && !this.serveChat) || !this.inbox.lists(method) || !this.accounts.lists(method))
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
-    if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
+    if (method === 'accounts.list' && this.knobs.accounts) return accountsReply(this.knobs.accounts, [...this.sessions.values()]);
+    if (/^accounts?\./.test(method)) return this.accounts.call(method, p, (said, extra) => ({ ...this.script.accepted(said), ...extra }));
+    if (method.startsWith('chat.')) {
+      const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
+      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id));
+    }
     if (method.startsWith('inbox.')) return this.inbox.call(method, p, c.caller.name, (said) => this.script.accepted(said));
     if (this.tasks.serves(method)) return taskCall(this.tasks, method, p, c.caller.name, this.script);
     const handler = HANDLERS[method];
@@ -375,8 +390,6 @@ export class FakeDaemon {
           inbox: { unread: this.inbox.unread() },
         };
       }
-      case 'accounts.list':
-        return accountsReply(this.knobs.accounts, [...this.sessions.values()]);
       case 'agents.list':
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':
@@ -412,30 +425,6 @@ export class FakeDaemon {
         this.tokens.set(token, { id, name: p.name });
         return this.script.accepted('Paired.', { token, device: id });
       }
-      default:
-        throw refused('unsupported', `the fake daemon does not serve ${method}`);
-    }
-  }
-
-  private chatMethod(method: string, p: Record<string, unknown>, person: string, agent: () => Session): unknown {
-    const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
-    switch (method) {
-      case 'chat.messages':
-        agent();
-        return this.chat.messagesOf(p);
-      case 'chat.transcript':
-        agent();
-        return this.chat.transcriptOf(p);
-      case 'chat.send':
-        agent();
-        return chatCall(() => ok('Sent.', this.chat.send(p, person)));
-      case 'chat.answer':
-        return chatCall(() => (this.chat.answer(p), ok('Answered.')));
-      case 'chat.dismiss':
-        if (this.inbox.dismiss(p.request)) return ok('Dismissed.');
-        return chatCall(() => (this.chat.dismiss(p), ok('Dismissed.')));
-      case 'chat.withdraw':
-        return chatCall(() => (this.chat.withdraw(p), ok('Withdrawn.')));
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }

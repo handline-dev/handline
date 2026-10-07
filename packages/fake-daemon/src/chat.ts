@@ -1,6 +1,6 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
-import { storeFailure } from './errors.ts';
+import { refused, storeFailure } from './errors.ts';
 import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
 
 type Emit = (
@@ -15,6 +15,38 @@ export function chatCall<T>(fn: () => T): T {
   } catch (e) {
     if (!(e instanceof ChatFailure)) throw e;
     throw storeFailure(e);
+  }
+}
+
+/** One chat method. `checkAgent` throws for an agent that does not exist; `inboxDismiss` takes an inbox item off its list when the id is one. */
+export function chatMethod(
+  chat: FakeChat,
+  method: string,
+  p: Record<string, unknown>,
+  person: string,
+  checkAgent: () => unknown,
+  ok: (said: string, extra?: object) => object,
+  inboxDismiss: (id: unknown) => boolean,
+): unknown {
+  switch (method) {
+    case 'chat.messages':
+      checkAgent();
+      return chat.messagesOf(p);
+    case 'chat.transcript':
+      checkAgent();
+      return chat.transcriptOf(p);
+    case 'chat.send':
+      checkAgent();
+      return chatCall(() => ok('Sent.', chat.send(p, person)));
+    case 'chat.answer':
+      return chatCall(() => (chat.answer(p), ok('Answered.')));
+    case 'chat.dismiss':
+      if (inboxDismiss(p.request)) return ok('Dismissed.');
+      return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
+    case 'chat.withdraw':
+      return chatCall(() => (chat.withdraw(p), ok('Withdrawn.')));
+    default:
+      throw refused('unsupported', `the fake daemon does not serve ${method}`);
   }
 }
 

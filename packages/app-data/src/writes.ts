@@ -3,6 +3,7 @@
 import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
 import type { Account, InboxItem, Memo, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
 import { edit, provisionalId, type Ctx } from './cache.ts';
+import { accountAfter, type AccountChange } from './account-after.ts';
 import { chatWrites } from './chat-writes.ts';
 import { qk } from './reads.ts';
 import type { WriteSpec } from './write-spec.ts';
@@ -238,16 +239,11 @@ const settings: Record<string, WriteSpec> = {
     label: 'save account',
     touches: (d) => [qk.accounts(d)],
     patch: (c, p) => {
-      const { account, label, cap, recover } = as<{ account: string; label?: string; cap?: number; recover?: boolean }>(p);
-      const set = {
-        ...(label !== undefined ? { label: label || account } : {}),
-        ...(cap !== undefined ? { cap, cap_effective: cap } : {}),
-        ...(recover !== undefined ? { recover } : {}),
-      };
+      const { account } = as<{ account: string }>(p);
       edit<List<'accounts', Account>>(
         c.qc,
         qk.accounts(c.d),
-        listOf('accounts', (l) => l.map((a) => (a.name === account ? { ...a, ...set } : a))),
+        listOf('accounts', (l) => l.map((a) => (a.name === account ? accountAfter(a, as<AccountChange>(p)) : a))),
       );
     },
   },
