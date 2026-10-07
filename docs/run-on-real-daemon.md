@@ -10,22 +10,24 @@ Known limits of this MVP: the app cannot create a task (founder decision), and e
 
 ## 1. Start the gateway
 
-1. Find this Mac's Tailscale address, `<ip>` below (a `100.x.y.z`).
+1. Find this Mac's Tailscale address `<ip>` (a `100.x.y.z`) and its name `<name>` (`<mac>.<tailnet>.ts.net`, no trailing dot).
 
        tailscale ip -4
+       tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'
 
-2. Start everything with the desktop app. It starts the Python daemon and the gateway itself if they are not running, pairs itself, and stops what it started when you quit.
+   The phones accept a plain link only for a `*.ts.net` name. A link with a bare `100.x` address is refused, so the gateway must be started with `-advertise <name>:7443`.
 
-       pnpm install && tools/build-go.sh
-       HANDLINE_GATEWAY=<ip>:7443 pnpm app
-
-   With no desktop app (a browser and phones only), start the daemon and the gateway yourself, each in a terminal you keep open:
+2. Start the daemon and the gateway, each in a terminal you keep open:
 
        hl daemon        # or `hl service install` once, to keep it running
-       pnpm --filter @handline/web build
-       go/handlined -gateway -allow-real-home -listen <ip>:7443 -web apps/web/dist
+       pnpm install && tools/build-go.sh && pnpm --filter @handline/web build
+       go/handlined -gateway -allow-real-home -listen <ip>:7443 -advertise <name>:7443 -web apps/web/dist
 
-You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal or in `daemon.log` in the app's data folder.
+3. For the desktop app, run it once the gateway is up. It reuses the running gateway and pairs itself. The app does not pass `-advertise` itself yet, so do not let it start the gateway for you if phones are to pair.
+
+       HANDLINE_GATEWAY=<ip>:7443 pnpm app
+
+You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal.
 
 **Common failure:** the gateway exits with `schema: ... does not exist: the daemon that owns it brings it up first` (or `... predates schema versions` or `... newer than the ...`).
 The Python daemon is not running, or is not the version of this checkout. Start it (`hl daemon`), then the gateway.
@@ -34,7 +36,7 @@ The Python daemon is not running, or is not the version of this checkout. Start 
 
 ### Desktop app
 
-Step 1 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
+Step 3 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
 
 **Common failure:** the window shows "Pair this computer": the app could not pair itself. Run `hl device pair` and paste the `code:` value, or the whole `handline://` line, into the window.
 If the window fails to connect, an older gateway on another address (loopback, say) is still running and the app reused it: stop it, then start the app again.
@@ -42,7 +44,7 @@ If that command says `no gateway is running (nothing listens on <home>/gateway.s
 
 ### Browser
 
-Open `http://<ip>:7443` (the gateway started without the desktop app serves the page; with it, use the window).
+Open `http://<ip>:7443` (the page is served by the gateway you started in step 2).
 Run `hl device pair` and paste the code into the page. The agent list appears.
 
 **Common failure:** "too many wrong pairing codes": this address is locked for 15 minutes after repeated wrong codes. Wait, then run `hl device pair` for a fresh code and paste it whole.
@@ -55,11 +57,12 @@ Run `hl device pair` and paste the code into the page. The agent list appears.
        cd apps/mobile && npx expo run:ios --device --configuration Release
 
    A Debug build (the default) loads its JS from Metro on the Mac (`npx expo start --dev-client`, port 8081): it shows nothing once that terminal is closed or if the phone cannot reach the Mac.
-3. On the Mac: `hl device pair`. Send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?host=<ip>:7443&code=...` into the app's field, then Pair.
+3. On the Mac: `hl device pair`. Send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?host=<name>:7443&code=...` into the app's field, then Pair.
 
 You should see the agent list, then an agent's page.
 
-**Common failure:** `cannot connect to ...`: the phone cannot reach `<ip>:7443` (Tailscale is off on the phone). Test it in the phone's browser at `http://<ip>:7443`: with the gateway started without the desktop app the page loads; if it does not, the network is the cause.
+**Common failure:** `cannot connect to ...`: the phone cannot reach `<name>:7443` (Tailscale is off on the phone). Test it in the phone's browser at `http://<name>:7443`: the page loads; if it does not, the network is the cause.
+If the app says the link has no certificate fingerprint and the address is not a Tailscale name, the gateway was started without `-advertise <name>:7443` (step 2): stop it and start it again.
 
 `apps/mobile/README.md` documents the simulator only; `--device` builds onto a plugged-in phone. This command is not tested.
 
@@ -76,12 +79,12 @@ The steps, for when it works:
        cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
        adb install -r app/build/outputs/apk/release/app-release.apk
 
-   Skip `adb reverse`: the phone reaches `<ip>` itself. Open the app from the launcher.
+   Skip `adb reverse`: the phone reaches `<name>` itself. Open the app from the launcher.
 3. On the Mac: `hl device pair`, send the `uri:` line to the phone, paste it into the app, Pair.
 
 You should see the agent list.
 
-**Common failure:** `cannot connect` on a phone that reaches `<ip>:7443` in its browser: the cleartext limit above.
+**Common failure:** `cannot connect` on a phone that reaches `<name>:7443` in its browser: the cleartext limit above.
 
 ## Not on Tailscale: a LAN with a certificate
 
