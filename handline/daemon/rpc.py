@@ -89,8 +89,36 @@ class Caller:
         """The spec's `Actor` for an event: a person is a `user` there."""
         return {**self.info, "kind": "user" if self.info["kind"] == "person" else self.info["kind"]}
 
+    @property
+    def writer(self) -> str:
+        """Whose request_ids a write is kept under: the actor, except a device, which has its own."""
+        return self.actor
+
     def allows(self, role: str) -> bool:
         return ROLES.index(self.role) >= ROLES.index(role)
+
+
+class DeviceCaller(Caller):
+    """A paired device the gateway speaks for (`relay.py`): a member, whatever it says. It writes as `human`, as the
+    founder does, so every check on who may do what reads the same; its request_ids and its events are its own."""
+
+    def __init__(self, device_id: str, name: str) -> None:
+        self.role, self.info = "member", {"kind": "device", "name": name, "device": device_id}
+
+    @property
+    def actor(self) -> str:
+        return db.HUMAN
+
+    @property
+    def writer(self) -> str:
+        return f"device:{self.info['device']}"
+
+
+def _terminal_capabilities() -> dict:
+    """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text and bytes, Orca text."""
+    from ..session import backends
+    hosts = {name: (["text", "bytes"] if cls.serves_bytes else ["text"]) for name, cls in backends.KNOWN.items()}
+    return {"terminal_format": sorted({f for formats in hosts.values() for f in formats}, key=["text", "bytes"].index), "terminal_hosts": hosts}
 
 
 def _hello(ctx: "Connection", params: dict) -> dict:
@@ -103,10 +131,10 @@ def _hello(ctx: "Connection", params: dict) -> dict:
         raise refused(f"this daemon serves clients of protocol {MIN_CLIENT} or newer; yours speaks {protocol}",
                       gate="protocol", hint="hl service install")
     from .loop import _loaded_sha       # loop imports this module's server, so not at the top
-    ctx.caller = caller = Caller(ctx.peer, params.get("key"))
+    ctx.caller = caller = ctx.caller_for(params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, "terminal_format": ["text"]},
+            "capabilities": {"chat": False, "review": False, "input_ask": False, **_terminal_capabilities()},
             "transport": "local",
             "methods": _methods(caller)}
 
@@ -148,7 +176,7 @@ def _write(ctx: "Connection", name: str, m: Method, params: dict) -> dict:
     rid = params.get("request_id")
     if not isinstance(rid, str) or not rid or len(rid) > REQUEST_ID_MAX:
         raise bad_request(f"{name} is a write: it takes a request_id, a string of 1 to {REQUEST_ID_MAX} characters", "request_id")
-    key = (ctx.caller.actor, rid)       # the founder and every device share `human`: key by device id when devices land
+    key = (ctx.caller.writer, rid)
     with _RETRY_LOCKS[hash(key) % len(_RETRY_LOCKS)]:
         con = db.connect()
         try:
@@ -190,6 +218,11 @@ class Connection:
         self.on_close: list = []
         self.after_reply: list = []             # run once the reply to the call in hand is sent
         self.closed = threading.Event()         # set when the connection ends
+        self.idle_s: float | None = IDLE_TIMEOUT_S
+
+    def caller_for(self, key) -> Caller:
+        """Who `hello` finds on the other end."""
+        return Caller(self.peer, key)
 
     def _line(self) -> bytes | None:
         """The next line, or what is left at EOF; None at a clean EOF. A line past the limit is bad_request."""
@@ -200,7 +233,7 @@ class Connection:
                 return line
             if len(self._buf) > MAX_LINE_BYTES:
                 raise bad_request(f"a line is at most {MAX_LINE_BYTES} bytes")
-            self.conn.settimeout(IDLE_TIMEOUT_S if self.said_hello and not self._buf else RECV_TIMEOUT_S)
+            self.conn.settimeout(self.idle_s if self.said_hello and not self._buf else RECV_TIMEOUT_S)
             chunk = self.conn.recv(65536)
             if not chunk:       # a client that shuts its write side after one object needs no newline
                 line, self._buf = self._buf, b""

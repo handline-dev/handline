@@ -150,6 +150,13 @@ class Backend:
         """Make the terminal cols by rows. A host that cannot says so; the terminal channel refuses a resize then."""
         return False, f"{self.name} cannot resize a terminal"
 
+    # What the bytes format of the terminal channel needs: the pane's escape-coded output and raw keystrokes. Only a host that has both says so.
+    serves_bytes = False
+
+    def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
+        """Send raw bytes as keystrokes (what a terminal emulator sends for the keys). A host that cannot says so."""
+        return False, f"{self.name} cannot send raw bytes"
+
     def wait_idle(self, handle: str, timeout_ms: int,
                   turn_on_screen: Callable[[list[str]], bool] | None = None) -> bool:
         """Whether the terminal's program is quiet, within `timeout_ms`. A timeout is False.

@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -46,6 +46,8 @@ export type RefusalData = {
   gate?: string;
   /** The command or step that fixes it, when there is one. */
   hint?: string;
+  /** With gates proposal_changed and proposal_settled: the proposal as it is now. */
+  proposal?: Proposal;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -81,6 +83,8 @@ export type Prompt = {
   options: PromptOption[];
   /** When the daemon first saw this prompt open. */
   since: Timestamp;
+  /** Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request. */
+  multi?: boolean;
 };
 
 export type Block = {
@@ -166,6 +170,8 @@ export type Task = {
   hold_reason: string | null;
   block_reason: string | null;
   evidence: string | null;
+  /** 1 high, 2 default, 3 low (written P1-P3). */
+  priority?: 1 | 2 | 3;
 };
 
 export type TaskDetail = Task & {
@@ -319,14 +325,37 @@ export type TeamAgent = {
 
 export type Proposal = {
   id: number;
-  agent: AgentName;
+  /** The agent the proposal is about, as the card heads it `<kind> <agent>`. For a bundle: `<N> changes`, not an agent's name. */
+  agent: string;
+  /** One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text. */
   title: string;
-  /** Unified diff. */
+  /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
-  state: "open" | "approved" | "rejected";
+  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
+  state: string;
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
+  /** Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional. */
+  requested_by?: string;
+  /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
+  reason?: string;
+  /** The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only. */
+  asked?: {
+    vendor?: string;
+    model?: string;
+    team?: string;
+    repo?: string;
+    /** rename: the new name; link, unlink: the other end. */
+    to?: string;
+    /** `set <key>`: each agent setting asked for, key to value. */
+    sets?: { [key: string]: string };
+    effort?: string;
+  };
+  error?: string | null;
+  settled?: Timestamp | null;
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
+  kind?: string;
 };
 
 export type Repo = {
@@ -529,7 +558,7 @@ export type TranscriptItem = {
   /** Ordered and stable, so a client appends and never redraws. */
   id: number;
   at: Timestamp;
-  kind: "reply" | "tool" | "prompt" | "task_event";
+  kind: "reply" | "tool" | "prompt" | "task_event" | "session";
   text?: string;
   tool?: string;
   /** Prompt card; `open` says whether it can still be answered. */
@@ -540,6 +569,12 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+  };
+  /** For kind session: a session of this agent began here. */
+  session?: {
+    id: string;
+    started: Timestamp;
+    handoff: string | null;
   };
 };
 
@@ -708,6 +743,35 @@ export type MethodInfo = {
   since: number;
   role: Role;
   allowed: boolean;
+};
+
+export type Outlook = {
+  range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
+  now: Timestamp;
+  /** How many accounts have a reading. */
+  accounts: number;
+  /** What usage samples recorded, oldest first. */
+  past: {
+    at: Timestamp;
+    left_pct: number | null;
+  }[];
+  /** A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it. */
+  future: {
+    at: Timestamp;
+    left_pct: number | null;
+  }[];
+  runway: {
+    account: string;
+    runs_out_in_seconds: number | null;
+    week_resets_at: Timestamp | null;
+  }[];
+  /** Oldest first; a day with no calls is absent. */
+  cost_per_day: {
+    /** Local calendar day, YYYY-MM-DD. */
+    day: string;
+    /** List-price cost in US dollars of each agent that day. */
+    agents: { [key: string]: number };
+  }[];
 };
 
 export type TerminalBytesSnapshot = {
@@ -904,8 +968,8 @@ export interface Methods {
   "prompt.answer": { params: {
   agent: AgentName;
   prompt: string;
-  /** A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. */
-  choice: string | {
+  /** A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. An array only answers a `multi` prompt. */
+  choice: string | string[] | {
     text: string;
   };
   request_id: RequestId;
@@ -982,6 +1046,11 @@ export interface Methods {
 }; result: Accepted & {
     request: number;
   } };
+  "chat.send_now": { params: {
+  /** A ChatMessage.id still in state queued. */
+  request: number;
+  request_id: RequestId;
+}; result: Accepted };
   "chat.answer": { params: {
   request: number;
   text: string;
@@ -1098,7 +1167,7 @@ export interface Methods {
   parent?: number;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
-  /** 1 high, 2 default, 3 low (written P1-P3). */
+  /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   expects?: Expects;
   /** Also answer the founder's message with text, where {task} is this task's real number. */
@@ -1224,6 +1293,8 @@ export interface Methods {
   time_box?: Duration;
   /** Owner only: what the task waits on. */
   waits_on?: string;
+  /** 1 high, 2 default, 3 low (written P1-P3). */
+  priority?: 1 | 2 | 3;
   request_id: RequestId;
 }; result: Accepted };
   "say": { params: {
@@ -1342,6 +1413,7 @@ export interface Methods {
     }[];
   } };
   "hr.list": { params: {
+  /** Only the proposals in that state; without it, the list below. */
   state?: string;
 }; result: {
     proposals: Proposal[];
@@ -1429,6 +1501,10 @@ export interface Methods {
   "stats.get": { params: {
   window: "24h" | "7d";
 }; result: Stats };
+  "stats.outlook": { params: {
+  /** Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1). */
+  range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
+}; result: Outlook };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
@@ -1532,6 +1608,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
+  "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
   "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.withdraw": { role: "agent", callers: null, write: true, since: 1 },
@@ -1600,6 +1677,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
+  "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "settings.trust": { role: "founder", callers: null, write: true, since: 1 },

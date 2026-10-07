@@ -47,6 +47,21 @@ def _proc(pid: int) -> tuple[int, str] | None:
     return int(rest[1]), rest[19]                                   # ppid, starttime in ticks
 
 
+def started_at(pid: int) -> float | None:
+    """When `pid` started, in seconds since the epoch, from the kernel; None when there is no such process or it cannot be told."""
+    info = _proc(pid)
+    if info is None:
+        return None
+    if sys.platform == "darwin":
+        return float(info[1])
+    try:
+        with open("/proc/stat") as f:
+            boot = next(int(line.split()[1]) for line in f if line.startswith("btime "))
+        return boot + int(info[1]) / os.sysconf("SC_CLK_TCK")
+    except (OSError, StopIteration, ValueError):
+        return None
+
+
 def _exe(pid: int) -> str | None:
     """The path of the program `pid` is running, from the kernel; None when it cannot be told."""
     if sys.platform == "darwin":

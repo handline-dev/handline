@@ -6,9 +6,15 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
+// Emit puts an event on the devices topic; actor is nil for none. A nil Emit sends none.
+type Emit func(typ string, data map[string]any, actor map[string]any, title string)
+
 // Register adds the device methods to a server. m is nil when the daemon has no network listener: there is
 // nothing to pair with, and the methods say so.
-func Register(s *rpc.Server, m *Manager) {
+func Register(s *rpc.Server, m *Manager, emit Emit) {
+	if emit == nil {
+		emit = func(string, map[string]any, map[string]any, string) {}
+	}
 	off := func() error { return rpc.Refused("the network listener is off", "network", "") }
 	s.Register("device.pair", rpc.Method{Role: "founder", Write: true, Unkept: true, Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
 		if m == nil {
@@ -43,6 +49,7 @@ func Register(s *rpc.Server, m *Manager) {
 		if err != nil {
 			return nil, err
 		}
+		emit("device.paired", m.Row(d), nil, d.Name+" paired")
 		return map[string]any{"accepted": true, "token": token, "device": d.ID}, nil
 	}})
 	s.Register("device.revoke", rpc.Method{Role: "founder", Write: true, Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
@@ -60,6 +67,7 @@ func Register(s *rpc.Server, m *Manager) {
 		if !found {
 			return nil, rpc.NotFoundError("no such device: " + id)
 		}
+		emit("device.revoked", map[string]any{"device": id}, c.Caller.ActorInfo(), "device "+id+" revoked")
 		return map[string]any{"accepted": true}, nil
 	}})
 	s.Register("devices.list", rpc.Method{Role: "founder", Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
