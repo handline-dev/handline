@@ -173,7 +173,7 @@ def test_the_tmux_backend_conforms_over_a_fake_tmux(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_the_in_memory_reference_host_conforms(Path(td) / "c1"))
-        run(lambda: test_the_orca_backend_conforms_over_a_stateful_fake_cli(Path(td) / "c2"))
+        skip(lambda: test_the_orca_backend_conforms_over_a_stateful_fake_cli(Path(td) / "c2"), ORCA_UNMAINTAINED)
         run(lambda: test_the_tmux_backend_conforms_over_a_fake_tmux(Path(td) / "c3"))
     return run_area(tests)
 

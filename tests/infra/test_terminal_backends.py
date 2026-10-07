@@ -71,7 +71,7 @@ class FakeHost(backends.base.Backend):
 
 def test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(home: Path) -> None:
     use_home(home)
-    check("backend: Orca is the default", backends.current().name == "orca")
+    check("backend: tmux is the default", backends.current().name == "tmux")
     (home / "config.yaml").write_text("terminal: tmux\n")
     check("backend: `terminal: tmux` in config.yaml picks tmux", backends.current().name == "tmux")
     os.environ["OCP_TERMINAL"] = "orca"
@@ -731,8 +731,11 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
               pane == "%0" and why == "" and st["panes"]["%0"]["sent"] == ["hl launch backend"]
               and st["panes"]["%0"]["cwd"] == str(home), str(st))
         made = next(a for a in st["log"] if "new-session" in a)
+        saved_sock = os.environ.pop("OCP_TMUX_SOCKET")
+        check("tmux: with no OCP_TMUX_SOCKET the dedicated server socket is ocp", tmuxbackend._socket() == "ocp")
+        os.environ["OCP_TMUX_SOCKET"] = saved_sock
         check("tmux: every call is on the dedicated server socket, the session detached and of a usable size, the home passed on",
-              all(a[:2] == ["-L", "ocp"] for a in st["log"]) and "-d" in made and "200" in made
+              all(a[:2] == ["-L", SUITE_TMUX_SOCKET] for a in st["log"]) and "-d" in made and "200" in made
               and f"OCP_HOME={home}" in st["panes"]["%0"]["env"], str(st["log"]))
         check("tmux: the window name cannot carry a `.` or `:` that tmux reads as a target",
               st["panes"]["%0"]["name"] == "back_end_1", st["panes"]["%0"]["name"])
@@ -877,6 +880,7 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         return
     sock = f"handline-test-{os.getpid()}"
     os.environ["OCP_TMUX_SOCKET"] = sock
+    os.environ["HANDLINE_TEST_REAL_TMUX"] = "1"      # the suite's stand-in tmux passes this one through
     tm = tmuxbackend.TmuxBackend()
     sock_file = Path(os.environ.get("TMUX_TMPDIR") or "/tmp").resolve() / f"tmux-{os.getuid()}" / sock
     try:
@@ -917,11 +921,11 @@ def main() -> int:
         run(lambda: test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(Path(td) / "b1"))
         run(lambda: test_the_old_module_name_is_the_same_module())
         run(lambda: test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(Path(td) / "b15"))
-        run(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"))
+        skip(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"), ORCA_UNMAINTAINED)
         run(lambda: test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(Path(td) / "b17"))
         run(lambda: test_a_missing_host_is_named_by_that_host_in_each_message(Path(td) / "b18"))
-        run(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"))
-        run(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"))
+        skip(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"), ORCA_UNMAINTAINED)
+        skip(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"), ORCA_UNMAINTAINED)
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))
         run(lambda: test_spawn_runs_an_agent_on_any_backend(Path(td) / "b5"))
         run(lambda: test_no_module_outside_the_backends_starts_an_orca_process())

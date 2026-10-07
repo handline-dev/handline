@@ -1181,22 +1181,15 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     agents.register("spawny")
 
-    calls: list[list[str]] = []
+    repo = home / "repo"
+    (repo / ".git").mkdir(parents=True)
 
-    def fake_run(args, cwd=None):
-        calls.append(args)
-        if args[:3] == ["orca", "worktree", "create"]:
-            return 0, json.dumps({"result": {"worktree": {"path": "/tmp/wt"}}}), ""
-        if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
-        return 0, "", ""
-
-    real = (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
+    real = (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
            dmn_delivery.wait_for_session)
     try:
+        host = TmuxStandIn()
         termmod.available = lambda: True
-        spawnmod._run = fake_run
-        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
+        spawnmod._run = lambda args, cwd=None: (0, "", "")
         spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
         termmod.wait_idle = lambda h, timeout_ms=0: True
         termmod.run_current = lambda: None       # register_worker looks for a Run to join;
@@ -1205,26 +1198,25 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         # T146 pt.2) - not this test's own concern, so it is not made to wait.
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
+        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
         check("spawn: the command's main path runs to the end", ok, msg)
         check("spawn: and the task is actually sent",
-              any(a[:3] == ["orca", "terminal", "send"] for a in calls), str(calls))
+              any(a[0] == "send-keys" and "do the thing" in " ".join(a) for a in host.calls), str(host.calls))
         check("spawn: a ready agent draws no warning", "WARNING" not in msg, msg)
 
         # The wait is the guard against typing into a booting TUI, so its
         # answer must read the right way round: it warned on success and was
         # silent on failure, which is worse than not warning at all.
         termmod.wait_idle = lambda h, timeout_ms=0: False
-        calls.clear()
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
+        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        (orcacli._exec, spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
-        dmn_delivery.wait_for_session) = real
+        (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
+         dmn_delivery.wait_for_session) = real
 
 
 def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) -> None:
-    """T146 pt.2 (founder #1976): a terminal Orca made is not a session
+    """A terminal the host made is not a session
     running in it - `spawn`/`start_in` must say so (`ok=False`, the "no
     session is running" text), not warn while still claiming success. The
     daemon's own auto-start (`_start_for_work`) decides on that same `ok` now,
@@ -1237,24 +1229,20 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
     agents.register("spawny", repo=str(home / "checkout"))
     con = db.connect()
 
-    def fake_run(args, cwd=None):
-        if args[:3] == ["orca", "worktree", "create"]:
-            return 0, json.dumps({"result": {"worktree": {"path": str(home / "wt")}}}), ""
-        if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": "term_s"}}}), ""
-        return 0, "", ""
+    repo = home / "repo"
+    (repo / ".git").mkdir(parents=True)
 
-    real = (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
+    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
            dmn_delivery.wait_for_session)
     try:
+        TmuxStandIn()
         termmod.available = lambda: True
-        spawnmod._run = fake_run
-        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
+        spawnmod._run = lambda args, cwd=None: (0, "", "")
         termmod.run_current = lambda: None
         termmod.run_create = lambda objective: None
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
 
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main")
+        ok, msg = spawnmod.spawn("spawny", repo, base="main")
         check("spawn: no session confirmed is not started",
               not ok and "no session is running" in msg, msg)
 
@@ -1274,8 +1262,8 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
         check("dispatch: and it counts as a failed wake, not a fresh streak",
               row["wake_failures"] == 1, str(dict(row)))
     finally:
-        (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-        dmn_delivery.wait_for_session) = real
+        (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
+         dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -1353,23 +1341,16 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
     wt = home / "keeper-wt"
     wt.mkdir()
 
-    calls: list[list[str]] = []
+    repo = home / "repo"
+    (repo / ".git").mkdir(parents=True)
 
-    def fake_run(args, cwd=None):
-        calls.append(args)
-        if args[:3] == ["orca", "worktree", "create"]:
-            return 0, json.dumps({"result": {"worktree": {"path": "/tmp/keeper-2"}}}), ""
-        if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": "term_k"}}}), ""
-        return 0, "", ""
-
-    real = (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
+    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
            dmn_delivery.wait_for_session)
     con = db.connect()
     try:
+        host = TmuxStandIn()
         termmod.available = lambda: True
-        spawnmod._run = fake_run
-        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
+        spawnmod._run = lambda args, cwd=None: (0, "", "")
         termmod.run_current = lambda: None
         termmod.run_create = lambda objective: None
         # spawn() confirms a session came up before it says "started" (#1976,
@@ -1378,28 +1359,24 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
         # The selector `hl launch` records, not a plain path.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}")
 
-        ok, msg = spawnmod.spawn("keeper", ROOT, base="main", dry_run=True)
+        ok, msg = spawnmod.spawn("keeper", repo, base="main", dry_run=True)
         check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
         check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
 
-        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
+        ok, msg = spawnmod.spawn("keeper", repo, base="main")
         check("spawn: an agent with a worktree and no terminal starts", ok, msg)
-        check("spawn: no second worktree is created",
-              not any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+        check("spawn: no second worktree is created", host.worktrees_made() == [], str(host.git))
         check("spawn: the terminal opens in the worktree it had",
-              [f"path:{wt}"] == [a[a.index("--worktree") + 1] for a in calls
-                                 if a[:3] == ["orca", "terminal", "create"]], str(calls))
+              [str(wt)] == [a[a.index("-c") + 1] for a in host.windows()], str(host.windows()))
 
         # Gone from disk, there is nothing to keep: a fresh one is made.
-        calls.clear()
         db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
-        ok, msg = spawnmod.spawn("keeper", ROOT, base="main")
-        check("spawn: a worktree that is gone is made anew",
-              any(a[:3] == ["orca", "worktree", "create"] for a in calls), str(calls))
+        ok, msg = spawnmod.spawn("keeper", repo, base="main")
+        check("spawn: a worktree that is gone is made anew", len(host.worktrees_made()) == 1, str(host.git))
     finally:
         con.close()
-        (orcacli._exec, spawnmod._run, termmod.available, termmod.run_current,
-        termmod.run_create, dmn_delivery.wait_for_session) = real
+        (spawnmod._run, termmod.available, termmod.run_current,
+         termmod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
@@ -2526,7 +2503,7 @@ def main() -> int:
         run(lambda: test_launch(home))
         run(lambda: test_doctor_checks_shared_mcp_config(home))
         run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
-        run(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'))
+        skip(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'), ORCA_UNMAINTAINED)
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
         run(lambda: test_a_launch_given_a_destination_lands_there_not_where_the_pick_would(Path(td) / 'destlaunch'))
@@ -2550,7 +2527,7 @@ def main() -> int:
             Path(td) / 'docactive'))
         run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
         run(lambda: test_spawn_and_start_in_refuse_to_say_started_with_no_session(Path(td) / 'spawnnosess'))
-        run(lambda: test_spawn_registers_a_repo_orca_lacks_and_tries_again(Path(td) / 'spawnrepo'))
+        skip(lambda: test_spawn_registers_a_repo_orca_lacks_and_tries_again(Path(td) / 'spawnrepo'), ORCA_UNMAINTAINED)
         run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))

@@ -1,4 +1,7 @@
-"""The Orca backend: every call is one `orca` CLI invocation."""
+"""The Orca backend: every call is one `orca` CLI invocation.
+
+Unmaintained since 2026-10-07 (the founder's call): tmux is the default host, and nothing new is built here.
+Its tests are skipped with ORCA_UNMAINTAINED (tests/support.py)."""
 from __future__ import annotations
 
 import json

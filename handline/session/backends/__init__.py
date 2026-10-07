@@ -1,6 +1,6 @@
-"""Which terminal host ocp drives: Orca (the default) or tmux.
+"""Which terminal host ocp drives: tmux (the default) or Orca, which is no longer maintained.
 
-`OCP_TERMINAL=tmux` in the environment, or `terminal: tmux` in config.yaml, picks tmux; the
+`OCP_TERMINAL=orca` in the environment, or `terminal: orca` in config.yaml, picks Orca; the
 environment wins. A name nobody knows gives a backend that is never available, so a typo
 stops the team with a message instead of quietly running on the other host.
 """
@@ -13,7 +13,7 @@ from .base import Backend
 from .orca_cli import OrcaBackend
 from .tmux import TmuxBackend
 
-DEFAULT = "orca"
+DEFAULT = "tmux"
 KNOWN = {"orca": OrcaBackend, "tmux": TmuxBackend}
 
 

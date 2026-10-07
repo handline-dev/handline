@@ -148,6 +148,7 @@ def test_the_handline_command_runs_the_same_program_as_ocp(home: Path) -> None:
         exe = ROOT / "bin" / old
         check(f"command: bin/{old} is a link to bin/hl", exe.is_symlink() and os.readlink(exe) == "hl")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
+    env["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET      # the suite's tmux, never the live one
     out = {n: subprocess.run([str(ROOT / "bin" / n), "--version"], capture_output=True, text=True, env=env,
                              timeout=60) for n in ("hl", "ocp", "handline")}
     check("command: all three names answer --version the same", out["hl"].returncode == 0
@@ -190,6 +191,7 @@ def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> 
     check("names: permissions allow the safe verbs under every name",
           all(f"Bash({n} say:*)" in claude_hooks.SAFE_COMMANDS for n in names.COMMANDS))
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
+    env["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET      # the suite's tmux, never the live one
     env["HANDLINE_HOME"] = str(home)
     r = subprocess.run([str(ROOT / "bin" / "hl")], capture_output=True, text=True, env=env, timeout=60)
     check("command: hl alone opens the screen (its text snapshot when piped), not a usage error",

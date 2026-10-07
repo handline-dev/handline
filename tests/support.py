@@ -195,6 +195,110 @@ FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
 os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
 atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
 
+# The same two layers for tmux, the default host: a stand-in `tmux` beside the fake `orca`, and the Popen
+# guard below. The suite has a tmux socket of its own, and nothing reaches the live server (`-L ocp`, or the
+# user's default one with no -L): a call aimed there is refused and fails the run, never skipped. Every
+# other call gets "no server running" unless the test sets HANDLINE_TEST_REAL_TMUX (the real-tmux test does),
+# so no test opens a window that would start a real session.
+SUITE_TMUX_SOCKET = f"handline-suite-{os.getpid()}"
+os.environ["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET
+REAL_TMUX = shutil.which("tmux")       # looked up before the stand-in is written
+FAKE_TMUX_LOG = FAKE_ORCA_DIR / "tmux-calls.log"
+(FAKE_ORCA_DIR / "tmux").write_text(r"""#!/bin/sh
+args=$(printf '%s' "$*" | tr '\n\t' '  ')
+printf '%s\t%s\n' "${OCP_TEST:-<none>}" "$args" >> "@LOG@"
+if [ "$1" != "-L" ] || [ -z "$2" ] || [ "$2" = "ocp" ]; then
+  echo "the live tmux server is not the test world: tmux $args" >&2
+  exit 1
+fi
+if [ -n "$HANDLINE_TEST_REAL_TMUX" ] && [ -n "@REAL@" ]; then exec "@REAL@" "$@"; fi
+echo "no server running on $2 (the suite's stand-in tmux)" >&2
+exit 1
+""".replace("@LOG@", str(FAKE_TMUX_LOG)).replace("@REAL@", REAL_TMUX or ""))
+(FAKE_ORCA_DIR / "tmux").chmod(0o755)
+TMUX_ATTEMPTS: list[tuple[str, str]] = []
+
+
+def reaches_live_tmux(argv: list[str]) -> bool:
+    """A tmux call aimed at the live server: the default `ocp` socket, or no -L at all."""
+    if "-S" in argv:
+        return False
+    sock = argv[argv.index("-L") + 1] if "-L" in argv and argv.index("-L") + 1 < len(argv) else None
+    return sock in (None, "", tmuxbackend.SOCKET)
+
+
+_TEMP_ROOTS = tuple({os.path.realpath(tempfile.gettempdir()), "/private/tmp", "/tmp"})
+
+
+def makes_a_worktree_outside_the_test_world(argv: list[str]) -> bool:
+    """`git ... worktree add ... <path>` with a path outside the temp folders: tmux's create_worktree run on a
+    real repo (a test that passes ROOT) would leave a real branch and checkout beside it."""
+    if os.path.basename(argv[0]) != "git" or "worktree" not in argv or "add" not in argv:
+        return False
+    after = argv[argv.index("add") + 1:]
+    return any(a.startswith("/") and not os.path.realpath(a).startswith(_TEMP_ROOTS) for a in after)
+
+
+class TmuxStandIn:
+    """tmux and git as the tmux backend calls them, answered in this process and recorded, for a test whose
+    subject is not the host: a window opens as the next pane id, `worktree add` makes only the folder. Every
+    tmux call is in `calls`, every git call in `git`; `screens` maps a pane to the rows `capture-pane` gives.
+    `restore_world` puts the real ones back."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.git: list[list[str]] = []
+        self.panes: list[str] = []
+        self.screens: dict[str, list[str]] = {}
+        tmuxbackend._tmux, tmuxbackend._git, tmuxbackend.ENTER_DELAY_S = self._tmux, self._git, 0
+
+    def _tmux(self, args, timeout=10, stdin=None):
+        args = list(args)
+        self.calls.append(args)
+        target = args[args.index("-t") + 1] if "-t" in args else None
+        if args[0] == "has-session":
+            return (0, "", "") if self.panes else (1, "", "can't find session: ocp")
+        if args[0] in ("new-session", "new-window"):
+            self.panes.append(f"%{len(self.panes) + 1}")
+            return 0, self.panes[-1] + "\n", ""
+        if args[0] == "list-panes":
+            return (0, "\n".join(self.panes), "") if self.panes else (1, "", "no server running")
+        if args[0] == "capture-pane":
+            rows = self.screens.get(target)
+            return (0, "\n".join(rows), "") if rows is not None else (1, "", f"can't find pane: {target}")
+        if args[0] in ("kill-window", "kill-pane"):
+            if target not in self.panes:
+                return 1, "", f"can't find pane: {target}"
+            self.panes.remove(target)
+        return 0, "", ""
+
+    def _git(self, repo, *args):
+        self.git.append([repo, *args])
+        if args[:2] == ("worktree", "add"):
+            Path(args[-2]).mkdir(parents=True, exist_ok=True)
+        return 0, ""
+
+    def windows(self) -> list[list[str]]:
+        """The new-session and new-window calls, in order."""
+        return [a for a in self.calls if a[0] in ("new-session", "new-window")]
+
+    def worktrees_made(self) -> list[str]:
+        return [g[-2] for g in self.git if g[1:3] == ["worktree", "add"]]
+
+
+REAL_TMUX_BACKEND = (tmuxbackend._tmux, tmuxbackend._git, tmuxbackend.ENTER_DELAY_S)
+
+
+def calls_that_reached_live_tmux() -> list[tuple[str, str]]:
+    """The stand-in's log lines that named the live server, as (test, call)."""
+    out = []
+    if FAKE_TMUX_LOG.exists():
+        for line in FAKE_TMUX_LOG.read_text().splitlines():
+            test, _, call = line.partition("\t")
+            if reaches_live_tmux(["tmux", *call.split()]):
+                out.append((test, call))
+    return out
+
 # Tests whose subject is a child `hl` process (a launch, the bridge on a pty),
 # which asks Orca for its terminals and its Run. They reach the stand-in, never
 # the real one.
@@ -230,6 +334,14 @@ def _guarded_popen_init(self, args, *a, **kw):
     or wait on the real Orca of whoever runs the suite. It raises, naming the
     test and the call. (Code that catches Exception can swallow this; the fake
     `orca` main() puts on PATH is what still sees it, and the run ends on it.)"""
+    argv = [args] if isinstance(args, str) else [str(x) for x in args]
+    if argv and os.path.basename(argv[0].split()[0] if argv[0].split() else "") == "tmux" and reaches_live_tmux(
+            argv[0].split() + argv[1:] if len(argv) == 1 else argv):
+        TMUX_ATTEMPTS.append((CURRENT_TEST["name"], " ".join(argv)))
+        raise AssertionError(f"{CURRENT_TEST['name']} would have reached the live tmux server: {' '.join(argv)}")
+    if argv and makes_a_worktree_outside_the_test_world(argv):
+        TMUX_ATTEMPTS.append((CURRENT_TEST["name"], " ".join(argv)))
+        raise AssertionError(f"{CURRENT_TEST['name']} would have made a real worktree: {' '.join(argv)}")
     if _is_orca(args):
         argv = args if isinstance(args, str) else " ".join(str(x) for x in args)
         ORCA_ATTEMPTS.append((CURRENT_TEST["name"], argv))
@@ -245,6 +357,9 @@ REAL_LOGGED_IN = accounts.logged_in
 
 def restore_world() -> None:
     subprocess.Popen.__init__ = _guarded_popen_init
+    os.environ["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET
+    os.environ.pop("HANDLINE_TEST_REAL_TMUX", None)
+    tmuxbackend._tmux, tmuxbackend._git, tmuxbackend.ENTER_DELAY_S = REAL_TMUX_BACKEND
     backends.use(None)
     os.environ.pop("OCP_TERMINAL", None)
     accounts.logged_in = REAL_LOGGED_IN
@@ -262,7 +377,7 @@ def restore_world() -> None:
     # real terminal's ambient value could still one day produce (auditor
     # #1662 NOTE 2). A test that wants either sets it itself, and pops it
     # again when done, the same as every other piece of state this resets.
-    for var in ("ORCA_TERMINAL_HANDLE", "ORCA_WORKTREE_ID"):
+    for var in ("ORCA_TERMINAL_HANDLE", "ORCA_WORKTREE_ID", "TMUX", "TMUX_PANE"):
         os.environ.pop(var, None)
     # Whether the suite runs sandboxed must not change what a missing
     # keychain item means: the fixtures' logged-out accounts rely on it.
@@ -1820,6 +1935,18 @@ def run(one) -> None:
         os.environ["OCP_TEST"] = prev_test
 
 
+# A test kept in its file but not run: `skip(lambda: test_x(...), ORCA_UNMAINTAINED)` in place of `run(...)`. Each is
+# named with its reason under the area's count, so it stays findable.
+ORCA_UNMAINTAINED = "Orca backend unmaintained (founder 2026-10-07)"
+SKIPPED: list[str] = []
+
+
+def skip(one, reason: str) -> None:
+    name = _test_name(one)
+    if TEST_FILTER is None or TEST_FILTER in name:
+        SKIPPED.append(f"{name}: {reason}")
+
+
 def _python_with_textual() -> str | None:
     """A python3 that can import textual: the interpreter running the suite when
     it can, else the real machine's venv (requirements.txt, handline/infra/venv.py) -
@@ -2069,6 +2196,10 @@ def orca_settled() -> None:
 
 
 __all__ = [
+    'skip',
+    'TmuxStandIn',
+    'SUITE_TMUX_SOCKET',
+    'ORCA_UNMAINTAINED',
     'approve_hr',
     'drain_spool',
     'answer_card',
@@ -2365,9 +2496,15 @@ def run_area(run_tests) -> int:
           not stray, "; ".join(f"{t}: {c[0]}" for t, c in sorted(stray.items())[:4]))
     check("orca: no test started an orca process itself, whether or not it caught the error",
           not ORCA_ATTEMPTS, "; ".join(f"{t}: {c}" for t, c in ORCA_ATTEMPTS[:4]))
+    live = calls_that_reached_live_tmux()
+    check("tmux: no test reached the live tmux server or made a real worktree, in this process or a child",
+          not TMUX_ATTEMPTS and not live, "; ".join(f"{t}: {c}" for t, c in (TMUX_ATTEMPTS + live)[:4]))
     if WRITE_LABELS_TO is not None:
         write_labels(WRITE_LABELS_TO)
-    print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
+    print()
+    for line in SKIPPED:
+        print(f"SKIPPED  {line}")
+    print(f"{len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:
         print(f"  FAILED: {f}")
     return 1 if FAIL else 0

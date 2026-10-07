@@ -149,6 +149,7 @@ def run_all(argv: list[str]) -> int:
             crashed = True
             failures.append(f"{path.name} exited {code} after reporting no failure")
         failures += re.findall(r"^  FAILED: (.*)$", output, re.M)
+        skips += re.findall(r"^(SKIPPED  test_.*)$", output, re.M)
     if skipped:
         print(skipped)
     for line in skips:
