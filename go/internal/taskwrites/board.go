@@ -48,22 +48,23 @@ func asker(tx *sql.Tx, t *task) (string, error) {
 
 const eventTask = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END"
 
-// isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
-func isDoing(tx *sql.Tx, t *task) (bool, error) {
+// readsDoing is reads_doing: the task was begun on a founder message, or a request is out on it or on an open child of it.
+func readsDoing(tx *sql.Tx, t *task) (bool, error) {
 	var n int
 	if err := tx.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'task_begin' AND "+eventTask+" = ?", t.ID).Scan(&n); err != nil {
 		return false, err
 	}
-	reads := n > 0 || t.SentAt.Valid
-	if !reads {
-		if err := tx.QueryRow("SELECT COUNT(*) FROM tasks WHERE parent_task = ? AND done_evidence IS NULL AND discarded_by IS NULL AND sent_at IS NOT NULL", t.ID).Scan(&n); err != nil {
-			return false, err
-		}
-		reads = n > 0
+	if n > 0 || t.SentAt.Valid {
+		return true, nil
 	}
-	if !reads {
-		return false, nil
+	if err := tx.QueryRow("SELECT COUNT(*) FROM tasks WHERE parent_task = ? AND done_evidence IS NULL AND discarded_by IS NULL AND sent_at IS NOT NULL", t.ID).Scan(&n); err != nil {
+		return false, err
 	}
+	return n > 0, nil
+}
+
+// holdsCurrent is holds_current: the task is the one its owner holds, or its owner holds none (or one that has ended).
+func holdsCurrent(tx *sql.Tx, t *task) (bool, error) {
 	if t.Owner == human {
 		return true, nil
 	}
@@ -80,6 +81,42 @@ func isDoing(tx *sql.Tx, t *task) (bool, error) {
 		return false, err
 	}
 	return cur == nil || cur.done() || cur.DiscardedBy.Valid && cur.DiscardedBy.String != "", nil
+}
+
+// isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
+func isDoing(tx *sql.Tx, t *task) (bool, error) {
+	reads, err := readsDoing(tx, t)
+	if err != nil || !reads {
+		return false, err
+	}
+	return holdsCurrent(tx, t)
+}
+
+// state is task_state: discarded, done, doing (asked and held by its owner), else queued (approved, or asked but held back) or draft.
+func state(tx *sql.Tx, t *task) (string, error) {
+	switch {
+	case t.DiscardedBy.Valid && t.DiscardedBy.String != "":
+		return "discarded", nil
+	case t.done():
+		return "done", nil
+	}
+	asked, err := readsDoing(tx, t)
+	if err != nil {
+		return "", err
+	}
+	doing := false
+	if asked {
+		if doing, err = holdsCurrent(tx, t); err != nil {
+			return "", err
+		}
+	}
+	switch {
+	case doing:
+		return "doing", nil
+	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:
+		return "queued", nil
+	}
+	return "draft", nil
 }
 
 // refreshSent sets tasks.sent_at (once) while a request that asks something is out on the task, and clears it when none is left.

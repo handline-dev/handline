@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { askedLines, cutError, diffLines, kindOf, isWaiting, ordered, stateWord, textSafe, waitingCount } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useHr, usePending, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
+import { goSettings } from './route.ts';
 import { View } from './View.tsx';
 
 const useNarrow = (): boolean => {
@@ -114,6 +115,8 @@ function Card({
   const deciding = usePending('hr.decide').some((v) => v.proposal === p.id);
   const withdrawing = usePending('hr.withdraw').some((v) => v.proposal === p.id);
   const busy = deciding || withdrawing;
+  // A bundle's agent is "<N> changes" and a hire's does not exist yet: only an agent on the roster has settings to open.
+  const onRoster = !!useAgents().data?.agents.some((a) => a.name === p.agent);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
@@ -224,6 +227,11 @@ function Card({
           <Button variant="outline" icon="close" label="Reject" keys="r" disabled={busy || !!mark} onClick={() => setReason('')}>
             Reject
           </Button>
+          {onRoster ? (
+            <Button variant="ghost" icon="settings" label="Edit settings" onClick={() => goSettings(p.agent)}>
+              Edit settings
+            </Button>
+          ) : null}
           <Button variant="ghost" icon="discard" label="Withdraw" keys="w" disabled={busy || !!mark} onClick={() => setAsk(true)}>
             Withdraw
           </Button>

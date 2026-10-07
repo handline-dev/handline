@@ -482,6 +482,81 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
         cli_land._tested_trees, cli_land.dmn_client.send = real_tree, real_send
 
 
+def test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(home: Path) -> None:
+    """`hl land --pass` runs `land.sh --check --refs`, the merger's own check on the merge, judged by the merged
+    tree's localrefs.py and allow file: a local id in a commit message or personal data in the diff prints the
+    hits and sends nothing; a clean sha, or one that allows its own fixture, still sends its PASS; one that
+    tightens a rule and breaks it does not. A check that cannot run, or fails saying nothing, sends nothing."""
+    import argparse
+    import contextlib
+    import io
+    import shutil
+    from handline.cli import land as cli_land
+    main = _repo(home / "repo")
+    refs = (ROOT / "tools" / "localrefs.py").read_text()
+    (main / "tools" / "localrefs.py").write_text(refs)
+    shutil.copy(LAND, main / "tools" / "land.sh")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "localrefs")
+    _git(main, "checkout", "-q", "-b", "cited", "main")
+    (main / "c.py").write_text("z = 3\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "fix what T" + "1234 asked for")
+    cited = _git(main, "rev-parse", "HEAD")
+    _git(main, "checkout", "-q", "main")
+    mailed = _branch(main, "mailed", "d.py", "owner = 'someone@" + "gmail.com'\n")
+    clean = _branch(main, "clean", "e.py", "w = 4\n")
+    allows = _branch(main, "allows", "fixture.txt", "someone@" + "gmail.com\n", ("tools/localrefs.allow", "fixture.txt\n"))
+    safe = '{"example.com", "example.org", "example.net"}'
+    assert safe in refs
+    tightens = _branch(main, "tightens", "f.py", "to = 'a@example.com'\n",
+                       ("tools/localrefs.py", refs.replace(safe, '{"example.org", "example.net"}')))
+    sent, real_send = [], cli_land.dmn_client.send
+    cli_land.dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True, "said": "PASS recorded"})[1]
+    real_root = cli_land.paths.repo_root
+    cli_land.paths.repo_root = lambda: main
+    runs = home / "suite-runs"
+    os.environ["SUITE_RUNS"] = str(runs)
+
+    def run_pass(sha):
+        args = argparse.Namespace(sha=sha, message=None, passed=True, list=False, check=None, tree=None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = cli_land.cmd_land(args)
+        return rc, out.getvalue()
+    try:
+        rc, out = run_pass(cited)
+        check("land --pass: an id in a commit message records no PASS and prints the hit",
+              rc == 1 and "task id" in out and "no PASS recorded" in out and not sent, out)
+        rc, out = run_pass(mailed)
+        check("land --pass: an email the diff adds records no PASS and prints the hit",
+              rc == 1 and "email" in out and not sent, out)
+        rc, out = run_pass(clean)
+        check("land --pass: a clean sha still sends its PASS",
+              rc == 0 and [p["verb"] for p in sent] == ["land_pass"] and sent[0]["sha"] == clean, out + str(sent))
+        rc, out = run_pass(allows)
+        check("land --pass: a branch that names its own fixture in the allow file gets its PASS, as the merger "
+              "would merge it", rc == 0 and [p["sha"] for p in sent] == [clean, allows], out + str(sent))
+        rc, out = run_pass(tightens)
+        check("land --pass: a branch that tightens a rule and breaks it gets no PASS",
+              rc == 1 and "email" in out and len(sent) == 2, out + str(sent))
+        real_run = cli_land.subprocess.run
+        for name, stand_in, said in (
+                ("times out", lambda *a, **k: (_ for _ in ()).throw(subprocess.TimeoutExpired(a[0], 1)), "try again"),
+                ("exits 1 saying nothing", lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", ""), "exited 1")):
+            cli_land.subprocess.run = stand_in
+            try:
+                rc, out = run_pass(clean)
+            finally:
+                cli_land.subprocess.run = real_run
+            check(f"land --pass: a check that {name} records no PASS", rc == 1 and said in out and len(sent) == 2,
+                  out + str(sent))
+        check("land --pass: and its check never runs the suite", not runs.exists())
+    finally:
+        cli_land.dmn_client.send, cli_land.paths.repo_root = real_send, real_root
+        os.environ.pop("SUITE_RUNS", None)
+
+
 def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Path) -> None:
     import contextlib
     import io
@@ -632,6 +707,7 @@ def main() -> int:
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
+        run(lambda: test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(Path(td) / "l5b"))
         run(lambda: test_a_documentation_only_merge_runs_no_suite(Path(td) / "l7"))
         run(lambda: test_a_train_is_tested_once_and_lands_in_order_and_a_bad_branch_is_dropped(Path(td) / "l8"))
         run(lambda: test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(Path(td) / "l6"))

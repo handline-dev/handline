@@ -345,6 +345,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'chat.cancel': 'take back',
     'chat.seen': 'mark seen',
     'account.login': 'log in',
+    'account.remove': 'remove',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
     'worktree.set_status': 'set status',
