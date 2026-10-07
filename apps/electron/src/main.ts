@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron';
@@ -7,16 +8,23 @@ import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
+import { ownDaemon } from './own.ts';
 import { Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
-const home = env('HOME') ?? path.join(os.homedir(), '.handline');
+/** The same rule the daemon uses: the environment's, else ~/.handline once it exists, else ~/.orcapipe. */
+const home =
+  env('HOME') ??
+  (fs.existsSync(path.join(os.homedir(), '.handline')) ? path.join(os.homedir(), '.handline') : path.join(os.homedir(), '.orcapipe'));
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
-/** The Go gateway (host:port): the web app reaches it at /rpc and pairs with a device token. */
-const gateway = env('GATEWAY');
+/** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
+const gateway = env('GATEWAY') ?? (env('WS') ? undefined : '127.0.0.1:7443');
+const gatewaySocket = path.join(home, 'gateway.sock');
+/** The checkout the app runs from; a packaged app names its binaries with HANDLINE_OCP and HANDLINE_HANDLINED. */
+const root = path.resolve(import.meta.dirname, '../../..');
 /** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
 const ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
@@ -57,6 +65,7 @@ if (!app.requestSingleInstanceLock()) {
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
+    const own = ownDaemon({ env, home, root, socket, gatewaySocket, gateway, origin, openWindow: () => void openWindow() });
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
@@ -71,31 +80,35 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());
     void sweepTemp(app.getPath('temp'));
-    win = new BrowserWindow({
-      width: 1280,
-      height: 860,
-      title: 'Handline',
-      show: false,
-      // The page gets window.handline from the preload and nothing else (docs/electron-bridge.md §2).
-      webPreferences: {
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-        preload: path.join(import.meta.dirname, 'preload.cjs'),
-      },
-    });
-    win.once('ready-to-show', show);
-    // The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback origin.
-    win.webContents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//.test(url)) void shell.openExternal(url);
-      return { action: 'deny' };
-    });
-    win.webContents.on('will-navigate', (e, url) => {
-      if (new URL(url).origin !== origin) e.preventDefault();
-    });
-    await win.loadURL(`${web.url}?daemon=${encodeURIComponent(ws)}`);
-    app.on('activate', show);
-    app.on('window-all-closed', () => app.quit());
+    const openWindow = async (): Promise<void> => {
+      if (win && !win.isDestroyed()) return show();
+      win = new BrowserWindow({
+        width: 1280,
+        height: 860,
+        title: 'Handline',
+        show: false,
+        // The page gets window.handline from the preload and nothing else (docs/electron-bridge.md §2).
+        webPreferences: {
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
+          preload: path.join(import.meta.dirname, 'preload.cjs'),
+        },
+      });
+      win.once('ready-to-show', show);
+      // The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback origin.
+      win.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\//.test(url)) void shell.openExternal(url);
+        return { action: 'deny' };
+      });
+      win.webContents.on('will-navigate', (e, url) => {
+        if (new URL(url).origin !== origin) e.preventDefault();
+      });
+      await win.loadURL(`${web.url}?daemon=${encodeURIComponent(ws)}`);
+    };
+    // The app lives in the tray: closing the last window leaves it running.
+    app.on('activate', () => void openWindow());
+    app.on('window-all-closed', () => undefined);
     app.on('quit', () => web.close());
 
     const updater = new Updater({
@@ -120,6 +133,7 @@ if (!app.requestSingleInstanceLock()) {
         app.quit();
       },
     });
+    void own.ready().then(openWindow);
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
 

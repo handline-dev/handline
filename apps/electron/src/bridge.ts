@@ -9,6 +9,7 @@ export const CHANNELS = {
   openPath: 'handline:openPath',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
+  token: 'handline:token',
 } as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */
