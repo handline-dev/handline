@@ -254,6 +254,8 @@ def test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_
     from handline.daemon import rpc as rpcmod
     support._board_world(home)
     a, b = socket.socketpair()
+    drain = threading.Thread(target=lambda: [None for _ in iter(lambda: a.recv(65536), b"")], daemon=True)
+    drain.start()       # whoami lists every method: more than a socketpair holds, so the peer reads while the replies go
     conn = rpcmod.Connection(b, lambda m: None, lambda m, log, peer: {})
     conn.said_hello = True
     conn.caller = rpcmod.Caller(None, _hp()["key"])
@@ -263,8 +265,9 @@ def test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_
     check("framing: a call answered on its own thread runs nothing another call queued for after its reply", ran == [] and len(conn.after_reply) == 1, str(ran))
     conn._answer({"jsonrpc": "2.0", "id": 2, "method": "whoami", "params": {}}, 2)
     check("framing: the reading loop's own call still runs it, after its reply", ran == ["subscribe started"] and conn.after_reply == [], str(ran))
-    a.close()
     b.close()
+    drain.join()
+    a.close()
 
 
 def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(home: Path) -> None:

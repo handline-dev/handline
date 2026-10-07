@@ -68,6 +68,17 @@ def _git(repo: str, *args: str) -> tuple[int, str]:
 
 class TmuxBackend(Backend):
     name = "tmux"
+    serves_bytes = True
+
+    def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
+        """The bytes as keystrokes: `send-keys -H` takes each as a hex number, so nothing in them is read as a key name or a command."""
+        if not _PANE.match(handle or ""):
+            return False, f"not a tmux pane: {handle!r}"
+        for i in range(0, len(data), 256):
+            code, _o, err = _tmux(["send-keys", "-t", handle, "-H", *[f"{b:02x}" for b in data[i:i + 256]]])
+            if code != 0:
+                return False, err
+        return True, ""
 
     def available(self) -> bool:
         return shutil.which("tmux") is not None

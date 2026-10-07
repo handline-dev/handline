@@ -91,10 +91,10 @@ A method marked write takes a required `request_id`.
 | `input.take` | member | yes | `agent`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder |
 | `input.ask` | member | yes | `agent`, `request_id` | `Accepted` | `refused` | unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
-| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found` |  |
-| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found` |  |
-| `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
-| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
+| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
+| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
+| `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found`, `bad_request` |  |
+| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -108,27 +108,27 @@ A method marked write takes a required `request_id`.
 | `terminal.detach` | member |  | `terminal` | `object` | `not_found` |  |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found` |  |
-| `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found` |  |
-| `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
+| `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?` | `{items, more}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
-| `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found` |  |
-| `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
+| `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | none | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -301,11 +301,11 @@ Messages of an agent's chat, newest first. Page with before (older) or since (ne
 
 ### `chat.transcript`
 
-The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state.
+The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state. Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet.
 
 ### `chat.locate`
 
-Where a message number sits: its conversation, scope, and the page of messages around it.
+Where a message number sits: its conversation, scope, and the page of messages around it. not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for.
 
 ### `chat.search`
 
@@ -365,15 +365,15 @@ One item (hl read).
 
 ### `inbox.mark_read`
 
-Mark items read; an id that is not yours is not_found.
+Mark items read; an id that is not yours is not_found. For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state.
 
 ### `inbox.answer`
 
-Answer a decision item with one of its options or free text.
+Answer a decision item with one of its options or free text. The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role.
 
 ### `inbox.reply`
 
-Reply to an item.
+Reply to an item. A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state).
 
 ### `tasks.list`
 

@@ -327,13 +327,14 @@ KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", 
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1"]
 
 def _ready() -> list[Path]:
-    """FILES less the NOT_YET_IN_PYTHON fixtures the fake does not pass (it lacks the method, or KEY cannot seed it)."""
+    """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed. One the fake runs and fails stays in,
+    so a fixture edit or a fake regression fails the fake runs instead of dropping out."""
     results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
-    passes = {n for st, _, n in results if st == "pass"}
+    dropped = {n for st, _, n in results if st in ("missing", "needvar", "skip")}
     out = Path(tempfile.mkdtemp(prefix="conformance-"))
     for p in FILES:
         doc = json.loads(p.read_text())
-        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] in passes]
+        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] not in dropped]
         (out / p.name).write_text(json.dumps(doc))
     return sorted(out.glob("*.json"))
 
@@ -604,6 +605,12 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     listing.write_text("# methods Go lacks\n\nagent.get  # soon\n")
     code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
     check("conformance: --allow-missing-file lists methods one per line, comments allowed", code == 0, out)
+    listing.write_text("agent.get\nagent.get\n")
+    code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
+    check("conformance: a name twice in --allow-missing-file is stale and fails the run", code == 1 and "STALE agent.get" in out and "more than once" in out, out)
+    listing.write_text("agent.get\nhello\n")
+    code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
+    check("conformance: a name in --allow-missing-file that the daemon serves is stale and fails the run", code == 1 and "STALE hello" in out, out)
     code, out = _run(["--allow-skip", "--allow-missing", "whoami", *KEYARG], lacks={"agent.get"})
     check("conformance: allowing a different method does not cover it", code == 1, out)
     code, out = _run(["--allow-skip"])
