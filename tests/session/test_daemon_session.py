@@ -2719,6 +2719,39 @@ def test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(
         con.close()
 
 
+def test_the_stored_view_agent_get_serves_follows_the_sweep_at_once(home: Path) -> None:
+    """The view agent.get serves is stored at the end of the tick, after every agent has been supervised: a session that quit was recorded
+    closed by the sweep at the start of it and still read `running` for a whole tick more. The sweep stores the view of the agent it corrected."""
+    from handline.daemon import agentview, delivery
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (termmod.available, termmod.live_terminals, obsmod.live_sessions, delivery.session_still_drawn)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        check("view: setup - it reads running", agentview.stored(con, "backend")["state"] == "running", str(agentview.stored(con, "backend")))
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: {"term_x"}       # the terminal is there, a shell at its prompt
+        obsmod.live_sessions = lambda: {}                 # and no session process is
+        delivery.session_still_drawn = lambda *a, **k: False
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        view = agentview.stored(con, "backend")
+        check("view: right after the sweep recorded the session gone, the stored view no longer says running", view["state"] != "running", str(view))
+        check("view: and it is the view a refresh would make", view == json.loads(json.dumps(agentview.compute(con, "backend", None, actions.routing()))), str(view))
+        # fail closed: a process table that could not be read changes nothing
+        db.clear_closed(con, "backend")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        obsmod.live_sessions = lambda: None
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("view: a table that cannot be read keeps the old state", db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING
+              and agentview.stored(con, "backend")["state"] == "running")
+    finally:
+        termmod.available, termmod.live_terminals, obsmod.live_sessions, delivery.session_still_drawn = real
+        con.close()
+
+
 def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
     """Every other decision reads a row we wrote ourselves, which is how a state
     that went wrong stayed wrong. This is the half that asks the world instead,
@@ -5593,6 +5626,7 @@ def main() -> int:
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
         run(lambda: test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(Path(td) / 'wakeunreadable'))
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
+        run(lambda: test_the_stored_view_agent_get_serves_follows_the_sweep_at_once(Path(td) / 'viewsweep'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
