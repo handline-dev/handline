@@ -312,6 +312,208 @@
      }
     }
    ]
+  },
+  {
+   "name": "chat.requests.no_such_agent",
+   "spec": "chat.requests",
+   "about": "An agent that is not registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.requests",
+      "params": {
+       "agent": "no.such.agent",
+       "scope": "mine"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.requests.scope_is_mine_or_all",
+   "spec": "chat.requests",
+   "about": "Any other scope is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.requests",
+      "params": {
+       "agent": "x",
+       "scope": "everyone"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "scope"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.requests.an_agent_session_is_refused",
+   "spec": "chat.requests",
+   "about": "An agent session may not read a chat: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.requests",
+      "params": {
+       "agent": "x",
+       "scope": "mine"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.requests.before_and_since_are_one_or_the_other",
+   "spec": "chat.requests",
+   "about": "A page older than one id and newer than another is not a read: bad_request naming since.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.requests",
+      "params": {
+       "agent": "x",
+       "scope": "mine",
+       "before": 5,
+       "since": 2
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "since"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.requests.limit_is_bounded",
+   "spec": "chat.requests",
+   "about": "A limit past 200 is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.requests",
+      "params": {
+       "agent": "x",
+       "scope": "mine",
+       "limit": 500
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
   }
  ]
 }

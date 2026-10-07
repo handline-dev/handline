@@ -61,3 +61,4 @@ chat.locate
 chat.search
 stats.outlook
 hr.list
+chat.requests

@@ -109,6 +109,65 @@ def test_messages_come_newest_first_in_pages_in_the_spec_schema(home: Path) -> N
     check("chat.messages: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
 
 
+def test_chat_requests_are_the_threads_with_their_task_changes_sessions_and_a_version(home: Path) -> None:
+    ids = _world(home)
+    ok, msg, tid = actions.task_new("manager", "worker", "the work", "do it", timeout_s=3600)
+    con = db.connect()
+    delivery = int(db.first_linked_request(con, tid)["id"])
+    con.close()
+    _land(delivery)
+    con = db.connect()
+    actions.task_handoff(con, "worker", tid, "manager", "back to you: the sha is x")
+    now = int(time.time())
+    con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) VALUES('worker', ?, 's1', 'restart', 0, 'the handoff', '', '')", (now,))
+    con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) VALUES('worker', ?, 's0', 'wake', 1, '', '', '')", (now,))
+    con.close()
+    r = _call("chat.requests", {"agent": "worker", "scope": "all"})
+    why = _invalid(r["result"], RESULT["chat.requests"]) if "result" in r else str(r)
+    check("chat.requests: the result is the spec's schema", why is None, str(why))
+    got = r["result"]
+    reqs = [i for i in got["items"] if i["type"] == "request"]
+    check("chat.requests: the requests are oldest first and each carries the chat.messages message, its dismissal and its task state",
+          [i["message"]["id"] for i in reqs] == sorted(i["message"]["id"] for i in reqs) and ids["hi"] in [i["message"]["id"] for i in reqs]
+          and all(set(i) >= {"message", "dismissal", "task_state"} for i in reqs), str(reqs))
+    msgs = {m["id"]: m for m in _call("chat.messages", {"agent": "worker", "scope": "all"})["result"]["messages"]}
+    check("chat.requests: the message is what chat.messages says of it", all(i["message"] == msgs[i["message"]["id"]] for i in reqs if i["message"]["id"] in msgs))
+    card = next(i for i in reqs if i["message"]["id"] == delivery)
+    check("chat.requests: a task delivery has the live state of its task", card["message"]["tasks"] == [{"id": tid, "title": "the work"}] and card["task_state"], str(card))
+    events = [i for i in got["items"] if i["type"] == "task_event"]
+    check("chat.requests: the handoff is a task_event naming the delivery that carries it, its note and who", any(e["change"] == "handed to manager" and e["note"].startswith("back to you")
+          and e["task"] == tid and e["who"] == "worker" and e["request"] for e in events), str(events))
+    check("chat.requests: it also says the delivery put the task in its owner's hands", any(e["change"] == "queued -> doing" for e in events), str(events))
+    sessions = [i for i in got["items"] if i["type"] == "session"]
+    check("chat.requests: a new conversation is a session item with its handoff; one that resumed the old one is not", [(x["cause"], x["handoff"]) for x in sessions] == [("restart", "the handoff")], str(sessions))
+    check("chat.requests: items are in time order", [i["at"] for i in got["items"]] == sorted(i["at"] for i in got["items"]), str([i["at"] for i in got["items"]]))
+    check("chat.requests: a version and the stream cursor", isinstance(got["version"], str) and got["version"] and isinstance(got["cursor"], int))
+    again = _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"]
+    check("chat.requests: the version is the same when nothing changed", again == got["version"])
+    _send(db.HUMAN, "worker", "one more")
+    changed = _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"]
+    check("chat.requests: and different after a new request", changed != got["version"])
+    _land(_send(db.HUMAN, "worker", "and landed"))
+    landed = _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"]
+    check("chat.requests: and after a landing", landed != changed)
+    con = db.connect()
+    edited, why = actions.edit_task(con, tid, "manager", title="the work, renamed")
+    con.close()
+    check("chat.requests: and after a task edit, which adds a task_event", edited and _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"] != landed, str(why))
+    page = _call("chat.requests", {"agent": "worker", "scope": "all", "limit": 2})["result"]
+    page_reqs = [i["message"]["id"] for i in page["items"] if i["type"] == "request"]
+    check("chat.requests: a limit makes a page of the newest requests and more says older remain", len(page_reqs) == 2 and page["more"] is True, str(page_reqs))
+    older = _call("chat.requests", {"agent": "worker", "scope": "all", "before": page_reqs[0], "limit": 50})["result"]
+    check("chat.requests: before reads the requests older than that one", all(i["message"]["id"] < page_reqs[0] for i in older["items"] if i["type"] == "request") and older["more"] is False)
+    newer = _call("chat.requests", {"agent": "worker", "scope": "all", "since": page_reqs[0]})["result"]
+    check("chat.requests: since reads from that request on, with no more", page_reqs[0] in [i["message"]["id"] for i in newer["items"] if i["type"] == "request"] and newer["more"] is False)
+    for params, want in (({"agent": "ghost", "scope": "mine"}, "not_found"), ({"agent": "worker"}, "bad_request"), ({"agent": "worker", "scope": "x"}, "bad_request"),
+                         ({"agent": "worker", "scope": "mine", "limit": 201}, "bad_request"), ({"agent": "worker", "scope": "mine", "before": 1, "since": 1}, "bad_request")):
+        check(f"chat.requests: {params} is {want}", _code(_call("chat.requests", params)) == want)
+    r = _call("chat.requests", {"agent": "worker", "scope": "mine"}, as_agent="manager")
+    check("chat.requests: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
+
+
 def test_a_task_delivery_names_its_task_and_a_withdrawn_message_is_not_a_message(home: Path) -> None:
     support._board_world(home)
     _quiet_world()
@@ -303,12 +362,13 @@ def test_the_chat_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every chat fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 8, str(bad))
+    check("fixtures: every chat fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 13, str(bad))
 
 
 def main() -> int:
     def tests(td):
         run(lambda: test_messages_come_newest_first_in_pages_in_the_spec_schema(Path(td) / "c1"))
+        run(lambda: test_chat_requests_are_the_threads_with_their_task_changes_sessions_and_a_version(Path(td) / "cq"))
         run(lambda: test_a_task_delivery_names_its_task_and_a_withdrawn_message_is_not_a_message(Path(td) / "c2"))
         run(lambda: test_locate_finds_the_chat_a_message_is_drawn_in_and_the_page_around_it(Path(td) / "c3"))
         run(lambda: test_search_finds_text_and_says_where_each_hit_is_drawn(Path(td) / "c4"))
