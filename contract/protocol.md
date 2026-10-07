@@ -151,7 +151,7 @@ A method marked write takes a required `request_id`.
 | `agent.triggers` | agent |  | `agent?` | `{agents}` |  |  |
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
-| `hr.list` | agent |  | `state?` | `{proposals}` |  |  |
+| `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
 | `accounts.list` | agent |  | none | `{accounts}` |  |  |
 | `account.set_cap` | founder | yes | `account`, `cap`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -165,9 +165,9 @@ A method marked write takes a required `request_id`.
 | `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {schedule}` | `refused`, `bad_request`, `not_found` |  |
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `stats.get` | member |  | `window` | `Stats` |  |  |
+| `stats.get` | member |  | `window` | `Stats` | `bad_request` |  |
 | `stats.outlook` | member |  | `range` | `Outlook` | `bad_request` |  |
-| `settings.get` | founder |  | `agent?` | `Settings` |  |  |
+| `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `answers.list` | founder |  | none | `{answers}` |  |  |

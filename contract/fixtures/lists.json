@@ -1,0 +1,439 @@
+{
+ "fixtures": [
+  {
+   "name": "accounts.list.shape",
+   "spec": "accounts.list",
+   "about": "Accounts, each with its use, cap, agents and moves.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list"
+     },
+     "result": {
+      "accounts": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "accounts.list.refused_by_role",
+   "spec": "accounts.list",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list"
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "team.get.shape",
+   "spec": "team.get",
+   "about": "Agents with their parent and files, and the allowed edges.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "team.get"
+     },
+     "result": {
+      "agents": {
+       "$type": "array"
+      },
+      "edges": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "team.get.refused_by_role",
+   "spec": "team.get",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "team.get"
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedules.list.shape",
+   "spec": "schedules.list",
+   "about": "Schedules, possibly none.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedules.list"
+     },
+     "result": {
+      "schedules": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "schedules.list.refused_by_role",
+   "spec": "schedules.list",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "schedules.list"
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.get.shape",
+   "spec": "stats.get",
+   "about": "Counts over the window asked.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.get",
+      "params": {
+       "window": "24h"
+      }
+     },
+     "result": {
+      "window": "24h",
+      "since": {
+       "$type": "timestamp"
+      },
+      "until": {
+       "$type": "timestamp"
+      },
+      "tasks_done": {
+       "$type": "integer"
+      },
+      "working_seconds": {
+       "$type": "object"
+      },
+      "moves": {
+       "$type": "integer"
+      },
+      "handoffs": {
+       "$type": "integer"
+      },
+      "blocks": {
+       "$type": "integer"
+      },
+      "per_account": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.get.window_is_24h_or_7d",
+   "spec": "stats.get",
+   "about": "Any other window is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.get",
+      "params": {
+       "window": "1h"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "window"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.get.shape",
+   "spec": "settings.get",
+   "about": "Timings, terminal host, listener, trust folders, hooks and every value.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.get"
+     },
+     "result": {
+      "timings": {
+       "$type": "object"
+      },
+      "terminal_host": {
+       "choice": {
+        "$type": "string"
+       },
+       "available": {
+        "$type": "array"
+       },
+       "health": {
+        "$type": "string"
+       }
+      },
+      "listener": {
+       "enabled": {
+        "$type": "boolean"
+       },
+       "bind": {
+        "$type": "string"
+       },
+       "encryption": {
+        "$type": "string"
+       },
+       "fingerprint": {
+        "$any": true
+       }
+      },
+      "trust_folders": {
+       "$type": "array"
+      },
+      "hooks": {
+       "installed": {
+        "$type": "boolean"
+       },
+       "accounts": {
+        "$type": "array"
+       }
+      },
+      "values": {
+       "active_cap": {
+        "$type": "integer"
+       },
+       "park_timeout_s": {
+        "$type": "integer"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.get.an_agent_is_refused",
+   "spec": "settings.get",
+   "about": "An agent session may not read the settings: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.get"
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

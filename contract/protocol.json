@@ -5517,7 +5517,12 @@
    "x-role": "agent",
    "x-write": false,
    "x-since": 1,
-   "description": "Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human is never listed: the founder made that change directly and was not asked (the bridge leaves it out of its cards too). The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed exist only for a human's own change and are never listed."
+   "description": "Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human is never listed: the founder made that change directly and was not asked (the bridge leaves it out of its cards too). The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed exist only for a human's own change and are never listed.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "hr.decide",
@@ -6205,7 +6210,12 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "stats.outlook",
@@ -6266,7 +6276,15 @@
    },
    "x-role": "founder",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
   },
   {
    "name": "settings.set",
