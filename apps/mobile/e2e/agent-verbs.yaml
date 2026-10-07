@@ -1,0 +1,24 @@
+# On the agent page of a paired phone, on a fresh `pnpm fake-listener` (pair-and-page.yaml first): the ⋯ menu, a confirmation, move account.  maestro test e2e/agent-verbs.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { notVisible: { id: verbs-open } }
+    commands: [{ tapOn: { id: agent-handline.architect } }]
+- tapOn:
+    id: verbs-open
+- assertVisible:
+    id: verb-park
+- tapOn:
+    id: verb-park
+- assertVisible: 'Park handline.architect?'
+- tapOn:
+    id: sheet-cancel
+- tapOn:
+    id: verbs-open
+- tapOn:
+    id: verb-move
+- tapOn:
+    id: account-beta
+- tapOn:
+    id: sheet-submit
+- assertVisible: '.*acct beta.*'

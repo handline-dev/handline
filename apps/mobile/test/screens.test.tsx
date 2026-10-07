@@ -576,3 +576,66 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 });
+
+describe('the agent verbs menu', () => {
+  async function openMenu(m: Awaited<ReturnType<typeof mount>>) {
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('verbs-open'), 'the page');
+    await press($('verbs-open'));
+  }
+
+  it('lists what applies to the row, without Close and Clear stall', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openMenu(m);
+    for (const id of ['restart', 'restart_fresh', 'park', 'fold', 'move']) expect($(`verb-${id}`)).not.toBeNull();
+    expect($('verb-close')).toBeNull();
+    expect($('verb-clear_stall')).toBeNull();
+    expect($('verb-wake')).toBeNull(); // it has an open session
+    m.store.stop();
+  });
+
+  it('asks before parking, sends nothing on Cancel, shows the gerund while the daemon decides, then the daemon has parked it', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openMenu(m);
+    await press($('verb-park'));
+    expect(text()).toContain(`Park ${ARCH}?`);
+    expect(text()).toContain('Its session ends; it wakes on the next task.');
+    await press($('sheet-cancel'));
+    expect($('sheet')).toBeNull();
+    expect(m.daemon.sessions.get(ARCH)!.state).not.toBe('parked');
+    m.daemon.knobs.latency(400);
+    await press($('verbs-open'));
+    await press($('verb-park'));
+    await press($('sheet-submit'));
+    await until(() => $('pending-mark')?.textContent === 'parking…', 'the pending mark', 300);
+    await until(() => m.daemon.sessions.get(ARCH)!.state === 'parked', 'the daemon', 3000);
+    m.store.stop();
+  });
+
+  it('puts the reason on the page when the daemon refuses, and the mark goes', async () => {
+    const m = await mount((s) => s.daemon.knobs.refuse('agent.fold', 'state', 'it is mid-turn'), undefined, 'founder');
+    await openMenu(m);
+    await press($('verb-fold'));
+    await press($('sheet-submit'));
+    await until(() => text().includes('it is mid-turn'), 'the reason');
+    await until(() => !$('pending-mark'), 'the mark to go');
+    m.store.stop();
+  });
+
+  it('moves the account after choosing one, and restarts fresh', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openMenu(m);
+    await press($('verb-move'));
+    expect($('sheet-submit')?.getAttribute('aria-disabled')).toBe('true'); // no account chosen yet
+    await press($('account-beta'));
+    await press($('sheet-submit'));
+    await until(() => m.daemon.sessions.get(ARCH)!.fx.account === 'beta', 'the daemon');
+    await press($('verbs-open'));
+    await press($('verb-restart_fresh'));
+    expect(text()).toContain(`Restart fresh ${ARCH}?`);
+    await press($('sheet-submit'));
+    await until(() => !$('sheet'), 'the sheet to close');
+    m.store.stop();
+  });
+});

@@ -26,6 +26,7 @@ export function Button(props: {
   disabled?: boolean;
   style?: ViewStyle;
   testID?: string;
+  accessibilityLabel?: string;
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
@@ -36,6 +37,7 @@ export function Button(props: {
       disabled={props.disabled}
       onPress={props.onPress}
       accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel}
       style={{
         backgroundColor: bg,
         borderColor: c.line,

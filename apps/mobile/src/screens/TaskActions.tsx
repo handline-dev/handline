@@ -51,7 +51,7 @@ function Input(props: {
 }
 
 /** A small panel under the verbs: names the thing, takes a reason (required or optional), Submit and Cancel. */
-function Sheet(props: {
+export function Sheet(props: {
   label: string;
   submit: string;
   children?: ReactNode;
