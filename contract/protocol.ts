@@ -1227,6 +1227,37 @@ export interface Methods {
     more_older: boolean;
     more_newer: boolean;
   } };
+  "agent.strip": { params: {
+  agent: AgentName;
+}; result: {
+    agent: AgentName;
+    model: string | null;
+    account: string | null;
+    /** Percent of the context window used, as far as the session's own report is trusted. */
+    ctx_pct: number | null;
+    /** Tokens in use. */
+    ctx_used: number | null;
+    /** The window the model has, with the agent's own setting applied. */
+    ctx_limit: number | null;
+    /** Seconds until the prompt cache lapses; negative once it has; null with nothing to measure from. */
+    cache_left_s: number | null;
+    /** The agent's state as the screens draw it (`tui.screen_state`), not the wire `state`; null when it never started. */
+    screen_word: ("RUNNING" | "IDLE" | "PENDING" | "MOVING" | "DIALOG" | "FATAL") | null;
+    /** The text drawn beside screen_word. */
+    screen_detail: string;
+  } };
+  "chat.refs": { params: {
+  agent: AgentName;
+}; result: {
+    /** Up to 30, newest first: every request the agent sent or received that was not withdrawn or turned away. */
+    requests: {
+      request: number;
+      from: string;
+      to: string;
+      /** The first line of the body, at most 60 characters. */
+      line: string;
+    }[];
+  } };
   "chat.search": { params: {
   agent?: AgentName;
   query: string;
@@ -1872,6 +1903,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.requests": { role: "member", callers: null, write: false, since: 1 },
   "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
+  "agent.strip": { role: "member", callers: null, write: false, since: 1 },
+  "chat.refs": { role: "member", callers: null, write: false, since: 1 },
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },

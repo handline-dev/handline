@@ -36,6 +36,9 @@
   ],
   "role": "agent"
  },
+ "agent.strip": {
+  "role": "member"
+ },
  "agent.timeline": {
   "role": "member"
  },
@@ -70,6 +73,9 @@
   "role": "member"
  },
  "chat.messages": {
+  "role": "member"
+ },
+ "chat.refs": {
   "role": "member"
  },
  "chat.requests": {
