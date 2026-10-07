@@ -72,7 +72,6 @@ push.answer
 push.cancelled
 team.get
 schedules.list
-stats.get
 settings.get
 task.ask
 chat.cancel

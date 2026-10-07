@@ -52,6 +52,9 @@ def _seed_accounts(home: Path, con, now: int) -> None:
     con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'worker'")
     db.add_event(con, "manager", "moved_account", {"from": "beta", "to": "alpha", "trigger": "wall"})
     db.add_event(con, "worker", "moved_account", {"from": "alpha", "to": None})
+    for kind, at in (("UserPromptSubmit", now - 600), ("Stop", now - 500), ("UserPromptSubmit", now - 400), ("UserPromptSubmit", now - 300), ("SessionEnd", now - 100)):
+        db.add_event(con, "worker", kind, None)
+        con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
 
 
 def _seed(home: Path) -> dict:
@@ -164,6 +167,8 @@ def _normal(method: str, reply: dict) -> dict:
         for t in res.get("items", [res]):
             for k in ("last_activity", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
+    if method == "stats.get" and res:
+        res["since"], res["until"] = None, None     # the clock: now less the window, read a second apart
     r.pop("id", None)
     return r
 
@@ -202,6 +207,11 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"wait_s": 601}),
         (None, "accounts.list", {}),
         ("manager", "accounts.list", {}),
+        (None, "stats.get", {"window": "24h"}),
+        (None, "stats.get", {"window": "7d"}),
+        ("manager", "stats.get", {"window": "7d"}),
+        (None, "stats.get", {"window": "1h"}),
+        (None, "stats.get", {}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine"}),
         (None, "chat.messages", {"agent": "worker", "scope": "all", "limit": 2}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": ids["card"]}),

@@ -48,6 +48,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("chat.search", rpc.Method{Role: "member", Handler: e.chatSearch})
 	s.Register("hr.list", rpc.Method{Role: "agent", Handler: e.hrList})
 	s.Register("accounts.list", rpc.Method{Role: "agent", Handler: e.accountsList})
+	s.Register("stats.get", rpc.Method{Role: "member", Handler: e.statsGet})
 	s.Register("inbox.list", rpc.Method{Role: "agent", Handler: e.inboxList, Waits: true})
 }
 
