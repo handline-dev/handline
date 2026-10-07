@@ -120,6 +120,9 @@ def _when(r: dict) -> int:
     return int(r["landed_at"] or r["ts"] or 0)
 
 
+_EVENT_KINDS = (*_STATE_AFTER, "task_handoff", "edit_task")
+
+
 def _task_events(con, rows: list[dict]) -> list[dict]:
     """The changes, since the first of `rows`, of the tasks delivered in them: a state it reached, a handoff, an edit. A task starts as queued, and
     a delivery that landed puts it in its owner's hands (doing)."""
@@ -127,7 +130,7 @@ def _task_events(con, rows: list[dict]) -> list[dict]:
     if not cards:
         return []
     since = min((_when(r) for r in rows if _when(r)), default=0)
-    kinds = (*_STATE_AFTER, "task_handoff", "edit_task")
+    kinds = _EVENT_KINDS
     events = con.execute(f"SELECT ts, agent, kind, payload, {db.EVENT_TASK} AS tid FROM events WHERE kind IN ({','.join('?' * len(kinds))}) "
                          f"AND {db.EVENT_TASK} IN ({','.join('?' * len(cards))}) ORDER BY id", (*kinds, *cards)).fetchall()
     steps = []      # (time, task, who, the state it reaches or None, what to say instead, the note with it, the delivery it belongs to)
@@ -173,7 +176,7 @@ def version_of(con, agent: str, everyone: bool) -> str:
         "COALESCE(MAX(landed_at), 0), COUNT(landed_at), COALESCE(MAX(typed_at), 0), COALESCE(SUM(state = 'queued'), 0) "
         f"FROM requests WHERE state NOT IN {chatreads._GONE} AND {where}", params).fetchone()
     events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
-                         f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
+                         f"({','.join('?' * len(_EVENT_KINDS))})", _EVENT_KINDS).fetchone()
     starts = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM session_starts WHERE agent = ?", (agent,)).fetchone()
     return hashlib.sha256(repr((*row, *events, *starts)).encode()).hexdigest()[:24]
 

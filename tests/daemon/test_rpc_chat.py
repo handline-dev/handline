@@ -148,7 +148,12 @@ def test_chat_requests_are_the_threads_with_their_task_changes_sessions_and_a_ve
     changed = _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"]
     check("chat.requests: and different after a new request", changed != got["version"])
     _land(_send(db.HUMAN, "worker", "and landed"))
-    check("chat.requests: and after a landing", _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"] != changed)
+    landed = _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"]
+    check("chat.requests: and after a landing", landed != changed)
+    con = db.connect()
+    edited, why = actions.edit_task(con, tid, "manager", title="the work, renamed")
+    con.close()
+    check("chat.requests: and after a task edit, which adds a task_event", edited and _call("chat.requests", {"agent": "worker", "scope": "all"})["result"]["version"] != landed, str(why))
     page = _call("chat.requests", {"agent": "worker", "scope": "all", "limit": 2})["result"]
     page_reqs = [i["message"]["id"] for i in page["items"] if i["type"] == "request"]
     check("chat.requests: a limit makes a page of the newest requests and more says older remain", len(page_reqs) == 2 and page["more"] is True, str(page_reqs))
