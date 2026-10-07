@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,5 +136,57 @@ func TestReopenSendsADoneTaskBackOnTheAskersWordAndAReason(t *testing.T) {
 	db.QueryRow("SELECT payload FROM events WHERE kind = 'reopen_task'").Scan(&ev)
 	if n != 1 || ev.String != `{"task_id": 1, "reason": "the result was wrong", "after_request": 0}` {
 		t.Fatalf("%d %q", n, ev.String)
+	}
+}
+
+func TestStartMakesATaskTheOwnersCurrentOneAndPutsItsRequestFirst(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'held', 'worker', 'manager', 1), (2, 'next', 'worker', 'manager', 1)",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence) VALUES(3, 'over', 'worker', 'manager', 1, 'sha')",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'IDLE', 1, 1)",
+		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'a', 'queued', 'task', 10, 1), (11, 'manager', 'worker', 'b', 'queued', 'task', 11, 1)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(2, 11)",
+		"INSERT INTO task_memos(task_id, author, body, created_at) VALUES(2, 'manager', 'mind the lock', 1700000000)",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%v: %s", err, q)
+		}
+	}
+	mk := func(agent string) *rpc.Server {
+		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+		s.DB = db
+		Register(s)
+		return s
+	}
+	line := func(id, task int, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.start","params":{"task":%d,"request_id":%q}}`, id, task, rid)
+	}
+	if other := call(t, mk("manager"), line(2, 2, "o1")); other[0]["error"] == nil {
+		t.Fatalf("only the owner starts it: %v", other[0])
+	}
+	r := call(t, mk("worker"), line(2, 9, "w1"), line(3, 3, "w2"), line(4, 2, "w3"))
+	if e := r[0]["error"].(map[string]any)["data"].(map[string]any); e["code"] != "not_found" {
+		t.Fatalf("an unknown task is not_found: %v", r[0])
+	}
+	if r[1]["error"] == nil {
+		t.Fatalf("a done task has nothing to start: %v", r[1])
+	}
+	said := r[2]["result"].(map[string]any)["said"].(string)
+	if !strings.HasPrefix(said, "T2 is now worker's current task; T1 goes back to queued (your `hl progress` note is kept)\nMemos - manager ") ||
+		!strings.HasSuffix(said, ": mind the lock") {
+		t.Fatalf("%q", said)
+	}
+	var cur, order int
+	var ev string
+	db.QueryRow("SELECT current_task FROM agent_state WHERE agent = 'worker'").Scan(&cur)
+	db.QueryRow("SELECT queue_order FROM requests WHERE id = 11").Scan(&order)
+	db.QueryRow("SELECT payload FROM events WHERE kind = 'task_start'").Scan(&ev)
+	if cur != 2 || order != 9 || ev != `{"task_id": 2, "was_current": 1}` {
+		t.Fatalf("%d %d %q", cur, order, ev)
 	}
 }
