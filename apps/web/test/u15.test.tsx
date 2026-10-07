@@ -181,6 +181,15 @@ describe('U15 HR', () => {
     await until(() => p.state === 'withdrawn', 'withdrawn');
   });
 
+  it("Edit settings opens the proposal's agent's settings page (the daemon has no call that edits a proposal)", async () => {
+    const s = setup();
+    raise(s, 1, { agent: 'handline.architect' });
+    await open(s);
+    await until(() => $('.hr-card'), 'the card');
+    await click(btn(card(1), 'Edit settings'));
+    expect(location.hash).toBe('#/agents/handline.architect/settings');
+  });
+
   it('a member reads the cards but has no decide control', async () => {
     const s = setup({ role: 'member' });
     raise(s, 1);

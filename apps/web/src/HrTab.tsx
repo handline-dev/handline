@@ -6,6 +6,7 @@ import type { Proposal } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useHr, usePending, useWrite } from '@handline/app-data';
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
+import { goSettings } from './route.ts';
 import { View } from './View.tsx';
 
 const useNarrow = (): boolean => {
@@ -223,6 +224,9 @@ function Card({
           </Button>
           <Button variant="outline" icon="close" label="Reject" keys="r" disabled={busy || !!mark} onClick={() => setReason('')}>
             Reject
+          </Button>
+          <Button variant="ghost" icon="settings" label="Edit settings" onClick={() => goSettings(p.agent)}>
+            Edit settings
           </Button>
           <Button variant="ghost" icon="discard" label="Withdraw" keys="w" disabled={busy || !!mark} onClick={() => setAsk(true)}>
             Withdraw
