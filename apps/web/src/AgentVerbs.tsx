@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { callOf, VERBS, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { useAgentDetail, useAgents, usePending, useWrite } from '@handline/app-data';
+import { useAccounts, useAgentDetail, useAgents, usePending, useWrite } from '@handline/app-data';
 
 /** Starts a verb's write. Clear stall has no method in the contract yet, so it never runs. */
 export function useVerbRun(agent: string) {
@@ -51,7 +51,10 @@ export const unserved = (v: Verb) => `This daemon does not serve ${v.method}.`;
 /** The inline sheet under a row: the verb and agent, one sentence, Confirm and Cancel; Move account asks for the account instead. */
 export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onClose: () => void }) {
   const d = useAgentDetail(a.name).data;
-  const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x && x !== a.account))];
+  // The daemon's accounts when it lists them (an unused account is often the one to move to); else the ones agents already use.
+  const listed = useAccounts().data?.accounts.map((x) => x.name);
+  const used = (useAgents().data?.agents ?? []).map((x) => x.account);
+  const accounts = [...new Set(listed ?? used)].filter((x): x is string => !!x && x !== a.account);
   const run = useVerbRun(a.name);
   const [account, setAccount] = useState('');
   const [changed, setChanged] = useState(false);

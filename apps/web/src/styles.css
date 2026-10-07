@@ -1003,8 +1003,6 @@ button.opt {
     white-space: pre;
   }
 }
-||||||| parent of d30e0c92 (Agent verbs in the web menu: wake, restart resuming or fresh, close, park, fold, move account and clear stall, with a confirmation sheet for the bridge's CONFIRM set)
-
 
 .menu-item.danger strong {
   color: var(--block);

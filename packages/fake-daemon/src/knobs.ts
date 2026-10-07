@@ -12,6 +12,8 @@ export class Knobs {
   latency(ms: number): void {
     this.delayMs = ms;
   }
+  /** Account names accounts.list serves; null, as the Python daemon today, is refused as unsupported. */
+  accounts: string[] | null = null;
   /** Refuses `method` with the gate's own words, `times` calls (default: until `clear`). */
   refuse(method: string, gate: string, reason: string, hint?: string, times = Infinity): void {
     this.refusals.set(method, { gate, reason, hint, times });

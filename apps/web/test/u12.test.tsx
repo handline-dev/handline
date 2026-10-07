@@ -123,6 +123,28 @@ describe('U12 agent verbs', () => {
     await until(() => session(s).fx.account === 'beta', 'moved');
   });
 
+  it('Move account lists an account no agent uses when the daemon lists accounts', async () => {
+    const s = setup();
+    s.daemon.knobs.accounts = ['alpha', 'beta', 'gamma'];
+    open(s);
+    await mount(ARCH, s);
+    await click(item('Move account'));
+    await until(() => $$('.verb-sheet option').some((o) => text(o) === 'gamma'), 'gamma among the accounts');
+    expect($$('.verb-sheet option').map((o) => text(o))).toEqual(['choose an account', 'alpha', 'gamma']);
+  });
+
+  it("a refused verb puts the row back and shows the daemon's reason", async () => {
+    const s = setup();
+    open(s);
+    s.daemon.knobs.refuse('session.park', 'state', 'The agent is mid-turn; park it when it is idle.');
+    await mount(ARCH, s);
+    await click(item('Park'));
+    await click(sheetBtn('Confirm'));
+    await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
+    expect(text($(`[data-agent="${ARCH}"] .sub`))).not.toContain('parking…');
+    expect(session(s).open).toBe(true);
+  });
+
   it('Wake on a parked agent asks nothing', async () => {
     const s = setup();
     session(s, TB).sessionId = 's-9';
