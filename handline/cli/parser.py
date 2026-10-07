@@ -15,6 +15,7 @@ from .memory import cmd_memory_migrate, cmd_memory_status
 from .agent import cmd_agent_move, cmd_agent_register, cmd_agent_set, cmd_launch, cmd_resume, cmd_spawn, cmd_unstall
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
+from .device import cmd_device
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_hooks_status, cmd_hooks_sync
@@ -272,6 +273,18 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     p.set_defaults(fn=cmd_hr)
+
+    p = sub.add_parser("device", help="the founder's: pair, list and revoke the phones and tablets that reach the gateway")
+    dsub = p.add_subparsers(dest="device_cmd", required=True)
+    q = dsub.add_parser("pair", help="make a one-time pairing code (and the uri and address a device needs)")
+    q.add_argument("--name", default=None, help="what to call the device")
+    q.set_defaults(device=None)
+    q = dsub.add_parser("list", help="the paired devices, last seen and connected")
+    q.set_defaults(name=None, device=None)
+    q = dsub.add_parser("revoke", help="cancel a device and close its connections at once")
+    q.add_argument("device", help="the device id from `hl device list`")
+    q.set_defaults(name=None)
+    p.set_defaults(fn=cmd_device)
 
     p = sub.add_parser("trust", help="declare a folder ocp may answer claude's trust prompt in")
     trsub = p.add_subparsers(dest="trust_cmd", required=True)

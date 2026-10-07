@@ -138,6 +138,7 @@
    "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
    "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
    "hl dev-mode",
+   "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
    "hl service ..."
   ],
   "needs_a_decision": [

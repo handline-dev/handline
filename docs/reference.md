@@ -16,6 +16,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl team init` / `seal` | Write a starter `team.yaml`; accept hand edits to `team.yaml` and `agent.yaml`. |
 | `hl trust add <folder>` | Let ocp answer Claude's "trust this folder" screen for a folder. |
 | `hl trust mcp <folder>` | Founder only: approve the MCP servers in a declared folder's `.mcp.json` as they read now, so a launch there enables them without Claude asking. A server added or changed later is asked about. |
+| `hl device pair [--name N]` / `list` / `revoke <id>` | Founder only, from your own terminal: make a one-time pairing code with its uri, address and fingerprint (none in Tailscale mode); list the paired devices; cancel one at once. They talk to the gateway's local socket (`<home>/gateway.sock`) and say plainly when no gateway runs. |
 | `hl backup install` | Snapshot `~/.orcapipe` every five minutes when it changed. |
 
 ## Run
