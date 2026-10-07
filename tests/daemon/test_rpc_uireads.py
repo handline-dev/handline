@@ -14,6 +14,8 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
+from handline.team import agents  # noqa: E402
+from handline.usage import status  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
@@ -28,18 +30,27 @@ def _world(home: Path) -> None:
     try:
         db.set_account(con, "worker", "alpha")
         db.set_agent_state(con, "worker", "RUNNING")
+        db.add_event(con, "worker", "ask", {}, ts=int(time.time()) - 600)       # its last activity, ten minutes ago
     finally:
         con.close()
 
 
 def test_the_strip_says_the_account_the_cache_and_the_screen_word(home: Path) -> None:
     _world(home)
+    support.write_agent_status("worker", "alpha", ctx_pct=42, ctx_used=84000, model_id="claude-opus-4-1", session_id="s1")
     r = _call("agent.strip", {"agent": "worker"})
     got = r["result"]
     check("agent.strip: the result is the spec's schema", _invalid(got, RESULT["agent.strip"]) is None, str(_invalid(got, RESULT["agent.strip"])))
     check("agent.strip: the account it is on and the word the screens draw", got["agent"] == "worker" and got["account"] == "alpha"
           and got["screen_word"] == "RUNNING", str(got))
-    check("agent.strip: the context limit of the model it would run", isinstance(got["ctx_limit"], int), str(got))
+    check("agent.strip: the model and context its own session reported", got["model"] == "claude-opus-4-1" and got["ctx_pct"] == 42
+          and got["ctx_used"] == 84000 and got["ctx_limit"] == status.effective_context_limit(agents.read("worker"), "claude-opus-4-1"), str(got))
+    check("agent.strip: the prompt cache has an hour from its last activity, less the ten minutes since", 2900 <= got["cache_left_s"] <= 3000, str(got))
+    con = db.connect()
+    db.set_agent_state(con, "worker", "STALLED", detail="hit the limit")
+    con.close()
+    stalled = _call("agent.strip", {"agent": "worker"})["result"]
+    check("agent.strip: the text drawn beside the word is its detail", stalled["screen_word"] == "FATAL" and stalled["screen_detail"], str(stalled))
     con = db.connect()
     db.set_account(con, "manager", None)
     con.close()
@@ -55,18 +66,30 @@ def test_the_strip_says_the_account_the_cache_and_the_screen_word(home: Path) ->
 def test_refs_are_the_agents_newest_requests_and_leave_out_the_withdrawn(home: Path) -> None:
     _world(home)
     _, _, first = askmod.ask("worker", "first line\nsecond line", requester="manager")
-    _, _, second = askmod.ask("manager", "a question back", requester="worker")
+    _, _, sent = askmod.ask("manager", "a question back", requester="worker")
     _, _, other = askmod.ask("manager", "not about worker", requester="human")
+    _, _, long_one = askmod.ask("worker", "x" * 100, requester="manager")
+    gone = {}
+    for state in ("withdrawn", "denied", "replaced"):
+        gone[state] = askmod.ask("worker", f"{state} one", requester="manager")[2]
     con = db.connect()
-    con.execute("UPDATE requests SET state = 'withdrawn' WHERE id = ?", (second,))
+    for state, rid in gone.items():
+        con.execute("UPDATE requests SET state = ? WHERE id = ?", (state, rid))
     con.close()
     got = _call("chat.refs", {"agent": "worker"})["result"]
     check("chat.refs: the result is the spec's schema", _invalid(got, RESULT["chat.refs"]) is None, str(_invalid(got, RESULT["chat.refs"])))
     by = {x["request"]: x for x in got["requests"]}
     check("chat.refs: a request it received, who to whom and its first line only", by.get(first, {}).get("from") == "manager"
           and by[first]["to"] == "worker" and by[first]["line"] == "first line", str(got))
-    check("chat.refs: a withdrawn one and one of other agents are not there", second not in by and other not in by, str(got))
+    check("chat.refs: a request it sent is there too", by.get(sent, {}).get("from") == "worker" and by[sent]["to"] == "manager", str(got))
+    check("chat.refs: a line is cut at 60 characters", by[long_one]["line"] == "x" * 60, str(by[long_one]))
+    check("chat.refs: withdrawn, denied and replaced requests and other agents' are not there",
+          not set(gone.values()) & set(by) and other not in by, str(got))
     check("chat.refs: newest first", [x["request"] for x in got["requests"]] == sorted(by, reverse=True))
+    for n in range(31):
+        askmod.ask("worker", f"many {n}", requester="manager")
+    many = _call("chat.refs", {"agent": "worker"})["result"]["requests"]
+    check("chat.refs: at most 30, the newest", len(many) == 30 and many[0]["line"] == "many 30", str(len(many)))
     check("chat.refs: an agent that is not there is not_found", _code(_call("chat.refs", {"agent": "nobody"})) == "not_found")
     check("chat.refs: a missing name is bad_request", _code(_call("chat.refs", {})) == "bad_request")
 
