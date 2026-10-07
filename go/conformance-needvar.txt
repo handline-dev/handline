@@ -8,3 +8,4 @@ agent.get.state_queued
 agent.get.state_running
 agent.get.state_stalled
 agent.get.state_waiting
+devices.revoke_closes_a_terminal_attach

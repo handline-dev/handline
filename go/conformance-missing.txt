@@ -55,6 +55,10 @@ chat.send
 chat.answer
 chat.dismiss
 chat.withdraw
+device.pair
+device.redeem
+device.revoke
+devices.list
 task.done
 task.reopen
 task.discard
@@ -69,3 +73,4 @@ chat.locate
 chat.search
 stats.outlook
 hr.list
+chat.requests

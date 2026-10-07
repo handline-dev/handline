@@ -809,6 +809,33 @@ export type HistoryBytesPage = {
   more: boolean;
 };
 
+export type ChatRequestItem = {
+  type: "request" | "task_event" | "session";
+  /** Where it sits in time: a request where its agent read it (landed_at) or else when it was made. */
+  at: Timestamp;
+  /** request only. */
+  message?: ChatMessage;
+  dismissal?: {
+    by: string | null;
+    reason: string | null;
+  } | null;
+  task_state?: string | null;
+  /** task_event only. */
+  task?: number;
+  /** task_event only: the task's title. */
+  title?: string;
+  /** task_event only: who did it. */
+  who?: string;
+  /** task_event only: `queued -> doing`, `handed to X`, `assigned to X`, `title changed`, `priority 2 -> 1`. An open set: a client draws a word it does not know as text. */
+  change?: string;
+  /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
+  note?: string;
+  request?: number | null;
+  /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
+  cause?: string;
+  handoff?: string | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1002,6 +1029,25 @@ export interface Methods {
 }; result: {
     messages: ChatMessage[];
     more: boolean;
+  } };
+  "chat.requests": { params: {
+  agent: AgentName;
+  /** mine: person and this agent; all: everything it sent or received. */
+  scope: "mine" | "all";
+  /** Request id: read the page just older than it. */
+  before?: number;
+  /** Request id: read every request from it on (no `more`); how a window already drawn is brought up to date. Not with `before`. */
+  since?: number;
+  /** Requests in a page; default 10. */
+  limit?: number;
+}; result: {
+    items: ChatRequestItem[];
+    /** Older requests remain (never true with `since`). */
+    more: boolean;
+    /** Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again. */
+    version: string;
+    /** The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it. */
+    cursor: number;
   } };
   "chat.transcript": { params: {
   agent: AgentName;
@@ -1606,6 +1652,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "input.ask": { role: "member", callers: null, write: true, since: 1 },
   "input.release": { role: "member", callers: null, write: true, since: 1 },
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
+  "chat.requests": { role: "member", callers: null, write: false, since: 1 },
   "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
