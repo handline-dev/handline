@@ -2,9 +2,9 @@
 // is none, every function here does nothing, and the page works as it did.
 import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
-import { useBusy } from '@handline/app-data';
+import { useBusy, useUnread } from '@handline/app-data';
 
-type Call = 'screen' | 'unsent' | 'onNavigate';
+type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose';
 
 /** The shell's API if this shell has `call` (a call is checked before it is used, never a version). */
 export function shell(call: Call): ShellApi | null {
@@ -26,6 +26,9 @@ export function holdsUnsent(doc: Document): boolean {
 export function useShell(agent: string): void {
   const busy = useBusy();
   const last = useRef<boolean | null>(null);
+  const unread = useUnread();
+  const unreadNow = useRef(unread);
+  unreadNow.current = unread;
   useEffect(() => {
     void shell('screen')?.screen({ agent: agent || null });
   }, [agent]);
@@ -55,7 +58,7 @@ export function useShell(agent: string): void {
   useEffect(
     () =>
       shell('onNavigate')?.onNavigate((to) => {
-        const route = routeOfTarget(to, to.event);
+        const route = routeOfTarget(to, to.event, unreadNow.current);
         if (route) location.hash = route;
       }),
     [],

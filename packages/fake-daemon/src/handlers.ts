@@ -3,6 +3,8 @@ import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract
 import { badRequest, Failure, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
+import { SETTINGS_HANDLERS } from './settings.ts';
+import { HR_HANDLERS, teamOf } from './hr.ts';
 import { DAEMON_HOLDER, row, scrolledOff, tid, visible, type Attach, type Session } from './session.ts';
 
 export interface Who {
@@ -27,6 +29,9 @@ function formatOf(p: Record<string, unknown>): 'text' | 'bytes' {
 }
 
 export const HANDLERS: Record<string, (h: Call) => unknown> = {
+  ...SETTINGS_HANDLERS,
+  ...HR_HANDLERS,
+  'team.get': ({ script, iso }) => teamOf([...script.sessions.values()], iso()),
   'session.start': (h) => {
     const { actor, script, agent } = h;
     return script.startSession(agent(), false, actor);
@@ -42,6 +47,23 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
   'session.park': (h) => {
     const { actor, script, agent } = h;
     return script.stopSession(agent(), 'close', actor);
+  },
+  'agent.fold': (h) => {
+    const { actor, script, agent } = h;
+    const s = agent();
+    script.stopSession(s, 'close', actor);
+    s.sessionId = null; // the next session starts from the handoff, not from this conversation
+    script.control(s, actor, 'agent.fold', `${actor.name} folded the session into its handoff`);
+    return script.accepted('Folded.');
+  },
+  'agent.move': (h) => {
+    const { p, actor, script, agent } = h;
+    const s = agent();
+    if (typeof p.account !== 'string' || !p.account) throw badRequest('account names an account', 'account');
+    s.fx.account = p.account;
+    script.control(s, actor, 'agent.move', `${actor.name} moved the agent to ${p.account}`);
+    script.setState(s, s.state, actor);
+    return script.accepted('Moved.');
   },
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;

@@ -1,9 +1,12 @@
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
+import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
+import { Opener } from './open.ts';
 import { Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
@@ -16,6 +19,18 @@ const ws = env('WS');
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
+
+/** VISUAL, EDITOR and PATH: the shell's own environment, else the login shell's, asked once (a Dock launch has neither). */
+let login: Promise<EditorEnv> | null = null;
+async function editorEnv(): Promise<EditorEnv> {
+  if (process.env.VISUAL || process.env.EDITOR) return { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR, PATH: process.env.PATH };
+  login ??= new Promise<EditorEnv>((resolve) => {
+    execFile(process.env.SHELL ?? '/bin/sh', ['-ilc', LOGIN_PROBE], { timeout: 3000, encoding: 'utf8' }, (err, out) =>
+      resolve(err && !out ? {} : parseLoginEnv(out)),
+    );
+  });
+  return login;
+}
 
 function show(): void {
   if (!win) return;
@@ -32,8 +47,21 @@ if (!app.requestSingleInstanceLock()) {
     const web = await serveDir(dist);
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
+    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    // The worktree of an agent comes from the shell's own daemon connection, never from the page.
+    const opener = new Opener(origin, {
+      worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
+      open: (p) => shell.openPath(p),
+      reveal: (p) => shell.showItemInFolder(p),
+    });
+    const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
+    ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
+    ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
+    ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
+    app.on('quit', () => composer.dispose());
+    void sweepTemp(app.getPath('temp'));
     win = new BrowserWindow({
       width: 1280,
       height: 860,
@@ -65,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
       build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
       // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
       idle: async () => {
-        if (!win || win.isDestroyed()) return false;
+        if (!win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
         if (page.unsent !== null) return !page.unsent;
         return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
       },
@@ -86,7 +114,6 @@ if (!app.requestSingleInstanceLock()) {
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
 
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     const desk = new Desk(client, {
       setBadge: (t) => {
         if (app.dock) app.dock.setBadge(t);
