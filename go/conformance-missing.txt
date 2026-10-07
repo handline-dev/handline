@@ -52,7 +52,6 @@ stats.outlook
 answer.add
 answer.remove
 task.begin
-task.start
 task.handoff
 task.progress
 say
