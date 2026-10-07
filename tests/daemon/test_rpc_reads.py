@@ -163,6 +163,8 @@ def test_task_get_is_one_task_whole(home: Path) -> None:
     check("task.get: and they carry no cursor, being off the daemon's stream", all("cursor" not in e for e in r["events"]), str(r["events"][:1]))
     r = _call("task.get", {"task": b})["result"]
     check("task.get: what it waits on", r["blockers"] and r["blockers"][0]["task"] == a and r["block_reason"] == f"waiting on T{a}", str(r))
+    check("task.get: a blocker carries its owner and title", r["blockers"][0]["owner"] == _call("task.get", {"task": a})["result"]["to"]
+          and r["blockers"][0]["title"] == "the first", str(r["blockers"]))
     r = _call("task.get", {"task": 999})
     check("task.get: no such task is not_found", _code(r) == "not_found", str(r))
     for bad in ({}, {"task": "1"}, {"task": True}):

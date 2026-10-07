@@ -158,7 +158,7 @@ def _detail(con, row, state: str) -> dict:
                           if row["discarded_by"] else None),
             "merged_into": row["merged_into"], "time": _clock(con, row, state),
             "parent_title": parent["title"] if parent else None,
-            "subtasks": [{"id": k["id"], "title": k["title"], "state": actions.task_state(con, k)} for k in kids],
+            "subtasks": [{"id": k["id"], "title": k["title"], "owner": k["owner"], "state": actions.task_state(con, k)} for k in kids],
             "timeline": _timeline(con, row["id"]), "people": {"recent": recent, "team": team, "others": others}}
 
 
@@ -178,7 +178,8 @@ def _task_get(ctx, params) -> dict:
                 "deliveries": [_delivery(r) for r in db.task_requests(con, tid)],
                 "events": [_event(e, tid, row["owner"]) for e in events],
                 "memos": [memo_of(m) for m in db.task_memos(con, tid)],
-                "blockers": [{"task": b["id"], "reason": f"T{b['id']} ({b['owner']}) {b['title']}"} for b in db.task_blockers(con, tid)],
+                "blockers": [{"task": b["id"], "reason": f"T{b['id']} ({b['owner']}) {b['title']}", "owner": b["owner"], "title": b["title"]}
+                             for b in db.task_blockers(con, tid)],
                 "children": [r["id"] for r in con.execute("SELECT id FROM tasks WHERE parent_task = ? ORDER BY id", (tid,))],
                 "handoffs": [{"at": agentview._ts(h["ts"]), "from": h["from"], "to": h["to"], "note": h["note"]}
                              for h in db.task_handoffs(con, tid)]}

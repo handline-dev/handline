@@ -126,6 +126,22 @@ def test_progress_is_kept_where_hl_progress_keeps_it(home: Path) -> None:
     check("progress: a note past the handoff's size is bad_request", _code(_call("task.progress", {"task": tid, "note": "x" * 1600, "request_id": "p5"})) == "bad_request")
     check("progress: a note that is not text is bad_request", _code(_call("task.progress", {"task": tid, "note": 5, "request_id": "p6"})) == "bad_request")
     check("progress: a task nobody has is not_found", _code(_call("task.progress", {"task": 99999, "note": "n", "request_id": "p7"})) == "not_found")
+    check("progress: a task that is given and not a number is bad_request", _code(_call("task.progress", {"task": "T5", "note": "n", "request_id": "p8"})) == "bad_request")
+
+
+def test_progress_with_no_task_is_what_hl_progress_does(home: Path) -> None:
+    support._board_world(home)
+    r = _call("task.progress", {"note": "done: a; left: b", "request_id": "n1"})
+    con = db.connect()
+    check("progress with no task: accepted, and kept on the caller although it holds no task and has no request in progress",
+          r["result"]["accepted"] is True and db.current_task(con, "worker") is None and handoffmod.get_progress(con, "worker") == "done: a; left: b", str(r))
+    con.close()
+    tid = _task_for("worker")
+    _call("task.start", {"task": tid, "request_id": "n2"})
+    _call("task.progress", {"note": "on the held task", "request_id": "n3"})
+    con = db.connect()
+    check("progress with no task: with a task held it goes where hl progress puts it", handoffmod.get_progress(con, "worker") == "on the held task", str(handoffmod.get_progress(con, "worker")))
+    con.close()
 
 
 def test_handoff_moves_the_task_with_its_note_once_even_after_a_crash(home: Path) -> None:
@@ -203,7 +219,7 @@ def test_the_task_verb_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for s, why, n in results if s == "fail"]
-    check("fixtures: every task-verb fixture passes against this daemon, each as its own role", not bad and len([1 for s, _, _ in results if s == "pass"]) == 9, str(results))
+    check("fixtures: every task-verb fixture passes against this daemon, each as its own role", not bad and len([1 for s, _, _ in results if s == "pass"]) == 11, str(results))
 
 
 def main() -> int:
@@ -211,6 +227,7 @@ def main() -> int:
         run(lambda: test_begin_opens_and_starts_a_task_on_a_founder_message_once(Path(td) / "v1"))
         run(lambda: test_start_makes_an_owned_open_task_current(Path(td) / "v2"))
         run(lambda: test_progress_is_kept_where_hl_progress_keeps_it(Path(td) / "v3"))
+        run(lambda: test_progress_with_no_task_is_what_hl_progress_does(Path(td) / "v3b"))
         run(lambda: test_handoff_moves_the_task_with_its_note_once_even_after_a_crash(Path(td) / "v4"))
         run(lambda: test_a_devices_task_verbs_are_recorded_under_the_device(Path(td) / "v5"))
         run(lambda: test_the_task_verb_fixtures_pass_against_this_daemon(Path(td) / "v6"))

@@ -1,5 +1,5 @@
 """task.begin, task.start, task.handoff, task.progress: the refusals the fixtures pin."""
-from . import err, fake
+from . import CURRENT, err, fake
 
 
 @fake("task.begin", "task.start", "task.handoff", "task.progress")
@@ -16,6 +16,11 @@ def taskverbs(role, method, params):
         return "ok", {"accepted": True, "said": "begun", "task": 1}
     if method == "task.progress" and not isinstance(params.get("note"), str):
         return "fail", err(-32602, "bad_request", field="note")
+    if method == "task.progress" and params.get("task") is not None and (isinstance(params["task"], bool) or not isinstance(params["task"], int)):
+        return "fail", err(-32602, "bad_request", field="task")
+    if method == "task.progress" and params.get("task") is None:
+        CURRENT.ctx.state["progress"] = params["note"] or None
+        return "ok", {"accepted": True, "said": "progress kept"}
     if method == "task.handoff":
         return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "agent"}}
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}
@@ -23,4 +28,4 @@ def taskverbs(role, method, params):
 
 @fake("progress.get")
 def progress_get(role, method, params):
-    return "ok", {"note": None}
+    return "ok", {"note": CURRENT.ctx.state.get("progress")}
