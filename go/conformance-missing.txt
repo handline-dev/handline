@@ -47,8 +47,6 @@ terminal.resize
 worktree.diff
 worktree.set_status
 worktrees.list
-device.pair
-devices.list
 chat.send
 chat.answer
 chat.dismiss
