@@ -55,6 +55,18 @@ def context_tokens(cfg: dict) -> int:
     return v
 
 
+MAX_EXTRA_WORKTREES = 2
+
+
+def extra_worktrees(cfg: dict) -> int:
+    """How many worktrees an agent has besides its first (0 to MAX_EXTRA_WORKTREES), from agent.yaml `extra_worktrees`. Only a real
+    count turns one on: an absent, null, negative or garbage value reads as none, and a large one as the most there is."""
+    v = cfg.get("extra_worktrees")
+    if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+        return 0
+    return min(v, MAX_EXTRA_WORKTREES)
+
+
 def skip_permissions(cfg: dict) -> bool:
     """Whether this agent's sessions start without asking before they act.
     Only a real true turns it on: an absent, null, or garbage value ("yes", 1,
@@ -291,7 +303,8 @@ def register(name: str, role: str = "", model: str | None = None,
              chrome: bool | None = None,
              mcp_config: str | None = None,
              mode: str | None = None,
-             sandbox: bool | None = None) -> Path:
+             sandbox: bool | None = None,
+             extra_worktrees: int | None = None) -> Path:
     # A name is stored, drawn on every screen and typed into terminals: a control
     # byte in it (an escape, a newline) is refused here, where it would stay.
     # `textsafe.UNSAFE_IN_VALUE` is the same set this spelled out for itself.
@@ -335,6 +348,7 @@ def register(name: str, role: str = "", model: str | None = None,
                      **({"mode": mode} if mode not in (None, "bypass", DEFAULT_MODE) else {}),
                      **({"sandbox": False} if sandbox is False else {}),
                      **({"chrome": True} if chrome else {}),
+                     **({"extra_worktrees": min(extra_worktrees, MAX_EXTRA_WORKTREES)} if extra_worktrees and extra_worktrees > 0 else {}),
                      **({"mcp_config": mcp_config_text(mcp_config)} if mcp_config else {})})
     for sub in ("inbox", "journal", "memory"):
         (d / sub).mkdir(parents=True, exist_ok=True)
@@ -360,6 +374,13 @@ def register(name: str, role: str = "", model: str | None = None,
             cfg["repo"] = repo
         if context_tokens:
             cfg["context_tokens"] = context_tokens
+        if extra_worktrees is not None:
+            if extra_worktrees < 0 or extra_worktrees > MAX_EXTRA_WORKTREES:
+                raise ValueError(f"extra_worktrees is 0 to {MAX_EXTRA_WORKTREES}, not {extra_worktrees}")
+            if extra_worktrees:
+                cfg["extra_worktrees"] = extra_worktrees
+            else:
+                cfg.pop("extra_worktrees", None)
         if skip_permissions is not None:
             if skip_permissions:
                 cfg["skip_permissions"] = True

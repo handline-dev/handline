@@ -1,4 +1,5 @@
 import type { FakeChat } from './chat.ts';
+import type { FakeInbox } from './inbox.ts';
 import type { FakeTasks } from './tasks.ts';
 
 export interface AgentFixture {
@@ -86,6 +87,66 @@ export function seedChat(chat: FakeChat, at: string): void {
   chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
   chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 7, request: null, evidence: null } });
   chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 7, request: null, evidence: 'auditor PASS' } });
+}
+
+/** What waits on the founder at first: one of each kind, two of them read, so a UI draws every card and both marks. */
+export function seedInbox(inbox: FakeInbox, at: string): void {
+  const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
+  inbox.add({
+    kind: 'result',
+    agent: 'handline.term-build',
+    title: 'Audit of the lint doc: PASS',
+    body: 'The lint doc matches the config.',
+    evidence: 'pnpm lint: 0 errors\npnpm test: 212 passed\ngit diff --stat: 4 files changed\nnothing else touched',
+    task: 7,
+    created: ago(60),
+    read: true,
+  });
+  inbox.add({
+    kind: 'block',
+    agent: 'handline.architect',
+    title: 'Blocked: the daemon does not serve inbox.reply',
+    body: 'The reply box cannot send until the daemon team lands it.',
+    created: ago(120),
+    read: true,
+  });
+  inbox.add({
+    kind: 'decision',
+    agent: 'handline.architect',
+    title: 'Should the daemon relay through the Go front door?',
+    body: 'Both work; relaying means one socket for every client.',
+    options: [
+      { id: 'yes', label: 'Yes' },
+      { id: 'no', label: 'No' },
+    ],
+    created: ago(12),
+  });
+  inbox.add({
+    kind: 'prompt',
+    agent: 'handline.term-build',
+    title: 'Permission: Bash',
+    prompt: {
+      id: 'p1',
+      agent: 'handline.term-build',
+      kind: 'permission',
+      tool: 'Bash',
+      command: 'rm -rf build',
+      reason: null,
+      lines: [],
+      options: [],
+      since: ago(3),
+    },
+    created: ago(3),
+  });
+  inbox.add({
+    kind: 'result',
+    agent: 'handline.architect',
+    title: 'Plan for the Tasks page is ready',
+    body: 'Three steps; the first needs task.board.',
+    evidence: null,
+    task: 12,
+    created: ago(1),
+  });
 }
 
 /** A small tree of tasks: a parent with two children, one running, one blocked, and a done one. */

@@ -29,7 +29,7 @@ function usePulse(on: boolean): Animated.Value {
   return opacity;
 }
 
-function draw(node: SkeletonNode, color: string, opacity: Animated.Value, key: number): ReactNode {
+function draw(node: SkeletonNode, color: string, opacity: Animated.Value, key: number, inRow = false): ReactNode {
   if ('box' in node)
     return (
       <Animated.View
@@ -37,10 +37,18 @@ function draw(node: SkeletonNode, color: string, opacity: Animated.Value, key: n
         style={{ width: node.box.w as number, height: node.box.h, borderRadius: node.box.r ?? 0, backgroundColor: color, opacity }}
       />
     );
-  if ('repeat' in node) return Array.from({ length: node.repeat }, (_, i) => draw(node.of, color, opacity, i));
-  const kids = ('row' in node ? node.row : node.col).map((n, i) => draw(n, color, opacity, i));
+  if ('repeat' in node) return Array.from({ length: node.repeat }, (_, i) => draw(node.of, color, opacity, i, inRow));
+  const kids = ('row' in node ? node.row : node.col).map((n, i) => draw(n, color, opacity, i, 'row' in node));
   return (
-    <View key={key} style={{ flexDirection: 'row' in node ? 'row' : 'column', gap: node.gap ?? 0, ...(node.h ? { height: node.h } : {}) }}>
+    <View
+      key={key}
+      style={{
+        flexDirection: 'row' in node ? 'row' : 'column',
+        gap: node.gap ?? 0,
+        ...(node.h ? { height: node.h } : {}),
+        ...(inRow ? { flex: 1 } : {}),
+      }}
+    >
       {kids}
     </View>
   );
@@ -55,6 +63,7 @@ export function Skeleton(props: { shape: SkeletonName; loading: boolean; label: 
   return (
     <View
       testID={`skeleton-${props.shape}`}
+      accessible
       accessibilityState={{ busy: true }}
       accessibilityLabel={`Loading ${props.label}`}
       style={{ padding: 16 }}

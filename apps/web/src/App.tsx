@@ -1,11 +1,17 @@
 // The frame: the sidebar with every agent control, and the selected agent's workspace at full height.
 import { useEffect, useState } from 'react';
-import { dotOf, type KV, type Store } from '@handline/app-core';
+import type { KV, Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
-import { DataProvider, SKELETON_CSS, useAgents, type BoxComponent } from '@handline/app-data';
+import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
-import { useSelectedAgent, useTasksRoute } from './route.ts';
+import { AccountsPage } from './Accounts.tsx';
+import { InboxPage } from './Inbox.tsx';
+import { SettingsPage } from './Settings.tsx';
+import { StatsPage } from './Stats.tsx';
+import { useAccountsRoute, useInboxRoute, usePageRoute, useSelectedAgent, useSettingsOpen, useTasksRoute, useTeamRoute } from './route.ts';
 import { useShell } from './shell.ts';
+import { SettingsView } from './SettingsView.tsx';
+import { TeamPage } from './TeamPage.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -26,8 +32,13 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
   const tasks = useTasksRoute();
+  const settings = useSettingsOpen();
+  const accounts = useAccountsRoute();
+  const team = useTeamRoute();
+  const page = usePageRoute();
   useShell(agent);
-  const waiting = (useAgents().data?.agents ?? []).filter((a) => dotOf(a) === 'waiting').length;
+  const inbox = useInboxRoute();
+  const unread = useUnread().length;
   const error = useError();
   const store = useStore();
   const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
@@ -36,8 +47,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
     setting(storage, 'rail', '1').save(railOpen ? '0' : '1');
   };
   useEffect(() => {
-    document.title = waiting ? `(${waiting}) Handline` : 'Handline';
-  }, [waiting]);
+    document.title = unread ? `(${unread}) Handline` : 'Handline';
+  }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   return (
     <div id="app" data-rail={railOpen ? 'open' : 'closed'}>
@@ -49,8 +60,20 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         </button>
       )}
       <main className="main" aria-label="Agent workspace">
-        {tasks !== null ? (
+        {team ? (
+          <TeamPage />
+        ) : inbox.open ? (
+          <InboxPage item={inbox.item} />
+        ) : accounts.open ? (
+          <AccountsPage name={accounts.name} />
+        ) : tasks !== null ? (
           <TasksPage storage={storage} route={tasks} />
+        ) : page === 'stats' ? (
+          <StatsPage />
+        ) : page === 'settings' ? (
+          <SettingsPage />
+        ) : agent && settings ? (
+          <SettingsView key={agent} agent={agent} />
         ) : agent ? (
           <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
         ) : (

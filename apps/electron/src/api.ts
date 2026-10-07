@@ -15,17 +15,20 @@ export function makeApi(ipc: Ipc): ShellApi {
     if (listener) listener(to);
     else waiting = to;
   });
-  const call = async (channel: string, arg: unknown) => {
+  const call = async <R>(channel: string, arg?: unknown): Promise<R> => {
     try {
-      return (await ipc.invoke(channel, arg)) as Awaited<ReturnType<ShellApi['screen']>>;
+      return (await ipc.invoke(channel, arg)) as R;
     } catch (e) {
-      return { ok: false as const, code: 'bad_request' as const, message: e instanceof Error ? e.message : String(e) };
+      return { ok: false, code: 'bad_request', message: e instanceof Error ? e.message : String(e) } as R;
     }
   };
   return {
     api: 1,
     screen: (s) => call(CHANNELS.screen, s),
     unsent: (on) => call(CHANNELS.unsent, on),
+    openPath: (a) => call(CHANNELS.openPath, a),
+    compose: (a) => call(CHANNELS.compose, a ?? {}),
+    cancelCompose: () => call(CHANNELS.cancelCompose),
     onNavigate(cb) {
       listener = cb;
       if (waiting) {
