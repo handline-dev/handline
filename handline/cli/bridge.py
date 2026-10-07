@@ -5,7 +5,7 @@ import sys
 
 from ..daemon import devmode
 from ..infra.yamlcompat import ConfigError
-from ..ui import tui
+from ..view import tui
 
 
 def _import_bridge_textual():

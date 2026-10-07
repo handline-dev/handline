@@ -30,7 +30,8 @@ from textual import events  # noqa: E402
 from handline.actions import dialogs as dialogs_mod  # noqa: E402
 from handline import actions, db
 from handline.team import accounts, agents, hr
-from handline.ui import api, bridge_textual as bt, jobs as jobsmod, tui
+from handline.ui import api, bridge_textual as bt, jobs as jobsmod
+from handline.view import tui
 from handline.infra import timefmt  # noqa: E402
 from handline.daemon import states as dmn_states
 from handline.ui.chat_page import ChatMessage as cp_ChatMessage, ChatPage  # noqa: E402
@@ -4842,7 +4843,7 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
     import html, re
-    from handline.ui import tui
+    from handline.view import tui
     from handline.ui import chat_page as cp
     from handline.ui.bridge_textual import BridgeApp
     _home("blockedline")

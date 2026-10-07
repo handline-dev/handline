@@ -5,7 +5,7 @@ from __future__ import annotations
 from ...team import accounts
 from ... import actions, db
 from ...session import term
-from .. import tui
+from ...view import tui
 from .account_actions import AccountActions
 from .text_prompt import TextPrompt
 from .jobs_aware import dispatch_agent_verb

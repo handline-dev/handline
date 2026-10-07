@@ -7794,7 +7794,7 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
     it is for - is not "waiting for reply": it says what it waits for, gets no other work and no
     "ask it what it is doing" alert, and is told the result when the child ends."""
     from handline.daemon import taskqueue, timebox
-    from handline.ui import tui
+    from handline.view import tui
     _board_world(home)
     con = db.connect()
     real_push = askmod.push

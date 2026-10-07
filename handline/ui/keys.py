@@ -5,7 +5,7 @@ import time
 
 from textual import events
 
-from . import tui
+from ..view import tui
 
 # Textual hands a key event as a symbolic name (`event.key`) plus, for a
 # printable one, the character itself (`event.character`). tui.py's own key
