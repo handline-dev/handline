@@ -8,10 +8,17 @@ WORLD: dict = {}
 
 def reset() -> None:
     WORLD.clear()
-    WORLD.update(codes={}, devices={}, socks={}, n=0)
+    WORLD.update(codes={}, devices={}, socks={}, subs=[], n=0)
 
 
 reset()
+
+
+def emit(typ, data):
+    """A devices event to every founder connection subscribed to the topic (the live-only stream, cursor 0)."""
+    for push in WORLD["subs"]:
+        push({"jsonrpc": "2.0", "method": "event", "params": {"cursor": 0, "topic": "devices", "type": typ, "at": "2026-10-06T00:00:00Z",
+                                                            "actor": None, "agent": None, "title": None, "target": None, "data": data}})
 
 
 def device_of(token):
@@ -32,6 +39,7 @@ def devices(role, method, params):
         dev = WORLD["devices"].pop(params.get("device"), None)
         if dev is None:
             return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "device"}}
+        emit("device.revoked", {"device": dev["id"]})
         for s in WORLD["socks"].pop(dev["id"], []):
             try:
                 s.shutdown(2)

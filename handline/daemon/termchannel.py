@@ -293,6 +293,9 @@ def marker(con, agent: str, kind: str, actor: dict, text: str = "") -> None:
     ch = HUB.open_for(handle) if handle else None
     if ch is not None:
         ch.notify("marker", at=agentview._ts(time.time()), kind=kind, actor=actor, **({"text": text} if text else {}))
+    if handle:
+        from . import termbytes
+        termbytes.notify(handle, "marker", at=agentview._ts(time.time()), kind=kind, actor=actor, **({"text": text} if text else {}))
 
 
 def holders_changed(con, agent: str, holders: list[dict]) -> None:
@@ -302,12 +305,16 @@ def holders_changed(con, agent: str, holders: list[dict]) -> None:
     handle = db.get_terminal(con, agent)
     if not handle:
         return
+    from . import termbytes
     ch = HUB.open_for(handle)
     if ch is not None:
         ch.notify("holder", holders=holders)
+    termbytes.notify(handle, "holder", holders=holders)
     if holders[0]["kind"] == "daemon" and handle in HUB.restore:
         cols, rows = HUB.restore.pop(handle)
         ok, _ = do_resize(handle, cols, rows)
         if ok and ch is not None:
             ch.rows, ch.cols = rows, cols
             ch.notify("resize", cols=cols, rows=rows)
+        if ok:
+            termbytes.resized(handle)

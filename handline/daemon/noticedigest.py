@@ -20,7 +20,7 @@ import time
 
 from .. import db
 from ..infra import paths, textsafe
-from ..session import idle_close
+from ..session import blocked, idle_close
 from . import delivery, messaging, states
 
 DIGEST_MAX_LINES = 20
@@ -126,8 +126,10 @@ def sweep_stopped(con, log, now: int) -> None:
             if db.get_cursor(con, key):
                 continue
             db.set_cursor(con, key, 1)
-            detail = " ".join(textsafe.oneline((stalled[agent]["detail"] if kind == "fatal"
-                                                else blocks[agent]["detail"]) or "").split())[:300]
+            # A block's detail can be empty (a screen that could not be read): its reason says what is in the way.
+            detail = " ".join(textsafe.oneline(stalled[agent]["detail"] or "" if kind == "fatal"
+                                               else blocked.reason(blocks[agent]["kind"], blocks[agent]["detail"] or "")
+                                               ).split())[:300]
             what = ("blocked" if kind == "blocked"
                     else "stalled" if detail.startswith(delivery.DIALOG_STALL) else "FATAL")
             _tell_waiting(con, agent, f"{agent} is {what}: {detail}", f"is {what}", log)

@@ -254,3 +254,55 @@ func TestTheCertificateOutlivesARestartAndNothingListensByDefault(t *testing.T) 
 		t.Fatal("a daemon with no listen address listens")
 	}
 }
+
+func TestTheLockoutHostIsTheAddressWithoutThePort(t *testing.T) {
+	// over loopback the host is always 127.0.0.1, so the split is shown on addresses a LAN would give
+	for addr, want := range map[string]string{"192.168.1.5:5555": "192.168.1.5", "[fd7a:115c:a1e0::2]:443": "fd7a:115c:a1e0::2", "100.101.102.103:1": "100.101.102.103"} {
+		if got := remoteHost(addr); got != want || got == "" {
+			t.Errorf("%s: %q", addr, got)
+		}
+	}
+}
+
+func TestPairedDevicesSurviveARestartAndARevokedOneStaysRefused(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Listen: "127.0.0.1:0"}
+	d, err := Start(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, _ := pair(t, d, "keep")
+	gone, goneID := pair(t, d, "gone")
+	d.Close()
+	hello := func(d *Daemon, token string) map[string]any {
+		return dialNet(t, d).ask(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`)
+	}
+	if d, err = Start(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "member" {
+		t.Fatalf("a paired device was forgotten by a restart: %v", r)
+	}
+	if ds, _ := d.dev.List(); len(ds) != 2 {
+		t.Fatal(ds)
+	}
+	if found, _ := d.dev.Revoke(goneID); !found {
+		t.Fatal("not found")
+	}
+	d.Close()
+	if d, err = Start(cfg); err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if !reflect.DeepEqual(hello(d, gone)["error"], unpaired) {
+		t.Fatal("a revoked device was paired again by a restart")
+	}
+	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "member" {
+		t.Fatalf("%v", r)
+	}
+	var stored int
+	d.db.QueryRow("SELECT count(*) FROM devices WHERE token_hash = ? OR token_hash = ?", keep, gone).Scan(&stored)
+	if stored != 0 {
+		t.Fatal("a token is stored as it is")
+	}
+}

@@ -251,6 +251,30 @@ def test_a_database_made_before_the_reply_store_gets_it_at_migration(home: Path)
     con.close()
 
 
+def _device_ctx(device: str = "dev_a"):
+    import types
+    return types.SimpleNamespace(caller=rpc.DeviceCaller(device, "phone"))
+
+
+def _effect_callers(request_id: str) -> list[str]:
+    con = db.connect()
+    try:
+        return [r["caller"] for r in con.execute("SELECT caller FROM write_effects WHERE request_id = ?", (request_id,))]
+    finally:
+        con.close()
+
+
+def test_a_device_writes_its_effect_record_under_its_own_name(home: Path) -> None:
+    from handline.daemon import rpc_inbox
+    support._board_world(home)
+    con = db.connect()
+    rpc_inbox._recorded(_device_ctx(), {"request_id": "dev-1"}, "inbox.reply")(con, "said")
+    con.close()
+    check("device retry: an inbox write is recorded under the device (device:<id>), not as human, so its retry finds the record",
+          _effect_callers("dev-1") == ["device:dev_a"], str(_effect_callers("dev-1")))
+    check("device retry: and the generic replay finds it for that device alone", rpc.DeviceCaller("dev_b", "x").writer != rpc.DeviceCaller("dev_a", "phone").writer)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_write_needs_a_request_id_and_a_retry_gets_the_first_reply(Path(td) / "w1"))
@@ -258,6 +282,7 @@ def main() -> int:
         run(lambda: test_a_reply_is_kept_a_day_and_no_longer(Path(td) / "w3"))
         run(lambda: test_retries_at_once_run_the_write_once(Path(td) / "w4"))
         run(lambda: test_every_write_leaves_an_event_naming_its_actor(Path(td) / "w5"))
+        run(lambda: test_a_device_writes_its_effect_record_under_its_own_name(Path(td) / "w9"))
         run(lambda: test_an_agent_cannot_write_as_another_agent_and_the_founder_can_name_any(Path(td) / "w6"))
         run(lambda: test_whoami_says_who_and_what_they_may_call(Path(td) / "w7"))
         run(lambda: test_two_callers_may_use_the_same_request_id_and_each_gets_its_own_reply(Path(td) / "w9"))
