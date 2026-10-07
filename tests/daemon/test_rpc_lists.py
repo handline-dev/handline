@@ -17,7 +17,7 @@ from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
 from handline.daemon import rpc_schedules, rpc_team  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.team import hr  # noqa: E402
+from handline.team import agents, hr  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
@@ -114,13 +114,16 @@ def test_roles_decide_who_reads_what(home: Path) -> None:
 
 def test_accounts_say_what_the_account_page_shows(home: Path) -> None:
     _world(home)
-    got = _call("accounts.list")["result"]["accounts"]
+    got = _call("accounts.list", {"roster": True})["result"]["accounts"]
     acct = next(a for a in got if a["name"] == "alpha")
+    check("accounts.list: the roster is only there when asked for", "agents_assigned" not in _call("accounts.list")["result"]["accounts"][0])
     check("accounts.list: the five-hour use, reset and where it comes from", acct["five_hour"]["used_pct"] == 40.0
           and acct["five_hour"]["source"] == "measured" and acct["five_hour"]["resets_at"], str(acct["five_hour"]))
     check("accounts.list: the weekly use", acct["weekly"]["used_pct"] == 10.0, str(acct["weekly"]))
     check("accounts.list: the agents on it, and the move that brought one", acct["agents"] == ["worker"]
           and acct["moves"] and acct["moves"][0]["agent"] == "worker" and acct["moves"][0]["from"] == "beta" and acct["moves"][0]["reason"] == "pinned", str(acct))
+    check("accounts.list: how many agents are on it, how many run, and how many are unplaced", acct["agents_assigned"] == 1
+          and acct["agents_running"] == 0 and acct["agents_unplaced"] == 0, str(acct))
     check("accounts.list: no cap of its own follows the default one", acct["cap"] is None and acct["cap_effective"] >= 1, str(acct))
     r = _call("account.set", {"account": "alpha", "cap": 3, "label": "main", "recover": True, "request_id": "s1"})
     acct = next(a for a in _call("accounts.list")["result"]["accounts"] if a["name"] == "alpha")
@@ -154,6 +157,16 @@ def test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(home: Pa
     check("schedules.list: a firing is its last run", got[0]["last_run"] is not None, str(got))
     _call("schedule.remove", {"schedule": sid, "request_id": "c2"})
     check("schedules.list: removed, it is gone", _call("schedules.list")["result"]["schedules"] == [])
+
+
+def test_schedules_list_says_a_bad_value_and_not_none(home: Path) -> None:
+    _world(home)
+    agents.write("worker", {**agents.read("worker"), "schedules": "not json"})
+    res = _call("schedules.list")["result"]
+    got = res["errors"]
+    check("schedules.list: a bad value is listed beside the schedules, with its error", res["schedules"] == [] and len(got) == 1 and got[0]["target"] == "worker"
+          and got[0]["error"].startswith("schedules is not JSON") and set(got[0]) == {"target", "error"}, str(res))
+    check("schedules.list: that answer is in the spec's schema", _invalid(_call("schedules.list")["result"], RESULT["schedules.list"]) is None)
 
 
 def test_stats_count_a_window(home: Path) -> None:
@@ -245,6 +258,7 @@ def main() -> int:
         run(lambda: test_accounts_say_what_the_account_page_shows(Path(td) / "l3"))
         run(lambda: test_team_names_each_agent_its_parent_and_files_and_the_edges(Path(td) / "l4"))
         run(lambda: test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(Path(td) / "l6"))
+        run(lambda: test_schedules_list_says_a_bad_value_and_not_none(Path(td) / "l11"))
         run(lambda: test_stats_count_a_window(Path(td) / "l7"))
         run(lambda: test_settings_say_where_every_setting_stands(Path(td) / "l8"))
         run(lambda: test_the_commands_the_list_methods_serve_still_work_from_an_agent_session(Path(td) / "l9"))

@@ -121,6 +121,26 @@ export type AgentView = {
   input_holders?: InputHolder[];
   /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
   state_detail: string;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists). */
+  started?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo. */
+  has_repo?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether a terminal is recorded for it. */
+  has_terminal?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): the word the screens draw for its state (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL), `tui.screen_state`'s and not the wire `state`; null when it never started. */
+  screen_word?: string | null;
+  /** Only with agents.list `status: true` (what `hl team` draws): the text drawn beside screen_word. */
+  screen_detail?: string;
+  /** Only with agents.list `status: true` (what `hl team` draws): requests, messages and answers owed to it that have not reached it. */
+  unreached?: number;
+  /** Only with agents.list `status: true` (what `hl team` draws): its tasks that wait on a hold, oldest first. */
+  task_waits?: {
+    task: number;
+    /** The daemon's reason the task waits. */
+    words: string;
+  }[];
+  /** Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true). */
+  wake_wait_reason?: string | null;
 };
 
 export type AgentDetail = AgentView & {
@@ -320,6 +340,8 @@ export type InboxItem = {
   answered: boolean;
   options: DecisionOption[];
   prompt: Prompt | null;
+  /** Only with inbox.list `queue: true`, for an agent's own item: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). */
+  how_to_close?: string;
 };
 
 export type Event = {
@@ -392,6 +414,12 @@ export type Account = {
     /** end is the next monthly anniversary of the subscription start, not typed. */
     end_is_default: boolean;
   };
+  /** Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints). */
+  agents_assigned?: number;
+  /** Only with accounts.list `roster: true`. Those of them that are mid-turn or otherwise running. */
+  agents_running?: number;
+  /** Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
+  agents_unplaced?: number;
 };
 
 export type DaemonStatus = {
@@ -950,6 +978,12 @@ export type ChatRequestItem = {
   handoff?: string | null;
 };
 
+export type ScheduleError = {
+  target: AgentName;
+  /** Why the agent's `schedules` value cannot be read, as `hl schedule list` says it. */
+  error: string;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1008,7 +1042,10 @@ export interface Methods {
   "operation.get": { params: {
   operation: string;
 }; result: Operation };
-  "agents.list": { params: { [key: string]: unknown }; result: {
+  "agents.list": { params: {
+  /** Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read now and not from the stored view. Default false. */
+  status?: boolean;
+}; result: {
     agents: AgentView[];
   } };
   "agent.get": { params: {
@@ -1291,9 +1328,13 @@ export interface Methods {
   limit?: number;
   /** Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
   wait_s?: number;
+  /** An agent caller: add each item's how_to_close and the result's more_waiting, as `hl inbox` prints them. Default false; ignored for the founder. */
+  queue?: boolean;
 }; result: {
     items: InboxItem[];
     more: boolean;
+    /** Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
+    more_waiting?: number;
   } };
   "inbox.get": { params: {
   id: number;
@@ -1631,7 +1672,10 @@ export interface Methods {
   subject?: string;
   request_id: RequestId;
 }; result: Accepted };
-  "accounts.list": { params: { [key: string]: unknown }; result: {
+  "accounts.list": { params: {
+  /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
+  roster?: boolean;
+}; result: {
     accounts: Account[];
   } };
   "account.set_cap": { params: {
@@ -1657,6 +1701,19 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted & {
     terminal: string;
+  } };
+  "account.remove": { params: {
+  account: string;
+  /** Change nothing: answer `plan` and `would_remove`. A dry run needs no `confirm`. */
+  dry_run?: boolean;
+  /** The account's name, as the founder typed it; required unless dry_run. */
+  confirm?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** Dry run only: whether the removal would go ahead. */
+    would_remove?: boolean;
+    /** Dry run only: what it would do, line by line, or the one line that says why it would refuse. */
+    plan?: string[];
   } };
   "repos.list": { params: { [key: string]: unknown }; result: {
     repos: Repo[];
@@ -1684,6 +1741,8 @@ export interface Methods {
 }; result: Accepted };
   "schedules.list": { params: { [key: string]: unknown }; result: {
     schedules: Schedule[];
+    /** Present only when an agent's `schedules` value cannot be read: that agent, and why. */
+    errors?: ScheduleError[];
   } };
   "schedule.add": { params: {
   target: AgentName;
@@ -1879,6 +1938,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "account.set_cap": { role: "founder", callers: null, write: true, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
+  "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },

@@ -1,4 +1,4 @@
-"""account.set_cap, account.set and account.login: an account's settings and its login, written through the daemon, each
+"""account.set_cap, account.set, account.login and account.remove: an account's settings and its login, written through the daemon, each
 the founder's. They serve `hl account cap` (set_cap), the account page's Settings form with `hl account cycle` and
 `recover` (set: the fields it is given, all checked before any is written) and `hl login` (login).
 
@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import datetime as dt
 import shlex
+import shutil
+import subprocess
 
 from .. import actions, db, vendors
 from ..actions import details
 from ..infra import paths, textsafe
 from ..session import term
+from ..team import accounts
 from ..usage import load as loadmod
 from . import rpc, rpc_terminal
 
@@ -111,6 +114,38 @@ def _login(ctx, params) -> dict:
     return _accepted(ctx, params, "account.login", f"{acct}: finish the login in the terminal", terminal=handle)
 
 
+LOGOUT_TIMEOUT_S = 60
+
+
+def _run_claude(argv: list[str], env: dict) -> int | None:
+    """claude's logout, which the remove sequence runs before it moves the directory; None when it cannot run."""
+    claude = shutil.which(argv[0])
+    if not claude:
+        return None
+    try:
+        return subprocess.run([claude, *argv[1:]], env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=LOGOUT_TIMEOUT_S).returncode
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _remove(ctx, params) -> dict:
+    acct, dry = _account(params), _flag(params, "dry_run")
+    con = db.connect()
+    try:
+        if dry:
+            would, plan = accounts.remove_preview(acct, con)       # nothing is changed, so nothing is recorded
+            return {"accepted": True, "said": plan[0], "would_remove": would, "plan": plan}
+        if params.get("confirm") != acct:
+            raise rpc.bad_request("confirm is the account's name, typed", "confirm", rpc.INVALID_PARAMS)
+        ok, said = accounts.remove_account(acct, lambda: True, _run_claude, con)
+    finally:
+        con.close()
+    if not ok:
+        raise rpc.refused(said, gate="state")
+    return _accepted(ctx, params, "account.remove", said)
+
+
 rpc.METHODS["account.set_cap"] = rpc.Method(_set_cap, "founder", write=True)
 rpc.METHODS["account.set"] = rpc.Method(_set, "founder", write=True)
 rpc.METHODS["account.login"] = rpc.Method(_login, "founder", write=True)
+rpc.METHODS["account.remove"] = rpc.Method(_remove, "founder", write=True)

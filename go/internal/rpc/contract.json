@@ -2,6 +2,9 @@
  "account.login": {
   "role": "founder"
  },
+ "account.remove": {
+  "role": "founder"
+ },
  "account.set": {
   "role": "founder"
  },

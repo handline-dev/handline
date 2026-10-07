@@ -898,7 +898,16 @@
    "name": "agents.list",
    "summary": "The rail: the stored view of every agent.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "status",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read now and not from the stored view. Default false."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -918,7 +927,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "agent.get",
@@ -3181,6 +3195,14 @@
       "maximum": 600,
       "description": "Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle."
      }
+    },
+    {
+     "name": "queue",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "An agent caller: add each item's how_to_close and the result's more_waiting, as `hl inbox` prints them. Default false; ignored for the founder."
+     }
     }
    ],
    "result": {
@@ -3196,6 +3218,11 @@
       },
       "more": {
        "type": "boolean"
+      },
+      "more_waiting": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one)."
       }
      },
      "required": [
@@ -5859,7 +5886,16 @@
    "name": "accounts.list",
    "summary": "Accounts with login state, use, cap, agents, recent moves.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "roster",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Add each account's agents_assigned, agents_running and agents_unplaced. Default false."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -5879,7 +5915,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
   },
   {
    "name": "account.set_cap",
@@ -6075,6 +6116,84 @@
    ]
   },
   {
+   "name": "account.remove",
+   "summary": "Log an account out and take it off the roster; dry_run names what would happen.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan` and `would_remove`. A dry run needs no `confirm`."
+     }
+    },
+    {
+     "name": "confirm",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The account's name, as the founder typed it; required unless dry_run."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "would_remove": {
+         "type": "boolean",
+         "description": "Dry run only: whether the removal would go ahead."
+        },
+        "plan": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         },
+         "description": "Dry run only: what it would do, line by line, or the one line that says why it would refuse."
+        }
+       }
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "description": "The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account, when claude's logout fails, or when the backup gate says no. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "repos.list",
    "summary": "Repos.",
    "paramStructure": "by-name",
@@ -6264,6 +6383,13 @@
        "items": {
         "$ref": "#/components/schemas/Schedule"
        }
+      },
+      "errors": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ScheduleError"
+       },
+       "description": "Present only when an agent's `schedules` value cannot be read: that agent, and why."
       }
      },
      "required": [
@@ -6273,7 +6399,8 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "An agent whose `schedules` value is bad is listed in `errors` (target and the error text), not shown as an agent with no schedules."
   },
   {
    "name": "schedule.add",
@@ -7452,6 +7579,69 @@
      "state_detail": {
       "type": "string",
       "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
+     },
+     "started": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists)."
+     },
+     "has_repo": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo."
+     },
+     "has_terminal": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether a terminal is recorded for it."
+     },
+     "screen_word": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with agents.list `status: true` (what `hl team` draws): the word the screens draw for its state (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL), `tui.screen_state`'s and not the wire `state`; null when it never started."
+     },
+     "screen_detail": {
+      "type": "string",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): the text drawn beside screen_word."
+     },
+     "unreached": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only with agents.list `status: true` (what `hl team` draws): requests, messages and answers owed to it that have not reached it."
+     },
+     "task_waits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "words": {
+         "type": "string",
+         "description": "The daemon's reason the task waits."
+        }
+       },
+       "required": [
+        "task",
+        "words"
+       ]
+      },
+      "description": "Only with agents.list `status: true` (what `hl team` draws): its tasks that wait on a hold, oldest first."
+     },
+     "wake_wait_reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true)."
      }
     },
     "required": [
@@ -8452,6 +8642,10 @@
         "type": "null"
        }
       ]
+     },
+     "how_to_close": {
+      "type": "string",
+      "description": "Only with inbox.list `queue: true`, for an agent's own item: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task)."
      }
     },
     "required": [
@@ -8798,6 +8992,21 @@
         "description": "end is the next monthly anniversary of the subscription start, not typed."
        }
       }
+     },
+     "agents_assigned": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints)."
+     },
+     "agents_running": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only with accounts.list `roster: true`. Those of them that are mid-turn or otherwise running."
+     },
+     "agents_unplaced": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0."
      }
     },
     "required": [
@@ -11142,6 +11351,22 @@
     "required": [
      "type",
      "at"
+    ]
+   },
+   "ScheduleError": {
+    "type": "object",
+    "properties": {
+     "target": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "error": {
+      "type": "string",
+      "description": "Why the agent's `schedules` value cannot be read, as `hl schedule list` says it."
+     }
+    },
+    "required": [
+     "target",
+     "error"
     ]
    }
   },

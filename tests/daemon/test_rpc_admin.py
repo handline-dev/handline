@@ -72,6 +72,39 @@ def test_account_set_cap_writes_the_cap_and_refuses_what_is_not_one(home: Path) 
     check("account.set_cap: an unknown account is not_found", _code(r) == "not_found", str(r))
 
 
+def test_account_remove_plans_without_changing_and_removes_only_when_confirmed(home: Path) -> None:
+    from handline.infra import backup
+    _world(home)
+    r = _call("account.remove", {"account": "acct.two", "dry_run": True, "request_id": "r1"})
+    check("account.remove: a dry run says what it would do and changes nothing", r["result"]["accepted"] and r["result"]["plan"][0].startswith("would")
+          and paths.account_dir("acct.two").exists(), str(r))
+    r = _call("account.remove", {"account": "acct.two", "request_id": "r2"})
+    check("account.remove: without the typed name it is bad_request", _code(r) == "bad_request" and r["error"]["data"]["field"] == "confirm", str(r))
+    r = _call("account.remove", {"account": "acct.two", "confirm": "acct.two", "request_id": "r3"})
+    check("account.remove: with no recent backup it is refused and the account stays", _code(r) == "refused" and paths.account_dir("acct.two").exists(), str(r))
+    real = backup.require_recent
+    backup.require_recent = lambda *a, **k: None
+    try:
+        r = _call("account.remove", {"account": "acct.two", "confirm": "acct.two", "request_id": "r4"})
+    finally:
+        backup.require_recent = real
+    check("account.remove: confirmed, it is removed and the directory is kept aside", r["result"]["accepted"] and "acct.two" not in paths.list_accounts(), str(r))
+    from handline.daemon import rpc_accounts
+    from handline.team import accounts as accountsmod
+    real_out, real_backup = accountsmod.logout_argv, backup.require_recent
+    accountsmod.logout_argv, backup.require_recent = (lambda name: (["false"], {})), (lambda *a, **k: None)
+    try:
+        r = _call("account.remove", {"account": "acct.one", "confirm": "acct.one", "request_id": "r6"})
+    finally:
+        accountsmod.logout_argv, backup.require_recent = real_out, real_backup
+    check("account.remove: a logout that fails leaves the account where it is and says so", _code(r) == "refused" and paths.account_dir("acct.one").exists()
+          and "acct.one" in paths.list_accounts(), str(r))
+    check("account.remove: claude's logout, run for real, answers its exit code", rpc_accounts._run_claude(["true"], {}) == 0 and rpc_accounts._run_claude(["false"], {}) == 1)
+    check("account.remove: a logout that cannot run (no such binary) answers None", rpc_accounts._run_claude(["no-such-binary-xyz"], {}) is None)
+    r = _call("account.remove", {"account": "acct.nope", "dry_run": True, "request_id": "r5"})
+    check("account.remove: an unknown account is not_found", _code(r) == "not_found", str(r))
+
+
 def test_account_set_writes_what_it_is_given_and_nothing_if_any_is_refused(home: Path) -> None:
     _world(home)
     r = _call("account.set", {"account": "acct.one", "label": "Main", "cap": 2, "recover": True, "request_id": "s1"})
@@ -338,6 +371,7 @@ def test_the_admin_fixtures_pass_against_this_daemon(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_account_set_cap_writes_the_cap_and_refuses_what_is_not_one(Path(td) / "d0"))
+        run(lambda: test_account_remove_plans_without_changing_and_removes_only_when_confirmed(Path(td) / "d12"))
         run(lambda: test_account_set_writes_what_it_is_given_and_nothing_if_any_is_refused(Path(td) / "d1"))
         run(lambda: test_account_login_opens_a_terminal_that_can_be_watched_and_refuses_what_it_cannot_start(Path(td) / "d2"))
         run(lambda: test_schedules_are_added_edited_moved_and_removed_by_id(Path(td) / "d3"))

@@ -1,4 +1,4 @@
-"""account.set_cap, account.set, account.login, hr.decide, schedule.add, schedule.edit, schedule.remove, settings.set,
+"""account.set_cap, account.set, account.login, account.remove, hr.decide, schedule.add, schedule.edit, schedule.remove, settings.set,
 settings.trust and worktree.set_status."""
 from . import err, fake
 
@@ -24,13 +24,13 @@ def _is_int(v, lo):
     return isinstance(v, int) and not isinstance(v, bool) and v >= lo
 
 
-@fake("account.set_cap", "account.set", "account.login", "hr.decide", "schedule.add", "schedule.edit", "schedule.remove",
+@fake("account.set_cap", "account.set", "account.login", "account.remove", "hr.decide", "schedule.add", "schedule.edit", "schedule.remove",
       "settings.set", "settings.trust", "worktree.set_status")
 def admin(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
     ok = {"accepted": True, "said": "done"}
-    if method in ("account.set_cap", "account.set", "account.login", "settings.trust"):
+    if method in ("account.set_cap", "account.set", "account.login", "account.remove", "settings.trust"):
         if params.get("account") not in ACCOUNTS:
             return _not_found("account")
         if method == "account.set_cap" and not _is_int(params.get("cap"), 1):
@@ -43,6 +43,10 @@ def admin(role, method, params):
             return _refused()       # the fixtures name no worktree an agent has under a declared root
         if method == "account.login":
             return "ok", {**ok, "terminal": "t-login"}
+        if method == "account.remove":
+            if params.get("dry_run") is True:
+                return "ok", {**ok, "would_remove": True, "plan": ["would remove account"]}
+            return _refused() if params.get("confirm") == params["account"] else _bad("confirm")
         if method == "account.set_cap":
             replay = params["request_id"] in CAPS
             CAPS.add(params["request_id"])

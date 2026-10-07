@@ -63,10 +63,21 @@ def _account(con, acct: str, names: list[str]) -> dict:
 
 
 def _accounts(ctx, params) -> dict:
+    with_roster = params.get("roster", False)
+    if not isinstance(with_roster, bool):
+        raise rpc.bad_request("roster is true or false", "roster", rpc.INVALID_PARAMS)
     con = db.connect()
     try:
         names = paths.list_agents()
-        return {"accounts": [_account(con, a, names) for a in paths.list_accounts()]}
+        roster, unplaced = loadmod.roster(con) if with_roster else ({}, 0)
+        out = []
+        for a in paths.list_accounts():
+            acct = _account(con, a, names)
+            if with_roster:
+                assigned, running = roster.get(a, (0, 0))
+                acct.update(agents_assigned=assigned, agents_running=running, agents_unplaced=unplaced)
+            out.append(acct)
+        return {"accounts": out}
     finally:
         con.close()
 
@@ -104,11 +115,18 @@ def _fired(con, agent: str, item: dict) -> int | None:
 
 
 def _schedules(ctx, params) -> dict:
-    now, out = int(time.time()), []
+    now, out, bad = int(time.time()), [], []
     con = db.connect()
     try:
         for agent in paths.list_agents():
-            for item in rpc_schedules.schedules.of(agent):
+            try:
+                items = rpc_schedules.schedules.load(agent)
+            except ValueError as e:     # a bad value is said, not shown as no schedules (what `hl schedule list --agent` prints)
+                bad.append({"target": agent, "error": str(e)})
+                continue
+            except Exception:  # noqa: BLE001 - an agent.yaml that cannot be read is doctor's to report, as schedules.of treats it
+                continue
+            for item in items:
                 last = _fired(con, agent, item)
                 handled = db.get_cursor(con, f"schedule_at:{agent}:{rpc_schedules.schedules.sid(item)}")
                 nxt = cron.next_after(cron.parse(item["cron"]), max(last or 0, handled or 0, now if not (last or handled) else 0))
@@ -116,7 +134,7 @@ def _schedules(ctx, params) -> dict:
                             "next_run": _TS(nxt), "last_run": _TS(last), "set_by": "human"})
     finally:
         con.close()
-    return {"schedules": out}
+    return {"schedules": out, **({"errors": bad} if bad else {})}
 
 
 def _worked(con, since: int, until: int) -> dict[str, int]:
