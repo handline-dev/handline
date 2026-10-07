@@ -3101,7 +3101,7 @@ def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) ->
         con.close()
 
 
-def test_a_walled_resume_that_cannot_move_says_why_it_did_not(home: Path) -> None:
+def test_a_walled_resume_that_cannot_move_carries_why_on_its_wait(home: Path) -> None:
     """Harbor waited a night for sigma's 7d window while gamma and theta had weekly room: both were at their cap of agents mid-turn, and
     the only other account sat at its 5h wall. The wake said only what it waited for; the log now says once why nothing took it."""
     _daemon_home(home, 20)
@@ -3124,16 +3124,13 @@ def test_a_walled_resume_that_cannot_move_says_why_it_did_not(home: Path) -> Non
         log: list[str] = []
         ok, why = dmn_lifecycle.wake_agent(con, "backend", log.append)
         check("walled resume: with the other account full it still waits, on the same sentence", not ok and "7d window" in why, why)
-        check("walled resume: and the log says the other account was looked at and why it did not take it",
-              any("not moved" in l and "cap" in l and "beta" in l for l in log), str(log))
-        again: list[str] = []
-        dmn_lifecycle.wake_agent(con, "backend", again.append)
-        check("walled resume: a reason that lasts is said once", not any("not moved" in l for l in again), str(again))
+        check("walled resume: the wait says the other account was looked at and why it did not take it",
+              "not moved" in why and "cap" in why and "beta" in why and not log, f"{why} {log}")
         loadmod.set_cap("beta", 2)               # room on beta: the rescue is tried (it starts fresh there, or says why its handoff failed)
         room: list[str] = []
         dmn_lifecycle.wake_agent(con, "backend", room.append)
         check("walled resume: with room elsewhere it is not told 'not moved', the move is tried",
-              not any("not moved" in l for l in room) and any("handoff" in l or "pinned" in l for l in room), str(room))
+              "not moved" not in "".join(room) and any("handoff" in l or "pinned" in l for l in room), str(room))
     finally:
         termmod.available, = real
         con.close()
@@ -6109,7 +6106,7 @@ def main() -> int:
         run(lambda: test_a_dead_sessions_id_is_kept_only_from_a_matching_snapshot(Path(td) / 'deadacct'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
         run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
-        run(lambda: test_a_walled_resume_that_cannot_move_says_why_it_did_not(Path(td) / 'notmoved'))
+        run(lambda: test_a_walled_resume_that_cannot_move_carries_why_on_its_wait(Path(td) / 'notmoved'))
         run(lambda: test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(Path(td) / 'noroom'))
         run(lambda: test_a_move_has_nowhere_to_go_when_every_account_is_walled(Path(td) / 'walled7dmove'))
         run(lambda: test_a_usage_park_is_woken_when_the_reading_clears(Path(td) / 'parklevel1'))
