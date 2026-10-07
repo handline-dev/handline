@@ -1,11 +1,12 @@
-// The Stats page (#/stats): the window's four counts, how long each agent worked, and the accounts' use, from stats.get; the usage outlook
-// below them when the daemon serves it. The previous window's figures stay on screen until the new ones arrive.
+// The Stats page (#/stats): the window's four counts, how long each agent worked, from stats.get; the usage outlook below them when the daemon
+// serves it. The accounts' use is the Accounts page (a link here). The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
-import { agentTime, bandOf, duration } from '@handline/app-core';
+import { agentTime, duration } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
 import { OutlookSection } from './Outlook.tsx';
+import { Icon, Segmented, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
@@ -15,18 +16,21 @@ const WORD: Record<Window, string> = { '24h': '24 h', '7d': '7 d' };
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
+const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'blocks'>, IconName][] = [
+  ['tasks done', 'tasks_done', 'done'],
+  ['moves', 'moves', 'session'],
+  ['handoffs', 'handoffs', 'reply'],
+  ['blocks', 'blocks', 'blocked'],
+];
+
+/** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {
-  const tiles: [string, number][] = [
-    ['tasks done', s.tasks_done],
-    ['moves', s.moves],
-    ['handoffs', s.handoffs],
-    ['blocks', s.blocks],
-  ];
   return (
     <div className="stat-tiles">
-      {tiles.map(([label, n]) => (
-        <div key={label} className="stat-tile" data-tile={label} data-warn={label === 'blocks' && n > 0 ? '' : undefined}>
-          <strong>{n}</strong>
+      {TILES.map(([label, key, icon]) => (
+        <div key={label} className="stat-tile" data-tile={label} data-warn={key === 'blocks' && s[key] > 0 ? '' : undefined}>
+          <Icon name={icon} size={20} label={label} />
+          <strong>{s[key]}</strong>
           <span className="muted">{label}</span>
         </div>
       ))}
@@ -62,37 +66,14 @@ function AgentTime({ s }: { s: Stats }) {
   );
 }
 
-function AccountUse({ s }: { s: Stats }) {
-  const bar = (label: string, pct: number | null) =>
-    pct === null ? (
-      <div className="bar-row" data-use={label}>
-        <span className="bar-name">{label}</span>
-        <span className="muted">no data</span>
-      </div>
-    ) : (
-      <div className="bar-row" data-use={label} data-band={bandOf(pct)}>
-        <span className="bar-name">{label}</span>
-        <span className="bar">
-          <span className={`bar-fill ${bandOf(pct)}`} style={{ width: `${Math.min(100, pct)}%` }} />
-        </span>
-        <span className="bar-value">{Math.round(pct)}%</span>
-      </div>
-    );
+/** Account use lives on the Accounts page, one line per account; this is the way there. */
+function AccountsLink() {
   return (
-    <section className="chart" aria-label="Account use">
-      <h3>Account use</h3>
-      {s.per_account.length ? (
-        s.per_account.map((a) => (
-          <div key={a.account} className="use-account" data-account={a.account}>
-            <strong>{a.account}</strong>
-            {bar('5 h', a.five_hour_used_pct)}
-            {bar('week', a.weekly_used_pct)}
-          </div>
-        ))
-      ) : (
-        <p className="muted">Nothing recorded in this window.</p>
-      )}
-    </section>
+    <a className="stat-link" href="#/accounts" title="Account use: one line per account">
+      <Icon name="accounts" size={16} />
+      <span>Account use</span>
+      <Icon name="chevronRight" size={14} label="Open" />
+    </a>
   );
 }
 
@@ -113,15 +94,9 @@ export function StatsPage() {
   const s = q.data;
   return (
     <section className="stats" aria-label="Stats">
-      <header className="inbox-top">
+      <header className="stats-head">
         <h2>Stats</h2>
-        <div role="group" className="segmented" aria-label="Window">
-          {WINDOWS.map((w) => (
-            <button key={w} className={`chat-tab${win === w ? ' on' : ''}`} aria-pressed={win === w} onClick={() => setWin(w)}>
-              {WORD[w]}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Window" value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w, label: WORD[w] }))} />
       </header>
       <View q={q} served={served} shape="stats" what="stats">
         {s ? (
@@ -132,7 +107,7 @@ export function StatsPage() {
             <Tiles s={s} />
             <div className="charts">
               <AgentTime s={s} />
-              <AccountUse s={s} />
+              <AccountsLink />
             </div>
           </>
         ) : null}

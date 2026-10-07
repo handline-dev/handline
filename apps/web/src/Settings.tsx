@@ -1,39 +1,58 @@
 // The Home settings page (#/settings), founder only: the default cap, idle close and three switches through settings.set, each field saving on its
-// own (authored: it shows at once and goes back with its own note when refused), and the standing answers.
-import { useEffect, useState } from 'react';
+// own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
+// card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
+import { useEffect, useState, type ReactNode } from 'react';
 import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
+import { Field, Icon, Switch, type IconName } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
+/** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
 function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {
   const text = bad ?? (error ? `not saved: ${sentence(classify(error))}` : null);
   return (
     <>
       {pending ? (
-        <span className="muted field-note" role="status">
-          <i>○ saving…</i>
-        </span>
+        <p className="ui-note" role="status">
+          <Icon name="sending" size={14} />
+          saving
+        </p>
       ) : null}
       {text ? (
-        <span className="field-note bad" role="alert">
+        <p className="ui-note bad" role="alert">
+          <Icon name="failed" size={14} label="Not saved" />
           {text}
-        </span>
+        </p>
       ) : null}
     </>
   );
 }
 
-function NumberField(props: {
+function Row(props: { label: string; hint: string; more?: string; children: ReactNode; note?: ReactNode }) {
+  return (
+    <div className="srow" data-setting={props.label}>
+      <div className="srow-text" title={props.more}>
+        <span className="srow-title">{props.label}</span>
+        <span className="srow-hint">{props.hint}</span>
+      </div>
+      <div className="srow-ctl">{props.children}</div>
+      {props.note}
+    </div>
+  );
+}
+
+function NumberRow(props: {
   label: string;
   hint: string;
+  more?: string;
+  unit: string;
   current: string;
   parse: (t: string) => number | null | typeof INVALID;
   change: (v: number | null) => SettingsChanges;
   allowed: string;
-  placeholder?: string;
 }) {
   const save = useWrite('settings.set');
   const off = useOff('settings.set');
@@ -56,17 +75,15 @@ function NumberField(props: {
     if (text.trim() !== props.current.trim()) save.mutate({ changes: props.change(v) });
   };
   return (
-    <label className="setting" data-setting={props.label}>
-      <span className="setting-label">
-        {props.label} <span className="muted">{props.hint}</span>
-      </span>
-      <input
+    <Row label={props.label} hint={props.hint} more={props.more} note={<Note error={save.error} pending={save.isPending} bad={bad} />}>
+      <Field
+        label={props.label}
+        unit={props.unit}
         inputMode="numeric"
         value={text}
-        placeholder={props.placeholder}
         disabled={!!off}
         title={off}
-        aria-invalid={bad ? true : undefined}
+        tone={bad ? 'bad' : undefined}
         onFocus={() => setFocus(true)}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
@@ -81,28 +98,75 @@ function NumberField(props: {
           }
         }}
       />
-      <Note error={save.error} pending={save.isPending} bad={bad} />
-    </label>
+    </Row>
   );
 }
 
-function Switch(props: { label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
+function SwitchRow(props: { label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
   const save = useWrite('settings.set');
   const off = useOff('settings.set');
   return (
-    <label className="setting check" data-setting={props.label}>
-      <input
-        type="checkbox"
-        checked={props.on}
-        disabled={!!off}
-        title={off}
-        onChange={(e) => save.mutate({ changes: props.change(e.target.checked) })}
-      />
-      <span className="setting-label">
-        {props.label} <span className="muted">{props.hint}</span>
+    <Row label={props.label} hint={props.hint} note={<Note error={save.error} pending={save.isPending} bad={null} />}>
+      <span title={off}>
+        <Switch label={props.label} on={props.on} disabled={!!off} onChange={(on) => save.mutate({ changes: props.change(on) })} />
       </span>
-      <Note error={save.error} pending={save.isPending} bad={null} />
-    </label>
+    </Row>
+  );
+}
+
+const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] = [
+  { id: 'concurrency', title: 'Concurrency', icon: 'agent', group: 'Agents' },
+  { id: 'closing', title: 'Closing windows', icon: 'waiting', group: 'Agents' },
+  { id: 'automation', title: 'Automation', icon: 'sendNow', group: 'Automation' },
+  { id: 'answers', title: 'Standing answers', icon: 'answered', group: 'Automation' },
+];
+
+/** The nav follows the page: the first section that shows in the top part of the scrolling page is the current one. */
+function SectionNav({ ready }: { ready: boolean }) {
+  const [at, setAt] = useState(SECTIONS[0]!.id);
+  const groups = [...new Set(SECTIONS.map((s) => s.group))];
+  useEffect(() => {
+    if (!ready || typeof IntersectionObserver === 'undefined') return;
+    const els = SECTIONS.map((s) => document.getElementById(`set-${s.id}`)).filter((e): e is HTMLElement => !!e);
+    const seen = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const id = e.target.id.replace(/^set-/, '');
+          if (e.isIntersecting) seen.add(id);
+          else seen.delete(id);
+        }
+        const first = SECTIONS.find((s) => seen.has(s.id));
+        if (first) setAt(first.id);
+      },
+      { root: els[0]?.closest('.settings') ?? null, rootMargin: '0px 0px -60% 0px' },
+    );
+    els.forEach((e) => io.observe(e));
+    return () => io.disconnect();
+  }, [ready]);
+  return (
+    <nav className="settings-nav" aria-label="Settings sections">
+      {groups.map((g) => (
+        <div key={g} className="settings-nav-group">
+          <span className="srow-hint settings-nav-title">{g}</span>
+          {SECTIONS.filter((s) => s.group === g).map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="settings-nav-item"
+              aria-current={at === s.id ? 'true' : undefined}
+              onClick={() => {
+                setAt(s.id);
+                document.getElementById(`set-${s.id}`)?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+              }}
+            >
+              <Icon name={s.icon} size={14} label={s.title} aria-hidden />
+              {s.title}
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
   );
 }
 
@@ -112,59 +176,81 @@ export function SettingsPage() {
   const v = q.data?.values;
   return (
     <section className="settings" aria-label="Settings">
-      <header className="inbox-top">
+      <header className="settings-head">
         <h2>Settings</h2>
+        <p className="settings-lede">Defaults for every agent. Each change saves as you make it.</p>
       </header>
       <p className="settings-phone muted">Open this on a computer.</p>
-      <div className="settings-body">
-        {!served ? (
-          <p className="muted pad">This daemon does not serve settings, or they are for the founder only.</p>
-        ) : (
-          <View q={q} served shape="settings" what="settings">
-            {v ? (
-              <>
-                <h3>Concurrency</h3>
-                <NumberField
-                  label="Default cap"
-                  hint="agents working at once on an account; an account with its own cap keeps it"
-                  current={v.active_cap === undefined ? '' : String(v.active_cap)}
-                  parse={parseCap}
-                  change={(n) => ({ active_cap: n })}
-                  allowed="a whole number from 1, or empty for the default"
-                />
-                <h3>Closing windows</h3>
-                <NumberField
-                  label="Idle close"
-                  hint="minutes of idle before a session closes; 0 is never"
-                  current={minutesOf(v.park_timeout_s)}
-                  parse={parseMinutes}
-                  change={(s) => ({ park_timeout_s: s })}
-                  allowed="whole minutes, 0 for never, or empty for the default"
-                />
-                <h3>Automation</h3>
-                <Switch
-                  label="Handoff note"
-                  hint="agents write a note for the next session before a close or move"
-                  on={!!v.handoff_note}
-                  change={(on) => ({ handoff_note: on })}
-                />
-                <Switch
-                  label="Auto-accept"
-                  hint="answer the questions in the list below by itself"
-                  on={!!v.auto_accept_dialogs}
-                  change={(on) => ({ auto_accept_dialogs: on })}
-                />
-                <Switch
-                  label="Ignore cache expiry"
-                  hint="resume the old session even after its cache went cold"
-                  on={!!v.ignore_cache_expiry}
-                  change={(on) => ({ ignore_cache_expiry: on })}
-                />
-                <Answers />
-              </>
-            ) : null}
-          </View>
-        )}
+      <div className="settings-layout">
+        {served ? <SectionNav ready={!!v} /> : null}
+        <div className="settings-body">
+          {!served ? (
+            <p className="muted pad">This daemon does not serve settings, or they are for the founder only.</p>
+          ) : (
+            <View q={q} served shape="settings" what="settings">
+              {v ? (
+                <>
+                  <section id="set-concurrency">
+                    <h3 className="shead">Concurrency</h3>
+                    <div className="scard">
+                      <NumberRow
+                        label="Default cap"
+                        hint="Agents working at once on an account"
+                        more="An account with its own cap keeps it"
+                        unit="agents"
+                        current={v.active_cap === undefined ? '' : String(v.active_cap)}
+                        parse={parseCap}
+                        change={(n) => ({ active_cap: n })}
+                        allowed="a whole number from 1, or empty for the default"
+                      />
+                    </div>
+                  </section>
+                  <section id="set-closing">
+                    <h3 className="shead">Closing windows</h3>
+                    <div className="scard">
+                      <NumberRow
+                        label="Idle close"
+                        hint="Idle time before a session closes"
+                        more="0 is never"
+                        unit="min"
+                        current={minutesOf(v.park_timeout_s)}
+                        parse={parseMinutes}
+                        change={(s) => ({ park_timeout_s: s })}
+                        allowed="whole minutes, 0 for never, or empty for the default"
+                      />
+                    </div>
+                  </section>
+                  <section id="set-automation">
+                    <h3 className="shead">Automation</h3>
+                    <div className="scard">
+                      <SwitchRow
+                        label="Handoff note"
+                        hint="A note for the next session before a close or move"
+                        on={!!v.handoff_note}
+                        change={(on) => ({ handoff_note: on })}
+                      />
+                      <SwitchRow
+                        label="Auto-accept"
+                        hint="Answer the dialogs under Standing answers by itself"
+                        on={!!v.auto_accept_dialogs}
+                        change={(on) => ({ auto_accept_dialogs: on })}
+                      />
+                      <SwitchRow
+                        label="Ignore cache expiry"
+                        hint="Resume the old session even after its cache went cold"
+                        on={!!v.ignore_cache_expiry}
+                        change={(on) => ({ ignore_cache_expiry: on })}
+                      />
+                    </div>
+                  </section>
+                  <section id="set-answers">
+                    <Answers />
+                  </section>
+                </>
+              ) : null}
+            </View>
+          )}
+        </div>
       </div>
     </section>
   );

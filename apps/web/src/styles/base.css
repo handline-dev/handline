@@ -1,0 +1,166 @@
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--bg-0);
+  color: var(--ink);
+  font: var(--t-body);
+  font-variant-numeric: tabular-nums;
+}
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button,
+select,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.muted {
+  color: var(--muted);
+}
+.pad {
+  padding: 10px 12px;
+}
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+.check {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.group h3 {
+  margin: 12px 12px 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+.name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sub,
+.row-side {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-side {
+  max-width: 90px;
+}
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+.dot.running {
+  background: var(--run);
+}
+.dot.waiting {
+  background: var(--wait);
+}
+.dot.blocked {
+  background: var(--block);
+}
+.dot.parked {
+  background: none;
+  border: 1.5px solid var(--idle);
+}
+.dot.none {
+  background: none;
+  border: 1.5px dashed var(--idle);
+}
+.empty {
+  color: var(--muted);
+  padding: 24px;
+}
+.empty.big {
+  margin: auto;
+  text-align: center;
+}
+.state {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.btn {
+  display: inline-block;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  list-style: none;
+}
+.btn::-webkit-details-marker {
+  display: none;
+}
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.menu {
+  position: relative;
+}
+.menu-list {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  padding: 4px;
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.menu-item:hover {
+  background: var(--bg);
+}
+.banner {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--block) 14%, transparent);
+  color: var(--block);
+}

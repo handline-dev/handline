@@ -17,7 +17,7 @@ Founder: terminals inside the IDE; the bridge keeps working until web, Electron 
 | Parsed facts drive banners, badges and cards (design §4.1) | the pane never reads dialogs or prompts out of the bytes |
 | The bridge's chat page and its terminal view | untouched; nothing here edits the bridge |
 
-The styled-rows decision of `web-ui-design.md` §9 ("colour is the founder's, pending") is answered for this path by the byte stream: colour comes from the host's own escape codes. The text-grid path stays uncoloured.
+The styled-rows decision of `web-ui-design.md` §9 ("colour is the founder's, pending") is answered for this path by the byte stream: colour comes from the host's own escape codes. The text-grid path gets colour from the `styled` format (spec: `contract/protocol.md` "Format styled"): the same rows and frames as text, each row with style runs (`spans`). It is for a host that has no byte stream (Orca, once its screen read exposes cell attributes, which is an open request to Orca) and for the phone, which has no xterm. A host that lists neither `bytes` nor `styled` stays plain text.
 
 ## 2. Where the code lives
 
@@ -111,7 +111,7 @@ Everything the host sends is the agent's output. xterm.js is configured for that
 
 ## 8. Choosing the renderer
 
-`ByteTerminalView` is used when **all** hold: `hello.capabilities.terminal_format` lists `bytes` (spec; `terminal_hosts` maps each host to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`, so the pane also reads the agent's host there); the setting is not "text grid"; the viewer is not below the phone breakpoint with the keyboard strip as the primary input (portrait: text view with the key strip, as design §7; landscape and tablet: xterm). Otherwise the text-grid view. Switching renderers is a re-attach; no state carries across. The format belongs to the attach, so two clients on one terminal may use different formats. A bytes attach the host refuses (`unsupported`) falls back to a text attach in the same step.
+`ByteTerminalView` is used when **all** hold: `hello.capabilities.terminal_format` lists `bytes` (spec; `terminal_hosts` maps each host to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`, so the pane also reads the agent's host there); the setting is not "text grid"; the viewer is not below the phone breakpoint with the keyboard strip as the primary input (portrait: text view with the key strip, as design §7; landscape and tablet: xterm). Otherwise the text-grid view, which asks for `styled` when the agent's host lists it and draws each row's `spans` (colour index 0-15 from the theme tokens, 16-255 and `#rrggbb` as given, `inverse` by swapping what it draws), and asks for `text` when it does not or the host refuses (`unsupported`). Switching renderers is a re-attach; no state carries across. The format belongs to the attach, so two clients on one terminal may use different formats. A bytes attach the host refuses (`unsupported`) falls back to a text attach in the same step.
 
 ## 9. What the bytes spec answered
 

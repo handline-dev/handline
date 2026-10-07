@@ -10,7 +10,8 @@ import { unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
 import { commands, Owner } from './owner.ts';
 import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
-import { trayMenu } from './tray.ts';
+import { onTailnet } from './tailnet.ts';
+import { trayMenu, type TrayFollow } from './tray.ts';
 
 /** Whether something is listening on this Unix socket. */
 const answers = (file: string): Promise<boolean> =>
@@ -19,6 +20,13 @@ const answers = (file: string): Promise<boolean> =>
     c.once('connect', () => (c.destroy(), resolve(true)));
     c.once('error', () => resolve(false));
   });
+
+/** Whether the gateway answers an HTTP request at all within three seconds. */
+const reachable = (hostPort: string): Promise<boolean> =>
+  fetch(`http://${hostPort}/`, { signal: AbortSignal.timeout(3000) }).then(
+    () => true,
+    () => false,
+  );
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -30,8 +38,10 @@ const TRAY_ICON =
   );
 
 export interface Own {
-  /** Starts what is missing and pairs; resolves when the window can open (with or without a token). */
-  ready(): Promise<void>;
+  /** Draws the tray menu again, after something it shows changed. */
+  redraw(): void;
+  /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
+  ready(): Promise<string | undefined>;
 }
 
 export function ownDaemon(o: {
@@ -42,8 +52,12 @@ export function ownDaemon(o: {
   gatewaySocket: string;
   /** host:port of the gateway, or undefined when the app is pointed at a daemon it does not own. */
   gateway: string | undefined;
+  /** The MagicDNS name:port a phone's pairing link carries, when the gateway is on the Tailscale address. */
+  advertise: string | null;
   origin: string;
   openWindow: () => void;
+  /** Follow-main mode adds its items to the tray. */
+  follow?: () => TrayFollow;
 }): Own {
   const log = fs.openSync(path.join(app.getPath('userData'), 'daemon.log'), 'a');
   const owner = new Owner({
@@ -61,7 +75,7 @@ export function ownDaemon(o: {
       };
       return { kill: stop, onExit: (f) => void p.on('exit', f).on('error', () => f(null)) };
     },
-    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443'),
+    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
@@ -70,7 +84,12 @@ export function ownDaemon(o: {
   const draw = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate(
-        trayMenu(owner.state, owner.reason, { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() }),
+        trayMenu(
+          owner.state,
+          owner.reason,
+          { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() },
+          o.follow?.(),
+        ),
       ),
     );
   owner.onChange(draw);
@@ -78,8 +97,9 @@ export function ownDaemon(o: {
   tray.on('click', o.openWindow);
   // The key stays in this process; the page gets the device token only, from its own origin's top frame.
   let token: string | null = null;
+  let ownHost: string | null = null;
   ipcMain.on(CHANNELS.token, (e) => {
-    e.returnValue = fromWindow(e, o.origin) ? token : null;
+    e.returnValue = fromWindow(e, o.origin) ? { token, ownHost } : null;
   });
   const pairing = {
     readKey: () => {
@@ -93,11 +113,27 @@ export function ownDaemon(o: {
     name: 'Handline desktop',
   };
   return {
+    redraw: draw,
     async ready() {
-      if (!o.gateway) return;
+      if (!o.gateway) return undefined;
       await owner.start();
-      if (owner.state !== 'running') return;
+      if (owner.state !== 'running') return o.gateway;
+      let address = o.gateway;
+      // A Mac firewall can accept the connection on the Tailscale address and answer nothing. Loopback is only for a gateway this app
+      // started and can replace: a gateway it did not start is not its to kill, and whatever else listens on loopback is not its own.
+      if (onTailnet(address) && !(await reachable(address))) {
+        const loopback = `127.0.0.1:${address.split(':')[1] ?? '7443'}`;
+        const moved = await owner.moveGateway(
+          commands(o.env, o.root, loopback).gateway,
+          () => reachable(loopback),
+          `the gateway does not answer on ${o.gateway} (a firewall?)`,
+        );
+        if (!moved) return o.gateway;
+        address = loopback;
+      }
+      ownHost = onTailnet(address) ? address.split(':')[0]! : null;
       token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep).catch(() => null);
+      return address;
     },
   };
 }

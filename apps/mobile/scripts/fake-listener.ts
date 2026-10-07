@@ -40,6 +40,7 @@ execFileSync(
 );
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
+daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 daemon.autoplay(Number(arg('autoplay', '1500')));
 // For watching the loading and refusal states on a device: `--latency 800` and `--refuse agents.list:state:the daemon is resting`
 // (method:gate:reason; repeat the flag for more). Both apply to calls after the pairing hello.

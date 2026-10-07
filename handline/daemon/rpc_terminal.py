@@ -32,8 +32,8 @@ MAX_INPUT = 16384
 
 def _format(params) -> str:
     fmt = params.get("format", "text")
-    if fmt not in ("text", "bytes"):
-        raise rpc.bad_request("format is text or bytes", "format", rpc.INVALID_PARAMS)
+    if fmt not in ("text", "bytes", "styled"):
+        raise rpc.bad_request("format is text, bytes or styled", "format", rpc.INVALID_PARAMS)
     return fmt
 
 
@@ -43,6 +43,14 @@ def _serves_bytes() -> None:
     host = backends.current()
     if not host.serves_bytes or not host.available():
         raise rpc.refused(f"the terminal host ({host.name}) does not serve the bytes format: ask for text", gate="unsupported")
+
+
+def _serves_styled() -> None:
+    """Refuse, gate `unsupported`, a styled request on a terminal host whose screen read has no cell attributes: nothing is attached."""
+    from ..session import backends
+    host = backends.current()
+    if not host.serves_styled or not host.available():
+        raise rpc.refused(f"the terminal host ({host.name}) does not serve the styled format: ask for text", gate="unsupported")
 
 
 def _handle(con, params) -> tuple[str, str | None]:
@@ -82,10 +90,12 @@ def _attach(ctx, params) -> dict:
         con.close()
     if fmt == "bytes":
         return _attach_bytes(ctx, handle, history, holders)
+    if fmt == "styled":
+        _serves_styled()
     client = termchannel.Client(ctx.send_line, ctx.hang_up)
-    ch = termchannel.HUB.attach(handle, client)
+    ch = termchannel.HUB.attach(handle, client, fmt)
     ctx.after_reply.append(lambda: ch.begin(client))
-    _hold(ctx, handle, "text", ch, client)
+    _hold(ctx, handle, fmt, ch, client)
     return ch.snapshot(history, holders)
 
 
@@ -122,8 +132,8 @@ def _detach(ctx, params) -> dict:
     if not isinstance(handle, str) or not handle:
         raise rpc.bad_request("terminal is a handle", "terminal", rpc.INVALID_PARAMS)
     fmt = params.get("format")
-    if fmt is not None and fmt not in ("text", "bytes"):
-        raise rpc.bad_request("format is text or bytes", "format", rpc.INVALID_PARAMS)
+    if fmt is not None and fmt not in ("text", "bytes", "styled"):
+        raise rpc.bad_request("format is text, bytes or styled", "format", rpc.INVALID_PARAMS)
     con = db.connect()
     try:
         _handle(con, {"terminal": handle})          # not_found for a handle that does not exist; nothing to end is not an error
@@ -153,7 +163,9 @@ def _history(ctx, params) -> dict:
         if page is None:
             raise rpc.refused("the terminal's scrollback could not be read", gate="state")
         return page
-    ch = termchannel.HUB.open_for(handle)       # scrollback is kept while someone watches: none for a terminal nobody does
+    if fmt == "styled":
+        _serves_styled()
+    ch = termchannel.HUB.open_for(handle, fmt)       # scrollback is kept while someone watches: none for a terminal nobody does
     return ch.history_page(before, limit) if ch else {"first": 0, "lines": [], "more": False}
 
 
@@ -174,8 +186,7 @@ def _resize(ctx, params) -> dict:
             raise rpc.refused(f"{agent}'s terminal host cannot resize it: {why}", gate="unsupported")
         if before:
             termchannel.HUB.restore.setdefault(handle, before)
-        ch = termchannel.HUB.open_for(handle)
-        if ch is not None:
+        for ch in termchannel.HUB.open_all(handle):
             ch.cols, ch.rows = cols, rows
             ch.notify("resize", cols=cols, rows=rows)
         termbytes.resized(handle)       # a bytes attach is sent a snapshot, reason resize, and no resize notice

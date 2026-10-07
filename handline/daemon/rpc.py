@@ -117,10 +117,12 @@ class DeviceCaller(Caller):
 
 
 def _terminal_capabilities() -> dict:
-    """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text and bytes, Orca text."""
+    """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled, Orca text."""
     from ..session import backends
-    hosts = {name: (["text", "bytes"] if cls.serves_bytes else ["text"]) for name, cls in backends.KNOWN.items()}
-    return {"terminal_format": sorted({f for formats in hosts.values() for f in formats}, key=["text", "bytes"].index), "terminal_hosts": hosts}
+    order = ["text", "bytes", "styled"]
+    hosts = {name: ["text", *(["bytes"] if cls.serves_bytes else []), *(["styled"] if cls.serves_styled else [])]
+             for name, cls in backends.KNOWN.items()}
+    return {"terminal_format": sorted({f for formats in hosts.values() for f in formats}, key=order.index), "terminal_hosts": hosts}
 
 
 def _hello(ctx: "Connection", params: dict) -> dict:

@@ -243,17 +243,18 @@ def test_the_transcript_is_the_agents_side_as_ordered_items(home: Path) -> None:
     check("chat.transcript: the result is the spec's schema", why is None, str(why))
     items = r["result"]["items"]
     kinds = [i["kind"] for i in items]
-    check("chat.transcript: the agent's message to the person and its answer to theirs are replies", kinds.count("reply") == 2
-          and {i["text"] for i in items if i["kind"] == "reply"} == {"which branch do you want?", "hello back"}, str(items))
+    check("chat.transcript: the agent's answer to the person's message is a reply, its message to the person is not (chat.messages serves it)",
+          [i["text"] for i in items if i["kind"] == "reply"] == ["hello back"], str(items))
     check("chat.transcript: a prompt it opened, still open", any(i["kind"] == "prompt" and i["open"] is True and i["prompt"]["tool"] == "Bash" for i in items), str(items))
     check("chat.transcript: the task it was given", any(i["kind"] == "task_event" and i["task_event"]["event"] == "opened" and i["task_event"]["task"] == tid for i in items), str(items))
     check("chat.transcript: oldest first, ids that only grow", [i["id"] for i in items] == sorted({i["id"] for i in items}), str([i["id"] for i in items]))
     check("chat.transcript: ids a browser can hold", all(i["id"] < 2 ** 53 for i in items))
     last = items[-1]["id"]
-    ok, _, rid = True, 0, _send("worker", db.HUMAN, "a new word from the agent")
+    said = _send(db.HUMAN, "worker", "ok")
+    _land(said, "ok")   # the agent answers with the same words as the message
     after = _call("chat.transcript", {"agent": "worker", "since": last})["result"]["items"]
-    check("chat.transcript: since reads from the second it is in, so nothing that arrived in it is missed", "a new word from the agent" in [i["text"] for i in after if i["kind"] == "reply"]
-          and all(i["id"] >= last // 1_000_000 * 1_000_000 for i in after), str(after))
+    check("chat.transcript: since reads from the second it is in, so nothing that arrived in it is missed",
+          "ok" in [i["text"] for i in after if i["kind"] == "reply"] and all(i["id"] >= last // 1_000_000 * 1_000_000 for i in after), str(after))
     page = _call("chat.transcript", {"agent": "worker", "limit": 2})["result"]
     older = _call("chat.transcript", {"agent": "worker", "limit": 2, "before": page["items"][0]["id"]})["result"]
     check("chat.transcript: a limit pages back with before, and more says so", len(page["items"]) == 2 and page["more"] is True
@@ -289,8 +290,8 @@ def test_the_chat_topic_says_what_changes_once(home: Path) -> None:
     asked = _send("worker", db.HUMAN, "which branch?", "ask")
     watcher.scan(con)
     got = stream.since(con, 0, ["chat"])
-    check("chat topic: what the agent says to the person is also a transcript reply", any(e["type"] == "chat.transcript" and e["data"]["kind"] == "reply"
-                                                                                         and e["data"]["text"] == "which branch?" and e["agent"] == "worker" for e in got), str(got))
+    check("chat topic: what the agent says to the person is a message only, not also a transcript reply", not any(e["type"] == "chat.transcript"
+                                                                                                               and e["data"]["kind"] == "reply" and e["data"]["text"] == "which branch?" for e in got), str(got))
     ok, msg, tid = actions.task_new("manager", "worker", "the work", "do it", timeout_s=3600)
     watcher.scan(con)
     got = stream.since(con, 0, ["chat"])

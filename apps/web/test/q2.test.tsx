@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, type KV } from '@handline/app-core';
+import { Store, defaultWorkspace, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
@@ -34,11 +34,16 @@ const button = (label: string) => $$('button').find((b) => text(b).includes(labe
 
 async function mount(agent: string, s = setup()) {
   const store = new Store(s.client);
+  const storage = memory();
+  for (const a of [agent, 'handline.auditor']) {
+    const w = defaultWorkspace({ terminal: `term:${a}` }); // these tests look at the terminal beside Chat
+    saveWorkspace(storage, storageKey('test', a), splitTab(w, `terminal:term:${a}`, 'g1', 'right')!);
+  }
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
-    root!.render(<App store={store} daemon="test" storage={memory()} />);
+    root!.render(<App store={store} daemon="test" storage={storage} />);
   });
   return { store, ...s };
 }
@@ -144,41 +149,11 @@ describe('writes', () => {
     await click(button('Yes')!);
     await until(() => text($('.card.prompt')).includes('git push new'), 'the card refreshed');
     expect(s.daemon.sessions.get(ARCH)!.prompt!.id).toBe('new'); // nothing was answered
-    expect(text($('.toast'))).toContain('no longer the open one');
-  });
-});
-
-describe('read errors', () => {
-  it("a refused read shows the daemon's sentence and hint with Retry, and Retry reads again", async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('agent.get', 'cap', 'The detail is closed for now', 'try again soon');
-    await mount(ARCH, s);
-    await until(() => $('.row-detail .banner'), 'the error banner');
-    expect(text($('.row-detail .banner'))).toContain('The detail is closed for now (try again soon)');
-    s.daemon.knobs.clear();
-    await click($$('.row-detail .banner button').find((b) => text(b) === 'Retry')!);
-    await until(() => !$('.row-detail .banner'), 'the banner gone');
-    expect(text($('.row-detail'))).toContain('architect');
-  });
-
-  it('a read refused after the data came keeps what it had under the banner', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => $('.row-detail') && !$('.row-detail .banner') && text($('.row-detail')).includes('architect'), 'the detail');
-    const before = text($('.row-detail'));
-    s.daemon.knobs.refuse('agent.get', 'cap', 'The detail is closed for now');
-    await act(async () => void (await s.client.call('session.stop', { agent: ARCH, mode: 'exit' }))); // the change makes the open detail read again
-    await until(() => $('.row-detail .banner'), 'the error banner');
-    expect(text($('.row-detail .banner'))).toContain('The detail is closed for now');
-    expect(text($('.row-detail'))).toContain(before.slice(0, 20));
-    expect($$('.row-wrap').length).toBe(3);
+    await until(() => text($('.toast')).includes('no longer the open one'), 'the toast');
   });
 });
 
 describe('terminal tab', () => {
-  const bar = () => $$('.term-bar .btn');
-  const barButton = (label: string) => bar().find((b) => text(b) === label);
-
   it('shows its skeleton while the terminal attaches, then the grid', async () => {
     const s = setup();
     await mount(ARCH, s);
@@ -194,31 +169,34 @@ describe('terminal tab', () => {
     await until(() => text($('.grid')).includes('Claude Code') && !$('.grid-skeleton .skeleton'), 'the grid, the skeleton gone', 200);
   }, 15000);
 
-  it('Take control and Release are decided writes: a pending mark, then the holder changes', async () => {
+  const holder = () => $('.term-bar .holder');
+  const held = (who: string) => !!holder()?.getAttribute('aria-label')?.startsWith(`Input: ${who}`);
+
+  it('the holder icon takes and gives back the input as decided writes: it is busy meanwhile, then the holder changes', async () => {
     const s = setup();
     await mount(ARCH, s);
-    await until(() => barButton('Take control'), 'Take control');
-    s.daemon.knobs.latency(300);
-    await click(barButton('Take control')!);
-    await until(() => barButton('taking…'), 'the pending mark');
-    expect(barButton('taking…')!.hasAttribute('disabled')).toBe(true);
-    expect(text($('.term-bar'))).toContain('input: daemon');
-    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input', 600);
-    await until(() => barButton('Release'), 'Release');
-    await click(barButton('Release')!);
-    await until(() => barButton('releasing…'), 'the pending mark');
-    await until(() => text($('.term-bar')).includes('input: daemon'), 'released', 600);
+    await until(() => held('daemon') && !holder()!.hasAttribute('disabled'), 'the daemon holding, the icon ready');
+    const takes = s.daemon.knobs.hold('input.take'); // held open, so the pending mark does not depend on timing
+    await click(holder()!);
+    await until(() => holder()!.hasAttribute('disabled'), 'the pending mark');
+    expect(held('daemon')).toBe(true);
+    takes();
+    await until(() => held('YOU'), 'holding the input', 600);
+    await until(() => !holder()!.hasAttribute('disabled'), 'the icon free again', 600);
+    await click(holder()!);
+    await until(() => held('daemon'), 'released', 600);
   });
 
-  it("a refused Take control shows the daemon's sentence and the button is back", async () => {
+  it("a refused take shows the daemon's sentence and the icon is back", async () => {
     const s = setup();
-    await mount(ARCH, s);
-    await until(() => barButton('Take control'), 'Take control');
     s.daemon.knobs.refuse('input.take', 'input_holder', 'Someone else holds the keyboard', 'ask them to release');
-    await click(barButton('Take control')!);
+    await mount(ARCH, s);
+    await until(() => held('daemon') && !holder()!.hasAttribute('disabled'), 'the daemon holding, the icon ready');
+    await wait(200); // the first reads settle, so the click is not eaten by a re-render
+    await click(holder()!);
     await until(() => $('.toast'), 'the toast');
     expect(text($('.toast'))).toContain('Someone else holds the keyboard (ask them to release)');
-    expect(barButton('Take control')!.hasAttribute('disabled')).toBe(false);
+    expect(holder()!.hasAttribute('disabled')).toBe(false);
   });
 
   it('a key chip takes the keyboard first, then sends the key', async () => {
@@ -226,6 +204,6 @@ describe('terminal tab', () => {
     await mount(ARCH, s);
     await until(() => $$('.chip').length && !$('.chip')!.hasAttribute('disabled'), 'chips on');
     await click($$('.chip').find((b) => text(b) === 'Esc')!);
-    await until(() => text($('.term-bar')).includes('input: YOU'), 'holding the input');
+    await until(() => held('YOU'), 'holding the input');
   });
 });

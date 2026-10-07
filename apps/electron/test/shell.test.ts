@@ -238,3 +238,23 @@ test('the built web app is served from a loopback port, any route falling back t
     fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('the page keeps its port from launch to launch, and takes a free one when that port is held', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-electron-'));
+  fs.writeFileSync(path.join(dir, 'index.html'), 'page');
+  const first = await serveDir(dir);
+  const port = new URL(first.url).port;
+  const second = await serveDir(dir, Number(port)); // held: it still comes up, elsewhere
+  try {
+    assert.notEqual(new URL(second.url).port, port);
+    assert.equal(await (await fetch(second.url)).text(), 'page');
+    first.close();
+    const again = await serveDir(dir, Number(port));
+    assert.equal(new URL(again.url).port, port);
+    again.close();
+  } finally {
+    second.close();
+    first.close();
+    fs.rmSync(dir, { recursive: true });
+  }
+});

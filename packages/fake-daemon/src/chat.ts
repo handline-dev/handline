@@ -43,6 +43,14 @@ export function chatMethod(
     case 'chat.dismiss':
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
+    case 'chat.send_now':
+      return chatCall(() => (chat.sendNow(p), ok('Typed.')));
+    case 'chat.cancel':
+      return chatCall(() => (chat.cancel(p), ok('Taken back.')));
+    case 'chat.seen':
+      return chatCall(() => (chat.seen(p), ok('Seen.')));
+    case 'chat.locate':
+      return chatCall(() => chat.locate(p));
     case 'chat.withdraw':
       return chatCall(() => (chat.withdraw(p), ok('Withdrawn.')));
     default:
@@ -182,6 +190,7 @@ export class FakeChat {
       from: person,
       to: agent,
       at,
+      parent: typeof p.parent === 'number' ? p.parent : null,
       landing: 'queued',
       delivered_at: null,
       typed_at: null,
@@ -246,6 +255,48 @@ export class FakeChat {
     const m = this.find(p.request);
     if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
     this.change(m, { landing: 'dismissed', state: 'dismissed', dismissed: true });
+  }
+  /** Types a queued message now, ahead of the scripted order. */
+  sendNow(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    if (m.landing !== 'queued') throw new ChatFailure('refused', 'that message is not waiting', 'state');
+    this.type(m.id);
+  }
+  /** The person's own undo: a message not yet delivered is taken back; a delivered one is closed. */
+  cancel(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    if (this.isAgent(m.from) || m.from === m.to) throw new ChatFailure('refused', 'that message is not yours', 'state');
+    if (m.landing === 'withdrawn' || m.landing === 'dismissed' || m.landing === 'answered')
+      throw new ChatFailure('refused', 'that message is closed', 'state');
+    // The agent already has it: closing it tells the agent to stop, so the caller must say it knows.
+    if ((m.landing === 'delivered' || m.landing === 'delivered_unanswered') && p.confirm !== true)
+      throw new ChatFailure('refused', 'the agent already has this message; cancelling tells it to stop', 'confirm');
+    this.change(m, { landing: 'withdrawn', state: 'withdrawn' });
+  }
+  /** The newest message number the person has seen per agent. */
+  readonly seenUpTo = new Map<string, number>();
+  seen(p: Record<string, unknown>) {
+    if (typeof p.agent !== 'string' || typeof p.up_to !== 'number') throw new ChatFailure('bad_request', 'agent and up_to are needed');
+    this.seenUpTo.set(p.agent, Math.max(this.seenUpTo.get(p.agent) ?? 0, p.up_to));
+  }
+  /** The page of messages around a number, newest first, in the chat that shows it. */
+  locate(p: Record<string, unknown>) {
+    const m = this.find(p.request);
+    const agent = typeof p.agent === 'string' ? p.agent : m.agent;
+    const scope = this.isAgent(m.from) && this.isAgent(m.to) ? 'all' : 'mine';
+    const list = this.messages.filter((x) => x.agent === agent).sort((a, b) => b.id - a.id);
+    const at = list.findIndex((x) => x.id === m.id);
+    const limit = typeof p.limit === 'number' ? p.limit : 50;
+    const from = Math.max(0, at - Math.floor(limit / 2));
+    const page = list.slice(from, from + limit);
+    return {
+      agent,
+      scope,
+      message: this.view(m),
+      messages: page.map((x) => this.view(x)),
+      more_older: from + limit < list.length,
+      more_newer: from > 0,
+    };
   }
   withdraw(p: Record<string, unknown>) {
     const m = this.find(p.request);

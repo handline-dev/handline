@@ -2138,7 +2138,7 @@
       "method": "terminal.detach",
       "params": {
        "terminal": "t-a.term",
-       "format": "styled"
+       "format": "ansi"
       }
      },
      "error": {
@@ -2146,6 +2146,169 @@
       "data": {
        "code": "bad_request",
        "field": "format"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.styled_snapshot_shape",
+   "spec": "terminal.attach",
+   "about": "A styled attach replies with the text snapshot's shape and format styled; a row's spans, when it has them, are runs with from, to and a style object (their order and non-overlap are in the spec). Needs --var styled_agent (a terminal whose host lists styled).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{styled_agent}}",
+       "format": "styled"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      },
+      "format": "styled",
+      "seq": {
+       "$type": "integer"
+      },
+      "cols": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$type": "integer"
+      },
+      "lines": {
+       "$each": {
+        "text": {
+         "$type": "string"
+        },
+        "spans": {
+         "$oneOf": [
+          {
+           "$absent": true
+          },
+          {
+           "$each": {
+            "from": {
+             "$type": "integer"
+            },
+            "to": {
+             "$type": "integer"
+            },
+            "style": {
+             "$type": "object"
+            }
+           }
+          }
+         ]
+        }
+       }
+      },
+      "cursor": {
+       "$oneOf": [
+        {
+         "$type": "null"
+        },
+        {
+         "x": {
+          "$type": "integer"
+         },
+         "y": {
+          "$type": "integer"
+         }
+        }
+       ]
+      },
+      "history": {
+       "first": {
+        "$type": "integer"
+       },
+       "lines": {
+        "$each": {
+         "text": {
+          "$type": "string"
+         },
+         "spans": {
+          "$oneOf": [
+           {
+            "$absent": true
+           },
+           {
+            "$each": {
+             "from": {
+              "$type": "integer"
+             },
+             "to": {
+              "$type": "integer"
+             },
+             "style": {
+              "$type": "object"
+             }
+            }
+           }
+          ]
+         }
+        }
+       },
+       "more": {
+        "$type": "boolean"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "terminal.attach.a_host_without_attributes_refuses_styled",
+   "spec": "terminal.attach",
+   "about": "A terminal whose host cannot give cell attributes is refused styled, gate unsupported, and nothing is attached. Needs --var text_only_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{text_only_agent}}",
+       "format": "styled"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "unsupported"
       }
      }
     }

@@ -6,8 +6,8 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
-export const TAB_KINDS: readonly TabKind[] = ['chat', 'terminal', 'shell', 'emulator', 'web', 'markdown', 'review'];
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
+export const TAB_KINDS: readonly TabKind[] = ['chat', 'tasks', 'terminal', 'shell', 'emulator', 'web', 'markdown', 'review'];
 export type TabParams = Record<string, string | number>;
 export interface Tab {
   id: string;
@@ -41,6 +41,7 @@ export type Preset = 'single' | 'cols' | 'rows' | 'grid';
 export type Path = ('a' | 'b')[];
 
 export const CHAT = 'chat';
+export const TASKS = 'tasks';
 export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
@@ -52,6 +53,7 @@ const clampAt = (at: number) => Math.min(MAX_AT, Math.max(MIN_AT, at));
 /** Tab ids name what a tab shows, so opening the same thing twice finds the first. Kinds with nothing to name get a counter. */
 export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): string {
   if (kind === 'chat') return CHAT;
+  if (kind === 'tasks') return TASKS;
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
@@ -61,13 +63,25 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
 
 const nextGroupId = (ws: Workspace): string => `g${Math.max(0, ...groupsOf(ws.root).map((g) => Number(g.id.slice(1)) || 0)) + 1}`;
 
-/** Chat beside the agent's session terminal, each pane with its own strip; no session, one pane holding Chat. */
+/** One pane: Chat first and shown, the agent's Claude Code terminal second behind it. No session, no terminal tab. */
 export function defaultWorkspace(opts: { terminal?: string } = {}): Workspace {
   const tabs: Record<string, Tab> = { [CHAT]: { id: CHAT, kind: 'chat', params: {} } };
   if (!opts.terminal) return { v: 1, root: group('g1', [CHAT]), active: 'g1', tabs };
   const t = tabId(null, 'terminal', { handle: opts.terminal });
   tabs[t] = { id: t, kind: 'terminal', params: { handle: opts.terminal } };
-  return { v: 1, root: { type: 'split', dir: 'row', a: group('g1', [CHAT]), b: group('g2', [t]), at: 0.5 }, active: 'g2', tabs };
+  return { v: 1, root: group('g1', [CHAT, t], CHAT), active: 'g1', tabs };
+}
+
+/** Adds a tab at the end of a group (the focused one by default) without showing it. The same thing already open stays where it is. */
+export function addTab(ws: Workspace, kind: TabKind, params: TabParams = {}, into: string = ws.active): Workspace {
+  const id = tabId(ws, kind, params);
+  if (ws.tabs[id]) return ws;
+  const target = groupsOf(ws.root).find((g) => g.id === into) ?? groupsOf(ws.root).find((g) => g.id === ws.active)!;
+  return {
+    ...ws,
+    tabs: { ...ws.tabs, [id]: { id, kind, params } },
+    root: replaceGroup(ws.root, target.id, (g) => ({ ...g, tabs: [...g.tabs, id] })),
+  };
 }
 
 /** Shows the tab and gives its group the focus. */

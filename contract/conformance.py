@@ -113,6 +113,8 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
                 if k in got:
                     raise Mismatch(f"{at}.{k}: should be absent, got {json.dumps(got[k])}")
                 continue
+            if k not in got and isinstance(w, dict) and {"$absent": True} in w.get("$oneOf", []):
+                continue            # an optional key: the key may be absent, or match the other alternatives
             if k not in got:
                 raise Mismatch(f"{at}.{k}: missing")
             matches(w, got[k], saved, f"{at}.{k}")

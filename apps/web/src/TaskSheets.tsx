@@ -1,6 +1,5 @@
-// The small sheets of the Tasks list: owner, states, priority, merge and the key sheet.
+// The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
-import { CLOSED, LISTED, TASK_STATES, type TaskFilter } from '@handline/app-core';
 import { Sheet } from './taskui.tsx';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
@@ -13,8 +12,8 @@ export const LIST_KEYS: [string, string][] = [
   ['p', 'set the priority, 1 high to 3 low'],
   ['m', 'fold the marked tasks into the row under the cursor'],
   ['s / S', 'sort by the next column / reverse'],
-  ['a', 'show or hide done and discarded tasks'],
-  ['v', 'pick which states to show'],
+  ['a', 'switch between Open and Closed tasks'],
+  ['v', 'open the filters: agent and states'],
   ['t', 'switch between the list and the tree'],
   ['f', "show the next agent's tasks"],
   ['n', 'new task'],
@@ -31,31 +30,6 @@ export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onC
           <option key={a}>{a}</option>
         ))}
       </select>
-    </Sheet>
-  );
-}
-
-export function StatesSheet({ filter, onChange, onClose }: { filter: TaskFilter; onChange: (f: TaskFilter) => void; onClose: () => void }) {
-  return (
-    <Sheet label="show tasks in state" submit="Apply" onCancel={onClose} onSubmit={onClose}>
-      {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
-        <label key={s} className="tcheck">
-          <input
-            type="checkbox"
-            checked={filter.states.has(s)}
-            onChange={(e) => {
-              const states = new Set(filter.states);
-              if (e.target.checked) states.add(s);
-              else states.delete(s);
-              onChange({ ...filter, states });
-            }}
-          />{' '}
-          {s}
-        </label>
-      ))}
-      <button type="button" className="btn" onClick={() => onChange({ ...filter, states: new Set(LISTED) })}>
-        reset
-      </button>
     </Sheet>
   );
 }

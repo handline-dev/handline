@@ -11,6 +11,8 @@ export function daemonUrl(
   search: string,
   loc: { protocol: string; host: string; hostname: string },
   built = false,
+  /** A host the desktop shell says is this machine's own (its Tailscale address, which Tailscale encrypts): plain ws to it is not clear text on the wire. */
+  ownHost: string | null = null,
 ): { url: string; insecure: boolean } {
   const ws = loc.protocol === 'https:' ? 'wss' : 'ws';
   const given = new URLSearchParams(search).get('daemon');
@@ -19,7 +21,7 @@ export function daemonUrl(
   let insecure = true;
   try {
     const u = new URL(url);
-    insecure = u.protocol !== 'wss:' && !LOOPBACK.has(u.hostname);
+    insecure = u.protocol !== 'wss:' && !LOOPBACK.has(u.hostname) && u.hostname !== ownHost;
   } catch {
     /* not a URL */
   }

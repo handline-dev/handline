@@ -89,6 +89,9 @@ describe('U15 HR', () => {
     await open(s);
     await until(() => $$('.hr-card').length === 5, 'five cards');
     expect(text(card(1))).toContain('waiting for you');
+    expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
+    expect(card(2).querySelector('.hr-state svg[data-icon="blocked"]')).not.toBeNull();
+    expect(card(3).querySelector('.hr-state svg[data-icon="dismissed"]')).not.toBeNull(); // rejected has a shape of its own
     expect(text(card(2))).toContain('approved, apply failed');
     expect(text(card(3))).toContain('rejected');
     expect(text(card(4))).toContain('withdrawn');
@@ -200,11 +203,30 @@ describe('U15 Team', () => {
   it('lists the agents with their roles and, expanded, who each may ask and be asked by', async () => {
     const s = setup();
     await open(s, '#/team');
-    await until(() => $('.team-table tbody tr'), 'the rows');
-    expect($$('.team-table tbody tr[data-agent]').length).toBeGreaterThan(1);
-    const name = $('.team-table tbody tr[data-agent]')!.dataset.agent!;
-    await click($(`tr[data-agent="${name}"]`)!);
-    expect(text($('.edges'))).toContain('may ask');
-    expect(text($('.edges'))).toContain('may be asked by');
+    await until(() => $('.team-card'), 'the rows');
+    expect($$('.team-card').length).toBeGreaterThan(1);
+    const name = $('.team-card')!.dataset.agent!;
+    await click($(`.team-card[data-agent="${name}"]`)!);
+    expect(text($('.edges'))).toContain('May ask');
+    expect(text($('.edges'))).toContain('May be asked by');
+  });
+
+  it('draws a parked agent’s card with the parked glyph, not the idle ring', async () => {
+    const s = setup();
+    await open(s, '#/team');
+    await until(() => $('.team-card[data-agent="handline.term-build"] .ui-state'), 'the card state');
+    expect($('.team-card[data-agent="handline.term-build"] .ui-state')!.dataset.state).toBe('parked');
+  });
+
+  it('groups the cards by who they report to', async () => {
+    const s = setup();
+    await open(s, '#/team');
+    await until(() => $('.team-card'), 'the rows');
+    const group = $('[aria-label="Reports to handline.architect"]')!;
+    expect([...group.querySelectorAll('.team-card')].map((c) => (c as HTMLElement).dataset.agent)).toEqual([
+      'handline.auditor',
+      'handline.term-build',
+    ]);
+    expect($('[aria-label="Top of the team"] .team-card')).not.toBeNull();
   });
 });

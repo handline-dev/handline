@@ -40,7 +40,17 @@ const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
 const compose = () => $('.compose') as HTMLTextAreaElement;
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
-const link = (label: string, within: Element) => [...within.querySelectorAll('button.link')].find((b) => text(b) === label)!;
+const link = (label: string, within: Element) =>
+  [...within.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
+const icon = (m: Element | undefined, label: string) => m?.querySelector(`[aria-label="${label}"]`) ?? null;
+const idOfBody = (t: { daemon: unknown }, body: string) =>
+  (t.daemon as { chat: { messages: { id: number; body: string }[] } }).chat.messages.find((m) => m.body === body)!.id;
+const other = async (t: ReturnType<typeof setup>, body: string) => {
+  const c = second(t.daemon, t.net, { client: 'web-other' });
+  await c.start();
+  await c.call('chat.send', { agent: ARCH, body });
+  c.close();
+};
 const sent = (s: ReturnType<typeof setup>, body: string) =>
   (s.daemon.chat as unknown as { messages: { body: string }[] }).messages.some((m) => m.body === body);
 
@@ -72,7 +82,7 @@ describe('the Chat tab', () => {
     await until(() => $('.chat'), 'the chat tab');
     expect(text($('.chat'))).toContain('No chat yet');
     expect(compose().disabled).toBe(true);
-    expect($('.chat-tabs')).toBeNull();
+    expect($('.chat-head')).toBeNull();
   });
 
   it("draws every message state and transcript kind from the daemon, with the agent's question answerable", async () => {
@@ -80,16 +90,15 @@ describe('the Chat tab', () => {
     await until(() => msg('Which gap list'), 'history');
     expect(landing('Draft the web chat tab plan.')).toBe('answered');
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(text(msg('Use the contract fixtures.'))).toContain('Not answered');
+    expect(icon(msg('Use the contract fixtures.'), 'Not answered')).not.toBeNull();
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
-    expect(text(msg('Also add the list of gaps.'))).toContain('Withdraw');
-    expect(text(msg('Draft the web chat tab plan.'))).not.toContain('Withdraw');
-    expect($$('[data-kind="reply"]')).toHaveLength(1);
+    expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
+    expect($$('[data-kind="reply"]')).toHaveLength(1); // the agent's message is not drawn a second time as a reply
     expect($$('[data-kind="tool"]')).toHaveLength(1);
-    expect(text($$('[data-kind="task_event"]')[1])).toContain('Task #7 done');
+    expect(icon($$('[data-kind="task_event"]')[1], 'Task 7 done')).not.toBeNull();
     expect(msg('Review is done')).toBeUndefined(); // agent to agent: the All tab
-    await click($$('.chat-tab')[1]!);
+    await click($$('.chat-head [role="radio"]')[1]!);
     await until(() => msg('Review is done'), 'the all tab');
   });
 
@@ -121,7 +130,7 @@ describe('the Chat tab', () => {
     expect(storage.data.get(`handline.draft.${ARCH}`)).toBe('');
   });
 
-  it('recalls what was sent with the up arrow, withdraws a message that has not landed, and answers a question', async () => {
+  it('recalls what was sent with the up arrow and answers a question', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     await press(compose(), 'ArrowUp');
@@ -131,10 +140,8 @@ describe('the Chat tab', () => {
     await press(compose(), 'ArrowDown');
     await press(compose(), 'ArrowDown');
     expect(compose().value).toBe('');
-    await click(link('Withdraw', msg('Also add the list of gaps.')!));
-    await until(() => landing('Also add the list of gaps.') === 'withdrawn', 'withdrawn');
     await typeInto($('.ask input') as HTMLInputElement, 'chat first');
-    await click($('.ask .btn.primary')!);
+    await click($('.ask button[aria-label="Answer"]')!);
     await until(() => text(msg('Which gap list')).includes('Your answer'), 'the answer shows');
     expect($('.ask')).toBeNull();
   });
@@ -164,6 +171,265 @@ describe('the Chat tab', () => {
   });
 });
 
+describe('messages once, replies by reference, cards and the Tasks tab', () => {
+  const sentMsgs = (t: { daemon: ReturnType<typeof setup>['daemon'] }) =>
+    (t.daemon.chat as unknown as { messages: { body: string; parent: number | null; to: string }[] }).messages;
+  const idOf = (body: string) => Number(msg(body)!.getAttribute('data-id'));
+
+  it("draws the agent's message once, not again as a transcript reply", async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    expect(text($('.stream')).split('Which gap list should come first?')).toHaveLength(2);
+    expect($$('[data-kind="reply"]').map(text).join()).not.toContain('Which gap list');
+  });
+
+  it('a click on a message picks it: the box shows the reference, Enter sends a reply linked to it, and Escape drops the pick', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    expect($('.compose-ref')).not.toBeNull();
+    expect(text($('.compose-ref'))).toContain('Use the contract fixtures.');
+    expect(msg('Use the contract fixtures.')!.classList.contains('picked')).toBe(true);
+    await press(compose(), 'Escape');
+    expect($('.compose-ref')).toBeNull();
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    await typeInto(compose(), 'and the transcripts');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'and the transcripts'), 'the daemon got it');
+    const m = sentMsgs(t).find((x) => x.body === 'and the transcripts')!;
+    expect(m.parent).toBe(idOf('Use the contract fixtures.'));
+    expect($('.compose-ref')).toBeNull();
+    await until(() => msg('and the transcripts')?.querySelector('.msg-ref'), 'the reference on the new message');
+    expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
+  });
+
+  it("a reply to the agent's open question answers it instead of sending a new message", async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await click(msg('Which gap list')!.querySelector('.msg-body')!);
+    await typeInto(compose(), 'chat first');
+    await press(compose(), 'Enter');
+    await until(() => text(msg('Which gap list')).length > 0 && icon(msg('Which gap list'), 'Your answer'), 'the answer shows');
+    expect(sentMsgs(t).some((m) => m.body === 'chat first')).toBe(false);
+  });
+
+  it('a click on a control inside a message does not pick it', async () => {
+    await mount(ARCH);
+    await until(() => $('.ask'), 'the open question');
+    await click($('.ask input')!);
+    expect($('.compose-ref')).toBeNull();
+  });
+
+  it('draws the prompt, session and task lines as cards with icons and the words as tooltips', async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    const prompt = $('[data-kind="prompt"]')!;
+    expect(icon(prompt, 'Asked permission: Bash')).not.toBeNull();
+    expect(text(prompt)).toContain('git status');
+    expect(icon(prompt, 'Answered')).not.toBeNull();
+    expect(icon($('[data-kind="session"]')!, 'New session')).not.toBeNull();
+    const events = $$('[data-kind="task_event"]');
+    expect(icon(events[0], 'Task 7 opened')).not.toBeNull();
+    expect(events[0]!.querySelector('a')!.getAttribute('href')).toBe('#/tasks/7');
+  });
+
+  it("the Add a tab menu opens the agent's Tasks, a click opens a task in the pane and Back returns to the list", async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await click($('summary[aria-label="Add a tab"]')!);
+    await click($$('.menu-item').find((b) => text(b).includes('Tasks'))!);
+    await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    const rows = $$('.tasks-tab-row');
+    expect(rows.length).toBeGreaterThan(0);
+    await click(rows[0]!);
+    await until(() => $('.tdetail'), 'the task detail');
+    await click($('.tdetail .back')!);
+    expect($('.tasks-tab-row')).not.toBeNull();
+  });
+});
+
+describe('the bridge items: send now, take back, message numbers, new, menus, seen, strip, HR', () => {
+  const chatOf = (t: { daemon: unknown }) =>
+    (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
+  const hrOf = (t: { daemon: unknown }) => (t.daemon as { script: { hr: { raise: (p: object) => unknown } } }).script.hr;
+  const labelled = (within: Element | null | undefined, label: string) =>
+    [...(within ?? box).querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label);
+
+  it('Take back on a message the agent has not got removes it and puts its words back in the box', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await typeInto(compose(), 'oops, wrong thing');
+    await press(compose(), 'Enter');
+    await until(() => $$('.msg').some((m) => text(m).includes('oops') && m.getAttribute('data-pending') === null), 'numbered');
+    expect(compose().value).toBe('');
+    await click(labelled(msg('oops, wrong thing'), 'Take back')!);
+    await until(() => landing('oops, wrong thing') === 'withdrawn', 'withdrawn');
+    expect(compose().value).toBe('oops, wrong thing');
+    await until(() => chatOf(t).messages.some((m) => m.body === 'oops, wrong thing' && m.landing === 'withdrawn'), 'the daemon');
+  });
+
+  it('Take back on a message the agent already has asks first, and does nothing until it is accepted', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    expect($('[role="dialog"][aria-modal="true"]')).not.toBeNull();
+    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    await press(compose(), 'Escape'); // the dialog's own key closes it
+    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(chatOf(t).messages.find((m) => m.body === 'Use the contract fixtures.')!.landing).toBe('delivered_unanswered');
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    await click($$('.ui-dialog .ui-btn.solid')[0]!);
+    await until(() => landing('Use the contract fixtures.') === 'withdrawn', 'withdrawn');
+    expect(compose().value).toContain('Use the contract fixtures.');
+  });
+
+  it('a refused take back leaves the message and the box as they were, and the daemon wants confirm for a delivered one', async () => {
+    const s = setup();
+    const t = await mount(ARCH, s);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    const id = idOfBody(t, 'Use the contract fixtures.');
+    const c = second(t.daemon, t.net, { client: 'web-other' });
+    await c.start();
+    await expect(c.call('chat.cancel', { request: id })).rejects.toMatchObject({ data: { gate: 'confirm' } });
+    c.close();
+    s.daemon.knobs.refuse('chat.cancel', 'state', REFUSAL);
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    await click($$('.ui-dialog .ui-btn.solid')[0]!);
+    await until(() => $('.toast'), 'the refusal');
+    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    expect(compose().value).toBe('');
+  });
+
+  it('Send now shows on a queued message only while the agent is working, and types it at once', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await typeInto(compose(), 'first');
+    await press(compose(), 'Enter');
+    await until(() => sent(t, 'first'), 'sent');
+    for (let i = 0; i < 3; i++) t.daemon.chat.tick(); // typed, delivered, working
+    await until(() => $('.working'), 'the working line');
+    await typeInto(compose(), 'second');
+    await press(compose(), 'Enter');
+    await until(() => $$('.msg').some((m) => text(m).includes('second') && m.getAttribute('data-pending') === null), 'numbered');
+    expect(landing('second')).toBe('queued');
+    expect(labelled(msg('first'), 'Send now')).toBeUndefined();
+    await click(labelled(msg('second'), 'Send now')!);
+    await until(() => landing('second') === 'typed', 'typed now');
+  });
+
+  it('a message number in a message is a link that scrolls to that message, also one on an older page', async () => {
+    const s = setup();
+    const first = Number(
+      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: 'see #100 for the plan', at: '2030-01-01T00:00:00Z' }), // local-ref-ok
+    );
+    for (let i = 0; i < 60; i++)
+      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
+    expect(first).toBeGreaterThan(100);
+    await mount(ARCH, s);
+    await until(() => msg('filler 59'), 'the newest page');
+    expect(msg('Draft the web chat tab plan.')).toBeUndefined(); // the plan message is on an older page
+    await until(() => msg('see #100') || $('.older'), 'the page'); // local-ref-ok
+    let ref = $('.ref');
+    for (let i = 0; !ref && i < 5; i++) {
+      await click($('.older')!);
+      await wait(50);
+      ref = $('.ref');
+    }
+    await click(ref!);
+    await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
+  });
+
+  it('new messages while scrolled up are counted in a pill that takes you down', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    const stream = $('.stream')!;
+    for (const [k, v] of [
+      ['scrollHeight', 1000],
+      ['clientHeight', 100],
+    ] as const)
+      Object.defineProperty(stream, k, { value: v, configurable: true });
+    stream.scrollTop = 0;
+    await act(async () => void stream.dispatchEvent(new Event('scroll')));
+    await other(t, 'fresh news');
+    await until(() => $('.newer'), 'the pill');
+    expect(text($('.newer'))).toBe('1');
+    await click($('.newer')!);
+    expect($('.newer')).toBeNull();
+  });
+
+  it("the agent's messages leave FOR YOU once they are drawn: chat.seen goes up to the newest", async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await until(() => (chatOf(t).seenUpTo.get(ARCH) ?? 0) === idOfBody(t, 'Which gap list should come first?'), 'chat.seen');
+  });
+
+  it('/ lists the verbs and the terminal, # a task or message number to refer to, Esc closes a menu', async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await typeInto(compose(), '/');
+    const verbs = $$('[role="listbox"] [role="option"]').map((o) => o.querySelector('.ui-prow-name')!.textContent);
+    expect(verbs).toContain('Terminal');
+    expect(verbs.length).toBeGreaterThan(1);
+    await typeInto(compose(), '/ter');
+    expect($$('[role="listbox"] [role="option"]')).toHaveLength(1);
+    await press(compose(), 'Escape');
+    expect($('[role="listbox"]')).toBeNull();
+    await typeInto(compose(), 'compare with #');
+    const refs = $$('[role="listbox"] [role="option"]').map((o) => o.querySelector('.ui-prow-name')!.textContent);
+    expect(refs).toContain('#100'); // local-ref-ok
+    await click($$('[role="listbox"] .ui-prow').find((b) => text(b).startsWith('#100'))!); // local-ref-ok
+    expect(compose().value).toBe('compare with #100 '); // local-ref-ok
+  });
+
+  it('Ctrl+R lists what was sent and picking one fills the box; Esc twice clears a draft', async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await press(compose(), 'r', { ctrlKey: true });
+    const opts = $$('[role="listbox"] .ui-prow');
+    expect(opts.length).toBeGreaterThan(1);
+    await click(opts[0]!);
+    expect(compose().value).toBe('Also add the list of gaps.');
+    await press(compose(), 'Escape');
+    expect(compose().value).toBe('Also add the list of gaps.'); // one Esc keeps the draft and says so
+    expect($('.compose-clear')).not.toBeNull();
+    await press(compose(), 'Escape');
+    expect(compose().value).toBe('');
+  });
+
+  it("opening the chat reads the agent's results in the Inbox, but not a question that waits for an answer", async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    const inbox = (t.daemon as { inbox: { get: (id: number) => { read: boolean } } }).inbox;
+    await until(() => inbox.get(5).read, 'the result read');
+    expect(inbox.get(3).read).toBe(false);
+  });
+
+  it('the strip shows the state as a glyph, the model, the account and the task; a stuck agent gets a banner', async () => {
+    const t = await mount(ARCH);
+    await until(() => $('.chat-strip'), 'the strip');
+    expect($('.chat-strip .ui-state')!.getAttribute('data-state')).toBeTruthy();
+    expect(text($('.chat-strip'))).toContain('opus');
+    expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
+    expect($('.chat-banner')).toBeNull();
+    void t;
+  });
+
+  it('an open HR proposal about the agent is a card in the chat with approve and reject as icons', async () => {
+    const s = setup();
+    hrOf(s).raise({ id: 41, title: 'link handline.architect -> handline.auditor', diff: 'link', agent: ARCH });
+    await mount(ARCH, s);
+    await until(() => $('.card-hr'), 'the HR card');
+    expect(text($('.card-hr'))).toContain('link handline.architect');
+    expect(labelled($('.card-hr'), 'Approve')).toBeDefined();
+    expect(labelled($('.card-hr'), 'Reject')).toBeDefined();
+    await click(labelled($('.card-hr'), 'Reject')!);
+    await typeInto($('.ui-dialog input') as HTMLInputElement, 'not now');
+    await click($('.ui-dialog .ui-btn.solid')!);
+    await until(() => !$('.card-hr'), 'the card gone once decided');
+  });
+});
+
 describe('loading and writes with latency and refusals', () => {
   it('draws the conversation skeleton after the delay and no spinner, then the conversation', async () => {
     const s = setup();
@@ -177,7 +443,7 @@ describe('loading and writes with latency and refusals', () => {
     await until(() => !$('.chat .skeleton'), 'the skeleton gone');
   });
 
-  it('shows a sent message at once, marked pending and without Withdraw, and clears the box before the daemon answers', async () => {
+  it('shows a sent message at once, marked pending, and clears the box before the daemon answers', async () => {
     const s = setup();
     await mount(ARCH, s);
     await until(() => msg('Which gap list'), 'history');
@@ -188,8 +454,7 @@ describe('loading and writes with latency and refusals', () => {
     expect(sent(s, 'right now')).toBe(false); // the daemon has not answered yet
     expect(landing('right now')).toBe('queued');
     expect(msg('right now')!.getAttribute('data-pending')).toBe('true');
-    expect(text(msg('right now'))).toContain('Sending');
-    expect(text(msg('right now'))).not.toContain('Withdraw'); // it has no number yet
+    expect(icon(msg('right now'), 'Sending')).not.toBeNull();
     expect(compose().value).toBe('');
     await until(() => sent(s, 'right now'), 'the daemon got it', 600);
     await until(() => $$('.msg').filter((m) => text(m).includes('right now')).length === 1, 'the real message replaced the temporary one');
@@ -226,18 +491,6 @@ describe('loading and writes with latency and refusals', () => {
     expect(sent(s, 'drop me')).toBe(false);
   });
 
-  it('puts a refused withdraw back as it was, with the reason', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Also add the list of gaps.'), 'history');
-    s.daemon.knobs.latency(500);
-    s.daemon.knobs.refuse('chat.withdraw', 'state', REFUSAL);
-    await click(link('Withdraw', msg('Also add the list of gaps.')!));
-    await until(() => landing('Also add the list of gaps.') === 'withdrawn', 'withdrawn at once'); // before the daemon answers
-    await until(() => landing('Also add the list of gaps.') === 'typed', 'rolled back', 600);
-    expect(text($('.toast'))).toContain(REFUSAL);
-  });
-
   it('puts a refused answer back as an open question, with the reason', async () => {
     const s = setup();
     await mount(ARCH, s);
@@ -245,7 +498,7 @@ describe('loading and writes with latency and refusals', () => {
     s.daemon.knobs.latency(500);
     s.daemon.knobs.refuse('chat.answer', 'state', REFUSAL);
     await typeInto($('.ask input') as HTMLInputElement, 'chat first');
-    await click($('.ask .btn.primary')!);
+    await click($('.ask button[aria-label="Answer"]')!);
     await until(() => !$('.ask') && text(msg('Which gap list')).includes('Your answer'), 'answered at once');
     await until(() => $('.ask'), 'the question open again', 600);
     expect(text(msg('Which gap list'))).not.toContain('Your answer');
@@ -258,7 +511,7 @@ describe('loading and writes with latency and refusals', () => {
     await until(() => $('.ask'), 'the open question');
     s.daemon.knobs.latency(500);
     s.daemon.knobs.refuse('chat.dismiss', 'state', REFUSAL);
-    await click($$('.ask .btn').find((b) => text(b) === 'Dismiss')!);
+    await click(link('Dismiss', $('.ask')!));
     await until(() => !$('.ask'), 'dismissed at once');
     await until(() => $('.ask'), 'the question open again', 600);
     expect(text($('.toast'))).toContain(REFUSAL);

@@ -1,9 +1,10 @@
 // The Team page: two tabs, Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
 import { useState } from 'react';
-import { dotOf, waitingCount } from '@handline/app-core';
+import { waitingCount } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
 import { HrTab } from './HrTab.tsx';
+import { Empty, Icon, State, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
@@ -46,18 +47,59 @@ export function TeamPage() {
   );
 }
 
-type SortKey = 'name' | 'role' | 'parent';
+/** The agents under one "reports to": the roots first, then each manager's reports, each group sorted by name. */
+export function groups(agents: TeamAgent[]): { parent: string | null; agents: TeamAgent[] }[] {
+  const by = new Map<string | null, TeamAgent[]>();
+  for (const a of [...agents].sort((x, y) => x.name.localeCompare(y.name))) by.set(a.parent, [...(by.get(a.parent) ?? []), a]);
+  return [...by.entries()]
+    .sort(([x], [y]) => (x === null ? -1 : y === null ? 1 : x.localeCompare(y)))
+    .map(([parent, list]) => ({ parent, agents: list }));
+}
 
 function TeamTable() {
   const q = useTeam();
   const { served } = useServes('team.get');
   const agents = useAgents().data?.agents ?? [];
-  const [sort, setSort] = useState<SortKey>('name');
   const [open, setOpen] = useState<string | null>(null);
   const team = q.data;
-  const rows = [...(team?.agents ?? [])].sort((a, b) => String(a[sort] ?? '').localeCompare(String(b[sort] ?? '')));
   const doing = (name: string): AgentView | undefined => agents.find((a) => a.name === name);
-  const when = (t: string | null) => (t ? new Date(t).toLocaleDateString() : null);
+  return (
+    <View q={q} served={served} shape="team" what="the team" empty={false}>
+      {team && !team.agents.length ? (
+        <Empty icon="team" name="No agents in the team" />
+      ) : (
+        <div className="team-board">
+          {groups(team?.agents ?? []).map((g) => (
+            <section key={g.parent ?? ''} className="team-group" aria-label={g.parent ? `Reports to ${g.parent}` : 'Top of the team'}>
+              {g.parent ? (
+                <h3 title="Reports to">
+                  <Icon name="agent" label="Reports to" size={14} aria-hidden="true" /> {g.parent}
+                </h3>
+              ) : null}
+              <div className="team-cards">
+                {g.agents.map((a) => (
+                  <Card
+                    key={a.name}
+                    a={a}
+                    d={doing(a.name)}
+                    edges={team?.edges ?? []}
+                    open={open === a.name}
+                    onOpen={() => setOpen(open === a.name ? null : a.name)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </View>
+  );
+}
+
+const day = (t: string | null) => (t ? new Date(t).toLocaleDateString() : 'not set');
+
+function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: string; to: string }[]; open: boolean; onOpen: () => void }) {
+  const { a, d } = props;
   const chips = (names: string[]) =>
     names.length ? (
       names.map((n) => (
@@ -69,68 +111,65 @@ function TeamTable() {
       <span className="muted">nobody</span>
     );
   return (
-    <View q={q} served={served} shape="team" what="the team" empty={team && !team.agents.length ? 'No agents in the team.' : false}>
-      <table className="team-table">
-        <thead>
-          <tr>
-            {(['name', 'role', 'parent'] as const).map((k) => (
-              <th key={k}>
-                <button className="btn" onClick={() => setSort(k)} aria-sort={sort === k ? 'ascending' : 'none'}>
-                  {k === 'name' ? 'agent' : k === 'parent' ? 'reports to' : k}
-                  {sort === k ? ' ▲' : ''}
-                </button>
-              </th>
-            ))}
-            <th>doing</th>
-            <th>role file updated</th>
-            <th>base file updated</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((a: TeamAgent) => {
-            const d = doing(a.name);
-            return (
-              <FragmentRow key={a.name}>
-                <tr data-agent={a.name} onClick={() => setOpen(open === a.name ? null : a.name)}>
-                  <td>
-                    <button className="btn" onClick={(e) => (e.stopPropagation(), goAgent(a.name))}>
-                      {a.name}
-                    </button>
-                  </td>
-                  <td>{a.role}</td>
-                  <td>{a.parent ?? ''}</td>
-                  <td>
-                    {d ? (
-                      <>
-                        <span className={`dot ${dotOf(d)}`} /> {d.state}
-                        {d.task ? ` · #${d.task.id} ${d.task.title}` : ''}
-                      </>
-                    ) : null}
-                  </td>
-                  <td>{when(a.role_file.updated) ?? <span className="muted">not set</span>}</td>
-                  <td>{when(a.base_file.updated) ?? <span className="muted">not set</span>}</td>
-                </tr>
-                {open === a.name ? (
-                  <tr className="edges">
-                    <td colSpan={6}>
-                      <div>
-                        <span className="muted">may ask </span>
-                        {chips((team?.edges ?? []).filter((e) => e.from === a.name).map((e) => e.to))}
-                      </div>
-                      <div>
-                        <span className="muted">may be asked by </span>
-                        {chips((team?.edges ?? []).filter((e) => e.to === a.name).map((e) => e.from))}
-                      </div>
-                    </td>
-                  </tr>
-                ) : null}
-              </FragmentRow>
-            );
-          })}
-        </tbody>
-      </table>
-    </View>
+    <article
+      className={`team-card${props.open ? ' open' : ''}`}
+      data-agent={a.name}
+      onClick={props.onOpen}
+      title={`role file ${day(a.role_file.updated)} · base file ${day(a.base_file.updated)}`}
+    >
+      <header>
+        {d ? (
+          <State
+            kind={stateOfView(d)}
+            label={[d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
+          />
+        ) : null}
+        <button className="team-name" onClick={(e) => (e.stopPropagation(), goAgent(a.name))}>
+          {a.name}
+        </button>
+        <button
+          className="team-more"
+          aria-expanded={props.open}
+          aria-label={`Who ${a.name} may ask`}
+          title="Who may ask whom"
+          onClick={(e) => (e.stopPropagation(), props.onOpen())}
+        >
+          <Icon name={props.open ? 'less' : 'more'} label="Who may ask whom" size={14} aria-hidden="true" />
+        </button>
+      </header>
+      <p className="team-role">{a.role}</p>
+      {d?.account || d?.model ? (
+        <p className="team-meta">
+          {d.account ? (
+            <span title="Account">
+              <Icon name="accounts" label="Account" size={14} aria-hidden="true" /> {d.account}
+            </span>
+          ) : null}
+          {d.model ? (
+            <span title="Model">
+              <Icon name="model" label="Model" size={14} aria-hidden="true" /> {d.model}
+              {d.effort ? ` · ${d.effort}` : ''}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
+      {d?.task ? (
+        <p className="team-task" title="Doing">
+          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> #{d.task.id} {d.task.title}
+        </p>
+      ) : null}
+      {props.open ? (
+        <div className="edges">
+          <div>
+            <Icon name="send" label="May ask" size={14} />
+            {chips(props.edges.filter((e) => e.from === a.name).map((e) => e.to))}
+          </div>
+          <div>
+            <Icon name="reply" label="May be asked by" size={14} />
+            {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
+          </div>
+        </div>
+      ) : null}
+    </article>
   );
 }
-
-const FragmentRow = ({ children }: { children: React.ReactNode }) => <>{children}</>;

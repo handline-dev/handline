@@ -80,5 +80,6 @@ export function usePending<M extends WriteMethod>(method: M): CallParams<M>[] {
   });
 }
 
-/** True while any write is in flight (the desktop shell holds back a restart over it). */
-export const useBusy = (): boolean => useIsMutating() > 0;
+/** True while a write is in flight (the desktop shell holds back a restart over it); the notes that messages were seen or read lose nothing if cut off. */
+export const useBusy = (): boolean =>
+  useIsMutating({ predicate: (m) => !['chat.seen', 'inbox.mark_read'].includes(String(m.options.mutationKey?.at(-1))) }) > 0;

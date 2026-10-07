@@ -863,13 +863,6 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 
 func repliesOf(r row, agent string) []map[string]any {
 	var out []map[string]any
-	if r.str("requester") == agent && r.str("target") == human && r.str("body") != "" {
-		at := r.i("landed_at")
-		if at == 0 {
-			at = r.i("ts")
-		}
-		out = append(out, map[string]any{"id": itemID(at, itemReply, r.i("id")*2), "at": ts(at), "kind": "reply", "text": r.str("body")})
-	}
 	shown, hasShown := shownVerdict(r)
 	if d, _, _ := dismissal(r); r.str("requester") == human && r.str("target") == agent && hasShown && shown != "" && r["answer_id"] != nil && !d {
 		at := answeredAt(r)

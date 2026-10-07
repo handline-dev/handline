@@ -1,7 +1,7 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
 import { useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { Sheet } from './taskui.tsx';
+import { Dialog, Field, Icon, Select } from './ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
   const ask = useWrite('task.new');
@@ -19,43 +19,53 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
   return (
-    <Sheet label="New task" submit="Ask" full onCancel={onClose} onSubmit={send} busy={ask.isPending}>
-      <div className="tform">
-        <label>
-          Owner
-          <select value={owner} onChange={(e) => setOwner(e.target.value)}>
-            <option value="">pick an agent</option>
-            {agents.map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Title
-          <input className="tinput" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label className="wide">
-          Body
-          <textarea className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-        </label>
-        <label>
-          Time box
-          <input className="tinput" value={box} onChange={(e) => setBox(e.target.value)} />
-        </label>
-        <label>
-          Priority
-          <select value={priority} onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}>
-            <option value={1}>1 high</option>
-            <option value={2}>2</option>
-            <option value={3}>3 low</option>
-          </select>
-        </label>
-      </div>
-      {said ? (
-        <span className="tsheet-err" role="alert">
-          {said}
-        </span>
-      ) : null}
-    </Sheet>
+    <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending }}>
+      <form
+        id="newtask-form"
+        name="newtask-form"
+        className="tform"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
+        <div className="ui-field">
+          <span className="ui-field-label">Owner</span>
+          <Select
+            label="Owner"
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}
+          />
+        </div>
+        <Field label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="ui-field">
+          <label htmlFor="newtask-body">Body</label>
+          <textarea id="newtask-body" className="ui-textarea" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+        </div>
+        <div className="tform-row">
+          <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />
+          <div className="ui-field">
+            <span className="ui-field-label">Priority</span>
+            <Select
+              label="Priority"
+              value={String(priority)}
+              onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}
+              options={[
+                { value: '1', label: '1 high' },
+                { value: '2', label: '2' },
+                { value: '3', label: '3 low' },
+              ]}
+            />
+          </div>
+        </div>
+        {said ? (
+          <p className="ui-note bad" role="alert">
+            <Icon name="failed" size={14} label="Error" />
+            {said}
+          </p>
+        ) : null}
+      </form>
+    </Dialog>
   );
 }

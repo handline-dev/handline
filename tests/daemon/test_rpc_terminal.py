@@ -56,6 +56,7 @@ class Screen:
             return True, ""
         termchannel.read_rows, termchannel.read_size, termchannel.do_resize = read, lambda handle: self.size, resize
         termchannel.HUB.channels.clear()
+        termchannel.HUB.styled.clear()
         termchannel.HUB.restore.clear()
         con = db.connect()
         db.set_terminal(con, "worker", "t-worker", None)
@@ -65,10 +66,11 @@ class Screen:
 
     def __exit__(self, *exc):
         termchannel.read_rows, termchannel.read_size, termchannel.do_resize, termchannel.RATE_S = self.saved
-        for ch in list(termchannel.HUB.channels.values()):
+        for ch in [*termchannel.HUB.channels.values(), *termchannel.HUB.styled.values()]:
             for c in list(ch.clients):
                 ch.detach(c)
         termchannel.HUB.channels.clear()
+        termchannel.HUB.styled.clear()
 
 
 class NWire(Wire):

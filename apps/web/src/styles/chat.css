@@ -1,0 +1,235 @@
+/* ---- Chat: a reference to reply to, message marks, cards ---- */
+.msg.pickable {
+  cursor: pointer;
+}
+.msg.picked {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.msg[data-flash] {
+  outline: 2px dashed var(--ink);
+  outline-offset: 2px;
+}
+.msg-ref {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 0;
+  border-left: 2px solid var(--line);
+  padding: 0 6px;
+  margin-bottom: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.msg-task {
+  color: inherit;
+}
+.msg-meta svg,
+.msg-ref svg,
+.card svg {
+  vertical-align: middle;
+}
+.compose-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.compose-ref {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  font-size: 12px;
+}
+.compose-ref-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+}
+/* An open prompt is told by a thicker frame and its clock icon, not by colour. */
+.card.open {
+  border-width: 2px;
+}
+.card-what {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.card-code {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card a {
+  color: inherit;
+}
+.tasks-tab {
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+}
+.tasks-tab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tasks-tab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tasks-tab-row .ttitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tasks-tab-row.closed {
+  opacity: 0.6;
+}
+
+/* ---- Agent page: the strip, menus, queued-message buttons, the "new" pill ---- */
+.chat {
+  position: relative;
+}
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  height: var(--h-tabs);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.chat-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+  overflow: hidden;
+  font: var(--t-hint);
+  color: var(--ink-2);
+}
+.chip-ico {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.chip-ico[data-lapsed] {
+  color: var(--s-bad);
+}
+.chat-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--s-bad);
+  background: var(--bg-2);
+  font: var(--t-body);
+}
+.compose-row {
+  position: relative;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+.compose-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 10;
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) 0;
+  list-style: none;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-card);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+}
+.compose-menu li[aria-selected='true'] .ui-prow {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.compose-clear {
+  align-self: center;
+  color: var(--s-wait);
+}
+.msg-acts {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.ref {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--link);
+  font: var(--t-mono);
+  text-decoration: underline;
+}
+.newer {
+  position: absolute;
+  right: var(--sp-6);
+  bottom: 96px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+}
+.card-hr .card-what {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.line.working {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}

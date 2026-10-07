@@ -30,7 +30,8 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 const field = (key: string) => $(`[data-field="${key}"]`)!;
-const control = <T extends HTMLElement>(key: string) => field(key).querySelector<T>('input, select')!;
+const control = <T extends HTMLElement>(key: string) => field(key).querySelector<T>('input, select, [role="switch"]')!;
+const on = (key: string) => control(key).getAttribute('aria-checked') === 'true';
 const btn = (label: string) => $$('button').find((b) => text(b).trim() === label)!;
 const set = (el: HTMLElement, value: string, proto: object, type: string) =>
   act(async () => {
@@ -66,9 +67,34 @@ describe('U13 agent settings', () => {
     expect(control<HTMLInputElement>('model').value).toBe('opus');
     expect(control<HTMLSelectElement>('effort').value).toBe('high');
     expect(control<HTMLInputElement>('context_k').value).toBe('300');
-    expect(control<HTMLInputElement>('sandbox').checked).toBe(true);
-    expect(control<HTMLInputElement>('skip_permissions').checked).toBe(false);
+    expect(on('sandbox')).toBe(true);
+    expect(on('skip_permissions')).toBe(false);
     for (const k of ['weight', 'handoff_note', 'repo', 'mode', 'browser', 'browser_sites', 'idle_close']) expect(field(k)).toBeTruthy();
+  });
+
+  it('a field of three options or fewer is a segmented control and picking one saves; more options is a select', async () => {
+    const s = await open();
+    expect(field('weight').querySelector('[role="radiogroup"]')).not.toBeNull();
+    expect(field('weight').querySelector('select')).toBeNull();
+    expect(field('handoff_note').querySelectorAll('[role="radio"]')).toHaveLength(3);
+    expect(field('effort').querySelector('select')).not.toBeNull();
+    expect(field('effort').querySelector('[role="radiogroup"]')).toBeNull();
+    const other = $$('[data-field="weight"] [role="radio"]').find((r) => r.getAttribute('aria-checked') === 'false')!;
+    const value = other.getAttribute('aria-label')!;
+    await click(other);
+    await until(() => session(s).settings.weight === value, 'saved');
+    expect(
+      $$('[data-field="weight"] [role="radio"]')
+        .find((r) => r.getAttribute('aria-checked') === 'true')!
+        .getAttribute('aria-label'),
+    ).toBe(value);
+  });
+
+  it('a number shows its unit as a suffix inside the field, and what follows the comma goes in the tooltip', async () => {
+    await open();
+    expect(text(field('context_k').querySelector('.ui-input-wrap .ui-unit'))).toBe('k tokens');
+    expect(text(field('idle_close').querySelector('.ui-input-wrap .ui-unit'))).toBe('min');
+    expect(field('idle_close').querySelector('.srow-text')!.getAttribute('title')).toContain('0 = never');
   });
 
   it('a select saves on change, and the daemon holds the new value', async () => {
@@ -104,7 +130,7 @@ describe('U13 agent settings', () => {
     await click(control('skip_permissions'));
     expect(text($('.verb-sheet.danger'))).toContain('it will act without asking, from the next launch');
     await click(btn('Cancel'));
-    expect(control<HTMLInputElement>('skip_permissions').checked).toBe(false);
+    expect(on('skip_permissions')).toBe(false);
     expect(session(s).settings.skip_permissions).toBe('off');
     await click(control('skip_permissions'));
     await click(btn('Turn on'));

@@ -328,6 +328,13 @@
      },
      "cursor": {
       "$ref": "#/components/schemas/Cursor"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "styled"
+      ],
+      "description": "Present on a `styled` attach's frames and absent on a text one's, so a connection that watches one terminal in both formats can tell which attach a frame belongs to."
      }
     },
     "required": [
@@ -337,7 +344,7 @@
      "cursor"
     ]
    },
-   "note": "Text attaches only. full:true carries every line and is what a slow client gets instead of a backlog."
+   "note": "Text and styled attaches only. full:true carries every line and is what a slow client gets instead of a backlog. A frame may carry `changed: []` for a cursor move alone."
   },
   "resize": {
    "params": {
@@ -402,7 +409,8 @@
       "type": "string",
       "enum": [
        "text",
-       "bytes"
+       "bytes",
+       "styled"
       ],
       "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
@@ -438,7 +446,8 @@
       "type": "string",
       "enum": [
        "text",
-       "bytes"
+       "bytes",
+       "styled"
       ],
       "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
@@ -539,7 +548,7 @@
    "note": "Bytes attaches only: the screen again, to be repainted as after an attach (reset, resize to cols by rows, write data), because the terminal changed size or the client fell behind. Everything the stream would have said before it is dropped; output follows with the next seq."
   }
  },
- "x-terminal": "Format `text` sends text rows (frame notices); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
+ "x-terminal": "Format `text` sends plain text rows (frame notices). Format `styled` sends the same rows and frames with each row's style runs (Row.spans), for a host that has no byte stream or a client that cannot run a terminal emulator (below). Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
  "x-terminal-bytes": {
   "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`. A connection has at most one attach per terminal and format (see terminal.attach); detach takes an optional `format`.",
   "encoding": "Bytes travel as base64 (standard alphabet, padded) in JSON strings on the same transport as every other message: no binary frames. They need not be valid UTF-8, and a notice may end inside a character or an escape sequence, so a client writes each as bytes to a terminal that keeps its own parser state.",
@@ -550,6 +559,15 @@
   "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
   "resize": "`terminal.resize` is unchanged: the input holder alone, restored when they leave. A bytes attach is told of any size change, the holder's or the restore, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
   "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it. Each carries `format`, the attach it was sent to, since a terminal watched in both formats gets each notice once per attach with that attach's counter."
+ },
+ "x-terminal-styled": {
+  "format": "`terminal.attach` and `terminal.history` take `format: styled`. It is the text format with colour: the snapshot has `format` `styled`, every Row in `lines`, `history` and `terminal.history` pages may carry `spans`, and every `frame` notice of the attach carries `format` `styled`. Frames, seq, `full`, `changed`, `cursor` and `resize` are as for text; the `holder` and `marker` notices are as for text too, and carry `format` `styled` on this attach so a client can tell its counter from a text attach's of the same terminal, and `text` is exactly what a text attach would send. Offered the way `bytes` is: `hello.capabilities.terminal_format` lists it and `terminal_hosts` maps each host to its formats, e.g. `{tmux: [text, bytes, styled], orca: [text]}` (`orca` joins it only when its screen read exposes attributes, see `when`); a styled request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. The format belongs to the attach, so a text and a styled attach of one terminal on one connection have unrelated counters. `terminal.detach` takes `styled` as it takes `bytes`.",
+  "when": "A host serves `styled` when its rendered-screen read gives the attributes of each cell, not only the characters. It is meant for the Orca host, whose CLI has no byte stream (`bytes` would need a raw output stream, the modes, the alternate screen and the cursor from Orca, none of which `orca terminal read` offers) but does render the screen it reads (`--screen`). Whether that read exposes cell attributes is not yet shown: `orca terminal read --help` says nothing of them, so Orca serves `styled` only once its screen read does, which is an open request to Orca. The phone app has no terminal emulator and uses the format on any host that serves it. A host whose read has no attributes stays `text`: the daemon never invents styles, and never sends `spans` on a terminal that has none to give.",
+  "spans": "A run is `[from, to)` over the row's characters counted in Unicode code points of `text` (not UTF-16 units, not bytes; a client in JavaScript converts with `Array.from`), and may extend past the end of `text` for blank cells that have a background: past the end, each blank cell counts as one, so `to` is at most len(`text`) + (`cols` minus the display width of `text`), where a wide character (CJK) is one code point and two cells. A run boundary never falls inside a cell: a base character stays with its combining code points, and a wide character is one unit. Runs are sorted, never overlap, are never empty and are sent only for cells whose style is not the default; a cell no run covers is drawn default. Two neighbouring cells with the same style are one run. Style is `SpanStyle`: `fg`, `bg` (a palette index 0-255 or `#rrggbb`) and the flags `bold`, `dim`, `italic`, `underline`, `inverse`, `strike`, each left out when off. Palette indexes 0-15 are the client's theme colours, so a dark and a light client each draw them in their own tokens; the daemon does not resolve a colour it was given as an index.",
+  "cursor": "A frame's `cursor` (text and styled attaches; a bytes attach's is in cells) is `{x, y}` or null: null when the cursor is hidden or above the frame. `x` counts code points of the row's `text`, as spans do (a host that reads cells converts; a wide character is one), and may run past the end of `text` when the cursor sits in blank cells, each counting one. `y` is a row of the frame's `lines`, from 0, and may be len(lines) or more when the cursor is on a blank row the frame drops. A frame may carry `changed: []` for a cursor move alone.",
+  "size": "A row's spans are what its colours need and no more; `terminal.history` pages and the 1 MiB trim of a text page apply to the JSON as sent, spans included, and `more` says when it was trimmed. A frame for a screen of a few hundred runs is a few KiB; the slow-client rule of text is unchanged (`full: true`).",
+  "input": "`styled` is read-only like text: keys go by `terminal.input` where the host supports bytes in, and by `session.type` and `session.keys` as before.",
+  "not_in_it": "No hyperlink, image, blink or font-weight beyond bold, no wide-character marker beyond what `text` has, no mouse or screen-mode state: a client that needs the real terminal asks for `bytes`."
  },
  "methods": [
   {
@@ -3002,7 +3020,7 @@
   },
   {
    "name": "terminal.attach",
-   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices) or bytes (output notices).",
+   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices), text rows with style runs (frame notices, `styled`) or bytes (output notices).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3035,9 +3053,10 @@
       "type": "string",
       "enum": [
        "text",
-       "bytes"
+       "bytes",
+       "styled"
       ],
-      "description": "Default text. bytes is served on tmux-hosted terminals; see x-terminal-bytes."
+      "description": "Default text. bytes is served on tmux-hosted terminals; styled on a host whose screen read carries cell attributes; see x-terminal-bytes and x-terminal-styled."
      }
     }
    ],
@@ -3106,9 +3125,10 @@
       "type": "string",
       "enum": [
        "text",
-       "bytes"
+       "bytes",
+       "styled"
       ],
-      "description": "Default text."
+      "description": "Default text. bytes is served on tmux-hosted terminals; styled on a host whose screen read carries cell attributes; see x-terminal-bytes and x-terminal-styled."
      }
     }
    ],
@@ -3318,7 +3338,8 @@
       "type": "string",
       "enum": [
        "text",
-       "bytes"
+       "bytes",
+       "styled"
       ],
       "description": "With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`."
      }
@@ -7756,6 +7777,19 @@
        }
       ]
      },
+     "ctx_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whole percent of the context window the agent's own session has used; null when it has no account, no session of its own, or a usage snapshot too old to trust. A view without the field is the same as null."
+     },
      "has_dialog": {
       "type": "boolean"
      },
@@ -10044,14 +10078,15 @@
        "type": "object",
        "properties": {
         "from": {
-         "type": "integer"
+         "type": "integer",
+         "description": "First character, counted in Unicode code points of `text`, 0-based."
         },
         "to": {
-         "type": "integer"
+         "type": "integer",
+         "description": "One past the last, so the run is [from, to). May go past the end of `text` for blank cells with a background; see x-terminal-styled `spans` for how those count."
         },
         "style": {
-         "type": "object",
-         "additionalProperties": {}
+         "$ref": "#/components/schemas/SpanStyle"
         }
        },
        "required": [
@@ -10060,15 +10095,16 @@
         "style"
        ]
       },
-      "description": "Reserved for styled rows. The daemon never sets it while frames are text-only; clients ignore it."
+      "description": "Set only in format `styled`, never in `text` (those rows have none). Sorted by `from`, not overlapping, none empty, only runs whose style is not the default; what no span covers is drawn in the default style. `text` is the same string `text` would send, so a client that ignores spans loses nothing."
      }
     },
     "required": [
      "text"
     ],
-    "description": "One terminal row: plain text, no escapes."
+    "description": "One terminal row: plain text, no escapes; in format `styled` also its style runs."
    },
    "Cursor": {
+    "description": "Text and styled attaches; null when hidden or above the frame. `x` is in code points of the row's `text`, like `Row.spans`; `y` is in the frame's rows and may be len(lines) or more. Rules: `x-terminal-styled`, Cursor.",
     "oneOf": [
      {
       "type": "object",
@@ -10099,9 +10135,10 @@
      "format": {
       "type": "string",
       "enum": [
-       "text"
+       "text",
+       "styled"
       ],
-      "description": "`styled` is reserved."
+      "description": "`styled` is text rows with `spans`; see x-terminal-styled."
      },
      "seq": {
       "type": "integer"
@@ -10613,7 +10650,7 @@
         "styled"
        ]
       },
-      "description": "Formats the daemon serves on at least one host; `styled` is reserved."
+      "description": "Formats the daemon serves on at least one host."
      },
      "terminal_hosts": {
       "type": "object",
@@ -11552,6 +11589,50 @@
      "type",
      "at"
     ]
+   },
+   "CellColor": {
+    "oneOf": [
+     {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+     },
+     {
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$"
+     }
+    ],
+    "description": "An xterm palette index (0-15 are the client's theme ANSI colours, 16-255 the fixed cube and greys) or a true colour as lower-case `#rrggbb`. A colour the cell does not have (the default) is left out, never sent as a number."
+   },
+   "SpanStyle": {
+    "type": "object",
+    "properties": {
+     "fg": {
+      "$ref": "#/components/schemas/CellColor"
+     },
+     "bg": {
+      "$ref": "#/components/schemas/CellColor"
+     },
+     "bold": {
+      "type": "boolean"
+     },
+     "dim": {
+      "type": "boolean"
+     },
+     "italic": {
+      "type": "boolean"
+     },
+     "underline": {
+      "type": "boolean"
+     },
+     "inverse": {
+      "type": "boolean"
+     },
+     "strike": {
+      "type": "boolean"
+     }
+    },
+    "description": "Only what differs from the default cell: a flag is sent as true or left out, a colour is left out for the default. `inverse` is sent as the flag, not applied: the client swaps the foreground and background it draws, so default colours swap too. A client ignores a key it does not know."
    },
    "ScheduleError": {
     "type": "object",

@@ -9,7 +9,7 @@ import type { WriteSpec } from './write-spec.ts';
 
 const allChats = (d: string) => [['d', d, 'chat-messages'] as const];
 
-export function waitingMessage(me: string, agent: string, body: string, now: string): ChatMessage {
+export function waitingMessage(me: string, agent: string, body: string, now: string, parent: number | null = null): ChatMessage {
   return {
     id: provisionalId(),
     at: now,
@@ -25,7 +25,7 @@ export function waitingMessage(me: string, agent: string, body: string, now: str
     delivered_at: null,
     typed_at: null,
     landed_at: null,
-    parent: null,
+    parent,
     kind: 'message',
     tasks: [],
     is_task_question: false,
@@ -36,7 +36,7 @@ const editAll = (c: Ctx, f: (d: Pages<MsgPage>) => Pages<MsgPage>) => edit<Pages
 const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (d) => patchMessage(d, id, patch));
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
-const sendParams = (p: never) => p as { agent: string; body: string };
+const sendParams = (p: never) => p as { agent: string; body: string; parent?: number };
 
 export const chatWrites: Record<string, WriteSpec> = {
   'chat.send': {
@@ -44,8 +44,8 @@ export const chatWrites: Record<string, WriteSpec> = {
     label: 'send',
     touches: allChats,
     patch: (c, p) => {
-      const { agent, body } = sendParams(p);
-      const row = waitingMessage(c.me, agent, body, c.now);
+      const { agent, body, parent } = sendParams(p);
+      const row = waitingMessage(c.me, agent, body, c.now, parent ?? null);
       editAll(c, (d) => mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)));
     },
     // The row stays, said to have failed, with the daemon's sentence; Retry and Discard act on it.

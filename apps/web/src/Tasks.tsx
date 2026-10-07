@@ -1,22 +1,47 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): the table or the tree of what the daemon lists, filters, sort, marks, the bridge's keys,
 // and a detail beside it from 1100 px. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { defaultFilter, shown, sortTasks, taskAgents, taskTree, type KV, type TaskColumn, type TaskFilter } from '@handline/app-core';
+import {
+  CLOSED,
+  defaultFilter,
+  shown,
+  sortTasks,
+  taskAgents,
+  taskTree,
+  type KV,
+  type TaskColumn,
+  type TaskFilter,
+} from '@handline/app-core';
 import type { Task } from '@handline/client';
+import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
-import { HEADS, SORTS, TasksHead } from './TasksHead.tsx';
-import { KeysSheet, OwnerSheet, PrioritySheet, StatesSheet } from './TaskSheets.tsx';
+import { HEADS, SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
+import { KeysSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
+import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
 import { ReasonSheet, Sheet, useCan, useNow, useWide } from './taskui.tsx';
 import { View } from './View.tsx';
 
 type Mode = 'list' | 'tree';
 type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys' | 'new';
+
+/** A task matches a search that is in its number, title, owner or asker. */
+const matches = (query: string) => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return (t: Task) => {
+    const hay = `#${t.id} ${t.title} ${t.to} ${t.from}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  };
+};
+
+/** The pills: Closed keeps only the closed tasks, Mine the ones I own. */
+const inScope = (tasks: Task[], scope: Scope, me: string): Task[] =>
+  scope === 'closed' ? tasks.filter((t) => CLOSED.includes(t.state)) : scope === 'mine' ? tasks.filter((t) => t.to === me) : tasks;
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
@@ -36,16 +61,28 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const now = useNow();
   const [mode, setMode] = useState<Mode>(() => (setting(storage, 'tasksView', 'list').value === 'tree' ? 'tree' : 'list'));
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
+  const [scope, setScope] = useState<Scope>('open');
+  const me = useStore().me;
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
   const [marked, setMarked] = useState<ReadonlySet<number>>(new Set());
   const [cursor, setCursor] = useState<number | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  const [query, setQuery] = useState('');
   const [selecting, setSelecting] = useState(false);
   const root = useRef<HTMLElement>(null);
 
-  const q = useTasks(filter.closed ? { all: true } : {});
+  const q = useTasks(scope === 'closed' ? { all: true } : {});
   const all = useMemo(() => q.data?.items ?? [], [q.data]);
-  const rows = useMemo(() => sortTasks(shown(all, filter), sort.by, sort.reverse, now), [all, filter, sort, now]);
+  const rows = useMemo(
+    () =>
+      sortTasks(
+        inScope(shown(all, { ...filter, closed: scope === 'closed' }), scope, me).filter(matches(query)),
+        sort.by,
+        sort.reverse,
+        now,
+      ),
+    [all, filter, scope, me, query, sort, now],
+  );
   const tree = useMemo(() => (mode === 'tree' ? taskTree(rows, all) : []), [mode, rows, all]);
   const order = mode === 'tree' ? tree.map((r) => r.task) : rows;
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
@@ -127,7 +164,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
       m: () => act('merge'),
       s: () => nextSort(false),
       S: () => nextSort(true),
-      a: () => setFilter((f) => ({ ...f, closed: !f.closed })),
+      a: () => setScope((s) => (s === 'closed' ? 'open' : 'closed')),
       v: () => act('states'),
       t: () => setView(mode === 'tree' ? 'list' : 'tree'),
       f: nextAgent,
@@ -148,7 +185,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const listBody = (
     <>
       <div className="tasks-scroll" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable${selecting ? ' selecting' : ''}`} aria-label="Tasks">
+        <table className={`ttable${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
           <thead>
             <tr>
               <th className="c-mark">
@@ -162,9 +199,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
               {mode === 'tree' ? (
                 <>
                   <th className="c-title">task</th>
-                  <th className="c-owner">owner</th>
                   <th className="c-state">state</th>
-                  <th className="c-under">under</th>
                 </>
               ) : (
                 HEADS.map((h) => (
@@ -176,12 +211,17 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
                   </th>
                 ))
               )}
+              <th className="c-act" aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
-            {mode === 'tree'
-              ? tree.map(({ task: t, depth, dim }) => <Row key={t.id} t={t} now={now} tree depth={depth} dim={dim} {...rowProps(t)} />)
-              : rows.map((t) => <Row key={t.id} t={t} now={now} {...rowProps(t)} />)}
+            <AnimatedList>
+              {mode === 'tree'
+                ? tree.map(({ task: t, depth, dim }) => (
+                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} {...rowProps(t)} />
+                  ))
+                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} {...rowProps(t)} />)}
+            </AnimatedList>
           </tbody>
         </table>
       </div>
@@ -205,30 +245,18 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           <span className="muted">The folded tasks close; #{cursor} keeps going.</span>
         </Sheet>
       ) : null}
-      {open === 'states' ? <StatesSheet filter={filter} onChange={setFilter} onClose={shut} /> : null}
       {open === 'keys' ? <KeysSheet onClose={shut} /> : null}
-      <div className="tbar" role="toolbar" aria-label="Actions on the marked tasks">
-        <span className="muted">{marked.size ? `${marked.size} marked` : 'acts on the row under the cursor'}</span>
-        <button className="btn" onClick={() => act('discard')} disabled={!canDiscard.ok} title={canDiscard.why}>
-          Discard <kbd>d</kbd>
-        </button>
-        <button className="btn" onClick={() => act('owner')} disabled={!canEdit.ok} title={canEdit.why}>
-          Owner <kbd>o</kbd>
-        </button>
-        <button className="btn" onClick={() => act('priority')} disabled={!canEdit.ok} title={canEdit.why}>
-          Priority <kbd>p</kbd>
-        </button>
-        <button
-          className="btn"
-          onClick={() => act('merge')}
-          disabled={!canMerge.ok}
-          title={canMerge.why ?? 'mark tasks, put the cursor on the one to keep'}
-        >
-          Merge <kbd>m</kbd>
-        </button>
-      </div>
+      {marked.size ? <TasksBar marked={marked.size} can={{ discard: canDiscard, edit: canEdit, merge: canMerge }} onAct={act} /> : null}
     </>
   );
+
+  /** A row's own icon: the cursor goes to it, and the marked rows stay the target only when it is one of them. */
+  function rowAct(id: number, what: 'discard' | 'owner' | 'priority') {
+    if (what === 'discard' ? !canDiscard.ok : !canEdit.ok) return;
+    setCursor(id);
+    if (!marked.has(id)) setMarked(new Set());
+    setOpen(what);
+  }
 
   function rowProps(t: Task) {
     return {
@@ -239,24 +267,29 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
       failed: bulk.failed.has(t.id),
       onCursor: () => setCursor(t.id),
       onMark: () => toggle(t.id),
+      can: { discard: canDiscard, edit: canEdit },
+      onAct: (what: 'discard' | 'owner' | 'priority') => rowAct(t.id, what),
     };
   }
 
   // The daemon is asked for closed tasks only when they are shown, so "nothing at all" can only be said once they are.
-  const none = filter.closed && all.length === 0;
+  const none = scope === 'closed' && all.length === 0;
   return (
     <section className="tasks" ref={root} tabIndex={0} aria-label="Tasks" onKeyDown={onKey}>
       <TasksHead
         agents={taskAgents(all)}
         filter={filter}
+        scope={scope}
+        onScope={setScope}
+        filtering={open === 'states'}
         mode={mode}
-        sort={sort.by}
         selecting={selecting}
+        query={query}
+        onQuery={setQuery}
         onFilter={setFilter}
         onView={setView}
-        onSort={(by) => setSort({ by, reverse: false })}
         onSelecting={() => setSelecting(!selecting)}
-        onAct={act}
+        onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
       />
       {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
       <View q={q} served={listServed} shape="tasks" what="tasks">
@@ -272,8 +305,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             ) : (
               <>
                 <p>No tasks in these states.</p>
-                {!filter.closed ? (
-                  <button className="btn" onClick={() => setFilter({ ...filter, closed: true })}>
+                {scope !== 'closed' ? (
+                  <button className="btn" onClick={() => setScope('closed')}>
                     Show closed
                   </button>
                 ) : null}

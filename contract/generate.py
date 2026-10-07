@@ -155,6 +155,7 @@ def gen_md(spec: dict) -> str:
     for n, d in spec["x-notifications"].items():
         o.append(f"- `{n}`: {d.get('note', '')} Params: `{ts(d['params']).replace(chr(10), ' ') if isinstance(d['params'], dict) else d['params']}`")
     o += ["", "## Terminal channel", "", spec["x-terminal"], "", "### Format bytes", ""] + [f"- **{k.replace('_', ' ').capitalize()}.** {v}" for k, v in spec["x-terminal-bytes"].items()]
+    o += ["", "### Format styled", ""] + [f"- **{k.replace('_', ' ').capitalize()}.** {v}" for k, v in spec["x-terminal-styled"].items()]
     o += ["", "## Legacy verbs", "", "| Legacy verb | Method |", "|---|---|"]
     o += [f"| `{k}` | {f'`{v}`' if v else 'none: the daemon types `say` itself'} |" for k, v in spec["x-legacy"].items()]
     return "\n".join(o) + "\n"

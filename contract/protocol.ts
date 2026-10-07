@@ -115,6 +115,8 @@ export type AgentView = {
     title: string;
   } | null;
   cache_until: Timestamp | null;
+  /** Whole percent of the context window the agent's own session has used; null when it has no account, no session of its own, or a usage snapshot too old to trust. A view without the field is the same as null. */
+  ctx_pct?: number | null;
   has_dialog: boolean;
   parent: AgentName | null;
   /** Who holds the input; one in v1, a list so more can later. */
@@ -604,17 +606,20 @@ export type Device = {
   connected: boolean;
 };
 
-/** One terminal row: plain text, no escapes. */
+/** One terminal row: plain text, no escapes; in format `styled` also its style runs. */
 export type Row = {
   text: string;
-  /** Reserved for styled rows. The daemon never sets it while frames are text-only; clients ignore it. */
+  /** Set only in format `styled`, never in `text` (those rows have none). Sorted by `from`, not overlapping, none empty, only runs whose style is not the default; what no span covers is drawn in the default style. `text` is the same string `text` would send, so a client that ignores spans loses nothing. */
   spans?: {
+    /** First character, counted in Unicode code points of `text`, 0-based. */
     from: number;
+    /** One past the last, so the run is [from, to). May go past the end of `text` for blank cells with a background; see x-terminal-styled `spans` for how those count. */
     to: number;
-    style: { [key: string]: unknown };
+    style: SpanStyle;
   }[];
 };
 
+/** Text and styled attaches; null when hidden or above the frame. `x` is in code points of the row's `text`, like `Row.spans`; `y` is in the frame's rows and may be len(lines) or more. Rules: `x-terminal-styled`, Cursor. */
 export type Cursor = {
   x: number;
   y: number;
@@ -622,8 +627,8 @@ export type Cursor = {
 
 export type TerminalSnapshot = {
   terminal: string;
-  /** `styled` is reserved. */
-  format: "text";
+  /** `styled` is text rows with `spans`; see x-terminal-styled. */
+  format: "text" | "styled";
   seq: number;
   cols: number;
   rows: number;
@@ -736,7 +741,7 @@ export type Capabilities = {
   review: boolean;
   /** input.ask is implemented; reserved. */
   input_ask: boolean;
-  /** Formats the daemon serves on at least one host; `styled` is reserved. */
+  /** Formats the daemon serves on at least one host. */
   terminal_format: ("text" | "bytes" | "styled")[];
   /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has. */
   terminal_hosts?: { [key: string]: string[] };
@@ -976,6 +981,21 @@ export type ChatRequestItem = {
   /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
   cause?: string;
   handoff?: string | null;
+};
+
+/** An xterm palette index (0-15 are the client's theme ANSI colours, 16-255 the fixed cube and greys) or a true colour as lower-case `#rrggbb`. A colour the cell does not have (the default) is left out, never sent as a number. */
+export type CellColor = number | string;
+
+/** Only what differs from the default cell: a flag is sent as true or left out, a colour is left out for the default. `inverse` is sent as the flag, not applied: the client swaps the foreground and background it draws, so default colours swap too. A client ignores a key it does not know. */
+export type SpanStyle = {
+  fg?: CellColor;
+  bg?: CellColor;
+  bold?: boolean;
+  dim?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  inverse?: boolean;
+  strike?: boolean;
 };
 
 export type ScheduleError = {
@@ -1318,15 +1338,15 @@ export interface Methods {
   terminal?: string;
   /** History lines to include; default 100. */
   history?: number;
-  /** Default text. bytes is served on tmux-hosted terminals; see x-terminal-bytes. */
-  format?: "text" | "bytes";
+  /** Default text. bytes is served on tmux-hosted terminals; styled on a host whose screen read carries cell attributes; see x-terminal-bytes and x-terminal-styled. */
+  format?: "text" | "bytes" | "styled";
 }; result: TerminalSnapshot | TerminalBytesSnapshot };
   "terminal.history": { params: {
   terminal: string;
   before: number;
   limit: number;
-  /** Default text. */
-  format?: "text" | "bytes";
+  /** Default text. bytes is served on tmux-hosted terminals; styled on a host whose screen read carries cell attributes; see x-terminal-bytes and x-terminal-styled. */
+  format?: "text" | "bytes" | "styled";
 }; result: HistoryPage | HistoryBytesPage };
   "terminal.resize": { params: {
   terminal: string;
@@ -1347,7 +1367,7 @@ export interface Methods {
   "terminal.detach": { params: {
   terminal: string;
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
-  format?: "text" | "bytes";
+  format?: "text" | "bytes" | "styled";
 }; result: { [key: string]: unknown } };
   "inbox.list": { params: {
   unread?: boolean;
@@ -2024,6 +2044,8 @@ export interface Notifications {
     row: Row;
   }[];
   cursor: Cursor;
+  /** Present on a `styled` attach's frames and absent on a text one's, so a connection that watches one terminal in both formats can tell which attach a frame belongs to. */
+  format?: "styled";
 };
   resize: {
   terminal: string;
@@ -2039,14 +2061,14 @@ export interface Notifications {
   actor: Actor | null;
   text?: string;
   /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
-  format: "text" | "bytes";
+  format: "text" | "bytes" | "styled";
 };
   holder: {
   terminal: string;
   seq: number;
   holders: InputHolder[];
   /** The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it. */
-  format: "text" | "bytes";
+  format: "text" | "bytes" | "styled";
 };
   output: {
   terminal: string;

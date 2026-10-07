@@ -25,6 +25,10 @@ describe('daemonUrl', () => {
   it('lets ?daemon= win and still refuses plain ws off this machine', () => {
     expect(daemonUrl('?daemon=ws://localhost:9', at('http:', 'x:1'), true)).toEqual({ url: 'ws://localhost:9', insecure: false });
     expect(daemonUrl('?daemon=ws://lan.example:9', at('http:', 'x:1'), true).insecure).toBe(true);
+    // Only the host the shell names as this machine's own is trusted for plain ws, not a range.
+    expect(daemonUrl('?daemon=ws://100.101.2.3:7443/rpc', at('http:', 'x:1'), true, '100.101.2.3').insecure).toBe(false);
+    expect(daemonUrl('?daemon=ws://100.101.2.4:7443/rpc', at('http:', 'x:1'), true, '100.101.2.3').insecure).toBe(true);
+    expect(daemonUrl('?daemon=ws://100.101.2.3:7443/rpc', at('http:', 'x:1'), true).insecure).toBe(true);
   });
   it('shows the pairing screen for a built page the gateway served, when no token is stored', async () => {
     const { url, insecure } = daemonUrl('', at('http:', '127.0.0.1:7443'), true);

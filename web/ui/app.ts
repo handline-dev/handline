@@ -2,7 +2,7 @@
 import { DaemonClient, RpcError, webSocketTransport } from '@handline/client';
 import { AgentPage } from './agent-page.ts';
 import { h, keyed } from './dom.ts';
-import { ago, dotOf, railGroups, type GroupBy, type KV } from '@handline/app-core';
+import { ago, dotOf, railGroups, type Dot, type GroupBy, type KV } from '@handline/app-core';
 import { Store } from '../legacy/store.ts';
 
 const storage: KV | null = (() => {
@@ -42,7 +42,7 @@ const insecure = (() => {
 const store = new Store(new DaemonClient({ client: 'web-pc', connect: () => webSocketTransport(url) }));
 
 let openTabs: string[] = JSON.parse(get('tabs', '[]')).filter((x: unknown) => typeof x === 'string');
-let groupBy = get('group', 'role') as GroupBy;
+let groupBy = (get('group', 'team') === 'role' ? 'team' : get('group', 'team')) as GroupBy;
 let hideParked = get('hideParked', '') === '1';
 let search = '';
 let railOpen = get('rail', '1') === '1',
@@ -134,7 +134,7 @@ function buildRail(): void {
     h(
       'div',
       { class: 'rail-opts' },
-      select('by', groupBy, ['role', 'state', 'account'], (v) => {
+      select('by', groupBy, ['team', 'state', 'account'], (v) => {
         groupBy = v as GroupBy;
         put('group', v);
         renderRail();
@@ -161,7 +161,7 @@ function buildRail(): void {
 /** Rebuilt only when a row it shows changed; the options above it are never rebuilt, so an open pick stays open. */
 function renderRail(): void {
   const all = [...store.agents.values()];
-  const groups = railGroups(all, groupBy, { hideParked, search });
+  const groups = railGroups(all, groupBy, { hidden: hideParked ? new Set<Dot>(['parked']) : undefined, search });
   keyed(railList, [groups, selected(), all.length, store.conn], () => [
     ...(all.length ? [] : [h('p', { class: 'muted pad' }, store.conn === 'open' ? 'No agents.' : 'Connecting…')]),
     ...groups.map((g) =>

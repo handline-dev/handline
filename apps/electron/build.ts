@@ -13,3 +13,4 @@ const common: BuildOptions = {
 
 await build({ ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.cjs' });
 await build({ ...common, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.cjs' });
+await build({ ...common, entryPoints: ['src/popover-preload.ts'], outfile: 'dist/popover-preload.cjs' });
