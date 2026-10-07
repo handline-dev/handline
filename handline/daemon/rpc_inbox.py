@@ -26,10 +26,12 @@ def _item(con, *, id: int, kind: str, agent: str, body: str, ts: int, read: bool
             "created": agentview._ts(ts), "read": read, "answered": answered, "options": [], "prompt": None}
 
 
-def _founder_items(con) -> list[dict]:
+def _founder_items(con, since_id: int = 0) -> list[dict]:
     out = []
     seen: dict[str, int] = {}
     for m in actions.mailbox_rows(con):
+        if m["id"] < since_id:
+            continue
         cursor = seen.setdefault(m["from"], db.get_cursor(con, f"for_you_seen:{m['from']}"))
         kind = "decision" if m["gate"] else (m["kind"] or "ask")
         out.append(_item(con, id=m["id"], kind=kind, agent=m["from"], body=m["body"], ts=m["ts"],
@@ -37,9 +39,9 @@ def _founder_items(con) -> list[dict]:
     return out
 
 
-def _agent_items(con, agent: str) -> list[dict]:
+def _agent_items(con, agent: str, since_id: int = 0) -> list[dict]:
     rows = con.execute(f"SELECT id, ts, requester, kind, body, read_at, state, {db.ANSWER_SQL} FROM requests "
-                       "WHERE target = ? AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", (agent,)).fetchall()
+                       "WHERE target = ? AND id >= ? AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", (agent, since_id)).fetchall()
     return [_item(con, id=r["id"], kind=r["kind"] or "ask", agent=r["requester"], body=r["body"], ts=r["ts"],
                   read=r["read_at"] is not None or r["state"] != "queued", answered=r["answer"] is not None) for r in rows]
 

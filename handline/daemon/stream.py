@@ -323,7 +323,57 @@ def _hr(con, state: dict) -> None:
     rpc_hr.check(con)
 
 
-DETECTORS = [_agents, _notifications, _chat, _hr]
+_TASK_PRINT = ("SELECT t.id, t.title, t.owner, t.opened_by, t.priority, t.sent_at, t.queued_by, t.done_evidence, t.done_at, t.discarded_by, t.discarded_at, "
+               "t.timeout_s, t.parent_task, t.edited_at, t.delivered_at, "
+               "(SELECT COUNT(*) || ':' || COALESCE(MAX(m.id), 0) || ':' || COALESCE(MAX(m.edited_at), 0) FROM task_memos m WHERE m.task_id = t.id) AS memos, "
+               "(SELECT COUNT(*) || ':' || COALESCE(MAX(r.state_at), 0) FROM task_requests l JOIN requests r ON r.id = l.request_id WHERE l.task_id = t.id) AS reqs, "
+               "(SELECT COUNT(*) FROM task_blocks b WHERE b.task_id = t.id AND b.dormant = 0) AS blocks "
+               "FROM tasks t WHERE (t.done_evidence IS NULL AND t.discarded_by IS NULL) OR COALESCE(t.done_at, t.discarded_at, 0) >= ?")
+RECENT_S = 86400        # a task or inbox item that ended or was made longer ago than this is no longer looked at for change
+
+
+def _tasks(con, state: dict) -> None:
+    """The tasks topic: a task that appeared or changed (its fields, a memo, a request linked to it), as the spec's Task. The first look says nothing."""
+    from . import rpc_taskview
+    from ..actions import task_state
+    now = {r["id"]: tuple(r) for r in con.execute(_TASK_PRINT, (int(time.time()) - RECENT_S,)).fetchall()}
+    before = state.get("seen")
+    state["seen"] = now
+    if before is None:
+        return
+    for tid, print_ in now.items():
+        if before.get(tid) == print_:
+            continue
+        row = db.get_task(con, tid)
+        emit(con, "tasks", "task.changed", rpc_taskview.task_of(con, row, task_state(con, row)), agent=row["owner"], title=row["title"],
+             target={"screen": "tasks", "id": str(tid)})
+
+
+def _inbox(con, state: dict) -> None:
+    """The inbox topic: an item that arrived (inbox.added) or changed, read or answered (inbox.changed), in the founder's inbox and in every agent's.
+    The first look says nothing."""
+    from . import rpc_inbox
+    from ..infra import paths
+    floor = con.execute("SELECT COALESCE(MIN(id), 0) FROM requests WHERE ts >= ?", (int(time.time()) - RECENT_S,)).fetchone()[0]
+    now: dict = {}
+    for i in rpc_inbox._founder_items(con, floor):
+        now[i["id"]] = ({**i}, i["agent"])
+    for agent in paths.list_agents():
+        for i in rpc_inbox._agent_items(con, agent, floor):
+            now[i["id"]] = ({**i}, agent)
+    before = state.get("seen")
+    state["seen"] = {k: v[0] for k, v in now.items()}
+    if before is None:
+        return
+    for iid, (item, agent) in sorted(now.items()):
+        was = before.get(iid)
+        if was == item:
+            continue
+        emit(con, "inbox", "inbox.added" if was is None else "inbox.changed", item, agent=agent, title=item["title"],
+             target={"screen": "inbox", "id": str(iid)})
+
+
+DETECTORS = [_agents, _notifications, _chat, _hr, _tasks, _inbox]
 
 
 class Watcher:

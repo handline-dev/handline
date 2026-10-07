@@ -115,6 +115,16 @@ def new_link(**kw) -> tuple[termbytes.ControlLink, FakeProc]:
     return link, p
 
 
+def test_tmux_greets_with_an_empty_reply_that_no_command_asked_for(home: Path) -> None:
+    p = fake_proc()
+    p.q.put(b"%begin 1 1 0\n%end 1 1 0\n")        # what tmux -C writes as it attaches
+    link = termbytes.ControlLink(spawn=lambda: p, greeted=True)
+    check("link: it starts", link.start() is True)
+    got = link.command("display-message -p x")
+    check("link: the first command gets its own reply, not the greeting's empty one", got == [MODES], str(got))
+    link.stop()
+
+
 def _until(pred, secs: float = 5.0) -> bool:
     end = time.monotonic() + secs
     while not pred():
@@ -650,6 +660,7 @@ def test_hello_says_which_hosts_serve_which_formats(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_output_is_unescaped_as_bytes())
+        run(lambda: test_tmux_greets_with_an_empty_reply_that_no_command_asked_for(Path(td) / "greet"))
         run(lambda: test_the_control_link_matches_replies_to_commands_in_order_among_output())
         run(lambda: test_a_command_waits_for_its_reply_and_a_dead_link_releases_everything())
         run(lambda: test_a_bytes_attach_is_refused_when_the_link_is_dead_or_the_host_silent(Path(td) / "b1"))
