@@ -280,20 +280,9 @@ class FakeNetwork:
 
 FILES = sorted((ROOT / "contract" / "fixtures").glob("*.json"))
 NOT_YET = "NOT_YET_IN_PYTHON"      # a fixture whose `about` starts with this is pinned ahead of its implementation: the Python
-                                   # daemon may fail it (stale once it passes) and the fake runs below leave it out
+                                   # daemon may fail it (stale once it passes); the fake runs below leave out the ones the fake fails or cannot seed
 
 
-def _without_pending() -> list[Path]:
-    """FILES with the NOT_YET_IN_PYTHON fixtures cut out, for the runs against the fake."""
-    out = Path(tempfile.mkdtemp(prefix="conformance-"))
-    for p in FILES:
-        doc = json.loads(p.read_text())
-        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET)]
-        (out / p.name).write_text(json.dumps(doc))
-    return sorted(out.glob("*.json"))
-
-
-READY = _without_pending()
 
 
 def _fakes(*roles: str, mutate=None, **kw) -> dict:
@@ -307,6 +296,20 @@ KEY = {"founder_key": "k", "running_agent": "a.running", "locked_agent": "a.lock
 KEYARG = ["--var", "founder_key=k", "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1"]
+
+def _ready() -> list[Path]:
+    """FILES less the NOT_YET_IN_PYTHON fixtures the fake does not pass (it lacks the method, or KEY cannot seed it)."""
+    results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
+    passes = {n for st, _, n in results if st == "pass"}
+    out = Path(tempfile.mkdtemp(prefix="conformance-"))
+    for p in FILES:
+        doc = json.loads(p.read_text())
+        doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] in passes]
+        (out / p.name).write_text(json.dumps(doc))
+    return sorted(out.glob("*.json"))
+
+
+READY = _ready()
 
 
 def _count(results, status: str) -> int:
