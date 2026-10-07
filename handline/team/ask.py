@@ -592,9 +592,10 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
 
 
 def withdraw(rid: int, requester: str | None = None,
-             reason: str | None = None) -> tuple[bool, str]:
+             reason: str | None = None, effect=None) -> tuple[bool, str]:
     """Take back your own request before it has been delivered (request #189).
-    `reason` is stored as the row's verdict, as typed.
+    `reason` is stored as the row's verdict, as typed. `effect(con, message)` is the daemon's record of it, made in the
+    transaction of the withdrawal.
 
     Once delivered, a reply in its thread is the only way to change it.
     """
@@ -622,18 +623,29 @@ def withdraw(rid: int, requester: str | None = None,
         # reason here was drawn as the target's own answer, in the founder's
         # name on their own screen (#1348).
         verdict = f"withdrawn: {reason}" if reason else None
-        if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
-            # `db.is_still_queued` alone would not tell the two failures
-            # here apart: `retire_if_undelivered`'s own race - a delivery
-            # landing between the read above and this write, the one its
-            # docstring exists to close - leaves the row queued too.
-            return False, too_late
+        said = f"request #{rid} to {row['target']} withdrawn"
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
+                # `db.is_still_queued` alone would not tell the two failures
+                # here apart: `retire_if_undelivered`'s own race - a delivery
+                # landing between the read above and this write, the one its
+                # docstring exists to close - leaves the row queued too.
+                con.execute("ROLLBACK")
+                return False, too_late
+            db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
+                                                       "reason": reason})
+            if effect:
+                effect(con, said)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
-                                                   "reason": reason})
-        return True, f"request #{rid} to {row['target']} withdrawn"
+        return True, said
     finally:
         con.close()
 
@@ -657,12 +669,25 @@ def _close_and_tell(con, rid: int, row, verdict: str, notify: bool, settle: bool
     None if this call lost that race; else `(target, after_close_msg, said)`,
     `said` being what was told to the target, if anything.
     """
+    if not _close_write(con, rid, row, verdict, notify, settle):
+        return None
+    return _close_tell(con, rid, row, verdict, notify)
+
+
+def _close_write(con, rid: int, row, verdict: str, notify: bool, settle: bool = True) -> bool:
+    """The write of `_close_and_tell`, alone: what a caller that holds a transaction runs inside it. False if this
+    call lost the race to close the row."""
+    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify, settle=settle):
+        return False
+    db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": row["target"]})
+    return True
+
+
+def _close_tell(con, rid: int, row, verdict: str, notify: bool):
+    """What follows `_close_write` once it has committed: the target told to stop, the requester told, the queue moved up."""
     from ..daemon import delivery as dmn_delivery
 
     target = row["target"]
-    if not db.close_if_queued(con, rid, "rejected", verdict, announced=not notify, settle=settle):
-        return None
-    db.add_event(con, row["requester"], "closed_under", {"request_id": rid, "target": target})
     said = []
     if row["delivered_at"]:
         typed, why = dmn_delivery.notify_cancelled(con, row, verdict)
@@ -729,21 +754,33 @@ def retire_open(con, rid: int, verdict: str, notify: bool | None = None,
     `settle=False`: the task stays open when this request is its decision card
     (a release takes the task back to draft; it is not discarded).
     """
+    ok, why, after = retire_write(con, rid, verdict, notify, settle)
+    return (True, retire_tell(con, after)) if ok else (False, why)
+
+
+def retire_write(con, rid: int, verdict: str, notify: bool | None = None, settle: bool = True):
+    """The write of `retire_open`: (True, "", what `retire_tell` needs) or (False, why, None). For a caller
+    that holds a transaction: it commits, then tells."""
     row = db.get_request(con, rid)
     if row is None:
-        return False, f"#{rid} is gone"
+        return False, f"#{rid} is gone", None
     if notify is None:
         notify = row["requester"] != HUMAN
     if row["state"] != "queued":
-        return False, f"#{rid} is already {row['state']} - nothing to retire"
-    closed = _close_and_tell(con, rid, row, verdict, notify, settle)
-    if closed is None:
+        return False, f"#{rid} is already {row['state']} - nothing to retire", None
+    if not _close_write(con, rid, row, verdict, notify, settle):
         if db.is_still_queued(con, rid):
-            return False, f"#{rid} was not retired - it is still queued"
-        return False, f"#{rid} was closed while this ran - nothing to retire"
-    target, msg, said = closed
-    return True, (f"#{rid} to {target} retired"
-                  + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
+            return False, f"#{rid} was not retired - it is still queued", None
+        return False, f"#{rid} was closed while this ran - nothing to retire", None
+    return True, "", (rid, row, verdict, notify)
+
+
+def retire_tell(con, after) -> str:
+    """What `retire_open` says once `retire_write` has committed."""
+    rid, row, verdict, notify = after
+    target, msg, said = _close_tell(con, rid, row, verdict, notify)
+    return (f"#{rid} to {target} retired"
+            + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
 
 
 def _after_close(con, rid: int, row, state: str, notify: bool) -> str:

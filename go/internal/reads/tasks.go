@@ -275,7 +275,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		"id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
-		"done": ts(t["done_at"]), "hold_reason": hold, "block_reason": nil, "evidence": t.strOrNil("done_evidence"),
+		"done": ts(t["done_at"]), "priority": t.i("priority"), "hold_reason": hold, "block_reason": nil, "evidence": t.strOrNil("done_evidence"),
 	}
 	if t.i("timeout_s") != 0 {
 		task["time_box"] = duration(t.i("timeout_s"))

@@ -390,7 +390,8 @@ def state_cell(s: str, until: str, width: int | None = None) -> str:
 
 def state_cell_of_view(view: dict, width: int | None = None) -> str:
     """The state column from an agent's stored view (daemon/agentview.py), with nothing recomputed."""
-    return state_cell(view["state"], view["state_detail"], width)
+    from ..daemon import agentview
+    return state_cell(*agentview.screen_word(view), width)
 
 
 def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:

@@ -212,7 +212,7 @@ def _agents(con, state: dict) -> None:
         if before.get(name) != view:
             v = json.loads(view)
             emit(con, "agents", "agent.changed", v, agent=name, title=None, target={"screen": "agent", "id": name})
-            if v["state"] == "FATAL" and (json.loads(before[name])["state"] if name in before else None) != "FATAL":
+            if v["state"] == "stalled" and (json.loads(before[name])["state"] if name in before else None) != "stalled":
                 emit(con, "notifications", "stall", {"agent": name}, agent=name, title=f"{name} stalled",
                      target={"screen": "agent", "id": name})
     for name in set(before) - set(now):
@@ -255,7 +255,69 @@ def _notifications(con, state: dict) -> None:
         db.set_cursor(con, "stream:prompts", row["id"])
 
 
-DETECTORS = [_agents, _notifications]
+CHAT_TOUCHED_SQL = ("SELECT id, MAX(t) AS touched FROM (SELECT id, COALESCE(state_at, ts) AS t FROM requests WHERE settles IS NULL AND COALESCE(state_at, ts) >= :last "
+                    "UNION ALL SELECT settles, ts FROM requests WHERE settles IS NOT NULL AND ts >= :last) GROUP BY id ORDER BY touched, id")
+
+
+def _chat(con, state: dict) -> None:
+    """The chat topic: a request of a chat that appeared or changed (chat.message), what an agent said, a prompt it opened or closed and
+    a task event of a task it owns (chat.transcript), and an agent's working state (chat.working). Each is said once, to the chat of
+    every agent it belongs to. The places reached are cursors in the database, as `_notifications` keeps."""
+    from . import rpc_chat
+    from ..actions import chatreads
+    last = _cursor_or_prime(con, "stream:chat_touched", "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests WHERE settles IS NULL "
+                                                         "UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)")
+    done = state.setdefault("done", {})         # request -> the message as last said, for the ones touched in the second the cursor is at
+    # A request is touched when it changed (state_at, else its own ts) or an answer to it was said (a row with settles = its id); each is
+    # looked up by its own index (requests_touched, requests_settles_ts), so a pass reads the rows since `last` and no more.
+    for row in con.execute(CHAT_TOUCHED_SQL, {"last": last}).fetchall():
+        r = chatreads.request_row(con, row["id"])
+        message = rpc_chat.message_of(con, r)
+        if done.get(row["id"]) == message:
+            continue
+        for agent in dict.fromkeys(n for n in (r["target"], r["requester"]) if n != db.HUMAN):
+            emit(con, "chat", "chat.message", message, agent=agent, target={"screen": "agent", "id": agent})
+            for item in rpc_chat.replies_of(r, agent):
+                emit(con, "chat", "chat.transcript", item, agent=agent, target={"screen": "agent", "id": agent})
+        if row["touched"] > last:
+            last, done = row["touched"], {}
+            state["done"] = done
+        done[row["id"]] = message
+        db.set_cursor(con, "stream:chat_touched", last)
+    seen = _cursor_or_prime(con, "stream:chat_events", "SELECT COALESCE(MAX(id), 0) FROM events")
+    kinds = tuple(rpc_chat._TASK_EVENTS)
+    for row in con.execute(f"SELECT id, ts, agent, kind, payload FROM events WHERE id > ? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id",
+                           (seen, *kinds)).fetchall():
+        item = rpc_chat.task_item_of(con, row)
+        owner = con.execute("SELECT owner FROM tasks WHERE id = ?", (item["task_event"]["task"],)).fetchone() if item else None
+        if owner and owner["owner"] != db.HUMAN:
+            emit(con, "chat", "chat.transcript", item, agent=owner["owner"], target={"screen": "agent", "id": owner["owner"]})
+        db.set_cursor(con, "stream:chat_events", row["id"])
+    shown = _cursor_or_prime(con, "stream:chat_prompts", "SELECT COALESCE(MAX(id), 0) FROM prompt_blocks")
+    if "open" not in state:         # a prompt open before this daemon started is told closed when it closes
+        state["open"] = {r["id"] for r in con.execute("SELECT id FROM prompt_blocks WHERE gone_at IS NULL AND id <= ?", (shown,))}
+    opened = state["open"]
+    for row in con.execute("SELECT * FROM prompt_blocks WHERE id > ? ORDER BY id", (shown,)).fetchall():
+        emit(con, "chat", "chat.transcript", rpc_chat.prompt_item_of(row), agent=row["agent"], target={"screen": "agent", "id": row["agent"]})
+        if row["gone_at"] is None:
+            opened.add(row["id"])
+        db.set_cursor(con, "stream:chat_prompts", row["id"])
+    for pid in list(opened):
+        row = con.execute("SELECT * FROM prompt_blocks WHERE id = ?", (pid,)).fetchone()
+        if row is None or row["gone_at"] is not None:
+            opened.discard(pid)
+            if row is not None:
+                emit(con, "chat", "chat.transcript", rpc_chat.prompt_item_of(row), agent=row["agent"], target={"screen": "agent", "id": row["agent"]})
+    now = {r["agent"]: rpc_chat.working_from(json.loads(r["view"])) for r in con.execute("SELECT agent, view FROM agent_view")}
+    before = state.get("working")
+    state["working"] = now
+    if before is not None:
+        for name, working in now.items():
+            if before.get(name) != working:
+                emit(con, "chat", "chat.working", working, agent=name, target={"screen": "agent", "id": name})
+
+
+DETECTORS = [_agents, _notifications, _chat]
 
 
 class Watcher:
