@@ -74,3 +74,8 @@ task.begin
 task.start
 task.handoff
 task.progress
+accounts.list
+team.get
+schedules.list
+stats.get
+settings.get
