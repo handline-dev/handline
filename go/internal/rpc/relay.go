@@ -206,7 +206,7 @@ func (rs *relaySession) forward(line []byte) {
 			rs.mu.Unlock()
 		}
 	}
-	rs.c.sendRaw(bytes.TrimSpace(line))
+	rs.c.SendRaw(bytes.TrimSpace(line))
 }
 
 func (c *Conn) closeRelay() {
@@ -217,10 +217,4 @@ func (c *Conn) closeRelay() {
 	if rs != nil {
 		rs.up.Close()
 	}
-}
-
-func (c *Conn) sendRaw(b []byte) bool {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	return c.tr.WriteMessage(b) == nil
 }

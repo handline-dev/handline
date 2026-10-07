@@ -43,6 +43,9 @@ type Method struct {
 	// Write marks a method that changes something: it takes a request_id and runs once per id (runWrite).
 	// OwnEvent says it writes its own event, so the generic rpc_write one is not added.
 	Write, OwnEvent bool
+	// Relays says, on a gateway, that this call is for the daemon behind it and not served here: it is asked with the
+	// call's params, and only for a paired device's connection.
+	Relays func(params map[string]any) bool
 	// Unkept marks a write whose reply is never kept for a retry because it holds a secret that is given once
 	// (a pairing code, a device token): the retry runs again and is judged on its own.
 	Unkept bool
@@ -116,6 +119,8 @@ type Conn struct {
 	wmu        sync.Mutex
 	done       chan struct{} // closed when the client is gone
 	waiting    sync.WaitGroup
+	// afterReply runs once the reply of the call in hand is sent; onClose when the connection ends.
+	afterReply, onClose []func()
 }
 
 // NetGate is what a network server knows of paired devices: a call from a connection that no device token
@@ -132,6 +137,27 @@ type NetGate interface {
 
 // Server is the server this connection belongs to.
 func (c *Conn) Server() *Server { return c.srv }
+
+// SendRaw writes one whole message, as the stream's notices are; false when the client is gone.
+func (c *Conn) SendRaw(b []byte) bool {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	return c.tr.WriteMessage(b) == nil
+}
+
+// HangUp closes the connection from the daemon's side.
+func (c *Conn) HangUp() {
+	if cl, ok := c.tr.(interface{ Close() error }); ok {
+		cl.Close()
+	}
+}
+
+// OnClose runs f when the connection ends. Call it from a method's handler.
+func (c *Conn) OnClose(f func()) { c.onClose = append(c.onClose, f) }
+
+// AfterReply runs f once the reply to the call being handled is sent: for what must not reach the client first.
+// Not for a method that Waits.
+func (c *Conn) AfterReply(f func()) { c.afterReply = append(c.afterReply, f) }
 
 // Done is closed once the client has hung up: a call that waits stops then.
 func (c *Conn) Done() <-chan struct{} { return c.done }
@@ -150,6 +176,9 @@ func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
 		close(c.done)
 		c.waiting.Wait()
 		c.closeRelay()
+		for _, f := range c.onClose {
+			f()
+		}
 		if c.release != nil {
 			c.release()
 		}
@@ -301,10 +330,17 @@ func (c *Conn) one(raw []byte) bool {
 		if err != nil {
 			return c.fail(rid, err)
 		}
-		if !hasID {
-			return true // a notification is never answered
+		sent := true // a notification is never answered
+		if hasID {
+			sent = c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "result": result})
 		}
-		return c.send(map[string]any{"jsonrpc": "2.0", "id": rid, "result": result})
+		if !call.waits { // a waiting call runs beside the loop on a Conn of its own
+			for _, f := range c.afterReply {
+				f()
+			}
+			c.afterReply = nil
+		}
+		return sent
 	}
 	if call.waits {
 		c.waiting.Add(1)
@@ -364,6 +400,9 @@ func (c *Conn) route(msg any, raw []byte) (routed, error) {
 		return routed{}, BadRequestError("the first call is hello", "method", BadRequest)
 	}
 	m, found := c.srv.methods[name]
+	if found && m.Relays != nil && c.srv.Relay != nil && c.device != "" && m.Relays(params) {
+		return c.routeRelay(name, raw)
+	}
 	if !found {
 		if c.srv.Relay != nil && c.device != "" {
 			return c.routeRelay(name, raw)

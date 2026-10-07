@@ -207,14 +207,25 @@ func (m *Manager) List() ([]map[string]any, error) {
 	defer m.mu.Unlock()
 	out := make([]map[string]any, 0, len(ds))
 	for _, d := range ds {
-		var seen any
-		if d.LastSeen != nil {
-			seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
-		}
-		out = append(out, map[string]any{"id": d.ID, "name": d.Name, "role": "member",
-			"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0})
+		out = append(out, m.row(d))
 	}
 	return out, nil
+}
+
+// Row is a device as the Device schema shows it, for an event.
+func (m *Manager) Row(d Device) map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.row(d)
+}
+
+func (m *Manager) row(d Device) map[string]any {
+	var seen any
+	if d.LastSeen != nil {
+		seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	return map[string]any{"id": d.ID, "name": d.Name, "role": "member",
+		"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0}
 }
 
 // Know, Login and Live are rpc.NetGate.

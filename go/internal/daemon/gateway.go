@@ -16,9 +16,9 @@ import (
 )
 
 // alwaysNative are the methods a gateway serves itself whatever Native says: the handshake, and the devices, which
-// are its own.
+// are its own. subscribe and unsubscribe are served here for the devices topic and relayed for every other.
 var alwaysNative = map[string]bool{"hello": true, "whoami": true, "device.pair": true, "device.redeem": true,
-	"device.revoke": true, "devices.list": true}
+	"device.revoke": true, "devices.list": true, "subscribe": true, "unsubscribe": true}
 
 func checkGateway(cfg Config) error {
 	switch {

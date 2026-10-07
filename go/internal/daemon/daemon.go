@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -58,6 +59,7 @@ type Daemon struct {
 	net     *networkListener
 	dev     *devices.Manager // nil unless the network listener is on
 	pidFile *pidFile
+	hub     *stream.Hub
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
@@ -107,6 +109,7 @@ func Start(cfg Config) (*Daemon, error) {
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
 	}
+	d.hub = stream.NewHub()
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -146,7 +149,8 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if transport == "network" {
 		s.Net = d.dev
 	}
-	devices.Register(s, d.dev)
+	devices.Register(s, d.dev, d.hub.Emit)
+	stream.Register(s, d.hub)
 	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)

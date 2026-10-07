@@ -37,6 +37,12 @@ With no `-cert` and `-key` this is Tailscale mode (below): nothing to set up.
   (the peer pid of the connection), since anyone can rebind that path. A closed
   relay connection is how Python learns a device hung up or was revoked. If the relay is down, or drops with a call unanswered, the
   call fails with `daemon_busy` (retry after 2 s) and the next call opens a new connection.
+- **The devices topic** is the gateway's, in memory: `device.redeem` and `device.revoke` send `device.paired` and `device.revoked` to the
+  founder connections subscribed to `devices` (the gateway's local socket), nothing is written to `stream_log` (Python owns it), and
+  events are live only with cursor 0; a client reads `devices.list` again after a reconnect. `subscribe` and `unsubscribe` are native
+  only for that topic: a list naming `devices` must name nothing else (`bad_request`, field `topics`: one subscription cannot be both the
+  gateway's and the daemon's), and any other list from a device is relayed whole, Python judging it. A device naming `devices` alone is refused
+  (`gate: role`). On the gateway's own socket, or a daemon with no gateway, another topic is answered with cursor 0 and never sends anything.
 
 ## Web UI and TLS
 
