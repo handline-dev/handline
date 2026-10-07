@@ -779,6 +779,7 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
               spawnmod.worktree_path(f"abc123::{wt}-missing") is None)
         db.set_terminal(con, "backend", None, f"abc123::{wt}")
         db.clear_closed(con, "backend")     # closed with a session to resume, it is woken instead (T407)
+        credentialed(home, "alpha")         # a start needs an account to land on: logged in, it has room
 
         started: list[list[str]] = []
         real_run, real_exec = spawnmod._run, orcacli._exec
