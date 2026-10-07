@@ -7775,8 +7775,11 @@
            "enum": [
             "memo",
             "handoff",
-            "request"
-           ]
+            "request",
+            "edit",
+            "state"
+           ],
+           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`)."
           },
           "text": {
            "type": "string",

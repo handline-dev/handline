@@ -3,7 +3,7 @@
   {
    "name": "task.get.carries_what_the_task_page_draws",
    "spec": "task.get",
-   "about": "A task opened by an agent for itself: its detail says who it answers to, its clock, its sub-tasks and parent by title, its timeline as text already stripped of control characters, whom to ask, and the fields of a discard and a merge as null; tasks.list says when it last moved. Runs as an agent: no --var.",
+   "about": "A task an agent opened for another agent: its detail says who it answers to, its clock, its sub-tasks and parent by title, its timeline as text already stripped of control characters, whom to ask, and the fields of a discard and a merge as null; tasks.list says when it last moved. Needs --var task_owner=NAME: an agent other than the caller.",
    "as": "agent",
    "steps": [
     {
@@ -22,24 +22,9 @@
      "send": {
       "jsonrpc": "2.0",
       "id": 2,
-      "method": "whoami",
-      "params": {}
-     },
-     "result": {
-      "caller": {
-       "name": {
-        "$save": "me"
-       }
-      }
-     }
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 3,
       "method": "task.new",
       "params": {
-       "owner": "{{me}}",
+       "owner": "{{task_owner}}",
        "title": "the page task",
        "body": "a brief the page shows",
        "time_box": "1h",
@@ -56,7 +41,7 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 4,
+      "id": 3,
       "method": "task.get",
       "params": {
        "task": "{{tid}}"
@@ -134,7 +119,7 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 5,
+      "id": 4,
       "method": "tasks.list",
       "params": {}
      },
