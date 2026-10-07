@@ -1905,3 +1905,74 @@ button.opt {
 .accounts h2 a {
   color: inherit;
 }
+
+.team {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 24px;
+}
+.hr,
+.team-table {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+}
+.team-table {
+  max-width: none;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.team-table th,
+.team-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.team-table tbody tr[data-agent] {
+  cursor: pointer;
+}
+.hr-dot {
+  color: var(--block);
+}
+.hr-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+.hr-state.wait {
+  color: var(--wait);
+}
+.hr-state.block {
+  color: var(--block);
+}
+.hr-state.run {
+  color: var(--run);
+}
+.hr-state.muted {
+  color: var(--muted);
+}
+.hr-card.focus {
+  outline: 2px solid var(--accent);
+}
+.hr-diff {
+  max-height: 20lh;
+  overflow: auto;
+}
+.hr-diff .del {
+  color: var(--block);
+}
+.hr-diff .add {
+  color: var(--run);
+}
+@media (max-width: 640px) {
+  .team-table thead {
+    display: none;
+  }
+  .team-table td {
+    display: inline-block;
+    border: 0;
+  }
+}

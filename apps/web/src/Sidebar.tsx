@@ -19,10 +19,11 @@ import type { AgentDetail, AgentView } from '@handline/client';
 import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@handline/app-data';
 import { unserved, useServed, useVerbMark, useVerbRun, VerbSheet } from './AgentVerbs.tsx';
+import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { UsagePopup } from './UsagePopup.tsx';
 import { setting } from './daemon.ts';
-import { goAgent, goInbox, goSettings, goTasks, useInboxRoute } from './route.ts';
+import { goAgent, goInbox, goSettings, goTasks, goTeam, useInboxRoute, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({
@@ -47,11 +48,8 @@ export function Sidebar({
   const unread = useUnread().length;
   const onInbox = useInboxRoute().open;
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
-  const later = (t: string) => (
-    <button key={t} className="nav" disabled title="Not built yet">
-      {t}
-    </button>
-  );
+  const hr = useHrCount();
+  const onTeam = !!useTeamRoute();
   return (
     <nav className="rail" aria-label="Agents">
       <div className="rail-top">
@@ -72,7 +70,9 @@ export function Sidebar({
         <button className="nav" aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           Tasks
         </button>
-        {later('Team')}
+        <button className={`nav${onTeam ? ' on' : ''}`} onClick={() => goTeam(hr ? 'hr' : 'team')}>
+          Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
+        </button>
         <a className="nav" href="#/accounts">
           Accounts
         </a>

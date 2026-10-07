@@ -10,3 +10,4 @@ export * from './task-table.ts';
 export * from './verbs.ts';
 export * from './settings.ts';
 export * from './accounts.ts';
+export * from './proposals.ts';

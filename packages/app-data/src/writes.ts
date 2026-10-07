@@ -1,8 +1,8 @@
 // Every write method of the contract, once, with its kind and what it does to the cache (docs/turborepo-layout.md §8.5).
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
 import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
-import type { Account, InboxItem, Memo, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
-import { edit, provisionalId, type Ctx } from './cache.ts';
+import type { Account, InboxItem, Memo, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
+import { edit, provisionalId, upsert, type Ctx } from './cache.ts';
 import { accountAfter, type AccountChange } from './account-after.ts';
 import { chatWrites } from './chat-writes.ts';
 import { qk } from './reads.ts';
@@ -340,7 +340,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.create': 'create',
     'input.take': 'take control',
     'input.release': 'release',
-    'hr.decide': 'decide',
     'hr.withdraw': 'withdraw',
     'chat.send_now': 'send now',
     'account.login': 'log in',
@@ -368,6 +367,21 @@ export const writes: Record<string, WriteSpec> = {
       const agent = as<{ agent: string }>(p).agent;
       c.qc.setQueryData(qk.prompts(c.d, agent), { prompts: current ? [current] : [] });
       edit<{ prompt: unknown }>(c.qc, qk.agent(c.d, agent), (d) => ({ ...d, prompt: current ?? null }));
+      return true;
+    },
+  },
+  // A decide on a proposal that changed or settled meanwhile: the refusal carries the proposal as it is now, and the card shows that.
+  'hr.decide': {
+    kind: 'decided',
+    label: 'decide',
+    fail: (c, _p, e) => {
+      void c.qc.invalidateQueries({ queryKey: qk.hrs(c.d) });
+      const proposal = (e as { data?: { proposal?: Proposal } }).data?.proposal;
+      if (!proposal) return false;
+      edit<{ proposals: Proposal[] }>(c.qc, ['d', c.d, 'hr'], (l) => ({
+        ...l,
+        proposals: upsert(l.proposals, proposal, (x) => x.id === proposal.id),
+      }));
       return true;
     },
   },

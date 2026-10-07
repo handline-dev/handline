@@ -6,9 +6,10 @@ import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handl
 import { setting } from './daemon.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
-import { useAccountsRoute, useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute } from './route.ts';
+import { useAccountsRoute, useInboxRoute, useSelectedAgent, useSettingsOpen, useTasksRoute, useTeamRoute } from './route.ts';
 import { useShell } from './shell.ts';
 import { SettingsView } from './SettingsView.tsx';
+import { TeamPage } from './TeamPage.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -31,6 +32,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const tasks = useTasksRoute();
   const settings = useSettingsOpen();
   const accounts = useAccountsRoute();
+  const team = useTeamRoute();
   useShell(agent);
   const inbox = useInboxRoute();
   const unread = useUnread().length;
@@ -55,7 +57,9 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         </button>
       )}
       <main className="main" aria-label="Agent workspace">
-        {inbox.open ? (
+        {team ? (
+          <TeamPage />
+        ) : inbox.open ? (
           <InboxPage item={inbox.item} />
         ) : accounts.open ? (
           <AccountsPage name={accounts.name} />
