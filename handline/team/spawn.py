@@ -13,6 +13,7 @@ branch from that one, and refuse when they have diverged.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -136,6 +137,66 @@ def worktree_path(recorded: str | None) -> str | None:
     return path if Path(path).is_dir() else None
 
 
+def extra_paths(row) -> list[str]:
+    """The agent's further worktrees that are still there, out of what its row holds. A path gone is not listed (and `ensure_extras` makes it again)."""
+    try:
+        listed = json.loads(row["extra_worktrees"]) if row and row["extra_worktrees"] else []
+    except (ValueError, KeyError, IndexError):
+        return []
+    return [p for p in (worktree_path(x) for x in listed if isinstance(x, str)) if p] if isinstance(listed, list) else []
+
+
+def all_paths(row) -> list[str]:
+    """Every worktree the agent has: its first, then the others."""
+    first = worktree_path(row["worktree"] if row else None)
+    return ([first] if first else []) + extra_paths(row)
+
+
+def _repo_of(worktree: str) -> Path | None:
+    """The repository a worktree belongs to (the folder that holds its .git), or None."""
+    code, out, _ = _run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=Path(worktree))
+    return Path(out).parent if code == 0 and out else None
+
+
+def ensure_extras(agent: str, first: str, repo: Path | None = None) -> tuple[list[str], list[str]]:
+    """Make the worktrees agent.yaml `extra_worktrees` asks for and the agent has not got, beside its first, and record them: (its further
+    worktrees, what to tell). Each is `<agent>-2`, `<agent>-3` on a branch of that name from main, which is the host's own way of making a
+    worktree; the agent checks out what it wants there. One it has is kept as it is and never made twice, so a restart, a wake or the
+    reconciler's recovery cannot make a third or strand the first. Failing to make one is told, not fatal: the agent starts with what it has."""
+    try:
+        want = agents.extra_worktrees(agents.read(agent))
+    except Exception:  # noqa: BLE001 - a config that cannot be read asks for nothing here
+        return [], []
+    con = db.connect()
+    try:
+        have = extra_paths(db.get_agent_state(con, agent))
+    finally:
+        con.close()
+    if len(have) >= want:
+        return have[:want], []
+    told: list[str] = []
+    repo = repo or _repo_of(first)
+    if repo is None:
+        return have, [f"{agent}: could not tell which repository {first} belongs to, so its extra worktree was not made"]
+    base_ref, why = pick_base(repo, "main")
+    if base_ref is None:
+        return have, [f"{agent}: no extra worktree made: {why}"]
+    for n in range(len(have) + 2, want + 2):
+        wt, failed = term.create_worktree(str(repo), f"{agent}-{n}", base_ref)
+        if wt is None:
+            told.append(f"{agent}: could not make {agent}-{n}: {failed}")
+            break
+        have.append(wt)
+        told.append(f"{agent}: made worktree {wt} (branch {agent}-{n} from {base_ref})")
+    if told:
+        con = db.connect()
+        try:
+            db.set_extra_worktrees(con, agent, have)
+        finally:
+            con.close()
+    return have, told
+
+
 def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, str]:
     """Start an agent in a worktree it already has.
 
@@ -151,6 +212,7 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
         return False, term.missing()
     if not Path(worktree).exists():
         return False, f"{agent}: its worktree {worktree} is gone"
+    _, extra_told = ensure_extras(agent, worktree)
     handle, why = term.open_terminal(cmd or launch.command_for(agent), cwd=worktree, title=agent)
     if handle is None and why:
         return False, f"{agent}: could not start in {worktree}: {why}"
@@ -161,7 +223,7 @@ def start_in(agent: str, worktree: str, cmd: str | None = None) -> tuple[bool, s
             register_worker(con, agent, handle)
         finally:
             con.close()
-    said = f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"
+    said = "\n".join([*extra_told, f"{agent}: started in {worktree} (terminal {handle or 'unknown'})"])
     problem = _confirm_session(agent)
     if problem:
         return False, f"{said}\n  but {problem}"
@@ -205,12 +267,17 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
 
     cmd = launch.command_for(agent)
     if dry_run:
-        return True, _dry_run_text(wt, repo, agent, base_ref, why, cmd)
+        text = _dry_run_text(wt, repo, agent, base_ref, why, cmd)
+        want = agents.extra_worktrees(agents.read(agent))
+        have = len(extra_paths(row))
+        extra = [f"\n  would make {agent}-{n} beside it (branch {agent}-{n} from main)" for n in range(have + 2, want + 2)]
+        return True, text + "".join(extra)
 
     if not wt:
         wt, failed = term.create_worktree(str(repo), agent, base_ref)
         if wt is None:
             return False, failed
+    _, extra_told = ensure_extras(agent, wt, repo)
 
     handle, failed = term.open_terminal(cmd, cwd=wt, title=agent)
     if handle is None and failed:
@@ -226,6 +293,7 @@ def spawn(agent: str, repo: Path, base: str = "main", prompt: str | None = None,
 
     lines = [f"{agent}: worktree {wt}",
              f"  {'branched from ' + base_ref if base_ref else 'kept'} ({why})",
+             *[f"  {t}" for t in extra_told],
              f"  terminal {handle or 'unknown'}"]
 
     problem = _confirm_session(agent)

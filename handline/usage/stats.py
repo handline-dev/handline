@@ -7,6 +7,7 @@ is a guess at a share of the week, not a reading.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from . import prices as pricing
@@ -17,9 +18,15 @@ UNATTRIBUTED = "(unattributed)"
 def _worktrees(con) -> list[tuple[str, str]]:
     """(directory, agent), longest directory first. The row may hold Orca's
     `id::path` selector, of which only the path is the directory."""
-    rows = con.execute("SELECT agent, worktree FROM agent_state WHERE worktree IS NOT NULL "
+    rows = con.execute("SELECT agent, worktree, extra_worktrees FROM agent_state WHERE worktree IS NOT NULL "
                        "AND worktree != ''").fetchall()
     dirs = [(r["worktree"].split("::", 1)[-1].rstrip("/"), r["agent"]) for r in rows]
+    for r in rows:      # the agent's further worktrees are its too
+        try:
+            extra = json.loads(r["extra_worktrees"]) if r["extra_worktrees"] else []
+        except ValueError:
+            extra = []
+        dirs += [(x.rstrip("/"), r["agent"]) for x in extra if isinstance(x, str) and x]
     return sorted(dirs, key=lambda d: -len(d[0]))
 
 
