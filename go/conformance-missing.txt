@@ -70,7 +70,6 @@ ask
 push
 push.answer
 push.cancelled
-accounts.list
 team.get
 schedules.list
 stats.get

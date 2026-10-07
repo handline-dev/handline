@@ -38,6 +38,22 @@ def _task(title: str, owner: str = "worker", by: str = "manager") -> int:
     return tid
 
 
+def _seed_accounts(home: Path, con, now: int) -> None:
+    """Three accounts: a measured one with a label, a cap and a typed end, one with a carried legacy-shaped window, one with no reading."""
+    acc = home / "accounts"
+    for name in ("alpha", "beta", "gamma"):
+        (acc / name).mkdir(parents=True, exist_ok=True)
+    (acc / "alpha" / "status.json").write_text(json.dumps({"windows": [
+        {"minutes": 10080, "used_percent": 41.2, "resets_at": now + 86400, "observed_at": now, "carried": False, "lost": False},
+        {"minutes": 300, "used_percent": 12.0, "resets_at": now + 3600, "observed_at": now, "carried": False, "lost": False}]}))
+    (acc / "beta" / "status.json").write_text(json.dumps({"pct_5h": 28.999999999999996, "reset_5h": now + 100, "rl_carried": 1, "pct_7d": None}))
+    (home / "config.yaml").write_text("active_cap: 3\nactive_cap_alpha: 1\nlabel_alpha: Main\nmonth_cycle_alpha: true\n"
+                                      "sub_end_alpha: \"2099-01-31\"\nusage_recover_beta: false\nmonth_cycle_gamma: true\n")
+    con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'worker'")
+    db.add_event(con, "manager", "moved_account", {"from": "beta", "to": "alpha", "trigger": "wall"})
+    db.add_event(con, "worker", "moved_account", {"from": "alpha", "to": None})
+
+
 def _seed(home: Path) -> dict:
     """A board with every state, a child, a wait, a memo, a handoff, and a founder's mailbox of each kind."""
     support._board_world(home)
@@ -82,6 +98,7 @@ def _seed(home: Path) -> dict:
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
+    _seed_accounts(home, con, now)
     agentview.refresh(con, int(time.time()))
     con.close()
     return {"tasks": [a, b, c, done], "ask": ask, "card": card}
@@ -183,6 +200,8 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"agent": "worker", "limit": 2}),
         (None, "inbox.list", {"before": ids["card"]}),
         (None, "inbox.list", {"wait_s": 601}),
+        (None, "accounts.list", {}),
+        ("manager", "accounts.list", {}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine"}),
         (None, "chat.messages", {"agent": "worker", "scope": "all", "limit": 2}),
         (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": ids["card"]}),
