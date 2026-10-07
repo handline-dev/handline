@@ -17,7 +17,8 @@ const home = env('HOME') ?? path.join(os.homedir(), '.handline');
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
 /** The Go gateway (host:port): the web app reaches it at /rpc and pairs with a device token. */
 const gateway = env('GATEWAY');
-const ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : undefined);
+/** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
+const ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
@@ -92,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
     win.webContents.on('will-navigate', (e, url) => {
       if (new URL(url).origin !== origin) e.preventDefault();
     });
-    await win.loadURL(ws ? `${web.url}?daemon=${encodeURIComponent(ws)}` : web.url);
+    await win.loadURL(`${web.url}?daemon=${encodeURIComponent(ws)}`);
     app.on('activate', show);
     app.on('window-all-closed', () => app.quit());
     app.on('quit', () => web.close());

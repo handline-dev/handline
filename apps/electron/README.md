@@ -9,7 +9,7 @@ The main process serves `apps/web/dist` on a loopback port and holds its own dae
 | Env (`HANDLINE_` or `OCP_`) | Default |
 |---|---|
 | `SOCKET` | `<home>/daemon.sock`, home is `HANDLINE_HOME` or `~/.handline` |
-| `WS` | the web app's own default (`ws://127.0.0.1:7777`) |
+| `WS` | the fake daemon (`ws://127.0.0.1:7777`) |
 | `WEB_DIST` | `apps/web/dist` |
 
 ## On the real daemon

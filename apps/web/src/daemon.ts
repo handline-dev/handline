@@ -2,10 +2,20 @@ import type { KV } from '@handline/app-core';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
-/** The daemon's WebSocket: `?daemon=` or the page's own host (wss on an https page). Plain ws is for a loopback daemon only. */
-export function daemonUrl(search: string, loc: { protocol: string; hostname: string }): { url: string; insecure: boolean } {
-  const url =
-    new URLSearchParams(search).get('daemon') ?? `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.hostname || '127.0.0.1'}:7777`;
+/**
+ * The daemon's WebSocket: `?daemon=`, else in a built page the gateway that served it (`/rpc` on the page's own origin, which a
+ * device token opens), else the fake daemon's port in development. Plain ws is for a loopback daemon or the page's own origin
+ * only; a gateway that is not on loopback should be served over https, or its device token travels in clear.
+ */
+export function daemonUrl(
+  search: string,
+  loc: { protocol: string; host: string; hostname: string },
+  built = false,
+): { url: string; insecure: boolean } {
+  const ws = loc.protocol === 'https:' ? 'wss' : 'ws';
+  const given = new URLSearchParams(search).get('daemon');
+  if (given === null && built) return { url: `${ws}://${loc.host}/rpc`, insecure: false };
+  const url = given ?? `${ws}://${loc.hostname || '127.0.0.1'}:7777`;
   let insecure = true;
   try {
     const u = new URL(url);
