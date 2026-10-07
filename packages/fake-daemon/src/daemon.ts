@@ -73,8 +73,9 @@ export class FakeDaemon {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));
         if (a?.format === 'text') this.notify(c, method, params);
-        // Bytes watchers get the same markers and holders in their own counter, and no frames or resizes.
-        else if (a && (method === 'marker' || method === 'holder')) this.notify(c, method, { ...(params as object), seq: ++a.seq });
+        // Bytes watchers get the same markers and holders in their own counter, marked `bytes`, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder'))
+          this.notify(c, method, { ...(params as object), format: 'bytes', seq: ++a.seq });
       }
     },
     broadcastBytes: (s, method, build) => {
@@ -187,6 +188,7 @@ export class FakeDaemon {
       kind: 'daemon_typed',
       actor: { kind: 'daemon', name: 'daemon' },
       text,
+      format: 'text',
     }));
   }
 
