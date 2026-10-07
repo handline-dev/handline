@@ -127,7 +127,7 @@ def test_chat_requests_are_the_threads_with_their_task_changes_sessions_and_a_ve
     check("chat.requests: the result is the spec's schema", why is None, str(why))
     got = r["result"]
     reqs = [i for i in got["items"] if i["type"] == "request"]
-    order = [(i["at"], i["message"]["id"]) for i in reqs]      # oldest first by `at` (an answered request's is its answer's), ties by number
+    order = [(i["at"], i["message"]["id"]) for i in reqs]      # oldest first by `at` (a landed request's is its landing), ties by number
     check("chat.requests: the requests are oldest first and each carries the chat.messages message, its dismissal and its task state",
           order == sorted(order) and ids["hi"] in [i["message"]["id"] for i in reqs]
           and all(set(i) >= {"message", "dismissal", "task_state"} for i in reqs), str(reqs))
