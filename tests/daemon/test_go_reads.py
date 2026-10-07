@@ -132,18 +132,13 @@ def _python(method: str, params: dict, as_agent: str | None) -> dict:
 
 
 def _normal(method: str, reply: dict) -> dict:
-    """What the two daemons may differ in: the build, the clock, the terminal host, the account a session would be placed on, and the
-    optional fields Python sends before Go does."""
+    """What the two daemons may differ in: the build, the clock, the terminal host, the account a session would be placed on."""
     r = json.loads(json.dumps(reply))
     res = r.get("result")
     if method == "daemon.status" and res:
         r["result"] = {k: res[k] for k in ("alive", "protocol", "schema", "agents", "inbox")}
     if method == "agent.get" and res:
         res.pop("account_pick", None)
-        (res.get("prompt") or {}).pop("multi", None)        # optional in the spec; the Go daemon does not send it yet
-    if method in ("tasks.list", "task.get") and res:
-        for t in res.get("items", [res]):
-            t.pop("priority", None)                          # likewise Task.priority
     r.pop("id", None)
     return r
 
