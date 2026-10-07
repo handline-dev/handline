@@ -30,6 +30,7 @@ import { Knobs } from './knobs.ts';
 import { accountsReply, detail, newSession, tid, view, type Attach, type Session } from './session.ts';
 
 const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
+const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
@@ -52,6 +53,7 @@ export interface FakeDaemonOptions {
   admin?: boolean; // serve stats, outlook, settings and standing answers (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
+  bytes?: boolean; // offer the bytes terminal format (default); false is a daemon that serves text only
 }
 
 type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
@@ -66,6 +68,7 @@ export class FakeDaemon {
   readonly accounts: FakeAccounts;
   readonly admin: FakeAdmin;
   private serveChat: boolean;
+  private serveBytes: boolean;
   private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
@@ -101,6 +104,7 @@ export class FakeDaemon {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;
+    this.serveBytes = opts.bytes ?? true;
     this.inbox = new FakeInbox(this, () => this.iso(), opts.inbox ?? true);
     this.accounts = new FakeAccounts(this, () => this.iso(), opts.accounts ?? true);
     this.admin = new FakeAdmin(() => this.iso(), opts.admin ?? true);
@@ -335,7 +339,7 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
+        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
           .filter(([name]) => this.served.every((m) => m.lists(name)))

@@ -202,6 +202,8 @@ function Terminal(props: { detail: AgentDetail }) {
   const takeInput = useWrite('input.take', d.name);
   const releaseInput = useWrite('input.release', d.name);
   const sendInput = useWrite('session.input', d.name);
+  const sendBytes = useWrite('terminal.input', d.name);
+  const [refused, setRefused] = useState('');
   const sendKeys = useWrite('session.keys', d.name);
   const releasing = usePending('input.release').some((v) => v.agent === d.name);
   const taking = usePending('input.take').some((v) => v.agent === d.name);
@@ -215,10 +217,18 @@ function Terminal(props: { detail: AgentDetail }) {
     } else takeInput.mutate({ agent: d.name });
   };
   const submit = () => {
-    if (text.trim()) {
-      sendInput.mutate({ agent: d.name, text, enter: true });
-      setText('');
-    }
+    if (!text.trim()) return;
+    // session.input is refused while the screen is unread; the bytes path is not, so it is used whenever the daemon has one.
+    const sent =
+      view.terminal && store.client.typesBytes
+        ? sendBytes.mutateAsync(store.client.typedBytes(view.terminal, text, true))
+        : sendInput.mutateAsync({ agent: d.name, text, enter: true });
+    setRefused('');
+    setText('');
+    sent.catch((e) => {
+      setText((now) => now || text); // kept for a retry
+      setRefused((e as { reason?: string }).reason ?? (e as Error).message);
+    });
   };
   return (
     <View style={{ flex: 1 }}>
@@ -274,6 +284,11 @@ function Terminal(props: { detail: AgentDetail }) {
         />
         <Button label="Send" onPress={submit} disabled={!ctl.typing} />
       </Row>
+      {!!refused && (
+        <Text testID="composer-refused" style={{ color: c.wait, fontSize: 12, paddingHorizontal: space.sm }}>
+          {refused}
+        </Text>
+      )}
     </View>
   );
 }
