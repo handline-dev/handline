@@ -15,7 +15,7 @@ from ..session import term
 from ..infra import gitrun, paths, protected, service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
-from ..ui import tui
+from ..view import tui
 
 from .health import _name_col
 

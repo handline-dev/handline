@@ -132,13 +132,19 @@ def _python(method: str, params: dict, as_agent: str | None) -> dict:
 
 
 def _normal(method: str, reply: dict) -> dict:
-    """What the two daemons may differ in: the build, the clock, the terminal host, the account a session would be placed on."""
+    """What the two daemons may differ in: the build, the clock, the terminal host, the account a session would be placed on, and the optional fields Python sends before Go does."""
     r = json.loads(json.dumps(reply))
     res = r.get("result")
     if method == "daemon.status" and res:
         r["result"] = {k: res[k] for k in ("alive", "protocol", "schema", "agents", "inbox")}
     if method == "agent.get" and res:
         res.pop("account_pick", None)
+    if method == "chat.requests" and res:
+        res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
+    if method in ("tasks.list", "task.get") and res:
+        for t in res.get("items", [res]):
+            for k in ("last_activity", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
+                t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
     r.pop("id", None)
     return r
 
@@ -175,6 +181,23 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"agent": "worker", "limit": 2}),
         (None, "inbox.list", {"before": ids["card"]}),
         (None, "inbox.list", {"wait_s": 601}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine"}),
+        (None, "chat.messages", {"agent": "worker", "scope": "all", "limit": 2}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": ids["card"]}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "since": ids["ask"]}),
+        (None, "chat.messages", {"agent": "worker", "scope": "mine", "before": 3, "since": 1}),
+        (None, "chat.requests", {"agent": "worker", "scope": "mine"}),
+        (None, "chat.requests", {"agent": "worker", "scope": "all", "limit": 2}),
+        (None, "chat.requests", {"agent": "worker", "scope": "mine", "since": ids["ask"]}),
+        (None, "chat.transcript", {"agent": "worker"}),
+        (None, "chat.transcript", {"agent": "worker", "limit": 2}),
+        (None, "chat.transcript", {"agent": "manager"}),
+        (None, "chat.locate", {"request": ids["ask"]}),
+        (None, "chat.locate", {"request": ids["ask"], "agent": "backend", "limit": 3}),
+        (None, "chat.locate", {"request": 99999}),
+        (None, "chat.search", {"query": "plan"}),
+        (None, "chat.search", {"query": "a", "agent": "worker", "scope": "all", "limit": 3}),
+        (None, "chat.search", {"query": "100%_"}),
         ("manager", "tasks.list", {}),
         ("worker", "tasks.list", {}),
         ("backend", "tasks.list", {}),

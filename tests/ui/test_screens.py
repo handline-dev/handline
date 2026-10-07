@@ -3314,7 +3314,7 @@ def test_bridge_textual_missing_package_classification() -> None:
     real_import = clibridge._import_bridge_textual
     try:
         clibridge._import_bridge_textual = lambda: (_ for _ in ()).throw(
-            ModuleNotFoundError("cannot import name 'no_such_name' from 'handline.ui.tui'", name="handline.ui.tui"))
+            ModuleNotFoundError("cannot import name 'no_such_name' from 'handline.view.tui'", name="handline.view.tui"))
         raised = False
         try:
             clibridge._bridge_textual_module()

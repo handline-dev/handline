@@ -54,8 +54,8 @@ Say so if you disagree with any; each is cheap to change before work starts.
    schema, push changes, and be replaced.
 2. **After phase 1 the daemon is the only process that writes the database and the only one that
    migrates it.** Clients do not open the db.
-3. **The Python daemon stays until the Go one has matched it on real state** (shadow run, below),
-   and is deleted only after that.
+3. **The Python daemon stays until the Go one passes the conformance and tick fixtures** and has been
+   in use without a rollback, and is deleted only after that.
 
 ## Phase 1: one socket, every caller
 
@@ -270,25 +270,19 @@ list is empty when phase 1 is done.
 
 The Go daemon replaces `daemon/`, `session/`, `usage/` and `vendors/` and the daemon-facing parts
 of `actions/` and `team/`. The CLI and the IDE stay Python and keep talking to the socket. `hl
-fold` stays the one model call; the daemon starts it as a subprocess, as today. The `orca` and
-`tmux` terminal backends stay subprocess calls.
+fold` stays the one model call; the daemon starts it as a subprocess, as today. The `orca`,
+`tmux` and `git` calls stay subprocesses. The daemon is not in active service, so the port is
+straight: no shadow run, no differential runs, no mirroring of Python beyond what the fixtures check.
 
-### How "same behaviour" is shown
+### The bar
 
-The Python suite cannot be ported, so three things replace it. All three run against both daemons.
-
-1. **Conformance suite.** Request/response fixtures for every method, as plain JSON files in
-   `contract/`, run against a socket path. Language-neutral: it knows nothing about either daemon.
-   The Python daemon must pass it before the Go one starts.
-2. **Differential tick tests.** Triggers are levels read from persisted state, so a tick is a
-   function of the database, the clock and the terminals. A fixture is a database snapshot, a
-   fake clock and a scripted fake terminal backend; the output is the resulting database diff and
-   the ordered terminal operations. The same fixtures run through both daemons and the outputs are
-   compared. Fixtures are taken from the Python suite's existing scenarios and from real stuck
-   cases. This is the main safety net, and it is the most work.
-3. **Shadow run.** The Go daemon runs beside the real one in read-only mode on the real state and
-   logs what it would have done each tick; a comparer flags every difference from what the Python
-   daemon actually did. Cut over only after a run of days with no unexplained difference.
+1. **Conformance fixtures** in `contract/fixtures/`, run against the Go binary by `tools/test-go.sh`.
+   A method Go serves leaves `go/conformance-missing.txt`.
+2. **Tick fixtures** in `contract/tick/fixtures/` (30): a database, a fake clock and a scripted
+   terminal host in, the database diff and the ordered terminal operations out. Their outputs are
+   frozen once from the Python daemon (`pyrun.py`) and kept as the expected files; the Go tick
+   test reads the fixture and compares with the expected file. `compare.py` is not run again.
+3. **Ordinary Go unit tests**, `go test -race ./...`, for each module.
 
 ### Go requirements
 
@@ -298,16 +292,35 @@ The Python suite cannot be ported, so three things replace it. All three run aga
   way `db.connect()` sets them today.
 - One daemon binary, version stamped with the git sha, reported in `hello`.
 - Credential rule unchanged: the Go code never reads or stores a credential; whatever the Python
-  vendors do today for usage numbers is ported as the same calls and nothing more.
+  vendors do today for usage numbers is ported as the same calls and nothing more. Fail closed,
+  deterministic given the clock.
+- A method Go serves needs no Python implementation first.
 
-### Cutover and rollback
+### Port order
 
-1. Go daemon passes conformance and the differential suite, and the shadow run is clean.
-2. Swap the launchd service to the Go binary. The Python daemon stays installed and its plist is
-   kept.
-3. The schema stays readable by both until the Python daemon is deleted, so rollback is swapping the
-   service back. No migration may drop or reshape a column in this window.
-4. Delete the Python daemon only after a period of live use on Go with no rollback.
+Sizes are Python lines. Each row is one branch and one auditor review. The Go daemon already has the
+sqlite store, the rpc server, hooks ingest, the reads for agents, tasks and inbox, the stream, devices.
+
+| # | Module | What | Lines | Depends on | Methods it brings |
+|---|---|---|---|---|---|
+| G1 | foundation | `infra` (paths, names, textsafe, timefmt, yaml config, lock, protected and sealed files, gitrun), `team` core (agents, accounts with login state, team routing, trust, agent settings) | 3.8k | | |
+| G2 | usage and vendors | windows, prices, token log, collect, status, load, cycle, burn rate, outlook, stats, measure, recover, usage api, the vendor drivers | 6.9k | G1 | `accounts.list`, `stats.get`, `stats.outlook`, `settings.get` |
+| G3 | session backends | tmux and orca drivers, screen reading and prompt parsing, blocked, waiting, observe, the guards, auto-accept, the prompt block store | 3.8k | G1 | `prompt.list`, `prompt.answer` |
+| G4 | terminal channel | bytes and text frames, screen state, the shared poller, input holder, gates | 1.4k | G3 | `terminal.*`, `input.*` |
+| G5 | messaging and delivery | ask routing, sends, landing, delivery, task queue and holds, notice digest, the task subset of `actions.tasks` the supervisor calls | 3.6k | G1, G3 | |
+| G6 | launch and lifecycle | launch, spawn, recover, lifecycle, reconciler, idle close, locks | 3.3k | G2, G3, G5 | |
+| G7 | record path | handoff and its note, fold trigger (subprocess `hl fold`), events, digest, spool, subscriptions | 2.8k | G5 | `events.feed` |
+| G8 | tick and policies | triggers, evaluate, cost pilot, time box, login expiry, dev mode, apply settings, the loop | 1.9k | G5 to G7 | |
+| G9 | session methods | `session.*` (start, stop, park, wake, restart, input, type, keys, interrupt), `agent.create`, `operation.get`, `agent.options` | 0.5k | G3, G4, G6 | those |
+
+G2 and G3 run in parallel once G1 is in; G4 follows G3; G5 follows G1 and G3. G2 checks first what
+the Python usage code reads for `login_state` and the usage numbers and ports those calls only.
+
+### Cutover
+
+Cut over when the conformance fixtures, the tick fixtures and `go test -race` pass; fix forward. Swap
+the launchd service to the Go binary. The schema stays readable by both until the Python daemon is
+deleted, so no migration may drop or reshape a column, and rollback is swapping the service back.
 
 ## Tasks for the sub-team
 
@@ -344,23 +357,22 @@ rest of the fixtures arrive as phase 1 lands their methods)
 | # | Owner | Task | Size | Done when |
 |---|---|---|---|---|
 | 16 | contract | Conformance suite as JSON fixtures in `contract/`, runnable against a socket path; the same fixtures drive the web UI team's fake daemon. First the `hello` and errors fixtures, then one set per phase 1 task. | M | The Python daemon passes everything its phase 1 tasks have landed. |
-| 17 | contract | Differential tick harness: fixture format, fake clock, fake terminal backend, comparer. First 30 scenarios from the Python suite. | L | The Python daemon produces stable outputs; the comparer is deterministic. |
+| 17 | contract | Tick fixtures: fixture format, fake clock, fake terminal backend; 30 scenarios from the Python suite, their outputs frozen. | L | Done: `contract/tick`. |
 | 18 | go | Module, the local and network listeners, `hello`, roles, sqlite and migrations, `go test -race` in CI. | M | The `hello` and errors fixtures pass on Go. Depends on 2, 3, 16. |
-| 19 | go | The record path: events, hooks ingest, collect, token log, spool, handoff, fold trigger. | L | Conformance and differential for these pass on Go. |
+| 19 | go | The record path: events, hooks ingest, collect, token log, spool, handoff, fold trigger. | L | Conformance for these passes on Go. |
 | 20 | go | Reads, writes, request ids, subscribe and device auth, by area in the order of the tables above. Several tasks. | L | Each area's fixtures pass on Go. |
-| 21 | go | Usage and vendors: burn rate, usage reads, measure, vendor drivers. | L | Differential fixtures for the account choice and out-of-usage rules pass. |
-| 22 | go | Terminal backends (orca, tmux), launch, recover, reconciler, messaging, session control with its gates, the terminal channel, triggers, the tick. | L | The full differential set passes, and the session-control and terminal fixtures, refusal cases included. Depends on 17. |
-| 23 | contract | Shadow comparer on real state and its report. | M | Report generated daily. Depends on 22. |
-| 24 | go | Cutover and rollback notes, service swap, deletion of the Python daemon. | M | Founder approves the cutover on the shadow report. |
+| 21 | go | Usage and vendors: burn rate, usage reads, measure, vendor drivers. | L | See G2. |
+| 22 | go | The port order above, G1 to G9. | L | Conformance, tick fixtures and `go test -race` pass. |
+| 23 | | Dropped: no shadow run. | | |
+| 24 | go | Cutover and rollback notes, service swap, deletion of the Python daemon. | M | Founder approves the cutover. |
 
 Every `api`, `contract` and `go` task goes to the auditor before it closes. The `go` tasks (18 to 22
 and 24) add `go test -race` to the review.
 
 ## Risks
 
-- **The differential harness is the schedule.** If it is weak, a green Go daemon means little.
-  It is built before the Go tick is, and its scenarios come from past incidents, not only from
-  what the Python tests happen to cover.
+- **The tick fixtures are the safety net.** Thirty scenarios from past incidents with frozen outputs; a
+  green Go tick means they pass, and a stuck case found later becomes a fixture.
 - **View drift.** The per-agent view is a new thing the daemon must keep correct on every state
   change. A test compares it with a recomputation from first principles on the existing fixtures.
 - **Hook latency.** The record path runs on every tool call. If the socket round trip is not at
@@ -372,8 +384,7 @@ and 24) add `go test -race` to the review.
 - **Terminal fidelity.** Frames are text, because the backends give text. If the web UI needs
   colours or full-screen programs, a byte feed must come from the backend (tmux can; Orca cannot
   today), and that choice is the founder's.
-- **Two languages on one database** exist only during the shadow run (read-only for Go) and the
-  rollback window. Migrations in that window are additive.
+- **Two languages on one database** exist only in the rollback window. Migrations in that window are additive.
 - **`data_version` polling** is a stopgap, and it disappears with the last outside writer.
-- **The estimate is rough.** The 22k-line scope comes from line counts, not from reading each file;
-  task 17's scenario count will show whether the sizes hold, and the plan is re-cut then.
+- **The estimate is rough.** The scope is about 27k Python lines in four packages plus the daemon-facing
+  parts of `team` and `actions`; the first two modules will show whether the sizes hold, and the plan is re-cut then.

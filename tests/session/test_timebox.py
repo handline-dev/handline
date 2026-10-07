@@ -417,7 +417,7 @@ def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: P
               and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_prompted'").fetchone()[0] == 1)
         timebox.sweep(con, lambda _m: None, now + 5)
         check("forgotten: told once while the stretch goes on", len(sent) == 1, str(sent))
-        from handline.ui import tui
+        from handline.view import tui
         check("forgotten: the screen says it was told, so a stop is not a surprise",
               "told to finish or stop it" in tui._background_detail(con, "marina"),
               tui._background_detail(con, "marina"))

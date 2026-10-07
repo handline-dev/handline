@@ -9,7 +9,7 @@ from .. import db
 from ..session import launch
 from ..infra import paths, sealed
 from ..team import team
-from ..ui import tui
+from ..view import tui
 from ..session import waiting
 
 from .ask import _who_refusal

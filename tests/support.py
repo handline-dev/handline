@@ -76,7 +76,8 @@ from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
 from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
-from handline.ui import jobs as jobsmod, tui  # noqa: E402
+from handline.ui import jobs as jobsmod  # noqa: E402
+from handline.view import tui  # noqa: E402
 from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
                         locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,

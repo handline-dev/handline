@@ -1,5 +1,5 @@
 """task.new, task.edit, task.withdraw, task.cancel."""
-from . import err, fake
+from . import CURRENT, err, fake
 
 
 @fake("task.new", "task.edit", "task.withdraw", "task.cancel")
@@ -15,5 +15,6 @@ def tasks(role, method, params):
             return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}
         if params.get("time_box") not in ("30m", "1h", "2h"):
             return "fail", err(-32602, "bad_request", field="time_box")
+        CURRENT.ctx.state["task_page"] = True
         return "ok", {"accepted": True, "said": "opened", "task": 1}
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}

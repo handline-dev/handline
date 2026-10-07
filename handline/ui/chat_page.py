@@ -29,14 +29,15 @@ from textual.widgets.option_list import Option
 
 from .. import actions, db
 from ..actions.prompt_blocks import PERMISSION, QUESTION
-from ..daemon import landing as landingmod
+from ..daemon import client, landing as landingmod
 from ..team import agents, ask as askmod
 from ..team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, EDITABLE, WEIGHTS,   # noqa: F401 - the tests read them here
                                    save_settings, settings_changes, settings_of, settings_problem)
 from ..infra import paths, textsafe
 from ..session import idle_close
 from ..usage import status
-from . import stall, tui
+from . import api, stall
+from ..view import tui
 from .clipboard_app import ClipboardApp
 from .theme import follow_os_theme
 from ..infra import timefmt
@@ -60,8 +61,7 @@ from .components.agent_settings import AgentSettings
 from .components.task_assign import TaskAssign
 from .components.write_guard import WriteGuard
 
-from ..actions.chatreads import (_GONE, PAGE, Located, _scope, _with_task_state, locate_message, message_alone,  # noqa: F401 - the screen's own names
-                                   page_back_to, requests_page)
+from ..actions.chatreads import (_GONE, PAGE, Located, _scope, _with_task_state, locate_message, message_alone)  # noqa: F401 - the screen's own names
 
 WAITS = ("waiting for", "blocked by")      # what the work line says of an agent that waits on something
 
@@ -80,98 +80,10 @@ def landing_label(landing: str, why: str = "") -> str:
     return f"{label} · {safe(why)}" if why and label == "sending" else label
 
 
-# The task events that move a task to a state; the state `doing` is not stored, so the two
-# events that put a task in its owner's hands stand for it.
-_STATE_AFTER = {"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
-                "mark_task_done": "done", "close_task": "closed", "discard_task": "discarded",
-                "reopen_task": "queued"}
-
-
-def _edit_notes(payload: dict) -> list[str]:
-    """What an `edit_task` event says, one note per field the chat shows."""
-    notes = []
-    if "owner" in payload:
-        notes.append(f"assigned to {payload['owner']['new']}")
-    if "title" in payload:
-        notes.append("title changed")
-    if "priority" in payload:
-        notes.append(f"priority {payload['priority']['old']} -> {payload['priority']['new']}")
-    return notes
-
-
-def fold_handoffs(con, msgs: list[dict]) -> None:
-    """A handoff delivers its task to the new owner, so it has both a delivery and a change. Draw it as
-    ONE card: the delivery, as CHANGED TASK `handed to X` with the typed text, keeping its delivery state.
-    NEW TASK stays for a task really created."""
-    rids = [m["rid"] for m in msgs if is_card(m)]
-    if not rids:
-        return
-    for e in con.execute("SELECT payload FROM events WHERE kind = 'task_handoff' AND "
-                         f"json_extract(payload, '$.request_id') IN ({','.join('?' * len(rids))})", rids):
-        p = json.loads(e["payload"])
-        for m in msgs:
-            if is_card(m) and m["rid"] == p["request_id"]:
-                m["change"], m["note"] = f"handed to {p['to']}", p.get("note", "")
-
-
-def task_changes(con, msgs: list[dict], agent: str = "") -> list[dict]:
-    """The changes, since the first of `msgs`, of the tasks delivered in them, as entries for the
-    chat: {change: "queued -> doing", who, side (as a message's, from `agent`'s page), note (the text
-    typed with a handoff), tasks, task_title, when}. A task starts as queued."""
-    cards = {m["tasks"][0]: m["task_title"] for m in msgs if is_card(m)}
-    if not cards:
-        return []
-    folded = {m["rid"] for m in msgs if is_card(m) and "change" in m}
-    since = min((m["when"] for m in msgs if m["when"]), default=0)
-    marks = ",".join("?" * len(cards))
-    kinds = (*_STATE_AFTER, "task_handoff", "edit_task")
-    events = con.execute(
-        f"SELECT ts, agent, kind, payload, {db.EVENT_TASK} AS tid FROM events "
-        f"WHERE kind IN ({','.join('?' * len(kinds))}) "
-        f"AND {db.EVENT_TASK} IN ({marks}) ORDER BY id", (*kinds, *cards)).fetchall()
-    steps = []      # (time, task, who, the state it reaches or None, what to say instead, the note with it)
-    for e in events:
-        if e["kind"] in _STATE_AFTER:
-            steps.append((e["ts"], e["tid"], e["agent"], _STATE_AFTER[e["kind"]], None, ""))
-            continue
-        payload = json.loads(e["payload"])
-        if e["kind"] == "task_handoff" and payload.get("request_id") in folded:
-            continue        # drawn by its delivery card
-        notes = [f"handed to {payload['to']}"] if e["kind"] == "task_handoff" else _edit_notes(payload)
-        said = payload.get("note", "") if e["kind"] == "task_handoff" else ""
-        steps += [(e["ts"], e["tid"], e["agent"], None, note, said) for note in notes]
-    for m in msgs:      # every delivery leaves when the task reached its owner, which is when it became doing
-        if is_card(m) and m["landing"] == "delivered" and m["when"]:
-            steps.append((m["when"], m["tasks"][0], m["to"], "doing", None, ""))
-    state: dict[int, str] = {}
-    out = []
-    for ts, tid, who, after, note, said in sorted(steps, key=lambda step: step[0]):
-        if after is not None:
-            before = state.get(tid, "queued")
-            state[tid] = after
-            if before == after:
-                continue
-            note = f"{before} -> {after}"
-        if ts >= since:
-            side = "you" if who == actions.HUMAN else "agent" if who == agent else "other"
-            out.append({"change": note, "note": said, "who": who, "side": side, "tasks": [tid],
-                        "task_title": cards[tid], "when": ts})
-    return out
-
-
 # Said in the founder's terms; only a start of a new conversation is drawn, so "wake" is a fresh
 # start after the agent was closed for idle.
 START_WORDS = {"restart": "restarted fresh", "wake": "after idle close", "fresh close": "after a fresh close",
                "move": "moved to another account", "handoff": "handoff", "launch": "opened by hand"}
-
-
-def session_marks(con, agent: str, msgs: list[dict]) -> list[dict]:
-    """The session starts of `agent` since the first of `msgs`, as entries for the chat: {session: the
-    row, when}, for the starts of a new conversation only: one that resumed the old one is not news.
-    Older ones are above what is drawn."""
-    since = min((m["when"] for m in msgs if m["when"]), default=0)
-    return [{"session": dict(r), "when": r["ts"]} for r in db.session_starts(con, agent)
-            if r["ts"] >= since and not r["resumed"]]
 
 
 def session_head(r: dict) -> str:
@@ -219,85 +131,100 @@ def hr_cards(agent: str, msgs: list[dict]) -> list[dict]:
     return [{"hr": p, "when": p["ts"]} for p in hr_card.pending(since) if agent in hr_concerns(p)]
 
 
-def signature(con, agent: str, everyone: bool) -> tuple:
-    """A cheap reading that changes whenever something in the chat does: a new
-    request, or a request answered, closed or changed, or a session started."""
-    where, params = _scope(agent, everyone)
-    row = con.execute(
-        f"SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(MAX({db.touched_sql('requests')}), 0), "
-        "COALESCE(MAX(delivered_at), 0), COUNT(delivered_at), COALESCE(MAX(landed_at), 0), "
-        "COUNT(landed_at), COALESCE(MAX(typed_at), 0), "
-        f"COALESCE(SUM(state = 'queued'), 0) FROM requests WHERE state NOT IN {_GONE} AND {where}",
-        params).fetchone()
-    events = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM events WHERE kind IN "
-                         f"({','.join('?' * len(_STATE_AFTER))})", tuple(_STATE_AFTER)).fetchone()
-    starts = con.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM session_starts WHERE agent = ?",
-                         (agent,)).fetchone()
-    asked = tuple((p["id"], p["state"]) for p in hr_card.pending())
-    return (*row, *events, *starts, asked)
-
-
-def _col(r, name: str):
-    """A column of a page row, None when the row was read without it."""
-    return r[name] if name in r.keys() else None
-
-
-def _answer_id(r) -> int | None:
-    """The number of the answer's own message, when the row was read with it."""
-    return _col(r, "answer_id")
-
-
-def messages_of(rows, agent: str) -> list[dict]:
-    """One dict per message of these requests, in time order: who, when, text,
+def messages_of(items: list[dict], agent: str) -> list[dict]:
+    """One dict per message of these `chat.requests` items, in time order: who, when, text,
     the request it belongs to (`rid`), its own number (`mid`: the request's for an
-    ask, the answer row's for a verdict), whether it is the ask (part 0) or the verdict
+    ask, the answer's for a verdict), whether it is the ask (part 0) or the verdict
     (part 1), which side said it, and whether the human can reply to it. Nothing here tracks
     whether a message was answered (founder #2659)."""
     human = actions.HUMAN
     msgs = []
-    for r in rows:
-        shown = db.shown_verdict(r)
+    for item in items:
+        if item["type"] != "request":
+            continue
+        r = item["message"]
+        shown = (r["answer"] or {}).get("text") or None
+        answered_at = api.epoch((r["answer"] or {}).get("at"))
+        landed, typed = api.epoch(r["landed_at"]), api.epoch(r["typed_at"])
         for part, speaker, to, text, at in (
-                (0, r["requester"], r["target"], r["body"], r["ts"]),
-                (1, r["target"], r["requester"], shown, db.answered_at(r))):
+                (0, r["from"], r["to"], r["body"], api.epoch(r["at"])),
+                (1, r["to"], r["from"], shown, answered_at)):
             cancelled = r["state"] in ("landed", "withdrawn") and shown == askmod.CANCEL_VERDICT
-            if part == 1 and (not shown or cancelled or db.dismissal(r)[0]):
+            if part == 1 and (not shown or cancelled or r["dismissed"]):
                 continue
-            if part == 0 and r.get("task_question"):
+            if part == 0 and r["is_task_question"]:
                 continue
             side = "you" if speaker == human else "agent" if speaker == agent else "other"
-            queued = (part == 0 and speaker == human and r["target"] != human
-                      and r["state"] == "queued")
-            held = (part == 0 and speaker != human and r["target"] != human
+            queued = part == 0 and speaker == human and r["to"] != human and r["state"] == "queued"
+            held = (part == 0 and speaker != human and r["to"] != human
                     and r["state"] == "queued" and not r["delivered_at"])
-            landing = landingmod.state(r)
+            landing = "delivered" if landed else "typed" if typed else "queued"
             # last, marked unread: only what this page's agent has yet to read; what it sent
             # (or two others') sits at its own time
-            waiting_to_go = held and r["target"] == agent or queued and landing != "delivered"
-            if part == 0 and r["landed_at"]:
-                at = r["landed_at"]      # a message sits where its agent read it, not where it queued
+            waiting_to_go = held and r["to"] == agent or queued and landing != "delivered"
+            if part == 0 and landed:
+                at = landed      # a message sits where its agent read it, not where it queued
             who = ("you" if speaker == human else speaker) + (
                 "" if human in (speaker, to) else f" → {to}")
+            tasks = sorted(t["id"] for t in r["tasks"])
             msgs.append({"who": who, "when": at or 0, "rid": r["id"], "part": part, "side": side,
-                         "mid": r["id"] if part == 0 else _answer_id(r),
+                         "mid": r["id"] if part == 0 else r["answer"]["id"],
                          "text": (text or "").strip("\n") or "(empty)",
                          "replyable": True,      # any message, also one between two other agents in All chat
                          "queued": queued,
                          "held": held,
                          "unread": waiting_to_go,
                          "to": to,
-                         "kind": _col(r, "kind"),
-                         "tasks": sorted(int(t) for t in (_col(r, "tasks") or "").split(",") if t),
-                         "task_title": _col(r, "task_title"), "task_state": _col(r, "task_state"),
+                         "kind": r["kind"] or None,
+                         "tasks": tasks,
+                         "task_title": r["tasks"][0]["title"] if r["tasks"] else None, "task_state": item["task_state"],
+                         "sending_reason": r["sending_reason"] or "",
                          "delivered": landing == "delivered",
                          "landing": landing,
-                         "reply_to": _col(r, "parent_id") if part == 0 else r["id"] if speaker == human else None,   # the founder's reply is linked
+                         "reply_to": r["parent"] if part == 0 else r["id"] if speaker == human else None,   # the founder's reply is linked
                          "cancelled": part == 0 and cancelled,
                          "_key": (float("inf") if waiting_to_go else at or 0, r["id"], part)})
     msgs.sort(key=lambda m: m["_key"])
     for m in msgs:
         del m["_key"]
     return msgs
+
+
+def read_requests(agent: str, everyone: bool, before: int | None = None, since: int | None = None, want: int | None = None,
+                  limit: int | None = None) -> tuple[list[dict], bool, str]:
+    """A page of a chat from the daemon (`chat.requests`): its items, whether older requests remain, and its version. With `want`
+    (a request number), the newest page and as many before it as it takes to have that request among them."""
+    params = {"agent": agent, "scope": "all" if everyone else "mine", **{k: v for k, v in
+              (("before", before), ("since", since), ("limit", limit)) if v is not None}}
+    got = api.call("chat.requests", params)
+    items, more = got["items"], got["more"]
+    while want and more:
+        ids = [i["message"]["id"] for i in items if i["type"] == "request"]
+        if not ids or min(ids) <= want:
+            break
+        older = api.call("chat.requests", {**params, "before": min(ids)})
+        items, more = older["items"] + items, older["more"]
+    return items, more, got["version"]
+
+
+def changes_of(items: list[dict], agent: str, msgs: list[dict]) -> list[dict]:
+    """The task changes and session starts among `chat.requests` items, as entries for the chat: {change, note, who,
+    side (as a message's, from `agent`'s page), tasks, task_title, when} and {session: {cause, text}, when}. A handoff
+    delivers its task to the new owner: it is drawn as ONE card, the delivery's, which takes the change and the note."""
+    cards = {m["rid"]: m for m in msgs if is_card(m)}
+    out = []
+    for i in items:
+        if i["type"] == "task_event":
+            who = i["who"]
+            if i["request"] in cards:
+                cards[i["request"]]["change"], cards[i["request"]]["note"] = i["change"], i["note"] or ""
+                continue
+            out.append({"change": i["change"], "note": i["note"] or "", "who": who,
+                        "side": "you" if who == actions.HUMAN else "agent" if who == agent else "other",
+                        "tasks": [i["task"]], "task_title": i["title"], "when": api.epoch(i["at"])})
+        elif i["type"] == "session":
+            out.append({"session": {"cause": i["cause"], "text": i["handoff"], "ts": api.epoch(i["at"])}, "when": api.epoch(i["at"])})
+    return out
 
 
 def reply_link(parent: int) -> Text:
@@ -310,59 +237,85 @@ def mid_of(m: dict) -> int:
     return m.get("mid") or m["rid"]
 
 
-def tasks_of(con, agent: str) -> list[tuple]:
+def tasks_of(agent: str) -> list[tuple]:
     """The tasks not yet done or discarded that `agent` owns or opened, as (id,
     role, state, title, the other party, last update). A task it opened for
-    itself is owned. The last update is the latest of its creation, edit, done
-    and discard, and the newest time on any request linked to it."""
-    rows = con.execute(
-        f"SELECT * FROM tasks WHERE {db.OPEN_SQL} AND (owner = ? OR opened_by = ?) ORDER BY id",
-        (agent, agent)).fetchall()
-    touched = {r[0]: r[1] for r in con.execute(
-        f"SELECT l.task_id, MAX(COALESCE(MAX(r.ts), 0), COALESCE(MAX({db.touched_sql('r')}), 0)) "
-        "FROM task_requests l JOIN requests r ON r.id = l.request_id "
-        f"WHERE l.task_id IN (SELECT id FROM tasks WHERE {db.OPEN_SQL} AND "
-        "(owner = ? OR opened_by = ?)) GROUP BY l.task_id", (agent, agent))}
-    out = []
-    for t in rows:
-        own = t["owner"] == agent
-        updated = max(t["created_at"] or 0, t["edited_at"] or 0, t["done_at"] or 0,
-                      t["discarded_at"] or 0, touched.get(t["id"], 0))
-        out.append((t["id"], "owns" if own else "opened", actions.task_state(con, t),
-                    t["title"], t["opened_by"] if own else t["owner"], updated))
+    itself is owned. The last update is `last_activity` (`tasks.list`)."""
+    seen: dict[int, dict] = {}
+    for key in ("owner", "from"):
+        before = None
+        while True:
+            got = api.call("tasks.list", {key: agent, "limit": 200, **({"before": before} if before else {})})
+            seen.update((t["id"], t) for t in got["items"])
+            if not got["more"] or not got["items"]:
+                break
+            before = min(t["id"] for t in got["items"])
+    return [(t["id"], "owns" if t["to"] == agent else "opened", t["state"], t["title"],
+             t["from"] if t["to"] == agent else t["to"], api.epoch(t["last_activity"]) or 0)
+            for t in sorted(seen.values(), key=lambda t: t["id"])]
+
+
+def task_detail(tid: int) -> dict | None:
+    """A task as what its page shows (`task.get`): its own fields, the sub-tasks and
+    requests tied to it, and which of reopen and discard the human may do now.
+    None when there is no such task."""
+    try:
+        t = api.call("task.get", {"task": tid})
+    except client.RpcError as e:
+        if e.code == "not_found":
+            return None
+        raise
+    state = t["state"]
+    brief = (t["body"] or "").strip()      # the one `edit_task` edits
+    if brief.split("\n", 1)[0].strip() == t["title"].strip():
+        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
+    open_ = state in ("draft", "queued", "doing")
+    gone = t["discarded"]
+    held = dict.fromkeys([t["from"], *(n for h in t["handoffs"] for n in (h["from"], h["to"]))])
+    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["to"],
+            "opened_by": t["from"], "created_at": api.epoch(t["created"]),
+            "parent": (t["parent"], t["parent_title"]) if t["parent"] else None,
+            "done": (t["evidence"], api.epoch(t["done"])) if t["evidence"] else None,
+            "discarded": (gone["by"], gone["reason"], api.epoch(gone["at"])) if gone else None,
+            "merged_into": t["merged_into"],
+            "brief_text": (t["body"] or "") if t["deliveries"] else None,
+            "timeout": clock_of(t["time"], state),
+            "children": [(k["id"], k["title"], k["state"]) for k in t["subtasks"]],
+            "timeline": [entry_of(e) for e in t["timeline"]],
+            "asker": t["asker"],
+            "can_done": open_, "can_reopen": state == "done" and t["asker"] == actions.HUMAN,
+            "can_discard": open_, "can_assign": open_,
+            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
+            "assignees": [a for a in held if a != actions.HUMAN and a != t["to"]],
+            "people": (t["people"]["recent"], t["people"]["team"], t["people"]["others"])}
+
+
+REQUEST_ENTRY = re.compile(r"(#\d+)  (\S+)  (.*)", re.S)
+
+
+def entry_of(e: dict) -> dict:
+    """A `task.get` timeline entry as `timeline_text` draws it. A request's text is "#<id>  <state>  <first line>"."""
+    at = api.epoch(e["at"])
+    out = {"ts": at, "at": at, "who": e["who"], "kind": e["kind"], "text": e["text"], "memo": e["memo"],
+           "edited_at": api.epoch(e["edited_at"])}
+    got = REQUEST_ENTRY.fullmatch(e["text"]) if e["kind"] == "request" else None
+    if e["kind"] == "request":
+        out.update(zip(("ref", "state", "summary"), got.groups() if got else ("", "", e["text"])))
     return out
 
 
-def task_detail(con, tid: int) -> dict | None:
-    """A task as what its page shows: its own fields, the sub-tasks and
-    requests tied to it, and which of reopen and discard the human may do now.
-    None when there is no such task."""
-    t = db.get_task(con, tid)
-    if t is None:
+def clock_of(c: dict | None, state: str) -> dict | None:
+    """A task's time box as `actions.timeout_lines` reads it, from the daemon's `time` and this clock."""
+    if c is None:
         return None
-    state = actions.task_state(con, t)
-    mine = actions.task_asker(con, t) == actions.HUMAN
-    kids = [(c["id"], c["title"], actions.task_state(con, c)) for c in
-            con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()]
-    parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    brief = ((db.first_linked_request(con, tid) or {"body": ""})["body"] or "").strip()      # the one `edit_task` edits
-    if brief.split("\n", 1)[0].strip() == t["title"].strip():
-        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
-    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["owner"],
-            "opened_by": t["opened_by"], "created_at": t["created_at"],
-            "parent": (t["parent_task"], parent["title"]) if parent else None,
-            "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
-            "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
-            "merged_into": t["merged_into"],
-            "brief_text": actions.task_brief(con, tid),
-            "timeout": None if state in ("done", "discarded") else actions.task_timeout(con, t, state),
-            "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
-            "can_done": state in ("draft", "queued", "doing"),
-            "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued", "doing"),
-            "can_assign": state in ("draft", "queued", "doing"),
-            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
-            "people": actions.question_targets(t["owner"], paths.list_agents(), actions.recent_chatted(con))}
+    now = time.time()
+    out = {"length": c["length_s"], "default": c["default"], "state": "length", "start": api.epoch(c["start"]),
+           "end": api.epoch(c["end"]), "told": c["told"], "left": None, "over": None}
+    if out["start"] is not None and c["overdue_since"] is not None:
+        out.update(state="over", over=max(0, int(now - api.epoch(c["overdue_since"]))))
+    elif out["start"] is not None:
+        out.update(state="left", left=max(0, int(out["end"] - now)))
+    return out
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
@@ -957,7 +910,7 @@ def refs_of(con, agent: str) -> tuple[list[tuple], list[tuple]]:
     reqs = con.execute(
         f"SELECT id, requester, target, body FROM requests WHERE state NOT IN {_GONE} AND "
         "(requester = ? OR target = ?) ORDER BY id DESC LIMIT 30", (agent, agent)).fetchall()
-    return tasks_of(con, agent), [
+    return tasks_of(agent), [
         (r["id"], f"{r['requester']} → {r['target']}",
          textsafe.oneline((r["body"] or "").strip().splitlines()[0] if (r["body"] or "").strip() else "")[:60])
         for r in reqs]
@@ -1099,13 +1052,8 @@ class TaskActions:
             log_action(f"task {ref} assign to {to}")
 
             def write() -> tuple[bool, str]:
-                with stall.timed(f"assign {ref}: db.connect"):
-                    con = db.connect()
-                try:
-                    with stall.timed(f"assign {ref}: actions.assign_task"):
-                        return actions.assign_task(con, self.tid, to, text)
-                finally:
-                    con.close()
+                with stall.timed(f"assign {ref}: task.handoff"):
+                    return api.write("task.handoff", {"task": self.tid, "to": to, "note": textsafe.oneline(text).strip()})
 
             async def assign() -> None:
                 try:
@@ -1121,13 +1069,7 @@ class TaskActions:
             except Exception:
                 self.write_guard.release()
                 raise
-        with stall.timed(f"assign {ref}: db.connect"):
-            con = db.connect()
-        try:
-            with stall.timed(f"assign {ref}: actions.recent_assignees"):
-                recent = actions.recent_assignees(con, self.tid)
-        finally:
-            con.close()
+        recent = self.d["assignees"]
         with stall.timed(f"assign {ref}: paths.list_agents"):
             agents_here = paths.list_agents()
         with stall.timed(f"assign {ref}: TaskAssign built and pushed"):
@@ -1141,11 +1083,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} done: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.mark_task_done(con, self.tid, actions.HUMAN, reason=reason.strip())
-                finally:
-                    con.close()
+                ok, said = api.write("task.done", {"task": self.tid, "evidence": reason.strip(), "reason": True})
                 self.report("done", ok, said)
         self.app.push_screen(TextPrompt("done - what came of it?"), answered)
 
@@ -1155,11 +1093,7 @@ class TaskActions:
             self.say("only a draft can be queued, and only a queued task drafted")
             return
         queue = self.d["state"] == "draft"
-        con = db.connect()
-        try:
-            ok, said = actions.set_queued(con, self.tid, actions.HUMAN, queue)
-        finally:
-            con.close()
+        ok, said = api.write("task.queue" if queue else "task.draft", {"tasks": [self.tid]})
         self.report("queue" if queue else "draft", ok, said)
 
     def action_reopen_task(self) -> None:
@@ -1170,11 +1104,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
+                ok, said = api.write("task.reopen", {"task": self.tid, "note": reason})
                 self.report("reopen", ok, said)
         self.app.push_screen(TextPrompt("reopen - why?"), answered)
 
@@ -1188,11 +1118,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason, stop=doing)
-                finally:
-                    con.close()
+                ok, said = api.write("task.cancel" if doing else "task.discard", {"task": self.tid, "reason": reason})
                 self.report("discard", ok, said)
         self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
@@ -1301,11 +1227,11 @@ class TaskBody(TaskActions, Vertical):
         tid = self.tid
 
         def work() -> None:
-            con = db.connect()
             try:
-                d = task_detail(con, tid)
-            finally:
-                con.close()
+                d = task_detail(tid)
+            except (client.RpcError, client.DaemonDown, OSError) as e:
+                self.app.call_from_thread(self.say, f"the task cannot be read: {e}")
+                return
             if not get_current_worker().is_cancelled:
                 self.app.call_from_thread(self._arrived, tid, d, changed_only)
         self.run_worker(work, thread=True, exclusive=True, group="task_body", exit_on_error=False)
@@ -1399,9 +1325,9 @@ class TaskBody(TaskActions, Vertical):
         box.value = ""
         if to:
             log_action(f"task {actions.task_ref(self.tid)} ask {to}")
-            self.memo_call("question", lambda con: actions.ask_on_task(con, self.tid, str(to), text))
+            self.memo_call("question", lambda: api.write("task.ask", {"task": self.tid, "to": str(to), "text": text}))
         else:
-            self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+            self.memo_call("add", lambda: api.write("task.memo.add", {"task": self.tid, "text": text}))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "t_memo_box":
@@ -1415,11 +1341,11 @@ class TaskBody(TaskActions, Vertical):
 
         def answered(text: str | None) -> None:
             if text is not None and text.strip():
-                self.memo_call("edit", lambda con: actions.memo_edit(con, mid, actions.HUMAN, text))
+                self.memo_call("edit", lambda: api.write("task.memo.edit", {"task": self.tid, "memo": mid, "text": text}))
         self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
 
     def memo_delete(self, mid: int) -> None:
-        Confirm.ask(self.app, lambda: self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN)),
+        Confirm.ask(self.app, lambda: self.memo_call("delete", lambda: api.write("task.memo.delete", {"task": self.tid, "memo": mid})),
                     "Delete the memo", "It is removed from the task.", yes="Delete", danger=True)
 
     def action_edit_brief(self) -> None:
@@ -1429,22 +1355,12 @@ class TaskBody(TaskActions, Vertical):
         def answered(text: str | None) -> None:
             if text is None:
                 return
-            con = db.connect()
-            try:
-                ok, said = actions.edit_task(con, self.tid, actions.HUMAN, body=text)
-                if ok:
-                    actions.tell_body_edited(con, self.tid, actions.HUMAN)
-            finally:
-                con.close()
+            ok, said = api.write("task.edit", {"task": self.tid, "body": text})
             self.report("edit text", ok, said)
         self.app.push_screen(TextPrompt("edit the task's text", multi=True, initial=self.d["brief_text"]), answered)
 
     def memo_call(self, verb: str, call) -> None:
-        con = db.connect()
-        try:
-            ok, said = call(con)
-        finally:
-            con.close()
+        ok, said = call()
         self.report(f"memo {verb}", ok, said)
 
     @staticmethod
@@ -1497,11 +1413,11 @@ class TaskPane(TaskBody):
 
 def open_task_page(app, tid: int) -> None:
     """Open task `tid`'s page; a number that is no task says so instead of opening an empty page."""
-    con = db.connect()
     try:
-        known = db.get_task(con, tid) is not None
-    finally:
-        con.close()
+        known = task_detail(tid) is not None
+    except (client.RpcError, client.DaemonDown, OSError) as e:
+        app.notify(f"the task cannot be read: {e}", severity="error", timeout=6)
+        return
     if known:
         app.push_screen(TaskDetail(tid))
     else:
@@ -1605,6 +1521,7 @@ class ChatPage(JobsAware, Screen):
         self.oldest: int | None = None      # id of the oldest request on screen
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
+        self._unread_daemon = False        # the daemon could not be asked for the chat, and the page has said so
         self._live: tuple | None = None             # the spinner, wait and reason the widgets show now
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
         self._block_id: int | None = None      # the block the modal on screen shows
@@ -1788,9 +1705,47 @@ class ChatPage(JobsAware, Screen):
         if not self.showing_tasks:
             self.refresh_conversation()
 
+    def _read_requests(self, before: int | None = None, since: int | None = None, want: int | None = None,
+                       limit: int | None = None) -> tuple[list[dict], bool, str] | None:
+        """A page of this chat from the daemon: its items, whether older requests remain, and its version. None when the
+        daemon cannot be read: what is on screen then stays."""
+        try:
+            got = read_requests(self.agent, self.everyone, before, since, want, limit)
+        except (client.RpcError, client.DaemonDown, OSError) as e:
+            if not self._unread_daemon:     # said once, not on every refresh
+                self._unread_daemon = True
+                self.notify(f"the chat cannot be read: {e}", severity="error")
+            return None
+        self._unread_daemon = False
+        return got
+
+    def read_if_changed(self, hr: tuple, force: bool = False) -> tuple[list[dict], str] | None:
+        """The items to draw and the chat's version, or None to leave the screen as it is: the daemon cannot be read, or the
+        version (one item read) and the pending HR cards are what `_sig` has. Sets `oldest` and `more` only on a read."""
+        if self.oldest is not None and not force and self._sig is not None:
+            peek = self._read_requests(limit=1)
+            if peek is None or (peek[2], hr) == self._sig:
+                return None
+        if self.oldest is None:
+            # Opened on a message: page back until it is on screen.
+            want = self._reveal[1] if self._reveal else self._focus[0] if self._focus else None
+            got = self._read_requests(want=want)
+            if got is None:
+                return None
+            items, more, version = got
+            self.more = more
+        else:
+            got = self._read_requests(since=self.oldest)
+            if got is None:
+                return None
+            items, _, version = got
+        if (version, hr) == self._sig and not force:
+            return None
+        return items, version
+
     def refresh_conversation(self, force: bool = False) -> None:
-        """Bring what is on screen up to date. Unchanged, this is one small
-        count; changed, it re-reads only the requests already on screen and
+        """Bring what is on screen up to date. Unchanged, this is one
+        one-item read for the chat's version; changed, it re-reads only the requests already on screen and
         anything newer, never the whole history.
 
         `_sig` is forced dirty by the agent's word flipping between RUNNING
@@ -1801,39 +1756,30 @@ class ChatPage(JobsAware, Screen):
         and the scroll only jumps to the bottom when the viewer was already
         there (founder #1975/T309): moving it while someone has scrolled up
         to read older messages would yank the page out from under them."""
-        con = db.connect()
-        try:
-            sig = signature(con, self.agent, self.everyone)
-            if sig == self._sig and not force:
-                return
-            self._sig = sig
-            if self.oldest is None:
-                # Opened on a message: page back until it is on screen.
-                want = self._reveal[1] if self._reveal else self._focus[0] if self._focus else None
-                rows, self.more = page_back_to(con, self.agent, self.everyone, want)
-            else:
-                rows, _ = requests_page(con, self.agent, self.everyone, since=self.oldest)
-        finally:
-            con.close()
-        self.oldest = rows[0]["id"] if rows else None
-        msgs = messages_of(rows, self.agent)
+        hr = tuple((p["id"], p["state"]) for p in hr_card.pending())
+        read = self.read_if_changed(hr, force)
+        if read is None:
+            return
+        items, version = read
+        self._sig = (version, hr)
+        asks = [i["message"] for i in items if i["type"] == "request"]
+        self.oldest = min((m["id"] for m in asks), default=None)
+        msgs = messages_of(items, self.agent)
         con = db.connect()
         try:
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
-            actions.for_you_seen(con, self.agent, max((max(r["id"], r["answer_id"] or 0) for r in rows), default=0))
+            actions.for_you_seen(con, self.agent, max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0))
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
-            fold_handoffs(con, msgs)
-            changes = (task_changes(con, msgs, self.agent) + session_marks(con, self.agent, msgs)
-                       + hr_cards(self.agent, msgs))
         finally:
             con.close()
+        changes = changes_of(items, self.agent, msgs) + hr_cards(self.agent, msgs)
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
-        key = (tuple((r["id"], r["state"], db.answered_at(r), r["delivered_at"], r["landed_at"], r["typed_at"],
-                      r["dismisser"])
-                     for r in rows),
+        key = (tuple((m["id"], m["state"], m["answer"] and m["answer"]["at"], m["delivered_at"], m["landed_at"], m["typed_at"],
+                      m["dismissed"])
+                     for m in asks),
                tuple((c["tasks"][0], c["when"], c["change"]) for c in changes if "change" in c),
-               tuple((c["when"], c["session"]["session_id"], c["session"]["cause"], bool(c["session"]["text"]))
+               tuple((c["when"], c["session"]["ts"], c["session"]["cause"], bool(c["session"]["text"]))
                      for c in changes if "session" in c),
                tuple((c["hr"]["id"], c["hr"]["state"]) for c in changes if "hr" in c))
         live = (state == "RUNNING", why, wait)
@@ -1929,18 +1875,18 @@ class ChatPage(JobsAware, Screen):
         put it above, leaving the view where it was."""
         if not self.more or self.oldest is None:
             return
-        con = db.connect()
-        try:
-            rows, self.more = requests_page(con, self.agent, self.everyone, before=self.oldest)
-        finally:
-            con.close()
-        if not rows:
+        got = self._read_requests(before=self.oldest)
+        if got is None:
             return
-        self.oldest = rows[0]["id"]
+        items, self.more, _ = got
+        ids = [i["message"]["id"] for i in items if i["type"] == "request"]
+        if not ids:
+            return
+        self.oldest = min(ids)
         pane = self.query_one("#transcript", VerticalScroll)
         was_height, was_y = pane.virtual_size.height, pane.scroll_y
         first = pane.children[0] if pane.children else None
-        pane.mount(*(ChatMessage(m) for m in messages_of(rows, self.agent)), before=first)
+        pane.mount(*(ChatMessage(m) for m in messages_of(items, self.agent)), before=first)
 
         def keep_place() -> None:
             pane.scroll_to(y=was_y + pane.virtual_size.height - was_height,

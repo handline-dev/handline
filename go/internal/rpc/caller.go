@@ -45,6 +45,14 @@ func (c Caller) Actor() string {
 	return Human
 }
 
+// Writer is whose request_ids a write is kept under, as Python's Caller.writer: the actor, except a paired device, which has its own.
+func (c Caller) Writer() string {
+	if c.Info["kind"] == "device" {
+		return "device:" + c.Info["device"].(string)
+	}
+	return c.Actor()
+}
+
 func (c Caller) Allows(role string) bool { return roleIndex(c.Role) >= roleIndex(role) }
 
 // ActorInfo is the spec's Actor for an event: a person is a user there.

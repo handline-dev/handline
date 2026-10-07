@@ -14,7 +14,7 @@ from ...team import agents
 from ...session import blocked, idle_close
 from ...usage import load as loadmod
 from ...infra import textsafe
-from .. import tui
+from ...view import tui
 from ...daemon import delivery as dmn_delivery, handoff_note
 
 
