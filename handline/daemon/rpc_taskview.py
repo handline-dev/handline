@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import json
+import time
 
 from .. import actions, db
+from ..infra import paths, textsafe
 from . import agentview, rpc, taskholds
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
@@ -51,6 +53,14 @@ def _first_request(con, tid: int):
     return db.first_linked_request(con, tid)
 
 
+def _last_activity(con, row) -> int:
+    """The newest of the task's creation, edit, done and discard and the newest time on a request linked to it."""
+    linked = con.execute(f"SELECT MAX(COALESCE(r.ts, 0), COALESCE({db.touched_sql('r')}, 0)) FROM task_requests l JOIN requests r "
+                         "ON r.id = l.request_id WHERE l.task_id = ?", (row["id"],)).fetchall()
+    return int(max([row["created_at"] or 0, row["edited_at"] or 0, row["done_at"] or 0, row["discarded_at"] or 0,
+                    *(v[0] or 0 for v in linked)]))
+
+
 def task_of(con, row, state: str) -> dict:
     """The spec's `Task`: the row as the board shows it, without its body."""
     first = _first_request(con, row["id"])
@@ -65,6 +75,7 @@ def task_of(con, row, state: str) -> dict:
         "hold_reason": taskholds.wait_line(con, row, state),
         "block_reason": ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers)) if blockers else None,
         "evidence": row["done_evidence"], "priority": row["priority"],
+        "last_activity": agentview._ts(_last_activity(con, row)),
     }
 
 
@@ -112,6 +123,34 @@ def memo_of(m) -> dict:
     return {"id": m["id"], "task": m["task_id"], "author": m["author"], "at": agentview._ts(m["created_at"]), "text": m["body"]}
 
 
+def _clock(con, row, state: str) -> dict | None:
+    """The task's time box as the spec's `time`; None once it is over. The overdue moment is the first missed deadline."""
+    if state in ("done", "discarded"):
+        return None
+    now = time.time()
+    t = actions.task_timeout(con, row, state, now)
+    return {"length_s": t["length"], "default": t["default"], "start": agentview._ts(t["start"]), "end": agentview._ts(t["end"]),
+            "overdue_since": None if t["over"] is None else agentview._ts(now - t["over"]), "told": t["told"]}
+
+
+def _timeline(con, tid: int) -> list[dict]:
+    return [{"at": agentview._ts(e["at"]), "who": e["who"], "kind": e["kind"], "text": textsafe.text(e["text"] or ""),
+             "memo": e["memo"], "edited_at": agentview._ts(e["edited_at"])} for e in actions.task_timeline(con, tid)]
+
+
+def _detail(con, row, state: str) -> dict:
+    parent = db.get_task(con, row["parent_task"]) if row["parent_task"] else None
+    kids = con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (row["id"],)).fetchall()
+    recent, team, others = actions.question_targets(row["owner"], paths.list_agents(), actions.recent_chatted(con))
+    return {"asker": actions.task_asker(con, row),
+            "discarded": ({"by": row["discarded_by"], "reason": row["discard_reason"] or "", "at": agentview._ts(row["discarded_at"])}
+                          if row["discarded_by"] else None),
+            "merged_into": row["merged_into"], "time": _clock(con, row, state),
+            "parent_title": parent["title"] if parent else None,
+            "subtasks": [{"id": k["id"], "title": k["title"], "state": actions.task_state(con, k)} for k in kids],
+            "timeline": _timeline(con, row["id"]), "people": {"recent": recent, "team": team, "others": others}}
+
+
 def _task_get(ctx, params) -> dict:
     tid = _int(params, "task")
     if tid is None:
@@ -124,7 +163,7 @@ def _task_get(ctx, params) -> dict:
         task = task_of(con, row, actions.task_state(con, row))
         first = _first_request(con, tid)
         events = con.execute(f"SELECT id, ts, agent, kind, payload FROM events WHERE {db.EVENT_TASK} = ? ORDER BY id", (tid,)).fetchall()
-        return {**task, "body": (first["body"] if first is not None else "") or "",
+        return {**task, **_detail(con, row, task["state"]), "body": (first["body"] if first is not None else "") or "",
                 "deliveries": [_delivery(r) for r in db.task_requests(con, tid)],
                 "events": [_event(e, tid, row["owner"]) for e in events],
                 "memos": [memo_of(m) for m in db.task_memos(con, tid)],
