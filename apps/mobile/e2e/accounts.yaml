@@ -1,0 +1,58 @@
+# The Accounts tab: pair, open it, one account, the remove sheet.  maestro test -e URI="$(head -1 listener.log)" e2e/accounts.yaml
+# States: run against `node scripts/fake-listener.ts --latency 4000` (skeleton) or `--refuse accounts.list:state:the daemon is resting` (error)
+# with -e SHOT=skeleton|error to take only the tab's first screen.
+appId: dev.handline.mobile
+---
+- launchApp:
+    stopApp: false
+- runFlow:
+    when: { visible: Continue }
+    commands: [{ tapOn: Continue }]
+- runFlow:
+    when: { visible: Runtime version.* }
+    commands: [{ tapOn: { point: "90%,48%" } }]
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- runFlow:
+    when: { visible: { id: nav-agents } }
+    commands: [{ tapOn: { id: nav-agents } }]
+- runFlow:
+    when: { visible: Unpair this phone }
+    commands: [{ tapOn: Unpair this phone }]
+- tapOn:
+    id: pair-uri
+- eraseText: 400
+- inputText: ${URI}
+- tapOn: Pair with a daemon
+- tapOn:
+    id: pair-go
+- extendedWaitUntil:
+    visible:
+      id: nav-accounts
+    timeout: 20000
+- tapOn:
+    id: nav-accounts
+- runFlow:
+    when:
+      true: ${SHOT == 'skeleton'}
+    commands: [{ takeScreenshot: shots/ios/accounts-skeleton }]
+- runFlow:
+    when:
+      true: ${SHOT == 'error'}
+    commands:
+      - extendedWaitUntil: { visible: { id: error }, timeout: 15000 }
+      - takeScreenshot: shots/ios/accounts-error
+- runFlow:
+    when:
+      true: ${SHOT == 'none'}
+    commands:
+      - extendedWaitUntil: { visible: { id: account-alpha }, timeout: 15000 }
+      - takeScreenshot: shots/ios/accounts-list
+      - tapOn: { id: account-gamma }
+      - assertVisible: { id: account-detail }
+      - takeScreenshot: shots/ios/accounts-detail
+      - scrollUntilVisible: { element: { id: account-remove-open } }
+      - tapOn: { id: account-remove-open }
+      - assertVisible: { id: plan-line }
+      - takeScreenshot: shots/ios/accounts-remove
