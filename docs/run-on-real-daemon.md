@@ -3,93 +3,89 @@
 Steps for the founder: the desktop app, a browser, an iPhone and an Android phone, all against the daemon that runs your agents.
 Commands run from the repo root. `hl` is the command from [Setup](setup.md).
 
-**One gateway runs at a time, and it has one mode.** The desktop app only speaks plain `ws://`; the phone apps only speak `wss://` to a
-certificate they pin. So:
-
-- **Mode A, plain on this Mac**: the desktop app and a browser on this Mac.
-- **Mode B, TLS**: the phones, and a browser (on the Mac or on a phone). The desktop app cannot connect in this mode.
-
-Stop the gateway (`Ctrl-C`) to switch. The phone app cannot pair with a Tailscale-mode (plain) gateway: its pairing link has no
-fingerprint and the app refuses it (`not a handline pairing uri`).
+One plain gateway on this Mac's Tailscale address serves all of them at once: the desktop app, a browser, and the phones (a tailnet is
+already encrypted, so there is no certificate to pin). Tailscale must be on for this Mac and for each phone.
 
 Known limits of this MVP: the app cannot create a task (founder decision), and every paired device acts as you.
 
 ## 1. Start the gateway
 
-1. Start the daemon, which owns the home and its database. Leave it running.
+1. Find this Mac's Tailscale address, `<ip>` below (a `100.x.y.z`).
 
-       hl service install        # or `hl daemon` in a terminal you keep open
+       tailscale ip -4
 
-2. Build the gateway and the web page it serves.
+2. Start everything with the desktop app. It starts the Python daemon and the gateway itself if they are not running, pairs itself, and stops what it started when you quit.
 
-       tools/build-go.sh
-       pnpm install && pnpm --filter @handline/web build
+       pnpm install && tools/build-go.sh
+       HANDLINE_GATEWAY=<ip>:7443 pnpm app
 
-3. Start it in the mode you need, in a terminal you keep open.
+   With no desktop app (a browser and phones only), start the daemon and the gateway yourself, each in a terminal you keep open:
 
-   Mode A:
+       hl daemon        # or `hl service install` once, to keep it running
+       pnpm --filter @handline/web build
+       go/handlined -gateway -allow-real-home -listen <ip>:7443 -web apps/web/dist
 
-       go/handlined -gateway -allow-real-home -listen 127.0.0.1:7443 -web apps/web/dist
+You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal or in `daemon.log` in the app's data folder.
 
-   Mode B: make a certificate once (`<ip>` is the address the phone reaches this Mac on: its Tailscale `100.x.y.z`, or its Wi-Fi address on the same network).
-
-       openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj "/CN=handline" \
-         -addext "subjectAltName=IP:<ip>" -keyout ~/handline.key -out ~/handline.crt
-       go/handlined -gateway -allow-real-home -listen <ip>:7443 -cert ~/handline.crt -key ~/handline.key -web apps/web/dist
-
-You should see `network listener on 127.0.0.1:7443, plain HTTP (Tailscale)` (mode A) or `network listener on <ip>:7443, certificate <hex>` (mode B).
-
-**Common failure:** the gateway exits with a message about the database. The Python daemon is not running, or is older than this
-checkout. Run step 1 again, then restart the gateway.
+**Common failure:** the gateway exits with `schema: ... does not exist: the daemon that owns it brings it up first` (or `... predates schema versions` or `... newer than the ...`).
+The Python daemon is not running, or is not the version of this checkout. Start it (`hl daemon`), then the gateway.
 
 ## 2. PC
 
-### Desktop app (mode A)
+### Desktop app
 
-1. `pnpm app`
-2. The window opens on "Pair this computer". In another terminal: `hl device pair`
-3. Paste the `code:` value, or the whole `handline://` line, into the window.
+Step 1 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
 
-You should see the agent list. The next launch goes straight in; `hl device list` shows this computer, `hl device revoke <id>` cancels it.
-
-**Common failure:** `hl device pair` says the gateway did not answer. The gateway is not running, or runs on another home. Start it (step 1).
-If the window asks for a code again, the old one was used or expired (they are one time): run `hl device pair` again.
+**Common failure:** the window shows "Pair this computer": the app could not pair itself. Run `hl device pair` and paste the `code:` value, or the whole `handline://` line, into the window.
+If that command says `no gateway is running (nothing listens on <home>/gateway.sock)`, the gateway is not running: step 1.
 
 ### Browser
 
-Mode A: open `http://127.0.0.1:7443`. Mode B: open `https://<ip>:7443` and accept the certificate warning once.
-Then `hl device pair` and paste the code into the page, as above. The agent list appears.
+Open `http://<ip>:7443` (the gateway started without the desktop app serves the page; with it, use the window).
+Run `hl device pair` and paste the code into the page. The agent list appears.
 
 **Common failure:** "too many wrong pairing codes": this address is locked for 15 minutes after repeated wrong codes. Wait, then run `hl device pair` for a fresh code and paste it whole.
 
-## 3. iPhone (mode B)
+## 3. iPhone
 
-1. Start the gateway in mode B. Have Tailscale on the phone if `<ip>` is the Tailscale address, or the same Wi-Fi if it is the LAN one.
-2. Build the app onto the phone. It is a dev client, not Expo Go. Plug the iPhone in; the first build needs your Apple team set in Xcode.
+1. Tailscale on the phone, signed in to the same tailnet.
+2. Build the app onto the phone. It is a dev client, not Expo Go. Plug the iPhone in; the first build needs your Apple team set in Xcode. Build Release, so the JS is inside the app:
 
-       cd apps/mobile && npx expo run:ios --device
+       cd apps/mobile && npx expo run:ios --device --configuration Release
 
-3. On the Mac: `hl device pair`. Send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?...` into the app's field, then Pair.
-   The app's hint says "Settings, Pair device"; there is no such screen, `hl device pair` is the step.
+   A Debug build (the default) loads its JS from Metro on the Mac (`npx expo start --dev-client`, port 8081): it shows nothing once that terminal is closed or if the phone cannot reach the Mac.
+3. On the Mac: `hl device pair`. Send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?host=<ip>:7443&code=...` into the app's field, then Pair.
 
 You should see the agent list, then an agent's page.
 
-**Common failure:** `cannot connect to wss://<ip>:7443/rpc`: the phone cannot reach the address (Tailscale is off on the phone, or another Wi-Fi).
-"The certificate does not match" means the link came from a gateway with a different certificate: run `hl device pair` again.
+**Common failure:** `cannot connect to ...`: the phone cannot reach `<ip>:7443` (Tailscale is off on the phone). Test it in the phone's browser at `http://<ip>:7443`: with the gateway started without the desktop app the page loads; if it does not, the network is the cause.
 
-`apps/mobile/README.md` documents the simulator only; `--device` is the same build onto a plugged-in phone.
+`apps/mobile/README.md` documents the simulator only; `--device` builds onto a plugged-in phone. This command is not tested.
 
-## 4. Android (mode B)
+## 4. Android
 
-1. Start the gateway in mode B, as for the iPhone.
-2. Build the release app once (about 9 minutes) and install it on the phone with USB debugging on.
+1. Tailscale on the phone, signed in to the same tailnet.
+2. Build the release app once (about 9 minutes) and install it on the phone with USB debugging on. `apps/mobile/android` is not in the repo, so generate it first.
 
-       cd apps/mobile/android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+       cd apps/mobile && npx expo prebuild --platform android
+       cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
        adb install -r app/build/outputs/apk/release/app-release.apk
 
    Skip `adb reverse`: the phone reaches `<ip>` itself. Open the app from the launcher.
 3. On the Mac: `hl device pair`, send the `uri:` line to the phone, paste it into the app, Pair.
 
-You should see the agent list. A link whose fingerprint differs from the gateway's is refused with "certificate does not match".
+You should see the agent list.
 
-**Common failure:** the same as the iPhone's: the phone cannot reach `<ip>:7443`. Test it in the phone's browser at `https://<ip>:7443`; if the page does not load, the network is the cause.
+**Common failure:** the same as the iPhone's: the phone cannot reach `<ip>:7443`.
+
+## Not on Tailscale: a LAN with a certificate
+
+Without Tailscale the gateway must serve TLS and the phone pins its certificate. This gateway cannot serve the desktop app (it speaks plain `ws://` only); use a browser on the Mac.
+Make a certificate once (`<lan-ip>` is this Mac's Wi-Fi address, which the phone reaches on the same network), then start the gateway with it:
+
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj "/CN=handline" \
+      -addext "subjectAltName=IP:<lan-ip>" -keyout ~/handline.key -out ~/handline.crt
+    go/handlined -gateway -allow-real-home -listen <lan-ip>:7443 -cert ~/handline.crt -key ~/handline.key -web apps/web/dist
+
+`hl device pair` now prints a link with a fingerprint, which the phone checks. A browser at `https://<lan-ip>:7443` warns about the certificate once.
+"Certificate does not match" in the app means the link came from a gateway with a different certificate: run `hl device pair` again.
