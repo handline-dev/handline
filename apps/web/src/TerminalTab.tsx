@@ -25,6 +25,7 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   const [attaching, setAttaching] = useState(false); // the grid's skeleton shows until the terminal is attached or refused
   const take = useWrite('input.take', agent);
   const typing = useWrite('session.input', agent);
+  const typingBytes = useWrite('terminal.input', agent);
   const keys = useWrite('session.keys', agent);
   const latest = useRef(detail);
   latest.current = detail; // handlers read the current detail without re-binding
@@ -96,7 +97,19 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
       text = el.value;
     el.value = '';
     if (!text || dialogOpen || !holding()) return; // a dialog is a menu: only keys pass
-    await done(typing.mutateAsync({ agent, text, enter: false }));
+    const v = view.current;
+    // session.input is refused while the screen is unread; the bytes path is not, so it is used whenever the daemon has one.
+    const sent =
+      v?.terminal && store.client.typesBytes
+        ? typingBytes.mutateAsync(store.client.typedBytes(v.terminal, text, false))
+        : typing.mutateAsync({ agent, text, enter: false });
+    await sent.then(
+      () => setStatus(''),
+      (e) => {
+        el.value = text + el.value; // kept for a retry
+        setStatus((e as { reason?: string }).reason ?? (e as Error).message);
+      },
+    );
   };
   const onKey = async (e: React.KeyboardEvent) => {
     const k = keyFrom(e.nativeEvent, dialogOpen);
