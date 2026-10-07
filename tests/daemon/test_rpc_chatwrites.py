@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
+from handline.team import ask as _cancel_ask  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -277,6 +278,41 @@ def test_cancel_takes_back_a_message_the_person_sent(home: Path) -> None:
     check("chat.cancel: another's message stays", _row(others)["state"] == "queued")
 
 
+def test_cancel_sees_a_delivery_that_lands_after_its_check(home: Path) -> None:
+    _world(home)
+    racing = _add(db.HUMAN, "worker", "told between the check and the write")
+    real = _cancel_ask.cancel
+
+    def delivered_first(rid, **kw):
+        con = db.connect()
+        con.execute("UPDATE requests SET delivered_at = ?, typed_at = ? WHERE id = ?", (1, 1, rid))
+        con.close()
+        return real(rid, **kw)
+    _cancel_ask.cancel = delivered_first
+    try:
+        r = _call("chat.cancel", {"request": racing, "request_id": "r1"})
+    finally:
+        _cancel_ask.cancel = real
+    data = r["error"]["data"] if "error" in r else {}
+    check("chat.cancel: a delivery after the check is refused, gate confirm, with the delivered plan, and the message stays",
+          _code(r) == "refused" and data.get("gate") == "confirm" and "worker is told to stop" in data.get("plan", "") and _row(racing)["state"] == "queued", str(r))
+    r = _call("chat.cancel", {"request": racing, "confirm": True, "request_id": "r2"})
+    check("chat.cancel: with confirm the delivered message is cancelled", r.get("result", {}).get("accepted") is True and _row(racing)["state"] == "landed", str(r))
+
+
+def test_parent_answer_refusal_carries_the_state_gate(home: Path) -> None:
+    _world(home)
+    ask = _add("worker", db.HUMAN, "ship it?", kind="ask", response="wait")
+    real = actions.answer_ok
+    actions.answer_ok = lambda *a, **kw: (False, f"#{ask} was closed while this ran")
+    try:
+        r = _call("chat.send", {"agent": "worker", "body": "yes", "parent": ask, "request_id": "g1"})
+    finally:
+        actions.answer_ok = real
+    check("chat.send with parent: an answer that is refused carries gate state",
+          _code(r) == "refused" and r["error"]["data"].get("gate") == "state", str(r))
+
+
 def test_seen_moves_an_agents_messages_out_of_for_you(home: Path) -> None:
     _world(home)
     said = _add("worker", db.HUMAN, "done with the build")
@@ -382,6 +418,8 @@ def main() -> int:
         run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
         run(lambda: test_send_under_a_message_answers_it_or_says_under_it(Path(td) / "w8"))
         run(lambda: test_cancel_takes_back_a_message_the_person_sent(Path(td) / "w9"))
+        run(lambda: test_cancel_sees_a_delivery_that_lands_after_its_check(Path(td) / "wc"))
+        run(lambda: test_parent_answer_refusal_carries_the_state_gate(Path(td) / "wd"))
         run(lambda: test_seen_moves_an_agents_messages_out_of_for_you(Path(td) / "wa"))
         run(lambda: test_agent_get_says_what_the_chat_page_may_offer_and_where_a_shell_runs(Path(td) / "wb"))
         run(lambda: test_the_chat_write_fixtures_pass_against_this_daemon(Path(td) / "w7"))

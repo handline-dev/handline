@@ -698,7 +698,7 @@ def _close_tell(con, rid: int, row, verdict: str, notify: bool):
     return target, msg, said
 
 
-def cancel(rid: int, effect=None) -> tuple[bool, str]:
+def cancel(rid: int, effect=None, guard=None) -> tuple[bool, str]:
     """The founder takes a request out of an agent's queue.
 
     `withdraw` is the requester's own and stops at delivery, which left no way
@@ -709,7 +709,9 @@ def cancel(rid: int, effect=None) -> tuple[bool, str]:
     is told through the ordinary answer path, and the target - which may be
     mid-work on it - is typed a notice with delivery's gates when it had been
     delivered. Whatever is behind it delivers next. `effect(con, message)` is the daemon's record, made in the transaction
-    of the write.
+    of the write. `guard(con, row)` is asked inside that transaction, with the row as
+    it stands then, and returns a refusal to stop on or None; a delivery that
+    landed since the caller looked is seen by it.
     """
     con = db.connect()
     try:
@@ -725,6 +727,12 @@ def cancel(rid: int, effect=None) -> tuple[bool, str]:
         notify = row["requester"] != HUMAN
         con.execute("BEGIN IMMEDIATE")
         try:
+            if guard:
+                row = db.get_request(con, rid)
+                stop = guard(con, row) if row is not None and row["state"] == "queued" else None
+                if stop:
+                    con.execute("ROLLBACK")
+                    return False, stop
             closed = _close_write(con, rid, row, CANCEL_VERDICT, notify)
             if closed:
                 db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": row["target"],
