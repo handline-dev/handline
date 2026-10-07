@@ -7,7 +7,7 @@ import sys
 
 from .. import db
 from ..daemon import client as dmn_client
-from ..infra import paths
+from ..infra import paths, textsafe
 from ..team import ask as askmod
 
 
@@ -49,6 +49,20 @@ def _passed_flag(sha: str) -> list[str]:
     except Exception:  # noqa: BLE001 - no db or no sha: the suite runs
         return []
     return ["--passed"] if known else []
+
+
+def _refs_refusal(sha: str) -> str:
+    """Why `land.sh --check` would refuse `sha` before its suite runs (a conflict with main, or personal data
+    or a local id in the merge, by the merged tree's own tools/localrefs.py): the merger's own check, with
+    `--refs` to skip the suite. Empty when it would go on to the suite."""
+    try:
+        r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", "--refs", sha],
+                           capture_output=True, text=True, cwd=paths.repo_root(), timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"land.sh --check --refs could not run ({type(e).__name__}); try again"
+    if r.returncode == 0:
+        return ""
+    return textsafe.text((r.stdout + r.stderr).strip()) or f"land.sh --check --refs {sha} exited {r.returncode}"
 
 
 def _tested_trees(shas: list[str]) -> list[str] | None:
@@ -109,6 +123,11 @@ def cmd_land(args) -> int:
         print("usage: hl land --check <sha>... | hl land <sha> <merge message> --tree <tree> | hl land --pass <sha> | hl land --list")
         return 1
     if args.passed:
+        refused = _refs_refusal(args.sha)
+        if refused:
+            print(refused)
+            print(f"no PASS recorded for {args.sha}: the merger's check stops on the above")
+            return 1
         return _send({"verb": "land_pass", "sha": args.sha})
     if not args.message or not args.tree:
         print("usage: hl land --check <sha>, then hl land <sha> <merge message> --tree <tree it printed>")

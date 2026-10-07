@@ -478,7 +478,7 @@ def build_parser() -> argparse.ArgumentParser:
                        "daemon, which runs no branch code, merges and fast-forwards main. A sha lands once")
     p.add_argument("sha", nargs="?")
     p.add_argument("message", nargs="?")
-    p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha")
+    p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha; refused for a sha the merger's check stops on before its suite (a conflict, or personal data or a local id in the merge)")
     p.add_argument("--list", action="store_true", help="the recent lands and where each stands")
     p.add_argument("--check", nargs="+", default=None, metavar="SHA",
                    help="test the merge of these shas onto main here, in order, with one suite run, and print the "
