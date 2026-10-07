@@ -162,9 +162,10 @@ def test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(home: Pa
 def test_schedules_list_says_a_bad_value_and_not_none(home: Path) -> None:
     _world(home)
     agents.write("worker", {**agents.read("worker"), "schedules": "not json"})
-    got = _call("schedules.list")["result"]["schedules"]
-    check("schedules.list: a bad value is listed with its error", len(got) == 1 and got[0]["target"] == "worker"
-          and got[0]["error"].startswith("schedules is not JSON") and set(got[0]) == {"target", "error"}, str(got))
+    res = _call("schedules.list")["result"]
+    got = res["errors"]
+    check("schedules.list: a bad value is listed beside the schedules, with its error", res["schedules"] == [] and len(got) == 1 and got[0]["target"] == "worker"
+          and got[0]["error"].startswith("schedules is not JSON") and set(got[0]) == {"target", "error"}, str(res))
     check("schedules.list: that answer is in the spec's schema", _invalid(_call("schedules.list")["result"], RESULT["schedules.list"]) is None)
 
 

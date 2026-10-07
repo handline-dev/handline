@@ -89,6 +89,18 @@ def test_account_remove_plans_without_changing_and_removes_only_when_confirmed(h
     finally:
         backup.require_recent = real
     check("account.remove: confirmed, it is removed and the directory is kept aside", r["result"]["accepted"] and "acct.two" not in paths.list_accounts(), str(r))
+    from handline.daemon import rpc_accounts
+    from handline.team import accounts as accountsmod
+    real_out, real_backup = accountsmod.logout_argv, backup.require_recent
+    accountsmod.logout_argv, backup.require_recent = (lambda name: (["false"], {})), (lambda *a, **k: None)
+    try:
+        r = _call("account.remove", {"account": "acct.one", "confirm": "acct.one", "request_id": "r6"})
+    finally:
+        accountsmod.logout_argv, backup.require_recent = real_out, real_backup
+    check("account.remove: a logout that fails leaves the account where it is and says so", _code(r) == "refused" and paths.account_dir("acct.one").exists()
+          and "acct.one" in paths.list_accounts(), str(r))
+    check("account.remove: claude's logout, run for real, answers its exit code", rpc_accounts._run_claude(["true"], {}) == 0 and rpc_accounts._run_claude(["false"], {}) == 1)
+    check("account.remove: a logout that cannot run (no such binary) answers None", rpc_accounts._run_claude(["no-such-binary-xyz"], {}) is None)
     r = _call("account.remove", {"account": "acct.nope", "dry_run": True, "request_id": "r5"})
     check("account.remove: an unknown account is not_found", _code(r) == "not_found", str(r))
 

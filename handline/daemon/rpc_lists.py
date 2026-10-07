@@ -115,14 +115,14 @@ def _fired(con, agent: str, item: dict) -> int | None:
 
 
 def _schedules(ctx, params) -> dict:
-    now, out = int(time.time()), []
+    now, out, bad = int(time.time()), [], []
     con = db.connect()
     try:
         for agent in paths.list_agents():
             try:
                 items = rpc_schedules.schedules.load(agent)
             except ValueError as e:     # a bad value is said, not shown as no schedules (what `hl schedule list --agent` prints)
-                out.append({"target": agent, "error": str(e)})
+                bad.append({"target": agent, "error": str(e)})
                 continue
             except Exception:  # noqa: BLE001 - an agent.yaml that cannot be read is doctor's to report, as schedules.of treats it
                 continue
@@ -134,7 +134,7 @@ def _schedules(ctx, params) -> dict:
                             "next_run": _TS(nxt), "last_run": _TS(last), "set_by": "human"})
     finally:
         con.close()
-    return {"schedules": out}
+    return {"schedules": out, **({"errors": bad} if bad else {})}
 
 
 def _worked(con, since: int, until: int) -> dict[str, int]:

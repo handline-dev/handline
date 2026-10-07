@@ -1740,7 +1740,9 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "schedules.list": { params: { [key: string]: unknown }; result: {
-    schedules: (Schedule | ScheduleError)[];
+    schedules: Schedule[];
+    /** Present only when an agent's `schedules` value cannot be read: that agent, and why. */
+    errors?: ScheduleError[];
   } };
   "schedule.add": { params: {
   target: AgentName;

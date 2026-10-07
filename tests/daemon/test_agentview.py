@@ -225,6 +225,33 @@ def test_the_methods_serve_the_view_and_the_agents_detail(home: Path) -> None:
     w.close()
 
 
+def _status_line_reads_what_hl_team_draws(home: Path) -> None:
+    from handline.daemon import rpc_agents, taskholds
+    from handline.team import agents as agentsmod
+    con = db.connect()
+    try:
+        db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
+        agentsmod.write("backend", {**agentsmod.read("backend"), "repo": str(home)})
+        agentsmod.register("fresh")
+        saved = (taskholds.agent_waits, lifecycle.would_wake, rpc_agents.launch.wake_wait_reason)
+        taskholds.agent_waits = lambda c, a: [(7, "behind T3"), (9, "behind T7")] if a == "backend" else []
+        lifecycle.would_wake = lambda c, row: True
+        rpc_agents.launch.wake_wait_reason = lambda a, row, c: "alpha is at its limit until 17:00"
+        try:
+            got = rpc_agents._status_line(con, "backend")
+            fresh = rpc_agents._status_line(con, "fresh")
+        finally:
+            taskholds.agent_waits, lifecycle.would_wake, rpc_agents.launch.wake_wait_reason = saved
+    finally:
+        con.close()
+    check("status line: the request that has not reached it is counted", got["unreached"] == 1, str(got))
+    check("status line: its task holds, oldest first, with their words", got["task_waits"] == [{"task": 7, "words": "behind T3"}, {"task": 9, "words": "behind T7"}], str(got))
+    check("status line: a wake that is due carries the wall on it", got["wake_wait_reason"] == "alpha is at its limit until 17:00", str(got))
+    check("status line: a repo in its config is said", got["has_repo"] is True and got["started"] is True, str(got))
+    check("status line: an agent that never started has no word, no repo and nothing owed", fresh["started"] is False and fresh["screen_word"] is None
+          and fresh["has_repo"] is False and fresh["has_terminal"] is False and fresh["unreached"] == 0, str(fresh))
+
+
 def test_agents_list_with_status_adds_what_hl_team_draws(home: Path) -> None:
     support._daemon_home(home, 20)
     con = db.connect()
@@ -239,6 +266,10 @@ def test_agents_list_with_status_adds_what_hl_team_draws(home: Path) -> None:
     check("agents.list: without status the view carries none of the status fields", "screen_word" not in plain and "unreached" not in plain, str(plain))
     check("agents.list: with status, the screen word is the screens' and the facts are read", mine["started"] is True and mine["screen_word"] == word
           and mine["unreached"] == 0 and mine["task_waits"] == [] and mine["wake_wait_reason"] is None and mine["has_terminal"] is True, str(mine))
+    w.close()
+    _status_line_reads_what_hl_team_draws(home)
+    w = Wire()
+    w.call("hello", _hp())
     check("agents.list: status is true or false", _code(w.call("agents.list", {"status": "yes"})) == "bad_request")
     w.close()
 

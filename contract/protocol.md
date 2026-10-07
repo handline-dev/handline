@@ -167,7 +167,7 @@ A method marked write takes a required `request_id`.
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
 | `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
 | `worktree.set_status` | member | yes | `path`, `status`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `schedules.list` | agent |  | none | `{schedules}` |  |  |
+| `schedules.list` | agent |  | none | `{schedules, errors}` |  |  |
 | `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {schedule}` | `refused`, `bad_request`, `not_found` |  |
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -604,7 +604,7 @@ Set a worktree's status.
 
 ### `schedules.list`
 
-Schedules. An agent whose `schedules` value is bad is listed once as a ScheduleError (target and the error text), not as an agent with no schedules.
+Schedules. An agent whose `schedules` value is bad is listed in `errors` (target and the error text), not shown as an agent with no schedules.
 
 ### `schedule.add`
 

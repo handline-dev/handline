@@ -158,6 +158,10 @@ def test_an_agents_inbox_says_how_to_close_each_item_and_how_many_wait_behind(ho
     check("inbox.list: an ask is closed by a say that names the asker", by[first]["how_to_close"] == '`hl say manager --parent <id> "<answer>"` answers it',
           str(by[first]))
     check("inbox.list: an agent is told how many wait behind the head", got["more_waiting"] == 1, str(got))
+    tid = _task()
+    task_item = next(i for i in _call("inbox.list", {"queue": True}, as_agent="worker")["result"]["items"] if i["task"] == tid)
+    check("inbox.list: a task is closed by handing it on or finishing it, as the delivery says", task_item["how_to_close"].startswith(f"you own T{tid} now: hand it on with")
+          and f"hl task done T{tid}" in task_item["how_to_close"], str(task_item))
     mail = _call("inbox.list", {"queue": True}, as_agent=None)["result"]
     check("inbox.list: the founder's mailbox carries neither", "more_waiting" not in mail and all("how_to_close" not in i for i in mail["items"]), str(mail))
 

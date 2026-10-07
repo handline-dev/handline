@@ -6381,15 +6381,15 @@
       "schedules": {
        "type": "array",
        "items": {
-        "oneOf": [
-         {
-          "$ref": "#/components/schemas/Schedule"
-         },
-         {
-          "$ref": "#/components/schemas/ScheduleError"
-         }
-        ]
+        "$ref": "#/components/schemas/Schedule"
        }
+      },
+      "errors": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ScheduleError"
+       },
+       "description": "Present only when an agent's `schedules` value cannot be read: that agent, and why."
       }
      },
      "required": [
@@ -6400,7 +6400,7 @@
    "x-role": "agent",
    "x-write": false,
    "x-since": 1,
-   "description": "An agent whose `schedules` value is bad is listed once as a ScheduleError (target and the error text), not as an agent with no schedules."
+   "description": "An agent whose `schedules` value is bad is listed in `errors` (target and the error text), not shown as an agent with no schedules."
   },
   {
    "name": "schedule.add",
