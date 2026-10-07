@@ -10,41 +10,42 @@ Known limits of this MVP: the app cannot create a task (founder decision), and e
 
 ## 1. Start the gateway
 
-1. Find this Mac's Tailscale address `<ip>` (a `100.x.y.z`) and its name `<name>` (`<mac>.<tailnet>.ts.net`, no trailing dot).
+**With the desktop app** (the usual way). It starts the Python daemon and the gateway itself, listens on this Mac's Tailscale address, advertises its `*.ts.net` name, and pairs itself.
 
-       tailscale ip -4
-       tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'
+    pnpm install && tools/build-go.sh
+    pnpm app                  # or `pnpm app:main`: the app runs from its own clone of main and offers a restart when main moves
 
-   The phones accept a plain link only for a `*.ts.net` name. A link with a bare `100.x` address is refused, so the gateway must be started with `-advertise <name>:7443`.
+Tailscale must be up when the app starts. Without it the gateway listens on loopback only and no phone can pair.
 
-2. Start the daemon and the gateway, each in a terminal you keep open:
+**Without the desktop app** (a browser and phones only). Find this Mac's Tailscale address `<ip>` (a `100.x.y.z`) and its name `<name>` (`<mac>.<tailnet>.ts.net`, no trailing dot):
 
-       hl daemon        # or `hl service install` once, to keep it running
-       pnpm install && tools/build-go.sh && pnpm --filter @handline/web build
-       go/handlined -gateway -allow-real-home -listen <ip>:7443 -advertise <name>:7443 -web apps/web/dist
+    tailscale ip -4
+    tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'
 
-3. For the desktop app, run it once the gateway is up. It reuses the running gateway and pairs itself. The app does not pass `-advertise` itself yet, so do not let it start the gateway for you if phones are to pair.
+The phones accept a plain link only for a `*.ts.net` name. A link with a bare `100.x` address is refused, so start the gateway with `-advertise <name>:7443`. Each in a terminal you keep open:
 
-       HANDLINE_GATEWAY=<ip>:7443 pnpm app
+    hl daemon        # or `hl service install` once, to keep it running
+    pnpm install && tools/build-go.sh && pnpm --filter @handline/web build
+    go/handlined -gateway -allow-real-home -listen <ip>:7443 -advertise <name>:7443 -web apps/web/dist
 
-You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal.
+You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal (with the app, in `daemon.log` in its data folder).
 
 **Common failure:** the gateway exits with `schema: ... does not exist: the daemon that owns it brings it up first` (or `... predates schema versions` or `... newer than the ...`).
-The Python daemon is not running, or is not the version of this checkout. Start it (`hl daemon`), then the gateway.
+The Python daemon is not running, or is not the version of this checkout. Start it (`hl daemon`), then the gateway. (The app starts the daemon itself.)
 
 ## 2. PC
 
 ### Desktop app
 
-Step 3 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
+Step 1 opened it. It pairs itself, so you should see the agent list at once. `hl device list` shows this computer and `hl device revoke <id>` cancels it.
 
 **Common failure:** the window shows "Pair this computer": the app could not pair itself. Run `hl device pair` and paste the `code:` value, or the whole `handline://` line, into the window.
 If the window fails to connect, an older gateway on another address (loopback, say) is still running and the app reused it: stop it, then start the app again.
-If that command says `no gateway is running (nothing listens on <home>/gateway.sock)`, the gateway is not running: step 2.
+If that command says `no gateway is running (nothing listens on <home>/gateway.sock)`, the gateway is not running: step 1.
 
 ### Browser
 
-Open `http://<ip>:7443` (the page is served by the gateway you started in step 2).
+Open `http://<ip>:7443` (the gateway you started without the app serves the page; with the app, use its window).
 Run `hl device pair` and paste the code into the page. The agent list appears.
 
 **Common failure:** "too many wrong pairing codes": this address is locked for 15 minutes after repeated wrong codes. Wait, then run `hl device pair` for a fresh code and paste it whole.
@@ -61,16 +62,12 @@ Run `hl device pair` and paste the code into the page. The agent list appears.
 
 You should see the agent list, then an agent's page.
 
-**Common failure:** `cannot connect to ...`: the phone cannot reach `<name>:7443` (Tailscale is off on the phone). Test it in the phone's browser at `http://<name>:7443`: the page loads; if it does not, the network is the cause.
-If the app says the link has no certificate fingerprint and the address is not a Tailscale name, the gateway was started without `-advertise <name>:7443` (step 2): stop it and start it again.
+**Common failure:** `cannot connect to ...`: the phone cannot reach `<name>:7443` (Tailscale is off on the phone). With the gateway started without the app, the phone's browser at `http://<name>:7443` loads the page; if it does not, the network is the cause. (`<name>` is the host in the `uri:` line.)
+If the app says the link has no certificate fingerprint and the address is not a Tailscale name, the gateway was started without `-advertise <name>:7443` (step 1): stop it and start it again.
 
 `apps/mobile/README.md` documents the simulator only; `--device` builds onto a plugged-in phone. This command is not tested.
 
 ## 4. Android
-
-**Not working on the plain gateway yet.** An Android release build refuses cleartext `ws://`, and the app has no cleartext setting, so Pair fails with `cannot connect`. Until that is added to `apps/mobile`, use the LAN section below (a certificate the phone pins), or skip Android.
-
-The steps, for when it works:
 
 1. Tailscale on the phone, signed in to the same tailnet.
 2. Build the release app once (about 9 minutes) and install it on the phone with USB debugging on. `apps/mobile/android` is not in the repo, so generate it first.
@@ -84,7 +81,7 @@ The steps, for when it works:
 
 You should see the agent list.
 
-**Common failure:** `cannot connect` on a phone that reaches `<name>:7443` in its browser: the cleartext limit above.
+**Common failure:** the same as the iPhone's: the phone cannot reach `<name>:7443`, or the link carries a bare `100.x` address (the gateway was started without `-advertise <name>:7443`).
 
 ## Not on Tailscale: a LAN with a certificate
 
