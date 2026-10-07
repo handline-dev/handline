@@ -4,9 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/lock"
+	"github.com/handline/handline/go/internal/term"
 )
 
 func startAt(t *testing.T, dir string, own bool) (*Daemon, error) {
@@ -28,8 +31,49 @@ func homeDir(t *testing.T) string {
 	return dir
 }
 
+// blankScreens is a terminal host whose every screen shows no prompt; reads counts the screens the watch asked for.
+type blankScreens struct{ reads atomic.Int32 }
+
+func (b *blankScreens) Name() string                                   { return "fake" }
+func (b *blankScreens) Available() bool                                { return true }
+func (b *blankScreens) ListTerminals() map[string]bool                 { return nil }
+func (b *blankScreens) WaitIdle(string, int, func([]string) bool) bool { return true }
+func (b *blankScreens) Send(string, string, bool) (bool, string)       { return true, "" }
+func (b *blankScreens) ReadScreen(string, int) *term.Screen {
+	b.reads.Add(1)
+	return &term.Screen{Tail: []string{"nothing here", "❯"}, Source: "screen"}
+}
+
+// seedOpenPrompt leaves an open prompt_blocks row for an agent with a terminal, in the database under dir.
+func seedOpenPrompt(t *testing.T, dir string) {
+	t.Helper()
+	d, err := startAt(t, dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.db.Exec("INSERT INTO agent_state(agent, state, updated, terminal) VALUES('manager', 'IDLE', 0, '%1')")
+	d.db.Exec("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES('manager', 'question', 'f', 't', '[]', '{}', 1, 1, 1)")
+	d.Close()
+}
+
+func startWithScreens(t *testing.T, dir string, own bool, screens *blankScreens) *Daemon {
+	t.Helper()
+	d, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Auth: fakeAuth{}, OwnPrompts: own, Terminal: screens})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Close)
+	return d
+}
+
+func goneAt(d *Daemon) (gone any) {
+	d.db.QueryRow("SELECT gone_at FROM prompt_blocks WHERE agent = 'manager'").Scan(&gone)
+	return gone
+}
+
 // A daemon started the way tests/daemon/test_go_reads.py starts one, beside a Python daemon's database, writes nothing to
-// prompt_blocks: it neither watches screens nor holds the daemon singleton.
+// prompt_blocks: it neither watches screens nor holds the daemon singleton. The control is the same setup with -own-prompts, where
+// the watch's first pass reads the blank screen and closes the row, so a daemon that watched anyway would fail the second half.
 func TestADaemonStartedWithoutOwnPromptsNeitherWatchesNorTakesTheSingleton(t *testing.T) {
 	dir := homeDir(t)
 	python := lock.TakeSingleton(dir, daemonLock) // the Python daemon is up
@@ -41,17 +85,39 @@ func TestADaemonStartedWithoutOwnPromptsNeitherWatchesNorTakesTheSingleton(t *te
 	if d.single != nil {
 		t.Fatal("it took the singleton")
 	}
-	d.db.Exec("INSERT INTO agent_state(agent, state, updated, terminal) VALUES('manager', 'IDLE', 0, '%1')")
-	d.db.Exec("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES('manager', 'question', 'f', 't', '[]', '{}', 1, 1, 1)")
 	d.Close()
-	var gone any
-	d2, err := startAt(t, dir, false)
-	if err != nil {
-		t.Fatal(err)
+	python.Release()
+
+	seedOpenPrompt(t, dir)
+	control := startWithScreens(t, dir, true, &blankScreens{})
+	deadline := time.Now().Add(5 * time.Second)
+	for goneAt(control) == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
-	d2.db.QueryRow("SELECT gone_at FROM prompt_blocks WHERE agent = 'manager'").Scan(&gone)
-	if gone != nil {
+	if goneAt(control) == nil {
+		t.Fatal("control: the watching daemon never closed the row of a blank screen")
+	}
+	control.Close()
+
+	dir = homeDir(t)
+	seedOpenPrompt(t, dir)
+	screens := &blankScreens{}
+	d = startWithScreens(t, dir, false, screens)
+	time.Sleep(500 * time.Millisecond) // the watch's first pass is immediate, so a watching daemon has run by now
+	if n := screens.reads.Load(); n != 0 {
+		t.Fatalf("it read %d screens", n)
+	}
+	if gone := goneAt(d); gone != nil {
 		t.Fatalf("the open prompt row was closed: %v", gone)
+	}
+}
+
+func TestAGatewayRefusesOwnPrompts(t *testing.T) {
+	dir := homeDir(t)
+	_, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Auth: fakeAuth{}, Gateway: true, OwnPrompts: true,
+		Listen: "127.0.0.1:0", RelaySocket: filepath.Join(dir, "relay.sock"), PidFile: filepath.Join(dir, "pid")})
+	if err == nil || !strings.Contains(err.Error(), "-own-prompts") {
+		t.Fatalf("a gateway started with -own-prompts: %v", err)
 	}
 }
 
