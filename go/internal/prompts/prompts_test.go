@@ -21,6 +21,7 @@ type host struct {
 	screens map[string][]string
 	sent    []string
 	onSend  func(h *host, handle, text string, enter bool)
+	failAt  int // the nth send (1-based) fails; 0 never
 }
 
 func (h *host) Name() string                                   { return "fake" }
@@ -43,7 +44,11 @@ func (h *host) Send(handle, text string, enter bool) (bool, string) {
 	h.mu.Lock()
 	h.sent = append(h.sent, fmt.Sprintf("%q/%v", text, enter))
 	fn := h.onSend
+	failed := h.failAt != 0 && len(h.sent) == h.failAt
 	h.mu.Unlock()
+	if failed {
+		return false, "no such pane"
+	}
 	if fn != nil {
 		fn(h, handle, text, enter)
 	}

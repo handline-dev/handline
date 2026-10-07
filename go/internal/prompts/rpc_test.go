@@ -32,13 +32,17 @@ func asRon() *rpc.Conn {
 	return &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "person", "name": "casey"}}}
 }
 
+func register(e *Env) {
+	dir := paths.AgentsDir(e.Home)
+	os.MkdirAll(filepath.Join(dir, "backend"), 0o755)
+	os.WriteFile(filepath.Join(dir, "backend", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
+}
+
 // shown puts screen on backend's terminal, lets the watch see it and returns the prompt id the caller would name.
 func shown(t *testing.T, e *Env, h *host, screen []string) string {
 	t.Helper()
 	seedAgent(t, e, "backend", "%1")
-	dir := paths.AgentsDir(e.Home)
-	os.MkdirAll(filepath.Join(dir, "backend"), 0o755)
-	os.WriteFile(filepath.Join(dir, "backend", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
+	register(e)
 	h.set("%1", screen)
 	if _, err := e.WatchOnce(t.Logf); err != nil {
 		t.Fatal(err)
@@ -322,5 +326,67 @@ func TestAFolderTrustAnswerIsRememberedAsARootOnlyWhenNotAlreadyDeclared(t *test
 	}
 	if ok, why := e.remember(d, trustLabel); !ok || why != "already trusted" {
 		t.Fatalf("%v %q", ok, why)
+	}
+}
+
+var trustScreen = []string{"Quick safety check: Is this a project you created or one you trust?", "", " Accessing workspace:", " /work/project", "",
+	"❯ 1. Yes, I trust this folder", "  2. No, exit"}
+
+func TestTheFolderTrustScreenIsOfferedWithItsFolderAndAnsweredWithDownArrowThenOneEnter(t *testing.T) {
+	e, h := testEnv(t)
+	seedAgent(t, e, "backend", "%1")
+	h.set("%1", trustScreen)
+	d, err := e.dialogOf("backend")
+	if err != nil || d == nil || d.kind != kindTrust || d.title != "Trust /work/project?" || len(d.options) != 1 || d.options[0].Label != trustLabel {
+		t.Fatalf("%+v %v", d, err)
+	}
+	ok, said := e.pressChoice("backend", d.title, 1, false)
+	if !ok || said != "backend: trusted" || len(h.sent) != 2 || h.sent[0] != `"\x1b[B"/false` || h.sent[1] != `""/true` {
+		t.Fatalf("%v %q %q", ok, said, h.sent)
+	}
+	// a number the dialog does not offer, or another title: nothing more is sent
+	h.sent = nil
+	if ok, _ := e.pressChoice("backend", d.title, 2, false); ok || len(h.sent) != 0 {
+		t.Fatalf("%v %q", ok, h.sent)
+	}
+	if ok, _ := e.pressChoice("backend", "Trust /elsewhere?", 1, false); ok || len(h.sent) != 0 {
+		t.Fatalf("%v %q", ok, h.sent)
+	}
+}
+
+func TestATrustScreenWithNoReadableFolderIsNotOfferedAndNothingIsSent(t *testing.T) {
+	e, h := testEnv(t)
+	seedAgent(t, e, "backend", "%1")
+	h.set("%1", []string{trustScreen[0], "", "❯ 1. Yes, I trust this folder", "  2. No, exit", "Enter to confirm · Esc to cancel"})
+	if d, err := e.dialogOf("backend"); d != nil || err != nil {
+		t.Fatalf("%+v %v", d, err)
+	}
+	if ok, _ := e.pressChoice("backend", "Is this a project you created or one you trust?", 1, false); ok || len(h.sent) != 0 {
+		t.Fatalf("%v %q", ok, h.sent)
+	}
+	register(e)
+	// through the handler it is no prompt at all: the watch opens nothing and an answer is stale
+	h.set("%1", trustScreen)
+	e.WatchOnce(t.Logf)
+	_, err := answers(e, "any", "1")
+	refusal(t, err, "stale_prompt")
+	if len(h.sent) != 0 {
+		t.Fatalf("%q", h.sent)
+	}
+}
+
+func TestIfTheFirstTrustKeyFailsNoEnterIsSent(t *testing.T) {
+	e, h := testEnv(t)
+	seedAgent(t, e, "backend", "%1")
+	h.set("%1", trustScreen)
+	h.failAt = 1
+	ok, said := e.pressChoice("backend", "Trust /work/project?", 1, false)
+	if ok || !strings.Contains(said, "could not accept the trust dialog") || len(h.sent) != 1 {
+		t.Fatalf("%v %q %q", ok, said, h.sent)
+	}
+	h.sent, h.failAt = nil, 2
+	ok, said = e.pressChoice("backend", "Trust /work/project?", 1, false)
+	if ok || !strings.Contains(said, "could not confirm the trust prompt") || len(h.sent) != 2 {
+		t.Fatalf("%v %q %q", ok, said, h.sent)
 	}
 }
