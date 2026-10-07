@@ -313,10 +313,8 @@ func Context(d *Dialog) []string {
 	for _, ln := range d.Body {
 		t := strings.TrimSpace(ln)
 		if !shown[t] && !numberedRE.MatchString(t) {
-			out = append(out, oneline2(ln))
+			out = append(out, textsafe.Oneline(ln))
 		}
 	}
 	return out
 }
-
-func oneline2(s string) string { return textsafe.Oneline(s) }

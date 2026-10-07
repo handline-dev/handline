@@ -58,7 +58,6 @@ func (t *Term) driver(handle string) Driver {
 	return DriverFor(DefaultVendor)
 }
 
-func (t *Term) sleep(d time.Duration) { time.Sleep(d) }
 
 // screen is the rendered screen of handle, or nil when it cannot be read: a source other than the screen is the accumulated
 // stream, whose history is the conversation and not what is drawn now.
@@ -91,8 +90,6 @@ func (t *Term) sendKey(handle, key string) (bool, string) {
 	}
 	return t.Send(handle, key, false)
 }
-
-func short(s string, n int) string { return cut(s, n) }
 
 // readDialog is (tail, footer, dialog) for handle's screen now: the one read every caller that looks at or presses a dialog goes
 // through, so a long command's dialog (found only by widening) is exactly as pressable as it is visible. tail is nil when the
@@ -156,10 +153,10 @@ func (t *Term) pressDialog(handle string, pick func(*Dialog) (string, string), k
 		return NotPressed, dialog.Title, why
 	}
 	if ok, out := t.sendKey(handle, key); !ok {
-		return NotPressed, dialog.Title, "the key could not be sent: " + short(out, 120)
+		return NotPressed, dialog.Title, "the key could not be sent: " + cut(out, 120)
 	}
 	for i := 0; i < pressSettleReads; i++ {
-		t.sleep(t.Settle)
+		time.Sleep(t.Settle)
 		afterTail, afterFooter, after := t.readDialog(handle, allowTruncated, nil)
 		if afterTail == nil {
 			continue // not evidence either way
@@ -324,16 +321,16 @@ func (t *Term) PromptOnScreen(handle string) (kind string, confirmation *Confirm
 func (t *Term) sendQuestionKeys(handle string, keys []string) (bool, string) {
 	for _, k := range keys {
 		if ok, out := t.sendKey(handle, k); !ok {
-			return false, "a key could not be sent: " + short(out, 120)
+			return false, "a key could not be sent: " + cut(out, 120)
 		}
-		t.sleep(t.Gap)
+		time.Sleep(t.Gap)
 	}
 	return true, ""
 }
 
 func (t *Term) questionCleared(handle string, drv Driver) bool {
 	for i := 0; i < pressSettleReads; i++ {
-		t.sleep(t.Settle)
+		time.Sleep(t.Settle)
 		scr := t.screen(handle, 40)
 		if scr == nil {
 			continue
@@ -386,7 +383,7 @@ func (t *Term) answerToggleAndOther(handle string, drv Driver, found *Question, 
 	if ok, why := t.sendQuestionKeys(handle, toggle); !ok {
 		return NotPressed, found.Header, why
 	}
-	t.sleep(t.Settle)
+	time.Sleep(t.Settle)
 	scr := t.screen(handle, 40)
 	if scr == nil {
 		return StillOpen, found.Header, "the screen could not be re-read after toggling " + pyList(toggle)
@@ -483,11 +480,11 @@ func (t *Term) TrustPromptGone(handle string) bool {
 // ConfirmTrust presses the vendor's trust answer, blind to which folder is on screen: callers decide whether to press it.
 func (t *Term) ConfirmTrust(handle string) (bool, string) {
 	if ok, out := t.Send(handle, t.driver(handle).TrustAnswer(), false); !ok {
-		return false, "could not accept the trust dialog: " + short(out, 200)
+		return false, "could not accept the trust dialog: " + cut(out, 200)
 	}
 	ok, out := t.Send(handle, "", true)
 	if !ok {
-		return false, "could not confirm the trust prompt: " + short(out, 200)
+		return false, "could not confirm the trust prompt: " + cut(out, 200)
 	}
 	return true, "trusted"
 }
@@ -592,30 +589,4 @@ func (t *Term) IdleNow(handle string) bool { return t.WaitIdle(handle, IdleProbe
 // TypeableNow is idle and nothing on screen that a typed line would answer.
 func (t *Term) TypeableNow(handle string) bool {
 	return (t.IdleNow(handle) || t.IdleWithBackground(handle)) && t.ScreenBlocker(handle) == nil
-}
-
-// KeyBytes is what a person's named key is, as the bytes a terminal sends for it; "" for Enter, which is sent as one.
-var KeyBytes = map[string]string{"esc": Escape, "enter": "", "up": "\x1b[A", "down": "\x1b[B", "tab": "\t", "shift-tab": "\x1b[Z", "ctrl-c": "\x03",
-	"0": "0", "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9"}
-
-// SendKeys presses the named keys in order, stopping at the first the host refuses. Nothing here reads the screen: a person who
-// presses a key has looked at it.
-func (t *Term) SendKeys(handle string, keys []string) (bool, string) {
-	for _, k := range keys {
-		b, ok := KeyBytes[k]
-		if !ok {
-			return false, "not a key: " + pyRepr(k)
-		}
-		var sent bool
-		var out string
-		if k == "enter" {
-			sent, out = t.Send(handle, "", true)
-		} else {
-			sent, out = t.Send(handle, b, false)
-		}
-		if !sent {
-			return false, k + ": " + short(out, 200)
-		}
-	}
-	return true, ""
 }
