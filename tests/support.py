@@ -151,10 +151,9 @@ REAL_ACCESS_TOKEN = claudemeter._access_token_detailed
 claudemeter._access_token_detailed = lambda acct: (None, False)
 claudemeter.refresh_credential = lambda acct, timeout=0: False
 
-# Every test that needs an Orca stands in for one, and a restore tuple that
-# forgot a name used to leak that stand-in into every test after it. Captured
-# once, put back by _daemon_home, so no test inherits another's world.
-REAL_ORCA = {n: getattr(termmod, n) for n in (
+# The terminal functions the test world stands in for, captured once and put
+# back by restore_world, so no test inherits another's stand-in.
+REAL_TERMINAL = {n: getattr(termmod, n) for n in (
     "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
     "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
     "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
@@ -166,45 +165,32 @@ REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals
 
 CURRENT_TEST: dict[str, str] = {"name": "<setup>"}
 
-# A stand-in `orca` at the front of PATH for this process and every child of it:
-# it records which test ran it and does nothing else, and exits 1 the way an Orca
-# that is not answering does. A test that stands in for what it calls never
-# reaches it. The four that run the real `hl` as a child process do, and are
-# named below; any other test that reaches it is a test that has not stood in
-# for something, and the run ends on it.
-#
-# Two layers, not one, and neither is redundant. _guarded_popen_init below
-# catches a call in THIS process the moment it is made, naming the test before
-# anything is spent - but it patches subprocess.Popen.__init__, so a test that
-# replaces subprocess.run wholesale (two do, for reasons unrelated to Orca)
-# goes blind to that layer for as long as the replacement stands: nothing
-# calls Popen, so nothing is caught. This PATH stand-in is what still would,
-# for anything that actually execs `orca`, however it got there: PATH is set
-# once here at import, nothing in the suite clears or replaces it, and no
-# env-building site in ocp/ drops it from a child's environment either.
-FAKE_ORCA_DIR = Path(tempfile.mkdtemp(prefix="ocp-fake-orca-"))
-FAKE_ORCA_LOG = FAKE_ORCA_DIR / "calls.log"
-(FAKE_ORCA_DIR / "orca").write_text(
-    "#!/bin/sh\n"
-    # tr keeps one call to one line: an argument carrying a newline would
-    # otherwise split into a phantom log entry and redden the run on nothing.
-    "args=$(printf '%s' \"$*\" | tr '\\n\\t' '  ')\n"
-    "printf '%s\\t%s\\n' \"${OCP_TEST:-<none>}\" \"$args\" >> LOGFILE\n"
-    "exit 1\n".replace("LOGFILE", f'"{FAKE_ORCA_LOG}"'))
-(FAKE_ORCA_DIR / "orca").chmod(0o755)
-os.environ["PATH"] = str(FAKE_ORCA_DIR) + os.pathsep + os.environ.get("PATH", "")
-atexit.register(shutil.rmtree, FAKE_ORCA_DIR, True)
+FAKE_BIN_DIR = Path(tempfile.mkdtemp(prefix="handline-suite-bin-"))
+os.environ["PATH"] = str(FAKE_BIN_DIR) + os.pathsep + os.environ.get("PATH", "")
+atexit.register(shutil.rmtree, FAKE_BIN_DIR, True)
 
-# The same two layers for tmux, the default host: a stand-in `tmux` beside the fake `orca`, and the Popen
-# guard below. The suite has a tmux socket of its own, and nothing reaches the live server (`-L ocp`, or the
-# user's default one with no -L): a call aimed there is refused and fails the run, never skipped. Every
-# other call gets "no server running" unless the test sets HANDLINE_TEST_REAL_TMUX (the real-tmux test does),
-# so no test opens a window that would start a real session.
+# The same two layers for Orca, for as long as its backend exists: a stand-in `orca` that records the test
+# that ran it and exits 1 the way an Orca that is not answering does, and the Popen guard's orca branch.
+# No test reaches either; one that does has not stood in for what it calls, and the run ends on it.
+FAKE_ORCA_LOG = FAKE_BIN_DIR / "orca-calls.log"
+(FAKE_BIN_DIR / "orca").write_text(r"""#!/bin/sh
+args=$(printf '%s' "$*" | tr '\n\t' '  ')
+printf '%s\t%s\n' "${OCP_TEST:-<none>}" "$args" >> "@LOG@"
+exit 1
+""".replace("@LOG@", str(FAKE_ORCA_LOG)))
+(FAKE_BIN_DIR / "orca").chmod(0o755)
+
+# Two layers keep the suite off the live tmux server: a stand-in `tmux` at the front of PATH, which a child
+# process reaches too, and the Popen guard below, which names the test in this process. The suite has a tmux
+# socket of its own, and nothing reaches the live server (`-L ocp`, or the user's default one with no -L): a
+# call aimed there is refused and fails the run, never skipped. Every other call gets "no server running"
+# unless the test sets HANDLINE_TEST_REAL_TMUX (the real-tmux test does), so no test opens a window that would
+# start a real session.
 SUITE_TMUX_SOCKET = f"handline-suite-{os.getpid()}"
 os.environ["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET
 REAL_TMUX = shutil.which("tmux")       # looked up before the stand-in is written
-FAKE_TMUX_LOG = FAKE_ORCA_DIR / "tmux-calls.log"
-(FAKE_ORCA_DIR / "tmux").write_text(r"""#!/bin/sh
+FAKE_TMUX_LOG = FAKE_BIN_DIR / "tmux-calls.log"
+(FAKE_BIN_DIR / "tmux").write_text(r"""#!/bin/sh
 args=$(printf '%s' "$*" | tr '\n\t' '  ')
 printf '%s\t%s\n' "${OCP_TEST:-<none>}" "$args" >> "@LOG@"
 if [ "$1" != "-L" ] || [ -z "$2" ] || [ "$2" = "ocp" ]; then
@@ -215,7 +201,7 @@ if [ -n "$HANDLINE_TEST_REAL_TMUX" ] && [ -n "@REAL@" ]; then exec "@REAL@" "$@"
 echo "no server running on $2 (the suite's stand-in tmux)" >&2
 exit 1
 """.replace("@LOG@", str(FAKE_TMUX_LOG)).replace("@REAL@", REAL_TMUX or ""))
-(FAKE_ORCA_DIR / "tmux").chmod(0o755)
+(FAKE_BIN_DIR / "tmux").chmod(0o755)
 TMUX_ATTEMPTS: list[tuple[str, str]] = []
 
 
@@ -299,41 +285,25 @@ def calls_that_reached_live_tmux() -> list[tuple[str, str]]:
                 out.append((test, call))
     return out
 
-# Tests whose subject is a child `hl` process (a launch, the bridge on a pty),
-# which asks Orca for its terminals and its Run. They reach the stand-in, never
-# the real one.
-ORCA_CHILD_TESTS = {"test_launch", "test_launch_refuses_stale",
-                    "test_every_prompt_leaves_the_screen_above_it_drawn_through_tui_run",
-                    "test_the_composer_and_the_fill_on_a_real_screen_through_tui_run",
-                    "test_the_handline_command_runs_the_same_program_as_ocp"}
 
 
-def calls_that_reached_the_stand_in_orca() -> dict[str, list[str]]:
-    """The calls the fake `orca` recorded, by the test that made them."""
-    out: dict[str, list[str]] = {}
-    if FAKE_ORCA_LOG.exists():
-        for line in FAKE_ORCA_LOG.read_text().splitlines():
-            test, _, call = line.partition("\t")
-            out.setdefault(test, []).append(call)
-    return out
+def calls_that_reached_the_stand_in_orca() -> list[tuple[str, str]]:
+    """The calls the stand-in `orca` recorded, as (test, call)."""
+    if not FAKE_ORCA_LOG.exists():
+        return []
+    return [tuple(line.partition("\t")[::2]) for line in FAKE_ORCA_LOG.read_text().splitlines()]
+
 
 _REAL_POPEN_INIT = subprocess.Popen.__init__
-# Every `orca` a test tried to start in this process, kept by the guard before it
-# raises, so a test that catches the error still leaves the run failing.
+# Every `orca` a test tried to start in this process, kept by the guard before it raises, so a test that
+# catches the error still leaves the run failing.
 ORCA_ATTEMPTS: list[tuple[str, str]] = []
 
 
-def _is_orca(args) -> bool:
-    first = args if isinstance(args, str) else (args[0] if args else "")
-    return os.path.basename(str(first).split()[0] if str(first).split() else "") == "orca"
-
-
 def _guarded_popen_init(self, args, *a, **kw):
-    """Every subprocess in this process starts here. One that runs `orca` is a
-    test that has not stood in for what it calls: it would type at, list, create
-    or wait on the real Orca of whoever runs the suite. It raises, naming the
-    test and the call. (Code that catches Exception can swallow this; the fake
-    `orca` main() puts on PATH is what still sees it, and the run ends on it.)"""
+    """Every subprocess in this process starts here. One aimed at the live tmux server, a git worktree
+    made outside the temp folders, or any `orca` raises, naming the test and the call. (Code that catches
+    Exception can swallow this; TMUX_ATTEMPTS and ORCA_ATTEMPTS keep it, and the run ends on it.)"""
     argv = [args] if isinstance(args, str) else [str(x) for x in args]
     if argv and os.path.basename(argv[0].split()[0] if argv[0].split() else "") == "tmux" and reaches_live_tmux(
             argv[0].split() + argv[1:] if len(argv) == 1 else argv):
@@ -342,13 +312,10 @@ def _guarded_popen_init(self, args, *a, **kw):
     if argv and makes_a_worktree_outside_the_test_world(argv):
         TMUX_ATTEMPTS.append((CURRENT_TEST["name"], " ".join(argv)))
         raise AssertionError(f"{CURRENT_TEST['name']} would have made a real worktree: {' '.join(argv)}")
-    if _is_orca(args):
-        argv = args if isinstance(args, str) else " ".join(str(x) for x in args)
-        ORCA_ATTEMPTS.append((CURRENT_TEST["name"], argv))
-        ours = [f for f in traceback.extract_stack() if "/ocp/" in f.filename or "/tests/" in f.filename]
-        via = " (via " + " > ".join(f"{Path(f.filename).name}:{f.lineno} {f.name}" for f in ours[-6:-1]) + ")" if ours else ""
-        raise AssertionError(f"{CURRENT_TEST['name']} would have reached the real Orca: "
-                            f"{argv}{via}")
+    first = argv[0].split() if argv else []
+    if first and os.path.basename(first[0]) == "orca":
+        ORCA_ATTEMPTS.append((CURRENT_TEST["name"], " ".join(argv)))
+        raise AssertionError(f"{CURRENT_TEST['name']} would have reached the real Orca: {' '.join(argv)}")
     _REAL_POPEN_INIT(self, args, *a, **kw)
 
 
@@ -363,7 +330,7 @@ def restore_world() -> None:
     backends.use(None)
     os.environ.pop("OCP_TERMINAL", None)
     accounts.logged_in = REAL_LOGGED_IN
-    for n, f in REAL_ORCA.items():
+    for n, f in REAL_TERMINAL.items():
         setattr(termmod, n, f)
     # A session that ends closes its pane (T407); the tests that type into the
     # shell it left behind keep it, and the ones about the closing stand in for it.
@@ -397,7 +364,7 @@ def restore_world() -> None:
     dmn_login_expired._checked.clear()
     accounts._modified.clear()
     # The machine's process table is not the test world: with the real reading, whether a doctor or a task
-    # check goes on to ask Orca for its terminals depends on what happens to be running. "Could not look" is
+    # check goes on to ask the host for its terminals depends on what happens to be running. "Could not look" is
     # the answer the world gives; a test about sessions sets its own, or takes REAL_OBSERVE's.
     obsmod.live_sessions = lambda: None
     for n, f in REAL_OBSERVE.items():
@@ -1055,7 +1022,7 @@ class _Terminal:
     def install(self):
         termmod._screen = self.read
         termmod.send = self.send
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
 
     def read(self, handle, limit=40):
         self.reads += 1
@@ -1091,7 +1058,7 @@ class _ExitTerm:
         termmod._screen = self._read
         termmod.send = self.send
         termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
         termmod.close_terminal = lambda h, tab=True: (True, "closed")
 
     def send(self, handle, text, enter=True):
@@ -2307,16 +2274,17 @@ __all__ = [
     'ocmod',
     'PASS',
     'FAIL',
-    'REAL_ORCA',
+    'REAL_TERMINAL',
     'REAL_OBSERVE',
     'CURRENT_TEST',
-    'FAKE_ORCA_DIR',
+    'FAKE_BIN_DIR',
+    'FAKE_TMUX_LOG',
     'FAKE_ORCA_LOG',
-    'ORCA_CHILD_TESTS',
-    'calls_that_reached_the_stand_in_orca',
-    '_REAL_POPEN_INIT',
     'ORCA_ATTEMPTS',
-    '_is_orca',
+    'calls_that_reached_the_stand_in_orca',
+    'TMUX_ATTEMPTS',
+    'calls_that_reached_live_tmux',
+    '_REAL_POPEN_INIT',
     '_guarded_popen_init',
     'restore_world',
     '_page_text',
@@ -2487,15 +2455,9 @@ def run_area(run_tests) -> int:
     os.environ.pop("OCP_ACCOUNT", None)
     with tempfile.TemporaryDirectory() as td:
         run_tests(td)
-    # The whole run's dealings with Orca: none of its tests may have reached even
-    # the stand-in, except the four that run a child `hl`. (A test's own
-    # `except Exception` can swallow the guard's error; this cannot be swallowed.)
-    reached = calls_that_reached_the_stand_in_orca()
-    stray = {t: c for t, c in reached.items() if t not in ORCA_CHILD_TESTS}
-    check("orca: no test reached Orca except through the child ocp it runs",
-          not stray, "; ".join(f"{t}: {c[0]}" for t, c in sorted(stray.items())[:4]))
-    check("orca: no test started an orca process itself, whether or not it caught the error",
-          not ORCA_ATTEMPTS, "; ".join(f"{t}: {c}" for t, c in ORCA_ATTEMPTS[:4]))
+    orca = ORCA_ATTEMPTS + calls_that_reached_the_stand_in_orca()
+    check("orca: no test reached Orca, in this process or a child",
+          not orca, "; ".join(f"{t}: {c}" for t, c in orca[:4]))
     live = calls_that_reached_live_tmux()
     check("tmux: no test reached the live tmux server or made a real worktree, in this process or a child",
           not TMUX_ATTEMPTS and not live, "; ".join(f"{t}: {c}" for t, c in (TMUX_ATTEMPTS + live)[:4]))

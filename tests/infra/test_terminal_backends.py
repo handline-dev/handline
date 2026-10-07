@@ -343,7 +343,7 @@ def test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(home: Pa
 
 def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path) -> None:
     use_home(home)
-    for name, real in REAL_ORCA.items():        # the test world stubs some of these; this test is about the real ones
+    for name, real in REAL_TERMINAL.items():        # the test world stubs some of these; this test is about the real ones
         setattr(termmod, name, real)
     host = FakeHost()
     backends.use(host)

@@ -124,7 +124,7 @@ class _KeyTerm:
             return support._screen_of(self.tail)
         termmod._screen = read
         termmod.send = self.send
-        termmod.screen_blocker = REAL_ORCA["screen_blocker"]
+        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
 
     def send(self, handle, text, enter=True):
         self.sent.append((text, enter))
