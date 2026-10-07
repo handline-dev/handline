@@ -52,6 +52,7 @@ class FakeDaemon:
         `unread`: the inbox holds an unread item (id 5), so an inbox.list that its filters do not exclude returns at once."""
         self.role, self.mutate, self.lacks, self.broken = role, mutate or (lambda reply: reply), set(lacks), set(broken)
         self.serial, self.unread = serial, unread
+        self._tl = threading.local()    # the connection a call is being answered on
 
     def connect(self) -> socket.socket:
         """A client socket to a new connection of this fake (no bind: a sandboxed run may not make a socket file)."""
@@ -74,6 +75,14 @@ class FakeDaemon:
 
     def _serve(self, conn):
         said_hello, buf, out = False, b"", threading.Lock()
+
+        def push(notice):
+            with out:
+                try:
+                    conn.sendall(json.dumps(notice).encode() + b"\n")
+                except OSError:
+                    pass
+        self._tl.push = push
 
         def send(reply):
             after = reply.pop("_notices", [])
@@ -175,6 +184,16 @@ class FakeDaemon:
             topics = params.get("topics")
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
+            if "devices" in topics:     # the gateway's own topic: alone, and the founder's
+                if len(topics) > 1:
+                    return fail(_err(-32602, "bad_request", field="topics")), said_hello
+                if method == "subscribe":
+                    if self.role != "founder":
+                        return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "role"}}), said_hello
+                    from fake_methods import devices as dev
+                    dev.WORLD["subs"].append(self._tl.push)
+                    return ok({"cursor": 0}), said_hello
+                return ok({}), said_hello
             return ok({"cursor": 7} if method == "subscribe" else {}), said_hello
         if method == "events.feed":
             limit = params.get("limit", 50)
@@ -237,6 +256,8 @@ class FakeNetwork:
                             continue
                         d = {"id": f"d{len(dev.WORLD['devices']) + 1}", "name": params.get("name", ""), "token": f"tok-{len(dev.WORLD['devices']) + 1}"}
                         dev.WORLD["devices"][d["id"]] = d
+                        dev.emit("device.paired", {"id": d["id"], "name": d["name"], "role": "member", "created": "2026-10-06T00:00:00Z",
+                                                   "last_seen": None, "connected": False})
                         send({"jsonrpc": "2.0", "id": rid, "result": {"accepted": True, "token": d["token"], "device": d["id"]}})
                         continue
                     if req.get("method") == "hello" and not paired:
