@@ -165,8 +165,8 @@ class FakeDaemon:
             kind = {"founder": "person", "agent": "agent", "member": "device", "anonymous": "anonymous"}[self.role]
             return ok({"protocol": 1, "min_client": 1, "daemon": "fake", "schema": 1, "role": self.role,
                        "caller": {"kind": kind, "name": "x"}, "transport": "local", "methods": self._methods(),
-                       "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text", "bytes"],
-                                        "terminal_hosts": {"tmux": ["text", "bytes"], "orca": ["text"]}}}), True
+                       "capabilities": {"chat": True, "review": False, "input_ask": False, "terminal_format": ["text", "bytes", "styled"],
+                                        "terminal_hosts": {"tmux": ["text", "bytes", "styled"], "orca": ["text"]}}}), True
         if method == "batch" or not said_hello:
             return fail(_err(-32600, "bad_request")), said_hello
         if method in self.lacks or method in self.broken:
@@ -321,9 +321,9 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
-KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
+KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "styled_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
        "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "new_agent": "a.fresh", "repo_dir": "/tmp", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle"}
-KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
+KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "styled_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "new_agent=a.fresh", "--var", "repo_dir=/tmp", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle"]
 
@@ -659,6 +659,8 @@ def test_matchers() -> None:
     check("conformance: $contains, $oneOf, $regex, $absent",
           ok({"$contains": {"n": 1}}, [{"n": 0}, {"n": 1}]) and not ok({"$contains": 3}, [1, 2])
           and ok({"$oneOf": ["a", "b"]}, "b") and ok({"$regex": "^ab"}, "abc") and ok({"k": {"$absent": True}}, {}) and not ok({"k": {"$absent": True}}, {"k": 1}))
+    opt = {"k": {"$oneOf": [{"$type": "integer"}, {"$absent": True}]}}
+    check("conformance: a key whose $oneOf lists $absent is optional", ok(opt, {}) and ok(opt, {"k": 1}))
     check("conformance: $save keeps the value for {{name}}", ok({"$save": "x", "$type": "integer"}, 7, saved) and
           conformance.substitute({"id": "{{x}}", "s": "n{{x}}"}, saved) == {"id": 7, "s": "n7"})
     check("conformance: $each needs every element to match", ok({"$each": {"n": 1}}, [{"n": 1}, {"n": 1}]) and ok({"$each": {"n": 1}}, [])

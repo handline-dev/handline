@@ -60,7 +60,6 @@ describe('U12 agent verbs', () => {
   it('Park asks first; Cancel sends nothing and Confirm parks, with "parking…" in the state cell meanwhile', async () => {
     const s = setup();
     open(s);
-    s.daemon.knobs.latency(1000);
     await mount(ARCH, s);
     await click(item('Park'));
     expect(text($('.verb-sheet'))).toContain('Park handline.architect?');
@@ -68,10 +67,15 @@ describe('U12 agent verbs', () => {
     expect($('.verb-sheet')).toBeNull();
     expect(session(s).open).toBe(true);
     await click(item('Park'));
+    const park = s.daemon.knobs.hold('session.park'); // held open: the pending mark does not depend on timing
     await click(sheetBtn('Confirm'));
-    await until(() => text($(`[data-agent="${ARCH}"] .sub`)).includes('parking…'), 'the gerund');
-    await until(() => !session(s).open, 'parked', 1000);
-  }, 20_000);
+    await until(() => ($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title') ?? '').includes('parking…'), 'the gerund in the row');
+    expect(text($(`[data-agent="${ARCH}"] summary`))).toContain('parking…'); // and in the menu button
+    expect(session(s).open).toBe(true);
+    park();
+    await until(() => !session(s).open, 'parked');
+    await until(() => !text($(`[data-agent="${ARCH}"] summary`)).includes('parking…'), 'the mark gone');
+  });
 
   it('Restart fresh drops the session id; Restart keeps the conversation', async () => {
     const s = setup();
@@ -141,7 +145,7 @@ describe('U12 agent verbs', () => {
     await click(item('Park'));
     await click(sheetBtn('Confirm'));
     await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
-    expect(text($(`[data-agent="${ARCH}"] .sub`))).not.toContain('parking…');
+    expect($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title')).not.toContain('parking…');
     expect(session(s).open).toBe(true);
   });
 

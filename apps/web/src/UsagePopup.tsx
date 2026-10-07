@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { gaugeOf, span } from '@handline/app-core';
 import { useAccounts, useServes } from '@handline/app-data';
 import { agentsLine } from './Accounts.tsx';
+import { Meter } from './RailIcons.tsx';
 import { Gauge, SPANS, useNow } from './Gauge.tsx';
 
 export function UsagePopup() {
@@ -14,10 +15,18 @@ export function UsagePopup() {
   if (!served) return null;
   const list = data?.accounts ?? [];
   const summary = list.map((a) => `${a.label} ${a.five_hour ? `${Math.round(a.five_hour.used_pct)}%` : '–'}`).join(' · ');
+  const worst = Math.max(0, ...list.map((a) => Math.round(a.five_hour?.used_pct ?? 0)));
   return (
     <div className="usage">
-      <button className="usage-btn" aria-expanded={open} onClick={() => setOpen(!open)} title="Account usage">
-        acct {summary || 'none'}
+      <button
+        className="usage-btn"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        title={`Account usage (5 h): ${summary || 'none'}`}
+        aria-label={`Account usage, 5 h: ${summary || 'none'}`}
+      >
+        <Meter pct={worst} label="busiest account, 5 h" />
+        <span className="count">{list.length ? `${worst}%` : '–'}</span>
       </button>
       {open ? (
         <div className="usage-pop" role="dialog" aria-label="Account usage">

@@ -19,6 +19,8 @@ import {
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
+import { Icon, type IconName } from './ui/index.ts';
+import { TasksTab } from './TasksTab.tsx';
 import { Badges } from './Badges.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
@@ -26,7 +28,14 @@ import { TerminalTab } from './TerminalTab.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
 const label = (t: Tab): string =>
-  t.kind === 'chat' ? 'Chat' : t.kind === 'terminal' ? 'Claude Code' : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+  t.kind === 'chat'
+    ? 'Chat'
+    : t.kind === 'tasks'
+      ? 'Tasks'
+      : t.kind === 'terminal'
+        ? 'Claude Code'
+        : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal' };
 const PRESETS: [Preset, string][] = [
   ['single', 'One pane'],
   ['cols', 'Two columns'],
@@ -98,6 +107,7 @@ export function Pane({ group }: { group: Group }) {
                 } else if (e.key === 'Enter' || e.key === ' ') apply((w) => activate(w, id));
               }}
             >
+              <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t)} aria-hidden />
               <span className="tab-label">{label(t)}</span>
               {t.kind === 'terminal' ? (
                 <>
@@ -112,10 +122,16 @@ export function Pane({ group }: { group: Group }) {
                   title={t.kind === 'terminal' ? 'Close the tab; the agent keeps running' : 'Close the tab'}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (
+                      t.kind === 'terminal' &&
+                      detail.session_open &&
+                      !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
+                    )
+                      return;
                     apply((w) => closeTab(w, id));
                   }}
                 >
-                  ✕
+                  <Icon name="close" size={12} label="Close" aria-hidden />
                 </button>
               )}
             </div>
@@ -124,9 +140,18 @@ export function Pane({ group }: { group: Group }) {
         <span className="strip-end">
           <details className="menu">
             <summary className="icon" aria-label="Add a tab" title="Add a tab">
-              ＋
+              <Icon name="plus" size={14} aria-hidden />
             </summary>
             <div className="menu-list">
+              <button
+                className="menu-item"
+                onClick={(e) => {
+                  e.currentTarget.closest('details')!.removeAttribute('open');
+                  apply((w) => openTab(w, 'tasks', {}, group.id));
+                }}
+              >
+                <Icon name="tasks" size={14} aria-hidden /> Tasks
+              </button>
               {detail.terminal ? (
                 <button
                   className="menu-item"
@@ -135,16 +160,18 @@ export function Pane({ group }: { group: Group }) {
                     apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id));
                   }}
                 >
-                  Claude Code
+                  <Icon name="terminal" size={14} aria-hidden /> Claude Code
                 </button>
               ) : (
-                <span className="menu-item muted">No terminal: start {agent} first</span>
+                <span className="menu-item muted">
+                  <Icon name="noTerminal" size={14} label="No terminal: start the agent first" />
+                </span>
               )}
             </div>
           </details>
           <details className="menu">
             <summary className="icon" aria-label="Layout" title="Layout">
-              ▦
+              <Icon name="layout" size={14} aria-hidden />
             </summary>
             <div className="menu-list">
               {PRESETS.map(([p, name]) => (
@@ -166,6 +193,8 @@ export function Pane({ group }: { group: Group }) {
       <div className="pane-body" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
+        ) : tab.kind === 'tasks' ? (
+          <TasksTab agent={agent} />
         ) : tab.kind === 'terminal' ? (
           wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
             <BytesTab agent={agent} detail={detail} />

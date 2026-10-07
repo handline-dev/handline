@@ -32,10 +32,13 @@ export function serveDir(root: string, port = 0): Promise<{ url: string; close: 
     body.on('error', () => res.destroy());
     body.pipe(res);
   });
-  return new Promise((resolve) =>
-    server.listen(port, '127.0.0.1', () => {
-      const { port: p } = server.address() as { port: number };
-      resolve({ url: `http://127.0.0.1:${p}/`, close: () => server.close() });
-    }),
-  );
+  const opened = (resolve: (v: { url: string; close: () => void }) => void) => () => {
+    const { port: p } = server.address() as { port: number };
+    resolve({ url: `http://127.0.0.1:${p}/`, close: () => server.close() });
+  };
+  // A port someone else holds falls back to any free one: the page then starts with empty browser storage, which beats no window.
+  return new Promise((resolve) => {
+    server.once('error', () => server.listen(0, '127.0.0.1', opened(resolve)));
+    server.listen(port, '127.0.0.1', opened(resolve));
+  });
 }

@@ -1,0 +1,156 @@
+/* The design tokens (docs/design-gaps.md §1): the only place a colour, a size, a space or a radius is given a value. Screens and ui/* read these.
+   Dark is the default; light follows the OS and `data-theme` on <html> overrides both. */
+:root {
+  /* surfaces: canvas, sidebar and bars, cards and inputs, hover and selected */
+  --bg-0: #0e0e10;
+  --bg-1: #151517;
+  --bg-2: #1c1c1f;
+  --bg-3: #26262a;
+  --line: #2b2b30;
+  --line-strong: #3d3d44;
+  /* text: names and values, second line and labels, hints (never for a state) */
+  --ink: #ececee;
+  --ink-2: #a3a3ab;
+  --ink-3: #6f6f78;
+  --primary: #ececee;
+  --on-primary: #0e0e10;
+  --focus: #7aa2ff;
+  --link: #8fb0ff;
+  /* state hues (Okabe-Ito): each sits beside a glyph and is never the only signal */
+  --s-working: #56b4e9;
+  --s-wait: #f0b429;
+  --s-bad: #e8743b;
+  --s-ok: #3fbf9b;
+  --term-bg: #0a0a0b;
+  --term-ink: #e8e6df;
+  --shadow-pop: 0 8px 24px #0006;
+  --scrim: #0008;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg-0: #ffffff;
+    --bg-1: #f7f7f8;
+    --bg-2: #efeff1;
+    --bg-3: #e4e4e8;
+    --line: #e4e4e7;
+    --line-strong: #c9c9d0;
+    --ink: #18181b;
+    --ink-2: #52525b;
+    --ink-3: #8a8a94;
+    --primary: #18181b;
+    --on-primary: #ffffff;
+    --focus: #2f5fd0;
+    --link: #1f4fc0;
+    --s-working: #0072b2;
+    --s-wait: #b87900;
+    --s-bad: #c2410c;
+    --s-ok: #00875f;
+    --term-bg: #16150f;
+    --shadow-pop: 0 8px 24px #0002;
+    color-scheme: light;
+  }
+}
+:root[data-theme='light'] {
+  --bg-0: #ffffff;
+  --bg-1: #f7f7f8;
+  --bg-2: #efeff1;
+  --bg-3: #e4e4e8;
+  --line: #e4e4e7;
+  --line-strong: #c9c9d0;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --ink-3: #8a8a94;
+  --primary: #18181b;
+  --on-primary: #ffffff;
+  --focus: #2f5fd0;
+  --link: #1f4fc0;
+  --s-working: #0072b2;
+  --s-wait: #b87900;
+  --s-bad: #c2410c;
+  --s-ok: #00875f;
+  --term-bg: #16150f;
+  --shadow-pop: 0 8px 24px #0002;
+  color-scheme: light;
+}
+
+:root {
+  /* type: one sans and one mono; only these sizes */
+  --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --fs-hint: 11px;
+  --fs-label: 12px;
+  --fs-body: 13px;
+  --fs-title: 15px;
+  --fs-page: 20px;
+  --t-hint: 400 var(--fs-hint)/14px var(--sans);
+  --t-label: 400 var(--fs-label)/16px var(--sans);
+  --t-body: 400 var(--fs-body)/18px var(--sans);
+  --t-name: 500 var(--fs-body)/18px var(--sans);
+  --t-title: 600 var(--fs-title)/20px var(--sans);
+  --t-page: 600 var(--fs-page)/26px var(--sans);
+  --t-mono: 400 12px/16px var(--mono);
+  /* space on a 4 px grid */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 24px;
+  --sp-8: 32px;
+  /* radius: chips, buttons and rows, cards and popups, dialogs, toggles and dots */
+  --r-chip: 4px;
+  --r-ctl: 6px;
+  --r-card: 8px;
+  --r-dialog: 12px;
+  --r-pill: 999px;
+  /* sizes of chrome */
+  --h-row: 28px;
+  --h-row-2: 44px;
+  --h-tabs: 32px;
+  --h-bar: 24px;
+  --h-btn: 28px;
+  --h-btn-sm: 24px;
+  --h-btn-lg: 32px;
+  --h-input: 32px;
+  --h-field: 36px;
+  --trow-h: 34px; /* a table row, compact as the Orca list; the list motion reads this, the skeleton row is rowHeight.task in @handline/tokens */
+  --w-side: 240px;
+  --w-form: 640px;
+  --w-dialog: 460px;
+  --icon: 16px;
+}
+
+/* Legacy names of the screens not yet moved to the tokens; each group that touches a screen drops the aliases it stops using. */
+:root {
+  --bg: var(--bg-0);
+  --panel: var(--bg-2);
+  --muted: var(--ink-2);
+  --accent: var(--primary);
+  --accent-ink: var(--on-primary);
+  --run: var(--s-working);
+  --wait: var(--s-wait);
+  --block: var(--s-bad);
+  --idle: var(--ink-2);
+}
+
+:root {
+  /* The 16 colours a styled row's indexes 0-15 draw in, on the terminal's dark ground in both themes. */
+  --ansi-0: #3a3935;
+  --ansi-1: #e0675a;
+  --ansi-2: #6bbf72;
+  --ansi-3: #d9ae4c;
+  --ansi-4: #6f95ee;
+  --ansi-5: #c383d6;
+  --ansi-6: #5cbfc9;
+  --ansi-7: #cfcdc5;
+  --ansi-8: #6d6b64;
+  --ansi-9: #f08a7e;
+  --ansi-10: #8fd896;
+  --ansi-11: #ecc86e;
+  --ansi-12: #93b3f6;
+  --ansi-13: #dba3ea;
+  --ansi-14: #86d6df;
+  --ansi-15: #f4f2ec;
+}

@@ -27,8 +27,8 @@ const text = () => box.textContent ?? '';
 const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
 const press = (el: HTMLElement | null) => act(async () => void el?.click());
 
-async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, daemon?: { bytes?: boolean }) {
-  const s = setup({ daemon });
+async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, daemon?: { bytes?: boolean }, client?: string) {
+  const s = setup({ daemon, client });
   prepare(s);
   const store = new Store(s.client);
   box = document.body.appendChild(document.createElement('div'));
@@ -173,6 +173,272 @@ describe('typing in the terminal', () => {
     await until(() => $('composer-refused'), 'the refusal');
     expect($('composer-refused')!.textContent).toContain(REFUSAL);
     expect(composer.value).toBe('run the tests');
+    m.store.stop();
+  });
+});
+
+const tab = (name: string) => press($(`nav-${name}`));
+
+const DECISION = 3; // the fake's seeded decision
+const RESULT = 5; // its unread result
+const item = (id: number) => $(`inbox-${id}`);
+const option = (id: number, which: string) => $(`inbox-option-${id}-${which}`);
+
+describe('the inbox tab', () => {
+  it('shows its skeleton while slow, then the waiting items, and an answered decision leaves the list and is answered at the daemon', async () => {
+    const m = await mount((s) => s.daemon.knobs.latency(600));
+    await tab('inbox');
+    await until(() => $('skeleton-inbox'), 'the skeleton');
+    await until(() => item(DECISION), 'the decision', 5000);
+    m.daemon.knobs.latency(0);
+    expect($('unread-count')?.textContent).toMatch(/^[1-9]/);
+    await press($(`inbox-open-${DECISION}`));
+    await press(option(DECISION, 'yes'));
+    await until(() => item(DECISION) === null, 'the answered question to leave');
+    await until(() => m.daemon.inbox.get(DECISION).answered, 'the daemon');
+    m.store.stop();
+  });
+
+  it('marks a result read from its card, and Mark all read then the last answer empty the list into the empty sentence', async () => {
+    const m = await mount();
+    await tab('inbox');
+    await until(() => item(RESULT), 'the items');
+    await press($(`inbox-open-${RESULT}`));
+    await press($(`inbox-read-${RESULT}`));
+    await until(() => item(RESULT) === null, 'the result to leave');
+    await until(() => m.daemon.inbox.get(RESULT).read, 'the daemon');
+    await press($('mark-all-read'));
+    await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
+    await press($(`inbox-open-${DECISION}`));
+    await press(option(DECISION, 'yes'));
+    await until(() => $('empty'), 'the empty sentence');
+    expect(text()).toContain('Nothing waits on you');
+    m.store.stop();
+  });
+
+  it('puts a refused answer back with its options and says why', async () => {
+    const m = await mount();
+    await tab('inbox');
+    await until(() => item(DECISION), 'the items');
+    m.daemon.knobs.refuse('inbox.answer', 'state', 'Already answered by the founder.');
+    await press($(`inbox-open-${DECISION}`));
+    await press(option(DECISION, 'no'));
+    await until(() => text().includes('Already answered by the founder.'), 'the reason', 3000);
+    await until(() => item(DECISION) && option(DECISION, 'no'), 'the decision back with its options');
+    expect(m.daemon.inbox.get(DECISION).answered).toBe(false);
+    m.store.stop();
+  });
+
+  it('keeps a typed answer through a refusal, and clears it once the daemon accepts', async () => {
+    const m = await mount();
+    await tab('inbox');
+    await until(() => item(DECISION), 'the items');
+    m.daemon.knobs.refuse('inbox.answer', 'state', 'Already answered by the founder.');
+    await press($(`inbox-open-${DECISION}`));
+    await press($(`inbox-answer-${DECISION}`));
+    const type = async (v: string) =>
+      act(async () => {
+        const f = $('inbox-text') as unknown as HTMLTextAreaElement;
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(f, v);
+        f.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    await type('Relay it, one socket.');
+    await press($('inbox-send'));
+    await until(() => text().includes('Already answered by the founder.'), 'the reason', 3000);
+    await until(() => ($('inbox-text') as unknown as HTMLTextAreaElement | null)?.value === 'Relay it, one socket.', 'the text kept');
+    m.daemon.knobs.clear();
+    await press($('inbox-send'));
+    await until(() => item(DECISION) === null, 'the card to leave');
+    await until(() => m.daemon.inbox.get(DECISION).answered, 'the daemon');
+    m.store.stop();
+  });
+
+  it('puts the unread items back and says why when Mark all read is refused', async () => {
+    const m = await mount();
+    await tab('inbox');
+    await until(() => item(RESULT), 'the items');
+    const before = $('unread-count')!.textContent;
+    m.daemon.knobs.latency(300);
+    m.daemon.knobs.refuse('inbox.mark_read', 'state', 'the inbox is read-only right now');
+    await press($('mark-all-read'));
+    await until(() => $('unread-count')?.textContent === '0', 'the optimistic count', 250);
+    await until(() => text().includes('the inbox is read-only right now'), 'the reason', 3000);
+    await until(() => $('unread-count')?.textContent === before && item(RESULT), 'the items back');
+    expect(m.daemon.inbox.get(RESULT).read).toBe(false);
+    m.store.stop();
+  });
+
+  it('shows the daemon’s sentence when the read is refused', async () => {
+    const m = await mount((s) => s.daemon.knobs.refuse('inbox.list', 'state', 'the inbox is resting'));
+    await tab('inbox');
+    await until(() => $('error'), 'the error block');
+    expect(text()).toContain('the inbox is resting');
+    m.store.stop();
+  });
+});
+
+describe('the tasks tab', () => {
+  it('lists the open tasks and opens one with its brief, and Back returns to the list', async () => {
+    const m = await mount();
+    await tab('tasks');
+    await until(() => box.querySelector('[data-testid^="task-"]:not([data-testid="task-back"])'), 'the rows');
+    const row = box.querySelector<HTMLElement>('[data-testid^="task-"]')!;
+    const title = row.textContent!;
+    await press(row);
+    await until(() => $('task-detail'), 'the detail');
+    expect(text()).toContain(title.split('#')[0]!.trim().slice(0, 10));
+    await press($('task-back'));
+    await until(() => box.querySelector('[data-testid^="task-"]') && !$('task-detail'), 'the list');
+    m.store.stop();
+  });
+
+  it('shows its skeleton while slow', async () => {
+    const m = await mount((s) => s.daemon.knobs.latency(600));
+    await tab('tasks');
+    await until(() => $('skeleton-tasks'), 'the skeleton');
+    m.store.stop();
+  });
+});
+
+describe('the styled terminal', () => {
+  it('draws the prompt marker in its colour when the daemon serves styled, with the row text unchanged', async () => {
+    const m = await mount(() => {}, { bytes: true });
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('tab-terminal'), 'the page');
+    await press($('tab-terminal'));
+    await until(() => $('take'), 'Take control');
+    await press($('take'));
+    await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
+    await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
+    await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick()));
+    await until(() => $('terminal-text')?.textContent?.includes('> push the branch'), 'the typed line');
+    const run = [...$('terminal-text')!.querySelectorAll<HTMLElement>('*')].find((e) => e.textContent === '>');
+    expect(run?.style.color).toBe('rgba(92, 191, 201, 1.00)'); // palette 6
+    m.store.stop();
+  }, 20000);
+
+  it('falls back to plain text when the daemon does not serve styled', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('tab-terminal'), 'the page');
+    await press($('tab-terminal'));
+    await until(() => $('terminal-text')?.textContent?.includes('Claude Code'), 'the screen');
+    expect($('terminal-text')!.querySelector('*')).toBeNull();
+    m.store.stop();
+  });
+});
+
+/** Types into a field the way a keyboard does (react-native-web draws TextInput as an input or a textarea). */
+const fill = (id: string, v: string) =>
+  act(async () => {
+    const f = $(id) as unknown as HTMLInputElement | HTMLTextAreaElement;
+    const proto = f.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(f, v);
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+const value = (id: string) => ($(id) as unknown as HTMLInputElement | null)?.value;
+const MINE_DOING = 1684; // asked by me, running
+const MINE_DRAFT = 1700; // asked by me, not started
+
+async function openTask(id: number) {
+  await tab('tasks');
+  await until(() => $(`task-${id}`), 'the task row');
+  await press($(`task-${id}`));
+  await until(() => $('task-detail'), 'the detail');
+}
+
+const verbs = (s: ReturnType<typeof setup>) => void (s.daemon.tasks.verbs = true); // the daemon's plan D3
+
+describe('the task verbs', () => {
+  it('asks a new task: it is in the list at once, the daemon has it, and a refusal keeps the text and says why', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await tab('tasks');
+    await until(() => $(`task-${MINE_DOING}`), 'the rows');
+    await press($('new-task-open'));
+    await press($('nt-send'));
+    expect($('nt-error')?.textContent).toBe('Pick who it is for.');
+    await press($(`nt-owner-${ARCH}`));
+    await press($('nt-send'));
+    expect($('nt-error')?.textContent).toBe('A task needs a title.');
+    await fill('nt-title', 'Ship the phone tasks');
+    m.daemon.knobs.refuse('task.new', 'state', 'the board is full');
+    await press($('nt-send'));
+    await until(() => text().includes('the board is full'), 'the reason', 3000);
+    expect(value('nt-title')).toBe('Ship the phone tasks');
+    m.daemon.knobs.clear();
+    await press($('nt-send'));
+    await until(() => $('new-task') === null, 'the form to close');
+    await until(() => text().includes('Ship the phone tasks'), 'the row');
+    await until(() => m.daemon.tasks.list({}).items.some((t) => t.title === 'Ship the phone tasks'), 'the daemon');
+    m.store.stop();
+  });
+
+  it('done wants a reason, closes the task at once, and a refusal puts it back with the sentence', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await press($('verb-done'));
+    await press($('sheet-submit'));
+    expect($('sheet-error')?.textContent).toBe('A reason is required.');
+    await fill('sheet-text', 'shipped');
+    m.daemon.knobs.latency(300);
+    m.daemon.knobs.refuse('task.done', 'state', 'that task is waiting on an audit');
+    await press($('sheet-submit'));
+    await until(() => text().includes('done ·') || text().includes('· done ·'), 'the optimistic state', 250);
+    await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
+    await until(() => text().includes('· doing ·') && $('sheet'), 'the task back, the sheet open');
+    expect(value('sheet-text')).toBe('shipped');
+    m.daemon.knobs.clear();
+    await press($('sheet-submit'));
+    await until(() => $('sheet') === null, 'the sheet to close');
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state === 'done', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it('reopens a done task of mine with a reason', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await press($('verb-done'));
+    await fill('sheet-text', 'shipped');
+    await press($('sheet-submit'));
+    await until(() => $('verb-reopen'), 'Reopen');
+    await press($('verb-reopen'));
+    await fill('sheet-text', 'one more thing');
+    await press($('sheet-submit'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'done', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it('withdraws a draft after its confirmation, and cancels a running task with an optional reason', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    expect($('verb-cancel')?.textContent).toBe('Cancel');
+    await press($('verb-withdraw'));
+    expect(text()).toContain(`withdraw #${MINE_DRAFT}?`);
+    await press($('sheet-cancel'));
+    expect($('sheet')).toBeNull(); // nothing sent
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
+    await press($('verb-withdraw'));
+    await press($('sheet-submit'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state !== 'draft', 'the daemon');
+    await press($('task-back'));
+    await openTask(MINE_DOING);
+    expect($('verb-cancel')?.textContent).toBe('Stop');
+    await press($('verb-cancel'));
+    expect(text()).toContain(`stop #${MINE_DOING}? why (optional):`);
+    await press($('sheet-submit')); // no reason is fine
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'doing', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it('disables a verb the daemon does not serve and says why', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openTask(MINE_DOING);
+    expect($('verb-done')?.getAttribute('aria-disabled')).toBe('true');
+    expect(text()).toContain('this daemon does not serve task.done');
+    expect($('memo-send')?.getAttribute('aria-disabled')).toBe('true'); // the fake serves no memos
+    expect(text()).toContain('this daemon does not serve task.memo.add');
     m.store.stop();
   });
 });

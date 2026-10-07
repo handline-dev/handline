@@ -6,6 +6,7 @@ import type { Prompt, PromptOption } from '@handline/client';
 import { isAlways, offered } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
+import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 
@@ -194,6 +195,17 @@ export function PromptSlot({ agent, prompt }: { agent: string; prompt: Prompt | 
     const t = setTimeout(() => setGone(false), 4000);
     return () => clearTimeout(t);
   }, [gone]);
-  if (prompt) return <PromptCard agent={agent} prompt={prompt} onStale={() => setRefused(true)} />;
-  return gone ? <p className="muted">Answered elsewhere</p> : null;
+  return (
+    <AnimatedList>
+      {prompt ? (
+        <AnimatedItem key="prompt">
+          <PromptCard agent={agent} prompt={prompt} onStale={() => setRefused(true)} />
+        </AnimatedItem>
+      ) : gone ? (
+        <AnimatedItem key="gone">
+          <p className="muted">Answered elsewhere</p>
+        </AnimatedItem>
+      ) : null}
+    </AnimatedList>
+  );
 }

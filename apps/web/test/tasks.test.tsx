@@ -43,7 +43,7 @@ const page = () => $('section.tasks')!;
 const row = (id: number) => $(`tr[data-task="${id}"]`);
 const rowIds = () => $$('tr.trow').map((r) => Number(r.dataset.task));
 const button = (label: string, within: ParentNode = box) =>
-  $$('button', within).find((b) => text(b).replace(/\s+/g, ' ').trim().startsWith(label));
+  $$('button', within).find((b) => (text(b).replace(/\s+/g, ' ').trim() || b.getAttribute('aria-label') || '').startsWith(label));
 const sheet = (label: string) => $$('.tsheet').find((s) => s.getAttribute('aria-label') === label);
 
 const withVerbs = (s: ReturnType<typeof setup>) => ((s.daemon.tasks.verbs = true), s);
@@ -67,8 +67,9 @@ afterEach(async () => {
 const loaded = () => until(() => rowIds().length, 'the task rows');
 const focusPage = () => act(async () => page().focus());
 const cursorTo = async (id: number) => {
-  await click(row(id));
-  await focusPage();
+  await focusPage(); // a click on a row opens the task, so the cursor goes there by key
+  const from = rowIds().indexOf(id) - rowIds().findIndex((r) => row(r)!.classList.contains('cursor'));
+  for (let i = 0; i < Math.abs(from); i++) await press(from > 0 ? 'j' : 'k');
 };
 const mark = (id: number) => click($(`input[aria-label="Mark #${id}"]`));
 
@@ -83,15 +84,16 @@ describe('the list', () => {
           .trim()
           .replace(/ [▴▾]$/, ''),
       ),
-    ).toEqual(['', '#', 'P', 'state', 'title', 'owner', 'idle', 'timeout', 'asker']);
+    ).toEqual(['', '#', 'P', 'state', 'title', 'time', '']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('handline.architect');
     expect(text(row(1688))).toMatch(/left/); // a running task shows its time left
     expect(row(1650)).toBeNull();
-    await click($('.tcheck input')); // closed
+    await click(button('Closed')!);
     await until(() => row(1650), 'the done task');
     expect(text(row(1650))).toContain('done');
+    expect(row(1688)).toBeNull(); // Closed shows only the closed ones
   });
 
   it('sorts by a column head and by the s key, and reverses with S', async () => {
@@ -120,10 +122,10 @@ describe('the list', () => {
     await press('A');
     expect(text($('.tbar'))).toContain('4 marked');
     await press('A');
-    expect(text($('.tbar'))).toContain('acts on the row under the cursor');
+    expect(text($('.tbar'))).not.toContain('marked');
     await press(' ');
     await press('Escape'); // clears the marks
-    expect(text($('.tbar'))).toContain('acts on the row');
+    expect(text($('.tbar'))).not.toContain('marked');
   });
 
   it('shows the tree under the parent, remembers the choice, and a hidden parent stays as a dimmed row', async () => {
@@ -133,7 +135,7 @@ describe('the list', () => {
     await focusPage();
     await press('t');
     expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
-    expect($$('th').map((h) => text(h).trim())).toEqual(['', 'task', 'owner', 'state', 'under']);
+    expect($$('th').map((h) => text(h).trim())).toEqual(['', 'task', 'state', '']);
     expect(($('td.c-title', row(1688)!) as HTMLElement).style.paddingLeft).toBe('26px');
     expect(text(row(1688))).toContain('#1684'); // local-ref-ok
     expect(storage.data.get('tasksView')).toBe('tree');
@@ -141,22 +143,61 @@ describe('the list', () => {
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
   });
 
-  it('filters by agent, with f to step through them, and by state with the picker', async () => {
+  it('searches the number, title, owner and asker, every word having to match', async () => {
     await mount();
     await loaded();
-    await choose($('select[aria-label="Agent"]') as HTMLSelectElement, 'handline.auditor');
+    const search = $('input[aria-label="Search tasks"]') as HTMLInputElement;
+    await typeInto(search, 'terminal pane');
+    expect(rowIds()).toEqual([1688, 1690]); // two words, both in the title
+    await typeInto(search, 'handline.auditor');
+    expect(rowIds()).toEqual([1690]); // the owner
+    await typeInto(search, '1700');
+    expect(rowIds()).toEqual([1700]); // the number
+    await typeInto(search, 'terminal founder');
+    expect(rowIds()).toEqual([]); // every word must match
+    await typeInto(search, '');
+    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
+  });
+
+  it('filters by agent and by state in the Filters popover, with f to step through the agents and v to open it', async () => {
+    await mount();
+    await loaded();
+    const agent = () => $('select[aria-label="Agent"]') as HTMLSelectElement;
+    expect(agent()).toBeNull(); // the popover is closed
+    await click(button('Filters')!);
+    await choose(agent(), 'handline.auditor');
     expect(rowIds()).toEqual([1690]);
-    await choose($('select[aria-label="Agent"]') as HTMLSelectElement, '');
+    expect($('.tdot')).not.toBeNull(); // a filter is on, said by a mark and not by colour
+    expect($('button[aria-label="Filters, on"]')).not.toBeNull(); // and said to a screen reader
+    await choose(agent(), '');
+    expect($('.tdot')).toBeNull();
+    await press('Escape');
+    expect(agent()).toBeNull();
     await focusPage();
     await press('f');
-    expect(($('select[aria-label="Agent"]') as HTMLSelectElement).value).not.toBe('');
-    await choose($('select[aria-label="Agent"]') as HTMLSelectElement, '');
     await press('v');
-    const picker = sheet('show tasks in state')!;
-    await click($$('input', picker).find((i) => text(i.parentElement).includes('draft'))!);
+    expect(agent().value).not.toBe('');
+    await choose(agent(), '');
+    await click($$('.ui-popup input').find((i) => text(i.parentElement).includes('draft'))!);
     expect(rowIds()).not.toContain(1700);
-    await press('Escape', {}, $('.tsheet')!);
-    expect(sheet('show tasks in state')).toBeUndefined();
+    await click(button('Reset', $('.ui-popup')!)!);
+    expect(rowIds()).toContain(1700);
+  });
+
+  it('has the Open, Mine and Closed pills: Mine is what I own', async () => {
+    const s = setup();
+    await mount('#/tasks', s);
+    await loaded();
+    const me = s.client.hello!.caller.name;
+    await click(button('Mine')!);
+    expect(
+      rowIds().every(
+        (id) => (s.daemon.tasks as unknown as { rows: { id: number; to: string }[] }).rows.find((r) => r.id === id)!.to === me,
+      ),
+    ).toBe(true);
+    expect($('[role=radio][aria-checked=true]')!.textContent).toBe('Mine'); // the chosen pill is raised and marked, not only coloured
+    await click(button('Open')!);
+    expect(rowIds().length).toBe(4);
   });
 
   it('opens the key sheet with ?, listing the keys of this page', async () => {
@@ -248,6 +289,23 @@ describe('writes', () => {
     expect(owners.filter((o) => o === 'handline.auditor')).toHaveLength(1);
   });
 
+  it('sends a new task once on Cmd+Enter from a field, and keeps focus in the field while typing', async () => {
+    const s = setup();
+    await mount('#/tasks', s);
+    await loaded();
+    await focusPage();
+    await press('n');
+    await choose($('.ui-dialog select') as HTMLSelectElement, 'handline.auditor');
+    const title = $('.ui-dialog .tform input') as HTMLInputElement;
+    await act(async () => title.focus());
+    await typeInto(title, 'Once only');
+    expect(document.activeElement).toBe(title);
+    await press('Enter', { metaKey: true });
+    await until(() => $$('tr.trow').some((r) => text(r).includes('Once only')), 'the new row');
+    await wait(50);
+    expect($$('tr.trow').filter((r) => text(r).includes('Once only'))).toHaveLength(1);
+  });
+
   it('makes a new task: it is in the list at once with a hollow dot, and a refusal keeps what was typed', async () => {
     const s = setup();
     await mount('#/tasks', s);
@@ -255,14 +313,14 @@ describe('writes', () => {
     await focusPage();
     await press('n');
     await click(button('Ask')!);
-    expect(text($('.tsheet-err'))).toContain('Pick who it is for.');
-    await choose($('.tsheet select') as HTMLSelectElement, 'handline.auditor');
-    await typeInto($('.tsheet .tform input') as HTMLInputElement, 'Check the lint doc');
+    expect(text($('.ui-dialog [role=alert]'))).toContain('Pick who it is for.');
+    await choose($('.ui-dialog select') as HTMLSelectElement, 'handline.auditor');
+    await typeInto($('.ui-dialog .tform input') as HTMLInputElement, 'Check the lint doc');
     s.daemon.knobs.refuse('task.new', 'quota', 'too many open tasks', undefined, 1);
     await click(button('Ask')!);
     await until(() => text($('.toast')).includes('too many open tasks'), 'the refusal');
-    expect(text($('.tsheet-err'))).toContain('too many open tasks'); // the sheet says it too, not only the toast
-    expect(($('.tsheet .tform input') as HTMLInputElement).value).toBe('Check the lint doc'); // still in the box
+    expect(text($('.ui-dialog [role=alert]'))).toContain('too many open tasks'); // the dialog says it too, not only the toast
+    expect(($('.ui-dialog .tform input') as HTMLInputElement).value).toBe('Check the lint doc'); // still in the box
     expect($$('tr.trow').some((r) => text(r).includes('Check the lint doc'))).toBe(false); // the row went again
     s.daemon.knobs.latency(300);
     await click(button('Ask')!);
@@ -271,15 +329,25 @@ describe('writes', () => {
     expect(mine.classList.contains('pending')).toBe(true);
     expect(text(mine)).toContain('#new');
     await until(() => text($$('tr.trow').find((r) => text(r).includes('Check the lint doc'))).includes('#2000'), 'its number', 600); // local-ref-ok
-    expect($('.tsheet')).toBeNull(); // the form closed on success
+    expect($('.ui-dialog')).toBeNull(); // the form closed on success
+  });
+
+  it("acts on a row from the row's own icons, with no bar under the table until rows are marked", async () => {
+    await mount();
+    await loaded();
+    expect($('.tbar')).toBeNull();
+    await click(button('Priority', row(1700)!)!);
+    expect(sheet('priority (1 high, 2, 3 low):')).toBeDefined();
+    expect(row(1700)!.classList.contains('cursor')).toBe(true); // the sheet is for that row
   });
 
   it('keeps Discard and Merge disabled, with the reason, until the daemon serves them', async () => {
     await mount();
     await loaded();
-    const d = button('Discard')!;
+    const d = button('Discard', row(1684)!)!; // the row's own icon
     expect((d as HTMLButtonElement).disabled).toBe(true);
     expect(d.title).toBe('This daemon does not serve task.discard yet');
+    await mark(1684);
     expect(button('Merge')!.title).toBe('This daemon does not serve task.merge yet');
     expect((button('Owner') as HTMLButtonElement).disabled).toBe(false);
     await focusPage();
@@ -334,10 +402,10 @@ describe('the detail', () => {
     expect(location.hash).toBe('#/tasks/1688');
     const d = $('article.tdetail')!;
     expect(text(d)).toContain('Terminal pane on the bytes channel');
-    expect(text(d)).toContain('asked by handline.architect');
-    expect(text(d)).toContain('under #1684'); // local-ref-ok
+    expect(text(d)).toContain('Asked by');
+    expect(text(d)).toContain('handline.architect');
+    expect(text(d)).toContain('#1684'); // under, local-ref-ok
     expect(text(d)).toContain('Delivery history');
-    expect(text(d)).toContain('No memos.');
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
   });
@@ -366,7 +434,7 @@ describe('the detail', () => {
     const verbs = $('.tverbs')!;
     for (const [label, method] of [
       ['Done', 'task.done'],
-      ['Assign a note', 'task.memo.add'],
+      ['Add a memo', 'task.memo.add'],
       ['Discard', 'task.discard'],
     ] as const) {
       expect((button(label, verbs) as HTMLButtonElement).disabled).toBe(true);
@@ -410,8 +478,8 @@ describe('the detail', () => {
     await loaded();
     await focusPage();
     await press('n');
-    await choose($('.tsheet select') as HTMLSelectElement, 'handline.auditor');
-    await typeInto($('.tsheet .tform input') as HTMLInputElement, 'Mine to take back');
+    await choose($('.ui-dialog select') as HTMLSelectElement, 'handline.auditor');
+    await typeInto($('.ui-dialog .tform input') as HTMLInputElement, 'Mine to take back');
     await click(button('Ask')!);
     await until(() => $$('tr.trow').some((r) => text(r).includes('#2000')), 'its number'); // local-ref-ok
     await act(async () => void (location.hash = '#/tasks/2000'));

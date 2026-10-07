@@ -3,31 +3,33 @@ import { controlsOf, holderLabel } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
 
-/** The terminal tab's strip: who may type now, Take control and Release. Both renderers use it. */
-export function TermBar({ agent, detail, onTake }: { agent: string; detail: AgentDetail; onTake?: () => void }) {
+/** The terminal tab's strip: who holds the input, as an icon that also hands it over or back. Typing takes the input by itself and gives it back when it stops. */
+export function TermBar({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const store = useStore();
   const c = controlsOf(detail, store.me);
   const take = useWrite('input.take', agent);
   const release = useWrite('input.release', agent);
+  const holder = holderLabel(detail.input_holders?.[0], store.me);
+  const mine = holder === 'YOU';
+  const daemon = holder === 'daemon';
+  const mark = mine ? '⌨' : daemon ? '⚙' : '⚿';
+  const say = mine
+    ? 'You hold the input. It goes back to the daemon after a quiet spell; click to give it back now.'
+    : daemon
+      ? 'The daemon holds the input. Typing here takes it; click to take it now.'
+      : `${holder} holds the input.`;
+  const act = () => void (c.release ? release : take).mutateAsync({ agent }).catch(() => {});
   return (
     <div className="term-bar">
-      <span className="holder" title="Who may type now">
-        input: {holderLabel(detail.input_holders?.[0], store.me)}
-      </span>
-      {c.take ? (
-        <button
-          className="btn"
-          disabled={take.isPending}
-          onClick={() => (onTake ? onTake() : void take.mutateAsync({ agent }).catch(() => {}))}
-        >
-          {take.isPending ? 'taking…' : 'Take control'}
-        </button>
-      ) : null}
-      {c.release ? (
-        <button className="btn" disabled={release.isPending} onClick={() => void release.mutateAsync({ agent }).catch(() => {})}>
-          {release.isPending ? 'releasing…' : 'Release'}
-        </button>
-      ) : null}
+      <button
+        className={`holder${mine ? ' mine' : ''}`}
+        title={say}
+        aria-label={`Input: ${holder}. ${say}`}
+        disabled={!(c.take || c.release) || take.isPending || release.isPending}
+        onClick={act}
+      >
+        <span aria-hidden>{mark}</span> {mine ? 'you' : holder}
+      </button>
     </div>
   );
 }

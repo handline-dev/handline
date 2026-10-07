@@ -7,6 +7,7 @@ import {
   applyPreset,
   arrange,
   closeTab,
+  addTab,
   defaultWorkspace,
   groupOf,
   groupsOf,
@@ -26,7 +27,8 @@ import {
   type Workspace,
 } from '../src/index.ts';
 
-const two = () => defaultWorkspace({ terminal: 'term:a' });
+/** Chat beside the terminal, each in its own pane: the default split by hand. */
+const two = () => splitTab(defaultWorkspace({ terminal: 'term:a' }), 'terminal:term:a', 'g1', 'right')!;
 const ids = (ws: Workspace) => groupsOf(ws.root).map((g) => g.tabs.join('+'));
 /** A workspace with n groups, one tab each beside Chat's: chat | md:1 | md:2 | md:3 */
 const many = (n: number) => {
@@ -276,18 +278,18 @@ test('property: after any run of random operations, Chat is there and every inva
   }
 });
 
-test('the default layout is Chat on the left and the session terminal on the right, each in its own pane; no session, Chat alone', () => {
-  const ws = two();
-  assert.equal(ws.root.type, 'split');
-  if (ws.root.type !== 'split') return;
-  assert.equal(ws.root.dir, 'row');
-  assert.equal(ws.root.at, 0.5);
-  assert.deepEqual(
-    [ws.root.a, ws.root.b].map((n) => n.type === 'group' && n.tabs),
-    [[CHAT], ['terminal:term:a']],
-  );
+test('the default layout is one pane: Chat shown, the session terminal second behind it; no session, Chat alone', () => {
+  const ws = defaultWorkspace({ terminal: 'term:a' });
+  assert.equal(ws.root.type, 'group');
+  if (ws.root.type !== 'group') return;
+  assert.deepEqual(ws.root.tabs, [CHAT, 'terminal:term:a']);
+  assert.equal(ws.root.activeTab, CHAT);
   assert.equal(ws.tabs['terminal:term:a']!.params.handle, 'term:a');
-  assert.equal(ws.active, 'g2');
+  assert.equal(ws.active, 'g1');
+  const later = addTab(defaultWorkspace(), 'terminal', { handle: 'term:b' });
+  assert.deepEqual(groupsOf(later.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
+  assert.equal(groupsOf(later.root)[0]!.activeTab, CHAT);
+  assert.equal(addTab(later, 'terminal', { handle: 'term:b' }), later);
   const none = defaultWorkspace();
   assert.equal(none.root.type, 'group');
   assert.deepEqual(ids(none), [CHAT]);

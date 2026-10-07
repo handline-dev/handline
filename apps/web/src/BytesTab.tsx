@@ -5,6 +5,7 @@ import { toBase64, type AgentDetail, type ByteListener, type ByteTerminalView, t
 import { controlsOf } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
+import { useInputHold } from './useInputHold.ts';
 import { Chips, TermBar } from './TermBar.tsx';
 import { keep, reclaim } from './terminal/keep.ts';
 import {
@@ -49,15 +50,17 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
   const [state, setState] = useState<ByteViewState>('attaching');
   const [failure, setFailure] = useState('');
   const [title, setTitle] = useState('');
-  const [confirm, setConfirm] = useState(false); // "Take control?" is showing
   const [everLive, setEverLive] = useState(false);
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
   const c = controlsOf(detail, store.me);
-  const takeInput = useWrite('input.take', agent);
   const releaseWrite = useWrite('input.release', agent);
   const releaseInput = useRef(releaseWrite.mutateAsync);
   releaseInput.current = releaseWrite.mutateAsync; // the detach cleanup reads the current one
   const sendKey = useWrite('terminal.input', agent);
+  const holdApi = useInputHold(agent, detail);
+  const hold = useRef(holdApi);
+  hold.current = holdApi;
+  const queued = useRef('');
   const holding = useRef(c.typing);
   holding.current = c.typing; // handlers read the current value without re-binding
   const hasTerminal = !!detail.terminal;
@@ -93,11 +96,19 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         }, RESIZE_DELAY_MS);
       };
       const typed = pane.term.onData((d) => {
-        if (!holding.current) {
-          if (!isReport(d)) setConfirm(true); // the first key asks; it is not queued
+        if (isReport(d) && !holding.current) return; // the terminal's own answers are never typing
+        if (holding.current && !queued.current) {
+          hold.current.touch();
+          if (live.current) void store.client.bytes.input(live.current.view, encode.encode(d)).catch(() => {});
           return;
         }
-        if (live.current) void store.client.bytes.input(live.current.view, encode.encode(d)).catch(() => {});
+        queued.current += d; // the first key takes the input; what was typed meanwhile goes out in order after
+        if (queued.current !== d) return;
+        void hold.current.ensure().then((ok) => {
+          const out = queued.current;
+          queued.current = '';
+          if (ok && out && live.current) void store.client.bytes.input(live.current.view, encode.encode(out)).catch(() => {});
+        });
       });
       const watch = new ResizeObserver(layout);
       watch.observe(el);
@@ -154,42 +165,20 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
     if (v && !c.typing) v.pane.setFontSize(fontFor(host.current?.clientWidth ?? 0, v.view.cols));
   }, [c.typing]);
 
-  /** A chip is typing, so it takes the keyboard first, then sends the bytes the key stands for. */
+  /** A chip is typing, so it takes the input first, then sends the bytes the key stands for. */
   const press = async (key: string) => {
     const v = live.current?.view;
-    if (!v) return;
-    if (!c.typing) {
-      if (c.take) setConfirm(true); // a chip asks first, like typing; the key is not queued
-      return;
-    }
+    if (!v || !(await holdApi.ensure())) return;
     await sendKey.mutateAsync({ terminal: v.terminal, data: toBase64(encode.encode(KEY_BYTES[key] ?? key)) }).catch(() => {});
-  };
-  useEffect(() => {
-    if (c.typing || !c.take) setConfirm(false);
-  }, [c.typing, c.take]);
-  const take = () => {
-    setConfirm(false);
-    void takeInput.mutateAsync({ agent }).catch(() => {});
   };
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
   const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
 
   return (
     <div className="terminal-tab">
-      <TermBar agent={agent} detail={detail} onTake={() => setConfirm(true)} />
+      <TermBar agent={agent} detail={detail} />
       <div className={`terminal xterm-pane${state === 'stale' || !hasTerminal ? ' dim' : ''}`} title={title}>
-        {confirm && c.take ? (
-          <div className="take-confirm" role="alertdialog">
-            Take control? The daemon pauses delivering tasks and keys.
-            <button className="btn" onClick={take}>
-              Take control
-            </button>
-            <button className="btn" onClick={() => setConfirm(false)}>
-              Cancel
-            </button>
-          </div>
-        ) : null}
-        <div className="xterm-host" ref={host} onClick={() => c.take && setConfirm(true)} aria-label={`Terminal of ${agent}`} />
+        <div className="xterm-host" ref={host} aria-label={`Terminal of ${agent}`} />
         {skeleton && (
           <div className="term-skeleton" aria-hidden="true">
             {SKELETON_ROWS.map((w, i) => (

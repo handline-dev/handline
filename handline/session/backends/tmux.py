@@ -21,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from ...infra import names, textsafe
+from ...infra import ansi, names, textsafe
 from .base import Backend, not_a_repo_root
 
 SOCKET = "ocp"
@@ -71,6 +71,7 @@ def _git(repo: str, *args: str) -> tuple[int, str]:
 class TmuxBackend(Backend):
     name = "tmux"
     serves_bytes = True
+    serves_styled = True
 
     def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
         """The bytes as keystrokes: `send-keys -H` takes each as a hex number, so nothing in them is read as a key name or a command."""
@@ -146,6 +147,34 @@ class TmuxBackend(Backend):
         while rows and not rows[-1]:
             rows.pop()
         return {"handle": handle, "status": "running", "tail": rows[-limit:], "source": "screen"}
+
+    def read_screen_ansi(self, handle: str, limit: int = 40) -> list[str] | None:
+        """read_screen's rows with `-e`, which keeps the SGR codes. Trailing blank rows are dropped as there; a row is not stripped, since its codes may end it."""
+        if not isinstance(handle, str) or not _PANE.match(handle):
+            return None
+        code, out, _err = _tmux(["capture-pane", "-p", "-e", "-t", handle, "-S", f"-{max(limit, 1)}"], timeout=30)
+        if code != 0:
+            return None
+        rows = out.split("\n")
+        while rows and not ansi.parse(rows[-1])[0]:
+            rows.pop()
+        return rows[-limit:]
+
+    def cursor(self, handle: str) -> dict | None:
+        """One tmux call for the cursor and the visible rows, so the rows read_screen drops at the bottom are counted from the same moment."""
+        if not isinstance(handle, str) or not _PANE.match(handle):
+            return None
+        code, out, _err = _tmux(["display-message", "-p", "-t", handle, "#{cursor_x} #{cursor_y} #{cursor_flag} #{pane_height}", ";", "capture-pane", "-p", "-t", handle])
+        head, _, body = out.partition("\n")
+        parts = head.split()
+        if code != 0 or len(parts) != 4 or not all(p.isdigit() for p in parts):
+            return None
+        x, y, flag, height = (int(p) for p in parts)
+        rows = body.split("\n")[:height]
+        blank = 0
+        while blank < len(rows) and not rows[-1 - blank].strip():
+            blank += 1
+        return {"x": x, "y": y, "visible": flag == 1, "height": height, "blank_below": blank + max(height - len(rows), 0)}
 
     def size(self, handle: str) -> tuple[int, int] | None:
         if not isinstance(handle, str) or not _PANE.match(handle):

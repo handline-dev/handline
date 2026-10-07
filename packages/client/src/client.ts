@@ -344,19 +344,30 @@ export class DaemonClient {
     return true;
   }
   private async attach(v: TerminalView): Promise<void> {
-    const snap = await (this.state === 'open'
-      ? this.call('terminal.attach', { agent: v.agent, format: 'text', history: 100 })
-      : this.callNow('terminal.attach', { agent: v.agent, format: 'text', history: 100 }));
+    const ask = (format: 'text' | 'styled') => {
+      const params = { agent: v.agent, format, history: 100 };
+      return this.state === 'open' ? this.call('terminal.attach', params) : this.callNow('terminal.attach', params);
+    };
+    // Colour when the daemon offers it; a host that cannot serve it refuses as `unsupported` and the pane asks again for plain text.
+    const styled = this.hello?.capabilities.terminal_format?.includes('styled');
+    const snap = styled
+      ? await ask('styled').catch((e: { gate?: string }) => {
+          if (e.gate !== 'unsupported') throw e;
+          return ask('text');
+        })
+      : await ask('text');
     v.setSnapshot(snap as TerminalSnapshot);
   }
 
   /** Fetches older scrollback into the view. Lines that scrolled off while attached arrive on a fresh attach. */
   async loadOlder(v: TerminalView, limit = 100): Promise<void> {
-    const h = await this.call('terminal.history', { terminal: v.terminal, before: v.historyFirst, limit });
+    const h = await this.call('terminal.history', { terminal: v.terminal, before: v.historyFirst, limit, format: v.format });
+    const rows = h.lines as Row[];
     v.prependHistory(
       h.first,
-      (h.lines as Row[]).map((r) => r.text),
+      rows.map((r) => r.text),
       h.more,
+      rows.map((r) => r.spans),
     );
   }
 

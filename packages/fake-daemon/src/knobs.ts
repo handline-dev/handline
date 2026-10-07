@@ -18,12 +18,40 @@ export class Knobs {
   refuse(method: string, gate: string, reason: string, hint?: string, times = Infinity): void {
     this.refusals.set(method, { gate, reason, hint, times });
   }
+  private holds = new Map<string, Promise<void>>();
+  /** Holds every call of `method` until the returned function is called: a test can look at the pending state as long as it likes. */
+  hold(method: string): () => void {
+    let release!: () => void;
+    this.holds.set(
+      method,
+      new Promise<void>((r) => {
+        release = () => {
+          this.holds.delete(method);
+          r();
+        };
+      }),
+    );
+    return release;
+  }
+  /** The promise a held call waits on, if `method` is held. */
+  held(method: string): Promise<void> | undefined {
+    return this.holds.get(method);
+  }
   clear(): void {
+    this.holds.clear();
     this.refusals.clear();
     this.delayMs = 0;
   }
   waits(method: string): number {
     return HANDSHAKE.has(method) ? 0 : this.delayMs;
+  }
+  /** Runs `run` at once, or after the latency, or once the call's hold is released. */
+  defer(method: string, run: () => void): void {
+    const held = this.held(method);
+    const wait = this.waits(method);
+    if (held) void held.then(run);
+    else if (wait > 0) setTimeout(run, wait);
+    else run();
   }
   /** The refusal to answer with, if one is set for this call. */
   check(method: string): Failure | undefined {

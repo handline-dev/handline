@@ -9,6 +9,9 @@ import {
   needsConfirm,
   offered,
   railGroups,
+  shortName,
+  teamOf,
+  type Dot,
   saveLayout,
   keyFrom,
   DEFAULT_LAYOUT,
@@ -42,46 +45,48 @@ test('the dot follows the daemon state, with a dialog or block taking over', () 
   assert.equal(dotOf(agent('a', { state: 'something_new' })), 'idle');
 });
 
-test('the rail sorts waiting agents up, nests children under their parent and filters', () => {
+test('the rail groups by team, sorts waiting up, nests children, and filters by dot', () => {
   const list = [
-    agent('b'),
-    agent('a'),
-    agent('w', { has_dialog: true }),
-    agent('kid', { parent: 'b' }),
-    agent('p', { state: 'parked', role: 'auditor' }),
+    agent('t.b'),
+    agent('t.a'),
+    agent('t.w', { has_dialog: true }),
+    agent('t.kid', { parent: 't.b' }),
+    agent('u.p', { state: 'parked' }),
+    agent('u.q', { state: 'queued' }),
+    agent('solo'),
   ];
-  const g = railGroups(list, 'role');
+  const g = railGroups(list, 'team');
   assert.deepEqual(
     g.map((x) => x.title),
-    ['implementer', 'auditor'],
+    ['t', 'u', 'agents'],
   );
   assert.deepEqual(
     g[0].rows.map((r) => [r.agent.name, r.depth]),
     [
-      ['w', 0],
-      ['a', 0],
-      ['b', 0],
-      ['kid', 1],
+      ['t.w', 0],
+      ['t.a', 0],
+      ['t.b', 0],
+      ['t.kid', 1],
     ],
   );
   assert.deepEqual(
-    railGroups(list, 'role', { hideParked: true }).map((x) => x.title),
-    ['implementer'],
+    railGroups(list, 'team', { hidden: new Set<Dot>(['parked', 'waking']) }).map((x) => x.title),
+    ['t', 'agents'],
   );
   assert.deepEqual(
-    railGroups(list, 'role', { search: 'KID' }).flatMap((x) => x.rows.map((r) => r.agent.name)),
-    ['kid'],
+    railGroups(list, 'team', { search: 'KID' }).flatMap((x) => x.rows.map((r) => r.agent.name)),
+    ['t.kid'],
   );
-  assert.deepEqual(
-    railGroups(list, 'account').map((x) => x.title),
-    ['alpha'],
-  );
+  assert.equal(teamOf('t', ['t', 't.a']), 't');
+  assert.equal(shortName('t.a', 't'), 'a');
+  assert.equal(shortName('t', 't'), 't');
+  assert.equal(dotOf(agent('x', { state: 'queued' })), 'waking');
 });
 
 test('a child whose parent is filtered out still shows', () => {
   const list = [agent('b'), agent('kid', { parent: 'b', role: 'x' })];
   assert.deepEqual(
-    railGroups(list, 'role', { search: 'kid' })[0].rows.map((r) => r.agent.name),
+    railGroups(list, 'team', { search: 'kid' })[0].rows.map((r) => r.agent.name),
     ['kid'],
   );
 });

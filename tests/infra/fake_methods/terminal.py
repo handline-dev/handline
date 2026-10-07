@@ -25,7 +25,7 @@ def _data_ok(v):
 
 @fake("terminal.attach", "terminal.detach", "terminal.history", "terminal.resize", "terminal.input")
 def terminal(role, method, params):
-    if "format" in params and params["format"] not in ("text", "bytes"):
+    if "format" in params and params["format"] not in ("text", "bytes", "styled"):
         return "fail", err(-32602, "bad_request", field="format")
     if method in ("terminal.resize", "terminal.input") and (not isinstance(params.get("request_id"), str) or not params["request_id"]):
         return "fail", err(-32600, "bad_request", field="request_id")

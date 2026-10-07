@@ -1,0 +1,37 @@
+# After pair-and-page.yaml: ask a task from the phone, mark it done, reopen it, withdraw another.  maestro test e2e/task-verbs.yaml
+appId: dev.handline.mobile
+---
+- tapOn:
+    id: nav-tasks
+- tapOn:
+    id: new-task-open
+- tapOn:
+    id: nt-owner-handline.architect
+- tapOn:
+    id: nt-title
+- inputText: Try the phone verbs
+- tapOn:
+    id: nt-send
+- assertVisible: 'Try the phone verbs.*'
+- tapOn: 'Try the phone verbs.*'
+- tapOn:
+    id: verb-done
+- tapOn:
+    id: sheet-text
+- inputText: shipped
+- tapOn:
+    id: sheet-submit
+- assertVisible:
+    id: verb-reopen
+- tapOn:
+    id: verb-reopen
+- tapOn:
+    id: sheet-text
+- inputText: one more thing
+- tapOn:
+    id: sheet-submit
+- assertVisible:
+    id: verb-cancel
+- tapOn:
+    id: task-back
+- assertVisible: Tasks

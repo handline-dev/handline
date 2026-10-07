@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useServes, useInbox, usePending, useUnread, useWrite } from '@handline/app-data';
 import { useConnection } from '@handline/app-react';
-import { InboxCard, kindLabel, originOf, type Verbs } from './InboxCard.tsx';
+import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
+import { InboxCard, kindIcon, kindLabel, open, waits, type Verbs } from './InboxCard.tsx';
+import { Button, Icon, Select } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const CONFIRM_ABOVE = 10;
 const KEYS: [string, string][] = [
-  ['↵', 'open'],
+  ['↵', 'open chat or task'],
   ['a', 'answer'],
   ['x', 'dismiss'],
   ['m', 'mark read'],
@@ -62,13 +64,15 @@ export function InboxPage({ item }: { item: number | null }) {
     answer: usePending('inbox.answer').map((p) => p.id),
     reply: usePending('inbox.reply').map((p) => p.id),
   };
+  // Read items leave the list at once, those whose mark-read is still on its way too; a question waiting for its answer stays until answered.
   const all = useMemo(() => list.data?.items ?? [], [list.data]);
-  const shown = useMemo(() => all.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent)), [all, kind, agent]);
-  const kinds = [...new Set(all.map((i) => i.kind))];
-  const agents = [...new Set(all.flatMap((i) => (i.agent ? [i.agent] : [])))];
+  const waiting = all.filter((i) => waits(i, pending.read.includes(i.id)));
+  const shown = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
+  const kinds = [...new Set(waiting.map((i) => i.kind))];
+  const agents = [...new Set(waiting.flatMap((i) => (i.agent ? [i.agent] : [])))];
   const filtered = !!(kind || agent);
   // A deep link that names an item the list no longer holds (read and gone, dismissed) says so instead of showing nothing.
-  const missing = item != null && list.isSuccess && !all.some((i) => i.id === item);
+  const missing = item != null && list.isSuccess && !waiting.some((i) => i.id === item);
 
   useEffect(() => setCursor(item), [item]);
   useEffect(() => {
@@ -97,8 +101,7 @@ export function InboxPage({ item }: { item: number | null }) {
         case 'ArrowUp':
           return move(at < 0 ? 0 : at - 1);
         case 'Enter': {
-          const to = cur && originOf(cur);
-          return void (to && (location.hash = to));
+          return void (cur && open(cur, verbs));
         }
         case 'a':
           return void document.querySelector<HTMLElement>(`[data-item="${cursor}"] button[data-verb]:not(:disabled)`)?.click();
@@ -119,31 +122,41 @@ export function InboxPage({ item }: { item: number | null }) {
   return (
     <section className="inbox" aria-label="Inbox">
       <header className="inbox-top">
-        <h2>
-          Inbox<span className="muted"> · {unread.length} unread</span>
+        <h2 title="Inbox">
+          <Icon name="inbox" size={20} />
+          <span className="muted" aria-label={`${unread.length} unread`}>
+            {' '}
+            {unread.length}
+          </span>
         </h2>
-        <select aria-label="Kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="">All kinds</option>
+        <div className="inbox-kinds" role="group" aria-label="Kind">
           {kinds.map((k) => (
-            <option key={k} value={k}>
-              {kindLabel(k)}
-            </option>
+            <button
+              key={k}
+              className="icon"
+              aria-pressed={kind === k}
+              aria-label={kindLabel(k)}
+              title={kindLabel(k)}
+              onClick={() => setKind(kind === k ? '' : k)}
+            >
+              <Icon name={kindIcon(k)} label={kindLabel(k)} />
+            </button>
           ))}
-        </select>
-        <select aria-label="Agent" value={agent} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">All agents</option>
-          {agents.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <button className="btn" disabled={!unread.length || !!verbs.off.read} title={verbs.off.read ?? undefined} onClick={askReadAll}>
-          Mark all read
-        </button>
-        <button className="icon" aria-label="Keys" aria-expanded={sheet} onClick={() => setSheet(!sheet)}>
-          ?
-        </button>
+        </div>
+        <Select
+          label="Agent"
+          value={agent}
+          onChange={(e) => setAgent(e.target.value)}
+          options={[{ value: '', label: 'All agents' }, ...agents.map((a) => ({ value: a, label: a }))]}
+        />
+        <Button
+          icon="markAllRead"
+          label="Mark all read"
+          disabled={!unread.length || !!verbs.off.read}
+          title={verbs.off.read ?? 'Mark all read'}
+          onClick={askReadAll}
+        />
+        <Button icon="keys" label="Keys" aria-expanded={sheet} onClick={() => setSheet(!sheet)} />
       </header>
       {sheet ? (
         <dl className="inbox-keys" aria-label="Keys of this page">
@@ -160,11 +173,11 @@ export function InboxPage({ item }: { item: number | null }) {
       {confirm ? (
         <div className="inbox-confirm" role="alertdialog" aria-label="Mark all read">
           Mark all {unread.length} unread items read?{' '}
-          <button className="btn primary" autoFocus onClick={readAll}>
-            Mark all read
+          <button className="icon" autoFocus aria-label="Mark all read" title="Mark all read" onClick={readAll}>
+            <Icon name="markAllRead" />
           </button>{' '}
-          <button className="btn" onClick={() => setConfirm(false)}>
-            Cancel
+          <button className="icon" aria-label="Cancel" title="Cancel" onClick={() => setConfirm(false)}>
+            <Icon name="close" label="Cancel" />
           </button>
         </div>
       ) : null}
@@ -178,19 +191,22 @@ export function InboxPage({ item }: { item: number | null }) {
         served={served}
         shape="inbox"
         what="the inbox"
-        empty={!all.length && 'Nothing waits on you. Results, questions and blocks from your agents land here.'}
+        empty={!waiting.length && 'Nothing waits on you. Results, questions and blocks from your agents land here.'}
       >
         {shown.length ? (
           <div className="inbox-list">
-            {shown.map((i) => (
-              <InboxCard
-                key={i.id}
-                item={i}
-                on={i.id === cursor}
-                pending={pending.read.includes(i.id) || pending.answer.includes(i.id) || pending.reply.includes(i.id)}
-                verbs={verbs}
-              />
-            ))}
+            <AnimatedList>
+              {shown.map((i) => (
+                <AnimatedItem key={i.id} layout={shown.length <= 60}>
+                  <InboxCard
+                    item={i}
+                    on={i.id === cursor}
+                    pending={pending.read.includes(i.id) || pending.answer.includes(i.id) || pending.reply.includes(i.id)}
+                    verbs={verbs}
+                  />
+                </AnimatedItem>
+              ))}
+            </AnimatedList>
           </div>
         ) : (
           <div className="empty">
@@ -198,13 +214,15 @@ export function InboxPage({ item }: { item: number | null }) {
             {filtered ? (
               <p>
                 <button
-                  className="btn"
+                  className="icon"
+                  aria-label="Clear filters"
+                  title="Clear filters"
                   onClick={() => {
                     setKind('');
                     setAgent('');
                   }}
                 >
-                  Clear filters
+                  <Icon name="close" label="Clear filters" />
                 </button>
               </p>
             ) : null}

@@ -80,6 +80,9 @@ export function useChatActions(agent: string) {
   const withdraw = useWrite('chat.withdraw', agent);
   const dismiss = useWrite('chat.dismiss', agent);
   const answer = useWrite('chat.answer', agent);
+  const sendNow = useWrite('chat.send_now', agent);
+  const cancel = useWrite('chat.cancel', agent);
+  const seen = useWrite('chat.seen', agent);
   const rows = (f: (m: ChatMessage) => boolean) => {
     for (const [key] of qc.getQueriesData<Pages<MsgPage>>({ queryKey: qk.chatMessagesOf(daemon, agent) }))
       qc.setQueryData<Pages<MsgPage>>(key, (d) => d && mapPages(d, (p) => ({ ...p, messages: p.messages.filter(f) })));
@@ -90,15 +93,23 @@ export function useChatActions(agent: string) {
       .flatMap(([, d]) => d?.pages.flatMap((p) => p.messages) ?? [])
       .find((m) => m.id === id && m.state === 'failed');
   return {
-    send: (body: string) => send.mutate({ agent, body }),
+    /** `parent` makes it a reply to that message; `to` is the agent it goes to when that is not this chat's (a reply in the All tab). */
+    send: (body: string, opts?: { parent?: number; to?: string }) =>
+      send.mutate({ agent: opts?.to ?? agent, body, ...(opts?.parent != null ? { parent: opts.parent } : {}) }),
     retry: (id: number) => {
       const m = failed(id);
       if (!m) return;
       rows((x) => x.id !== id);
-      send.mutate({ agent, body: m.body });
+      send.mutate({ agent: m.to, body: m.body, ...(m.parent != null ? { parent: m.parent } : {}) });
     },
     discard: (id: number) => rows((x) => x.id !== id),
     withdraw: (request: number) => withdraw.mutate({ request }),
+    /** Types a queued message at the agent now. */
+    sendNow: (request: number) => sendNow.mutate({ request }),
+    /** Takes the message back, delivered or not; one the agent already has needs `confirm`. Resolves when the daemon has done it, rejects when it refuses. */
+    cancel: (request: number, confirm = false) => cancel.mutateAsync({ request, ...(confirm ? { confirm: true } : {}) }),
+    /** The agent's messages up to this number are in front of the person: they leave the FOR YOU list. */
+    seen: (up_to: number) => seen.mutate({ agent, up_to }),
     dismiss: (request: number) => dismiss.mutate({ request }),
     answer: (request: number, text: string) => answer.mutate({ request, text }),
     sending: send.isPending,

@@ -93,6 +93,65 @@ test('commands: a checkout runs bin/ocp and go/handlined; the home and the binar
   assert.deepEqual(none.python, { file: '/repo/bin/ocp', args: ['daemon'] });
   assert.deepEqual(none.gateway.args, ['-gateway', '-allow-real-home', '-listen', '127.0.0.1:7443']);
   const named = commands((k) => ({ HOME: '/h', OCP: '/x/ocp', HANDLINED: '/x/h' })[k], '/repo', ':1');
+  const ts = commands(() => undefined, '/repo', '100.101.2.3:7443', 'mac.tail1.ts.net:7443');
+  assert.deepEqual(ts.gateway.args.slice(-4), ['-listen', '100.101.2.3:7443', '-advertise', 'mac.tail1.ts.net:7443']);
   assert.equal(named.python.file, '/x/ocp');
   assert.deepEqual(named.gateway, { file: '/x/h', args: ['-gateway', '-home', '/h', '-listen', ':1'] });
+});
+
+test('replaceGateway stops only the gateway, waits for its socket to go, and starts the new command', async () => {
+  const GO2: Cmd = { file: 'go2', args: ['-listen', '127.0.0.1:1'] };
+  const r = rig({ socket: false, gateway: false });
+  await r.owner.start();
+  r.spawned.length = 0;
+  let up = true;
+  // The old gateway's socket stays up until it exits: the test lets it go on kill.
+  r.owner['d'].gatewayUp = async () => up;
+  const realSpawn = r.owner['d'].spawn;
+  r.owner['d'].spawn = (cmd) => {
+    up = true;
+    return realSpawn(cmd);
+  };
+  const stop = r.owner['started'].find((s) => s.name === 'gateway')!.child.kill;
+  r.owner['started'].find((s) => s.name === 'gateway')!.child.kill = () => {
+    stop();
+    up = false;
+  };
+  await r.owner.replaceGateway(GO2);
+  assert.deepEqual(r.killed, ['go']);
+  assert.deepEqual(r.spawned, [GO2]);
+  assert.equal(r.owner.state, 'running');
+  assert.deepEqual(r.owner.owned(), ['daemon', 'gateway']);
+});
+
+test('fail shows a reason without touching what runs', async () => {
+  const r = rig({ socket: true, gateway: true });
+  await r.owner.start();
+  r.owner.fail('the gateway does not answer');
+  assert.equal(r.owner.state, 'failed');
+  assert.equal(r.owner.reason, 'the gateway does not answer');
+  assert.deepEqual(r.killed, []);
+});
+
+test('moveGateway leaves a gateway the app did not start alone, and keeps the old address when the new one does not answer', async () => {
+  const GO2: Cmd = { file: 'go2', args: ['-listen', '127.0.0.1:1'] };
+  const theirs = rig({ socket: true, gateway: true }); // another process answers on the gateway socket
+  await theirs.owner.start();
+  assert.equal(await theirs.owner.moveGateway(GO2, async () => true, 'no answer'), false);
+  assert.deepEqual(theirs.killed, []);
+  assert.deepEqual(theirs.spawned, []);
+  assert.equal(theirs.owner.state, 'failed');
+  assert.equal(theirs.owner.reason, 'no answer');
+
+  const silent = rig({ socket: false, gateway: false });
+  await silent.owner.start();
+  let up = true;
+  silent.owner['d'].gatewayUp = async () => up;
+  silent.owner['started'].find((s) => s.name === 'gateway')!.child.kill = () => void (up = false);
+  const spawn = silent.owner['d'].spawn;
+  silent.owner['d'].spawn = (cmd) => ((up = true), spawn(cmd));
+  assert.equal(await silent.owner.moveGateway(GO2, async () => false, 'still nothing'), false);
+  assert.equal(silent.owner.reason, 'still nothing');
+  assert.equal(await silent.owner.moveGateway(GO2, async () => true, 'x'), true); // the replacement is the app's own, and answers
+  assert.equal(silent.owner.state, 'running');
 });

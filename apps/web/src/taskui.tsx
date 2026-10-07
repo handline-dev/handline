@@ -1,6 +1,17 @@
 // Small pieces the Tasks list and the task detail share: the state chip, the clock, the width query and the inline reason sheet.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useServes } from '@handline/app-data';
+import { Icon, type IconName } from './Icon.tsx';
+
+export const STATE_GLYPH: Record<string, IconName> = {
+  draft: 'taskDraft',
+  queued: 'taskQueued',
+  pending: 'taskPending',
+  doing: 'taskDoing',
+  blocked: 'taskBlocked',
+  done: 'taskDone',
+  discarded: 'taskDiscarded',
+};
 
 const TONE: Record<string, string> = {
   doing: 'run',
@@ -12,7 +23,7 @@ const TONE: Record<string, string> = {
   discarded: 'idle',
 };
 
-/** A state is a word and a colour, never the colour alone. `mark` says what the write in flight is: hollow dot, or the decided "…". */
+/** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
 export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 'decided' | null }) {
   if (mark === 'decided')
     return (
@@ -21,8 +32,10 @@ export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 
       </span>
     );
   return (
-    <span className={`tchip ${TONE[state] ?? 'idle'}`} data-state={state}>
-      <span aria-hidden="true">{mark === 'authored' ? '○' : '●'}</span> {state}
+    <span className={`tchip ${TONE[state] ?? 'idle'}`} data-state={state} title={state}>
+      {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
+      <Icon name={STATE_GLYPH[state] ?? 'taskPending'} label={state} size={16} aria-hidden="true" />
+      <span className="vh">{state}</span>
     </span>
   );
 }

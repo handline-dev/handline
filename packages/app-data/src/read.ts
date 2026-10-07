@@ -77,5 +77,6 @@ export const useSettings = (agent?: string) => useRead('settings.get', { agent }
 export const useAnswers = () => useRead('answers.list', {});
 export const useDevices = () => useRead('devices.list', {});
 export const useOperation = (operation: string) => useRead('operation.get', { operation });
-export const useChatLocate = (params: CallParams<'chat.locate'>) => useRead('chat.locate', params);
+/** Where a message number sits (its chat and scope); `enabled` false reads nothing until a message number is clicked. */
+export const useChatLocate = (params: CallParams<'chat.locate'>, enabled = true) => useRead('chat.locate', params, { enabled });
 export const useChatSearch = (params: CallParams<'chat.search'>) => useRead('chat.search', params);

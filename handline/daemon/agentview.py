@@ -14,6 +14,7 @@ from ..infra.textsafe import oneline
 from ..infra.yamlcompat import ConfigError
 from ..session import blocked as blockedmod, term
 from ..team import agents
+from ..usage import status
 from . import delivery, handoff_note, lifecycle
 from .screenstate import DETAIL_CAP, screen_state, wire_state
 
@@ -44,6 +45,11 @@ def screen_word(view: dict) -> tuple[str, str]:
 _READ = object()
 
 
+def _ctx_pct(name: str, account: str | None) -> int | None:
+    """The context the agent's own session has used, as the strip reads it; None with no account or an untrusted snapshot."""
+    return status.read_for_agent(name, account).trusted_ctx_pct if account else None
+
+
 def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
     """`table` is the routing table when the caller has read it already (once for every agent)."""
     now = int(time.time()) if now is None else now
@@ -62,6 +68,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
     left = handoff_note.cache_left(con, name, now)
     task = db.current_task(con, name)
     task_row = db.get_task(con, task) if task is not None else None
+    account = agents.current_account(name, con)
     return {
         "name": name,
         "role": _role_line(name),
@@ -75,9 +82,10 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "background_since": _ts(delivery.bg_since(con, name)),
         "would_wake": bool(lifecycle.would_wake(con, row)),
         "blocker": oneline(blockedmod.headline(shown["kind"], shown["detail"]))[:DETAIL_CAP] if shown else None,
-        "account": agents.current_account(name, con),
+        "account": account,
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
         "cache_until": None if left is None else _ts(now + left),
+        "ctx_pct": _ctx_pct(name, account),
         "has_dialog": word == "DIALOG",
         "parent": actions.supervisor_of(table, name) if table else None,
     }

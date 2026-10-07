@@ -1,4 +1,4 @@
-import type { AgentDetail, AgentView, InputHolder, Prompt, Row, Timestamp } from '@handline/contract';
+import type { AgentDetail, AgentView, InputHolder, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
 import { refused } from './errors.ts';
 import { defaultSettings } from './settings.ts';
@@ -7,6 +7,24 @@ export const ROWS = 24,
   COLS = 80;
 export const DAEMON_HOLDER: InputHolder = { kind: 'daemon', name: 'daemon', since: null };
 export const row = (text: string): Row => ({ text });
+
+/** A frame as a styled watcher gets it: the same rows with their colour, marked with the attach's format. */
+export function styledFrame(n: Notifications['frame'], cols: number): Notifications['frame'] {
+  return {
+    ...n,
+    format: 'styled',
+    lines: n.lines?.map((r) => styledRow(r.text, cols)),
+    changed: n.changed?.map((c) => ({ ...c, row: styledRow(c.row.text, cols) })),
+  };
+}
+
+/** A row with colour, the way `coded` does it for bytes: the prompt marker cyan, the agent's bullet green. */
+export function styledRow(text: string, cols = Infinity): Row {
+  text = [...text].slice(0, cols).join('');
+  if (text.startsWith('> ')) return { text, spans: [{ from: 0, to: 1, style: { fg: 6 } }] };
+  if (text.startsWith('●')) return { text, spans: [{ from: 0, to: 1, style: { fg: 2, bold: true } }] };
+  return { text };
+}
 
 export interface Session {
   fx: AgentFixture;
@@ -31,7 +49,7 @@ export interface Session {
 
 /** How one connection watches a terminal: the format it asked for, and its own notice counter when that is bytes. */
 export interface Attach {
-  format: 'text' | 'bytes';
+  format: 'text' | 'bytes' | 'styled';
   seq: number;
 }
 
@@ -86,13 +104,15 @@ export function view(s: Session): AgentView {
     parent: s.fx.parent,
   };
 }
-/** The actions of the chat page's menu (AgentDetail.can); the fake daemon offers every one. */
-const MENU = ['terminal', 'wake', 'close', 'restart', 'park', 'fold', 'move'];
 
 export function detail(s: Session): AgentDetail {
   return {
     ...view(s),
     worktree: { path: s.fx.worktree, branch: s.fx.branch },
+    cwd: s.fx.worktree,
+    can: Object.fromEntries(
+      ['terminal', 'wake', 'close', 'restart', 'park', 'fold', 'move'].map((k) => [k, { ok: true, why: null }]),
+    ) as AgentDetail['can'],
     terminal: s.hasTerminal ? tid(s) : null,
     session_id: s.sessionId,
     session_open: s.open,
@@ -100,8 +120,6 @@ export function detail(s: Session): AgentDetail {
     account_pick: { account: s.fx.account, reason: 'fixture' },
     prompt: s.prompt,
     settings: s.settings as AgentDetail['settings'],
-    cwd: s.fx.worktree,
-    can: Object.fromEntries(MENU.map((k) => [k, { ok: true, why: null }])) as AgentDetail['can'],
   };
 }
 

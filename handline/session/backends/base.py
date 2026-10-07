@@ -149,6 +149,18 @@ class Backend:
     # What the bytes format of the terminal channel needs: the pane's escape-coded output and raw keystrokes. Only a host that has both says so.
     serves_bytes = False
 
+    def cursor(self, handle: str) -> dict | None:
+        """The cursor on the pane's visible rows: `{x, y, visible, height, blank_below}` (blank_below: how many of the bottom rows are empty,
+        which read_screen drops). None: unknown, or this host does not say."""
+        return None
+
+    # The styled format needs the rendered rows with their SGR codes.
+    serves_styled = False
+
+    def read_screen_ansi(self, handle: str, limit: int = 40) -> list[str] | None:
+        """The bottom `limit` rows as read_screen has them, each with its SGR codes. None: unreadable, or this host has no codes."""
+        return None
+
     def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
         """Send raw bytes as keystrokes (what a terminal emulator sends for the keys). A host that cannot says so."""
         return False, f"{self.name} cannot send raw bytes"
