@@ -28,6 +28,8 @@ trap 'rm -rf "$work"' EXIT
 # fixture, and mints the founder key in a scratch home. The founder and anonymous roles run; agent and member have no
 # connection of their own (this daemon cannot tell them apart without a recorded session or a paired device), so
 # their fixtures are reported SKIP and --allow-skip says that is meant. A method the Go daemon does not serve yet is
-# named in go/conformance-missing.txt: delete a line as its method lands.
+# named in go/conformance-missing.txt: delete a line as its method lands. A fixture that needs a --var this run cannot
+# seed yet is named in go/conformance-needvar.txt the same way.
 python3 "$here/conformance_fds.py" "$work/handlined" --allow-missing-file "$here/../go/conformance-missing.txt" \
+    --allow-needvar-file "$here/../go/conformance-needvar.txt" \
     "$here"/../contract/fixtures/*.json

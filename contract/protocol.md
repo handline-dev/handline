@@ -96,6 +96,7 @@ A method marked write takes a required `request_id`.
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -115,7 +116,7 @@ A method marked write takes a required `request_id`.
 | `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -123,15 +124,15 @@ A method marked write takes a required `request_id`.
 | `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | none | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused` |  |
 | `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused` |  |
 | `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused` |  |
@@ -164,6 +165,7 @@ A method marked write takes a required `request_id`.
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` |  |  |
+| `stats.outlook` | member |  | `range` | `Outlook` | `bad_request` |  |
 | `settings.get` | founder |  | `agent?` | `Settings` |  |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -187,11 +189,11 @@ The viewer, the device, the role and the methods allowed.
 
 ### `subscribe`
 
-Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent.
+Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again.
 
 ### `unsubscribe`
 
-Stop some topics; a subscription with no topics left ends. Result {}.
+Stop some topics; a subscription with no topics left ends. Result {}. Naming devices follows the same rule as subscribe: on its own.
 
 ### `daemon.status`
 
@@ -312,6 +314,10 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 ### `chat.send`
 
 A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
+
+### `chat.send_now`
+
+Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.
 
 ### `chat.answer`
 
@@ -455,7 +461,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
+Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
 
 ### `say`
 
@@ -584,6 +590,10 @@ Remove a schedule.
 ### `stats.get`
 
 Counts and sums over a window.
+
+### `stats.outlook`
+
+The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.
 
 ### `settings.get`
 

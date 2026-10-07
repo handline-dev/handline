@@ -451,13 +451,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_ignore_cache_expiry)
 
     p = sub.add_parser("land", help="the merger tests a branch's merge in its own sandbox and records it "
-                       "(`land --check <sha>`, then `land <sha> <message> --tree <tree>`); the auditor records a PASS (`land --pass <sha>`); the "
+                       "(`land --check <sha>...`, then `land <sha> <message> --tree <tree>` for each); the auditor records a PASS (`land --pass <sha>`); the "
                        "daemon, which runs no branch code, merges and fast-forwards main. A sha lands once")
     p.add_argument("sha", nargs="?")
     p.add_argument("message", nargs="?")
     p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha")
     p.add_argument("--list", action="store_true", help="the recent lands and where each stands")
-    p.add_argument("--check", action="store_true", help="test the merge here and print its tree; records nothing")
+    p.add_argument("--check", nargs="+", default=None, metavar="SHA",
+                   help="test the merge of these shas onto main here, in order, with one suite run, and print the "
+                        "tree for each; on red, split the batch and drop the shas that break it. Records nothing")
     p.add_argument("--tree", default=None, help="the tree `--check` printed; `land <sha> <message> --tree <tree>` records it")
     p.set_defaults(fn=cmd_land)
 

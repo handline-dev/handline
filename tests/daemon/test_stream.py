@@ -32,6 +32,16 @@ def _notices(w, count, timeout=5.0):
     return [w.read() for _ in range(count)]
 
 
+def _until(pred, secs: float = 30.0) -> bool:
+    """Wait on a condition, not for a time: the limit only ends a test that would never finish."""
+    end = time.monotonic() + secs
+    while not pred():
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.005)
+    return True
+
+
 def _fresh(home):
     home.mkdir(parents=True, exist_ok=True)
     support.use_home(home)
@@ -84,7 +94,7 @@ def test_a_second_delivery_of_a_cursor_already_queued_is_dropped(home: Path) -> 
     sub.offer(evs[1])
     sub.offer(evs[0])
     sub.offer(evs[1])
-    time.sleep(0.3)
+    _until(lambda: sent and not sub.queue)      # offers dedupe as they are made, so what is queued is all there will be: the writer has sent it
     sub.end()
     check("repeat: a cursor at or below the newest queued is not queued again", [m["params"]["cursor"] for m in sent] == [evs[1]["cursor"]], str(sent))
     con.close()
@@ -145,11 +155,21 @@ def test_the_watcher_sees_a_change_another_process_made(home: Path) -> None:
     con = db.connect()
     agentview.refresh(con)
     watcher = stream.Watcher(lambda m: None)
-    watcher.start()
-    w = Wire()
-    w.call("hello", _hp())
-    w.call("subscribe", {"topics": ["agents"]})
-    time.sleep(0.6)
+    scanned, real_scan = threading.Event(), stream.Watcher.scan
+
+    def scan(self, con):
+        real_scan(self, con)
+        if self is watcher:
+            scanned.set()
+    stream.Watcher.scan = scan
+    try:
+        watcher.start()
+        w = Wire()
+        w.call("hello", _hp())
+        w.call("subscribe", {"topics": ["agents"]})
+        check("watcher: it has scanned once, which baselines what it watches, before the change", scanned.wait(30))
+    finally:
+        stream.Watcher.scan = real_scan
     other = db.connect()
     now = db.get_agent_state(other, "backend")
     db.set_agent_state(other, "backend", dmn_states.IDLE if now and now["state"] == dmn_states.RUNNING else dmn_states.RUNNING)

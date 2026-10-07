@@ -53,13 +53,14 @@ type Manager struct {
 	store Store
 	now   func() time.Time
 
-	mu          sync.Mutex
-	addr, print string
-	codes       map[string]*code // by the hash of the code
-	wrongs      map[string][]time.Time
-	lockedTill  map[string]time.Time
-	conns       map[string]map[int]func() // by device id: what closes each open connection
-	next        int
+	mu         sync.Mutex
+	addr       string
+	print      func() string
+	codes      map[string]*code // by the hash of the code
+	wrongs     map[string][]time.Time
+	lockedTill map[string]time.Time
+	conns      map[string]map[int]func() // by device id: what closes each open connection
+	next       int
 }
 
 func New(store Store) *Manager {
@@ -68,7 +69,7 @@ func New(store Store) *Manager {
 }
 
 // Listening records where the listener is and the fingerprint of its certificate, which a pairing uri carries.
-func (m *Manager) Listening(addr, fingerprint string) {
+func (m *Manager) Listening(addr string, fingerprint func() string) {
 	m.mu.Lock()
 	m.addr, m.print = addr, fingerprint
 	m.mu.Unlock()
@@ -109,8 +110,15 @@ func (m *Manager) Pair(ttl time.Duration) (c string, expires time.Time, fingerpr
 	defer m.mu.Unlock()
 	expires = m.now().Add(ttl)
 	m.codes[hashOf(c)] = &code{expires: expires}
-	q := url.Values{"host": {m.addr}, "fp": {m.print}, "code": {c}}
-	return c, expires, m.print, "handline://pair?" + q.Encode()
+	var fp string
+	if m.print != nil {
+		fp = m.print()
+	}
+	q := url.Values{"host": {m.addr}, "code": {c}}
+	if fp != "" {
+		q.Set("fp", fp) // plain Tailscale mode has no certificate to pin
+	}
+	return c, expires, fp, "handline://pair?" + q.Encode()
 }
 
 func pairingRefused() *rpc.Error {
@@ -199,14 +207,25 @@ func (m *Manager) List() ([]map[string]any, error) {
 	defer m.mu.Unlock()
 	out := make([]map[string]any, 0, len(ds))
 	for _, d := range ds {
-		var seen any
-		if d.LastSeen != nil {
-			seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
-		}
-		out = append(out, map[string]any{"id": d.ID, "name": d.Name, "role": "member",
-			"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0})
+		out = append(out, m.row(d))
 	}
 	return out, nil
+}
+
+// Row is a device as the Device schema shows it, for an event.
+func (m *Manager) Row(d Device) map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.row(d)
+}
+
+func (m *Manager) row(d Device) map[string]any {
+	var seen any
+	if d.LastSeen != nil {
+		seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	return map[string]any{"id": d.ID, "name": d.Name, "role": "member",
+		"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0}
 }
 
 // Know, Login and Live are rpc.NetGate.
