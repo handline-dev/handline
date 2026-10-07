@@ -225,6 +225,24 @@ def test_the_methods_serve_the_view_and_the_agents_detail(home: Path) -> None:
     w.close()
 
 
+def test_agents_list_with_status_adds_what_hl_team_draws(home: Path) -> None:
+    support._daemon_home(home, 20)
+    con = db.connect()
+    db.set_agent_state(con, "backend", dmn_states.RUNNING)
+    agentview.refresh(con)
+    word, _ = tui.screen_state(con, db.get_agent_state(con, "backend"))
+    con.close()
+    w = Wire()
+    w.call("hello", _hp())
+    plain = next(a for a in w.call("agents.list", {})["result"]["agents"] if a["name"] == "backend")
+    mine = next(a for a in w.call("agents.list", {"status": True})["result"]["agents"] if a["name"] == "backend")
+    check("agents.list: without status the view carries none of the status fields", "screen_word" not in plain and "unreached" not in plain, str(plain))
+    check("agents.list: with status, the screen word is the screens' and the facts are read", mine["started"] is True and mine["screen_word"] == word
+          and mine["unreached"] == 0 and mine["task_waits"] == [] and mine["wake_wait_reason"] is None and mine["has_terminal"] is True, str(mine))
+    check("agents.list: status is true or false", _code(w.call("agents.list", {"status": "yes"})) == "bad_request")
+    w.close()
+
+
 def test_an_agent_reads_the_view_and_hl_ps_still_works_from_its_session(home: Path) -> None:
     support._daemon_home(home, 20)
     con = db.connect()
@@ -279,6 +297,7 @@ def main() -> int:
         run(lambda: test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(Path(td) / "a2"))
         run(lambda: test_the_tick_stores_every_agents_view(Path(td) / "a3"))
         run(lambda: test_the_methods_serve_the_view_and_the_agents_detail(Path(td) / "a4"))
+        run(lambda: test_agents_list_with_status_adds_what_hl_team_draws(Path(td) / "a7"))
         run(lambda: test_an_agent_reads_the_view_and_hl_ps_still_works_from_its_session(Path(td) / "a5"))
         run(lambda: test_a_database_made_before_the_view_gets_it_from_a_plain_connect(Path(td) / "a6"))
     return run_area(tests)

@@ -359,6 +359,7 @@ def test_the_admin_fixtures_pass_against_this_daemon(home: Path) -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_account_set_cap_writes_the_cap_and_refuses_what_is_not_one(Path(td) / "d0"))
+        run(lambda: test_account_remove_plans_without_changing_and_removes_only_when_confirmed(Path(td) / "d12"))
         run(lambda: test_account_set_writes_what_it_is_given_and_nothing_if_any_is_refused(Path(td) / "d1"))
         run(lambda: test_account_login_opens_a_terminal_that_can_be_watched_and_refuses_what_it_cannot_start(Path(td) / "d2"))
         run(lambda: test_schedules_are_added_edited_moved_and_removed_by_id(Path(td) / "d3"))

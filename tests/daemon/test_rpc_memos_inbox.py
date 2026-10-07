@@ -303,6 +303,7 @@ def main() -> int:
         run(lambda: test_memos_are_added_edited_and_deleted_by_the_right_caller(Path(td) / "m1"))
         run(lambda: test_memos_refuse_what_is_not_there_or_not_text(Path(td) / "m2"))
         run(lambda: test_inbox_mark_read_reads_what_the_caller_may_and_keeps_what_is_owed(Path(td) / "m3"))
+        run(lambda: test_an_agents_inbox_says_how_to_close_each_item_and_how_many_wait_behind(Path(td) / "m9"))
         run(lambda: test_inbox_answer_settles_what_the_founder_was_asked(Path(td) / "m4"))
         run(lambda: test_inbox_reply_sends_a_settling_message_to_whoever_sent_the_item(Path(td) / "m5"))
         run(lambda: test_a_death_between_an_inbox_effect_and_its_record_repeats_nothing(Path(td) / "m8"))

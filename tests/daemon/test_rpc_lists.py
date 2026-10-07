@@ -256,6 +256,7 @@ def main() -> int:
         run(lambda: test_accounts_say_what_the_account_page_shows(Path(td) / "l3"))
         run(lambda: test_team_names_each_agent_its_parent_and_files_and_the_edges(Path(td) / "l4"))
         run(lambda: test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(Path(td) / "l6"))
+        run(lambda: test_schedules_list_says_a_bad_value_and_not_none(Path(td) / "l11"))
         run(lambda: test_stats_count_a_window(Path(td) / "l7"))
         run(lambda: test_settings_say_where_every_setting_stands(Path(td) / "l8"))
         run(lambda: test_the_commands_the_list_methods_serve_still_work_from_an_agent_session(Path(td) / "l9"))

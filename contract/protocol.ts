@@ -121,6 +121,26 @@ export type AgentView = {
   input_holders?: InputHolder[];
   /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
   state_detail: string;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists). */
+  started?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo. */
+  has_repo?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): whether a terminal is recorded for it. */
+  has_terminal?: boolean;
+  /** Only with agents.list `status: true` (what `hl team` draws): the word the screens draw for its state (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL), `tui.screen_state`'s and not the wire `state`; null when it never started. */
+  screen_word?: string | null;
+  /** Only with agents.list `status: true` (what `hl team` draws): the text drawn beside screen_word. */
+  screen_detail?: string;
+  /** Only with agents.list `status: true` (what `hl team` draws): requests, messages and answers owed to it that have not reached it. */
+  unreached?: number;
+  /** Only with agents.list `status: true` (what `hl team` draws): its tasks that wait on a hold, oldest first. */
+  task_waits?: {
+    task: number;
+    /** The daemon's reason the task waits. */
+    words: string;
+  }[];
+  /** Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true). */
+  wake_wait_reason?: string | null;
 };
 
 export type AgentDetail = AgentView & {
@@ -1022,7 +1042,10 @@ export interface Methods {
   "operation.get": { params: {
   operation: string;
 }; result: Operation };
-  "agents.list": { params: { [key: string]: unknown }; result: {
+  "agents.list": { params: {
+  /** Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read now and not from the stored view. Default false. */
+  status?: boolean;
+}; result: {
     agents: AgentView[];
   } };
   "agent.get": { params: {

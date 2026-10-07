@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from .. import actions, db
 from ..infra import gitrun, paths, textsafe
 from ..session import launch, promptparse
-from . import agentview, inputhold, rpc
+from ..team import agents
+from . import agentview, inputhold, lifecycle, rpc, taskholds
+from .screenstate import screen_state
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
 CAN_VERBS = ("terminal", "wake", "close", "restart", "park", "fold", "move")
@@ -28,11 +30,35 @@ def _view(con, name: str) -> dict:
     return agentview.stored(con, name) or agentview.compute(con, name)
 
 
+def _status_line(con, name: str) -> dict:
+    """What `hl team` draws of an agent beyond its view, read now and not from the tick's stored view: the screen word,
+    the requests not yet reached, the task holds it waits on, the wall on its wake, and whether it ever started."""
+    row = db.get_agent_state(con, name)
+    try:
+        has_repo = bool(agents.read(name).get("repo"))
+    except Exception:  # noqa: BLE001 - an unreadable agent.yaml is doctor's to report
+        has_repo = False
+    out = {"started": row is not None, "has_repo": has_repo, "has_terminal": bool(row and row["terminal"]), "screen_word": None,
+           "screen_detail": "", "unreached": 0, "task_waits": [], "wake_wait_reason": None}
+    if row is None:
+        return out
+    out["screen_word"], out["screen_detail"] = screen_state(con, row)
+    out["unreached"] = db.unreached_count(con, name)
+    out["task_waits"] = [{"task": tid, "words": why} for tid, why in taskholds.agent_waits(con, name)]
+    if lifecycle.would_wake(con, row):
+        out["wake_wait_reason"] = launch.wake_wait_reason(name, row, con) or None
+    return out
+
+
 def _agents_list(ctx, params) -> dict:
+    status = params.get("status", False)
+    if not isinstance(status, bool):
+        raise rpc.bad_request("status is true or false", "status", rpc.INVALID_PARAMS)
     con = db.connect()
     try:
         have = {v["name"]: v for v in agentview.stored_all(con)}
-        return {"agents": [have.get(n) or agentview.compute(con, n) for n in paths.list_agents()]}
+        views = [have.get(n) or agentview.compute(con, n) for n in paths.list_agents()]
+        return {"agents": [{**v, **_status_line(con, v["name"])} for v in views] if status else views}
     finally:
         con.close()
 

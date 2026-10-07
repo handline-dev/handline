@@ -70,7 +70,7 @@ A method marked write takes a required `request_id`.
 | `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
 | `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` | `bad_request` |  |
 | `operation.get` | member |  | `operation` | `Operation` | `not_found` |  |
-| `agents.list` | agent |  | none | `{agents}` |  |  |
+| `agents.list` | agent |  | `status?` | `{agents}` | `bad_request` |  |
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
 | `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
