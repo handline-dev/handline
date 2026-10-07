@@ -3,11 +3,10 @@ package taskwrites
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/textsafe"
 )
 
 // start makes a task the caller's current one (actions.task_start): only its owner, only while it is open.
@@ -66,7 +65,7 @@ func start(c *rpc.Conn, p map[string]any) (any, error) {
 				back = fmt.Sprintf("; T%d goes back to queued (your `hl progress` note is kept)", held.Int64)
 			}
 		}
-		memos, err := memoSummary(tx, tid)
+		memos, err := db.MemoSummary(tx, tid, 500)
 		if err != nil {
 			return nil, err
 		}
@@ -117,39 +116,4 @@ func promoteOwn(tx *sql.Tx, tid int64, me string) error {
 		}
 	}
 	return nil
-}
-
-// memoSummary is the task's memos in one short line (actions.memo_summary): author, time, body; "" when it has none.
-func memoSummary(tx *sql.Tx, tid int64) (string, error) {
-	rows, err := tx.Query("SELECT author, body, created_at, edited_at FROM task_memos WHERE task_id = ? ORDER BY id", tid)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	var parts []string
-	for rows.Next() {
-		var author, body string
-		var created float64
-		var edited sql.NullFloat64
-		if err := rows.Scan(&author, &body, &created, &edited); err != nil {
-			return "", err
-		}
-		at := created
-		if edited.Valid && edited.Float64 != 0 {
-			at = edited.Float64
-		}
-		line := []rune(textsafe.Oneline(body))
-		if len(line) > 160 {
-			line = line[:160]
-		}
-		parts = append(parts, fmt.Sprintf("%s %s: %s", author, time.Unix(int64(at), 0).Format("01-02 15:04"), string(line)))
-	}
-	if len(parts) == 0 {
-		return "", rows.Err()
-	}
-	text := []rune("Memos - " + strings.Join(parts, " | "))
-	if len(text) > 500 {
-		return strings.TrimRight(string(text[:500]), " \t\n\r\v\f") + "…", rows.Err()
-	}
-	return string(text), rows.Err()
 }

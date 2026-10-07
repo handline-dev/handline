@@ -3,7 +3,7 @@
 //
 // It reaches everything it does not own through the ports below, one small interface each, so the groups that own them (G2
 // usage, G3b observe/blocked/waiting, G4 terminal channel, G6 lifecycle, G7 handoff, G8 evaluate) only have to satisfy them.
-// Tests use fakes. A port with no implementation yet is passed as nil and the code that needs it refuses closed (see Env.need).
+// Tests use fakes.
 package supervisor
 
 import (
@@ -26,7 +26,7 @@ type Terminal interface {
 	LastTail(handle string) []string
 	Send(handle, text string, enter bool) (bool, string)
 	SendToSession(handle, text string) (bool, string) // refuses to type at a shell prompt (term.send_to_session)
-	SendCtrlC(handle string) // Ctrl-C without Enter, then the shell settle wait
+	SendCtrlC(handle string)                          // Ctrl-C without Enter, then the shell settle wait
 	ClearContext(handle string) (bool, string)
 	ClearCommand(handle string) string
 }
@@ -106,6 +106,12 @@ type Proposals interface {
 	Answered(q db.Q, pid string, card *db.Request, verdict string) string
 }
 
+// Stuck is actions/stuck.py (_delivery_block): why work is not reaching an agent, in the daemon's own words.
+type Stuck interface {
+	// DeliveryBlock is (why, whether it resolves itself); "" when nothing is in the way.
+	DeliveryBlock(q db.Q, agent string) (why string, clears bool)
+}
+
 // Ports is every port; a nil field is an owner that has not landed yet.
 type Ports struct {
 	Terminal  Terminal
@@ -118,4 +124,5 @@ type Ports struct {
 	Evaluate  Evaluate
 	Channel   Channel
 	Proposals Proposals
+	Stuck     Stuck
 }

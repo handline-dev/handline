@@ -111,7 +111,7 @@ func TestMemoSummaryAndHandoffRecord(t *testing.T) {
 	if s, _ := MemoSummary(q, tid, 500); s != "" {
 		t.Fatal(s)
 	}
-	q.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES(?, 'a', 'first\nline', 86400)", tid)
+	q.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES(?, 'a', 'first\nline', 1759900000.123)", tid)
 	s, _ := MemoSummary(q, tid, 500)
 	if s == "" || s[:8] != "Memos - " || len(s) < 20 {
 		t.Fatal(s)
@@ -137,5 +137,48 @@ func TestMemoSummaryAndHandoffRecord(t *testing.T) {
 	q.Exec("INSERT INTO handoff(id, agent, trigger_kind, step, state, updated) VALUES('h1', 'a', 'usage', 'requested', 'in_flight', 5)")
 	if k, _ := LastHandoffTrigger(q, "a"); k != "usage" {
 		t.Fatal(k)
+	}
+}
+
+func TestWaitingTasksOffersARequestedTaskSkipsOneAnsweredAndOffersItAgainAfterAReset(t *testing.T) {
+	q := open(t)
+	tid := seedTask(t, q, "b", "a")
+	SetTaskQueued(q, tid, "a")
+	// never delivered: offered with no request
+	w, _ := WaitingTasks(q, "b")
+	if len(w) != 1 || w[0].Req != nil {
+		t.Fatalf("%+v", w)
+	}
+	// its own request is out: offered with it, and the request counts as asking
+	rid := ask(t, q, "a", "b", "work", "task")
+	LinkRequest(q, tid, rid)
+	w, _ = WaitingTasks(q, "b")
+	if len(w) != 1 || w[0].Req == nil || w[0].Req.ID != rid || !Asks(w[0].Req) {
+		t.Fatalf("%+v", w)
+	}
+	// delivered and answered: the task no longer has work out
+	CloseIfQueued(q, rid, "done", "", CloseOpts{})
+	EndHeld(q, tid, "")
+	RefreshSent(q, tid)
+	if w, _ = WaitingTasks(q, "b"); len(w) != 0 {
+		t.Fatalf("a task whose request reached the owner and was answered is sent again: %+v", w)
+	}
+	// a reset event that covers a later request offers it again
+	newest, _ := NewestRequest(q)
+	AddEvent(q, "a", "queue_task", KV{"task_id", tid}, KV{"after_request", newest + 1})
+	w, _ = WaitingTasks(q, "b")
+	if len(w) != 1 || w[0].Req != nil {
+		t.Fatalf("a reset did not offer it again: %+v", w)
+	}
+	// a request that never reached its owner does not count as delivered
+	t2 := seedTask(t, q, "c", "a")
+	SetTaskQueued(q, t2, "a")
+	denied, _ := AddRequest(q, NewRequest{Requester: "a", Target: "c", Body: "x", Kind: "task", State: "denied"})
+	LinkRequest(q, t2, denied)
+	if w, _ := WaitingTasks(q, "c"); len(w) != 1 {
+		t.Fatalf("a denied request hides the task: %+v", w)
+	}
+	if !neverReached("withdrawn") || neverReached("landed") {
+		t.Fatal("never-reached states")
 	}
 }

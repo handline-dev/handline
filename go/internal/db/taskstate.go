@@ -308,20 +308,20 @@ func MemoSummary(q Q, tid int64, cap int) (string, error) {
 	var parts []string
 	for rows.Next() {
 		var author, body string
-		var created int64
-		var edited sql.NullInt64
+		var created float64 // a memo's stamp carries a fraction: Python writes time.time()
+		var edited sql.NullFloat64
 		if err := rows.Scan(&author, &body, &created, &edited); err != nil {
 			return "", err
 		}
 		at := created
-		if edited.Valid && edited.Int64 != 0 {
-			at = edited.Int64
+		if edited.Valid && edited.Float64 != 0 {
+			at = edited.Float64
 		}
 		line := textsafe.Oneline(body)
 		if utf8.RuneCountInString(line) > 160 {
 			line = string([]rune(line)[:160])
 		}
-		parts = append(parts, author+" "+time.Unix(at, 0).Format("01-02 15:04")+": "+line)
+		parts = append(parts, author+" "+time.Unix(int64(at), 0).Format("01-02 15:04")+": "+line)
 	}
 	if err := rows.Err(); err != nil || len(parts) == 0 {
 		return "", err
