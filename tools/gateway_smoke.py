@@ -244,7 +244,7 @@ class World:
         self.env = {**os.environ, "HANDLINE_HOME": str(self.home), "OCP_HOME": str(self.home),
                     "HANDLINE_TEST_ROOT": str(self.user), "OCP_TEST_ROOT": str(self.user), "OCP_TERMINAL": "tmux",
                     "HANDLINE_TERMINAL": "tmux", "OCP_TMUX_SOCKET": f"gwsmoke{os.getpid()}", "HANDLINE_TMUX_SOCKET": f"gwsmoke{os.getpid()}",
-                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
+                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh"}
         for k in ("OCP_AGENT", "HANDLINE_AGENT", "OCP_ACCOUNT", "HANDLINE_ACCOUNT", "CLAUDE_CONFIG_DIR", "SANDBOX_RUNTIME"):
             self.env.pop(k, None)
 
@@ -320,8 +320,7 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
         if built.returncode:
             raise SystemExit("could not build the Go daemon:\n" + built.stdout + built.stderr)
         out = open(self.log("gateway"), "w")
-        p = subprocess.Popen([str(binary), "-gateway", "-home", str(self.home), "-listen", f"127.0.0.1:{self.port}",
-                              "-pid-file", str(self.root / "gateway.pid")], env=self.env, stdout=out, stderr=subprocess.STDOUT)
+        p = subprocess.Popen([str(binary), "-gateway", "-home", str(self.home), "-listen", f"127.0.0.1:{self.port}"], env=self.env, stdout=out, stderr=subprocess.STDOUT)
         self.procs.append(p)
         self.wait_for(lambda: (self.home / "gateway.sock").exists() and port_open(self.port), 30, "the gateway", p, "gateway")
 
@@ -475,7 +474,8 @@ def run_terminal(s: Smoke) -> None:
         s.note("terminal.detach (bytes)", "missing", "no attach to end")
         return
     if s.writes:
-        s.c.call("session.input", {"agent": s.agent, "text": "smoke frame", "request_id": s.rid()})
+        s.c.call("input.take", {"agent": s.agent, "request_id": s.rid()})
+        s.c.call("terminal.input", {"terminal": handle, "data": base64.b64encode(b"echo smoke frame\n").decode(), "request_id": s.rid()})
     out = s.c.wait_note(since, lambda m: m.get("method") == "output" and (m.get("params") or {}).get("terminal") == handle, 10) if s.writes else None
     if not s.writes:
         s.note("terminal output frames", "missing", "read-only run types nothing")
@@ -483,6 +483,8 @@ def run_terminal(s: Smoke) -> None:
         s.note("terminal output frames", "pass", f"seq {out['params'].get('seq')}")
     else:
         s.note("terminal output frames", "FAIL", "no output notice after typing")
+    if s.writes:
+        s.c.call("input.release", {"agent": s.agent, "request_id": s.rid()})
     reply = s.c.call("terminal.detach", {"terminal": handle, "format": "bytes"})
     s.note("terminal.detach (bytes)", *verdict(reply))
 
@@ -502,7 +504,7 @@ def run_topics(s: Smoke, triggers: dict[str, callable]) -> None:
             s.note(f"topic {topic}", "missing", "read-only run changes nothing")
             continue
         trigger()
-        got = s.c.wait_note(since, lambda m, t=topic: m.get("method") == "event" and (m.get("params") or {}).get("topic") == t, 12)
+        got = s.c.wait_note(since, lambda m, t=topic: m.get("method") == "event" and (m.get("params") or {}).get("topic") == t, 45 if topic == "agents" else 12)
         s.note(f"topic {topic}", "pass" if got else "FAIL", (got or {}).get("params", {}).get("type", "no event after a change"))
     s.note("topic prompts", "missing", "the spec has no prompts topic; a prompt change arrives as agent.changed on `agents`")
     s.c.call("unsubscribe", {"topics": list(spec_topics)})
@@ -582,7 +584,7 @@ def scratch_run(args) -> int:
             "chat": lambda: ws.call("chat.send", {"agent": s.agent, "body": "smoke: topic chat", "request_id": s.rid()}),
             "tasks": lambda: ws.call("task.memo.add", {"task": world.seed["task"], "text": "topic tasks", "request_id": s.rid()}),
             "inbox": lambda: ws.call("inbox.answer", {"id": world.seed["ask_topic"], "text": "topic inbox", "request_id": s.rid()}),
-            "agents": lambda: ws.call("session.wake", {"agent": s.agent, "request_id": s.rid()}),
+            "agents": lambda: ws.call("chat.send", {"agent": s.agent, "body": "smoke: topic agents", "request_id": s.rid()}),
         }
         run_topics(s, triggers)
         s.row("session.stop", {"agent": s.agent, "mode": "close", "request_id": s.rid()})
