@@ -31,7 +31,6 @@ session.type
 session.wake
 settings.set
 settings.trust
-subscribe
 task.cancel
 task.edit
 task.memo.add
@@ -43,8 +42,8 @@ terminal.attach
 terminal.close
 terminal.detach
 terminal.history
+terminal.input
 terminal.resize
-unsubscribe
 worktree.diff
 worktree.set_status
 worktrees.list
@@ -59,4 +58,6 @@ task.merge
 task.queue
 task.draft
 task.release
+chat.send_now
+stats.outlook
 hr.list

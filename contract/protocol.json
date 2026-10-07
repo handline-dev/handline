@@ -730,7 +730,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent."
+   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again."
   },
   {
    "name": "unsubscribe",
@@ -762,7 +762,8 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Naming devices follows the same rule as subscribe: on its own."
   },
   {
    "name": "daemon.status",
@@ -1804,6 +1805,13 @@
         "type": "string"
        },
        {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "description": "Keys of the picked options, for a prompt with `multi`; may be empty."
+       },
+       {
         "type": "object",
         "properties": {
          "text": {
@@ -1815,7 +1823,7 @@
         ]
        }
       ],
-      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check."
+      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. An array only answers a `multi` prompt."
      }
     },
     {
@@ -2349,6 +2357,48 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now",
+   "summary": "Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "A ChatMessage.id still in state queued."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3269,7 +3319,7 @@
        2,
        3
       ],
-      "description": "1 high, 2 default, 3 low (written P1-P3)."
+      "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
      }
     },
     {
@@ -4262,7 +4312,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
+   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4306,6 +4356,19 @@
      "schema": {
       "type": "string",
       "description": "Owner only: what the task waits on."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
      }
     },
     {
@@ -5964,6 +6027,43 @@
    "x-since": 1
   },
   {
+   "name": "stats.outlook",
+   "summary": "The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "range",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "12h",
+       "24h",
+       "3d",
+       "7d",
+       "14d",
+       "30d"
+      ],
+      "description": "Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1)."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Outlook"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "settings.get",
    "summary": "Timings, terminal host, trust folders, hooks installed.",
    "paramStructure": "by-name",
@@ -6483,7 +6583,7 @@
      "devices",
      "hr"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
    },
    "Caller": {
     "type": "object",
@@ -6713,6 +6813,10 @@
      "since": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "When the daemon first saw this prompt open."
+     },
+     "multi": {
+      "type": "boolean",
+      "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request."
      }
     },
     "required": [
@@ -7146,6 +7250,15 @@
         "type": "null"
        }
       ]
+     },
+     "priority": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
      }
     },
     "required": [
@@ -8901,7 +9014,8 @@
        "reply",
        "tool",
        "prompt",
-       "task_event"
+       "task_event",
+       "session"
       ]
      },
      "text": {
@@ -8958,6 +9072,34 @@
        "task",
        "request",
        "evidence"
+      ]
+     },
+     "session": {
+      "type": "object",
+      "description": "For kind session: a session of this agent began here.",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "started": {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       "handoff": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The handoff text the session began with; null when it began with none."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "id",
+       "started",
+       "handoff"
       ]
      }
     },
@@ -9598,6 +9740,153 @@
      "allowed"
     ],
     "description": "One method as a daemon lists it: its role and whether this caller may call it."
+   },
+   "Outlook": {
+    "type": "object",
+    "properties": {
+     "range": {
+      "type": "string",
+      "enum": [
+       "12h",
+       "24h",
+       "3d",
+       "7d",
+       "14d",
+       "30d"
+      ]
+     },
+     "now": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "accounts": {
+      "type": "integer",
+      "description": "How many accounts have a reading."
+     },
+     "past": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "left_pct": {
+         "oneOf": [
+          {
+           "type": "number",
+           "description": "Percent of the week left, averaged over the accounts that have a reading at that time."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "at",
+        "left_pct"
+       ]
+      },
+      "description": "What usage samples recorded, oldest first."
+     },
+     "future": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "left_pct": {
+         "oneOf": [
+          {
+           "type": "number",
+           "description": "Percent of the week left, averaged over the accounts that have a reading at that time."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "at",
+        "left_pct"
+       ]
+      },
+      "description": "A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it."
+     },
+     "runway": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "account": {
+         "type": "string"
+        },
+        "runs_out_in_seconds": {
+         "oneOf": [
+          {
+           "type": "integer",
+           "description": "How long its headroom lasts at the current burn, whichever window runs out first; null when its reading is stale, there is no burn, or the window resets first."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "week_resets_at": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "account",
+        "runs_out_in_seconds",
+        "week_resets_at"
+       ]
+      }
+     },
+     "cost_per_day": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "day": {
+         "type": "string",
+         "description": "Local calendar day, YYYY-MM-DD."
+        },
+        "agents": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "number"
+         },
+         "description": "List-price cost in US dollars of each agent that day."
+        }
+       },
+       "required": [
+        "day",
+        "agents"
+       ]
+      },
+      "description": "Oldest first; a day with no calls is absent."
+     }
+    },
+    "required": [
+     "range",
+     "now",
+     "accounts",
+     "past",
+     "future",
+     "runway",
+     "cost_per_day"
+    ]
    },
    "TerminalBytesSnapshot": {
     "type": "object",
