@@ -43,6 +43,23 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     const { actor, script, agent } = h;
     return script.stopSession(agent(), 'close', actor);
   },
+  'agent.fold': (h) => {
+    const { actor, script, agent } = h;
+    const s = agent();
+    script.stopSession(s, 'close', actor);
+    s.sessionId = null; // the next session starts from the handoff, not from this conversation
+    script.control(s, actor, 'agent.fold', `${actor.name} folded the session into its handoff`);
+    return script.accepted('Folded.');
+  },
+  'agent.move': (h) => {
+    const { p, actor, script, agent } = h;
+    const s = agent();
+    if (typeof p.account !== 'string' || !p.account) throw badRequest('account names an account', 'account');
+    s.fx.account = p.account;
+    script.control(s, actor, 'agent.move', `${actor.name} moved the agent to ${p.account}`);
+    script.setState(s, s.state, actor);
+    return script.accepted('Moved.');
+  },
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;
     return script.stopSession(agent(), p.mode, actor);

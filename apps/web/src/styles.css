@@ -1003,3 +1003,43 @@ button.opt {
     white-space: pre;
   }
 }
+||||||| parent of d30e0c92 (Agent verbs in the web menu: wake, restart resuming or fresh, close, park, fold, move account and clear stall, with a confirmation sheet for the bridge's CONFIRM set)
+
+
+.menu-item.danger strong {
+  color: var(--block);
+}
+.menu-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.verb-sheet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  margin: 2px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 12px;
+}
+.verb-sheet-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .menu-item,
+  .verb-sheet .btn,
+  .verb-sheet select {
+    min-height: 48px;
+  }
+  .verb-sheet-actions {
+    width: 100%;
+  }
+  .verb-sheet-actions .btn {
+    flex: 1;
+  }
+}
