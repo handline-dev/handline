@@ -1,7 +1,7 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
 import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { Store } from '@handline/app-core';
-import { RpcError, type AgentDetail, type AgentView } from '@handline/client';
+import { RpcError } from '@handline/client';
 
 const StoreContext = createContext<Store | null>(null);
 
@@ -58,15 +58,4 @@ export function useSelector<T>(select: (s: Store) => T): T {
 }
 
 export const useConnection = () => useSelector((s) => s.conn);
-export const useAgents = (): AgentView[] => useSelector((s) => [...s.agents.values()]);
 export const useError = () => useSelector((s) => s.error);
-
-/** An agent's detail, kept current while the component is mounted. */
-export function useAgentDetail(name: string): AgentDetail | undefined {
-  const store = useStore();
-  useEffect(() => {
-    void store.watch(name).catch(() => {});
-    return () => store.unwatch(name);
-  }, [store, name]);
-  return useSelector((s) => s.details.get(name));
-}

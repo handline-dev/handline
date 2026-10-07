@@ -3,8 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { Terminal } from '@xterm/headless';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
-import { DaemonProvider, useAgentDetail } from '@handline/app-react';
-import { DataProvider, type BoxComponent } from '@handline/app-data';
+import { DaemonProvider } from '@handline/app-react';
+import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '../src/BytesTab.tsx';
@@ -217,7 +217,7 @@ describe('the pane', () => {
     box?.remove();
   });
   function Probe({ create }: { create: CreateTerm }) {
-    const d = useAgentDetail(ARCH);
+    const d = useAgentDetail(ARCH).data;
     return d ? <BytesTab agent={ARCH} detail={d} create={create} /> : null;
   }
   async function mount(s = setup()) {
@@ -321,25 +321,28 @@ describe('the pane', () => {
   it('keeps a hidden terminal for 30 s: switching back shows the last screen at once, with no new xterm', async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
-    await act(async () => root!.unmount());
-    root = null;
+    // The pane unmounts (another tab shows) while the app, and so its cache, stays.
+    const around = (child: React.ReactNode) => (
+      <DaemonProvider store={m.store}>
+        <DataProvider daemonId="test" box={Box}>
+          {child}
+        </DataProvider>
+      </DaemonProvider>
+    );
+    await act(async () => root!.render(around(null)));
     expect(m.made).toHaveLength(1);
     expect(rows(m.made[0]!).some((l) => l.includes('Claude Code v2.1'))).toBe(true); // not disposed: still holds the screen
-    const again = createRoot(box);
-    root = again;
-    await act(async () => {
-      again.render(
-        <DaemonProvider store={m.store}>
-          <DataProvider daemonId="test" box={Box}>
-            <Probe
-              create={() => {
-                throw new Error('a kept terminal is reused, not made again');
-              }}
-            />
-          </DataProvider>
-        </DaemonProvider>,
-      );
-    });
+    await act(async () =>
+      root!.render(
+        around(
+          <Probe
+            create={() => {
+              throw new Error('a kept terminal is reused, not made again');
+            }}
+          />,
+        ),
+      ),
+    );
     await until(() => box.querySelector('.xterm-host > div'), 'the terminal again');
     expect(m.made).toHaveLength(1); // the kept instance was reused
   });

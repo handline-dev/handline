@@ -3,7 +3,7 @@ import { DaemonClient, RpcError, webSocketTransport } from '@handline/client';
 import { AgentPage } from './agent-page.ts';
 import { h, keyed } from './dom.ts';
 import { ago, dotOf, railGroups, type GroupBy, type KV } from '@handline/app-core';
-import { Store } from '@handline/app-core';
+import { Store } from '../legacy/store.ts';
 
 const storage: KV | null = (() => {
   try {

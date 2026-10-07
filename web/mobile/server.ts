@@ -21,6 +21,7 @@ const TYPES: Record<string, string> = {
 // Only what the page imports: the app, the shared client (@handline/client, served from /packages/client/src, mapped in index.html), and the contract's generated types.
 const ALLOWED = [
   /^\/web\/mobile\/(?!\.+$)[\w.-]+$/,
+  /^\/web\/legacy\/store\.ts$/,
   /^\/packages\/(client|app-core|tokens)\/src\/[\w.-]+\.ts$/,
   /^\/contract\/protocol\.ts$/,
 ];

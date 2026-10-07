@@ -119,7 +119,7 @@ describe('the permission card', () => {
     await until(() => $('take'), 'Take control');
     await press($('take'));
     await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
-    await act(async () => void (await m.store.send(ARCH, 'push the branch')));
+    await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // the scripted turn: thinking, a line, then the prompt
     await until(() => $('permission-card'), 'the card');
     m.daemon.knobs.latency(400);
