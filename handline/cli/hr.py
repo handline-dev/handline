@@ -49,6 +49,17 @@ def _read_changes(path: str) -> tuple[list[dict], str]:
     return out, ""
 
 
+def propose_for_session(kind: str, name: str, sets: dict, why: str | None) -> int:
+    """What a founder's command does when an agent runs it: the change is raised as an HR proposal
+    of `kind` for the founder to approve, and nothing changes yet."""
+    if not (why or "").strip():
+        print(f"from an agent's session this asks the founder: say why with --why", file=sys.stderr)
+        return 1
+    ok, said = hr.propose(kind, name, requester=askmod.asking_agent(), why=why, sets=sets)
+    print(said)
+    return 0 if ok else 1
+
+
 def _approve_many(ids: list[str], yes: bool, me: str) -> int:
     """The founder approving several proposals at once: each is read as it stands now, shown, and
     confirmed once; they are applied one after another and each proposer gets one message."""
@@ -142,6 +153,21 @@ def cmd_hr(args) -> int:
             if len(ids) > 1 or args.all:
                 return _approve_many(ids, args.yes, me)
             args.id = ids[0]
+        elif args.all:
+            # A reject changes nothing, and its proposer may raise it again, so it is not asked twice.
+            if args.id:
+                print("name a proposal, or --all, not both", file=sys.stderr)
+                return 1
+            ids = [c["id"] for c in hr.pending()]
+            if not ids:
+                print("no proposals")
+                return 0
+            ok, lines = hr.decide_many([(pid, "") for pid in ids], "rejected", me, args.all_reason)
+            print("\n".join(lines))
+            return 0 if ok else 1
+        elif not args.id:
+            print("name the proposal to reject, or --all", file=sys.stderr)
+            return 1
         subject = getattr(args, "subject", "")
         if args.hr_cmd == "approve" and not subject:
             prop, err = hr._open(args.id)

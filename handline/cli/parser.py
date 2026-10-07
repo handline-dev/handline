@@ -117,6 +117,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="MCP servers for this agent alone, from a {\"mcpServers\": {...}} file (kept "
                    "in its agent.yaml and passed as --mcp-config, so no per-account approval of a "
                    "project .mcp.json); 'off' removes them; on re-registration, omit to keep them")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_agent_register)
 
     p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
@@ -258,9 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
-    q = hrsub.add_parser("reject", help="the founder rejects a proposal; the proposer is told")
-    q.add_argument("id")
+    q = hrsub.add_parser("reject", help="the founder rejects a proposal, or --all; each proposer is told once")
+    q.add_argument("id", nargs="?", default=None)
     q.add_argument("reason", nargs="?", default="", help="why, told to the proposer")
+    q.add_argument("--all", action="store_true", help="every proposal waiting on you (a reason goes with --reason)")
+    q.add_argument("--reason", dest="all_reason", default="", help="with --all: why, told to each proposer")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("withdraw", help="take back your own undecided proposal")
@@ -380,6 +384,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("dev-mode",
                        help="daemon restarts itself when its own code changes - off by default")
     p.add_argument("state", nargs="?", choices=["on", "off"], help="omit to print the current state")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_dev_mode)
 
     sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
@@ -413,6 +419,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_idle_timeout)
 
     p = sub.add_parser("idle-background", help="show or set when an idle agent still running background "
@@ -438,6 +446,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_notice_digest)
 
     p = sub.add_parser("ignore-cache-expiry", help="show or set whether a resume may reuse "
@@ -448,6 +458,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="set only this agent's own override, instead of the global default")
     p.add_argument("--clear", action="store_true",
                    help="with --agent, drop its override and follow the global setting again")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
 
     p = sub.add_parser("land", help="the merger tests a branch's merge in its own sandbox and records it "
@@ -471,12 +483,16 @@ def build_parser() -> argparse.ArgumentParser:
                    "local time - e.g. '*/30 * * * *'")
     p.add_argument("--message", default=None, help="add, edit: what is typed at the agent, one line")
     p.add_argument("--index", type=int, default=None, help="edit, remove: which one, as list numbers them")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_schedule)
 
     p = sub.add_parser("auto-accept", help="show or set whether ocp answers the dialogs a working "
                        "agent meets all day: a browser tool's prompt, a declared folder's trust screen (T64)")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None,
                    help="omit to show the current value")
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_auto_accept)
 
     p = sub.add_parser("unstall", help="clear STALLED (humans only)")
