@@ -17,7 +17,7 @@ from ..infra import timefmt
 from ..infra.yamlcompat import ConfigError
 
 from .routing import HUMAN, routing, supervisor_of
-from .task_timeout import task_timeout, timeout_lines
+from .task_timeout import task_timeout
 
 
 TASK_REF = re.compile(r"[Tt](\d+)")
@@ -1680,43 +1680,6 @@ def task_brief(con, tid: int) -> str | None:
     row = db.get_task(con, tid)
     first = _brief_of(con, row) if row is not None else None
     return (first["body"] or "") if first is not None else None
-
-
-def task_detail(con, tid: int) -> list[str] | None:
-    """One task as lines to read: where it stands, its brief, memos, what it waits on, its
-    children and its handoffs, each note whole. None when there is no such task. The brief lives in
-    the first request sent for the task, so without this it took a list, a lookup and a read."""
-    row = db.get_task(con, tid)
-    if row is None:
-        return None
-    state = task_state(con, row)
-    out = [f"T{tid}  {row['title']}",
-           f"state {state}   owner {row['owner']}   opened by {row['opened_by']}   P{row['priority']}"
-           + (f"   parent T{row['parent_task']}" if row["parent_task"] else "")
-           + f"   created {timefmt.stamp(row['created_at'])}"]
-    if state not in ("done", "discarded"):
-        out += timeout_lines(task_timeout(con, row, state))
-    if row["done_evidence"]:
-        out.append(f"done {timefmt.stamp(row['done_at'])}: {row['done_evidence']}")
-    if row["discarded_by"]:
-        out.append(f"discarded by {row['discarded_by']}: {row['discard_reason'] or 'no reason given'}")
-    first = db.first_linked_request(con, tid)
-    out += ["", "brief", (first["body"] if first is not None else "") or "(none)"]
-    memos = db.task_memos(con, tid)
-    if memos:
-        out += ["", "memos"]
-        out += [f"  memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}\n    {m['body']}" for m in memos]
-    blockers = db.task_blockers(con, tid)
-    if blockers:
-        out += ["", "waiting on"] + [f"  T{b['id']} ({b['owner']})  {b['title']}" for b in blockers]
-    kids = con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()
-    if kids:
-        out += ["", "child tasks"] + [f"  T{k['id']} ({k['owner']}, {task_state(con, k)})  {k['title']}" for k in kids]
-    hands = db.task_handoffs(con, tid)
-    if hands:
-        out += ["", "handoffs"]
-        out += [f"  {timefmt.stamp(h['ts'])}  {h['from']} -> {h['to']}\n    {h['note']}" for h in hands]
-    return out
 
 
 def tell_body_edited(con, tid: int, by: str) -> None:

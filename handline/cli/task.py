@@ -4,15 +4,15 @@ from __future__ import annotations
 import argparse
 import shlex
 import sys
+import time
 from pathlib import Path
 
 from .. import actions
 from ..infra import timefmt
 from ..team import ask as askmod
-from ..daemon import client as dmn_client, taskholds
+from ..daemon import client as dmn_client
 from .. import db
 from . import client
-from ..session import handoff as handoffmod
 from ..infra import gitrun, names, paths
 from ..infra import textsafe
 
@@ -26,19 +26,17 @@ def cmd_progress(args) -> int:
         print(_who_refusal("write") if names.getenv("OCP_AGENT") else "cannot tell who is writing: OCP_AGENT is unset",
               file=sys.stderr)
         return 1
-    con = db.connect()
-    try:
-        if args.note is None:
-            print(textsafe.text(handoffmod.get_progress(con, agent) or "no progress note"))
-            return 0
-        ok, said = handoffmod.set_progress(con, agent, args.note)
-        if ok:
-            print(f"progress on {said} kept; the handoff and the wake prompt carry it")
-        else:
-            print(said, file=sys.stderr)
-        return 0 if ok else 1
-    finally:
-        con.close()
+    if args.note is None:
+        try:
+            note = client.call("progress.get")["note"]
+        except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+            print(f"could not read the progress note: {e}", file=sys.stderr)
+            return 1
+        print(textsafe.text(note or "no progress note"))
+        return 0
+    ok, said = client.write("task.progress", {"note": args.note})
+    print(said, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def _task_arg(text: str) -> int:
@@ -214,9 +212,8 @@ def _new_cmd(args, title: str) -> str:
 
 
 def cmd_task_new(args) -> int:
-    """T292: open and deliver in one step (`actions.task_new`, C2 routing-
-    checked). --blocked-by runs after, on its own connection, so its
-    refusal leaves the task opened and delivered, not rolled back."""
+    """Open and deliver in one step, through `task.new`; --blocked-by is set in the same transaction,
+    so a bad blocker opens nothing."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("open a task"))
@@ -232,7 +229,6 @@ def cmd_task_new(args) -> int:
               f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}). Try:\n"
               f"  {_new_cmd(args, args.title)}")
         return 1
-    priority = args.priority if args.priority is not None else db.DEFAULT_PRIORITY
     title = textsafe.oneline(args.title).strip()
     if not title:
         print(f"a task needs a title. Try:\n  {_new_cmd(args, '<title>')}")
@@ -244,39 +240,19 @@ def cmd_task_new(args) -> int:
             print(err)
             return 1
     body = textsafe.text(inline).strip() if inline else None
-    if args.blocked_by is not None:
-        # Precheck (auditor's #2065 SHOULD-FIX C): a bad blocker must refuse
-        # before anything is opened, since there is no shared transaction to
-        # roll back afterward.
-        con = db.connect()
-        try:
-            why = actions._blocker_refusal(con, args.blocked_by)
-        finally:
-            con.close()
-        if why:
-            print(why)
-            return 1
-    ok, msg, tid = actions.task_new(me, args.owner, title, body, parent=args.parent,
-                                    expects=args.expects, priority=priority, timeout_s=args.timeout)
+    params = {"owner": args.owner, "title": title, "time_box": f"{args.timeout}s", "body": body or None,
+              "parent": args.parent, "blocked_by": args.blocked_by, "priority": args.priority,
+              "expects": args.expects}
+    ok, msg, got = client.written("task.new", {k: v for k, v in params.items() if v is not None})
+    print(msg)
     if not ok:
-        print(msg)
         return 1
-    out, rc = [msg], 0
-    if args.blocked_by is not None:
-        con = db.connect()
-        try:
-            bok, bmsg = actions.add_block(con, tid, args.blocked_by, me)
-        finally:
-            con.close()
-        out.append(bmsg)
-        rc = 0 if bok else 1
+    tid, rc = got["task"], 0
     if args.reply:
         from .ask import _send
         mid, text = args.reply
-        sent = _send("say", target=askmod.HUMAN, body=textsafe.text(text.replace("{task}", f"T{tid}")),
-                     parent=int(mid), task=tid, no_task=None)
-        rc = rc or sent
-    print("\n".join(out))
+        rc = _send("say", target=askmod.HUMAN, body=textsafe.text(text.replace("{task}", f"T{tid}")),
+                   parent=int(mid), task=tid, no_task=None)
     print(f"T{tid}")        # the number this opened, alone on the last line, for a script to read
     return rc
 
@@ -360,17 +336,17 @@ def cmd_task_memo(args) -> int:
                "delete": "delete takes the memo id"}[verb])
         return 1
     if verb == "list":
-        con = db.connect()
         try:
-            if db.get_task(con, args.task) is None:
-                print(f"no task T{args.task}")
-                return 1
-            memos = actions.memos_of(con, args.task)
-        finally:
-            con.close()
+            memos = client.call("task.get", {"task": args.task})["memos"]
+        except dmn_client.RpcError as e:
+            print(e)
+            return 1
+        except (dmn_client.DaemonDown, OSError) as e:
+            print(f"could not read T{args.task}: {e}")
+            return 1
         for m in memos:
-            edited = f", edited {timefmt.stamp(m['edited_at'])}" if m["edited_at"] else ""
-            print(f"memo {m['id']}  {m['author']}  {timefmt.stamp(m['created_at'])}{edited}\n  {m['body']}")
+            edited = f", edited {timefmt.stamp(client.epoch(m['edited_at']))}" if m["edited_at"] else ""
+            print(f"memo {m['id']}  {m['author']}  {timefmt.stamp(client.epoch(m['at']))}{edited}\n  {m['text']}")
         if not memos:
             print(f"T{args.task} has no memos")
         return 0
@@ -387,18 +363,10 @@ def cmd_task_memo(args) -> int:
 
 
 def cmd_task_edit(args) -> int:
-    """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`) is
-    one transaction, so a later part's refusal never leaves an earlier one
-    applied (auditor's #2042 SHOULD-FIX 5: `--owner X --blocked-by <cycle>`
-    used to rename the task and then refuse, exit 1 reading as nothing
-    happened). Stops at the first refusal rather than trying the rest.
-
-    Messages are held and printed only once COMMIT or ROLLBACK has actually
-    happened (auditor's #2065 SHOULD-FIX B) - printing a part's message as
-    soon as it runs said a change had taken before the transaction as a
-    whole was known to hold; a later refusal then rolled it back while the
-    line claiming it stayed on the screen.
-    """
+    """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`, ...) is one `task.edit`, one
+    transaction: a later part's refusal leaves nothing of the earlier ones applied, and only that refusal
+    is said. The new owner, the body's readers and an
+    unblocked owner are told by the daemon once it has committed."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("edit a task"))
@@ -409,69 +377,14 @@ def cmd_task_edit(args) -> int:
         if err:
             print(err)
             return 1
-    if (args.owner is None and args.title is None and args.priority is None and body is None
-            and args.blocked_by is None and args.unblock is None and args.timeout is None):
+    params = {"task": args.task, "owner": args.owner, "title": args.title, "priority": args.priority, "body": body,
+              "time_box": None if args.timeout is None else f"{args.timeout}s",
+              "blocked_by": args.blocked_by, "unblock": args.unblock}
+    if all(v is None for k, v in params.items() if k != "task"):
         print("edit needs a new owner, a new title, --body, --priority, --blocked-by, --unblock, "
               "or --timeout")
         return 1
-    con = db.connect()
-    try:
-        con.execute("BEGIN IMMEDIATE")
-        ok = True
-        msgs: list[str] = []
-        unblocked_owner = None
-        was_owner = (db.get_task(con, args.task) or {"owner": None})["owner"]
-        try:
-            if (args.owner is not None or args.title is not None or args.priority is not None
-                    or args.timeout is not None or body is not None):
-                ok, msg = actions.edit_task(con, args.task, me, owner=args.owner,
-                                            title=args.title, priority=args.priority,
-                                            timeout_s=args.timeout, body=body)
-                msgs.append(msg)
-            if ok and args.blocked_by is not None:
-                ok, msg = actions.add_block(con, args.task, args.blocked_by, me)
-                msgs.append(msg)
-            if ok and args.unblock is not None:
-                ok, msg = actions.unblock(con, args.task, args.unblock, me)
-                msgs.append(msg)
-                if ok and not db.task_blockers(con, args.task):
-                    unblocked_owner = db.get_task(con, args.task)["owner"]
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
-        con.execute("COMMIT" if ok else "ROLLBACK")
-    finally:
-        con.close()
-    # A refusal's own message is the last one appended (every part before it
-    # took, or there was only the one that failed) - the only one still true
-    # after a ROLLBACK, so only it is shown.
-    for msg in (msgs if ok else msgs[-1:]):
-        print(msg)
-    if ok and body is not None:
-        con = db.connect()
-        try:
-            actions.tell_body_edited(con, args.task, me)
-        finally:
-            con.close()
-    if ok and args.owner is not None:
-        # T545: the task goes to its new owner now, not at some later tick - and not inside the transaction.
-        con = db.connect()
-        try:
-            actions.send_moved_task(con, args.task, was_owner, me)
-        finally:
-            con.close()
-    if unblocked_owner is not None:
-        # T325: clearing the last blocker is the task's turn to be
-        # reconsidered, same as a blocker closing - once this transaction has
-        # committed, never inside it (`advance_current_task` writes through
-        # its own connection).
-        con = db.connect()
-        try:
-            if actions.advance_current_task(con, unblocked_owner):
-                askmod.push(con, unblocked_owner)
-        finally:
-            con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("task.edit", {k: v for k, v in params.items() if v is not None}))
 
 
 def cmd_task_merge(args) -> int:
@@ -483,76 +396,110 @@ def cmd_task_merge(args) -> int:
     return client.said(*client.write("task.merge", {"into": args.keep, "tasks": args.tasks}))
 
 
-def _print_board(con, tasks: list) -> None:
-    """Each task, then the requests linked to it as they stand now: state and
-    date are read from the request, never held on the task. `state` (#71) is
-    one of draft, queued, doing, done, discarded - doing reads live
-    off those same requests, the rest off the task's own record."""
+def _print_board(tasks: list[dict]) -> None:
+    """Each task (the wire's `Task`), then the requests linked to it as they stand now: state and date are
+    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, done, discarded."""
     if not tasks:
         print("no open tasks.")
         return
     for t in tasks:
-        parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
+        parent = f" (under T{t['parent']})" if t["parent"] else ""
         edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
-        state = actions.task_state(con, t)
-        done = f"  DONE: {textsafe.oneline(t['done_evidence'])}" if t["done_evidence"] else ""
-        closed = (f"  DISCARDED by {textsafe.oneline(t['discarded_by'])}: "
-                  f"{textsafe.oneline(t['discard_reason'])}" if t["discarded_by"]
-                  else "")
-        blockers = [b["id"] for b in db.task_blockers(con, t["id"])]
-        waits = f"  blocked by {', '.join(f'T{b}' for b in blockers)}" if blockers else ""
-        active = timefmt.stamp(db.task_last_activity(con, t["id"]), timefmt.DATE_TIME)
-        print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['owner']}] {state}"
+        done = f"  DONE: {textsafe.oneline(t['evidence'])}" if t["evidence"] else ""
+        gone = t["discarded"]
+        closed = f"  DISCARDED by {textsafe.oneline(gone['by'])}: {textsafe.oneline(gone['reason'])}" if gone else ""
+        waits = f"  {t['block_reason']}" if t["block_reason"] else ""
+        active = timefmt.stamp(client.epoch(t.get("last_activity")), timefmt.DATE_TIME)
+        print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['to']}] {t['state']}"
               f"{parent}{edited}{done}{closed}  "
-              f"{actions.priority_ref(t['priority'])}  may reopen: {actions.task_asker(con, t)}"
+              f"{actions.priority_ref(t['priority'])}  may reopen: {t['asker']}"
               f"{waits}  active {active}")
-        odd = actions.task_mismatch(con, t, state)
-        if odd:
-            print(f"        ! {odd}")
-        wait = taskholds.wait_line(con, t, state)
-        if wait:
-            print(f"        {wait}")
-        for r in db.task_requests(con, t["id"]):
-            when = timefmt.stamp(r["ts"], timefmt.DATE_TIME)
-            print(f"        request #{r['id']} {r['requester']} → {r['target']} "
-                  f"{r['state']} {when}")
+        if t["mismatch"]:
+            print(f"        ! {t['mismatch']}")
+        if t["hold_reason"]:
+            print(f"        {t['hold_reason']}")
+        for r in t["requests"]:
+            print(f"        request #{r['id']} {r['from']} → {r['to']} "
+                  f"{r['state']} {timefmt.stamp(client.epoch(r['at']), timefmt.DATE_TIME)}")
 
 
-def _visible_owners(args) -> set[str] | None:
-    """Whose tasks this call shows: the caller and its reports, or everyone for
-    the founder and for `--everyone` (T256)."""
-    return None if args.everyone else actions.reach(askmod.asking_agent())
+def _clock(time_box: dict, now: float) -> dict:
+    """The wire's `time` as the dict actions.timeout_lines reads."""
+    start, end, over = (client.epoch(time_box[k]) for k in ("start", "end", "overdue_since"))
+    t = {"length": time_box["length_s"], "default": time_box["default"], "start": start, "end": end,
+         "told": time_box["told"], "state": "length", "left": None, "over": None}
+    if over is not None:
+        t.update(state="over", over=int(now - over))
+    elif end is not None:
+        t.update(state="left", left=int(end - now))
+    return t
+
+
+def _detail_lines(t: dict, now: float) -> list[str]:
+    """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
+    children and its handoffs, each note whole."""
+    out = [f"T{t['id']}  {t['title']}",
+           f"state {t['state']}   owner {t['to']}   opened by {t['from']}   P{t['priority']}"
+           + (f"   parent T{t['parent']}" if t["parent"] else "")
+           + f"   created {timefmt.stamp(client.epoch(t['created']))}"]
+    if t["time"] is not None:
+        out += actions.timeout_lines(_clock(t["time"], now))
+    if t["evidence"]:
+        out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
+    if t["discarded"]:
+        out.append(f"discarded by {t['discarded']['by']}: {t['discarded']['reason'] or 'no reason given'}")
+    out += ["", "brief", t["body"] or "(none)"]
+    if t["memos"]:
+        out += ["", "memos"]
+        out += [f"  memo {m['id']}  {m['author']}  {timefmt.stamp(client.epoch(m['at']))}\n    {m['text']}" for m in t["memos"]]
+    if t["blockers"]:
+        out += ["", "waiting on"] + [f"  T{b['task']} ({b['owner']})  {b['title']}" for b in t["blockers"]]
+    if t["subtasks"]:
+        out += ["", "child tasks"] + [f"  T{k['id']} ({k['owner']}, {k['state']})  {k['title']}" for k in t["subtasks"]]
+    if t["handoffs"]:
+        out += ["", "handoffs"]
+        out += [f"  {timefmt.stamp(client.epoch(h['at']))}  {h['from']} -> {h['to']}\n    {h['note']}" for h in t["handoffs"]]
+    return out
 
 
 def cmd_task_show(args) -> int:
-    con = db.connect()
     try:
-        lines = actions.task_detail(con, args.task)
-    finally:
-        con.close()
-    if lines is None:
-        print(f"no task T{args.task}")
+        t = client.call("task.get", {"task": args.task})
+    except dmn_client.RpcError as e:
+        print(e)
         return 1
-    print(textsafe.text("\n".join(lines)))     # titles, briefs and notes are other agents' text
+    except (dmn_client.DaemonDown, OSError) as e:
+        print(f"could not read T{args.task}: {e}")
+        return 1
+    print(textsafe.text("\n".join(_detail_lines(t, time.time()))))     # titles, briefs and notes are other agents' text
     return 0
 
 
 def cmd_task_list(args) -> int:
-    owners = _visible_owners(args)
-    if args.owner is not None and owners is not None and args.owner not in owners:
-        print(f"{args.owner} is not you or one of your reports: --everyone shows every team's tasks")
-        return 1
-    con = db.connect()
+    """The caller's tasks and its reports', or every team's with --everyone, by priority then number."""
+    params = {k: v for k, v in (("owner", args.owner), ("state", args.state)) if v is not None}
+    params.update(all=bool(args.all), everyone=bool(args.everyone), limit=200)
+    rows, gaps = [], None
     try:
-        rows = actions.task_rows(con, owner=args.owner, state=args.state,
-                                 include_ended=args.all, owners=owners)
-        _print_board(con, [r["row"] for r in rows])
-        gaps = actions.reason_gaps(con)
-        print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
-              f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
-              f"{gaps['closures_request']} by request, {gaps['closures_reason']} by reason")
-    finally:
-        con.close()
+        while True:
+            page = client.call("tasks.list", {**params, "reason_gaps": gaps is None})
+            rows += page["items"]
+            gaps = gaps or page.get("reason_gaps")
+            if not page["more"]:
+                break
+            params["before"] = page["items"][-1]["id"]
+    except dmn_client.RpcError as e:
+        print(e)
+        if args.owner is not None and not args.everyone:
+            print("`hl task list --everyone` shows every team's tasks")
+        return 1
+    except (dmn_client.DaemonDown, OSError) as e:
+        print(f"could not read the tasks: {e}")
+        return 1
+    _print_board(sorted(rows, key=lambda t: (t["priority"], t["id"])))
+    print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
+          f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
+          f"{gaps['closures_request']} by request, {gaps['closures_reason']} by reason")
     return 0
 
 
@@ -587,42 +534,27 @@ def cmd_task_board(args) -> int:
     if me is None:
         print(_who_refusal("board"))
         return 1
-    con = db.connect()
     try:
-        # The founder's board is the tasks it asked for, as before; the full view is `list`.
-        owners = {me} if me == askmod.HUMAN and not args.everyone else _visible_owners(args)
-        tasks = [t for t in db.open_tasks(con) if owners is None or t["owner"] in owners]
-        if not tasks:
-            print("no open tasks.")
-            return 0
-        for t in tasks:
-            reqs = db.task_requests(con, t["id"])
-            held = sorted({r["target"] for r in reqs if actions._asks(r)})
-            kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"])
-                          for r in db.task_requests(con, c["id"]) if actions._asks(r)})
-            last = reqs[-1] if reqs else None
-            back = (last is not None and last["state"] == "landed"
-                    and last["target"] not in (me, askmod.HUMAN))
-            blockers = db.task_blockers(con, t["id"])
-            linked_rids = {r["id"] for r in reqs}
-            holds = [c for c in db.open_child_tasks(con, t["id"])
-                     if linked_rids & {r["id"] for r in db.task_requests(con, c["id"])}]
-            now = ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers) if blockers
-                  else ", ".join(held) if held
-                  else "sub-task: " + ", ".join(kids) if kids
-                  else "held as sub-task " + ", ".join(
-                      f"T{c['id']} ({c['owner']})" for c in holds) if holds
-                  else "you - a result is in" if back
-                  else "nobody holds it")
-            parent = f" (under T{t['parent_task']})" if t["parent_task"] else ""
-            print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
-            print(_fit100(f"      now: {now}"))
-            wait = taskholds.wait_line(con, t, actions.task_state(con, t))
-            if wait:
-                print(_fit100(f"      {wait}"))
-            odd = actions.task_mismatch(con, t, actions.task_state(con, t))
-            if odd:
-                print(_fit100(f"      ! {odd}"))
-    finally:
-        con.close()
+        board = client.call("task.board", {"everyone": bool(args.everyone)})
+    except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+        print(f"could not read the board: {e}")
+        return 1
+    rows = sorted(board["mine"] + board["reports"], key=lambda r: (r["task"]["priority"], r["task"]["id"]))
+    if not rows:
+        print("no open tasks.")
+        return 0
+    for r in rows:
+        t, now = r["task"], r["now"]
+        said = {"waiting": "waiting on " + ", ".join(f"T{n}" for n in now["tasks"]),
+                "held": ", ".join(now["agents"]),
+                "sub_task": "sub-task: " + ", ".join(now["agents"]),
+                "held_as_sub_task": "held as sub-task " + ", ".join(f"T{n} ({a})" for n, a in zip(now["tasks"], now["agents"])),
+                "result_in": "you - a result is in"}.get(now["kind"], "nobody holds it")
+        parent = f" (under T{t['parent']})" if t["parent"] else ""
+        print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
+        print(_fit100(f"      now: {said}"))
+        if t["hold_reason"]:
+            print(_fit100(f"      {t['hold_reason']}"))
+        if t["mismatch"]:
+            print(_fit100(f"      ! {t['mismatch']}"))
     return 0
