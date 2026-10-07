@@ -310,7 +310,7 @@ func flow(t string, line int) (any, error) {
 		}
 		return out, nil
 	}
-	out := map[string]any{}
+	out := newOMap()
 	for _, item := range items {
 		if item == "" {
 			continue
@@ -323,9 +323,11 @@ func flow(t string, line int) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if out[kk], err = scalar(strip(v), line); err != nil {
+		val, err := scalar(strip(v), line)
+		if err != nil {
 			return nil, err
 		}
+		out.Set(kk, val)
 	}
 	return out, nil
 }
@@ -457,14 +459,39 @@ func check(n int, body string) error {
 	return nil
 }
 
-// Parse reads one YAML document; an empty one is an empty map.
+// OMap is a parsed map with its keys in the order the file has them.
+type OMap struct {
+	Keys []string
+	M    map[string]any
+}
+
+func newOMap() *OMap { return &OMap{M: map[string]any{}} }
+
+// Set assigns a key; one already there keeps its place, as a Python dict does.
+func (o *OMap) Set(k string, v any) {
+	if _, has := o.M[k]; !has {
+		o.Keys = append(o.Keys, k)
+	}
+	o.M[k] = v
+}
+
+// Parse reads one YAML document into plain values; an empty one is an empty map.
 func Parse(text string) (any, error) {
+	v, err := ParseOrdered(text)
+	if err != nil {
+		return nil, err
+	}
+	return plain(v), nil
+}
+
+// ParseOrdered is Parse with every map an *OMap, keys in file order.
+func ParseOrdered(text string) (any, error) {
 	rows, err := rowsOf(text)
 	if err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
-		return map[string]any{}, nil
+		return newOMap(), nil
 	}
 	v, idx, err := block(rows, 0, rows[0].indent)
 	if err != nil {
@@ -474,9 +501,27 @@ func Parse(text string) (any, error) {
 		return nil, fail("line %d: inconsistent indentation", rows[idx].n)
 	}
 	if v == nil {
-		return map[string]any{}, nil
+		return newOMap(), nil
 	}
 	return v, nil
+}
+
+func plain(v any) any {
+	switch x := v.(type) {
+	case *OMap:
+		m := make(map[string]any, len(x.M))
+		for k, val := range x.M {
+			m[k] = plain(val)
+		}
+		return m
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = plain(e)
+		}
+		return out
+	}
+	return v
 }
 
 func isItem(body string) bool { return strings.HasPrefix(body, "- ") || body == "-" }
@@ -563,7 +608,7 @@ func seq(rows []rowT, i, indent int) (any, int, error) {
 }
 
 func mapOf(rows []rowT, i, indent int) (any, int, error) {
-	out := map[string]any{}
+	out := newOMap()
 	for i < len(rows) {
 		n, ind, body := rows[i].n, rows[i].indent, rows[i].body
 		if ind < indent || isItem(body) {
@@ -581,27 +626,28 @@ func mapOf(rows []rowT, i, indent int) (any, int, error) {
 			return nil, i, err
 		}
 		rest = strip(rest)
+		var val any
 		switch {
 		case rest != "":
 			if err := check(n, rest); err != nil {
 				return nil, i, err
 			}
-			if out[kk], err = scalar(rest, n); err != nil {
+			if val, err = scalar(rest, n); err != nil {
 				return nil, i, err
 			}
 			i++
 		case i+1 < len(rows) && rows[i+1].indent > indent:
-			if out[kk], i, err = block(rows, i+1, rows[i+1].indent); err != nil {
+			if val, i, err = block(rows, i+1, rows[i+1].indent); err != nil {
 				return nil, i, err
 			}
 		case i+1 < len(rows) && rows[i+1].indent == indent && isItem(rows[i+1].body):
-			if out[kk], i, err = seq(rows, i+1, indent); err != nil {
+			if val, i, err = seq(rows, i+1, indent); err != nil {
 				return nil, i, err
 			}
 		default:
-			out[kk] = nil
 			i++
 		}
+		out.Set(kk, val)
 	}
 	return out, i, nil
 }
@@ -779,4 +825,24 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+// FloatRepr is a float as Python's repr writes it.
+func FloatRepr(f float64) string { return floatRepr(f) }
+
+// ParsePairs reads a document whose top level is a map and gives its keys in the order the file has them, so a rewrite keeps
+// that order. ok is false when the top level is not a map.
+func ParsePairs(text string) (pairs []Pair, ok bool, err error) {
+	v, err := ParseOrdered(text)
+	if err != nil {
+		return nil, false, err
+	}
+	o, isMap := v.(*OMap)
+	if !isMap {
+		return nil, false, nil
+	}
+	for _, k := range o.Keys {
+		pairs = append(pairs, Pair{k, plain(o.M[k])})
+	}
+	return pairs, true, nil
 }
