@@ -33,7 +33,7 @@ def _run(script: str, home: Path, *args: str, venv: bool = True, rc: int = 0) ->
         py.write_text(STUB)
         py.chmod(0o755)
     env = dict(os.environ, OCP_HOME=str(fake), OCP_AGENT="orcapipe.daemon", OCP_ACCOUNT="theta",
-               STUB_RC=str(rc), PATH=str(home / "bin") + os.pathsep + os.environ["PATH"])
+               STUB_RC=str(rc), OCP_TEST_GO="true", PATH=str(home / "bin") + os.pathsep + os.environ["PATH"])
     return subprocess.run([str(ROOT / "tools" / script), *args], capture_output=True, text=True, env=env, timeout=60)
 
 

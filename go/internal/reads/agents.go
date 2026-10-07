@@ -201,6 +201,26 @@ func optionsOf(kind string, answerable bool, detail map[string]any) []any {
 	return append(out, cancelOption())
 }
 
+// truthy is Python's bool() of a decoded JSON value.
+func truthy(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case string:
+		return x != ""
+	case []any:
+		return len(x) > 0
+	case map[string]any:
+		return len(x) > 0
+	}
+	if n, ok := rpc.AsInt(v); ok {
+		return n != 0
+	}
+	return true
+}
+
 func orNil(m map[string]any, k string) any {
 	if s, ok := m[k].(string); ok && s != "" {
 		return s
@@ -228,6 +248,7 @@ func (e *Env) openPrompt(name string) (any, error) {
 		"id": r.str("fingerprint"), "agent": name, "kind": r.str("kind"), "tool": orNil(detail, "tool"),
 		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
 		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
+		"multi": truthy(detail["multi_select"]),
 	}, nil
 }
 

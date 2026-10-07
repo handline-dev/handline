@@ -39,14 +39,16 @@
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
-  "unsupported": "Reserved and not implemented.",
+  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented.",
   "not_self": "The agent named is not the caller's own session.",
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
-  "session_token": "Session token and peer-pid check, unchanged."
+  "session_token": "Session token and peer-pid check, unchanged.",
+  "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
+  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now."
  },
- "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`.",
+ "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
   "land": "land",
   "land_pass": "land.pass",
@@ -223,6 +225,13 @@
     "device.paired": "Device",
     "device.revoked": "{device}"
    }
+  },
+  "hr": {
+   "snapshot": "hr.list",
+   "data": {
+    "hr.raised": "Proposal",
+    "hr.settled": "Proposal"
+   }
   }
  },
  "x-state-words": {
@@ -326,7 +335,7 @@
      "cursor"
     ]
    },
-   "note": "full:true carries every line and is what a slow client gets instead of a backlog."
+   "note": "Text attaches only. full:true carries every line and is what a slow client gets instead of a backlog."
   },
   "resize": {
    "params": {
@@ -351,7 +360,8 @@
      "cols",
      "rows"
     ]
-   }
+   },
+   "note": "Text attaches only; a bytes attach gets a snapshot notice instead."
   },
   "marker": {
    "params": {
@@ -385,6 +395,14 @@
      },
      "text": {
       "type": "string"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
     },
     "required": [
@@ -392,7 +410,8 @@
      "seq",
      "at",
      "kind",
-     "actor"
+     "actor",
+     "format"
     ]
    },
    "note": "The daemon typed, or a control call happened, at this point in the stream."
@@ -412,18 +431,124 @@
       "items": {
        "$ref": "#/components/schemas/InputHolder"
       }
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
      }
     },
     "required": [
      "terminal",
      "seq",
-     "holders"
+     "holders",
+     "format"
     ]
    },
    "note": "Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders."
+  },
+  "output": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "string",
+      "description": "Base64 of what the program wrote."
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "data"
+    ]
+   },
+   "note": "Bytes attaches only: the pane's output in order, at most one notice per 50 ms and 64 KiB decoded each. A notice may end inside a multi-byte character or an escape sequence."
+  },
+  "snapshot": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "reason": {
+      "type": "string",
+      "enum": [
+       "resize",
+       "slow_client"
+      ]
+     },
+     "cols": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "string",
+      "description": "Base64, as in the attach snapshot."
+     },
+     "alt_screen": {
+      "type": "boolean"
+     },
+     "cursor": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "integer"
+       },
+       "y": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "x",
+       "y"
+      ]
+     },
+     "cursor_visible": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "reason",
+     "cols",
+     "rows",
+     "data",
+     "alt_screen",
+     "cursor",
+     "cursor_visible"
+    ]
+   },
+   "note": "Bytes attaches only: the screen again, to be repainted as after an attach (reset, resize to cols by rows, write data), because the terminal changed size or the client fell behind. Everything the stream would have said before it is dropped; output follows with the next seq."
   }
  },
- "x-terminal": "Frames are text rows only (format `text`); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
+ "x-terminal": "Format `text` sends text rows (frame notices); Row.spans is the reserved place for styled rows and the colour decision is the founder's, pending. Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
+ "x-terminal-bytes": {
+  "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes], orca: [text]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`. A connection has at most one attach per terminal and format (see terminal.attach); detach takes an optional `format`.",
+  "encoding": "Bytes travel as base64 (standard alphabet, padded) in JSON strings on the same transport as every other message: no binary frames. They need not be valid UTF-8, and a notice may end inside a character or an escape sequence, so a client writes each as bytes to a terminal that keeps its own parser state.",
+  "snapshot": "`data` is written unchanged to a freshly reset terminal of `cols` by `rows` (the client resizes, resets, writes, in one step). It begins with `ESC [ ? 1049 h` when `alt_screen` is true, then paints the visible rows with their SGR codes, each row ending in a reset and rows separated by CR LF, never a bare LF; then sets the modes the pane has on that change what a client sends (application cursor keys, bracketed paste, mouse reporting and its SGR encoding) as far as the host reports them; it ends by placing the cursor at `cursor` and showing or hiding it as `cursor_visible` says. It is at most 1 MiB decoded: a screen whose coded form is larger is sent with its styling left out, never refused. Later transitions of the alternate screen are in the stream; the flag is for the snapshot alone.",
+  "sequence": "One counter per attach, shared by all its notices (`output`, `snapshot`, `marker`, `holder`), and it goes up by exactly 1 with each. The snapshot's `seq` is the last notice its screen includes: the daemon takes the screen and starts the stream together, so the first notice after the reply has `seq` + 1 and no byte is lost or repeated between them. A client ignores a notice whose seq is not above the last it applied and re-attaches on a hole. The counters of different attaches, text ones included, are unrelated: a connection that watches one terminal in both formats has two counters, and attaching the same terminal and format again replaces that attach and starts a new one at its snapshot's seq. There is no resume: after a reconnect the client attaches again and repaints from the new snapshot, and what it missed is not replayed.",
+  "slow_client": "Output is never dropped from the middle. When one attach's unsent output reaches 1 MiB decoded, the daemon discards all of it and sends one `snapshot` notice, reason `slow_client`, with a seq above everything discarded; output follows it. Counting bytes, not seconds, is the whole rule. A connection that falls behind on events past the gap rule is closed with gap `slow_client` as before and attaches again.",
+  "history": "Lines come as strings with their SGR codes, as the host keeps them: one physical row each (the row as the pane wrapped it, never joined), starting at default attributes and ending in a reset, with no line break inside. `history` on attach and `limit` on `terminal.history` count lines as in text (default 100, at most 2000); a page is trimmed to 1 MiB and says `more`. Only the normal screen has scrollback: while `alt_screen` is true the snapshot's history is empty.",
+  "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
+  "resize": "`terminal.resize` is unchanged: the input holder alone, restored when they leave. A bytes attach is told of any size change, the holder's or the restore, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
+  "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it. Each carries `format`, the attach it was sent to, since a terminal watched in both formats gets each notice once per attach with that attach's counter."
+ },
  "methods": [
   {
    "name": "hello",
@@ -623,7 +748,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent."
+   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again."
   },
   {
    "name": "unsubscribe",
@@ -655,7 +780,8 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Naming devices follows the same rule as subscribe: on its own."
   },
   {
    "name": "daemon.status",
@@ -1697,6 +1823,13 @@
         "type": "string"
        },
        {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "description": "Keys of the picked options, for a prompt with `multi`; may be empty."
+       },
+       {
         "type": "object",
         "properties": {
          "text": {
@@ -1708,7 +1841,7 @@
         ]
        }
       ],
-      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check."
+      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. An array only answers a `multi` prompt."
      }
     },
     {
@@ -1954,8 +2087,107 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "chat.requests",
+   "summary": "A chat's threads for the screen that draws them: the requests of an agent's chat oldest first, with the task changes and the session starts among them, and one version that changes when anything in the chat does.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "scope",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "mine: person and this agent; all: everything it sent or received."
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Request id: read the page just older than it."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Request id: read every request from it on (no `more`); how a window already drawn is brought up to date. Not with `before`."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "description": "Requests in a page; default 10."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ChatRequestItem"
+       }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "Older requests remain (never true with `since`)."
+      },
+      "version": {
+       "type": "string",
+       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
+      },
+      "cursor": {
+       "type": "integer",
+       "description": "The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it."
+      }
+     },
+     "required": [
+      "items",
+      "more",
+      "version",
+      "cursor"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `dismissal` and `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
   },
   {
    "name": "chat.transcript",
@@ -2022,8 +2254,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet."
   },
   {
    "name": "chat.locate",
@@ -2104,8 +2340,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for."
   },
   {
    "name": "chat.search",
@@ -2165,7 +2405,15 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
   },
   {
    "name": "chat.send",
@@ -2242,6 +2490,51 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now",
+   "summary": "Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "A ChatMessage.id still in state queued."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2287,6 +2580,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2325,6 +2621,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2379,7 +2678,7 @@
   },
   {
    "name": "terminal.attach",
-   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes frame, resize and marker notices.",
+   "summary": "Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices) or bytes (output notices).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2404,12 +2703,31 @@
       "type": "integer",
       "description": "History lines to include; default 100."
      }
+    },
+    {
+     "name": "format",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "Default text. bytes is served on tmux-hosted terminals; see x-terminal-bytes."
+     }
     }
    ],
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/TerminalSnapshot"
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/TerminalSnapshot"
+      },
+      {
+       "$ref": "#/components/schemas/TerminalBytesSnapshot"
+      }
+     ]
     }
    },
    "x-role": "member",
@@ -2421,8 +2739,15 @@
     },
     {
      "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
-   ]
+   ],
+   "x-gates": [
+    "unsupported"
+   ],
+   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach."
   },
   {
    "name": "terminal.history",
@@ -2449,12 +2774,31 @@
      "schema": {
       "type": "integer"
      }
+    },
+    {
+     "name": "format",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "Default text."
+     }
     }
    ],
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/HistoryPage"
+     "oneOf": [
+      {
+       "$ref": "#/components/schemas/HistoryPage"
+      },
+      {
+       "$ref": "#/components/schemas/HistoryBytesPage"
+      }
+     ]
     }
    },
    "x-role": "member",
@@ -2463,7 +2807,16 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
+   ],
+   "x-gates": [
+    "unsupported"
    ]
   },
   {
@@ -2523,6 +2876,62 @@
    ]
   },
   {
+   "name": "terminal.input",
+   "summary": "Raw keystrokes or pasted bytes into the terminal, from the input holder only.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "terminal",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "data",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Base64 of the bytes a terminal sends for the keys (xterm's own: ESC [ A for up, 0x03 for ctrl-c, a bracketed paste with its markers); 1 to 16384 bytes decoded, else bad_request."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder",
+    "unsupported"
+   ],
+   "description": "For a client that is a terminal (xterm.js), as session.type is for a person typing: the same gates, and it passes the wall and an open dialog as session.type and session.keys do (the person sees the screen; session.input keeps both gates). Unlike them it is refused while the daemon holds the input, since a stream of keystrokes beside the daemon's own typing would corrupt both: take the input first. A terminal with no holder, a login terminal, refuses it too. A pane showing a shell prompt takes it, as with session.type. Calls on one connection are applied in the order they were read, however many are waiting. It is recorded as an event of the agent (kind type) whose actor is the caller, a paired device by its id, with the byte count and never the bytes. Terminal hosts that cannot send keys refuse with gate unsupported."
+  },
+  {
    "name": "terminal.close",
    "summary": "Close the host's terminal to free it (the web UI's Close terminal). Different from session.stop close, which ends the session and keeps the terminal: refused while a session runs.",
    "paramStructure": "by-name",
@@ -2568,7 +2977,7 @@
   },
   {
    "name": "terminal.detach",
-   "summary": "Stop receiving this terminal. Never stops the agent.",
+   "summary": "Stop receiving this terminal, in one format or in all. Never stops the agent.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2576,6 +2985,18 @@
      "required": true,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "format",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes"
+      ],
+      "description": "With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`."
      }
     }
    ],
@@ -2592,8 +3013,12 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "not_found is for a terminal handle that does not exist. Closing the connection ends every attach."
   },
   {
    "name": "inbox.list",
@@ -2709,6 +3134,9 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2747,8 +3175,15 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state."
   },
   {
    "name": "inbox.answer",
@@ -2799,8 +3234,12 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role."
   },
   {
    "name": "inbox.reply",
@@ -2844,8 +3283,12 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state)."
   },
   {
    "name": "tasks.list",
@@ -3038,7 +3481,7 @@
        2,
        3
       ],
-      "description": "1 high, 2 default, 3 low (written P1-P3)."
+      "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
      }
     },
     {
@@ -3275,6 +3718,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3555,6 +4001,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3607,6 +4056,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3652,6 +4104,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3693,6 +4148,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3734,6 +4192,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3782,6 +4243,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3838,6 +4302,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -3883,6 +4350,9 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -4004,7 +4474,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
+   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4048,6 +4518,19 @@
      "schema": {
       "type": "string",
       "description": "Owner only: what the task waits on."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
      }
     },
     {
@@ -4637,7 +5120,7 @@
   },
   {
    "name": "hr.withdraw",
-   "summary": "Take back the caller's own undecided proposal.",
+   "summary": "Take back an undecided proposal: its author's own, or any for the founder; another agent is refused (gate role).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4671,6 +5154,9 @@
     {
      "$ref": "#/components/errors/not_found"
     }
+   ],
+   "x-gates": [
+    "proposal_settled"
    ]
   },
   {
@@ -4980,14 +5466,15 @@
   },
   {
    "name": "hr.list",
-   "summary": "HR proposals with their diff.",
+   "summary": "HR proposals with their diff: what waits for the founder, and what settled recently.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "state",
      "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Only the proposals in that state; without it, the list below."
      }
     }
    ],
@@ -5010,11 +5497,12 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human is never listed: the founder made that change directly and was not asked (the bridge leaves it out of its cards too). The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed exist only for a human's own change and are never listed."
   },
   {
    "name": "hr.decide",
-   "summary": "Approve or reject a proposal.",
+   "summary": "Approve or reject a proposal; approving an apply_failed one applies it again. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5077,6 +5565,10 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
+   ],
+   "x-gates": [
+    "proposal_changed",
+    "proposal_settled"
    ]
   },
   {
@@ -5697,6 +6189,43 @@
    "x-since": 1
   },
   {
+   "name": "stats.outlook",
+   "summary": "The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "range",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "12h",
+       "24h",
+       "3d",
+       "7d",
+       "14d",
+       "30d"
+      ],
+      "description": "Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1)."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Outlook"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "settings.get",
    "summary": "Timings, terminal host, trust folders, hooks installed.",
    "paramStructure": "by-name",
@@ -6213,9 +6742,10 @@
      "notifications",
      "operations",
      "chat",
-     "devices"
+     "devices",
+     "hr"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only): pairing and revocation of devices."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
    },
    "Caller": {
     "type": "object",
@@ -6307,6 +6837,10 @@
      "hint": {
       "type": "string",
       "description": "The command or step that fixes it, when there is one."
+     },
+     "proposal": {
+      "$ref": "#/components/schemas/Proposal",
+      "description": "With gates proposal_changed and proposal_settled: the proposal as it is now."
      }
     },
     "required": [
@@ -6441,6 +6975,10 @@
      "since": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "When the daemon first saw this prompt open."
+     },
+     "multi": {
+      "type": "boolean",
+      "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request."
      }
     },
     "required": [
@@ -6874,6 +7412,15 @@
         "type": "null"
        }
       ]
+     },
+     "priority": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
      }
     },
     "required": [
@@ -7611,22 +8158,20 @@
       "type": "integer"
      },
      "agent": {
-      "$ref": "#/components/schemas/AgentName"
+      "type": "string",
+      "description": "The agent the proposal is about, as the card heads it `<kind> <agent>`. For a bundle: `<N> changes`, not an agent's name."
      },
      "title": {
-      "type": "string"
+      "type": "string",
+      "description": "One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text."
      },
      "diff": {
       "type": "string",
-      "description": "Unified diff."
+      "description": "What approving does, in words, one change per line. Not a unified diff."
      },
      "state": {
       "type": "string",
-      "enum": [
-       "open",
-       "approved",
-       "rejected"
-      ]
+      "description": "open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
@@ -7634,6 +8179,72 @@
      "subject": {
       "type": "string",
       "description": "Digest of what the proposal changes as drawn; hr.decide's approve hands it back."
+     },
+     "requested_by": {
+      "type": "string",
+      "description": "Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional."
+     },
+     "reason": {
+      "type": "string",
+      "description": "Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional."
+     },
+     "asked": {
+      "type": "object",
+      "description": "The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only.",
+      "properties": {
+       "vendor": {
+        "type": "string"
+       },
+       "model": {
+        "type": "string"
+       },
+       "team": {
+        "type": "string"
+       },
+       "repo": {
+        "type": "string"
+       },
+       "to": {
+        "type": "string",
+        "description": "rename: the new name; link, unlink: the other end."
+       },
+       "sets": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "string"
+        },
+        "description": "`set <key>`: each agent setting asked for, key to value."
+       },
+       "effort": {
+        "type": "string"
+       }
+      }
+     },
+     "error": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Why the change did not go through; set when state is apply_failed and an apply ran and failed, else null. Text only; the daemon cuts it at 400 characters. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "settled": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "When it was decided, withdrawn or its apply failed; null while open. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "kind": {
+      "type": "string",
+      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`."
      }
     },
     "required": [
@@ -8525,6 +9136,18 @@
      },
      "is_task_question": {
       "type": "boolean"
+     },
+     "agent": {
+      "type": "string",
+      "description": "Only in chat.search hits: the agent whose chat shows the message."
+     },
+     "scope": {
+      "type": "string",
+      "enum": [
+       "mine",
+       "all"
+      ],
+      "description": "Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate)."
      }
     },
     "required": [
@@ -8554,7 +9177,7 @@
     "properties": {
      "id": {
       "type": "integer",
-      "description": "Ordered and stable, so a client appends and never redraws."
+      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds."
      },
      "at": {
       "$ref": "#/components/schemas/Timestamp"
@@ -8565,7 +9188,8 @@
        "reply",
        "tool",
        "prompt",
-       "task_event"
+       "task_event",
+       "session"
       ]
      },
      "text": {
@@ -8622,6 +9246,34 @@
        "task",
        "request",
        "evidence"
+      ]
+     },
+     "session": {
+      "type": "object",
+      "description": "For kind session: a session of this agent began here.",
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "started": {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       "handoff": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The handoff text the session began with; null when it began with none."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "id",
+       "started",
+       "handoff"
       ]
      }
     },
@@ -8685,9 +9337,21 @@
        "type": "string",
        "enum": [
         "text",
+        "bytes",
         "styled"
        ]
-      }
+      },
+      "description": "Formats the daemon serves on at least one host; `styled` is reserved."
+     },
+     "terminal_hosts": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "description": "Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has."
      }
     },
     "required": [
@@ -9250,6 +9914,372 @@
      "allowed"
     ],
     "description": "One method as a daemon lists it: its role and whether this caller may call it."
+   },
+   "Outlook": {
+    "type": "object",
+    "properties": {
+     "range": {
+      "type": "string",
+      "enum": [
+       "12h",
+       "24h",
+       "3d",
+       "7d",
+       "14d",
+       "30d"
+      ]
+     },
+     "now": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "accounts": {
+      "type": "integer",
+      "description": "How many accounts have a reading."
+     },
+     "past": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "left_pct": {
+         "oneOf": [
+          {
+           "type": "number",
+           "description": "Percent of the week left, averaged over the accounts that have a reading at that time."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "at",
+        "left_pct"
+       ]
+      },
+      "description": "What usage samples recorded, oldest first."
+     },
+     "future": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "left_pct": {
+         "oneOf": [
+          {
+           "type": "number",
+           "description": "Percent of the week left, averaged over the accounts that have a reading at that time."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "at",
+        "left_pct"
+       ]
+      },
+      "description": "A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it."
+     },
+     "runway": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "account": {
+         "type": "string"
+        },
+        "runs_out_in_seconds": {
+         "oneOf": [
+          {
+           "type": "integer",
+           "description": "How long its headroom lasts at the current burn, whichever window runs out first; null when its reading is stale, there is no burn, or the window resets first."
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "week_resets_at": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        }
+       },
+       "required": [
+        "account",
+        "runs_out_in_seconds",
+        "week_resets_at"
+       ]
+      }
+     },
+     "cost_per_day": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "day": {
+         "type": "string",
+         "description": "Local calendar day, YYYY-MM-DD."
+        },
+        "agents": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "number"
+         },
+         "description": "List-price cost in US dollars of each agent that day."
+        }
+       },
+       "required": [
+        "day",
+        "agents"
+       ]
+      },
+      "description": "Oldest first; a day with no calls is absent."
+     }
+    },
+    "required": [
+     "range",
+     "now",
+     "accounts",
+     "past",
+     "future",
+     "runway",
+     "cost_per_day"
+    ]
+   },
+   "TerminalBytesSnapshot": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "format": {
+      "const": "bytes"
+     },
+     "seq": {
+      "type": "integer",
+      "description": "The last notice of this attach the screen includes; the next notice has seq+1."
+     },
+     "cols": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "string",
+      "description": "Base64. Written unchanged to a freshly reset terminal of cols by rows, it paints the screen, the modes and the cursor."
+     },
+     "alt_screen": {
+      "type": "boolean",
+      "description": "The pane is on the alternate screen; data begins by switching to it."
+     },
+     "cursor": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "integer"
+       },
+       "y": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "x",
+       "y"
+      ],
+      "description": "0-based column and row; also where data leaves the cursor."
+     },
+     "cursor_visible": {
+      "type": "boolean"
+     },
+     "history": {
+      "$ref": "#/components/schemas/HistoryBytesPage"
+     },
+     "holder": {
+      "$ref": "#/components/schemas/InputHolder",
+      "description": "The first of holders; kept for clients written to the single value."
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      },
+      "description": "Everyone who holds the input, oldest first; one in v1."
+     }
+    },
+    "required": [
+     "terminal",
+     "format",
+     "seq",
+     "cols",
+     "rows",
+     "data",
+     "alt_screen",
+     "cursor",
+     "cursor_visible",
+     "history",
+     "holder",
+     "holders"
+    ]
+   },
+   "HistoryBytesPage": {
+    "type": "object",
+    "properties": {
+     "first": {
+      "type": "integer",
+      "description": "Absolute index of the first line, as in HistoryPage."
+     },
+     "lines": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "description": "One physical row with its SGR codes: starts at default attributes and ends with a reset; no line break in it."
+      }
+     },
+     "more": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "first",
+     "lines",
+     "more"
+    ]
+   },
+   "ChatRequestItem": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "request",
+       "task_event",
+       "session"
+      ]
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Where it sits in time: a request where its agent read it (landed_at) or else when it was made."
+     },
+     "message": {
+      "$ref": "#/components/schemas/ChatMessage",
+      "description": "request only."
+     },
+     "dismissal": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "reason": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "by",
+         "reason"
+        ],
+        "description": "request only: who dismissed it and why, when it was dismissed."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "task_state": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "request only: the live state of the task a task delivery carries, else null."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "task": {
+      "type": "integer",
+      "description": "task_event only."
+     },
+     "title": {
+      "type": "string",
+      "description": "task_event only: the task's title."
+     },
+     "who": {
+      "type": "string",
+      "description": "task_event only: who did it."
+     },
+     "change": {
+      "type": "string",
+      "description": "task_event only: `queued -> doing`, `handed to X`, `assigned to X`, `title changed`, `priority 2 -> 1`. An open set: a client draws a word it does not know as text."
+     },
+     "note": {
+      "type": "string",
+      "description": "task_event only: the text typed with a handoff, else empty. Text from an agent."
+     },
+     "request": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "task_event only: the delivery a handoff belongs to, when it has one."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cause": {
+      "type": "string",
+      "description": "session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set."
+     },
+     "handoff": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "session only: the handoff record the session was given, else null."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "type",
+     "at"
+    ]
    }
   },
   "errors": {

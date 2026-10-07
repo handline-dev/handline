@@ -1,0 +1,385 @@
+{
+ "fixtures": [
+  {
+   "name": "hr.list.state_is_text",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: A state that is not text is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": 5
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.list.shape",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: The list is an array of proposals, empty when none waits or settled lately.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {}
+     },
+     "result": {
+      "proposals": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.list.only_a_proposal_in_the_state_asked",
+   "spec": "hr.list",
+   "about": "NOT_YET_IN_PYTHON: With a state nothing else is served: a state no proposal has gives an empty list.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": "no_such_state"
+      }
+     },
+     "result": {
+      "proposals": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "subscribe.hr_is_a_topic",
+   "spec": "subscribe",
+   "about": "NOT_YET_IN_PYTHON: hr is a topic of the spec: the subscribe is answered with a cursor.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "hr"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.decide.a_proposal_changed_since_it_was_read_is_refused_with_it",
+   "spec": "hr.decide",
+   "about": "NOT_YET_IN_PYTHON: An approve whose subject is not the proposal's own is refused, gate proposal_changed, and the refusal holds the proposal as it is. Needs --var hr_seeded=1: a daemon holding one open proposal and one rejected one.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": "open"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": {
+         "$save": "open_id"
+        },
+        "state": "open"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{open_id}}",
+       "decision": "approve",
+       "subject": "not-the-digest",
+       "request_id": "conf-hr-{{hr_seeded}}-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "proposal_changed",
+       "proposal": {
+        "state": "open",
+        "kind": {
+         "$type": "string"
+        },
+        "subject": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.decide.a_settled_proposal_is_refused_with_it",
+   "spec": "hr.decide",
+   "about": "NOT_YET_IN_PYTHON: A decision on a proposal already rejected is refused, gate proposal_settled, and the refusal holds the proposal as it is; the settled check comes before the changed check. Needs --var hr_seeded=1.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.list",
+      "params": {
+       "state": "rejected"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": {
+         "$save": "settled_id"
+        },
+        "state": "rejected"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{settled_id}}",
+       "decision": "approve",
+       "subject": "not-the-digest",
+       "request_id": "conf-hr-{{hr_seeded}}-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "proposal_settled",
+       "proposal": {
+        "state": "rejected"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "hr.settled.is_sent_when_a_proposal_is_decided",
+   "spec": "hr.decide",
+   "about": "NOT_YET_IN_PYTHON: Rejecting the open proposal sends hr.settled on the hr topic: the proposal's agent and title, a target {screen hr, id}, and the whole Proposal in data. Needs --var hr_seeded=1; it settles the open proposal, so it runs last of the file.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "hr"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "hr.list",
+      "params": {
+       "state": "open"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": {
+         "$save": "open_id"
+        },
+        "state": "open"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{open_id}}",
+       "decision": "reject",
+       "request_id": "conf-hr-{{hr_seeded}}-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "hr",
+        "type": "hr.settled",
+        "agent": {
+         "$type": "string"
+        },
+        "title": {
+         "$type": "string"
+        },
+        "target": {
+         "screen": "hr",
+         "id": {
+          "$regex": "^[0-9]+$"
+         }
+        },
+        "data": {
+         "proposal": {
+          "state": "rejected",
+          "settled": {
+           "$type": "timestamp"
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

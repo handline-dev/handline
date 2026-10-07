@@ -17,11 +17,15 @@ import {
   type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS } from './fixtures.ts';
+import { AGENTS, seedChat } from './fixtures.ts';
+import { ChatFailure, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
-import { detail, newSession, tid, view, type Session } from './session.ts';
+import { Knobs } from './knobs.ts';
+import { detail, newSession, tid, view, type Attach, type Session } from './session.ts';
+
+const TERMINAL_CAPS = { terminal_format: ['text', 'bytes'], terminal_hosts: { fake: ['text', 'bytes'] } };
 
 // Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
 const UNKEPT = new Set(['device.pair', 'device.redeem']);
@@ -32,7 +36,7 @@ interface Conn {
   caller: Caller;
   helloed: boolean;
   topics: Set<Topic> | null;
-  attached: Set<string>; // terminal ids
+  attached: Map<string, Attach>; // terminal id -> how this connection watches it
   network: boolean; // came in through the paired-device listener
   paired: boolean; // a local connection always; a network one once hello carried a known token
 }
@@ -40,12 +44,17 @@ interface Conn {
 export interface FakeDaemonOptions {
   retention?: number; // events kept for resume; older ones give `gap`
   now?: () => Date;
+  chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
 }
 
 type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
 
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();
+  /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
+  readonly knobs = new Knobs();
+  readonly chat: FakeChat;
+  private serveChat: boolean;
   private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
@@ -59,7 +68,18 @@ export class FakeDaemon {
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
     broadcast: (s, method, params) => {
-      for (const c of this.conns) if (c.attached.has(tid(s))) this.notify(c, method, params);
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'text') this.notify(c, method, params);
+        // Bytes watchers get the same markers and holders in their own counter, and no frames or resizes.
+        else if (a && (method === 'marker' || method === 'holder')) this.notify(c, method, { ...(params as object), seq: ++a.seq });
+      }
+    },
+    broadcastBytes: (s, method, build) => {
+      for (const c of this.conns) {
+        const a = c.attached.get(tid(s));
+        if (a?.format === 'bytes') this.notify(c, method, { ...build(), seq: ++a.seq });
+      }
     },
   });
   private tokens = new Map<string, { id: string; name: string }>();
@@ -67,7 +87,15 @@ export class FakeDaemon {
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
+    this.serveChat = opts.chat ?? true;
+    this.chat = new FakeChat(
+      (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
+      () => this.iso(),
+      (n) => this.sessions.has(n),
+      (a) => this.sessions.get(a)?.state !== 'parked',
+    );
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
+    seedChat(this.chat, this.iso());
   }
 
   private iso(): Timestamp {
@@ -85,7 +113,7 @@ export class FakeDaemon {
       caller: { kind, name },
       helloed: false,
       topics: null,
-      attached: new Set(),
+      attached: new Map(),
       network,
       paired: !network,
     };
@@ -127,7 +155,7 @@ export class FakeDaemon {
 
   /** Runs one scripted step of every session that has one; false when nothing was left to run. */
   tick(): boolean {
-    let any = false;
+    let any = this.chat.tick();
     for (const s of this.sessions.values()) {
       const step = s.queue.shift();
       if (step) {
@@ -160,6 +188,11 @@ export class FakeDaemon {
     }));
   }
 
+  /** Makes the bytes watchers of an agent fall behind: they are told to repaint, as the daemon does past 1 MiB unsent. */
+  slowClient(agent: string): void {
+    this.script.snapshotBytes(this.session(agent), 'slow_client');
+  }
+
   private session(agent: unknown): Session {
     const s = typeof agent === 'string' ? this.sessions.get(agent) : undefined;
     if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
@@ -177,7 +210,7 @@ export class FakeDaemon {
       actor: f.actor ?? null,
       agent: f.agent ?? null,
       title: f.title ?? null,
-      target: f.agent ? { screen: 'session', id: f.agent } : null,
+      target: f.agent ? { screen: 'agent', id: f.agent } : null,
       data: f.data ?? {},
     };
     this.events.push(e);
@@ -216,15 +249,23 @@ export class FakeDaemon {
       // The listener's one reply to anyone unpaired, the same words whatever was asked.
       return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
     }
+    const wait = this.knobs.waits(req.method);
+    if (wait > 0) setTimeout(() => this.handle(c, req.id!, req.method!, params), wait);
+    else this.handle(c, req.id, req.method, params);
+  }
+
+  private handle(c: Conn, id: number | string, method: string, params: Record<string, unknown>) {
     let body: Body;
     try {
-      body = { result: this.withReplay(c, req.method, params) };
+      const no = c.helloed ? this.knobs.check(method) : undefined;
+      if (no) throw no;
+      body = { result: this.withReplay(c, method, params) };
     } catch (e) {
       if (!(e instanceof Failure)) throw e;
       body = this.fail(e);
     }
-    this.reply(c, req.id, body);
-    if (req.method === 'subscribe' && !body.error) this.replay(c, params.since as number | undefined);
+    this.reply(c, id, body);
+    if (method === 'subscribe' && !body.error) this.replay(c, params.since as number | undefined);
   }
 
   /** A write's successful reply is kept by request_id; the same id with the same params returns it, repeating nothing. */
@@ -277,22 +318,26 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: false, review: false, input_ask: false, terminal_format: ['text'] },
+        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...TERMINAL_CAPS },
         transport: c.network ? 'network' : 'local',
-        methods: Object.entries(METHODS).map(([name, m]) => ({
-          name,
-          since: m.since,
-          role: m.role,
-          allowed: this.mayCall(c.role, m.role),
-        })),
+        methods: Object.entries(METHODS)
+          .filter(([name]) => this.serveChat || !name.startsWith('chat.'))
+          .map(([name, m]) => ({
+            name,
+            since: m.since,
+            role: m.role,
+            allowed: this.mayCall(c.role, m.role),
+          })),
       };
     }
     if (!c.helloed && method !== 'device.redeem') throw badRequest('say hello first'); // an unpaired caller redeems with no hello
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
+    if (method.startsWith('chat.') && !this.serveChat) throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
+    if (method.startsWith('chat.')) return this.chatMethod(method, p, c.caller.name, agent);
     const handler = HANDLERS[method];
     if (handler)
       return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
@@ -356,6 +401,42 @@ export class FakeDaemon {
       }
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
+    }
+  }
+
+  private chatMethod(method: string, p: Record<string, unknown>, person: string, agent: () => Session): unknown {
+    const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
+    switch (method) {
+      case 'chat.messages':
+        agent();
+        return this.chat.messagesOf(p);
+      case 'chat.transcript':
+        agent();
+        return this.chat.transcriptOf(p);
+      case 'chat.send':
+        agent();
+        return this.chatCall(() => ok('Sent.', this.chat.send(p, person)));
+      case 'chat.answer':
+        return this.chatCall(() => (this.chat.answer(p), ok('Answered.')));
+      case 'chat.dismiss':
+        return this.chatCall(() => (this.chat.dismiss(p), ok('Dismissed.')));
+      case 'chat.withdraw':
+        return this.chatCall(() => (this.chat.withdraw(p), ok('Withdrawn.')));
+      default:
+        throw refused('unsupported', `the fake daemon does not serve ${method}`);
+    }
+  }
+
+  private chatCall<T>(fn: () => T): T {
+    try {
+      return fn();
+    } catch (e) {
+      if (!(e instanceof ChatFailure)) throw e;
+      throw e.code === 'refused'
+        ? refused(e.gate ?? 'state', e.message)
+        : e.code === 'bad_request'
+          ? badRequest(e.message)
+          : new Failure('not_found', e.message);
     }
   }
 

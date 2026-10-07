@@ -38,16 +38,20 @@ def _repo(td: Path) -> Path:
     (main / "a.py").write_text("x = 1\ny = 2\n")
     (main / "tools").mkdir()
     suite = main / "tools" / "suite.sh"
-    suite.write_text('#!/usr/bin/env bash\n[ ! -e "$(dirname "$0")/../RED" ]\n')
+    # Each run adds a line to $SUITE_RUNS when it is set, so a test can count the suite runs.
+    suite.write_text('#!/usr/bin/env bash\n[ -z "${SUITE_RUNS:-}" ] || echo run >> "$SUITE_RUNS"\n'
+                     '[ ! -e "$(dirname "$0")/../RED" ]\n')
     suite.chmod(0o755)
     _git(main, "add", "-A")
     _git(main, "commit", "-q", "-m", "base")
     return main
 
 
-def _branch(main: Path, name: str, filename: str, text: str) -> str:
+def _branch(main: Path, name: str, filename: str, text: str, *more: tuple[str, str]) -> str:
     _git(main, "checkout", "-q", "-b", name, "main")
-    (main / filename).write_text(text)
+    for f, t in ((filename, text), *more):
+        (main / f).parent.mkdir(parents=True, exist_ok=True)
+        (main / f).write_text(t)
     _git(main, "add", "-A")
     _git(main, "commit", "-q", "-m", name)
     sha = _git(main, "rev-parse", "HEAD")
@@ -111,6 +115,54 @@ def test_a_red_suite_or_a_dirty_checkout_lands_nothing(home: Path) -> None:
 def _check(main: Path, sha: str) -> str:
     r = subprocess.run([str(LAND), "--check", sha], cwd=main, capture_output=True, text=True, env=ENV, timeout=60)
     return r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else f"rc={r.returncode} {r.stderr}"
+
+
+def test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(home: Path) -> None:
+    """The suite the auditor ran on <sha> is the suite of the merge when main has not moved past it
+    (the merge's tree is <sha>'s own); once main moved the merge is a new tree and the suite runs.
+    The suite here is red whenever RED is in the tree, so a rerun shows as a failure."""
+    main = _repo(home)
+    red = _branch(main, "red", "RED", "x\n")
+
+    def check_run(*flags: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", *flags, red], cwd=main, capture_output=True, text=True,
+                              env=ENV, timeout=60)
+    r = check_run()
+    check("check: without a PASS the suite runs, and red stops it", r.returncode == 1, r.stdout + r.stderr)
+    r = check_run("--passed")
+    check("check: with a PASS and main not moved the suite is not rerun, and the tree is printed",
+          r.returncode == 0 and r.stdout.strip() == _git(main, "rev-parse", f"{red}^{{tree}}"), r.stdout + r.stderr)
+    (main / "later.py").write_text("v = 1\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "main moved")
+    r = check_run("--passed")
+    check("check: once main moved, the merge is a new tree and the suite runs once on it",
+          r.returncode == 1, r.stdout + r.stderr)
+
+
+def test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(home: Path) -> None:
+    """--passed and a train together: the train's last merge holds every branch, so it is never the
+    passed sha's own tree and the suite runs on it, unless what the train changes is only docs."""
+    main = _repo(home)
+    runs = home / "runs"
+    red = _branch(main, "red", "RED", "x\n")
+    other = _branch(main, "other", "b.py", "z = 3\n")
+
+    def check_run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", *args], cwd=main, capture_output=True, text=True,
+                              env={**ENV, "SUITE_RUNS": str(runs)}, timeout=60)
+    r = check_run("--passed", red)
+    check("passed: one passed sha with main not moved skips the suite", r.returncode == 0 and _runs(runs) == 0,
+          r.stdout + r.stderr)
+    r = check_run("--passed", red, other)
+    check("passed: a train with --passed still runs the suite on its last merge, and red stops it",
+          r.returncode == 1 and _runs(runs) == 1, r.stdout + r.stderr)
+    r = check_run("--passed", other, red)
+    check("passed: in either order", r.returncode == 1 and _runs(runs) == 1, r.stdout + r.stderr)
+    d1, d2 = _branch(main, "d1", "docs/a.md", "# a\n"), _branch(main, "d2", "docs/b.md", "# b\n")
+    r = check_run("--passed", d1, d2)
+    check("passed: a docs-only train runs none, and prints a tree for each",
+          r.returncode == 0 and _runs(runs) == 0 and len(r.stdout.split()) == 2, r.stdout + r.stderr)
 
 
 def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(home: Path) -> None:
@@ -406,19 +458,19 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
     import contextlib
     import io
     from handline.cli import land as cli_land
-    sent, real_tree, real_send = [], cli_land._tested_tree, cli_land.dmn_client.send
-    cli_land._tested_tree = lambda sha: "t" * 40
+    sent, real_tree, real_send = [], cli_land._tested_trees, cli_land.dmn_client.send
+    cli_land._tested_trees = lambda shas: ["t" * 40]
     cli_land.dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True, "said": "ok"})[1]
 
     def run_land(**kw):
         args = argparse.Namespace(**{"sha": None, "message": None, "passed": False, "list": False,
-                                     "check": False, "tree": None, **kw})
+                                     "check": None, "tree": None, **kw})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = cli_land.cmd_land(args)
         return rc, out.getvalue()
     try:
-        rc, out = run_land(sha="abc1234", check=True)
+        rc, out = run_land(check=["abc1234"])
         check("land cli: --check prints the tree and sends nothing", rc == 0 and out.strip() == "t" * 40 and not sent, out)
         rc, out = run_land(sha="abc1234", message="m")
         check("land cli: a land without the tree sends nothing and says how", rc == 1 and "--check" in out and not sent, out)
@@ -427,7 +479,7 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
               rc == 0 and sent == [{"verb": "land", "sha": "abc1234", "message": "m", "tree": "t" * 40,
                                     "agent": sent[0]["agent"]}], str(sent))
     finally:
-        cli_land._tested_tree, cli_land.dmn_client.send = real_tree, real_send
+        cli_land._tested_trees, cli_land.dmn_client.send = real_tree, real_send
 
 
 def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Path) -> None:
@@ -475,15 +527,113 @@ def test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(home: Pa
         os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
 
 
+def _checked(main: Path, shas: list[str], runs: Path) -> list[str] | None:
+    """`land.sh --check` on `shas`, counting suite runs in `runs`: the trees it printed, or None."""
+    r = subprocess.run([str(LAND), "--check", *shas], cwd=main, capture_output=True, text=True,
+                       env={**ENV, "SUITE_RUNS": str(runs)}, timeout=60)
+    out = r.stdout.split()
+    return out if r.returncode == 0 and len(out) == len(shas) else None
+
+
+def _runs(runs: Path) -> int:
+    n = len(runs.read_text().splitlines()) if runs.exists() else 0
+    runs.unlink(missing_ok=True)
+    return n
+
+
+def test_a_documentation_only_merge_runs_no_suite(home: Path) -> None:
+    main = _repo(home / "repo")
+    runs = home / "runs"
+    docs = _branch(main, "docs", "docs/guide.md", "# guide\n", ("README.md", "read me\n"), ("design/a.png", "png"))
+    trees = _checked(main, [docs], runs)
+    check("check: a branch that changes only docs/, design/ and .md files is tested without the suite",
+          trees is not None and _runs(runs) == 0, str(trees))
+    mixed = _branch(main, "mixed", "docs/other.md", "# other\n", ("b.py", "z = 3\n"))
+    trees = _checked(main, [mixed], runs)
+    check("check: code next to a doc still runs the suite", trees is not None and _runs(runs) == 1, str(trees))
+    for path in ("contract/protocol.md", "skill/SKILL.md"):
+        sha = _branch(main, path.split("/")[0], path, "# x\n")
+        trees = _checked(main, [sha], runs)
+        check(f"check: a .md the tests or the product read ({path}) runs the suite",
+              trees is not None and _runs(runs) == 1, str(trees))
+    red_doc = _branch(main, "reddoc", "docs/x.md", "# x\n", ("RED", ""))
+    check("check: a doc next to anything else is tested, and a red suite still fails it",
+          _checked(main, [red_doc], runs) is None and _runs(runs) == 1)
+
+
+def _land_in_order(con, main: Path, kept: list[tuple[str, str]]) -> list:
+    """What the merger does with a train's output: one `hl land` per sha, in order; the daemon lands them."""
+    from handline.daemon import lands
+    rows = []
+    for sha, tree in kept:
+        lands.record_pass(con, sha, AUDITOR)
+        ok, said = lands.request(con, sha, f"Merge {sha[:8]}", tree, lands.MERGER)
+        check(f"train: {sha[:8]} is queued", ok, said)
+    for sha, _tree in kept:
+        lands.sweep(con, lambda m: None)
+        lands._worker["thread"].join(60)
+        rows.append(con.execute("SELECT state FROM lands WHERE sha = ?", (sha,)).fetchone()["state"])
+    return rows
+
+
+def test_a_train_is_tested_once_and_lands_in_order_and_a_bad_branch_is_dropped(home: Path) -> None:
+    from handline.cli import land as cli_land
+    from handline.daemon import lands
+    main = _repo(home / "repo")
+    runs = home / "runs"
+    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
+    real_tell = lands._tell
+    os.environ["OCP_LAND_REPO"] = str(main)
+    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
+    lands._tell = lambda con, to, body, log: None
+    con = db.connect()
+    con.execute("DELETE FROM lands")        # rows earlier tests queued for their own repos
+    try:
+        a, b, c = (_branch(main, n, f"{n}.py", f"{n} = 1\n") for n in ("a", "b", "c"))
+        kept, dropped = cli_land.train([a, b, c], check=lambda shas: _checked(main, shas, runs))
+        check("train: three green branches are tested together with one suite run",
+              [s for s, _ in kept] == [a, b, c] and not dropped and _runs(runs) == 1, f"{kept} {dropped}")
+        states = _land_in_order(con, main, kept)
+        check("train: the daemon lands all three, each to the tree the one check saw",
+              states == ["landed"] * 3 and _git(main, "rev-parse", "HEAD^{tree}") == kept[-1][1], str(states))
+
+        d, bad, e = (_branch(main, n, f"{n}.py", f"{n} = 1\n") for n in ("d", "bad", "e"))
+        _git(main, "checkout", "-q", "bad")
+        (main / "RED").write_text("")
+        _git(main, "add", "-A")
+        _git(main, "commit", "-q", "-m", "turns the suite red")
+        bad = _git(main, "rev-parse", "HEAD")
+        _git(main, "checkout", "-q", "main")
+        kept, dropped = cli_land.train([d, bad, e], check=lambda shas: _checked(main, shas, runs))
+        check("train: a red batch is split, the branch that breaks it is dropped and the others kept in order",
+              [s for s, _ in kept] == [d, e] and dropped == [bad], f"{kept} {dropped}")
+        states = _land_in_order(con, main, kept)
+        check("train: the two land and the dropped one never reaches main",
+              states == ["landed"] * 2 and not (main / "RED").exists()
+              and _git(main, "rev-parse", "HEAD^{tree}") == kept[-1][1], str(states))
+        rc = subprocess.run(["git", "merge-base", "--is-ancestor", bad, "main"], cwd=main, env=ENV).returncode
+        check("train: and no land of it was asked for", rc == 1
+              and con.execute("SELECT 1 FROM lands WHERE sha = ?", (bad,)).fetchone() is None)
+    finally:
+        con.close()
+        lands._tell = real_tell
+        for k, v in keep.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
+        run(lambda: test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(Path(td) / "l2b"))
+        run(lambda: test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(Path(td) / "l2c"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
+        run(lambda: test_a_documentation_only_merge_runs_no_suite(Path(td) / "l7"))
+        run(lambda: test_a_train_is_tested_once_and_lands_in_order_and_a_bad_branch_is_dropped(Path(td) / "l8"))
         run(lambda: test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(Path(td) / "l6"))
     return run_area(tests)
 

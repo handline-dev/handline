@@ -30,15 +30,21 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, rpc, sends, stream
+from . import landauth, lands, messaging, relay, rpc, sends, stream
 from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
     rpc_accounts,
     rpc_agents,
+    rpc_answers,
+    rpc_chat,
+    rpc_chat_now,
+    rpc_chatwrites,
     rpc_hooks,
     rpc_inbox,
+    rpc_inbox_get,
     rpc_input,
     rpc_operations,
     rpc_options,
+    rpc_outlook,
     rpc_prompts,
     rpc_schedules,
     rpc_session,
@@ -190,6 +196,9 @@ def _serve_one(conn: socket.socket, log) -> None:
         conn.close()
 
 
+MAX_CONNECTIONS = 256       # served at once; one past it is answered `daemon_busy` and closed
+
+
 class SocketServer:
     """Runs the accept loop in a background thread, one further thread per
     connection - see the module docstring for why neither is inline with the
@@ -201,6 +210,8 @@ class SocketServer:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._watcher = stream.Watcher(log)
+        self._open, self._open_lock = 0, threading.Lock()
+        self._relay = relay.RelayServer(log)
 
     def start(self) -> None:
         path = paths.socket_file()
@@ -230,6 +241,10 @@ class SocketServer:
         self._thread = threading.Thread(target=self._accept_loop, daemon=True,
                                         name="ocp-daemon-socket")
         self._thread.start()
+        try:
+            self._relay.start()
+        except OSError as e:
+            self._log(f"relay socket: could not start ({e}) - continuing without it")
         self._watcher.start()
 
     def _accept_loop(self) -> None:
@@ -240,10 +255,34 @@ class SocketServer:
                 continue
             except OSError:
                 break  # the socket was closed under us by stop()
-            threading.Thread(target=_serve_one, args=(conn, self._log), daemon=True).start()
+            with self._open_lock:
+                full = self._open >= MAX_CONNECTIONS
+                self._open += not full
+            if full:
+                self._refuse_busy(conn)
+                continue
+            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    def _serve(self, conn: socket.socket) -> None:
+        try:
+            _serve_one(conn, self._log)
+        finally:
+            with self._open_lock:
+                self._open -= 1
+
+    def _refuse_busy(self, conn: socket.socket) -> None:
+        """One line saying why, then the connection is closed: the daemon serves as many connections as it can and says so past that."""
+        try:
+            conn.settimeout(1.0)
+            conn.sendall(json.dumps({"jsonrpc": "2.0", "id": None, "error": rpc.RpcError(rpc.BUSY, "daemon_busy", f"{MAX_CONNECTIONS} connections are open: try again").wire()}).encode() + b"\n")
+        except OSError:
+            pass
+        finally:
+            conn.close()
 
     def stop(self) -> None:
         self._stop.set()
+        self._relay.stop()
         self._watcher.close()
         if self._sock is not None:
             try:
