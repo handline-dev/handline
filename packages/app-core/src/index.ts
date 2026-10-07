@@ -6,3 +6,4 @@ export * from './store.ts';
 export * from './tasks.ts';
 export * from './workspace.ts';
 export * from './badges.ts';
+export * from './paths.ts';

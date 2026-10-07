@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
 import { useBusy } from '@handline/app-data';
 
-type Call = 'screen' | 'unsent' | 'onNavigate';
+type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose';
 
 /** The shell's API if this shell has `call` (a call is checked before it is used, never a version). */
 export function shell(call: Call): ShellApi | null {
