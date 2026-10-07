@@ -187,11 +187,11 @@ The viewer, the device, the role and the methods allowed.
 
 ### `subscribe`
 
-Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent.
+Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again.
 
 ### `unsubscribe`
 
-Stop some topics; a subscription with no topics left ends. Result {}.
+Stop some topics; a subscription with no topics left ends. Result {}. Naming devices follows the same rule as subscribe: on its own.
 
 ### `daemon.status`
 
@@ -713,35 +713,6 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
 | `hr` | `hr.raised` (Proposal), `hr.settled` (Proposal) | `hr.list` |
-
-## State words
-
-AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it. The mapping is made from the source facts (the state row, its wake time, the screen), never by reading state_detail text.
-
-| Word | Meaning |
-|---|---|
-| `running` | A turn is running (a hand-off in progress counts: moving is working). |
-| `idle` | At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work). |
-| `queued` | Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry). |
-| `parked` | Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock). |
-| `waiting` | A person must answer: a dialog or a prompt is open (has_dialog is true). |
-| `stalled` | Stopped until a person unstalls it (the daemon will not wake it). |
-| `blocked` | Reserved: waiting on a blocker the view names in `block`. The daemon does not send it today; a client draws it as blocked. |
-| `no_terminal` | Registered but with no terminal to show: never started or its terminal closed, and nothing waits for it. Checked before idle; a closed agent with work waiting is queued or parked. |
-
-What the daemon sends for each of its own states:
-
-| Daemon state | Word |
-|---|---|
-| RUNNING, HANDOFF | `running` |
-| IDLE, DONE, PARKED with no work behind it | `idle` |
-| QUEUED, a restart retry (PENDING with no clock) | `queued` |
-| PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING | `parked` |
-| DIALOG (an open prompt or modal) | `waiting` |
-| STALLED (FATAL) | `stalled` |
-| no state row or no terminal, and nothing waiting for it (checked before IDLE) | `no_terminal` |
-
-PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`.
 
 ## State words
 

@@ -459,7 +459,7 @@ def push(con, target: str, rid: int | None = None) -> str:
 
     `rid`, when it names a message (anything but a task), is typed at once
     (`messaging.tell_now`, T398), and so is a task marked send-now - a handoff (T596), or one the
-    founder pressed send now on; any other task still waits for a free agent, one at a time.
+    founder pressed send now on; any other task goes out with the next batch (`delivery.BATCH_EVERY_S`).
 
     One command has to do the whole job. An agent that asks a subordinate for
     something and is told "queued" has not dispatched anything - it has left a
