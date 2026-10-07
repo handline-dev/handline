@@ -21,6 +21,7 @@ func Register(s *rpc.Server, home string) {
 	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, false)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
+	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: merge})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd})
 	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit})
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete})
