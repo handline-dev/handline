@@ -3370,6 +3370,34 @@
       },
       "more": {
        "type": "boolean"
+      },
+      "reason_gaps": {
+       "type": "object",
+       "description": "How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+       "properties": {
+        "retirements": {
+         "type": "integer"
+        },
+        "retirements_blank": {
+         "type": "integer"
+        },
+        "closures_sha": {
+         "type": "integer"
+        },
+        "closures_request": {
+         "type": "integer"
+        },
+        "closures_reason": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "retirements",
+        "retirements_blank",
+        "closures_sha",
+        "closures_request",
+        "closures_reason"
+       ]
       }
      },
      "required": [
@@ -3772,6 +3800,40 @@
    "x-gates": [
     "not_self"
    ],
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "progress.get",
+   "summary": "The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "note": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The note, or null when none is kept."
+      }
+     },
+     "required": [
+      "note"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
    "x-callers": [
     "agent"
    ]
@@ -4359,9 +4421,18 @@
   },
   {
    "name": "task.board",
-   "summary": "The caller's open tasks and its reports', and who holds each now.",
+   "summary": "The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's open tasks, not only the caller's and its reports'."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -7534,6 +7605,91 @@
      "last_activity": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
+     },
+     "edited_by": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who last changed the task's owner, title, priority or brief; null when never."
+     },
+     "asker": {
+      "type": "string",
+      "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
+     },
+     "discarded": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "type": "string"
+         },
+         "reason": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "by",
+         "reason",
+         "at"
+        ],
+        "description": "Who threw the task away, why and when."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null when the task was not discarded."
+     },
+     "mismatch": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree."
+     },
+     "requests": {
+      "type": "array",
+      "description": "The requests linked to the task, oldest first.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "from": {
+         "type": "string"
+        },
+        "to": {
+         "type": "string"
+        },
+        "state": {
+         "type": "string"
+        },
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        }
+       },
+       "required": [
+        "id",
+        "from",
+        "to",
+        "state",
+        "at"
+       ]
+      }
      }
     },
     "required": [
@@ -9313,6 +9469,17 @@
      },
      "text": {
       "type": "string"
+     },
+     "edited_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the memo's text was last changed; null if never."
      }
     },
     "required": [
@@ -9337,6 +9504,40 @@
        {
         "type": "null"
        }
+      ]
+     },
+     "now": {
+      "type": "object",
+      "description": "Who has the task now, read from its linked requests: `waiting` on open blocker tasks (`tasks`); `held` by the agents a request is with (`agents`); `sub_task` when an open child task's request is with them (`agents`); `held_as_sub_task` while an open child shares a request with it (`tasks`, `agents` their owners); `result_in` when the last request came back done from someone other than the caller or the founder; else `nobody`.",
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "waiting",
+         "held",
+         "sub_task",
+         "held_as_sub_task",
+         "result_in",
+         "nobody"
+        ]
+       },
+       "agents": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "kind",
+       "agents",
+       "tasks"
       ]
      }
     },

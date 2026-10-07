@@ -76,3 +76,4 @@ schedules.list
 stats.get
 settings.get
 task.ask
+progress.get

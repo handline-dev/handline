@@ -203,7 +203,7 @@ def test_the_task_verb_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for s, why, n in results if s == "fail"]
-    check("fixtures: every task-verb fixture passes against this daemon, each as its own role", not bad and len([1 for s, _, _ in results if s == "pass"]) == 8, str(results))
+    check("fixtures: every task-verb fixture passes against this daemon, each as its own role", not bad and len([1 for s, _, _ in results if s == "pass"]) == 9, str(results))
 
 
 def main() -> int:

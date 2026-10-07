@@ -147,12 +147,54 @@ def test_the_task_page_fixtures_pass_against_this_daemon(home: Path) -> None:
     check("fixtures: every task page fixture passes against this daemon, each as its own role", not bad and len(names) == 5, str(bad) + str(names))
 
 
+def test_the_list_row_says_what_hl_task_list_prints_and_the_board_says_who_holds_each(home: Path) -> None:
+    support._board_world(home)
+    tid = _new("l0")["result"]["task"]
+    _call("task.memo.add", {"task": tid, "text": "first", "request_id": "l1"})
+    _call("task.memo.edit", {"task": tid, "memo": 1, "text": "second", "request_id": "l2"})
+    got = _get(tid)
+    check("task.get: a memo says when it was edited, and null before", got["memos"][0]["edited_at"] is not None, str(got["memos"]))
+    row = _call("tasks.list", {"everyone": True}, as_agent=None)["result"]
+    item = next(i for i in row["items"] if i["id"] == tid)
+    check("tasks.list: a row carries asker, edited_by, discarded, mismatch and its linked requests",
+          item["asker"] == "manager" and item["edited_by"] is None and item["discarded"] is None and item["mismatch"].startswith("draft with work out")
+          and [(r["from"], r["to"]) for r in item["requests"]] == [("manager", "worker")], str(item))
+    check("tasks.list: the result carries the 30-day reason gaps", set(row["reason_gaps"]) == {
+        "retirements", "retirements_blank", "closures_sha", "closures_request", "closures_reason"}, str(row.get("reason_gaps")))
+    board = _call("task.board", {}, as_agent="manager")["result"]
+    mine = [r for r in board["reports"] if r["task"]["id"] == tid]
+    check("task.board: a report's task is under reports, held by who the request is with",
+          mine and mine[0]["now"] == {"kind": "held", "agents": ["worker"], "tasks": []} and mine[0]["holder"] == "worker", str(board))
+    theirs = _call("task.board", {}, as_agent="worker")["result"]
+    check("task.board: an agent's board is its own tasks and its reports' only", all(r["task"]["to"] == "worker" for r in theirs["mine"])
+          and not theirs["reports"], str(theirs))
+    mark = _call("task.board", {"everyone": True}, as_agent=None)["result"]
+    check("task.board: the founder's board is the tasks it owns, with everyone asked for all", mark["mine"] == []
+          and any(r["task"]["id"] == tid for r in mark["reports"]), str(mark))
+    plain = _call("task.board", {}, as_agent=None)["result"]
+    check("task.board: with nothing the founder owns, its board is empty", plain == {"mine": [], "reports": []}, str(plain))
+
+
+def test_progress_get_reads_the_note_progress_keeps(home: Path) -> None:
+    support._board_world(home)
+    _new("p0")
+    first = _call("progress.get", {}, as_agent="worker")["result"]
+    check("progress.get: an agent with no note has null", first == {"note": None}, str(first))
+    _call("task.progress", {"task": 1, "note": "half done", "request_id": "p1"}, as_agent="worker")
+    got = _call("progress.get", {}, as_agent="worker")["result"]
+    check("progress.get: it reads what task.progress kept", got == {"note": "half done"}, str(got))
+    r = _call("progress.get", {}, as_agent=None)
+    check("progress.get: the founder has no progress note to read", _code(r) == "refused", str(r))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_task_get_says_what_the_page_draws(Path(td) / "t1"))
         run(lambda: test_a_discarded_and_a_merged_task_say_so_and_have_no_clock(Path(td) / "t2"))
         run(lambda: test_a_task_past_its_deadline_says_since_when(Path(td) / "t3"))
         run(lambda: test_task_ask_sends_a_linked_question_once_and_a_death_between_repeats_nothing(Path(td) / "t4"))
+        run(lambda: test_the_list_row_says_what_hl_task_list_prints_and_the_board_says_who_holds_each(Path(td) / "t6"))
+        run(lambda: test_progress_get_reads_the_note_progress_keeps(Path(td) / "t7"))
         run(lambda: test_the_task_page_fixtures_pass_against_this_daemon(Path(td) / "t5"))
     return run_area(tests)
 

@@ -19,3 +19,8 @@ def taskverbs(role, method, params):
     if method == "task.handoff":
         return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "agent"}}
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}
+
+
+@fake("progress.get")
+def progress_get(role, method, params):
+    return "ok", {"note": None}

@@ -171,6 +171,12 @@
  "operation.get": {
   "role": "member"
  },
+ "progress.get": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
  "prompt.answer": {
   "role": "member"
  },

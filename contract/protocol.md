@@ -112,13 +112,14 @@ A method marked write takes a required `request_id`.
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?` | `{items, more}` |  |  |
+| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.new` | agent | yes | `owner`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
+| `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
@@ -130,7 +131,7 @@ A method marked write takes a required `request_id`.
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.board` | agent |  | none | `{mine, reports}` |  |  |
+| `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -409,6 +410,10 @@ Reopen a task.
 
 Record progress on a task (hl progress).
 
+### `progress.get`
+
+The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).
+
 ### `task.begin`
 
 Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.
@@ -455,7 +460,7 @@ Throw away a task that is not done: the asker or the founder, with a reason.
 
 ### `task.board`
 
-The caller's open tasks and its reports', and who holds each now.
+The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.
 
 ### `task.withdraw`
 

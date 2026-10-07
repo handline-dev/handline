@@ -76,6 +76,12 @@ def task_of(con, row, state: str) -> dict:
         "block_reason": ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers)) if blockers else None,
         "evidence": row["done_evidence"], "priority": row["priority"],
         "last_activity": agentview._ts(_last_activity(con, row)),
+        "edited_by": row["edited_by"], "asker": actions.task_asker(con, row),
+        "discarded": ({"by": row["discarded_by"], "reason": row["discard_reason"] or "", "at": agentview._ts(row["discarded_at"])}
+                      if row["discarded_by"] else None),
+        "mismatch": actions.task_mismatch(con, row, state),
+        "requests": [{"id": r["id"], "from": r["requester"], "to": r["target"], "state": r["state"], "at": agentview._ts(r["ts"])}
+                     for r in db.task_requests(con, row["id"])],
     }
 
 
@@ -101,7 +107,8 @@ def _tasks_list(ctx, params) -> dict:
                 and (before is None or r["id"] < before)]
         rows.sort(key=lambda r: -r["id"])
         page = rows[:limit]
-        return {"items": [task_of(con, r["row"], r["state"]) for r in page], "more": len(rows) > limit}
+        return {"items": [task_of(con, r["row"], r["state"]) for r in page], "more": len(rows) > limit,
+                "reason_gaps": actions.reason_gaps(con)}
     finally:
         con.close()
 
@@ -120,7 +127,8 @@ def _event(row, tid: int, owner: str) -> dict:
 
 
 def memo_of(m) -> dict:
-    return {"id": m["id"], "task": m["task_id"], "author": m["author"], "at": agentview._ts(m["created_at"]), "text": m["body"]}
+    return {"id": m["id"], "task": m["task_id"], "author": m["author"], "at": agentview._ts(m["created_at"]), "text": m["body"],
+            "edited_at": agentview._ts(m["edited_at"]) if m["edited_at"] else None}
 
 
 def _clock(con, row, state: str) -> dict | None:
@@ -175,5 +183,46 @@ def _task_get(ctx, params) -> dict:
         con.close()
 
 
+def _now(con, t, me: str) -> dict:
+    """Who has the task now, as `hl task board` reads it from the linked requests (cmd_task_board)."""
+    reqs = db.task_requests(con, t["id"])
+    held = sorted({r["target"] for r in reqs if actions._asks(r)})
+    kids = sorted({r["target"] for c in db.open_child_tasks(con, t["id"]) for r in db.task_requests(con, c["id"]) if actions._asks(r)})
+    last = reqs[-1] if reqs else None
+    back = last is not None and last["state"] == "landed" and last["target"] not in (me, db.HUMAN)
+    blockers = db.task_blockers(con, t["id"])
+    linked = {r["id"] for r in reqs}
+    holds = [c for c in db.open_child_tasks(con, t["id"]) if linked & {r["id"] for r in db.task_requests(con, c["id"])}]
+    if blockers:
+        return {"kind": "waiting", "agents": [], "tasks": [b["id"] for b in blockers]}
+    if held:
+        return {"kind": "held", "agents": held, "tasks": []}
+    if kids:
+        return {"kind": "sub_task", "agents": kids, "tasks": []}
+    if holds:
+        return {"kind": "held_as_sub_task", "agents": [c["owner"] for c in holds], "tasks": [c["id"] for c in holds]}
+    return {"kind": "result_in" if back else "nobody", "agents": [], "tasks": []}
+
+
+def _board(ctx, params) -> dict:
+    """The caller's open tasks (`mine`) and its reports' (`reports`), each with who holds it now. The founder's board is the
+    tasks it owns, unless it asks for everyone's."""
+    me, everyone = ctx.caller.actor, _flag(params, "everyone")
+    owners = None if everyone else {me} if me == db.HUMAN else actions.reach(me)
+    con = db.connect()
+    try:
+        out = {"mine": [], "reports": []}
+        for t in db.open_tasks(con):
+            if owners is not None and t["owner"] not in owners:
+                continue
+            row = {"task": task_of(con, t, actions.task_state(con, t)), "holder": None, "now": _now(con, t, me)}
+            row["holder"] = (row["now"]["agents"] or [None])[0]
+            out["mine" if t["owner"] == me else "reports"].append(row)
+        return out
+    finally:
+        con.close()
+
+
+rpc.METHODS["task.board"] = rpc.Method(_board, "agent")
 rpc.METHODS["tasks.list"] = rpc.Method(_tasks_list, "agent")
 rpc.METHODS["task.get"] = rpc.Method(_task_get, "agent")

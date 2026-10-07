@@ -174,6 +174,26 @@ export type Task = {
   priority?: 1 | 2 | 3;
   /** The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it. */
   last_activity?: Timestamp;
+  /** Who last changed the task's owner, title, priority or brief; null when never. */
+  edited_by?: string | null;
+  /** Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. */
+  asker?: string;
+  /** Null when the task was not discarded. */
+  discarded?: {
+    by: string;
+    reason: string;
+    at: Timestamp;
+  } | null;
+  /** Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree. */
+  mismatch?: string | null;
+  /** The requests linked to the task, oldest first. */
+  requests?: {
+    id: number;
+    from: string;
+    to: string;
+    state: string;
+    at: Timestamp;
+  }[];
 };
 
 export type TaskDetail = Task & {
@@ -561,11 +581,19 @@ export type Memo = {
   author: string;
   at: Timestamp;
   text: string;
+  /** When the memo's text was last changed; null if never. */
+  edited_at?: Timestamp | null;
 };
 
 export type TaskBoardRow = {
   task: Task;
   holder: AgentName | null;
+  /** Who has the task now, read from its linked requests: `waiting` on open blocker tasks (`tasks`); `held` by the agents a request is with (`agents`); `sub_task` when an open child task's request is with them (`agents`); `held_as_sub_task` while an open child shares a request with it (`tasks`, `agents` their owners); `result_in` when the last request came back done from someone other than the caller or the founder; else `nobody`. */
+  now?: {
+    kind: "waiting" | "held" | "sub_task" | "held_as_sub_task" | "result_in" | "nobody";
+    agents: string[];
+    tasks: number[];
+  };
 };
 
 /** Landing state of a message; open set. */
@@ -1251,6 +1279,14 @@ export interface Methods {
 }; result: {
     items: Task[];
     more: boolean;
+    /** How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list. */
+    reason_gaps?: {
+      retirements: number;
+      retirements_blank: number;
+      closures_sha: number;
+      closures_request: number;
+      closures_reason: number;
+    };
   } };
   "task.get": { params: {
   task: number;
@@ -1306,6 +1342,10 @@ export interface Methods {
   note: string;
   request_id: RequestId;
 }; result: Accepted };
+  "progress.get": { params: { [key: string]: unknown }; result: {
+    /** The note, or null when none is kept. */
+    note: string | null;
+  } };
   "task.begin": { params: {
   title: string;
   body?: string;
@@ -1370,7 +1410,10 @@ export interface Methods {
   reason: string;
   request_id: RequestId;
 }; result: Accepted };
-  "task.board": { params: { [key: string]: unknown }; result: {
+  "task.board": { params: {
+  /** Every team's open tasks, not only the caller's and its reports'. */
+  everyone?: boolean;
+}; result: {
     mine: TaskBoardRow[];
     reports: TaskBoardRow[];
   } };
@@ -1740,6 +1783,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.done": { role: "agent", callers: null, write: true, since: 1 },
   "task.reopen": { role: "agent", callers: null, write: true, since: 1 },
   "task.progress": { role: "agent", callers: ["agent"], write: true, since: 1 },
+  "progress.get": { role: "agent", callers: ["agent"], write: false, since: 1 },
   "task.begin": { role: "agent", callers: null, write: true, since: 1 },
   "task.start": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.list": { role: "agent", callers: null, write: false, since: 1 },
