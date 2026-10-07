@@ -66,6 +66,9 @@
  "chat.messages": {
   "role": "member"
  },
+ "chat.requests": {
+  "role": "member"
+ },
  "chat.search": {
   "role": "member"
  },
