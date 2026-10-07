@@ -119,11 +119,6 @@ def host_title() -> str:
     return "Orca" if host_name() == "orca" else host_name()
 
 
-def has_agent_hooks() -> bool:
-    """Whether the configured host installs Claude hooks of its own."""
-    return backends.current().supports_agent_hooks
-
-
 def host_name() -> str:
     return backends.current().name
 

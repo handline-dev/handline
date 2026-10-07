@@ -1,4 +1,4 @@
-"""Claude Code hooks: hooks sync/status, `hl hook`, install-hooks."""
+"""Claude Code hooks: hooks gate, `hl hook`, install-hooks."""
 from __future__ import annotations
 
 import subprocess
@@ -14,30 +14,6 @@ GATES = {"stop-wait": stopgate, "edit-task": edittask}
 
 
 # ---------------------------------------------------------------- hooks
-def cmd_hooks_sync(args) -> int:
-    for h in vendors.state_hooks():
-        if args.watch:
-            print(f"watching {h.source_settings()} - Ctrl-C to stop")
-            h.watch(interval=args.interval)
-            return 0
-        if not h.sync():
-            print("no change - already in sync.")
-    return 0
-
-
-def cmd_hooks_status(args) -> int:
-    drifted = False
-    for h in vendors.state_hooks():
-        src, dst, drift = h.plan()
-        print(f"source: {h.source_settings()}")
-        print(f"  {len(src)} Orca hook events: {', '.join(sorted(src)) or '(none)'}")
-        print(f"target: {h.target_settings()}")
-        print(f"  {len(dst)} Orca hook events: {', '.join(sorted(dst)) or '(none)'}")
-        print(f"drift: {'yes - sync needed' if drift else 'no'}")
-        drifted = drifted or drift
-    return 1 if drifted else 0
-
-
 def cmd_hooks_gate(args) -> int:
     """Show or set one of T298's gates: on refuses, off (the founder's choice) only logs."""
     mod = GATES[args.name]
@@ -75,7 +51,7 @@ def cmd_hook(args) -> int:
 
 
 def cmd_hook_install(args) -> int:
-    """Add our event hooks to shared settings, next to Orca's mirrored ones."""
+    """Add our event hooks to shared settings."""
     exe = paths.ocp_exe()
     added, pruned = [], 0
     for h in vendors.state_hooks():
@@ -86,6 +62,6 @@ def cmd_hook_install(args) -> int:
     if added:
         msg.append(f"installed ocp event hooks for {len(added)} events")
     if pruned:
-        msg.append(f"removed {pruned} duplicate entries")
+        msg.append(f"removed {pruned} duplicate or Orca entries")
     print("; ".join(msg) if msg else "already installed")
     return 0

@@ -567,7 +567,10 @@ destroy the agents' own orchestration state.
 
 ### Q3. The hook mirror runs once and is never re-run (#1347)
 
-**Open.** `ocp hooks sync --watch` exists but is opt-in; the daemon does not call `sync`, and `configPath` is not read.
+**Closed 2026-10-07:** Orca left maintenance and the mirror was removed (`hl hooks sync`/`status` with it);
+`hl install-hooks` drops the Orca entries it had written. What follows is the record.
+
+**Was open.** `ocp hooks sync --watch` exists but is opt-in; the daemon does not call `sync`, and `configPath` is not read.
 
 **Measured 2026-09-21:** `hooks.plan()` returns `drifted=True` on this machine.
 Orca's `~/.claude/settings.json` carries **13** hook events; our

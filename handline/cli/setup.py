@@ -76,8 +76,6 @@ def cmd_init(args) -> int:
     cfg = paths.config_file()
     if not cfg.exists():
         cfg.write_text("version: 1\n")
-    for sh in vendors.state_hooks():
-        sh.sync()
     cmd_hook_install(args)
     for sh in vendors.state_hooks():
         changed, blockers = sh.allow_home_writes()

@@ -481,7 +481,7 @@ class FakeLabels(Bare):
     supports_labels = True
 
 
-def test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(home: Path) -> None:
+def test_a_doctor_run_on_tmux_names_tmux(home: Path) -> None:
     use_home(home)
     real_path = os.environ["PATH"]
     _fake_tmux(home)
@@ -493,14 +493,6 @@ def test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(home: Path
         check("doctor on tmux: it names tmux and finds it, and says nothing of orca",
               "tmux found" in rows and rows["tmux found"][0] == doctor.OK and "orca found" not in rows
               and "orca missing" not in rows, str(r.rows))
-        quiet = doctor.Report()
-        doctor._check_orca_hooks(quiet)
-        check("doctor on tmux: Orca's hook check does not run", quiet.rows == [], str(quiet.rows))
-        os.environ["OCP_TERMINAL"] = "orca"
-        loud = doctor.Report()
-        doctor._check_orca_hooks(loud)
-        check("doctor on Orca: the same check does run (so the silence above is the host's doing)",
-              loud.rows != [], str(loud.rows))
         missing = doctor.Report()
         os.environ["OCP_TERMINAL"] = "tmx"
         doctor._check_tools(missing)
@@ -926,7 +918,7 @@ def main() -> int:
         run(lambda: test_spawn_runs_an_agent_on_any_backend(Path(td) / "b5"))
         run(lambda: test_no_module_outside_the_backends_starts_an_orca_process())
         run(lambda: test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(Path(td) / "b11"))
-        run(lambda: test_a_doctor_run_on_tmux_names_tmux_and_leaves_orcas_hooks_alone(Path(td) / "b12"))
+        run(lambda: test_a_doctor_run_on_tmux_names_tmux(Path(td) / "b12"))
         run(lambda: test_a_saved_terminal_of_the_other_host_is_named_by_the_doctor(Path(td) / "b13"))
         run(lambda: test_a_rehome_over_a_host_without_labels_moves_the_worktree_and_goes_quiet_about_labels(Path(td) / "b14"))
         run(lambda: test_a_tmux_socket_that_cannot_be_used_is_no_answer_not_no_terminals(Path(td) / "b6a"))

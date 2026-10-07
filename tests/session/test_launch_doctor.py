@@ -1429,9 +1429,9 @@ def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
     check("hooks: every captured event is installed, and the ones that answer a prompt",
           {c.rsplit(" ", 1)[1] for c in ours} == set(evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS),
           str(sorted({c.rsplit(" ", 1)[1] for c in ours})))
-    check("hooks: Orca's own entries are left alone",
-          any(h.get("command") == "orca-hook pre"
-              for g in data["hooks"]["PreToolUse"] for h in g.get("hooks", [])),
+    check("hooks: the Orca entries the old mirror wrote are dropped",
+          not any("orca-hook" in h.get("command", "")
+                  for g in data["hooks"].get("PreToolUse", []) for h in g.get("hooks", [])),
           str(data["hooks"].get("PreToolUse")))
     check("hooks: the prompt and idle witnesses are among them",
           {"PermissionRequest", "TeammateIdle"} <= evmod.CAPTURED)
@@ -2172,9 +2172,7 @@ def test_a_test_never_reaches_the_real_home(home: Path) -> None:
           paths.user_home() == TEST_ROOT, str(paths.user_home()))
     check("paths: the default home is inside the stand-in",
           TEST_ROOT in paths.default_home().parents, str(paths.default_home()))
-    check("paths: hooks and the launchd plist resolve inside the stand-in",
-          TEST_ROOT in hooks.source_settings().parents
-          and TEST_ROOT in service.plist_path().parents)
+    check("paths: the launchd plist resolves inside the stand-in", TEST_ROOT in service.plist_path().parents)
     before = os.environ.get("OCP_HOME")
     try:
         for label, value in (("the real home", real), ("a folder inside it", real / "agents")):
