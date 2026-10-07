@@ -42,7 +42,6 @@ MOVING = {
     ("land.py", "handline.db"),
     ("schedule.py", "handline.daemon.schedules"),
     ("service.py", "handline.daemon.locks"),
-    ("task.py", "handline.daemon.taskholds"),
     ("task.py", "handline.db"),
     ("team.py", "handline.daemon.lifecycle"),
     ("team.py", "handline.daemon.taskholds"),
