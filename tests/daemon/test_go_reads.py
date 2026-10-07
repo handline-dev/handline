@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, locks  # noqa: E402
+from handline.daemon import agentview, locks, stream  # noqa: E402
 from handline.infra import protected, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 
@@ -82,6 +82,12 @@ def _seed(home: Path) -> dict:
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
+    stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
+    stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
+    stream.append(con, "notifications", "plain", {})
+    stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
+    stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
+    stream.append(con, "notifications", "plain", {})
     protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
     protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
     agentview.refresh(con, int(time.time()))
@@ -177,6 +183,28 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"agent": "worker", "limit": 2}),
         (None, "inbox.list", {"before": ids["card"]}),
         (None, "inbox.list", {"wait_s": 601}),
+        (None, "answers.list", {}),
+        ("manager", "answers.list", {}),
+        (None, "inbox.get", {"id": ids["ask"]}),
+        (None, "inbox.get", {"id": ids["card"]}),
+        (None, "inbox.get", {"id": ids["ask"], "wait_s": 1}),
+        (None, "inbox.get", {"id": 99999}),
+        (None, "inbox.get", {"id": "x"}),
+        (None, "inbox.get", {"id": ids["ask"], "wait_s": 601}),
+        ("worker", "inbox.get", {"id": ids["ask"]}),
+        ("manager", "inbox.get", {"id": ids["card"]}),
+        (None, "events.feed", {}),
+        (None, "events.feed", {"topics": ["tasks", "notifications"], "limit": 2}),
+        (None, "events.feed", {"since": 1}),
+        (None, "events.feed", {"since": 99, "topics": ["tasks"]}),
+        (None, "events.feed", {"topics": ["devices"]}),
+        (None, "events.feed", {"topics": []}),
+        (None, "events.feed", {"since": -1}),
+        (None, "events.feed", {"limit": 0}),
+        (None, "prompt.list", {"agent": "worker"}),
+        (None, "prompt.list", {"agent": "backend"}),
+        (None, "prompt.list", {"agent": "nobody.here"}),
+        (None, "prompt.list", {}),
         ("manager", "tasks.list", {}),
         ("worker", "tasks.list", {}),
         ("backend", "tasks.list", {}),
