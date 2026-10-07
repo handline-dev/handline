@@ -3444,8 +3444,8 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
               reason is not None and "alpha" in reason and when in reason, reason)
 
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("walled: the daemon's own refusal is the same sentence, not a cousin of it",
-              not ok and why == reason, f"{why!r} != {reason!r}")
+        check("walled: the daemon's own refusal is the same sentence, with only why it did not move after it",
+              not ok and (why == reason or why.startswith(reason + "; not moved: ")), f"{why!r} != {reason!r}")
 
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
