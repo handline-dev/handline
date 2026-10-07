@@ -63,17 +63,13 @@ func readsDoing(tx *sql.Tx, t *task) (bool, error) {
 	return n > 0, nil
 }
 
-// isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
-func isDoing(tx *sql.Tx, t *task) (bool, error) {
-	reads, err := readsDoing(tx, t)
-	if err != nil || !reads {
-		return false, err
-	}
+// holdsCurrent is holds_current: the task is the one its owner holds, or its owner holds none (or one that has ended).
+func holdsCurrent(tx *sql.Tx, t *task) (bool, error) {
 	if t.Owner == human {
 		return true, nil
 	}
 	var held sql.NullInt64
-	err = tx.QueryRow("SELECT current_task FROM agent_state WHERE agent = ?", t.Owner).Scan(&held)
+	err := tx.QueryRow("SELECT current_task FROM agent_state WHERE agent = ?", t.Owner).Scan(&held)
 	if err != nil && err != sql.ErrNoRows {
 		return false, err
 	}
@@ -85,6 +81,15 @@ func isDoing(tx *sql.Tx, t *task) (bool, error) {
 		return false, err
 	}
 	return cur == nil || cur.done() || cur.DiscardedBy.Valid && cur.DiscardedBy.String != "", nil
+}
+
+// isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
+func isDoing(tx *sql.Tx, t *task) (bool, error) {
+	reads, err := readsDoing(tx, t)
+	if err != nil || !reads {
+		return false, err
+	}
+	return holdsCurrent(tx, t)
 }
 
 // state is task_state: discarded, done, doing (asked and held by its owner), else queued (approved, or asked but held back) or draft.
@@ -99,9 +104,11 @@ func state(tx *sql.Tx, t *task) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	doing, err := isDoing(tx, t)
-	if err != nil {
-		return "", err
+	doing := false
+	if asked {
+		if doing, err = holdsCurrent(tx, t); err != nil {
+			return "", err
+		}
 	}
 	switch {
 	case doing:

@@ -77,4 +77,43 @@ func TestQueueAndDraftAreTheFoundersOrTheManagersAndAllOrNone(t *testing.T) {
 	if bad[0]["error"] == nil {
 		t.Fatalf("tasks is a list of numbers: %v", bad[0])
 	}
+
+	// a task with work out on it is not taken back or queued again; held back behind its owner's current task it reads queued
+	db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(4, 'd', 'worker', 'manager', 1, 'manager', 5)")
+	if _, err := db.Exec("INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'RUNNING', 1, 4)"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"task.draft", "task.queue"} {
+		r := call(t, mk("manager"), line(2, m, "d-"+m, 4))
+		if msg := errText(r[0]); msg != "task T4 is doing - only a queued task can be made draft" && msg != "task T4 is doing - only a draft task can be made queued" {
+			t.Fatalf("%s of a task with a request out: %v", m, r[0])
+		}
+	}
+	db.Exec("UPDATE agent_state SET current_task = 1 WHERE agent = 'worker'")                                                // it holds another open task: this one is asked but held back
+	db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(6, 'f', 'worker', 'manager', 1, 5)") // never approved, asked, held back
+	if msg := errText(call(t, mk("manager"), line(2, "task.queue", "h1", 6))[0]); msg != "task T6 is already queued" {
+		t.Fatalf("asked but held back reads queued: %q", msg)
+	}
+	db.Exec("UPDATE tasks SET discarded_by = 'manager', discarded_at = 3 WHERE id = 2")
+	if msg := errText(call(t, mk("manager"), line(2, "task.draft", "x1", 2))[0]); msg != "task T2 is discarded - only a queued task can be made draft" {
+		t.Fatalf("a discarded task: %q", msg)
+	}
+	nf := call(t, mk("manager"), line(2, "task.queue", "n1", 99))[0]["error"].(map[string]any)
+	if nf["data"].(map[string]any)["what"] != "task" {
+		t.Fatalf("an unknown task is not_found: %v", nf)
+	}
+	db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(5, 'e', 'worker', 'manager', 1)")
+	dup := call(t, mk("manager"), line(2, "task.queue", "u1", 5, 5))[0]["result"].(map[string]any)
+	if dup["said"] != "task T5 is queued (manager)" {
+		t.Fatalf("a repeated id queues once: %v", dup)
+	}
+}
+
+func errText(r map[string]any) string {
+	e, ok := r["error"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	s, _ := e["message"].(string)
+	return s
 }
