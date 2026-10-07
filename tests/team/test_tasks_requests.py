@@ -2506,6 +2506,45 @@ edges:
         con.close()
 
 
+def test_a_task_command_is_a_call_to_the_daemon(home: Path) -> None:
+    """`hl task` writes go through the daemon's methods (cli/client.py): made under the caller the daemon finds, a
+    refusal is the daemon's own words, and with no daemon nothing is done."""
+    from handline.cli import client as cli_client
+    from handline.daemon import client as dmn_client
+    _board_world(home)
+    con = db.connect()
+    try:
+        t = db.new_task(con, "the work", "worker", "manager")
+    finally:
+        con.close()
+    rc, out = _cli(["task", "memo", f"T{t}", "add", "a note"], as_agent="worker")
+    con = db.connect()
+    try:
+        memos = db.task_memos(con, t)
+        effects = con.execute("SELECT caller FROM write_effects WHERE method = 'task.memo.add'").fetchall()
+    finally:
+        con.close()
+    check("daemon call: the memo is made, under the agent that typed it, as a write the daemon keeps",
+          rc == 0 and [m["author"] for m in memos] == ["worker"] and [e["caller"] for e in effects] == ["worker"], out)
+    rc, out = _cli(["task", "memo", f"T{t}", "delete", "999"], as_agent="worker")
+    check("daemon call: a refusal prints the daemon's words and exits 1", rc == 1 and f"T{t} has no memo 999" in out, out)
+
+    def down():
+        raise dmn_client.DaemonDown("not here")
+    real = cli_client.connect
+    cli_client.connect = down
+    try:
+        rc, out = _cli(["task", "memo", f"T{t}", "add", "another"], as_agent="worker")
+    finally:
+        cli_client.connect = real
+    con = db.connect()
+    try:
+        n = len(db.task_memos(con, t))
+    finally:
+        con.close()
+    check("daemon call: with no daemon it says nothing was done, and nothing is", rc == 1 and "nothing done" in out and n == 1, out)
+
+
 def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> None:
     """Task #79: a task is T<n> wherever it is typed or printed, and a bare
     number is a request, so one typo cannot act on the wrong kind of thing.
@@ -9336,6 +9375,7 @@ def main() -> int:
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
         run(lambda: test_a_task_is_written_T_and_a_bare_number_is_never_a_task(
             Path(td) / 'taskref'))
+        run(lambda: test_a_task_command_is_a_call_to_the_daemon(Path(td) / 'taskcall'))
         run(lambda: test_a_withdraw_and_the_founders_decision_settle_to_one_outcome(
             Path(td) / 'hrrace'))
         run(lambda: test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(Path(td) / 'promptwait'))
