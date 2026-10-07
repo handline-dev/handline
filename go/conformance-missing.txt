@@ -60,7 +60,6 @@ ask
 push
 push.answer
 push.cancelled
-team.get
 schedules.list
 settings.get
 task.ask
