@@ -753,7 +753,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
-| `hr` | `hr.raised` (Proposal), `hr.settled` (Proposal) | `hr.list` |
+| `hr` | `hr.raised` ({proposal}), `hr.settled` ({proposal}) | `hr.list` |
 
 ## State words
 
