@@ -967,6 +967,23 @@ def test_a_chat_the_daemon_cannot_be_read_for_keeps_what_is_on_screen() -> None:
     check("chat: an unchanged version costs one limit=1 read and no page read", got is None and calls == [{"since": None, "limit": 1}], str(calls))
 
 
+def test_a_message_is_not_located_when_the_daemon_cannot_be_reached() -> None:
+    from types import SimpleNamespace
+    from unittest import mock
+    from handline.daemon import client
+    said = []
+    page = SimpleNamespace(agent="backend", everyone=False, _light=lambda rid: False,
+                           notify=lambda msg, **k: said.append(msg))
+    page._located = lambda rid: ChatPage._located(page, rid)
+
+    def down(*a, **k):
+        raise client.DaemonDown("gone")
+    with mock.patch.object(api, "call", down):
+        ChatPage.action_show_message(page, 7)
+    check("chat: a message is not found while the daemon is down, and the page says so",
+          len(said) == 1 and said[0].startswith("the message cannot be found"), str(said))
+
+
 def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
     from handline.ui.components.tasks_view import result_notes
     got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "has a child")], "discard")
@@ -5598,6 +5615,7 @@ async def _run_all() -> None:
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
     test_a_chat_the_daemon_cannot_be_read_for_keeps_what_is_on_screen()
+    test_a_message_is_not_located_when_the_daemon_cannot_be_reached()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft()
