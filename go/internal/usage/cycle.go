@@ -46,7 +46,9 @@ func (c Config) EndDate(home, acct string, now time.Time) string {
 		}
 		d, err := time.ParseInLocation("2006-01-02", s, time.Local)
 		if err != nil {
-			return ""
+			if d, err = time.ParseInLocation("20060102", s, time.Local); err != nil {
+				return ""
+			}
 		}
 		return d.Format("2006-01-02")
 	}

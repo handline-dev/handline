@@ -40,15 +40,21 @@ def _task(title: str, owner: str = "worker", by: str = "manager") -> int:
 
 def _seed_accounts(home: Path, con, now: int) -> None:
     """Three accounts: a measured one with a label, a cap and a typed end, one with a carried legacy-shaped window, one with no reading."""
+    os.environ["TZ"] = "Asia/Seoul"     # both daemons read a zoneless start as local time; a zone away from UTC tells them apart
+    time.tzset()
     acc = home / "accounts"
-    for name in ("alpha", "beta", "gamma"):
+    for name in ("alpha", "beta", "gamma", "delta", "epsilon"):
         (acc / name).mkdir(parents=True, exist_ok=True)
     (acc / "alpha" / "status.json").write_text(json.dumps({"windows": [
         {"minutes": 10080, "used_percent": 41.2, "resets_at": now + 86400, "observed_at": now, "carried": False, "lost": False},
         {"minutes": 300, "used_percent": 12.0, "resets_at": now + 3600, "observed_at": now, "carried": False, "lost": False}]}))
     (acc / "beta" / "status.json").write_text(json.dumps({"pct_5h": 28.999999999999996, "reset_5h": now + 100, "rl_carried": 1, "pct_7d": None}))
+    # profiles: a zoned start, a zoneless one (read as local time) and a month-end one, each on a cycle with no typed end
+    for name, started in (("gamma", "2026-03-31T15:00:00"), ("delta", "2025-08-31T23:30:00.433836Z"), ("epsilon", "2024-01-31T00:00:00+09:00")):
+        (acc / name / ".claude").mkdir(parents=True, exist_ok=True)
+        (acc / name / ".claude" / ".claude.json").write_text(json.dumps({"oauthAccount": {"subscriptionCreatedAt": started}}))
     (home / "config.yaml").write_text("active_cap: 3\nactive_cap_alpha: 1\nlabel_alpha: Main\nmonth_cycle_alpha: true\n"
-                                      "sub_end_alpha: \"2099-01-31\"\nusage_recover_beta: false\nmonth_cycle_gamma: true\n")
+                                      "sub_end_alpha: \"2099-01-31\"\nusage_recover_beta: false\nmonth_cycle_gamma: true\nmonth_cycle_delta: true\nmonth_cycle_epsilon: true\n")
     con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'worker'")
     db.add_event(con, "manager", "moved_account", {"from": "beta", "to": "alpha", "trigger": "wall"})
     db.add_event(con, "worker", "moved_account", {"from": "alpha", "to": None})
