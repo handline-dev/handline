@@ -2199,7 +2199,14 @@ class ChatPage(JobsAware, Screen):
         except (client.DaemonDown, OSError) as e:
             self.notify(f"the message cannot be found: {e}", severity="error", timeout=6, markup=False)
             return
-        self.app.push_screen(HandoffModal(f"#{mid}  {m['from']} \u2192 {m['to']}", m["body"]))
+        if m.get("id", mid) == mid:
+            who, body = (m["from"], m["to"]), m["body"]
+        elif (m.get("answer") or {}).get("id") == mid:
+            who, body = (m["to"], m["from"]), m["answer"]["text"]
+        else:
+            self.notify(f"#{mid}: it is in this chat but cannot be drawn", severity="warning")
+            return
+        self.app.push_screen(HandoffModal(f"#{mid}  {who[0]} \u2192 {who[1]}", body))
 
     def action_open_task(self, tid: int) -> None:
         open_task_page(self.app, tid)

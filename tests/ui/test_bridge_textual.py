@@ -1514,6 +1514,15 @@ def test_the_page_reads_refs_the_strip_and_a_lone_message_from_the_daemon() -> N
         cp.ChatPage._show_alone(Stub(), 9)
         found = list(shown)
         notes.clear()
+        shown.clear()
+        api.call = lambda method, params=None: {"message": {"id": 3, "from": "c", "to": "d", "body": "q", "answer": {"id": 9, "text": "a"}}}
+        cp.ChatPage._show_alone(Stub(), 9)
+        answered = list(shown)
+        shown.clear()
+        api.call = lambda method, params=None: {"message": {"id": 3, "from": "c", "to": "d", "body": "q", "answer": None}}
+        cp.ChatPage._show_alone(Stub(), 9)
+        other = (list(shown), len(notes))
+        notes.clear()
 
         def down(method, params=None):
             raise client.DaemonDown("down")
@@ -1522,7 +1531,7 @@ def test_the_page_reads_refs_the_strip_and_a_lone_message_from_the_daemon() -> N
     finally:
         api.call, cp.HandoffModal = real, real_modal
     check("alone: a message locate found but no widget drew is shown, a down daemon is a toast",
-          found == [("#9  c \u2192 d", "found")] and len(notes) == 1 and "cannot be found" in notes[0], str((found, notes)))
+          found == [("#9  c \u2192 d", "found")] and answered == [("#9  d \u2192 c", "a")] and other == ([], 1) and len(notes) == 1 and "cannot be found" in notes[0], str((found, notes)))
     check("refs: a request is (number, from → to, first line)", refs[1] == [(7, "a → b", "hi")], str(refs))
     check("alone: a message no chat shows is drawn from locate's not_found, else there is none",
           first == ([("#7  a → b", "hi")], ["#8: there is no such message"]), str(first))
