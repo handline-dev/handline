@@ -1,0 +1,363 @@
+{
+ "account.login": {
+  "role": "founder"
+ },
+ "account.set": {
+  "role": "founder"
+ },
+ "account.set_cap": {
+  "role": "founder"
+ },
+ "accounts.list": {
+  "role": "agent"
+ },
+ "agent.create": {
+  "role": "founder"
+ },
+ "agent.fold": {
+  "role": "agent"
+ },
+ "agent.get": {
+  "role": "agent"
+ },
+ "agent.move": {
+  "role": "agent"
+ },
+ "agent.options": {
+  "role": "member"
+ },
+ "agent.set": {
+  "callers": [
+   "agent",
+   "founder"
+  ],
+  "role": "agent"
+ },
+ "agent.timeline": {
+  "role": "member"
+ },
+ "agent.triggers": {
+  "role": "agent"
+ },
+ "agents.list": {
+  "role": "agent"
+ },
+ "answer.add": {
+  "role": "founder"
+ },
+ "answer.remove": {
+  "role": "founder"
+ },
+ "answers.list": {
+  "role": "founder"
+ },
+ "ask": {
+  "role": "agent"
+ },
+ "chat.answer": {
+  "role": "member"
+ },
+ "chat.dismiss": {
+  "role": "member"
+ },
+ "chat.locate": {
+  "role": "member"
+ },
+ "chat.messages": {
+  "role": "member"
+ },
+ "chat.search": {
+  "role": "member"
+ },
+ "chat.send": {
+  "role": "member"
+ },
+ "chat.send_now": {
+  "role": "member"
+ },
+ "chat.transcript": {
+  "role": "member"
+ },
+ "chat.withdraw": {
+  "role": "agent"
+ },
+ "daemon.status": {
+  "role": "agent"
+ },
+ "device.pair": {
+  "role": "founder"
+ },
+ "device.redeem": {
+  "role": "anonymous"
+ },
+ "device.revoke": {
+  "role": "founder"
+ },
+ "devices.list": {
+  "role": "founder"
+ },
+ "events.feed": {
+  "role": "agent"
+ },
+ "hello": {
+  "role": "anonymous"
+ },
+ "hook.record": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
+ "hr.decide": {
+  "role": "founder"
+ },
+ "hr.list": {
+  "role": "agent"
+ },
+ "hr.propose": {
+  "role": "agent"
+ },
+ "hr.withdraw": {
+  "role": "agent"
+ },
+ "inbox.answer": {
+  "role": "member"
+ },
+ "inbox.get": {
+  "role": "agent"
+ },
+ "inbox.list": {
+  "role": "agent"
+ },
+ "inbox.mark_read": {
+  "role": "agent"
+ },
+ "inbox.reply": {
+  "role": "agent"
+ },
+ "input.ask": {
+  "role": "member"
+ },
+ "input.release": {
+  "role": "member"
+ },
+ "input.take": {
+  "role": "member"
+ },
+ "land": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
+ "land.authorize": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
+ "land.pass": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
+ "memory.status": {
+  "role": "agent"
+ },
+ "operation.get": {
+  "role": "member"
+ },
+ "prompt.answer": {
+  "role": "member"
+ },
+ "prompt.list": {
+  "role": "member"
+ },
+ "push": {
+  "role": "agent"
+ },
+ "push.answer": {
+  "role": "agent"
+ },
+ "push.cancelled": {
+  "role": "agent"
+ },
+ "repos.list": {
+  "role": "member"
+ },
+ "say": {
+  "role": "agent"
+ },
+ "schedule.add": {
+  "role": "founder"
+ },
+ "schedule.edit": {
+  "role": "founder"
+ },
+ "schedule.remove": {
+  "role": "founder"
+ },
+ "schedules.list": {
+  "role": "agent"
+ },
+ "session.input": {
+  "role": "member"
+ },
+ "session.interrupt": {
+  "role": "member"
+ },
+ "session.keys": {
+  "role": "member"
+ },
+ "session.park": {
+  "role": "agent"
+ },
+ "session.restart": {
+  "role": "agent"
+ },
+ "session.start": {
+  "role": "agent"
+ },
+ "session.stop": {
+  "role": "agent"
+ },
+ "session.type": {
+  "role": "member"
+ },
+ "session.wake": {
+  "role": "agent"
+ },
+ "settings.get": {
+  "role": "founder"
+ },
+ "settings.set": {
+  "role": "founder"
+ },
+ "settings.trust": {
+  "role": "founder"
+ },
+ "stats.get": {
+  "role": "member"
+ },
+ "stats.outlook": {
+  "role": "member"
+ },
+ "subscribe": {
+  "role": "agent"
+ },
+ "task.begin": {
+  "role": "agent"
+ },
+ "task.board": {
+  "role": "agent"
+ },
+ "task.cancel": {
+  "role": "member"
+ },
+ "task.discard": {
+  "role": "agent"
+ },
+ "task.done": {
+  "role": "agent"
+ },
+ "task.draft": {
+  "role": "agent"
+ },
+ "task.edit": {
+  "role": "agent"
+ },
+ "task.get": {
+  "role": "agent"
+ },
+ "task.handoff": {
+  "role": "agent"
+ },
+ "task.memo.add": {
+  "role": "agent"
+ },
+ "task.memo.delete": {
+  "role": "agent"
+ },
+ "task.memo.edit": {
+  "role": "agent"
+ },
+ "task.memo.list": {
+  "role": "agent"
+ },
+ "task.merge": {
+  "role": "agent"
+ },
+ "task.new": {
+  "role": "agent"
+ },
+ "task.progress": {
+  "callers": [
+   "agent"
+  ],
+  "role": "agent"
+ },
+ "task.queue": {
+  "role": "agent"
+ },
+ "task.release": {
+  "role": "agent"
+ },
+ "task.reopen": {
+  "role": "agent"
+ },
+ "task.start": {
+  "role": "agent"
+ },
+ "task.withdraw": {
+  "role": "agent"
+ },
+ "tasks.list": {
+  "role": "agent"
+ },
+ "team.get": {
+  "role": "agent"
+ },
+ "terminal.attach": {
+  "role": "member"
+ },
+ "terminal.close": {
+  "role": "member"
+ },
+ "terminal.detach": {
+  "role": "member"
+ },
+ "terminal.history": {
+  "role": "member"
+ },
+ "terminal.input": {
+  "role": "member"
+ },
+ "terminal.resize": {
+  "role": "member"
+ },
+ "trust.list": {
+  "role": "agent"
+ },
+ "trust.propose": {
+  "role": "agent"
+ },
+ "trust.remove": {
+  "role": "agent"
+ },
+ "unsubscribe": {
+  "role": "agent"
+ },
+ "whoami": {
+  "role": "agent"
+ },
+ "worktree.diff": {
+  "role": "member"
+ },
+ "worktree.set_status": {
+  "role": "member"
+ },
+ "worktrees.list": {
+  "role": "member"
+ }
+}

@@ -1,0 +1,389 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.send_now.no_such_request",
+   "spec": "chat.send_now",
+   "about": "NOT_YET_IN_PYTHON: A request the daemon does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send_now",
+      "params": {
+       "request": 999999999,
+       "request_id": "conf-g-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now.request_is_an_integer",
+   "spec": "chat.send_now",
+   "about": "NOT_YET_IN_PYTHON: A request that is not an integer is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send_now",
+      "params": {
+       "request": "1",
+       "request_id": "conf-g-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "request"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now.needs_a_request_id",
+   "spec": "chat.send_now",
+   "about": "NOT_YET_IN_PYTHON: A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send_now",
+      "params": {
+       "request": 1
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now.an_agent_session_is_refused_by_role",
+   "spec": "chat.send_now",
+   "about": "NOT_YET_IN_PYTHON: It is a person's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send_now",
+      "params": {
+       "request": 1,
+       "request_id": "conf-g-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.edit.priority_is_one_to_three",
+   "spec": "task.edit",
+   "about": "NOT_YET_IN_PYTHON: A priority other than 1, 2 or 3 is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.edit",
+      "params": {
+       "task": 1,
+       "priority": 4,
+       "request_id": "conf-g-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "priority"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.outlook.range_is_a_known_span",
+   "spec": "stats.outlook",
+   "about": "NOT_YET_IN_PYTHON: A range the spec does not list is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.outlook",
+      "params": {
+       "range": "1y"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "range"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.outlook.the_shape",
+   "spec": "stats.outlook",
+   "about": "NOT_YET_IN_PYTHON: The outlook states its range and keeps what was recorded apart from what is guessed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.outlook",
+      "params": {
+       "range": "7d"
+      }
+     },
+     "result": {
+      "range": "7d",
+      "now": {
+       "$type": "timestamp"
+      },
+      "accounts": {
+       "$type": "integer"
+      },
+      "past": {
+       "$type": "array"
+      },
+      "future": {
+       "$type": "array"
+      },
+      "runway": {
+       "$type": "array"
+      },
+      "cost_per_day": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.outlook.an_agent_session_is_refused_by_role",
+   "spec": "stats.outlook",
+   "about": "NOT_YET_IN_PYTHON: A call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.outlook",
+      "params": {
+       "range": "7d"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prompt.answer.choice_may_be_an_array_of_keys",
+   "spec": "prompt.answer",
+   "about": "NOT_YET_IN_PYTHON: An array of keys passes the choice check (it answers a multi prompt); an array of anything else is bad_request naming choice.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prompt.answer",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-g-5",
+       "prompt": "p",
+       "choice": [
+        "1",
+        "2"
+       ]
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prompt.answer",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "conf-g-6",
+       "prompt": "p",
+       "choice": [
+        1
+       ]
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "choice"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

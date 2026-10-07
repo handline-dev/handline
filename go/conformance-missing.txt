@@ -28,7 +28,6 @@ session.type
 session.wake
 settings.set
 settings.trust
-subscribe
 task.cancel
 task.edit
 task.new
@@ -37,8 +36,8 @@ terminal.attach
 terminal.close
 terminal.detach
 terminal.history
+terminal.input
 terminal.resize
-unsubscribe
 worktree.diff
 worktree.set_status
 worktrees.list
@@ -46,9 +45,11 @@ device.pair
 device.redeem
 device.revoke
 devices.list
+chat.send_now
 chat.messages
 chat.transcript
 chat.locate
 chat.search
+stats.outlook
 hr.list
 chat.requests
