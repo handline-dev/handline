@@ -421,7 +421,7 @@ def say(target: str, body: str, requester: str | None = None,
     settles the request it answers (`_close_replied`) - otherwise the table
     only ever grows.
 
-    `within(con, message)` is more to write in the transaction that writes the reply and settles the request
+    `within(con, message, request id)` is more to write in the transaction that writes the reply and settles the request
     it answers.
     """
     settled: list = []
@@ -430,7 +430,7 @@ def say(target: str, body: str, requester: str | None = None,
         if parent_id is not None:
             settled.append(_close_replied(con, parent_id, rid, body))
         if within:
-            within(con, note)
+            within(con, note, rid)
     ok, msg, rid = ask(target, body, requester=requester, parent_id=parent_id,
                       kind=SAY_KIND,
                       speaker=speaker, notify=notify, within=together if parent_id is not None or within else None)
@@ -592,9 +592,10 @@ def inbox(agent: str, unread_only: bool = True) -> list[dict]:
 
 
 def withdraw(rid: int, requester: str | None = None,
-             reason: str | None = None) -> tuple[bool, str]:
+             reason: str | None = None, effect=None) -> tuple[bool, str]:
     """Take back your own request before it has been delivered (request #189).
-    `reason` is stored as the row's verdict, as typed.
+    `reason` is stored as the row's verdict, as typed. `effect(con, message)` is the daemon's record of it, made in the
+    transaction of the withdrawal.
 
     Once delivered, a reply in its thread is the only way to change it.
     """
@@ -622,18 +623,29 @@ def withdraw(rid: int, requester: str | None = None,
         # reason here was drawn as the target's own answer, in the founder's
         # name on their own screen (#1348).
         verdict = f"withdrawn: {reason}" if reason else None
-        if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
-            # `db.is_still_queued` alone would not tell the two failures
-            # here apart: `retire_if_undelivered`'s own race - a delivery
-            # landing between the read above and this write, the one its
-            # docstring exists to close - leaves the row queued too.
-            return False, too_late
+        said = f"request #{rid} to {row['target']} withdrawn"
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if not db.retire_if_undelivered(con, rid, "withdrawn", verdict):
+                # `db.is_still_queued` alone would not tell the two failures
+                # here apart: `retire_if_undelivered`'s own race - a delivery
+                # landing between the read above and this write, the one its
+                # docstring exists to close - leaves the row queued too.
+                con.execute("ROLLBACK")
+                return False, too_late
+            db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
+                                                       "reason": reason})
+            if effect:
+                effect(con, said)
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
         p = _inbox(row["target"]) / f"{rid:06d}.json"
         if p.exists():
             p.unlink()
-        db.add_event(con, requester, "withdraw", {"request_id": rid, "target": row["target"],
-                                                   "reason": reason})
-        return True, f"request #{rid} to {row['target']} withdrawn"
+        return True, said
     finally:
         con.close()
 

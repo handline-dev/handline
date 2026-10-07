@@ -37,6 +37,7 @@ from . import (  # noqa: F401 - importing a module registers its methods; one pe
     rpc_answers,
     rpc_chat,
     rpc_chat_now,
+    rpc_chatwrites,
     rpc_hooks,
     rpc_inbox,
     rpc_inbox_get,

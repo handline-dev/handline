@@ -47,6 +47,10 @@ terminal.resize
 worktree.diff
 worktree.set_status
 worktrees.list
+chat.send
+chat.answer
+chat.dismiss
+chat.withdraw
 task.done
 task.reopen
 task.discard
