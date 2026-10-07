@@ -927,7 +927,7 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
         con.execute("UPDATE tasks SET discarded_by = 'human' WHERE id = ?", (closed,))
         con.execute("UPDATE tasks SET created_at = created_at - 5000 WHERE id = ?", (a,))
         con.commit()
-        rows = cp.tasks_of(con, "backend")
+        rows = cp.tasks_of("backend")
         check("tasks: what it owns or opened, not others', not discarded",
               sorted(r[0] for r in rows) == sorted([a, b, c]), str([r[0] for r in rows]))
         check("tasks: the role is owns or opened",
@@ -936,7 +936,7 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
               {r[0]: r[4] for r in rows} == {a: "orcapipe", b: "zed", c: "orcapipe"})
         actions.chat_reply(con, "reviewer", "touch")
         db.link_request(con, a, actions.chat_parent(con, "reviewer"))
-        newer = {r[0]: r[5] for r in cp.tasks_of(con, "backend")}
+        newer = {r[0]: r[5] for r in cp.tasks_of("backend")}
         check("tasks: a linked request is a change to the task", newer[a] > {r[0]: r[5] for r in rows}[a])
     finally:
         con.close()
@@ -988,21 +988,21 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         ok, _, rid = askmod.ask("reviewer", "work on it", requester=actions.HUMAN)
         db.link_request(con, doing, rid)
         con.commit()
-        can = {tid: cp.task_detail(con, tid)["can_discard"] for tid in (mine, theirs, done, doing)}
+        can = {tid: cp.task_detail(tid)["can_discard"] for tid in (mine, theirs, done, doing)}
         check("discard: offered on any waiting or doing task, whoever asked for it, not on one done",
               can == {mine: True, theirs: True, done: False, doing: True}, str(can))
         check("discard: the doing task is the one with a request queued",
-              ok and cp.task_detail(con, doing)["state"] == "doing")
+              ok and cp.task_detail(doing)["state"] == "doing")
         ok, said = actions.discard_task(con, mine, actions.HUMAN, "not needed")
         check("discard: the button's action discards it", ok, said)
-        check("discard: and a discarded task is not offered again", not cp.task_detail(con, mine)["can_discard"])
+        check("discard: and a discarded task is not offered again", not cp.task_detail(mine)["can_discard"])
         ok, said = actions.discard_task(con, doing, actions.HUMAN, "stop")
         check("discard: a doing task is refused without stop, its request still open", not ok and "request open" in said, said)
         ok, said = actions.discard_task(con, doing, actions.HUMAN, "changed my mind", stop=True)
         req = db.get_request(con, rid)
         check("discard: with stop the request is cancelled and the task discarded",
               ok and req["state"] == "withdrawn"      # never delivered: withdrawn, nobody is told
-              and cp.task_detail(con, doing)["state"] == "discarded", f"{said} / {dict(req)}")
+              and cp.task_detail(doing)["state"] == "discarded", f"{said} / {dict(req)}")
         other = db.new_task(con, "asked by an agent", "reviewer", "orcapipe")
         _, _, rid2 = askmod.ask("reviewer", "work", requester="orcapipe")
         db.link_request(con, other, rid2)
@@ -1023,7 +1023,7 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         db.set_current_task(con, "reviewer", None)      # the earlier tasks of this test held it
         ok, said, begun = actions.task_begin(con, "reviewer", "retry", chat, "the founder asked")
         check("discard: a task begun on a founder message is doing with no request open", ok and
-              cp.task_detail(con, begun)["state"] == "doing", said)
+              cp.task_detail(begun)["state"] == "doing", said)
         ok, said = actions.discard_task(con, begun, actions.HUMAN, "no", stop=True)
         told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
                            (f"T{begun} discarded%stop work%",)).fetchall()
@@ -1032,7 +1032,7 @@ def test_the_task_page_offers_discard_only_on_the_founders_waiting_task() -> Non
         given = db.new_task(con, "handed to the founder", actions.HUMAN, "reviewer")
         other_given = db.new_task(con, "someone else's, an agent's", "backend", "reviewer")
         check("discard T660: offered on a task assigned to the founder and on an agent's own",
-              cp.task_detail(con, given)["can_discard"] and cp.task_detail(con, other_given)["can_discard"])
+              cp.task_detail(given)["can_discard"] and cp.task_detail(other_given)["can_discard"])
         ok, said = actions.discard_task(con, given, actions.HUMAN, "not needed")
         told = con.execute("SELECT body FROM requests WHERE target = 'reviewer' AND body LIKE ?",
                            (f"T{given} discarded by the founder: not needed",)).fetchall()
@@ -2748,7 +2748,7 @@ async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> No
         body = app.screen._body()
         check("switch task: the first task is read", body.d is not None and body.d["id"] == a)
         depth = len(app.screen_stack)
-        cp.task_detail = lambda con, tid: (time.sleep(1.0), real(con, tid))[1]
+        cp.task_detail = lambda tid: (time.sleep(1.0), real(tid))[1]
         try:
             body.show(b)
             check("switch task: at once the page holds no task", body.d is None and body.tid == b)
@@ -2769,26 +2769,25 @@ async def test_switching_tasks_blanks_the_page_until_the_new_one_is_read() -> No
 async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
     """The handoff of one task is ~60 ms and more; it is made off the event loop and its answer is toasted."""
     import threading
-    from handline.ui.chat_page import TaskDetail
+    from handline.ui.chat_page import TaskBody, TaskDetail
     from handline.ui.components.task_assign import TaskAssign
     _home("pageassign")
     agents.register("reviewer")
     ok, _, tid = actions.task_new("product", "backend", "One", "the work and its done")
     on, toasts, gate = {}, [], threading.Event()
 
-    def spy(con, t, to, text):
-        on["thread"], on["to"], on["calls"] = threading.get_ident(), to, on.get("calls", 0) + 1
+    def spy(method, params):
+        on["thread"], on["to"], on["calls"] = threading.get_ident(), params["to"], on.get("calls", 0) + 1
         gate.wait(30)           # the handoff ends when the test says so, not after a wait a loaded run can outlast
         return True, "handed"
-    real = actions.assign_task
-    actions.assign_task = spy
+    real = api.write
+    api.write = spy
     app = bt.BridgeApp()
     try:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app.push_screen(TaskDetail(tid))
-            await _until(pilot, lambda: isinstance(app.screen, TaskDetail))
-            await pilot.pause()
+            await _until(pilot, lambda: isinstance(app.screen, TaskDetail) and any(b.d is not None for b in app.screen.query(TaskBody)))
             await pilot.press("a")
             await _until(pilot, lambda: isinstance(app.screen, TaskAssign))
             for ch in "ok":
@@ -2815,7 +2814,7 @@ async def test_assigning_from_a_tasks_page_hands_off_on_a_thread() -> None:
             check("task page assign: ... and its answer is toasted",
                   any("handed" in str(n.message) for n in app._notifications), str(list(app._notifications)))
     finally:
-        actions.assign_task = real
+        api.write = real
 
 
 async def test_a_second_assign_answered_before_the_first_worker_starts_is_refused() -> None:
@@ -3893,10 +3892,10 @@ async def test_the_task_page_edits_the_task_text_and_shows_a_refusal() -> None:
         db.link_request(con, linked, older)
         con.commit()
         check("edit text: the page draws the brief the edit changes, not an older request linked later",
-              cp.task_detail(con, linked)["brief"] == "the opener's own brief", str(cp.task_detail(con, linked)["brief"]))
+              cp.task_detail(linked)["brief"] == "the opener's own brief", str(cp.task_detail(linked)["brief"]))
         actions.edit_task(con, linked, actions.HUMAN, body="Linked\nrewritten")
-        check("edit text: and after the edit the page shows it", cp.task_detail(con, linked)["brief"] == "rewritten",
-              str(cp.task_detail(con, linked)["brief"]))
+        check("edit text: and after the edit the page shows it", cp.task_detail(linked)["brief"] == "rewritten",
+              str(cp.task_detail(linked)["brief"]))
     finally:
         con.close()
     app = BridgeApp()
@@ -4908,7 +4907,7 @@ def test_a_task_page_shows_every_line_of_a_multi_line_task() -> None:
         rid = db.add_request(con, actions.HUMAN, "reviewer", body, None, None, "fire_and_forget", "task", 0, None)
         db.link_request(con, t, rid)
         con.commit()
-        d = cp.task_detail(con, t)
+        d = cp.task_detail(t)
     finally:
         con.close()
     lines = cp.task_page(d)["brief"].plain.split("\n")
@@ -5068,9 +5067,9 @@ def test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_i
         done = db.new_task(con, "done", "backend", actions.HUMAN)
         con.execute("UPDATE tasks SET done_evidence = 'x', done_at = 1 WHERE id = ?", (done,))
         con.commit()
-        can = {tid: cp.task_detail(con, tid)["can_done"] for tid in (mine, theirs, done)}
+        can = {tid: cp.task_detail(tid)["can_done"] for tid in (mine, theirs, done)}
         check("done: the page offers it on a draft, whoever owns it, not on one already done",
-              can == {mine: True, theirs: True, done: False} and cp.task_detail(con, mine)["state"] == "draft", str(can))
+              can == {mine: True, theirs: True, done: False} and cp.task_detail(mine)["state"] == "draft", str(can))
         ok, said = actions.mark_task_done(con, theirs, "reviewer", reason="x")
         check("done: an agent that neither owns the draft nor is the target of a request on it is refused",
               not ok and "can only be marked done" in said, said)
@@ -5309,7 +5308,7 @@ def test_a_late_answer_still_counts_as_new_everywhere() -> None:
               str(db.task_last_activity(con, tid)))
         row = next((r for r in actions.task_rows(con) if r["id"] == tid), None)
         check("late answer: and so is the board's batch reading of it", row is not None and row["last_activity"] == late)
-        check("late answer: and the chat's own task list", [x for x in cp.tasks_of(con, "reviewer") if x[0] == tid][0][5] == late)
+        check("late answer: and the chat's own task list", [x for x in cp.tasks_of("reviewer") if x[0] == tid][0][5] == late)
     finally:
         con.close()
 

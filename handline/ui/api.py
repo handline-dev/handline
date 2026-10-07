@@ -5,6 +5,7 @@ serves a socketpair in its place."""
 from __future__ import annotations
 
 import socket
+import uuid
 from datetime import datetime, timezone
 
 from ..daemon import client
@@ -20,6 +21,16 @@ def connect() -> socket.socket:
 def call(method: str, params: dict | None = None) -> dict:
     """The result of `method`. client.DaemonDown when the daemon is not there, client.RpcError when it refuses."""
     return client.call(connect(), method, params, CLIENT, sessiontoken.founder_key_held())
+
+
+def write(method: str, params: dict) -> tuple[bool, str]:
+    """A write the human makes: (accepted, what the daemon said). A refusal and a daemon that is not there are said, not raised."""
+    try:
+        return True, call(method, {**params, "request_id": uuid.uuid4().hex})["said"]
+    except client.RpcError as e:
+        return False, str(e)
+    except (client.DaemonDown, OSError) as e:
+        return False, f"the daemon cannot be reached: {e}"
 
 
 def epoch(ts: str | None) -> int | None:

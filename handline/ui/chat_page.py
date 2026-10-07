@@ -236,59 +236,85 @@ def mid_of(m: dict) -> int:
     return m.get("mid") or m["rid"]
 
 
-def tasks_of(con, agent: str) -> list[tuple]:
+def tasks_of(agent: str) -> list[tuple]:
     """The tasks not yet done or discarded that `agent` owns or opened, as (id,
     role, state, title, the other party, last update). A task it opened for
-    itself is owned. The last update is the latest of its creation, edit, done
-    and discard, and the newest time on any request linked to it."""
-    rows = con.execute(
-        f"SELECT * FROM tasks WHERE {db.OPEN_SQL} AND (owner = ? OR opened_by = ?) ORDER BY id",
-        (agent, agent)).fetchall()
-    touched = {r[0]: r[1] for r in con.execute(
-        f"SELECT l.task_id, MAX(COALESCE(MAX(r.ts), 0), COALESCE(MAX({db.touched_sql('r')}), 0)) "
-        "FROM task_requests l JOIN requests r ON r.id = l.request_id "
-        f"WHERE l.task_id IN (SELECT id FROM tasks WHERE {db.OPEN_SQL} AND "
-        "(owner = ? OR opened_by = ?)) GROUP BY l.task_id", (agent, agent))}
-    out = []
-    for t in rows:
-        own = t["owner"] == agent
-        updated = max(t["created_at"] or 0, t["edited_at"] or 0, t["done_at"] or 0,
-                      t["discarded_at"] or 0, touched.get(t["id"], 0))
-        out.append((t["id"], "owns" if own else "opened", actions.task_state(con, t),
-                    t["title"], t["opened_by"] if own else t["owner"], updated))
+    itself is owned. The last update is `last_activity` (`tasks.list`)."""
+    seen: dict[int, dict] = {}
+    for key in ("owner", "from"):
+        before = None
+        while True:
+            got = api.call("tasks.list", {key: agent, "limit": 200, **({"before": before} if before else {})})
+            seen.update((t["id"], t) for t in got["items"])
+            if not got["more"] or not got["items"]:
+                break
+            before = min(t["id"] for t in got["items"])
+    return [(t["id"], "owns" if t["to"] == agent else "opened", t["state"], t["title"],
+             t["from"] if t["to"] == agent else t["to"], api.epoch(t["last_activity"]) or 0)
+            for t in sorted(seen.values(), key=lambda t: t["id"])]
+
+
+def task_detail(tid: int) -> dict | None:
+    """A task as what its page shows (`task.get`): its own fields, the sub-tasks and
+    requests tied to it, and which of reopen and discard the human may do now.
+    None when there is no such task."""
+    try:
+        t = api.call("task.get", {"task": tid})
+    except client.RpcError as e:
+        if e.code == "not_found":
+            return None
+        raise
+    state = t["state"]
+    brief = (t["body"] or "").strip()      # the one `edit_task` edits
+    if brief.split("\n", 1)[0].strip() == t["title"].strip():
+        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
+    open_ = state in ("draft", "queued", "doing")
+    gone = t["discarded"]
+    held = dict.fromkeys([t["from"], *(n for h in t["handoffs"] for n in (h["from"], h["to"]))])
+    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["to"],
+            "opened_by": t["from"], "created_at": api.epoch(t["created"]),
+            "parent": (t["parent"], t["parent_title"]) if t["parent"] else None,
+            "done": (t["evidence"], api.epoch(t["done"])) if t["evidence"] else None,
+            "discarded": (gone["by"], gone["reason"], api.epoch(gone["at"])) if gone else None,
+            "merged_into": t["merged_into"],
+            "brief_text": (t["body"] or "") if t["deliveries"] else None,
+            "timeout": clock_of(t["time"], state),
+            "children": [(k["id"], k["title"], k["state"]) for k in t["subtasks"]],
+            "timeline": [entry_of(e) for e in t["timeline"]],
+            "asker": t["asker"],
+            "can_done": open_, "can_reopen": state == "done" and t["asker"] == actions.HUMAN,
+            "can_discard": open_, "can_assign": open_,
+            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
+            "assignees": [a for a in held if a != actions.HUMAN and a != t["to"]],
+            "people": (t["people"]["recent"], t["people"]["team"], t["people"]["others"])}
+
+
+REQUEST_ENTRY = re.compile(r"(#\d+)  (\S+)  (.*)", re.S)
+
+
+def entry_of(e: dict) -> dict:
+    """A `task.get` timeline entry as `timeline_text` draws it. A request's text is "#<id>  <state>  <first line>"."""
+    at = api.epoch(e["at"])
+    out = {"ts": at, "at": at, "who": e["who"], "kind": e["kind"], "text": e["text"], "memo": e["memo"],
+           "edited_at": api.epoch(e["edited_at"])}
+    got = REQUEST_ENTRY.fullmatch(e["text"]) if e["kind"] == "request" else None
+    if e["kind"] == "request":
+        out.update(zip(("ref", "state", "summary"), got.groups() if got else ("", "", e["text"])))
     return out
 
 
-def task_detail(con, tid: int) -> dict | None:
-    """A task as what its page shows: its own fields, the sub-tasks and
-    requests tied to it, and which of reopen and discard the human may do now.
-    None when there is no such task."""
-    t = db.get_task(con, tid)
-    if t is None:
+def clock_of(c: dict | None, state: str) -> dict | None:
+    """A task's time box as `actions.timeout_lines` reads it, from the daemon's `time` and this clock."""
+    if c is None:
         return None
-    state = actions.task_state(con, t)
-    mine = actions.task_asker(con, t) == actions.HUMAN
-    kids = [(c["id"], c["title"], actions.task_state(con, c)) for c in
-            con.execute("SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", (tid,)).fetchall()]
-    parent = db.get_task(con, t["parent_task"]) if t["parent_task"] else None
-    brief = ((db.first_linked_request(con, tid) or {"body": ""})["body"] or "").strip()      # the one `edit_task` edits
-    if brief.split("\n", 1)[0].strip() == t["title"].strip():
-        brief = brief.split("\n", 1)[1].strip("\n") if "\n" in brief else ""      # the title is drawn above
-    return {"id": tid, "title": t["title"], "brief": brief, "state": state, "owner": t["owner"],
-            "opened_by": t["opened_by"], "created_at": t["created_at"],
-            "parent": (t["parent_task"], parent["title"]) if parent else None,
-            "done": (t["done_evidence"], t["done_at"]) if t["done_evidence"] else None,
-            "discarded": (t["discarded_by"], t["discard_reason"], t["discarded_at"]) if t["discarded_by"] else None,
-            "merged_into": t["merged_into"],
-            "brief_text": actions.task_brief(con, tid),
-            "timeout": None if state in ("done", "discarded") else actions.task_timeout(con, t, state),
-            "children": kids, "timeline": actions.task_timeline(con, tid), "asker": actions.task_asker(con, t),
-            "can_done": state in ("draft", "queued", "doing"),
-            "can_reopen": state == "done" and mine,
-            "can_discard": state in ("draft", "queued", "doing"),
-            "can_assign": state in ("draft", "queued", "doing"),
-            "can_queue": state in ("draft", "queued"),      # one button: Queue on a draft, Draft on a queued task
-            "people": actions.question_targets(t["owner"], paths.list_agents(), actions.recent_chatted(con))}
+    now = time.time()
+    out = {"length": c["length_s"], "default": c["default"], "state": "length", "start": api.epoch(c["start"]),
+           "end": api.epoch(c["end"]), "told": c["told"], "left": None, "over": None}
+    if out["start"] is not None and c["overdue_since"] is not None:
+        out.update(state="over", over=max(0, int(now - api.epoch(c["overdue_since"]))))
+    elif out["start"] is not None:
+        out.update(state="left", left=max(0, int(out["end"] - now)))
+    return out
 
 
 def send_reply(con, agent: str, rid: int | None, body: str) -> tuple[bool, str]:
@@ -883,7 +909,7 @@ def refs_of(con, agent: str) -> tuple[list[tuple], list[tuple]]:
     reqs = con.execute(
         f"SELECT id, requester, target, body FROM requests WHERE state NOT IN {_GONE} AND "
         "(requester = ? OR target = ?) ORDER BY id DESC LIMIT 30", (agent, agent)).fetchall()
-    return tasks_of(con, agent), [
+    return tasks_of(agent), [
         (r["id"], f"{r['requester']} → {r['target']}",
          textsafe.oneline((r["body"] or "").strip().splitlines()[0] if (r["body"] or "").strip() else "")[:60])
         for r in reqs]
@@ -1025,13 +1051,8 @@ class TaskActions:
             log_action(f"task {ref} assign to {to}")
 
             def write() -> tuple[bool, str]:
-                with stall.timed(f"assign {ref}: db.connect"):
-                    con = db.connect()
-                try:
-                    with stall.timed(f"assign {ref}: actions.assign_task"):
-                        return actions.assign_task(con, self.tid, to, text)
-                finally:
-                    con.close()
+                with stall.timed(f"assign {ref}: task.handoff"):
+                    return api.write("task.handoff", {"task": self.tid, "to": to, "note": textsafe.oneline(text).strip()})
 
             async def assign() -> None:
                 try:
@@ -1047,13 +1068,7 @@ class TaskActions:
             except Exception:
                 self.write_guard.release()
                 raise
-        with stall.timed(f"assign {ref}: db.connect"):
-            con = db.connect()
-        try:
-            with stall.timed(f"assign {ref}: actions.recent_assignees"):
-                recent = actions.recent_assignees(con, self.tid)
-        finally:
-            con.close()
+        recent = self.d["assignees"]
         with stall.timed(f"assign {ref}: paths.list_agents"):
             agents_here = paths.list_agents()
         with stall.timed(f"assign {ref}: TaskAssign built and pushed"):
@@ -1067,11 +1082,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} done: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.mark_task_done(con, self.tid, actions.HUMAN, reason=reason.strip())
-                finally:
-                    con.close()
+                ok, said = api.write("task.done", {"task": self.tid, "evidence": reason.strip(), "reason": True})
                 self.report("done", ok, said)
         self.app.push_screen(TextPrompt("done - what came of it?"), answered)
 
@@ -1081,11 +1092,7 @@ class TaskActions:
             self.say("only a draft can be queued, and only a queued task drafted")
             return
         queue = self.d["state"] == "draft"
-        con = db.connect()
-        try:
-            ok, said = actions.set_queued(con, self.tid, actions.HUMAN, queue)
-        finally:
-            con.close()
+        ok, said = api.write("task.queue" if queue else "task.draft", {"tasks": [self.tid]})
         self.report("queue" if queue else "draft", ok, said)
 
     def action_reopen_task(self) -> None:
@@ -1096,11 +1103,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} reopen: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.reopen_task(con, self.tid, actions.HUMAN, reason)
-                finally:
-                    con.close()
+                ok, said = api.write("task.reopen", {"task": self.tid, "note": reason})
                 self.report("reopen", ok, said)
         self.app.push_screen(TextPrompt("reopen - why?"), answered)
 
@@ -1114,11 +1117,7 @@ class TaskActions:
         def answered(reason: str | None) -> None:
             log_action(f"task {actions.task_ref(self.tid)} discard: reason {'given' if reason and reason.strip() else 'not given'}")
             if reason and reason.strip():
-                con = db.connect()
-                try:
-                    ok, said = actions.discard_task(con, self.tid, actions.HUMAN, reason, stop=doing)
-                finally:
-                    con.close()
+                ok, said = api.write("task.cancel" if doing else "task.discard", {"task": self.tid, "reason": reason})
                 self.report("discard", ok, said)
         self.app.push_screen(TextPrompt("stop it and discard - why?" if doing else "discard - why?"), answered)
 
@@ -1227,11 +1226,11 @@ class TaskBody(TaskActions, Vertical):
         tid = self.tid
 
         def work() -> None:
-            con = db.connect()
             try:
-                d = task_detail(con, tid)
-            finally:
-                con.close()
+                d = task_detail(tid)
+            except (client.RpcError, client.DaemonDown, OSError) as e:
+                self.app.call_from_thread(self.say, f"the task cannot be read: {e}")
+                return
             if not get_current_worker().is_cancelled:
                 self.app.call_from_thread(self._arrived, tid, d, changed_only)
         self.run_worker(work, thread=True, exclusive=True, group="task_body", exit_on_error=False)
@@ -1325,9 +1324,9 @@ class TaskBody(TaskActions, Vertical):
         box.value = ""
         if to:
             log_action(f"task {actions.task_ref(self.tid)} ask {to}")
-            self.memo_call("question", lambda con: actions.ask_on_task(con, self.tid, str(to), text))
+            self.memo_call("question", lambda: api.write("task.ask", {"task": self.tid, "to": str(to), "text": text}))
         else:
-            self.memo_call("add", lambda con: actions.memo_add(con, self.tid, actions.HUMAN, text)[:2])
+            self.memo_call("add", lambda: api.write("task.memo.add", {"task": self.tid, "text": text}))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "t_memo_box":
@@ -1341,11 +1340,11 @@ class TaskBody(TaskActions, Vertical):
 
         def answered(text: str | None) -> None:
             if text is not None and text.strip():
-                self.memo_call("edit", lambda con: actions.memo_edit(con, mid, actions.HUMAN, text))
+                self.memo_call("edit", lambda: api.write("task.memo.edit", {"task": self.tid, "memo": mid, "text": text}))
         self.app.push_screen(TextPrompt("edit the memo", multi=True, initial=old), answered)
 
     def memo_delete(self, mid: int) -> None:
-        Confirm.ask(self.app, lambda: self.memo_call("delete", lambda con: actions.memo_delete(con, mid, actions.HUMAN)),
+        Confirm.ask(self.app, lambda: self.memo_call("delete", lambda: api.write("task.memo.delete", {"task": self.tid, "memo": mid})),
                     "Delete the memo", "It is removed from the task.", yes="Delete", danger=True)
 
     def action_edit_brief(self) -> None:
@@ -1355,22 +1354,12 @@ class TaskBody(TaskActions, Vertical):
         def answered(text: str | None) -> None:
             if text is None:
                 return
-            con = db.connect()
-            try:
-                ok, said = actions.edit_task(con, self.tid, actions.HUMAN, body=text)
-                if ok:
-                    actions.tell_body_edited(con, self.tid, actions.HUMAN)
-            finally:
-                con.close()
+            ok, said = api.write("task.edit", {"task": self.tid, "body": text})
             self.report("edit text", ok, said)
         self.app.push_screen(TextPrompt("edit the task's text", multi=True, initial=self.d["brief_text"]), answered)
 
     def memo_call(self, verb: str, call) -> None:
-        con = db.connect()
-        try:
-            ok, said = call(con)
-        finally:
-            con.close()
+        ok, said = call()
         self.report(f"memo {verb}", ok, said)
 
     @staticmethod
@@ -1423,11 +1412,11 @@ class TaskPane(TaskBody):
 
 def open_task_page(app, tid: int) -> None:
     """Open task `tid`'s page; a number that is no task says so instead of opening an empty page."""
-    con = db.connect()
     try:
-        known = db.get_task(con, tid) is not None
-    finally:
-        con.close()
+        known = task_detail(tid) is not None
+    except (client.RpcError, client.DaemonDown, OSError) as e:
+        app.notify(f"the task cannot be read: {e}", severity="error", timeout=6)
+        return
     if known:
         app.push_screen(TaskDetail(tid))
     else:
