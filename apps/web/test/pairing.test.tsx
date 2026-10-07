@@ -73,4 +73,23 @@ describe('pairing with the network listener', () => {
     expect([...storage.data.values()][0]).toMatch(/^hld_/);
     await until(() => box.querySelector('#app'), 'the frame');
   });
+
+  it('a stored token the listener no longer knows is dropped and the pairing screen says so', async () => {
+    const daemon = new FakeDaemon(); // knows no token: the hello is refused with gate unpaired
+    const url = 'ws://127.0.0.1:7443/rpc';
+    const open = async () => {
+      const [a, b] = memoryPair();
+      daemon.acceptNetwork(b);
+      return a;
+    };
+    const storage = memory();
+    storage.setItem(`token:${url}`, 'hld_revoked');
+    const box = document.createElement('div');
+    document.body.append(box);
+    root = createRoot(box);
+    await act(async () => root!.render(<Start url={url} insecure={false} storage={storage} open={open} />));
+    await until(() => box.querySelector('.pair-screen'), 'the pairing screen');
+    expect(box.querySelector('[role="status"]')?.textContent).toBe('This computer is no longer paired.');
+    expect(storage.getItem(`token:${url}`)).toBe('');
+  });
 });

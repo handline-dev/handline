@@ -20,7 +20,7 @@ With the Go gateway running (`127.0.0.1:7443`), from the repo root:
 
 It builds `apps/web` and starts the window on the gateway (`HANDLINE_GATEWAY=host:port` moves it). The first run shows "Pair this computer": in a terminal run `hl device pair` and paste the code, or the whole `handline://` line, into the window. The device token is kept in the window's storage, so the next launch goes straight in; `hl device list` shows it and `hl device revoke <id>` cancels it. The page is served on `127.0.0.1:17443` (`HANDLINE_WEB_PORT`) because the token is kept per page origin; the shell sets the page's `Origin` to the gateway's own for that one socket. The badge and notices still use the daemon's Unix socket.
 
-Not yet: a revoked device keeps showing a connection error instead of the pairing screen again.
+A device the gateway no longer knows (revoked, or a token from an older pairing) is dropped at the next launch and the window asks for a code again.
 
 Not in: an HR proposal notice (the contract has no event for it), a notice's click takes the page to the route of the event's target through `window.handline.onNavigate` (the card routes arrive with U9 and U10), a Windows badge (count only on Linux, none on Windows).
 

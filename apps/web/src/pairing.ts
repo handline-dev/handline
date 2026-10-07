@@ -1,4 +1,4 @@
-import { redeemPairing, webSocketTransport, type Transport } from '@handline/client';
+import { DaemonClient, RpcError, redeemPairing, webSocketTransport, type Transport } from '@handline/client';
 import type { KV } from '@handline/app-core';
 
 const key = (url: string) => `token:${url}`;
@@ -14,7 +14,7 @@ export const needsToken = (url: string): boolean => {
 
 export function loadToken(store: KV | null, url: string): string | null {
   try {
-    return store?.getItem(key(url)) ?? null;
+    return store?.getItem(key(url)) || null;
   } catch {
     return null;
   }
@@ -46,4 +46,25 @@ export async function pairWith(
     /* blocked: paired for this run only */
   }
   return token;
+}
+
+export function forgetToken(store: KV | null, url: string): void {
+  try {
+    store?.setItem(key(url), ''); // KV has no remove; loadToken reads an empty one as none
+  } catch {
+    /* blocked */
+  }
+}
+
+/** Whether the listener still knows this token: only its fixed `unpaired` refusal says no; a listener that cannot be reached says nothing. */
+export async function tokenRefused(url: string, token: string, open: (url: string) => Promise<Transport>): Promise<boolean> {
+  const c = new DaemonClient({ client: 'web-pc', token, connect: () => open(url) });
+  try {
+    await c.start();
+    return false;
+  } catch (e) {
+    return e instanceof RpcError && e.gate === 'unpaired';
+  } finally {
+    c.close();
+  }
 }
