@@ -3,7 +3,7 @@
 
 Starts a SCRATCH home (never the real one, never a credential): the Python daemon (`bin/hl daemon`) on a private tmux
 server with a fake `claude`, the Go gateway (`handlined -gateway`) on 127.0.0.1, and a world to read and write: two
-agents, a task, three requests waiting on the founder. It pairs a device on the gateway's own socket
+agents, a task, four requests waiting on the founder. It pairs a device on the gateway's own socket
 (device.pair with the scratch home's founder key), trades the code for a token over the websocket (device.redeem),
 reconnects with the token, calls each method the PC app uses with valid params, subscribes to the topics, attaches to a
 terminal for bytes, and checks the gateway refuses an unpaired connection and a revoked device.
@@ -299,8 +299,9 @@ con.execute("UPDATE requests SET landed_at = ts, state = 'landed' WHERE id = ?",
 ask1 = db.add_request(con, "worker", db.HUMAN, "may I? (inbox.answer)", None, "subordinate", "async", "ask", 0, None)
 ask2 = db.add_request(con, "worker", db.HUMAN, "may I? (chat.answer)", None, "subordinate", "async", "ask", 0, None)
 ask3 = db.add_request(con, "worker", db.HUMAN, "may I? (inbox.reply)", None, "subordinate", "async", "ask", 0, None)
+ask4 = db.add_request(con, "worker", db.HUMAN, "may I? (the inbox topic)", None, "subordinate", "async", "ask", 0, None)
 con.close()
-print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, "ask_reply": ask3}))
+print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, "ask_reply": ask3, "ask_topic": ask4}))
 ''' % (str(ROOT), str(self.home), str(repo))
         r = subprocess.run([sys.executable, "-c", code], env=self.env, capture_output=True, text=True, timeout=120)
         if r.returncode:
@@ -580,7 +581,7 @@ def scratch_run(args) -> int:
         triggers = {
             "chat": lambda: ws.call("chat.send", {"agent": s.agent, "body": "smoke: topic chat", "request_id": s.rid()}),
             "tasks": lambda: ws.call("task.memo.add", {"task": world.seed["task"], "text": "topic tasks", "request_id": s.rid()}),
-            "inbox": lambda: ws.call("inbox.answer", {"id": world.seed["ask_reply"], "text": "topic inbox", "request_id": s.rid()}),
+            "inbox": lambda: ws.call("inbox.answer", {"id": world.seed["ask_topic"], "text": "topic inbox", "request_id": s.rid()}),
             "agents": lambda: ws.call("session.wake", {"agent": s.agent, "request_id": s.rid()}),
         }
         run_topics(s, triggers)
