@@ -4,6 +4,7 @@ import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
 import type { Account, InboxItem, Memo, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
 import { edit, provisionalId, upsert, type Ctx } from './cache.ts';
 import { accountAfter, type AccountChange } from './account-after.ts';
+import { accountRemove } from './account-remove.ts';
 import { chatWrites } from './chat-writes.ts';
 import { qk } from './reads.ts';
 import type { WriteSpec } from './write-spec.ts';
@@ -345,7 +346,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'chat.cancel': 'take back',
     'chat.seen': 'mark seen',
     'account.login': 'log in',
-    'account.remove': 'remove',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
     'worktree.set_status': 'set status',
@@ -355,6 +355,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
 );
 
 export const writes: Record<string, WriteSpec> = {
+  'account.remove': accountRemove,
   ...chatWrites,
   ...tasks,
   ...settings,

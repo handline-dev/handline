@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useServes, useWrite } from '@handline/app-data';
+import { AccountRemove } from './AccountRemove.tsx';
 import { Field, Icon, Switch } from './ui/index.ts';
 
 export function AccountSettings({ account: a }: { account: Account }) {
@@ -69,6 +70,7 @@ export function AccountSettings({ account: a }: { account: Account }) {
           end !== (a.cycle.end_is_default ? '' : (a.cycle.end ?? '')) && save.mutate({ account: a.name, cycle_end: end || null })
         }
       />
+      <AccountRemove account={a} />
       {pending ? (
         <p className="ui-note" role="status">
           <Icon name="sending" size={14} />
