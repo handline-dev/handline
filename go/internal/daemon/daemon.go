@@ -14,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
+	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/reads"
@@ -23,6 +24,9 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/version"
 )
+
+// daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
+const daemonLock = "daemon"
 
 type Config struct {
 	Home       string
@@ -47,6 +51,10 @@ type Config struct {
 	Native      []string // methods served here rather than relayed, besides hello, whoami and the device methods
 	WebDir      string   // the built web UI the listener serves on its own origin; empty serves none
 	Advertise   string   // the host:port a pairing code names, when it differs from where the listener binds
+
+	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. It takes the daemon singleton the
+	// Python daemon holds, so it does not start beside one; without it the rows are the other daemon's and are only read.
+	OwnPrompts bool
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -55,6 +63,7 @@ type Daemon struct {
 	db      *sql.DB
 	hooks   *hooks.Recorder
 	prompts *prompts.Env  // nil on a gateway: the Python daemon alone presses keys
+	single  *lock.Hold    // the daemon singleton, held while this daemon watches screens
 	stop    chan struct{} // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
@@ -110,6 +119,12 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.pidFile = pid
 	}
+	if cfg.OwnPrompts && d.prompts != nil {
+		if d.single = lock.TakeSingleton(cfg.Home, daemonLock); d.single == nil {
+			db.Close()
+			return nil, errors.New("another daemon holds this home: not starting a second screen watch")
+		}
+	}
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
 	}
@@ -120,6 +135,9 @@ func Start(cfg Config) (*Daemon, error) {
 		if err != nil {
 			db.Close()
 			d.pidFile.remove()
+			if d.single != nil {
+				d.single.Release()
+			}
 			return nil, err
 		}
 		d.ln = ln
@@ -138,7 +156,7 @@ func Start(cfg Config) (*Daemon, error) {
 		d.wg.Add(1)
 		go d.spoolLoop()
 	}
-	if d.prompts != nil {
+	if d.single != nil {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
@@ -311,6 +329,9 @@ func (d *Daemon) Close() {
 	}
 	d.wg.Wait()
 	d.pidFile.remove()
+	if d.single != nil {
+		d.single.Release()
+	}
 	if d.db != nil {
 		d.db.Close()
 	}
