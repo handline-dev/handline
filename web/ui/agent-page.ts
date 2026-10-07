@@ -16,7 +16,7 @@ import {
   type PaneLayout,
   type StopMode,
 } from '@handline/app-core';
-import type { Store } from '@handline/app-core';
+import type { Store } from '../legacy/store.ts';
 import { TerminalPane } from './terminal-pane.ts';
 
 const CHIPS: [string, string][] = [

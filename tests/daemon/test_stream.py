@@ -257,6 +257,41 @@ def test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_befo
     con.close()
 
 
+def test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_answered(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)
+    rid = db.add_request(con, "backend", "human", "may I?", None, None, "async", "ask", 0, None)
+    watcher.scan(con)
+    added = [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]
+    check("inbox: an ask to the founder arrives as inbox.added", [e["type"] for e in added] == ["inbox.added"] and added[0]["data"]["answered"] is False, str(added))
+    ok, msg = actions.answer_ok(con, rid, "yes")
+    watcher.scan(con)
+    got = [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]
+    check("inbox: answering it is inbox.changed, the item answered and read, said once",
+          ok and [e["type"] for e in got] == ["inbox.added", "inbox.changed"] and got[1]["data"]["answered"] is True and got[1]["data"]["read"] is True
+          and got[1]["agent"] == "backend", f"{msg} {got}")
+    watcher.scan(con)
+    check("inbox: and not again", len([e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]) == 2)
+    # what leaves the list is not always an answer: a say seen, an ask dismissed
+    say = db.add_request(con, "backend", "human", "fyi", None, None, "fire_and_forget", "say", 0, None, state="landed")
+    con.execute("UPDATE requests SET landed_at = ts WHERE id = ?", (say,))
+    ask = db.add_request(con, "backend", "human", "may I again?", None, None, "async", "ask", 0, None)
+    con.commit()
+    watcher.scan(con)
+    actions.for_you_seen(con, "backend", 10 ** 9)
+    ok, msg = actions.dismiss(con, ask, "human", "not now")
+    con.execute("UPDATE requests SET read_at = ? WHERE id = ?", (int(time.time()), say))
+    con.commit()
+    watcher.scan(con)
+    left = {e["data"]["id"]: e["data"] for e in stream.since(con, 0, ["inbox"]) if e["type"] == "inbox.changed" and e["data"]["id"] in (say, ask)}
+    check("inbox: a dismissed ask is read, not answered", ok and left.get(ask, {}).get("answered") is False and left[ask]["read"] is True, f"{msg} {left}")
+    check("inbox: a say that was seen is read, not answered", left.get(say, {}).get("answered") is False, str(left))
+    con.close()
+
+
 def test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(home: Path) -> None:
     support._daemon_home(home, 20)
     stream.HUB.subs.clear()
@@ -531,6 +566,7 @@ def main() -> int:
         run(lambda: test_the_notification_detectors_say_what_happened_once_and_not_what_came_before(Path(td) / "s7"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "ti"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "s7b"))
+        run(lambda: test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_answered(Path(td) / "s7d"))
         run(lambda: test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(Path(td) / "s7c"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))

@@ -229,6 +229,15 @@ def test_send_under_a_message_answers_it_or_says_under_it(home: Path) -> None:
     new = r["result"]["request"]
     check("chat.send with parent: otherwise a say to the agent under that message", new != mine and (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"])
           == (db.HUMAN, "worker", mine), str(r))
+    fyi = _add("worker", db.HUMAN, "the build is green")
+    con = db.connect()
+    con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (fyi,))
+    con.commit()
+    con.close()
+    r = _call("chat.send", {"agent": "worker", "body": "thanks", "parent": fyi, "request_id": "p4"})
+    new = r["result"]["request"]
+    check("chat.send with parent: a landed say to the person is not answered, a say goes under it", new != fyi and _row(fyi)["state"] == "landed"
+          and (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"]) == (db.HUMAN, "worker", fyi), str(r))
     side = _add("manager", "worker", "between two agents")
     n = _count("SELECT COUNT(*) FROM requests")
     for params, code in (({"parent": 999}, "not_found"), ({"parent": "1"}, "bad_request"), ({"parent": True}, "bad_request"), ({"parent": mine, "task": {"title": "t"}}, "bad_request"),

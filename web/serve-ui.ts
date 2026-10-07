@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const WEB = path.dirname(fileURLToPath(import.meta.url));
 const ROOTS: Record<string, string> = {
   '/ui/': path.join(WEB, 'ui'),
+  '/legacy/': path.join(WEB, 'legacy'),
   '/src/': path.join(WEB, '..', 'packages', 'client', 'src'),
   '/app-core/': path.join(WEB, '..', 'packages', 'app-core', 'src'),
   '/tokens/': path.join(WEB, '..', 'packages', 'tokens', 'src'),

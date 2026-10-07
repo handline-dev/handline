@@ -103,6 +103,19 @@ def refresh(con, now: int | None = None, log=lambda m: None) -> None:
         con.execute("DELETE FROM agent_view WHERE agent = ?", (gone,))
 
 
+def refresh_one(con, name: str, log=lambda m: None) -> None:
+    """Store a fresh view for one agent now, for a caller that has just changed what it is made of (the sweep recording a gone session) and
+    would otherwise leave the stored view a whole tick behind. A view that cannot be worked out keeps the last one."""
+    try:
+        view = json.dumps(compute(con, name, None, actions.routing()), sort_keys=True)
+    except Exception as e:  # noqa: BLE001 - the tick's refresh tries again
+        log(f"  agent view: {name}: {type(e).__name__}: {e}")
+        return
+    con.execute("INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, ?) "
+                "ON CONFLICT(agent) DO UPDATE SET view = excluded.view, updated = excluded.updated WHERE view != excluded.view",
+                (name, view, int(time.time())))
+
+
 def stored(con, name: str) -> dict | None:
     row = con.execute("SELECT view FROM agent_view WHERE agent = ?", (name,)).fetchone()
     return json.loads(row["view"]) if row else None

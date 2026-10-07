@@ -93,7 +93,7 @@ def _send(ctx, params) -> dict:
 
 
 def _waits_on_person(row) -> bool:
-    return row["target"] == db.HUMAN or actions._is_answer_to_human(row)
+    return (row["target"] == db.HUMAN and row["state"] == "queued") or actions._is_answer_to_human(row)
 
 
 def _send_under(ctx, params, agent: str, parent: int, body: str) -> dict:

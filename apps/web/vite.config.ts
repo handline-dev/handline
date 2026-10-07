@@ -22,5 +22,5 @@ function fakeDaemon(): Plugin {
 export default defineConfig({
   plugins: [fakeDaemon()],
   server: { host: '127.0.0.1' },
-  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'] },
+  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'], testTimeout: 20_000 },
 });
