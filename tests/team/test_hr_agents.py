@@ -4117,6 +4117,147 @@ def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Pat
         con.close()
 
 
+def _approve(pid: str) -> tuple[bool, str]:
+    """The founder approving `pid` as it reads now."""
+    was = os.environ.pop("OCP_AGENT", None)
+    try:
+        return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
+    finally:
+        if was is not None:
+            os.environ["OCP_AGENT"] = was
+
+
+def _new_props(seen: set[str]) -> list[dict]:
+    got = [p for p in hr.listing() if p["id"] not in seen and p.get("state") == "proposed"]
+    seen |= {p["id"] for p in got}
+    return got
+
+
+def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(home: Path) -> None:
+    """What only the founder's terminal may do (agent.yaml, config.yaml) is, from an agent's session, a
+    proposal the founder approves - one change, or several as one diff - and nothing changes before."""
+    from handline.actions import schedule as schedmod
+    from handline.daemon import devmode, schedules
+    from handline.session import autoaccept
+    os.environ["OCP_HOME"] = str(home)
+    os.environ.pop("OCP_AGENT", None)
+    agents.register("worker", repo=str(home))
+    _daemon_home(home, 20)
+    hand_edit_team("agents:\n  worker: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
+    seen: set[str] = set()
+
+    rc, out = _cli(["schedule", "add", "--agent", "worker", "--cron", "0 9 * * 1-5", "--message", "standup"],
+                   as_agent="worker")
+    check("schedule: from an agent, without a reason, nothing is raised", rc == 1 and not _new_props(seen), out)
+    rc, out = _cli(["schedule", "add", "--agent", "worker", "--cron", "0 9 * * 1-5", "--message", "standup",
+                    "--why", "a daily nudge"], as_agent="worker")
+    props = _new_props(seen)
+    check("schedule: with a reason it is a schedule proposal and nothing is written yet",
+          rc == 0 and [p["kind"] for p in props] == ["schedule"] and not schedules.load("worker"), out)
+    card = hr.card(props[0])["text"]
+    check("schedule: the card says when, in words", schedmod.schedule_words("0 9 * * 1-5") in card
+          and "standup" in card, card)
+    ok, said = _approve(props[0]["id"])
+    check("schedule: approved, it is written", ok and schedules.load("worker") == [{"cron": "0 9 * * 1-5",
+                                                                                     "message": "standup"}], said)
+    rc, out = _cli(["schedule", "add", "--agent", "worker", "--cron", "not a cron", "--message", "x", "--why", "y"],
+                   as_agent="worker")
+    check("schedule: a bad cron is refused when it is raised", rc == 1 and not _new_props(seen), out)
+    rc, out = _cli(["schedule", "remove", "--agent", "worker", "--index", "1", "--why", "done with it"],
+                   as_agent="worker")
+    props = _new_props(seen)
+    check("schedule: a remove is a proposal too", rc == 0 and [p["kind"] for p in props] == ["schedule"], out)
+    ok, said = _approve(props[0]["id"])
+    check("schedule: approved, it is removed", ok and schedules.load("worker") == [], said)
+
+    before = autoaccept.enabled()
+    rc, out = _cli(["auto-accept", "off" if before else "on", "--why", "dialogs pile up"], as_agent="worker")
+    props = _new_props(seen)
+    check("global: an agent setting a global switch raises a global proposal and changes nothing",
+          rc == 0 and [(p["kind"], p["agent"]) for p in props] == [("global", "auto-accept")]
+          and autoaccept.enabled() == before, out)
+    ok, said = _approve(props[0]["id"])
+    check("global: approved, the switch is set", ok and autoaccept.enabled() != before, said)
+    ok, said = hr.propose("global", "dev-mode", "worker", "x", sets={"value": "maybe"})
+    check("global: a value the switch does not take is refused", not ok and "on or off" in said, said)
+    ok, said = hr.propose("global", "shell", "worker", "x", sets={"value": "on"})
+    check("global: only the listed switches can be asked for", not ok and "not a global switch" in said, said)
+
+    rc, out = _cli(["agent", "register", "helper", "--repo", str(home), "--chrome", "on", "--why", "reads the docs"],
+                   as_agent="worker")
+    props = _new_props(seen)
+    check("register: a new agent with the browser on is one diff, the agent and its setting, nothing written",
+          rc == 0 and [p["kind"] for p in props] == ["bundle"] and "helper" not in paths.list_agents(), out)
+    ok, said = _approve(props[0]["id"])
+    check("register: approved, the agent exists with the browser on",
+          ok and "helper" in paths.list_agents() and agents.chrome(agents.read("helper")), said)
+    rc, out = _cli(["agent", "register", "worker", "--skip-permissions", "on", "--why", "long unattended runs"],
+                   as_agent="worker")
+    props = _new_props(seen)
+    check("register: an existing agent's privileged flag is a settings proposal",
+          rc == 0 and [p["kind"] for p in props] == ["settings"]
+          and not agents.skip_permissions(agents.read("worker")), out)
+    mcp = home / "mcp.json"
+    mcp.write_text('{"mcpServers": {}}')
+    rc, out = _cli(["agent", "register", "worker", "--mcp-config", str(mcp), "--why", "x"], as_agent="worker")
+    check("register: its own MCP servers are still the founder's, and nothing is raised",
+          rc == 1 and not _new_props(seen), out)
+
+    diff = home / "diff.yaml"
+    diff.write_text("changes:\n"
+                    "  - kind: schedule\n    name: worker\n    sets:\n      action: add\n"
+                    "      cron: \"*/30 * * * *\"\n      message: check the queue\n"
+                    "  - kind: global\n    name: dev-mode\n    sets:\n      value: \"on\"\n")
+    rc, out = _cli(["hr", "diff", "--file", str(diff), "--why", "set up the night shift"], as_agent="worker")
+    props = _new_props(seen)
+    check("batch: several changes under one reason are one proposal",
+          rc == 0 and [p["kind"] for p in props] == ["bundle"], out)
+    ok, said = _approve(props[0]["id"])
+    check("batch: one approval applies them all",
+          ok and schedules.load("worker")[-1]["message"] == "check the queue" and devmode.dev_mode_enabled(), said)
+
+    for why in ("one", "two"):
+        _cli(["schedule", "add", "--agent", "worker", "--cron", "0 8 * * *", "--message", why, "--why", why],
+             as_agent="worker")
+    pending = [c["id"] for c in hr.pending()]
+    told = []
+    real_say = askmod.say
+    askmod.say = lambda to, text, requester=None, **kw: (told.append((to, text)), (True, "", None))[1]
+    try:
+        rc, out = _cli(["hr", "reject", "--all", "--reason", "not tonight"], as_agent="human")
+    finally:
+        askmod.say = real_say
+    check("batch: the founder rejects every waiting proposal at once",
+          rc == 0 and len(pending) >= 2 and not hr.pending() and len(schedules.load("worker")) == 1,
+          f"rc={rc} {out} pending={pending} left={hr.pending()}")
+    check("batch: and each proposer is told once", [t for t, _ in told] == ["worker"], str(told))
+    rc, out = _cli(["hr", "reject", "--all"], as_agent="worker")
+    check("batch: an agent cannot reject", rc == 1, out)
+
+    for m in ("two", "three"):
+        schedmod.schedule_add("worker", "0 7 * * *", m)
+    diff.write_text("changes:\n"
+                    "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"1\"\n"
+                    "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"2\"\n")
+    rc, out = _cli(["hr", "diff", "--file", str(diff), "--why", "tidy up"], as_agent="worker")
+    props = _new_props(seen)
+    ok, said = _approve(props[0]["id"])
+    check("schedule: two removes by number remove exactly the two that were shown",
+          rc == 0 and ok and [s["message"] for s in schedules.load("worker")] == ["three"],
+          f"{out} {said} {schedules.load('worker')}")
+    schedmod.schedule_add("worker", "0 7 * * *", "four")
+    rc, out = _cli(["schedule", "remove", "--agent", "worker", "--index", "1", "--why", "done with it"],
+                   as_agent="worker")
+    props = _new_props(seen)
+    check("schedule: the card names the schedule by what it is", "three" in hr.card(props[0])["text"],
+          hr.card(props[0])["text"])
+    schedmod.schedule_remove("worker", 1)
+    schedmod.schedule_add("worker", "0 7 * * *", "five")
+    ok, said = _approve(props[0]["id"])
+    check("schedule: when what was shown has moved, the proposal is refused, not applied to another",
+          not ok and [s["message"] for s in schedules.load("worker")] == ["four", "five"], said)
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -4190,6 +4331,7 @@ def main() -> int:
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(Path(td) / 'ctxprop'))
         run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
+        run(lambda: test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(Path(td) / 'hrkinds'))
         run(lambda: test_hr_cli_lists_cards_and_only_the_founder_decides(Path(td) / 'hrcli'))
         run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(

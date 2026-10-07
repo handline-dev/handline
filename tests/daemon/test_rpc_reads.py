@@ -249,25 +249,43 @@ def test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_
         sessiontoken.agent_of = real
 
 
-def test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_after_its_reply(home: Path) -> None:
-    import socket
-    from handline.daemon import rpc as rpcmod
+def test_what_a_call_asks_to_run_after_its_reply_runs_after_its_own_reply_and_no_other(home: Path) -> None:
     support._board_world(home)
-    a, b = socket.socketpair()
-    drain = threading.Thread(target=lambda: [None for _ in iter(lambda: a.recv(65536), b"")], daemon=True)
-    drain.start()       # whoami lists every method: more than a socketpair holds, so the peer reads while the replies go
-    conn = rpcmod.Connection(b, lambda m: None, lambda m, log, peer: {})
-    conn.said_hello = True
-    conn.caller = rpcmod.Caller(None, _hp()["key"])
+    from handline.daemon import rpc
+    import time as _t
     ran: list = []
-    conn.after_reply.append(lambda: ran.append("subscribe started"))     # what a subscribe in flight has queued
-    conn._answer({"jsonrpc": "2.0", "id": 1, "method": "whoami", "params": {}}, 1, own_thread=True)
-    check("framing: a call answered on its own thread runs nothing another call queued for after its reply", ran == [] and len(conn.after_reply) == 1, str(ran))
-    conn._answer({"jsonrpc": "2.0", "id": 2, "method": "whoami", "params": {}}, 2)
-    check("framing: the reading loop's own call still runs it, after its reply", ran == ["subscribe started"] and conn.after_reply == [], str(ran))
-    b.close()
-    drain.join()
-    a.close()
+    slow_in, release = threading.Event(), threading.Event()
+
+    def slow(ctx, params):
+        ctx.after_reply.append(lambda: ran.append("slow's"))
+        slow_in.set()
+        release.wait(10)
+        return {}
+
+    def quick(ctx, params):
+        ctx.after_reply.append(lambda: ran.append("quick's"))
+        return {}
+    rpc.METHODS["t.slow"], rpc.METHODS["t.quick"] = rpc.Method(slow, "anonymous"), rpc.Method(quick, "anonymous")
+    w = Wire()
+    try:
+        w.call("hello", _hp())
+        w.send({"jsonrpc": "2.0", "id": 1, "method": "t.slow"})
+        slow_in.wait(10)
+        first = w.call("t.quick", id=2)
+        check("framing: the quick call is answered while the slow one is held", first["id"] == 2 and "result" in first, str(first))
+        t0 = _t.time()
+        while not ran and _t.time() - t0 < 5:       # it runs just after the reply is sent, on the call's own thread
+            _t.sleep(0.01)
+        check("framing: and ran what it asked to run after its reply, not the slow call's", ran == ["quick's"], str(ran))
+        release.set()
+        second = w.read()
+        threading.Event().wait(0.05)
+        check("framing: the slow call's own is run after its own reply", second["id"] == 1 and ran == ["quick's", "slow's"], str((second, ran)))
+    finally:
+        release.set()
+        rpc.METHODS.pop("t.slow", None)
+        rpc.METHODS.pop("t.quick", None)
+        w.close()
 
 
 def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
@@ -290,7 +308,7 @@ def main() -> int:
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))
         run(lambda: test_a_waiting_call_does_not_hold_up_the_calls_behind_it_and_a_hang_up_ends_it(Path(td) / "r8"))
-        run(lambda: test_a_call_answered_on_its_own_thread_runs_nothing_another_call_queued_for_after_its_reply(Path(td) / "r9"))
+        run(lambda: test_what_a_call_asks_to_run_after_its_reply_runs_after_its_own_reply_and_no_other(Path(td) / "r9"))
         run(lambda: test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(Path(td) / "r6"))
     return run_area(tests)
 
