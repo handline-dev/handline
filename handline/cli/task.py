@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import shlex
 import sys
+import time
 from pathlib import Path
 
 from .. import actions
@@ -12,7 +13,6 @@ from ..team import ask as askmod
 from ..daemon import client as dmn_client
 from .. import db
 from . import client
-from ..session import handoff as handoffmod
 from ..infra import gitrun, names, paths
 from ..infra import textsafe
 
@@ -34,16 +34,9 @@ def cmd_progress(args) -> int:
             return 1
         print(textsafe.text(note or "no progress note"))
         return 0
-    con = db.connect()        # the write moves once task.progress takes no task (T2316)
-    try:
-        ok, said = handoffmod.set_progress(con, agent, args.note)
-        if ok:
-            print(f"progress on {said} kept; the handoff and the wake prompt carry it")
-        else:
-            print(said, file=sys.stderr)
-        return 0 if ok else 1
-    finally:
-        con.close()
+    ok, said = client.write("task.progress", {"note": args.note})
+    print(said, file=sys.stdout if ok else sys.stderr)
+    return 0 if ok else 1
 
 
 def _task_arg(text: str) -> int:
@@ -430,16 +423,55 @@ def _print_board(tasks: list[dict]) -> None:
                   f"{r['state']} {timefmt.stamp(client.epoch(r['at']), timefmt.DATE_TIME)}")
 
 
+def _clock(time_box: dict, now: float) -> dict:
+    """The wire's `time` as the dict actions.timeout_lines reads."""
+    start, end, over = (client.epoch(time_box[k]) for k in ("start", "end", "overdue_since"))
+    t = {"length": time_box["length_s"], "default": time_box["default"], "start": start, "end": end,
+         "told": time_box["told"], "state": "length", "left": None, "over": None}
+    if over is not None:
+        t.update(state="over", over=int(now - over))
+    elif end is not None:
+        t.update(state="left", left=int(end - now))
+    return t
+
+
+def _detail_lines(t: dict, now: float) -> list[str]:
+    """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
+    children and its handoffs, each note whole."""
+    out = [f"T{t['id']}  {t['title']}",
+           f"state {t['state']}   owner {t['to']}   opened by {t['from']}   P{t['priority']}"
+           + (f"   parent T{t['parent']}" if t["parent"] else "")
+           + f"   created {timefmt.stamp(client.epoch(t['created']))}"]
+    if t["time"] is not None:
+        out += actions.timeout_lines(_clock(t["time"], now))
+    if t["evidence"]:
+        out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
+    if t["discarded"]:
+        out.append(f"discarded by {t['discarded']['by']}: {t['discarded']['reason'] or 'no reason given'}")
+    out += ["", "brief", t["body"] or "(none)"]
+    if t["memos"]:
+        out += ["", "memos"]
+        out += [f"  memo {m['id']}  {m['author']}  {timefmt.stamp(client.epoch(m['at']))}\n    {m['text']}" for m in t["memos"]]
+    if t["blockers"]:
+        out += ["", "waiting on"] + [f"  T{b['task']} ({b['owner']})  {b['title']}" for b in t["blockers"]]
+    if t["subtasks"]:
+        out += ["", "child tasks"] + [f"  T{k['id']} ({k['owner']}, {k['state']})  {k['title']}" for k in t["subtasks"]]
+    if t["handoffs"]:
+        out += ["", "handoffs"]
+        out += [f"  {timefmt.stamp(client.epoch(h['at']))}  {h['from']} -> {h['to']}\n    {h['note']}" for h in t["handoffs"]]
+    return out
+
+
 def cmd_task_show(args) -> int:
-    con = db.connect()
     try:
-        lines = actions.task_detail(con, args.task)
-    finally:
-        con.close()
-    if lines is None:
-        print(f"no task T{args.task}")
+        t = client.call("task.get", {"task": args.task})
+    except dmn_client.RpcError as e:
+        print(e)
         return 1
-    print(textsafe.text("\n".join(lines)))     # titles, briefs and notes are other agents' text
+    except (dmn_client.DaemonDown, OSError) as e:
+        print(f"could not read T{args.task}: {e}")
+        return 1
+    print(textsafe.text("\n".join(_detail_lines(t, time.time()))))     # titles, briefs and notes are other agents' text
     return 0
 
 
