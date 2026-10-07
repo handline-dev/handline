@@ -2739,7 +2739,20 @@ def test_the_stored_view_agent_get_serves_follows_the_sweep_at_once(home: Path) 
         view = agentview.stored(con, "backend")
         check("view: right after the sweep recorded the session gone, the stored view no longer says running", view["state"] != "running", str(view))
         check("view: and it is the view a refresh would make", view == json.loads(json.dumps(agentview.compute(con, "backend", None, actions.routing()))), str(view))
+        # the terminal itself gone: the other branch of the sweep that records a gone session or terminal
+        db.clear_closed(con, "backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        check("view: setup - it reads running again", agentview.stored(con, "backend")["state"] == "running")
+        termmod.live_terminals = lambda: set()
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        view = agentview.stored(con, "backend")
+        check("view: a terminal the host no longer lists: the stored view no longer says running, and is a fresh compute",
+              view["state"] != "running" and view == json.loads(json.dumps(agentview.compute(con, "backend", None, actions.routing()))), str(view))
+        termmod.live_terminals = lambda: {"term_x"}
         # fail closed: a process table that could not be read changes nothing
+        db.set_terminal(con, "backend", "term_x", "wt")
         db.clear_closed(con, "backend")
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
         agentview.refresh(con)
