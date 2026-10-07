@@ -1,11 +1,4 @@
 # Fixtures the Go run cannot seed yet (they need a --var naming an agent in a given state). contract/conformance.py
 # --allow-needvar-file reads one per line. The Go task owns this file: delete a line when it supplies the var, so a listed
 # fixture that no longer needs one fails the run.
-agent.get.state_idle
-agent.get.state_no_terminal
-agent.get.state_parked
-agent.get.state_queued
-agent.get.state_running
-agent.get.state_stalled
-agent.get.state_waiting
 devices.revoke_closes_a_terminal_attach
