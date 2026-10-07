@@ -942,6 +942,24 @@ def test_the_tasks_of_an_agent_are_what_it_owns_or_opened() -> None:
         con.close()
 
 
+def test_a_chat_the_daemon_cannot_be_read_for_keeps_what_is_on_screen() -> None:
+    from types import SimpleNamespace
+    from unittest import mock
+    from handline.ui import chat_page as cp
+    from handline.daemon import client
+    page = SimpleNamespace(agent="backend", everyone=False, oldest=40, more=True, _sig=("v1", ()), _reveal=None, _focus=None, _unread_daemon=False,
+                           notify=lambda *a, **k: None)
+    page._read_requests = lambda *a, **k: ChatPage._read_requests(page, *a, **k)
+
+    def down(*a, **k):
+        raise client.DaemonDown("gone")
+    with mock.patch.object(cp, "read_requests", down):
+        got = ChatPage.read_if_changed(page, ())
+    check("chat: a failed read leaves the page as it is", got is None and (page.oldest, page.more, page._sig) == (40, True, ("v1", ())))
+    with mock.patch.object(cp, "read_requests", lambda *a, **k: ([], False, "v1")):
+        check("chat: an unchanged version reads nothing more", ChatPage.read_if_changed(page, ()) is None)
+
+
 def test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals() -> None:
     from handline.ui.components.tasks_view import result_notes
     got = result_notes([(14, True, "x"), (15, True, "y"), (16, False, "has a child")], "discard")
@@ -5573,6 +5591,7 @@ async def _run_all() -> None:
     test_a_verb_that_only_writes_the_record_runs_on_a_thread_not_a_process()
     test_the_tasks_of_an_agent_are_what_it_owns_or_opened()
     test_a_delivery_changes_the_chat_signature()
+    test_a_chat_the_daemon_cannot_be_read_for_keeps_what_is_on_screen()
     test_batch_results_are_one_toast_for_what_worked_and_one_for_the_refusals()
     test_the_task_page_offers_discard_only_on_the_founders_waiting_task()
     test_a_draft_is_marked_done_by_whoever_may_mark_it_done_and_the_event_says_it_was_a_draft()

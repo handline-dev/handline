@@ -1715,21 +1715,47 @@ class ChatPage(JobsAware, Screen):
         if not self.showing_tasks:
             self.refresh_conversation()
 
-    def _read_requests(self, before: int | None = None, since: int | None = None, want: int | None = None) -> tuple[list[dict], bool, str]:
-        """A page of this chat from the daemon: its items, whether older requests remain, and its version."""
+    def _read_requests(self, before: int | None = None, since: int | None = None, want: int | None = None,
+                       limit: int | None = None) -> tuple[list[dict], bool, str] | None:
+        """A page of this chat from the daemon: its items, whether older requests remain, and its version. None when the
+        daemon cannot be read: what is on screen then stays."""
         try:
-            got = read_requests(self.agent, self.everyone, before, since, want)
+            got = read_requests(self.agent, self.everyone, before, since, want, limit)
         except (client.RpcError, client.DaemonDown, OSError) as e:
             if not self._unread_daemon:     # said once, not on every refresh
                 self._unread_daemon = True
                 self.notify(f"the chat cannot be read: {e}", severity="error")
-            return [], False, "unread"
+            return None
         self._unread_daemon = False
         return got
 
+    def read_if_changed(self, hr: tuple, force: bool = False) -> tuple[list[dict], str] | None:
+        """The items to draw and the chat's version, or None to leave the screen as it is: the daemon cannot be read, or the
+        version (one item read) and the pending HR cards are what `_sig` has. Sets `oldest` and `more` only on a read."""
+        if self.oldest is not None and not force and self._sig is not None:
+            peek = self._read_requests(limit=1)
+            if peek is None or (peek[2], hr) == self._sig:
+                return None
+        if self.oldest is None:
+            # Opened on a message: page back until it is on screen.
+            want = self._reveal[1] if self._reveal else self._focus[0] if self._focus else None
+            got = self._read_requests(want=want)
+            if got is None:
+                return None
+            items, more, version = got
+            self.more = more
+        else:
+            got = self._read_requests(since=self.oldest)
+            if got is None:
+                return None
+            items, _, version = got
+        if (version, hr) == self._sig and not force:
+            return None
+        return items, version
+
     def refresh_conversation(self, force: bool = False) -> None:
-        """Bring what is on screen up to date. Unchanged, this is one small
-        count; changed, it re-reads only the requests already on screen and
+        """Bring what is on screen up to date. Unchanged, this is one
+        one-item read for the chat's version; changed, it re-reads only the requests already on screen and
         anything newer, never the whole history.
 
         `_sig` is forced dirty by the agent's word flipping between RUNNING
@@ -1741,16 +1767,11 @@ class ChatPage(JobsAware, Screen):
         there (founder #1975/T309): moving it while someone has scrolled up
         to read older messages would yank the page out from under them."""
         hr = tuple((p["id"], p["state"]) for p in hr_card.pending())
-        if self.oldest is None:
-            # Opened on a message: page back until it is on screen.
-            want = self._reveal[1] if self._reveal else self._focus[0] if self._focus else None
-            items, self.more, version = self._read_requests(want=want)
-        else:
-            items, _, version = self._read_requests(since=self.oldest)
-        sig = (version, hr)
-        if sig == self._sig and not force:
+        read = self.read_if_changed(hr, force)
+        if read is None:
             return
-        self._sig = sig
+        items, version = read
+        self._sig = (version, hr)
         asks = [i["message"] for i in items if i["type"] == "request"]
         self.oldest = min((m["id"] for m in asks), default=None)
         msgs = messages_of(items, self.agent)
@@ -1864,7 +1885,10 @@ class ChatPage(JobsAware, Screen):
         put it above, leaving the view where it was."""
         if not self.more or self.oldest is None:
             return
-        items, self.more, _ = self._read_requests(before=self.oldest)
+        got = self._read_requests(before=self.oldest)
+        if got is None:
+            return
+        items, self.more, _ = got
         ids = [i["message"]["id"] for i in items if i["type"] == "request"]
         if not ids:
             return
