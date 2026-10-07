@@ -653,11 +653,11 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
         check("reply: the agent's question is asked", ok)
-        ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
+        ok1, _ = cp.send_reply("reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
               ok1 and after["state"] == "landed" and db.shown_verdict(after) == "yes", str(dict(after)))
-        ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
+        ok2, _ = cp.send_reply("reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
               ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
@@ -666,17 +666,17 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (mine,))
         db.add_answer(con, mine, "fine")
         con.commit()
-        ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
+        ok4, _ = cp.send_reply("reviewer", mine, "thanks, now ship it")
         check("reply: an answer to the human's own request is marked read, as the mailbox does",
               ok3 and ok4 and db.answer_row_of(con, mine)["delivered_at"], str(dict(db.get_request(con, mine))))
         _, _, theirs = askmod.ask("reviewer", "status again?", requester=actions.HUMAN)
-        ok5, _ = cp.send_reply(con, "backend", theirs, "and the date?")
+        ok5, _ = cp.send_reply(next(m for m in cp.messages_of(_items("reviewer"), "backend") if m["rid"] == theirs)["agent"], theirs, "and the date?")
         kid5 = db.get_request(con, theirs + 1)
         check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
               ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
-        check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
+        check("reply: a blank reply is refused", cp.send_reply("reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
-              cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
+              cp.send_reply("reviewer", 99999, "x")[0] is False)
     finally:
         con.close()
 
@@ -744,7 +744,7 @@ def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
         con.commit()
         msgs = cp.messages_of(_items("reviewer", True), "reviewer")
         check("all chat: a message from another agent is replyable", msgs and all(m["replyable"] for m in msgs), str(msgs))
-        cp.send_reply(con, "reviewer", rid, "a word from the founder")
+        cp.send_reply(next(m for m in msgs if m["rid"] == rid)["agent"], rid, "a word from the founder")
         kid = db.get_request(con, rid + 1)
         check("all chat: a reply to it goes to its speaker, under it",
               kid["target"] == "backend" and kid["parent_id"] == rid, str(dict(kid)))
@@ -1391,6 +1391,96 @@ def test_a_delivery_changes_the_chat_signature() -> None:
         con.close()
 
 
+def test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down() -> None:
+    """chat.cancel on a delivered message is refused with gate confirm and its plan: the page asks, then calls again."""
+    from handline.daemon import client
+    from handline.ui import chat_page as cp
+    real = api.call
+
+    def gated(method, params):
+        raise client.RpcError({"message": "refused", "data": {"code": "refused", "gate": "confirm", "plan": "the agent is told to stop"}})
+
+    def down(method, params):
+        raise client.DaemonDown("gone")
+    try:
+        api.call = gated
+        check("cancel: the confirm gate returns the plan to ask with", api.write_asking("chat.cancel", {"request": 1}) == ("confirm", "the agent is told to stop"))
+        api.call = down
+        state, said = api.write_asking("chat.cancel", {"request": 1})
+        check("cancel: a daemon that is down is a refusal that says so", state == "refused" and "cannot be reached" in said, said)
+    finally:
+        api.call = real
+    asked = []
+
+    class Stub:
+        is_attached = True
+        app = None
+        _cancel = lambda self, rid, body, confirm: asked.append((rid, confirm))
+    import handline.ui.chat_page as page
+    ran = []
+    real_ask = page.Confirm.ask
+    page.Confirm.ask = staticmethod(lambda app, yes_fn, *a, **kw: ran.append(yes_fn))
+    try:
+        cp.ChatPage._cancel_answered(Stub(), 7, "b", "confirm", "plan text")
+    finally:
+        page.Confirm.ask = real_ask
+    ran[0]()
+    check("cancel: a confirm is asked first, and its yes cancels with confirm", asked == [(7, True)], str(asked))
+
+
+def test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request() -> None:
+    """The page's own writes: a reply in All chat goes to the message's agent, send-now and cancel name the request,
+    and a confirmed cancel carries confirm."""
+    from handline.ui import chat_page as cp
+    calls = []
+
+    class Stub:
+        agent = "reviewer"
+        is_attached = True
+        sending = 0
+        pending = []
+        history = []
+        hist_pos = history_mode = None
+        _send_lock = __import__("threading").Lock()
+        app = type("A", (), {"call_from_thread": staticmethod(lambda fn, *a: fn(*a))})()
+        run_worker = lambda self, fn, **kw: fn()
+        sent = lambda self, ok, said, body, rec: calls.append(("sent", ok))
+        _sent_now = lambda self, ok, said: calls.append(("sent_now", ok))
+        _cancel_answered = lambda self, rid, body, state, said: calls.append(("cancelled", state))
+        _spin = lambda self: None
+        query_one = lambda self, sel, *a: type("P", (), {"mount": lambda s, w: None, "scroll_end": lambda s, **k: None})()
+    real_call, real_reply = api.call, cp.send_reply
+    api.call = lambda method, params=None: calls.append((method, {k: v for k, v in params.items() if k != "request_id"})) or {"said": "ok"}
+    cp.send_reply = lambda agent, rid, body: calls.append(("reply", agent, rid)) or (True, "sent")
+    try:
+        cp.ChatPage.send_now(Stub(), 4)
+        cp.ChatPage._cancel(Stub(), 5, "b", False)
+        cp.ChatPage._cancel(Stub(), 5, "b", True)
+        cp.ChatPage.start_send(Stub(), "hi", 6, typed=False, agent="backend")
+    finally:
+        api.call, cp.send_reply = real_call, real_reply
+    check("page calls: send now names the request", ("chat.send_now", {"request": 4}) in calls, str(calls))
+    check("page calls: a first cancel carries no confirm, a confirmed one does",
+          ("chat.cancel", {"request": 5}) in calls and ("chat.cancel", {"request": 5, "confirm": True}) in calls, str(calls))
+    check("page calls: a reply goes to the message's agent, not the page's", ("reply", "backend", 6) in calls, str(calls))
+
+
+def test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to() -> None:
+    """on_text_box_send hands start_send the replied-to message's agent, which is not the page's."""
+    from handline.ui import chat_page as cp
+    sent = []
+    box = type("B", (), {"text": "yes"})()
+
+    class Stub:
+        agent = "reviewer"
+        replying = type("R", (), {"m": {"agent": "backend", "rid": 9}})()
+        _highlighted = lambda self: None
+        query_one = lambda self, sel, *a: box
+        start_send = lambda self, body, rid, **kw: sent.append((body, rid, kw.get("agent")))
+    cp.ChatPage.on_text_box_send(Stub(), type("E", (), {"stop": lambda self: None})())
+    check("reply in all chat: the message's agent is passed to start_send", sent == [("yes", 9, "backend")], str(sent))
+
+
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
     from handline.ui import chat_page as cp
@@ -1406,8 +1496,8 @@ def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
         query_one = lambda self, *a: type("B", (), {"text": "x"})()
 
     s = Stub()
-    cp.ChatPage._sent_now(s, "not sent - busy")
-    cp.ChatPage._sent_now(s, "sent")
+    cp.ChatPage._sent_now(s, False, "not sent - busy")
+    cp.ChatPage._sent_now(s, True, "sent")
     cp.ChatPage._cancelled(s, "not cancelled - gone", "b")
     cp.ChatPage._cancelled(s, "cancelled", "b")
     check("toast: refusals are errors, successes information",
@@ -4749,8 +4839,26 @@ async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() ->
                   [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [late])
         finally:
             con.close()
-        page.refresh_conversation(force=True)
-        await pilot.pause()
+        from handline.daemon import client
+        real_call = api.call
+        seen_calls = []
+
+        def counting(method, params=None):
+            if method != "chat.seen":
+                return real_call(method, params)
+            seen_calls.append(method)
+            if len(seen_calls) == 1:
+                raise client.RpcError({"message": "refused", "data": {"code": "refused"}})
+            return real_call(method, params)
+        api.call = counting
+        try:
+            for _ in range(3):
+                page.refresh_conversation(force=True)
+                await pilot.pause()
+        finally:
+            api.call = real_call
+        check("for-you chat: a refused chat.seen is sent again, then not again once it went",
+              len(seen_calls) == 2, str(seen_calls))
         con = db.connect()
         try:
             check("for-you chat: once drawn it is seen too",
@@ -4980,7 +5088,7 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
     ok, _, said = askmod.say(actions.HUMAN, "anything for me?", requester="reviewer")
     con = db.connect()
     try:
-        ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
+        ok, _ = cp.send_reply("reviewer", said, "yes, this")
         con.commit()
         msgs = cp.messages_of(_items("reviewer"), "reviewer")
         reply = next(m for m in msgs if m["text"] == "yes, this")
@@ -5004,7 +5112,7 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
     ok, _, said = askmod.say(actions.HUMAN, "done, FYI", requester="reviewer")
     con = db.connect()
     try:
-        ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
+        ok, sent = cp.send_reply("reviewer", said, "thanks, one question")
         con.commit()
         msgs = cp.messages_of(_items("reviewer"), "reviewer")
         mine = [m for m in msgs if m["text"] == "thanks, one question"]
@@ -5640,6 +5748,9 @@ async def _run_all() -> None:
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
     test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
+    test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down()
+    test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request()
+    test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
