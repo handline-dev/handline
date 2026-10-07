@@ -23,6 +23,7 @@ export const reads = {
   'agent.triggers': { resource: 'triggers' },
   'prompt.list': { resource: 'prompts', id: by('agent'), feed: 'notifications' },
   'chat.messages': { resource: 'chat-messages', feed: 'chat' },
+  'chat.requests': { resource: 'chat-requests' },
   'chat.transcript': { resource: 'chat-transcript', id: by('agent'), feed: 'chat' },
   'chat.locate': { resource: 'chat-locate' },
   'chat.search': { resource: 'chat-search' },
