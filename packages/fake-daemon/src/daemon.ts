@@ -67,6 +67,7 @@ export class FakeDaemon {
   private script = new Script({
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
+    sessions: () => this.sessions,
     broadcast: (s, method, params) => {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));

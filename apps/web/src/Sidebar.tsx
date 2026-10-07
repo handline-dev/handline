@@ -16,9 +16,10 @@ import {
 import type { AgentDetail, AgentView } from '@handline/client';
 import { useConnection, useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
+import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { setting } from './daemon.ts';
-import { goAgent } from './route.ts';
+import { goAgent, goTeam, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({ selected, storage, onToggle }: { selected: string; storage: KV | null; onToggle: () => void }) {
@@ -33,6 +34,8 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
   const waiting = agents.filter((a) => dotOf(a) === 'waiting').length;
   const accounts = [...new Set(agents.map((a) => a.account).filter(Boolean))];
   const dot = conn === 'open' ? 'running' : conn === 'closed' ? 'blocked' : 'waiting';
+  const hr = useHrCount();
+  const onTeam = !!useTeamRoute();
   const later = (t: string) => (
     <button key={t} className="nav" disabled title="Not built yet">
       {t}
@@ -51,7 +54,13 @@ export function Sidebar({ selected, storage, onToggle }: { selected: string; sto
           </span>
         ) : null}
       </div>
-      <div className="rail-nav">{['Inbox', 'Tasks', 'Team', 'Accounts'].map(later)}</div>
+      <div className="rail-nav">
+        {['Inbox', 'Tasks'].map(later)}
+        <button className={`nav${onTeam ? ' on' : ''}`} onClick={() => goTeam(hr ? 'hr' : 'team')}>
+          Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
+        </button>
+        {later('Accounts')}
+      </div>
       <div className="rail-opts">
         <input
           className="search"

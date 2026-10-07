@@ -1,6 +1,7 @@
 // What the scripted sessions do: the screen text, the turn script, the prompt and the session lifecycle. The daemon owns
 // the connections and the event log; this class reaches them through `Host`.
 import type { Actor, Caller, Notifications, Prompt, Timestamp, Topic } from '@handline/contract';
+import { FakeHr } from './hr.ts';
 import { BANNER, PROMPT_LINES } from './fixtures.ts';
 import { badRequest, refused } from './errors.ts';
 import { outputFor, snapshotOf, typedParts } from './bytes.ts';
@@ -8,6 +9,7 @@ import { row, tid, view, visible, type Session } from './session.ts';
 
 export interface Host {
   iso(): Timestamp;
+  sessions(): Map<string, Session>;
   emit(topic: Topic, type: string, f?: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> }): void;
   /** Sends a terminal notice to every connection attached to the session's terminal. */
   broadcast(s: Session, method: string, params: unknown): void;
@@ -19,9 +21,14 @@ const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c'
 
 export class Script {
   private timelineId = 0;
+  readonly hr: FakeHr;
   private host: Host;
+  get sessions() {
+    return this.host.sessions();
+  }
   constructor(host: Host) {
     this.host = host;
+    this.hr = new FakeHr(host);
   }
 
   record(s: Session, kind: 'text' | 'key', value: string, actor: string) {

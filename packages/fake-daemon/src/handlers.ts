@@ -3,6 +3,7 @@ import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract
 import { badRequest, Failure, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
+import { HR_HANDLERS, teamOf } from './hr.ts';
 import { DAEMON_HOLDER, row, scrolledOff, tid, visible, type Attach, type Session } from './session.ts';
 
 export interface Who {
@@ -27,6 +28,8 @@ function formatOf(p: Record<string, unknown>): 'text' | 'bytes' {
 }
 
 export const HANDLERS: Record<string, (h: Call) => unknown> = {
+  ...HR_HANDLERS,
+  'team.get': ({ script, iso }) => teamOf([...script.sessions.values()], iso()),
   'session.start': (h) => {
     const { actor, script, agent } = h;
     return script.startSession(agent(), false, actor);
