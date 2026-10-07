@@ -74,6 +74,11 @@ task.begin
 task.start
 task.handoff
 task.progress
+say
+ask
+push
+push.answer
+push.cancelled
 accounts.list
 team.get
 schedules.list

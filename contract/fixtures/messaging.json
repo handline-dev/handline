@@ -1,0 +1,333 @@
+{
+ "fixtures": [
+  {
+   "name": "say.target_is_text",
+   "spec": "say",
+   "about": "A say with no target is bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "say",
+      "params": {
+       "body": "x",
+       "request_id": "conf-ms-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "target"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "say.body_is_not_empty",
+   "spec": "say",
+   "about": "A say of nothing is bad_request naming body.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "say",
+      "params": {
+       "target": "x",
+       "body": " ",
+       "request_id": "conf-ms-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "body"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "say.a_target_that_is_not_there_is_refused",
+   "spec": "say",
+   "about": "A say to nobody is refused.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "say",
+      "params": {
+       "target": "no.such.agent",
+       "body": "hello",
+       "request_id": "conf-ms-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ask.title_is_required",
+   "spec": "ask",
+   "about": "A question needs a title: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "ask",
+      "params": {
+       "target": "x",
+       "body": "b",
+       "request_id": "conf-ms-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "title"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "ask.options_are_not_served_yet",
+   "spec": "ask",
+   "about": "Options are bad_request until a card stores them.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "ask",
+      "params": {
+       "target": "x",
+       "title": "t",
+       "body": "b",
+       "options": [
+        {
+         "id": "a",
+         "label": "A"
+        }
+       ],
+       "request_id": "conf-ms-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "options"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "push.a_target_that_is_not_an_agent_is_refused",
+   "spec": "push",
+   "about": "A push to nobody is refused.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "push",
+      "params": {
+       "target": "no.such.agent",
+       "request_id": "conf-ms-6"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "push.answer.a_requester_that_is_not_an_agent_is_refused",
+   "spec": "push.answer",
+   "about": "An answer pushed to nobody is refused.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "push.answer",
+      "params": {
+       "requester": "no.such.agent",
+       "request_id": "conf-ms-7"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "push.cancelled.no_such_request_is_not_found",
+   "spec": "push.cancelled",
+   "about": "A request nothing has is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "push.cancelled",
+      "params": {
+       "request": 999999999,
+       "request_id": "conf-ms-8"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
