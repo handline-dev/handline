@@ -97,6 +97,21 @@ def test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(ho
     con.close()
 
 
+def test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "nocol.db"
+    dbschema.connect(p).close()
+    raw = sqlite3.connect(p)
+    raw.execute("ALTER TABLE agent_state DROP COLUMN extra_worktrees")
+    raw.execute("DELETE FROM schema_version WHERE version = ?", (dbschema.LATEST_VERSION,))
+    raw.commit()
+    raw.close()
+    con = dbschema.connect(p)
+    check("extra_worktrees: a database at the step before has the column after a plain connect",
+          "extra_worktrees" in {r[1] for r in con.execute("PRAGMA table_info(agent_state)")})
+    con.close()
+
+
 def test_the_command_a_refusal_names_parses(home: Path) -> None:
     from handline.cli import parser as parsermod
     cmd = dbschema.RESTART_COMMAND
