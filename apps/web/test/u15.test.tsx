@@ -190,6 +190,17 @@ describe('U15 HR', () => {
     expect(location.hash).toBe('#/agents/handline.architect/settings');
   });
 
+  it('a bundle or a hire, whose agent is not on the roster, has no Edit settings', async () => {
+    const s = setup();
+    raise(s, 1, { agent: '3 changes' });
+    raise(s, 2, { agent: 'handline.newhire' });
+    await open(s);
+    await until(() => $('.hr-card'), 'the cards');
+    await until(() => btn(card(1), 'Approve'), 'the buttons');
+    expect(btn(card(1), 'Edit settings')).toBeUndefined();
+    expect(btn(card(2), 'Edit settings')).toBeUndefined();
+  });
+
   it('a member reads the cards but has no decide control', async () => {
     const s = setup({ role: 'member' });
     raise(s, 1);
