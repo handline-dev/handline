@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import type { KV } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
+import { EditorButton } from './EditorButton.tsx';
 
 export function Compose({ agent, storage, canSend, history }: { agent: string; storage: KV | null; canSend: boolean; history: string[] }) {
   const act = useChatActions(agent);
@@ -49,6 +50,7 @@ export function Compose({ agent, storage, canSend, history }: { agent: string; s
         }}
         onKeyDown={onKey}
       />
+      {canSend ? <EditorButton text={text} onText={set} /> : null}
       <button className="btn primary" disabled={!canSend || !text.trim()} onClick={send}>
         Send ↵
       </button>

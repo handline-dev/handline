@@ -18,6 +18,31 @@ export interface ShellApi {
   screen(s: { agent: string | null }): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** True while a restart would lose something. */
   unsent(on: boolean): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** Open a path a message holds in the default app, or reveal it when it is something that runs. Absent in a shell that lacks it. */
+  openPath?(a: {
+    path: string;
+    agent?: string;
+  }): Promise<{ ok: true; how: 'opened' | 'revealed' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
+  compose?(a: {
+    text?: string;
+    ext?: 'md' | 'txt';
+  }): Promise<
+    | { ok: true; text: string; changed: boolean }
+    | Fail<
+        | 'bad_request'
+        | 'no_editor'
+        | 'terminal_editor'
+        | 'bad_editor'
+        | 'not_waiting'
+        | 'editor_failed'
+        | 'cancelled'
+        | 'busy'
+        | 'too_large'
+        | 'unavailable'
+      >
+  >;
+  cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** A notice was clicked. Returns the way to stop listening. */
   onNavigate(cb: (to: NavigateTo) => void): () => void;
 }

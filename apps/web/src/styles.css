@@ -2252,3 +2252,14 @@ button.opt {
 .cost-swatch.c3 {
   background: var(--idle);
 }
+
+button.path {
+  font: inherit;
+  font-family: var(--mono);
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
