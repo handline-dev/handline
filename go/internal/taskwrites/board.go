@@ -2,6 +2,7 @@ package taskwrites
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/rpc"
@@ -97,11 +98,21 @@ func newestRequest(tx *sql.Tx) (int64, error) {
 	return n, err
 }
 
-// addEvent appends an event as db.add_event does.
-func addEvent(tx *sql.Tx, agent, kind string, payload map[string]any) error {
+// kv is one key and value of an event payload: the keys go out in the order given, as a Python dict's insertion order does.
+type kv struct {
+	K string
+	V any
+}
+
+// addEvent appends an event as db.add_event does, its payload written in the order of `payload`.
+func addEvent(tx *sql.Tx, agent, kind string, payload ...kv) error {
 	var p any
 	if len(payload) > 0 {
-		p = rpc.PyJSON(payload, false, false)
+		parts := make([]string, len(payload))
+		for i, e := range payload {
+			parts[i] = rpc.PyJSON(e.K, false, false) + ": " + rpc.PyJSON(e.V, false, false)
+		}
+		p = "{" + strings.Join(parts, ", ") + "}"
 	}
 	_, err := tx.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?,?,?,?)", time.Now().Unix(), agent, kind, p)
 	return err

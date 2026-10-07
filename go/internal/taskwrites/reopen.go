@@ -75,7 +75,7 @@ func reopen(c *rpc.Conn, p map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := addEvent(tx, by, "reopen_task", map[string]any{"task_id": tid, "reason": said, "after_request": after}); err != nil {
+		if err := addEvent(tx, by, "reopen_task", kv{"task_id", tid}, kv{"reason", said}, kv{"after_request", after}); err != nil {
 			return nil, err
 		}
 		return accepted(msg, nil), nil
