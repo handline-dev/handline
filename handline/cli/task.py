@@ -212,7 +212,7 @@ def _new_cmd(args, title: str) -> str:
 
 
 def cmd_task_new(args) -> int:
-    """T292: open and deliver in one step, through `task.new`; --blocked-by is set in the same transaction,
+    """Open and deliver in one step, through `task.new`; --blocked-by is set in the same transaction,
     so a bad blocker opens nothing."""
     me = askmod.asking_agent()
     if me is None:
@@ -365,7 +365,7 @@ def cmd_task_memo(args) -> int:
 def cmd_task_edit(args) -> int:
     """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`, ...) is one `task.edit`, one
     transaction: a later part's refusal leaves nothing of the earlier ones applied, and only that refusal
-    is said (auditor's #2042 SHOULD-FIX 5, #2065 SHOULD-FIX B). The new owner, the body's readers and an
+    is said. The new owner, the body's readers and an
     unblocked owner are told by the daemon once it has committed."""
     me = askmod.asking_agent()
     if me is None:
@@ -476,7 +476,7 @@ def cmd_task_show(args) -> int:
 
 
 def cmd_task_list(args) -> int:
-    """The caller's tasks and its reports', or every team's with --everyone (T256), by priority then number."""
+    """The caller's tasks and its reports', or every team's with --everyone, by priority then number."""
     params = {k: v for k, v in (("owner", args.owner), ("state", args.state)) if v is not None}
     params.update(all=bool(args.all), everyone=bool(args.everyone), limit=200)
     rows, gaps = [], None
