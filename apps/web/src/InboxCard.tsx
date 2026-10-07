@@ -129,12 +129,24 @@ export function InboxCard(props: { item: InboxItem; on: boolean; pending: boolea
             ))
           : null}
         {answerable(i) && !i.answered ? (
-          <button className="btn" disabled={!!v.off.answer} title={v.off.answer ?? undefined} onClick={() => setBox('answer')}>
+          <button
+            className="btn"
+            disabled={!!v.off.answer}
+            title={v.off.answer ?? undefined}
+            data-verb="answer"
+            onClick={() => setBox('answer')}
+          >
             Answer…
           </button>
         ) : null}
         {!answerable(i) && !i.prompt && i.kind !== 'block' ? (
-          <button className="btn" disabled={!!v.off.reply} title={v.off.reply ?? undefined} onClick={() => setBox('reply')}>
+          <button
+            className="btn"
+            disabled={!!v.off.reply}
+            title={v.off.reply ?? undefined}
+            data-verb="reply"
+            onClick={() => setBox('reply')}
+          >
             Reply…
           </button>
         ) : null}

@@ -244,6 +244,35 @@ describe('keys', () => {
   });
 });
 
+describe('the a key', () => {
+  it('on a decision it opens the answer box and sends nothing', async () => {
+    const s = await mount('#/inbox/3');
+    await until(() => $$('.inbox-card').length === 5, 'the cards');
+    await key('a');
+    expect(card(3).querySelector('textarea')).not.toBeNull();
+    expect(text(card(3))).not.toContain('Answered');
+    await wait(50);
+    expect(s.daemon.inbox.get(3).answered).toBe(false);
+  });
+
+  it('on a block, which has no answer verb, it does nothing: no dismiss, no mark read', async () => {
+    const s = await mount('#/inbox/2');
+    await until(() => $$('.inbox-card').length === 5, 'the cards');
+    await key('a');
+    await wait(50);
+    expect($$('.inbox-card')).toHaveLength(5);
+    expect(card(2).querySelector('textarea')).toBeNull();
+    expect(s.daemon.inbox.list({}).items).toHaveLength(5);
+  });
+
+  it('on an unread result it opens the reply box', async () => {
+    await mount('#/inbox/5');
+    await until(() => $$('.inbox-card').length === 5, 'the cards');
+    await key('a');
+    expect(card(5).querySelector('textarea')).not.toBeNull();
+  });
+});
+
 describe('deep links and the daemon', () => {
   it('#/inbox/:id puts the cursor on that card', async () => {
     await mount('#/inbox/3');

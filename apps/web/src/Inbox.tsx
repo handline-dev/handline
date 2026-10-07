@@ -101,7 +101,7 @@ export function InboxPage({ item }: { item: number | null }) {
           return void (to && (location.hash = to));
         }
         case 'a':
-          return void document.querySelector<HTMLElement>(`[data-item="${cursor}"] .inbox-actions button:not(:disabled)`)?.click();
+          return void document.querySelector<HTMLElement>(`[data-item="${cursor}"] button[data-verb]:not(:disabled)`)?.click();
         case 'x':
           return void (cur && !verbs.off.dismiss && verbs.dismiss(cur.id));
         case 'm':
