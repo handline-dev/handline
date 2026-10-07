@@ -2151,7 +2151,11 @@ class ChatPage(JobsAware, Screen):
         when it is older; in another agent's chat, pushed over this one; shown alone when no chat has it."""
         if self._light(rid):
             return
-        at = self._located(rid)
+        try:
+            at = self._located(rid)
+        except (client.RpcError, client.DaemonDown, OSError) as e:
+            self.notify(f"the message cannot be found: {e}", severity="error", timeout=6, markup=False)
+            return
         if at.kind == "chat":
             self.app.push_screen(ChatPage(at.agent, reveal=(rid, at.request), tab=at.tab))
         elif at.kind == "here":
