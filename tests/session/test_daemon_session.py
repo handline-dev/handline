@@ -2719,6 +2719,52 @@ def test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(
         con.close()
 
 
+def test_the_stored_view_agent_get_serves_follows_the_sweep_at_once(home: Path) -> None:
+    """The view agent.get serves is stored at the end of the tick, after every agent has been supervised: a session that quit was recorded
+    closed by the sweep at the start of it and still read `running` for a whole tick more. The sweep stores the view of the agent it corrected."""
+    from handline.daemon import agentview, delivery
+    _daemon_home(home, 20)
+    con = db.connect()
+    real = (termmod.available, termmod.live_terminals, obsmod.live_sessions, delivery.session_still_drawn)
+    try:
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        check("view: setup - it reads running", agentview.stored(con, "backend")["state"] == "running", str(agentview.stored(con, "backend")))
+        termmod.available = lambda: True
+        termmod.live_terminals = lambda: {"term_x"}       # the terminal is there, a shell at its prompt
+        obsmod.live_sessions = lambda: {}                 # and no session process is
+        delivery.session_still_drawn = lambda *a, **k: False
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        view = agentview.stored(con, "backend")
+        check("view: right after the sweep recorded the session gone, the stored view no longer says running", view["state"] != "running", str(view))
+        check("view: and it is the view a refresh would make", view == json.loads(json.dumps(agentview.compute(con, "backend", None, actions.routing()))), str(view))
+        # the terminal itself gone: the other branch of the sweep that records a gone session or terminal
+        db.clear_closed(con, "backend")
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        check("view: setup - it reads running again", agentview.stored(con, "backend")["state"] == "running")
+        termmod.live_terminals = lambda: set()
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        view = agentview.stored(con, "backend")
+        check("view: a terminal the host no longer lists: the stored view no longer says running, and is a fresh compute",
+              view["state"] != "running" and view == json.loads(json.dumps(agentview.compute(con, "backend", None, actions.routing()))), str(view))
+        termmod.live_terminals = lambda: {"term_x"}
+        # fail closed: a process table that could not be read changes nothing
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.clear_closed(con, "backend")
+        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
+        agentview.refresh(con)
+        obsmod.live_sessions = lambda: None
+        dmn_reconciler.sweep(con, lambda _m: None, [])
+        check("view: a table that cannot be read keeps the old state", db.get_agent_state(con, "backend")["state"] == dmn_states.RUNNING
+              and agentview.stored(con, "backend")["state"] == "running")
+    finally:
+        termmod.available, termmod.live_terminals, obsmod.live_sessions, delivery.session_still_drawn = real
+        con.close()
+
+
 def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
     """Every other decision reads a row we wrote ourselves, which is how a state
     that went wrong stayed wrong. This is the half that asks the world instead,
@@ -3371,6 +3417,44 @@ def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
         launch.build, os.execve, launch._record_terminal = realb, realx, realr
 
 
+def test_a_start_and_a_push_both_refuse_a_full_account_before_opening_a_terminal(home: Path) -> None:
+    """`session.start` (control.start_result) opened a terminal on a full account and left `hl launch` to refuse inside it, where a message's
+    push (`_start_for_work`) said so first. Both say the same sentence now and open nothing."""
+    from handline.actions import control
+    from handline.session import term as termmod_
+    from handline.team import ask as askmod_, spawn as spawn_
+    _daemon_home(home, 100)
+    credentialed(home, "alpha")        # logged in: only the wall is what is in the way
+    con = db.connect()
+    opened: list = []
+    real = (termmod_.available, termmod_.open_terminal, termmod_.create_worktree, spawn_._confirm_session, spawn_.register_worker,
+            spawn_.ensure_extras, spawn_.pick_base)
+    try:
+        termmod_.available = lambda: True
+        termmod_.open_terminal = lambda cmd, cwd=None, title=None: (opened.append(cmd), ("h1", None))[1]
+        termmod_.create_worktree = lambda repo, name, base: (str(home), None)
+        spawn_._confirm_session = lambda agent: None
+        spawn_.register_worker = lambda *a, **k: None
+        spawn_.ensure_extras = lambda *a, **k: (None, [])
+        spawn_.pick_base = lambda repo, base: ("main", "test")
+        con.execute("UPDATE agent_state SET terminal = NULL, closed_at = NULL, worktree = NULL, resume_session = NULL WHERE agent = 'backend'")
+        con.commit()
+        ok, said = control.start_result(con, "backend", str(home))
+        check("full account: session.start is refused with the room sentence", not ok and "not started" in said and launch.no_room("backend") in said
+              and "logged in" not in said, said)
+        rid = db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
+        told = askmod_.push_here(con, "backend", rid)
+        check("full account: a pushed message says the same and starts nothing", launch.no_room("backend") in told or "queued" in told, told)
+        check("full account: no terminal was opened by either", opened == [], str(opened))
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5, reset_5h=int(time.time()) + 1800)
+        ok, said = control.start_result(con, "backend", str(home))
+        check("an account with room: the same start opens its terminal", ok and len(opened) == 1, said)
+    finally:
+        (termmod_.available, termmod_.open_terminal, termmod_.create_worktree, spawn_._confirm_session, spawn_.register_worker,
+         spawn_.ensure_extras, spawn_.pick_base) = real
+        con.close()
+
+
 def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     """A closed agent whose resume is blocked at its account's 5h wall used to
     say nothing about it: `hl ps` showed "·closed", `hl triggers` said
@@ -3406,8 +3490,8 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
               reason is not None and "alpha" in reason and when in reason, reason)
 
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("walled: the daemon's own refusal is the same sentence, not a cousin of it",
-              not ok and why == reason, f"{why!r} != {reason!r}")
+        check("walled: the daemon's own refusal is the same sentence, with only why it did not move after it",
+              not ok and (why == reason or why.startswith(reason + "; not moved: ")), f"{why!r} != {reason!r}")
 
         ps_out = _capture(lambda: climod.main(["ps"]))
         trig_out = _capture(lambda: climod.main(["triggers"]))
@@ -5593,6 +5677,8 @@ def main() -> int:
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
         run(lambda: test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(Path(td) / 'wakeunreadable'))
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
+        run(lambda: test_the_stored_view_agent_get_serves_follows_the_sweep_at_once(Path(td) / 'viewsweep'))
+        run(lambda: test_a_start_and_a_push_both_refuse_a_full_account_before_opening_a_terminal(Path(td) / 'fullacct'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))

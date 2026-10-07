@@ -11,6 +11,7 @@ from ..session import launch, promptparse
 from . import agentview, inputhold, rpc
 
 DEFAULT_LIMIT, MAX_LIMIT = 50, 200
+CAN_VERBS = ("terminal", "wake", "close", "restart", "park", "fold", "move")
 
 
 def _named(con, params) -> str:
@@ -74,6 +75,15 @@ def _prompt(con, name: str) -> dict | None:
     return prompt_of(block) if block else None
 
 
+def _can(con, name: str) -> dict:
+    """Whether each verb of the chat page's menu is worth offering for this agent, and why not (`actions.can`)."""
+    out = {}
+    for verb in CAN_VERBS:
+        ok, why = actions.can(con, name, verb)
+        out[verb] = {"ok": ok, "why": why or None}
+    return out
+
+
 def _agent_get(ctx, params) -> dict:
     con = db.connect()
     try:
@@ -94,7 +104,9 @@ def _agent_get(ctx, params) -> dict:
                 "account_pick": {"account": account,
                                  "reason": "the account a session start would be placed on" if account
                                  else "no account can take work"},
-                "prompt": _prompt(con, name)}
+                "prompt": _prompt(con, name),
+                "cwd": actions.cwd_for(con, name),
+                "can": _can(con, name)}
     finally:
         con.close()
 

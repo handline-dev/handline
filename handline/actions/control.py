@@ -11,7 +11,7 @@ from ..daemon import inputhold, delivery as dmn_delivery, handoff as dmn_handoff
 from .. import db
 from ..infra import lock, waits
 from ..session import fold as foldmod
-from ..session import term
+from ..session import launch, term
 from ..team import spawn as spawnmod
 from ..usage import status
 from ..session import triggers
@@ -131,6 +131,9 @@ def start_result(con, agent: str, repo: str | None = None, base: str = "main") -
             # Its window closed with its session (T407): resume it, whether or not anything waits.
             ok, why = dmn_lifecycle._wake_agent(con, agent, lambda _m: None, force=True)
             return ok, f"{agent}: {why}"
+        # With no room `hl launch` would refuse in the new terminal; a start says so before it opens one, as the daemon's start for waiting work does.
+        if not launch.choose_account(agent, con=con):
+            return False, f"{agent}: not started - {launch.no_room(agent)}"
         wt = spawnmod.worktree_path(row["worktree"] if row else None)
         if wt:
             # It has somewhere to run already; it lost the window it ran in.

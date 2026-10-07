@@ -1,0 +1,147 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.get.cwd_and_can",
+   "spec": "agent.get",
+   "about": "agent.get names the directory a shell command for the agent runs in, and for each verb of the chat page's menu whether it is offered and why not. Needs --var page_agent: an agent the daemon knows.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{page_agent}}"
+      }
+     },
+     "result": {
+      "cwd": {
+       "$type": "string"
+      },
+      "can": {
+       "terminal": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "wake": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "close": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "restart": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "park": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "fold": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       },
+       "move": {
+        "ok": {
+         "$type": "boolean"
+        },
+        "why": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

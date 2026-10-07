@@ -362,6 +362,376 @@
      }
     }
    ]
+  },
+  {
+   "name": "chat.send.parent_is_a_message_number",
+   "spec": "chat.send",
+   "about": "A parent that is not a message number is bad_request naming parent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "hello",
+       "parent": "one",
+       "request_id": "conf-cw-10"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_task_has_no_parent",
+   "spec": "chat.send",
+   "about": "A message under another is not a task: bad_request naming parent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "hello",
+       "parent": 1,
+       "task": {
+        "title": "t"
+       },
+       "request_id": "conf-cw-11"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.unknown_message_is_not_found",
+   "spec": "chat.cancel",
+   "about": "A message that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.cancel",
+      "params": {
+       "request": 999999999,
+       "request_id": "conf-cw-12"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.request_is_a_number",
+   "spec": "chat.cancel",
+   "about": "A request that is not a number is bad_request naming request.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.cancel",
+      "params": {
+       "request": "one",
+       "request_id": "conf-cw-13"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "request"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.confirm_is_boolean",
+   "spec": "chat.cancel",
+   "about": "A confirm that is not true or false is bad_request naming confirm.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.cancel",
+      "params": {
+       "request": 1,
+       "confirm": "yes",
+       "request_id": "conf-cw-14"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "confirm"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.a_caller_that_is_nobody_is_refused",
+   "spec": "chat.cancel",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.cancel",
+      "params": {
+       "request": 1,
+       "request_id": "conf-cw-15"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.seen.unknown_agent_is_not_found",
+   "spec": "chat.seen",
+   "about": "An agent that is not registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.seen",
+      "params": {
+       "agent": "no.such.agent",
+       "up_to": 1,
+       "request_id": "conf-cw-16"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.seen.up_to_is_a_number",
+   "spec": "chat.seen",
+   "about": "An up_to that is not a number is bad_request naming up_to.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.seen",
+      "params": {
+       "agent": "x",
+       "up_to": "last",
+       "request_id": "conf-cw-17"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "up_to"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.seen.a_caller_that_is_nobody_is_refused",
+   "spec": "chat.seen",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.seen",
+      "params": {
+       "agent": "x",
+       "up_to": 1,
+       "request_id": "conf-cw-18"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
   }
  ]
 }

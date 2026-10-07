@@ -698,7 +698,7 @@ def _close_tell(con, rid: int, row, verdict: str, notify: bool):
     return target, msg, said
 
 
-def cancel(rid: int) -> tuple[bool, str]:
+def cancel(rid: int, effect=None) -> tuple[bool, str]:
     """The founder takes a request out of an agent's queue.
 
     `withdraw` is the requester's own and stops at delivery, which left no way
@@ -708,7 +708,8 @@ def cancel(rid: int) -> tuple[bool, str]:
     `CANCEL_VERDICT`, never deleted: its number and history stay, its requester
     is told through the ordinary answer path, and the target - which may be
     mid-work on it - is typed a notice with delivery's gates when it had been
-    delivered. Whatever is behind it delivers next.
+    delivered. Whatever is behind it delivers next. `effect(con, message)` is the daemon's record, made in the transaction
+    of the write.
     """
     con = db.connect()
     try:
@@ -720,17 +721,27 @@ def cancel(rid: int) -> tuple[bool, str]:
             stop = f" - stop its task with `hl task discard T{tasks[0]['id']}` or hand it back" if tasks else ""
             return False, f"#{rid} is already {row['state']} - nothing to cancel{stop}"
         if row["requester"] == HUMAN and not row["delivered_at"]:
-            return withdraw(rid, requester=HUMAN)
+            return withdraw(rid, requester=HUMAN, effect=effect)
         notify = row["requester"] != HUMAN
-        closed = _close_and_tell(con, rid, row, CANCEL_VERDICT, notify)
-        if closed is None:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            closed = _close_write(con, rid, row, CANCEL_VERDICT, notify)
+            if closed:
+                db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": row["target"],
+                                                    "requester": row["requester"],
+                                                    "delivered": bool(row["delivered_at"])})
+                if effect:
+                    effect(con, f"#{rid} to {row['target']} cancelled")
+            con.execute("COMMIT")
+        except BaseException:
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            raise
+        if not closed:
             if db.is_still_queued(con, rid):
                 return False, f"#{rid} was not cancelled - it is still queued"
             return False, f"#{rid} was closed while this ran - nothing to cancel"
-        target, msg, said = closed
-        db.add_event(con, HUMAN, "cancel", {"request_id": rid, "target": target,
-                                            "requester": row["requester"],
-                                            "delivered": bool(row["delivered_at"])})
+        target, msg, said = _close_tell(con, rid, row, CANCEL_VERDICT, notify)
         return True, (f"#{rid} to {target} cancelled"
                       + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
     finally:
