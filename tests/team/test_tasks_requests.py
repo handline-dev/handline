@@ -3991,6 +3991,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
     """The invariant (#1259): the tasks table is exactly db.TASK_FIELDS, and the
     board reads a linked request's state live - the task row never changes when
     the request does."""
+    from handline.daemon import rpc_taskview
     _board_world(home)
     con = db.connect()
     try:
