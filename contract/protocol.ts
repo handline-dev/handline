@@ -1203,7 +1203,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that is not between the person and agent is refused (gate state). request in the result is then the message replied to, for an answer, or the new message. */
+  /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
   parent?: number;
   request_id: RequestId;
 }; result: Accepted & {
