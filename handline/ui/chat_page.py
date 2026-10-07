@@ -61,7 +61,7 @@ from .components.agent_settings import AgentSettings
 from .components.task_assign import TaskAssign
 from .components.write_guard import WriteGuard
 
-from ..actions.chatreads import (_GONE, PAGE, Located, _scope, _with_task_state, locate_message, message_alone)  # noqa: F401 - the screen's own names
+from ..actions.chatreads import (_GONE, PAGE, Located, _scope, _with_task_state, locate_message)  # noqa: F401 - the screen's own names
 
 WAITS = ("waiting for", "blocked by")      # what the work line says of an agent that waits on something
 
@@ -889,16 +889,11 @@ def suggest(before: str, tasks: list[tuple], requests: list[tuple], verbs: tuple
     return out[:MENU_MAX]
 
 
-def refs_of(con, agent: str) -> tuple[list[tuple], list[tuple]]:
+def refs_of(agent: str) -> tuple[list[tuple], list[tuple]]:
     """What a `#` can point at for `agent`: its open tasks and its newest
-    requests (every one it sent or received)."""
-    reqs = con.execute(
-        f"SELECT id, requester, target, body FROM requests WHERE state NOT IN {_GONE} AND "
-        "(requester = ? OR target = ?) ORDER BY id DESC LIMIT 30", (agent, agent)).fetchall()
-    return tasks_of(agent), [
-        (r["id"], f"{r['requester']} → {r['target']}",
-         textsafe.oneline((r["body"] or "").strip().splitlines()[0] if (r["body"] or "").strip() else "")[:60])
-        for r in reqs]
+    requests (every one it sent or received, `chat.refs`)."""
+    got = api.call("chat.refs", {"agent": agent})["requests"]
+    return tasks_of(agent), [(r["request"], f"{r['from']} → {r['to']}", r["line"]) for r in got]
 
 
 # What each word of `tui.screen_state` says about the agent, as (glyph, label,
@@ -918,9 +913,9 @@ def agent_badge(word: str, detail: str = "") -> Text:
     return out
 
 
-def agent_state_of(con, agent: str) -> tuple[str, str]:
-    """(word, detail) for `agent`: the same reading the dashboard row shows."""
-    return tui.screen_state(con, db.get_agent_state(con, agent))
+def read_strip(agent: str) -> dict:
+    """The line under the header and the agent's state as the six screen words (`agent.strip`)."""
+    return api.call("agent.strip", {"agent": agent})
 
 
 class ChatBox(TextBox):
@@ -1639,12 +1634,7 @@ class ChatPage(JobsAware, Screen):
         self.notify(safe(said), title=f"{kind} {self.agent}",
                     severity="information" if ok else "error", timeout=10, markup=False)
 
-    def refresh_agent_state(self) -> None:
-        con = db.connect()
-        try:
-            state = agent_state_of(con, self.agent)
-        finally:
-            con.close()
+    def _set_agent_state(self, state: tuple[str, str]) -> None:
         if state == self.agent_state:
             return
         # The word (RUNNING/IDLE/...) flips rarely - that is what a queued
@@ -1666,23 +1656,24 @@ class ChatPage(JobsAware, Screen):
         self.query_one("#status", Static).update(self._status())
 
     def refresh_pools(self) -> None:
-        con = db.connect()
         try:
-            self.tasks_pool, self.requests_pool = refs_of(con, self.agent)
-            self.verbs_pool = tuple(v for v in CHAT_VERBS if actions.can(con, self.agent, v)[0])
-        finally:
-            con.close()
+            tasks, requests = refs_of(self.agent)
+            can = api.call("agent.get", {"agent": self.agent})["can"]
+        except (client.RpcError, client.DaemonDown, OSError):
+            return
+        self.tasks_pool, self.requests_pool = tasks, requests
+        self.verbs_pool = tuple(v for v in CHAT_VERBS if can[v]["ok"])
 
     def refresh_agent_strip(self) -> None:
         self.query_one(SandboxBanner).refresh_state(self.agent, True)
-        con = db.connect()
         try:
-            self.query_one(AgentStrip).show(con, self.agent)
-        finally:
-            con.close()
+            got = read_strip(self.agent)
+        except (client.RpcError, client.DaemonDown, OSError):
+            return
+        self.query_one(AgentStrip).show(got)
+        self._set_agent_state((got["screen_word"] or "IDLE", got["screen_detail"]))
 
     def refresh_view(self) -> None:
-        self.refresh_agent_state()
         self.refresh_agent_strip()
         self.refresh_block()
         self.refresh_pools()
@@ -2196,15 +2187,19 @@ class ChatPage(JobsAware, Screen):
         self.set_timer(0.2, self._reveal_step)
 
     def _show_alone(self, mid: int) -> None:
-        con = db.connect()
+        """Message `mid` in a modal, for one no chat draws: locate's not_found carries it, and a found one
+        that no widget drew arrives as the located message."""
         try:
-            alone = message_alone(con, mid)
-        finally:
-            con.close()
-        if alone is None:
-            self.notify(f"#{mid}: there is no such message", severity="warning")
+            m = api.call("chat.locate", {"request": mid, "agent": self.agent, "limit": 1})["message"]
+        except client.RpcError as e:
+            if e.code != "not_found" or "body" not in e.data:
+                self.notify(f"#{mid}: there is no such message", severity="warning")
+                return
+            m = e.data
+        except (client.DaemonDown, OSError) as e:
+            self.notify(f"the message cannot be found: {e}", severity="error", timeout=6, markup=False)
             return
-        self.app.push_screen(HandoffModal(*alone))
+        self.app.push_screen(HandoffModal(f"#{mid}  {m['from']} \u2192 {m['to']}", m["body"]))
 
     def action_open_task(self, tid: int) -> None:
         open_task_page(self.app, tid)
