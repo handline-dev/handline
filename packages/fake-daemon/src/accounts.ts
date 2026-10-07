@@ -83,6 +83,8 @@ export class FakeAccounts {
         return (this.set({ account: p.account, cap: p.cap }), accepted('Saved.'));
       case 'account.login':
         return accepted('Login started.', { terminal: this.login(p) });
+      case 'account.remove':
+        return this.remove(p, accepted);
       default:
         throw new Failure('refused', `the fake daemon does not serve ${method}`, { reason: 'unsupported', gate: 'unsupported' });
     }
@@ -114,6 +116,20 @@ export class FakeAccounts {
   login(p: Record<string, unknown>): string {
     this.find(p.account);
     return `term:login:${String(p.account)}`;
+  }
+
+  /** The sequence of `hl account remove`: refused while an agent is on the account; a dry run says so and changes nothing; else `confirm` is the name. */
+  private remove(p: Record<string, unknown>, accepted: (said: string, extra?: object) => unknown): unknown {
+    const r = this.find(p.account);
+    const on = this.agentsOn(r.name);
+    const plan = on.length
+      ? [`refused: ${on.join(', ')} still on ${r.name}`]
+      : [`log ${r.name} out`, `move its directory aside`, `take ${r.name} off the roster`];
+    if (p.dry_run) return accepted('Dry run.', { would_remove: !on.length, plan });
+    if (on.length) throw new Failure('refused', plan[0]!, { reason: 'agents_on_account', gate: 'state' });
+    if (p.confirm !== r.name) throw new Failure('bad_request', `confirm must be the account's name, ${r.name}`);
+    this.rows = this.rows.filter((x) => x !== r);
+    return accepted('Removed.');
   }
 
   loggedIn(name: string): void {

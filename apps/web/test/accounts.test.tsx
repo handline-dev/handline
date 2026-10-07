@@ -205,4 +205,54 @@ describe('one account', () => {
     await act(async () => void s.daemon.accounts.loggedIn('gamma'));
     await until(() => !text($('.acct-login')).includes('Login in progress'), 'the progress to end');
   });
+  describe('remove', () => {
+    const open = async (name: string, s = setup()) => {
+      await mount(`#/accounts/${name}`, s);
+      await until(() => $('.acct-one'), 'the account');
+      await click(button('Settings'));
+      await click(button('Remove account'));
+      await until(() => $('.ui-backdrop .acct-plan, .ui-backdrop .ui-note'), 'the dry run');
+      return s;
+    };
+    const confirm = () => $$('.ui-backdrop button').find((b) => text(b).startsWith('Remove account')) as HTMLButtonElement;
+
+    it('an account with agents on it shows them and the refusal, and cannot be confirmed', async () => {
+      const s = await open('alpha');
+      expect(text($('.ui-backdrop'))).toContain('architect');
+      expect($('.ui-backdrop input')).toBeNull();
+      expect(confirm().disabled).toBe(true);
+      expect(s.daemon.accounts.list().accounts.map((a) => a.name)).toContain('alpha');
+    });
+
+    it('an empty account is removed only once its name is typed, and the page then says it is gone', async () => {
+      const s = await open('gamma');
+      expect(text($('.acct-plan'))).toContain('take gamma off the roster');
+      expect(confirm().disabled).toBe(true);
+      await setValue($('.ui-backdrop input') as HTMLInputElement, 'gam');
+      expect(confirm().disabled).toBe(true);
+      await setValue($('.ui-backdrop input') as HTMLInputElement, 'gamma');
+      await click(confirm());
+      await until(() => text($('.acct-one, .accounts')).includes('no longer exists'), 'the page to say it is gone');
+      expect(s.daemon.accounts.list().accounts.map((a) => a.name)).toEqual(['alpha', 'beta']);
+    });
+
+    it('an agent landing on the account after the dry run refuses the removal: the dialog says why and the account stays', async () => {
+      const s = await open('gamma');
+      await setValue($('.ui-backdrop input') as HTMLInputElement, 'gamma');
+      s.daemon.knobs.refuse('account.remove', 'state', 'agent_on_account', 'gamma has the auditor on it');
+      await click(confirm());
+      await until(() => $('.ui-backdrop [role="alert"]'), 'the refusal');
+      expect(text($('.ui-backdrop [role="alert"]'))).toContain('gamma has the auditor on it');
+      expect(confirm().disabled).toBe(false);
+      expect(text(confirm())).not.toContain('Removing');
+      expect(s.daemon.accounts.list().accounts.map((a) => a.name)).toContain('gamma');
+    });
+
+    it('is not offered to anyone but the founder', async () => {
+      await mount('#/accounts/gamma', setup({ role: 'agent' }));
+      await until(() => $('.acct-one'), 'the account');
+      await click(button('Settings'));
+      expect(button('Remove account')).toBeUndefined();
+    });
+  });
 });
