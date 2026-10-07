@@ -4,21 +4,14 @@
 package authority
 
 import (
-	"crypto/subtle"
-	"os"
-	"path/filepath"
-	"regexp"
-	"sort"
-	"strings"
-
-	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/protected"
+	"github.com/handline/handline/go/internal/sessiontoken"
 )
 
 const (
-	sessionNS = "session-tokens"
-	founderNS = "founder-keys"
-	maxDepth  = 64
+	sessionNS = sessiontoken.NS
+	founderNS = sessiontoken.FounderNS
 )
 
 type Authority interface {
@@ -28,84 +21,22 @@ type Authority interface {
 	FounderKeyOK(key string) bool
 }
 
-// Store reads the protected store kept for one home.
+// Store reads the protected store kept for one home; the proofs are sessiontoken's.
 type Store struct {
 	Root   string
 	Lookup func(pid int) (peer.Proc, bool)
 }
 
-var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
-
-// Root is the protected store kept for home: ~/.config/orcapipe/protected/<the resolved home with every other
-// character a dash>.
-func Root(home string) string {
-	if real, err := filepath.EvalSymlinks(home); err == nil {
-		home = real
-	}
-	abs, err := filepath.Abs(home)
-	if err == nil {
-		home = abs
-	}
-	return filepath.Join(paths.UserHome(), ".config", "orcapipe", "protected", nonAlnum.ReplaceAllString(home, "-"))
-}
+// Root is the protected store kept for home.
+func Root(home string) string { return protected.RootFor(home) }
 
 // New is the store for home.
-func New(home string) *Store {
-	return &Store{Root: Root(home), Lookup: peer.Lookup}
+func New(home string) *Store { return &Store{Root: Root(home), Lookup: peer.Lookup} }
+
+func (s *Store) tokens() *sessiontoken.Tokens {
+	return &sessiontoken.Tokens{Store: &protected.Store{Root: s.Root}, Lookup: s.Lookup}
 }
 
-func (s *Store) get(ns, name string) string {
-	b, err := os.ReadFile(filepath.Join(s.Root, ns, name))
-	if err != nil {
-		return "" // unreadable is what a session's sandbox says, and it grants nothing
-	}
-	return strings.TrimSpace(string(b))
-}
+func (s *Store) FounderKeyOK(key string) bool { return s.tokens().FounderKeyOK(key) }
 
-func (s *Store) FounderKeyOK(key string) bool {
-	kept := s.get(founderNS, "key")
-	return kept != "" && key != "" && subtle.ConstantTimeCompare([]byte(kept), []byte(key)) == 1
-}
-
-func (s *Store) verify(agent string, pid int) bool {
-	head, started, _ := strings.Cut(s.get(sessionNS, agent), " ")
-	want := 0
-	if head == "" || strings.Trim(head, "0123456789") != "" {
-		return false
-	}
-	for _, c := range head {
-		want = want*10 + int(c-'0')
-	}
-	for i := 0; i < maxDepth; i++ {
-		p, ok := s.Lookup(pid)
-		if !ok || pid <= 1 {
-			return false
-		}
-		if pid == want {
-			return p.Start == strings.TrimSpace(started) // a reused pid has another start time
-		}
-		pid = p.PPid
-	}
-	return false
-}
-
-func (s *Store) AgentOf(pid int) string {
-	if pid <= 0 {
-		return ""
-	}
-	entries, err := os.ReadDir(filepath.Join(s.Root, sessionNS))
-	if err != nil {
-		return ""
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		if s.verify(n, pid) {
-			return n
-		}
-	}
-	return ""
-}
+func (s *Store) AgentOf(pid int) string { return s.tokens().AgentOf(pid) }

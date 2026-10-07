@@ -36,3 +36,18 @@ func Started(pid int) (time.Time, bool) {
 	}
 	return time.Unix(int64(k.Proc.P_starttime.Sec), int64(k.Proc.P_starttime.Usec)*1000), true
 }
+
+// Exe is the path of the program pid is running, from the kernel; "" when it cannot be told. The first bytes of
+// kern.procargs2 are the argument count, then the executable's path.
+func Exe(pid int) string {
+	b, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(b) < 5 {
+		return ""
+	}
+	rest := b[4:]
+	end := 0
+	for end < len(rest) && rest[end] != 0 {
+		end++
+	}
+	return string(rest[:end])
+}
