@@ -257,6 +257,27 @@ def test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_befo
     con.close()
 
 
+def test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_answered(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)
+    rid = db.add_request(con, "backend", "human", "may I?", None, None, "async", "ask", 0, None)
+    watcher.scan(con)
+    added = [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]
+    check("inbox: an ask to the founder arrives as inbox.added", [e["type"] for e in added] == ["inbox.added"] and added[0]["data"]["answered"] is False, str(added))
+    ok, msg = actions.answer_ok(con, rid, "yes")
+    watcher.scan(con)
+    got = [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]
+    check("inbox: answering it is inbox.changed, the item answered and read, said once",
+          ok and [e["type"] for e in got] == ["inbox.added", "inbox.changed"] and got[1]["data"]["answered"] is True and got[1]["data"]["read"] is True
+          and got[1]["agent"] == "backend", f"{msg} {got}")
+    watcher.scan(con)
+    check("inbox: and not again", len([e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] == rid]) == 2)
+    con.close()
+
+
 def test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(home: Path) -> None:
     support._daemon_home(home, 20)
     stream.HUB.subs.clear()
@@ -531,6 +552,7 @@ def main() -> int:
         run(lambda: test_the_notification_detectors_say_what_happened_once_and_not_what_came_before(Path(td) / "s7"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "ti"))
         run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "s7b"))
+        run(lambda: test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_answered(Path(td) / "s7d"))
         run(lambda: test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(Path(td) / "s7c"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))
