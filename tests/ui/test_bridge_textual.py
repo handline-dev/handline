@@ -653,11 +653,11 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
     try:
         ok, _, rid = askmod.ask("human", "merge it?", requester="reviewer")
         check("reply: the agent's question is asked", ok)
-        ok1, _ = cp.send_reply(con, "reviewer", rid, "yes")
+        ok1, _ = cp.send_reply("reviewer", rid, "yes")
         after = db.get_request(con, rid)
         check("reply: a reply to a waiting question is its verdict",
               ok1 and after["state"] == "landed" and db.shown_verdict(after) == "yes", str(dict(after)))
-        ok2, _ = cp.send_reply(con, "reviewer", rid, "and again")
+        ok2, _ = cp.send_reply("reviewer", rid, "and again")
         child = db.get_request(con, rid + 1)
         check("reply: a second reply is a new request to the agent under it",
               ok2 and child is not None and child["parent_id"] == rid and child["target"] == "reviewer"
@@ -666,17 +666,17 @@ def test_a_reply_closes_a_waiting_question_or_starts_a_new_request() -> None:
         con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (mine,))
         db.add_answer(con, mine, "fine")
         con.commit()
-        ok4, _ = cp.send_reply(con, "reviewer", mine, "thanks, now ship it")
+        ok4, _ = cp.send_reply("reviewer", mine, "thanks, now ship it")
         check("reply: an answer to the human's own request is marked read, as the mailbox does",
               ok3 and ok4 and db.answer_row_of(con, mine)["delivered_at"], str(dict(db.get_request(con, mine))))
         _, _, theirs = askmod.ask("reviewer", "status again?", requester=actions.HUMAN)
-        ok5, _ = cp.send_reply(con, "backend", theirs, "and the date?")
+        ok5, _ = cp.send_reply(next(m for m in cp.messages_of(_items("reviewer"), "backend") if m["rid"] == theirs)["agent"], theirs, "and the date?")
         kid5 = db.get_request(con, theirs + 1)
         check("reply: a reply from another agent's page (All chat) goes to the agent on that message, under it",
               ok5 and kid5["target"] == "reviewer" and kid5["parent_id"] == theirs, str(dict(kid5)))
-        check("reply: a blank reply is refused", cp.send_reply(con, "reviewer", rid, "  ")[0] is False)
+        check("reply: a blank reply is refused", cp.send_reply("reviewer", rid, "  ")[0] is False)
         check("reply: a reply to a request that is gone is refused",
-              cp.send_reply(con, "reviewer", 99999, "x")[0] is False)
+              cp.send_reply("reviewer", 99999, "x")[0] is False)
     finally:
         con.close()
 
@@ -744,7 +744,7 @@ def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
         con.commit()
         msgs = cp.messages_of(_items("reviewer", True), "reviewer")
         check("all chat: a message from another agent is replyable", msgs and all(m["replyable"] for m in msgs), str(msgs))
-        cp.send_reply(con, "reviewer", rid, "a word from the founder")
+        cp.send_reply("reviewer", rid, "a word from the founder")
         kid = db.get_request(con, rid + 1)
         check("all chat: a reply to it goes to its speaker, under it",
               kid["target"] == "backend" and kid["parent_id"] == rid, str(dict(kid)))
@@ -1406,8 +1406,8 @@ def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
         query_one = lambda self, *a: type("B", (), {"text": "x"})()
 
     s = Stub()
-    cp.ChatPage._sent_now(s, "not sent - busy")
-    cp.ChatPage._sent_now(s, "sent")
+    cp.ChatPage._sent_now(s, False, "not sent - busy")
+    cp.ChatPage._sent_now(s, True, "sent")
     cp.ChatPage._cancelled(s, "not cancelled - gone", "b")
     cp.ChatPage._cancelled(s, "cancelled", "b")
     check("toast: refusals are errors, successes information",
@@ -4980,7 +4980,7 @@ def test_the_founders_reply_to_a_waiting_message_draws_its_link() -> None:
     ok, _, said = askmod.say(actions.HUMAN, "anything for me?", requester="reviewer")
     con = db.connect()
     try:
-        ok, _ = cp.send_reply(con, "reviewer", said, "yes, this")
+        ok, _ = cp.send_reply("reviewer", said, "yes, this")
         con.commit()
         msgs = cp.messages_of(_items("reviewer"), "reviewer")
         reply = next(m for m in msgs if m["text"] == "yes, this")
@@ -5004,7 +5004,7 @@ def test_the_founders_reply_to_a_report_draws_its_link() -> None:
     ok, _, said = askmod.say(actions.HUMAN, "done, FYI", requester="reviewer")
     con = db.connect()
     try:
-        ok, sent = cp.send_reply(con, "reviewer", said, "thanks, one question")
+        ok, sent = cp.send_reply("reviewer", said, "thanks, one question")
         con.commit()
         msgs = cp.messages_of(_items("reviewer"), "reviewer")
         mine = [m for m in msgs if m["text"] == "thanks, one question"]
