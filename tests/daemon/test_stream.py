@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline import actions  # noqa: E402
 from handline.daemon import agentview, rpc, stream  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 
@@ -221,6 +222,68 @@ def test_the_notification_detectors_say_what_happened_once_and_not_what_came_bef
     watcher.scan(con)
     said = [e for e in stream.since(con, 0, ["notifications"]) if e["type"] == "task_done"]
     check("notifications: a done mark that names no task says nothing, never a task 'None'", len(said) == 1 and "None" not in json.dumps(said), str(said))
+    con.close()
+
+
+def test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    before = db.new_task(con, "old", "backend", "manager")
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)
+    check("tasks and inbox: what came before the first look is not news", stream.since(con, 0, ["tasks", "inbox"]) == [])
+    tid = db.new_task(con, "fresh", "backend", "manager")
+    rid = db.add_request(con, "manager", "backend", "do the fresh thing", None, None, "fire_and_forget", "task", 0, None)
+    watcher.scan(con)
+    watcher.scan(con)
+    got = [e for e in stream.since(con, 0, ["tasks"]) if e["data"]["id"] == tid]
+    check("tasks: a task made is task.changed once, as the spec's Task, naming where to go",
+          len(got) == 1 and got[0]["type"] == "task.changed" and got[0]["data"]["title"] == "fresh" and got[0]["agent"] == "backend"
+          and got[0]["target"] == {"screen": "tasks", "id": str(tid)} and not [e for e in stream.since(con, 0, ["tasks"]) if e["data"]["id"] == before],
+          str(got))
+    n = len(stream.since(con, 0, ["tasks"]))
+    ok, msg, _ = actions.memo_add(con, tid, "manager", "a note", tell=False)
+    watcher.scan(con)
+    check("tasks: a memo is a change of its task", len(stream.since(con, 0, ["tasks"])) == n + 1, msg)
+    inbox = stream.since(con, 0, ["inbox"])
+    check("inbox: the delivery to the worker arrived as inbox.added", any(e["type"] == "inbox.added" and e["agent"] == "backend" and e["data"]["read"] is False
+          for e in inbox), str(inbox))
+    con.execute("UPDATE requests SET read_at = ? WHERE id = ?", (int(time.time()), rid))
+    con.commit()
+    watcher.scan(con)
+    check("inbox: reading it is inbox.changed, with the item as read", any(e["type"] == "inbox.changed" and e["data"]["id"] == rid and e["data"]["read"] is True
+          for e in stream.since(con, 0, ["inbox"])))
+    con.close()
+
+
+def test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(home: Path) -> None:
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    for i in range(300):        # a long history: none of it is touched again
+        db.add_request(con, "manager", "backend", f"old {i}", None, None, "fire_and_forget", "task", 0, None)
+    con.execute("UPDATE requests SET ts = ts - 100000 - id, state_at = ts - 100000 - id")      # each in a second of its own, as a real history is
+    con.commit()
+    watcher = stream.Watcher(lambda m: None)
+    watcher.scan(con)
+    from handline.daemon import rpc_inbox
+    built = []
+    real = rpc_inbox._item
+    rpc_inbox._item = lambda *a, **k: (built.append(k["id"]), real(*a, **k))[1]
+    try:
+        watcher.scan(con)
+        check("inbox: a pass with nothing touched builds at most the one request of the second it stands at, whatever the history", len(built) <= 1, str(built))
+        built.clear()
+        rid = db.add_request(con, "manager", "backend", "one new", None, None, "fire_and_forget", "task", 0, None)
+        watcher.scan(con)
+        check("inbox: a request touched builds that item and the boundary one, no more", rid in built and len(built) <= 3, str(built))
+        check("inbox: none of the old history was said again", not [e for e in stream.since(con, 0, ["inbox"]) if e["data"]["id"] != rid], "")
+    finally:
+        rpc_inbox._item = real
+    for sql in (stream.CHAT_TOUCHED_SQL, stream._READ_TOUCHED_SQL):
+        plan = " ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + sql, {"last": 0, "floor": 0}).fetchall())
+        check("inbox: the touched queries search requests by index, never scan it", "SCAN requests" not in plan and "SCAN a" not in plan, plan)
     con.close()
 
 
@@ -466,6 +529,9 @@ def main() -> int:
         run(lambda: test_a_client_that_cannot_keep_up_is_dropped_with_a_gap_not_buffered(Path(td) / "s5"))
         run(lambda: test_the_watcher_sees_a_change_another_process_made(Path(td) / "s6"))
         run(lambda: test_the_notification_detectors_say_what_happened_once_and_not_what_came_before(Path(td) / "s7"))
+        run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "ti"))
+        run(lambda: test_the_tasks_and_inbox_topics_say_what_changed_once_and_not_what_came_before(Path(td) / "s7b"))
+        run(lambda: test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(Path(td) / "s7c"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))
         run(lambda: test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(Path(td) / "s11"))
