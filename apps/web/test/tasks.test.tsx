@@ -261,6 +261,7 @@ describe('writes', () => {
     s.daemon.knobs.refuse('task.new', 'quota', 'too many open tasks', undefined, 1);
     await click(button('Ask')!);
     await until(() => text($('.toast')).includes('too many open tasks'), 'the refusal');
+    expect(text($('.tsheet-err'))).toContain('too many open tasks'); // the sheet says it too, not only the toast
     expect(($('.tsheet .tform input') as HTMLInputElement).value).toBe('Check the lint doc'); // still in the box
     expect($$('tr.trow').some((r) => text(r).includes('Check the lint doc'))).toBe(false); // the row went again
     s.daemon.knobs.latency(300);
