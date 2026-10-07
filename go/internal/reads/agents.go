@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/handline/handline/go/internal/term"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -232,6 +233,9 @@ func orNil(m map[string]any, k string) any {
 	return nil
 }
 
+// OpenPrompt is openPrompt for the code that answers one: the Prompt a stale answer carries.
+func (e *Env) OpenPrompt(name string) (any, error) { return e.openPrompt(name) }
+
 // openPrompt is the agent's open prompt as the spec's Prompt, while the screen watch has refreshed it within promptStaleS.
 func (e *Env) openPrompt(name string) (any, error) {
 	r, err := queryOne(e.DB, "SELECT * FROM prompt_blocks WHERE agent = ? AND gone_at IS NULL", name)
@@ -253,12 +257,28 @@ func promptOf(name string, r row) map[string]any {
 	if since == nil || r.i("first_seen") == 0 {
 		since = r["last_seen"]
 	}
+	kind := r.str("kind")
+	if kind == "dialog" {
+		kind = promptKind(detail)
+	}
 	return map[string]any{
-		"id": r.str("fingerprint"), "agent": name, "kind": r.str("kind"), "tool": orNil(detail, "tool"),
+		"id": r.str("fingerprint"), "agent": name, "kind": kind, "tool": orNil(detail, "tool"),
 		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
 		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
 		"multi": truthy(detail["multi_select"]),
 	}
+}
+
+// promptKind is promptparse.dialog_kind: an exit confirmation is told by an option that exits.
+func promptKind(detail map[string]any) string {
+	var labels []string
+	opts, _ := detail["options"].([]any)
+	for _, o := range opts {
+		if pair, _ := o.([]any); len(pair) >= 2 {
+			labels = append(labels, fmt.Sprint(pair[1]))
+		}
+	}
+	return term.DialogKind(labels)
 }
 
 func (e *Env) agentTimeline(c *rpc.Conn, params map[string]any) (any, error) {

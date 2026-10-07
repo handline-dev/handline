@@ -13,7 +13,6 @@ inbox.reply
 input.ask
 input.release
 input.take
-prompt.answer
 schedule.add
 schedule.edit
 schedule.remove
