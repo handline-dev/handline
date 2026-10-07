@@ -415,7 +415,7 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	bs := []any{}
 	for _, bl := range blockers {
-		bs = append(bs, map[string]any{"task": bl.i("id"),
+		bs = append(bs, map[string]any{"task": bl.i("id"), "owner": bl.str("owner"), "title": bl.str("title"),
 			"reason": fmt.Sprintf("T%d (%s) %s", bl.i("id"), bl.str("owner"), bl.str("title"))})
 	}
 	task["blockers"] = bs

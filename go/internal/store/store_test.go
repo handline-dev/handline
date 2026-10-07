@@ -311,3 +311,27 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		}
 	}
 }
+
+func TestADatabaseAtStepNineGetsTheExtraWorktreesColumn(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"ALTER TABLE agent_state DROP COLUMN extra_worktrees", "DELETE FROM schema_version WHERE version > 9"} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	db, err = Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('agent_state') WHERE name = 'extra_worktrees'").Scan(&n)
+	if v, _ := version(db); n != 1 || v != LatestVersion() {
+		t.Fatalf("column %d, version %d", n, v)
+	}
+}

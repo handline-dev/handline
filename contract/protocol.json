@@ -2459,7 +2459,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that is not between the person and agent is refused (gate state). request in the result is then the message replied to, for an answer, or the new message."
+      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message."
      }
     },
     {
@@ -3872,12 +3872,12 @@
   },
   {
    "name": "task.progress",
-   "summary": "Record progress on a task (hl progress).",
+   "summary": "Record progress (hl progress): on a task, or with no task on the caller's request in progress, else the task it holds, else the agent, even when it holds no task.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "task",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "integer"
      }
@@ -8062,11 +8062,19 @@
           },
           "reason": {
            "type": "string"
+          },
+          "owner": {
+           "type": "string"
+          },
+          "title": {
+           "type": "string"
           }
          },
          "required": [
           "task",
-          "reason"
+          "reason",
+          "owner",
+          "title"
          ]
         }
        },
@@ -8232,6 +8240,9 @@
           "title": {
            "type": "string"
           },
+          "owner": {
+           "type": "string"
+          },
           "state": {
            "type": "string"
           }
@@ -8239,10 +8250,11 @@
          "required": [
           "id",
           "title",
+          "owner",
           "state"
          ]
         },
-        "description": "The sub-tasks by number: `children` with their titles and states."
+        "description": "The sub-tasks by number: `children` with their titles, owners and states."
        },
        "timeline": {
         "type": "array",
