@@ -1195,6 +1195,11 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     if not ok:
         return False, msg, None
     tid = opened[0]
+    con = db.connect()
+    try:
+        _tell_parent_of_sibling_move(con, me, owner, f"T{tid} opened by {me} for {owner}: {title}")
+    finally:
+        con.close()
     limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
                   f"expects {expects}{limit}): {msg}"), tid
@@ -1408,7 +1413,20 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         if db.current_task(con, to) is None:
             db.set_current_task(con, to, tid)
         askmod.push(con, to, rid)
+    _tell_parent_of_sibling_move(con, me, to, f"T{tid} handed by {me} to {to}: {row['title']}")
     return True, f"T{tid} handed to {to}: {msg}"
+
+
+def _tell_parent_of_sibling_move(con, me: str, to: str, text: str) -> None:
+    """Siblings give each other work without their manager in between; the manager is told as a notice,
+    which rides on its next delivery and asks nothing of it."""
+    mgr = team.parent_name(me)
+    if mgr is None or to == HUMAN or team.parent_name(to) != mgr or mgr not in paths.list_agents():
+        return
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, mgr, text, None, None, "fire_and_forget", "say", 0, None,
+                         notice=True)
+    askmod.deliver(rid, _UNBLOCK_REQUESTER, mgr, text, None,
+                   team.Decision(True, "sibling move", kind="say", response="fire_and_forget", chain_depth=0))
 
 
 PRIORITIES = (1, 2, 3)

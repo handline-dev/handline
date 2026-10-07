@@ -49,7 +49,8 @@ limits:
 The name gives the links, with no edge written: an agent may ask its parent (the name up to the
 last dot, so `shop.sea` is under `shop`), its children and its siblings. A grandparent, a nephew and
 another team are not reachable; a link between teams is an edge you write on purpose. A manager may
-ask you. To add or remove one link or agent without editing the file, use `hl hr`:
+ask you. Siblings open and hand on tasks to each other directly, and their manager is told of each
+move as a notice that asks nothing of it. To add or remove one link or agent without editing the file, use `hl hr`:
 
 ```bash
 hl hr team shop --member sea=/Users/you/code/sea --member shore --why "split the storefront work"
