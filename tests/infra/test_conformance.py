@@ -611,6 +611,10 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     listing.write_text("agent.get\nhello\n")
     code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
     check("conformance: a name in --allow-missing-file that the daemon serves is stale and fails the run", code == 1 and "STALE hello" in out, out)
+    listing.write_text("agent.get\ndevices.list\n")
+    code, out = _run(["--allow-skip", "--allow-missing-file", str(listing), *KEYARG], lacks={"agent.get"})
+    check("conformance: a listed name the daemon advertises in hello is stale though no fixture reaches it",
+          code == 1 and "STALE devices.list" in out and "STALE agent.get" not in out, out)
     code, out = _run(["--allow-skip", "--allow-missing", "whoami", *KEYARG], lacks={"agent.get"})
     check("conformance: allowing a different method does not cover it", code == 1, out)
     code, out = _run(["--allow-skip"])

@@ -495,9 +495,10 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     for name in sorted(stale):
         print(f"STALE {name}  - in --allow-needvar-file but it did not need a var (passed, failed, or no such fixture): delete the line")
     # The missing file is a set, read one name per line, so branches may append to it without conflicts: what keeps it
-    # honest is here. A name twice, or one whose method the daemon now serves, is stale.
+    # honest is here. A name twice, or one whose method the daemon now serves (a fixture reached it, or hello lists it
+    # for a method no fixture covers), is stale.
     dup = sorted({n for n in listed if listed.count(n) > 1})
-    gone = sorted(set(listed) & served) if not only else []
+    gone = sorted(set(listed) & (served | (listed_methods(sockets["founder"]) or set()))) if not only else []
     for name in dup:
         print(f"STALE {name}  - listed more than once in --allow-missing-file: keep one line")
     for name in gone:
