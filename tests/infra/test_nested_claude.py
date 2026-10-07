@@ -120,8 +120,8 @@ def test_a_claude_inside_an_agent_s_session_cannot_speak_as_the_agent(home: Path
 
     own = under(1, "done", "task", "done", "T9", "evidence")
     nested = under(2, "done", "task", "done", "T9", "evidence")
-    check("nested: the agent's own `hl task done` is taken as the agent's (it gets as far as looking for the task)",
-          "no task T9" in own.stdout, own.stdout + own.stderr[-200:])
+    check("nested: the agent's own `hl task done` is taken as the agent's (it gets as far as calling the daemon, none here)",
+          "daemon not running" in own.stdout and "second Claude Code" not in own.stdout, own.stdout + own.stderr[-200:])
     check("nested: the same command from a nested claude is refused as an inherited name, and says so",
           "second Claude Code" in nested.stdout and "no task" not in nested.stdout, nested.stdout + nested.stderr[-200:])
     said = under(2, "say", "say", "orcapipe", "as scout")

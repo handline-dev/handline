@@ -311,6 +311,36 @@
      }
     }
    ]
+  },
+  {
+   "name": "progress.get.is_the_callers_own_note",
+   "spec": "progress.get",
+   "about": "The note the caller kept, null when none: a fresh agent has none.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "progress.get"
+     },
+     "result": {
+      "note": null
+     }
+    }
+   ]
   }
  ]
 }

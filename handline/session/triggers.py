@@ -163,8 +163,7 @@ def stay_or_move(work_waiting: bool, reset_in_s: float | None,
     if not work_waiting:
         return False, "no work is waiting - an idle agent does not move"
     if reset_in_s is not None and reset_in_s <= stay_within:
-        return False, (f"its account resets in {int(reset_in_s // 60)}m, within "
-                       f"{int(stay_within // 60)}m - cheaper to wait")
+        return False, f"its account resets within {int(stay_within // 60)}m - cheaper to wait"
     return True, "work is waiting and its account resets too late to wait for"
 
 

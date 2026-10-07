@@ -167,11 +167,14 @@ def _normal(method: str, reply: dict) -> dict:
         r["result"] = {k: res[k] for k in ("alive", "protocol", "schema", "agents", "inbox")}
     if method == "agent.get" and res:
         res.pop("account_pick", None)
+        res.pop("cwd", None)        # the chat page's fields: the Go daemon does not send them yet
+        res.pop("can", None)
     if method == "chat.requests" and res:
         res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
     if method in ("tasks.list", "task.get") and res:
+        res.pop("reason_gaps", None)
         for t in res.get("items", [res]):
-            for k in ("last_activity", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
+            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
     r.pop("id", None)
     return r

@@ -55,6 +55,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `session_token` | Session token and peer-pid check, unchanged. |
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
+| `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
 
 ## Methods
 
@@ -96,11 +97,13 @@ A method marked write takes a required `request_id`.
 | `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?`, `format?` | `TerminalSnapshot \| TerminalBytesSnapshot` | `not_found`, `bad_request`, `refused` | unsupported |
 | `terminal.history` | member |  | `terminal`, `before`, `limit`, `format?` | `HistoryPage \| HistoryBytesPage` | `not_found`, `refused`, `bad_request` | unsupported |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
@@ -112,13 +115,14 @@ A method marked write takes a required `request_id`.
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?` | `{items, more}` |  |  |
+| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `title`, `body`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.new` | agent | yes | `owner`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
+| `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
@@ -130,10 +134,10 @@ A method marked write takes a required `request_id`.
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.board` | agent |  | none | `{mine, reports}` |  |  |
+| `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused`, `bad_request` |  |
@@ -263,7 +267,7 @@ Park an agent.
 
 ### `session.input`
 
-Type text at the prompt; Enter optional. Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id.
+Type text at the prompt; Enter optional. Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id.
 
 ### `session.keys`
 
@@ -311,7 +315,7 @@ The agent's replies, tool activity, prompt cards and task events as ordered item
 
 ### `chat.locate`
 
-Where a message number sits: its conversation, scope, and the page of messages around it. not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for.
+Where a message number sits: its conversation, scope, and the page of messages around it. not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for. When the request exists and only no chat draws it, the not_found data also carries `from`, `to` and `body` of that request (body as typed, control characters stripped), so a client can say what it was; for a request that does not exist it carries none of them.
 
 ### `chat.search`
 
@@ -319,7 +323,7 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 ### `chat.send`
 
-A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.
 
 ### `chat.send_now`
 
@@ -336,6 +340,14 @@ Dismiss a message.
 ### `chat.withdraw`
 
 Withdraw a message not yet landed.
+
+### `chat.cancel`
+
+Take back a message the person sent, delivered or not. The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state).
+
+### `chat.seen`
+
+Record that the person has an agent's messages in front of them, up to a message number. What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary.
 
 ### `terminal.attach`
 
@@ -409,6 +421,10 @@ Reopen a task.
 
 Record progress on a task (hl progress).
 
+### `progress.get`
+
+The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).
+
 ### `task.begin`
 
 Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.
@@ -455,7 +471,7 @@ Throw away a task that is not done: the asker or the founder, with a reason.
 
 ### `task.board`
 
-The caller's open tasks and its reports', and who holds each now.
+The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.
 
 ### `task.withdraw`
 
@@ -467,7 +483,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
+Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.
 
 ### `task.ask`
 

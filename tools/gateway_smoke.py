@@ -504,7 +504,7 @@ def run_topics(s: Smoke, triggers: dict[str, callable]) -> None:
             s.note(f"topic {topic}", "missing", "read-only run changes nothing")
             continue
         trigger()
-        got = s.c.wait_note(since, lambda m, t=topic: m.get("method") == "event" and (m.get("params") or {}).get("topic") == t, 45 if topic == "agents" else 12)
+        got = s.c.wait_note(since, lambda m, t=topic: m.get("method") == "event" and (m.get("params") or {}).get("topic") == t, 45 if topic in ("agents", "inbox") else 12)
         s.note(f"topic {topic}", "pass" if got else "FAIL", (got or {}).get("params", {}).get("type", "no event after a change"))
     s.note("topic prompts", "missing", "the spec has no prompts topic; a prompt change arrives as agent.changed on `agents`")
     s.c.call("unsubscribe", {"topics": list(spec_topics)})

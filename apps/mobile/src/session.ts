@@ -1,14 +1,14 @@
 // What the phone keeps between launches (the pairing: where the daemon is, which certificate to trust, the device token)
 // and how it builds the store from it.
 import * as SecureStore from 'expo-secure-store';
-import { DaemonClient, listenerUrl, parsePairingUri, redeemPairing } from '@handline/client';
+import { DaemonClient, listenerUrl, parsePairingUri, redeemPairing, webSocketTransport } from '@handline/client';
 import { Store } from '@handline/app-core';
 import Native from '../modules/pinned-socket/index.ts';
 import { pinnedTransport } from './pinned-transport.ts';
 
 export interface Pairing {
   host: string;
-  fingerprint: string;
+  fingerprint: string | null; // null: a plain Tailscale gateway, reached as ws://
   token: string;
   device: string;
 }
@@ -24,7 +24,8 @@ export async function loadPairing(): Promise<Pairing | null> {
 }
 export const forgetPairing = () => SecureStore.deleteItemAsync(KEY);
 
-const connectTo = (host: string, fingerprint: string) => () => pinnedTransport(Native, listenerUrl(host), fingerprint);
+const connectTo = (host: string, fingerprint: string | null) => () =>
+  fingerprint ? pinnedTransport(Native, listenerUrl(host), fingerprint) : webSocketTransport(listenerUrl(host, false));
 
 /** Trades the code in a pairing uri for a token and keeps the result. Throws the daemon's own sentence when it refuses. */
 export async function pair(uri: string, deviceName: string): Promise<Pairing> {

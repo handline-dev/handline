@@ -12,7 +12,7 @@ from ..infra import paths
 from ..usage import status
 from ..infra.yamlcompat import ConfigError
 
-from . import delivery, evaluate, handoff, lifecycle, login_expired
+from . import agentview, delivery, evaluate, handoff, lifecycle, login_expired
 from .states import (DEGRADED, DEGRADED_RETRY_S, IDLE, MAX_FAILED_ATTEMPTS, PARKED, RUNNING,
                      STALLED, STUCK_RUNNING_S, THROTTLED)
 
@@ -256,6 +256,7 @@ def sweep(con, log, actions: list[str]) -> None:
                 said += f"; recorded as closed (resume {session or 'unknown'})"
             actions.append(said)
             log(f"  {said}")
+            agentview.refresh_one(con, agent, log)       # the stored view is what agent.get serves: not a tick behind
             continue
 
         if o.terminal_alive is not True or not o.session_seen:
@@ -326,6 +327,7 @@ def sweep(con, log, actions: list[str]) -> None:
             actions.append(f"{agent}: its session is gone; recorded as closed")
             log(f"  {agent}: session gone; recorded as closed "
                 f"(resume {session or 'unknown'})")
+            agentview.refresh_one(con, agent, log)       # agent.get serves the stored view: it must not read running for a tick more
         elif alive and row["state"] == RUNNING:
             suspects.append((agent, row))
 

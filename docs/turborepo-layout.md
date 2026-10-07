@@ -132,6 +132,8 @@ Written against the store on main @1048b3f5 and `contract/protocol.json` (111 me
 | Which daemon (`daemonId`) | provider prop | every query key starts with it, so two daemons never share an entry |
 
 The cache replaces the store's `agents`, `details`, `watch` and its refcount, `refresh`, `loadDetail`, `act` and `run`, but **they are removed only in unit Q4, after both apps have moved** (§6): `apps/mobile` reads `s.agents`, `s.details` and `openAgent` today, and breaks if they go first. Until Q4 the two coexist and no screen reads both.
+**Q4 is done:** the store no longer has `agents`, `details`, `watch`/`unwatch`, `refresh`, `loadDetail`, `act`, `run` or the agent action methods (`startAgent`, `stopAgent`, `resume`, `send`, `key`, `interrupt`, `answer`, `take`, `release`); `app-react` no longer exports `useAgents` and `useAgentDetail` (use the `app-data` hooks). The old store is kept as `web/legacy/store.ts` for the no-build UIs in `web/ui` and `web/mobile` only, and goes when they do. The store tests that covered the removed parts are mapped, one by one, in the header of `packages/app-core/test/store.test.ts`.
+
 `useAgents()`, `useAgentDetail()` and the other hooks of `app-data` return the **query result** (`data`, `isPending`, `isFetching`, `error`), which is what draws the five states of §8.3; a call site changes once, when its app moves (Q2, Q3). After Q4 `openAgent` only attaches the terminal and sets `page` (`agent`, `tab`, `view`); it no longer watches or loads detail. The page's agent row and detail come from `useAgent(page.agent)` and `useAgentDetail(page.agent)`, and a `not_found` there shows "<agent> is gone" and closes the page, as the store's `loadDetail` does now.
 
 ### 8.2 Queries and keys

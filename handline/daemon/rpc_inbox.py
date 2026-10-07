@@ -47,6 +47,12 @@ def _agent_items(con, agent: str, since_id: int = 0, only: int | None = None) ->
                   read=r["read_at"] is not None or r["state"] != "queued", answered=r["answer"] is not None) for r in rows]
 
 
+def answered_now(con, rid: int) -> bool:
+    """Whether the request has been answered, by the rule `_agent_items` gives an agent's item: something closed it with words."""
+    row = con.execute(f"SELECT {db.ANSWER_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
+    return row is not None and row["answer"] is not None
+
+
 def _int(params, key, lo=None, hi=None):
     v = params.get(key)
     if v is None:

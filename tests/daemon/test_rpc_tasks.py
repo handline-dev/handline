@@ -88,6 +88,9 @@ def test_task_new_refuses_what_it_cannot_open(home: Path) -> None:
     check("task.new: a time box past the maximum is bad_request", _code(r) == "bad_request", str(r))
     r = _call("task.new", {"owner": "worker", "title": "t", "body": "  ", "time_box": "1h", "request_id": "n6"})
     check("task.new: an empty body is bad_request", _code(r) == "bad_request", str(r))
+    r = _call("task.new", {"owner": "worker", "title": "t", "time_box": "1h", "request_id": "n6b"})
+    check("task.new: no body is the action's own refusal, as the command gives it",
+          _code(r) == "refused" and "needs a body" in r["error"]["message"] and _count("SELECT COUNT(*) FROM tasks") == 0, str(r))
     r = _new("n7", relation="supervisor")
     check("task.new: a part that has no action behind it is refused, not dropped", _code(r) == "bad_request", str(r))
     r = _new("n8", blocked_by=999)
@@ -97,6 +100,25 @@ def test_task_new_refuses_what_it_cannot_open(home: Path) -> None:
     r = _new("n10", blocked_by=first)
     con = db.connect()
     check("task.new: a blocker is recorded in the same step", db.task_blockers(con, r["result"]["task"])[0]["id"] == first, str(r))
+    con.close()
+
+
+def test_task_edit_adds_and_removes_a_wait_in_the_transaction_of_its_other_parts(home: Path) -> None:
+    support._board_world(home)
+    tid, blocker = _new("w0")["result"]["task"], _new("w1")["result"]["task"]
+    r = _call("task.edit", {"task": tid, "title": "waits now", "blocked_by": blocker, "request_id": "w2"})
+    con = db.connect()
+    check("task.edit: blocked_by with a title is one change", r["result"]["accepted"] is True and db.get_task(con, tid)["title"] == "waits now"
+          and [b["id"] for b in db.task_blockers(con, tid)] == [blocker], str(r))
+    r = _call("task.edit", {"task": tid, "title": "never kept", "blocked_by": tid, "request_id": "w3"})
+    check("task.edit: a later part's refusal undoes the earlier one (a task cannot wait on itself)",
+          _code(r) == "refused" and db.get_task(con, tid)["title"] == "waits now", str(r))
+    r = _call("task.edit", {"task": tid, "unblock": blocker, "request_id": "w4"})
+    check("task.edit: unblock clears the wait", r["result"]["accepted"] is True and not db.task_blockers(con, tid), str(r))
+    r = _call("task.edit", {"task": tid, "unblock": blocker, "request_id": "w5"})
+    check("task.edit: unblocking what it is not waiting on is refused", _code(r) == "refused", str(r))
+    r = _call("task.edit", {"task": tid, "blocked_by": "x", "request_id": "w6"})
+    check("task.edit: blocked_by is a task number", _code(r) == "bad_request", str(r))
     con.close()
 
 
@@ -212,6 +234,7 @@ def main() -> int:
         run(lambda: test_task_new_opens_a_task_for_its_owner_and_a_retry_opens_no_second(Path(td) / "t1"))
         run(lambda: test_task_new_refuses_what_it_cannot_open(Path(td) / "t2"))
         run(lambda: test_task_edit_changes_what_the_opener_names_and_refuses_the_rest(Path(td) / "t3"))
+        run(lambda: test_task_edit_adds_and_removes_a_wait_in_the_transaction_of_its_other_parts(Path(td) / "t3b"))
         run(lambda: test_task_withdraw_and_task_cancel_end_a_task_for_the_right_caller(Path(td) / "t4"))
         run(lambda: test_the_commands_these_methods_serve_still_work_from_an_agent_session(Path(td) / "t5"))
         run(lambda: test_the_task_fixtures_pass_against_this_daemon(Path(td) / "t6"))

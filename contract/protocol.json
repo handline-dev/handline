@@ -46,7 +46,8 @@
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
   "session_token": "Session token and peer-pid check, unchanged.",
   "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
-  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now."
+  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
+  "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -1599,7 +1600,7 @@
     "wall",
     "screen_blocker"
    ],
-   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
   },
   {
    "name": "session.keys",
@@ -2346,7 +2347,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for."
+   "description": "not_found when the request does not exist or no chat draws it (withdrawn, or never reached its target). The page has up to `limit` messages, about half of them older than the one asked for. When the request exists and only no chat draws it, the not_found data also carries `from`, `to` and `body` of that request (body as typed, control characters stripped), so a client can say what it was; for a request that does not exist it carries none of them."
   },
   {
    "name": "chat.search",
@@ -2418,7 +2419,7 @@
   },
   {
    "name": "chat.send",
-   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.",
+   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2451,6 +2452,14 @@
       "required": [
        "title"
       ]
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message."
      }
     },
     {
@@ -2676,6 +2685,106 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "chat.cancel",
+   "summary": "Take back a message the person sent, delivered or not.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "confirm",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state)."
+  },
+  {
+   "name": "chat.seen",
+   "summary": "Record that the person has an agent's messages in front of them, up to a message number.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "up_to",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "The highest message number seen. A lower number than before changes nothing: what arrives later has a higher one, so nothing unseen is hidden."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary."
   },
   {
    "name": "terminal.attach",
@@ -3355,6 +3464,14 @@
       "type": "boolean",
       "description": "Every team's tasks, not only the caller's and its reports'."
      }
+    },
+    {
+     "name": "reason_gaps",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks."
+     }
     }
    ],
    "result": {
@@ -3370,6 +3487,34 @@
       },
       "more": {
        "type": "boolean"
+      },
+      "reason_gaps": {
+       "type": "object",
+       "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+       "properties": {
+        "retirements": {
+         "type": "integer"
+        },
+        "retirements_blank": {
+         "type": "integer"
+        },
+        "closures_sha": {
+         "type": "integer"
+        },
+        "closures_request": {
+         "type": "integer"
+        },
+        "closures_reason": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "retirements",
+        "retirements_blank",
+        "closures_sha",
+        "closures_request",
+        "closures_reason"
+       ]
       }
      },
      "required": [
@@ -3431,7 +3576,7 @@
     },
     {
      "name": "body",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -3772,6 +3917,40 @@
    "x-gates": [
     "not_self"
    ],
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "progress.get",
+   "summary": "The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "note": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The note, or null when none is kept."
+      }
+     },
+     "required": [
+      "note"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
    "x-callers": [
     "agent"
    ]
@@ -4359,9 +4538,18 @@
   },
   {
    "name": "task.board",
-   "summary": "The caller's open tasks and its reports', and who holds each now.",
+   "summary": "The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.",
    "paramStructure": "by-name",
-   "params": [],
+   "params": [
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's open tasks, not only the caller's and its reports'."
+     }
+    }
+   ],
    "result": {
     "name": "result",
     "schema": {
@@ -4475,7 +4663,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.",
+   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4532,6 +4720,22 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them."
+     }
+    },
+    {
+     "name": "unblock",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
      }
     },
     {
@@ -6934,6 +7138,10 @@
      "proposal": {
       "$ref": "#/components/schemas/Proposal",
       "description": "With gates proposal_changed and proposal_settled: the proposal as it is now."
+     },
+     "plan": {
+      "type": "string",
+      "description": "With gate confirm: what the call would do and who is told."
      }
     },
     "required": [
@@ -7352,6 +7560,179 @@
        },
        "settings": {
         "$ref": "#/components/schemas/AgentSettingValues"
+       },
+       "cwd": {
+        "type": "string",
+        "description": "The directory a shell command for this agent runs in: its worktree when that is on disk, else the daemon's home directory. worktree.path is what the agent's record holds and may name a directory that is gone; cwd is always usable."
+       },
+       "can": {
+        "type": "object",
+        "description": "Whether each action of the chat page's menu is worth offering now, by the daemon's own rules: ok, and why not when it is not.",
+        "properties": {
+         "terminal": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "wake": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "close": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "restart": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "park": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "fold": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "move": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         }
+        },
+        "required": [
+         "terminal",
+         "wake",
+         "close",
+         "restart",
+         "park",
+         "fold",
+         "move"
+        ]
        }
       },
       "required": [
@@ -7361,7 +7742,9 @@
        "session_open",
        "input_holders",
        "account_pick",
-       "prompt"
+       "prompt",
+       "cwd",
+       "can"
       ]
      }
     ]
@@ -7518,6 +7901,91 @@
      "last_activity": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
+     },
+     "edited_by": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who last changed the task's owner, title, priority or brief; null when never."
+     },
+     "asker": {
+      "type": "string",
+      "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
+     },
+     "discarded": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "type": "string"
+         },
+         "reason": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "by",
+         "reason",
+         "at"
+        ],
+        "description": "Who threw the task away, why and when."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null when the task was not discarded."
+     },
+     "mismatch": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree."
+     },
+     "requests": {
+      "type": "array",
+      "description": "The requests linked to the task, oldest first.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "from": {
+         "type": "string"
+        },
+        "to": {
+         "type": "string"
+        },
+        "state": {
+         "type": "string"
+        },
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        }
+       },
+       "required": [
+        "id",
+        "from",
+        "to",
+        "state",
+        "at"
+       ]
+      }
      }
     },
     "required": [
@@ -7786,7 +8254,7 @@
           },
           "who": {
            "type": "string",
-           "description": "The author, or `from \u2192 to` for a handoff."
+           "description": "The author, or `from → to` for a handoff."
           },
           "kind": {
            "type": "string",
@@ -9297,6 +9765,17 @@
      },
      "text": {
       "type": "string"
+     },
+     "edited_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the memo's text was last changed; null if never."
      }
     },
     "required": [
@@ -9321,6 +9800,40 @@
        {
         "type": "null"
        }
+      ]
+     },
+     "now": {
+      "type": "object",
+      "description": "Who has the task now, read from its linked requests: `waiting` on open blocker tasks (`tasks`); `held` by the agents a request is with (`agents`); `sub_task` when an open child task's request is with them (`agents`); `held_as_sub_task` while an open child shares a request with it (`tasks`, `agents` their owners); `result_in` when the last request came back done from someone other than the caller or the founder; else `nobody`.",
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "waiting",
+         "held",
+         "sub_task",
+         "held_as_sub_task",
+         "result_in",
+         "nobody"
+        ]
+       },
+       "agents": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "kind",
+       "agents",
+       "tasks"
       ]
      }
     },

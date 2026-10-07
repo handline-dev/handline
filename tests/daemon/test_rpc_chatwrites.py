@@ -1,4 +1,4 @@
-"""Tests: chat.send, chat.answer, chat.dismiss and chat.withdraw (contract/protocol.md): what each writes, who may call it, a refusal each,
+"""Tests: chat.send, chat.answer, chat.dismiss, chat.withdraw, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
 a death between the effect and its record (nothing written, the retry does it once, the next retry is replayed), a retry after a lost
 reply, and `hl withdraw` still working from an agent session.
 
@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline import actions  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -217,6 +218,111 @@ def test_hl_withdraw_still_works_from_an_agent_session(home: Path) -> None:
     check("hl withdraw: works at role agent", rc == 0 and "withdrawn" in out and _row(own)["state"] == "withdrawn", out)
 
 
+def test_send_under_a_message_answers_it_or_says_under_it(home: Path) -> None:
+    _world(home)
+    ask = _add("worker", db.HUMAN, "may I deploy?", "ask", "async")
+    r = _call("chat.send", {"agent": "worker", "body": "yes, after lunch", "parent": ask, "request_id": "p1"})
+    check("chat.send with parent: a question to the person is answered, and says which message", r["result"]["accepted"] is True and r["result"]["request"] == ask
+          and _row(ask)["state"] != "queued", str(r))
+    mine = _add(db.HUMAN, "worker", "look at the build")
+    r = _call("chat.send", {"agent": "worker", "body": "and the tests too", "parent": mine, "request_id": "p2"})
+    new = r["result"]["request"]
+    check("chat.send with parent: otherwise a say to the agent under that message", new != mine and (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"])
+          == (db.HUMAN, "worker", mine), str(r))
+    fyi = _add("worker", db.HUMAN, "the build is green")
+    con = db.connect()
+    con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (fyi,))
+    con.commit()
+    con.close()
+    r = _call("chat.send", {"agent": "worker", "body": "thanks", "parent": fyi, "request_id": "p4"})
+    new = r["result"]["request"]
+    check("chat.send with parent: a landed say to the person is not answered, a say goes under it", new != fyi and _row(fyi)["state"] == "landed"
+          and (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"]) == (db.HUMAN, "worker", fyi), str(r))
+    side = _add("manager", "worker", "between two agents")
+    n = _count("SELECT COUNT(*) FROM requests")
+    for params, code in (({"parent": 999}, "not_found"), ({"parent": "1"}, "bad_request"), ({"parent": True}, "bad_request"), ({"parent": mine, "task": {"title": "t"}}, "bad_request"),
+                         ({"parent": mine, "agent": "manager"}, "refused")):
+        check(f"chat.send: {params} is {code}", _code(_call("chat.send", {"agent": "worker", "body": "x", **params, "request_id": f"p-{params}"})) == code)
+    check("chat.send: none of those sent anything", _count("SELECT COUNT(*) FROM requests") == n)
+    r = _call("chat.send", {"agent": "manager", "body": "why?", "parent": side, "request_id": "p5"})
+    new = r["result"]["request"]
+    check("chat.send with parent: a message between two other agents is replied to by a say to the agent named, under it",
+          (_row(new)["requester"], _row(new)["target"], _row(new)["parent_id"]) == (db.HUMAN, "manager", side) and _row(side)["state"] == "queued", str(r))
+    again = _add("worker", db.HUMAN, "another question", "ask", "async")
+    _dies_then_retries("chat.send", {"agent": "worker", "body": "yes", "parent": again, "request_id": "p3"}, None,
+                       after=lambda: _row(again)["state"] != "queued", unchanged=lambda: _row(again)["state"] == "queued")
+
+
+def test_cancel_takes_back_a_message_the_person_sent(home: Path) -> None:
+    _world(home)
+    waiting = _add(db.HUMAN, "worker", "not yet told")
+    r = _call("chat.cancel", {"request": waiting, "request_id": "c1"}, as_agent="worker")
+    check("chat.cancel: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
+    _dies_then_retries("chat.cancel", {"request": waiting, "request_id": "c2"}, None,
+                       after=lambda: _row(waiting)["state"] == "withdrawn", unchanged=lambda: _row(waiting)["state"] == "queued")
+    delivered = _add(db.HUMAN, "worker", "already told")
+    con = db.connect()
+    con.execute("UPDATE requests SET delivered_at = ?, typed_at = ? WHERE id = ?", (1, 1, delivered))
+    con.close()
+    r = _call("chat.cancel", {"request": delivered, "request_id": "c3"})
+    data = r["error"]["data"] if "error" in r else {}
+    check("chat.cancel: a delivered message without confirm is refused with the plan, gate confirm, and stays", _code(r) == "refused" and data.get("gate") == "confirm"
+          and "worker is told to stop" in data.get("plan", "") and data["plan"] == data["reason"] and _row(delivered)["state"] == "queued", str(r))
+    _dies_then_retries("chat.cancel", {"request": delivered, "confirm": True, "request_id": "c4"}, None,
+                       after=lambda: _row(delivered)["state"] == "landed" and "withdrawn by the founder" in (db.shown_verdict(_row(delivered)) or ""), unchanged=lambda: _row(delivered)["state"] == "queued")
+    others = _add("manager", "worker", "not the person's")
+    for params, code in (({"request": others}, "refused"), ({"request": delivered}, "refused"), ({"request": 999}, "not_found"), ({"request": "1"}, "bad_request"),
+                         ({"request": waiting, "confirm": "yes"}, "bad_request")):
+        check(f"chat.cancel: {params} is {code}", _code(_call("chat.cancel", {**params, "request_id": f"c-{params}"})) == code)
+    check("chat.cancel: another's message stays", _row(others)["state"] == "queued")
+
+
+def test_seen_moves_an_agents_messages_out_of_for_you(home: Path) -> None:
+    _world(home)
+    said = _add("worker", db.HUMAN, "done with the build")
+    later = _add("worker", db.HUMAN, "and the tests")
+    r = _call("chat.seen", {"agent": "worker", "up_to": said, "request_id": "e1"}, as_agent="worker")
+    check("chat.seen: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
+    _dies_then_retries("chat.seen", {"agent": "worker", "up_to": said, "request_id": "e2"}, None,
+                       after=lambda: _row(said)["read_at"] is not None, unchanged=lambda: _row(said)["read_at"] is None)
+    check("chat.seen: what came after stays new", _row(later)["read_at"] is None)
+    for params, code in (({"agent": "ghost", "up_to": 1}, "not_found"), ({"agent": "worker", "up_to": "1"}, "bad_request"), ({"agent": "worker"}, "bad_request"),
+                         ({"up_to": 1}, "bad_request")):
+        check(f"chat.seen: {params} is {code}", _code(_call("chat.seen", {**params, "request_id": f"e-{params}"})) == code)
+
+
+def test_agent_get_says_what_the_chat_page_may_offer_and_where_a_shell_runs(home: Path) -> None:
+    _world(home)
+    got = _call("agent.get", {"agent": "worker"})["result"]
+    verbs = ("terminal", "wake", "close", "restart", "park", "fold", "move")
+    con = db.connect()
+    try:
+        want = {v: actions.can(con, "worker", v) for v in verbs}
+        cwd = actions.cwd_for(con, "worker")
+    finally:
+        con.close()
+    check("agent.get: can has each verb, with the answer actions.can gives", list(got["can"]) == list(verbs)
+          and all(got["can"][v] == {"ok": want[v][0], "why": want[v][1] or None} for v in verbs), str(got["can"]))
+    check("agent.get: cwd is where a shell command runs", got["cwd"] == cwd and Path(cwd).is_dir(), str((got["cwd"], cwd)))
+    import socket
+    import threading
+    from handline.daemon import socket_server
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
+    import conformance
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    real = sessiontoken.agent_of
+    sessiontoken.agent_of = lambda pid: None
+    try:
+        results = conformance.run_all([Path("contract/fixtures/agent_page.json")], {"founder": connect}, {"founder_key": _hp()["key"], "page_agent": "worker"})
+    finally:
+        sessiontoken.agent_of = real
+    check("fixtures: the agent page fixture passes against this daemon", [r[0] for r in results] == ["pass"], str(results))
+
+
 def test_the_chat_write_fixtures_pass_against_this_daemon(home: Path) -> None:
     import socket
     import threading
@@ -241,7 +347,7 @@ def test_the_chat_write_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 9, str(bad))
+    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 18, str(bad))
 
 
 def test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(home: Path) -> None:
@@ -274,6 +380,10 @@ def main() -> int:
         run(lambda: test_dismiss_takes_a_message_off_without_answering_it(Path(td) / "w4"))
         run(lambda: test_withdraw_takes_back_ones_own_request_before_it_was_delivered(Path(td) / "w5"))
         run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
+        run(lambda: test_send_under_a_message_answers_it_or_says_under_it(Path(td) / "w8"))
+        run(lambda: test_cancel_takes_back_a_message_the_person_sent(Path(td) / "w9"))
+        run(lambda: test_seen_moves_an_agents_messages_out_of_for_you(Path(td) / "wa"))
+        run(lambda: test_agent_get_says_what_the_chat_page_may_offer_and_where_a_shell_runs(Path(td) / "wb"))
         run(lambda: test_the_chat_write_fixtures_pass_against_this_daemon(Path(td) / "w7"))
         run(lambda: test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(Path(td) / "wd"))
     return run_area(tests)
