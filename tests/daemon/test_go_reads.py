@@ -88,6 +88,7 @@ def _seed(home: Path) -> dict:
     stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
     stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
     stream.append(con, "notifications", "plain", {})
+    db.set_cursor(con, stream.PRUNED, 2)
     protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
     protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
     agentview.refresh(con, int(time.time()))
@@ -202,6 +203,9 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "events.feed", {}),
         (None, "events.feed", {"topics": ["tasks", "notifications"], "limit": 2}),
         (None, "events.feed", {"since": 1}),
+        (None, "events.feed", {"since": 0, "limit": 3}),
+        (None, "events.feed", {"since": 2}),
+        (None, "events.feed", {"since": 3, "topics": ["notifications"]}),
         (None, "events.feed", {"since": 99, "topics": ["tasks"]}),
         (None, "events.feed", {"topics": ["devices"]}),
         (None, "events.feed", {"topics": []}),
