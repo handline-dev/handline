@@ -92,6 +92,16 @@ def _progress(ctx, params) -> dict:
     return _in_one_transaction(ctx, params, "task.progress", run)
 
 
+def _progress_get(ctx, params) -> dict:
+    if ctx.caller.role != "agent":
+        raise rpc.refused("a progress note is an agent's own: only an agent has one")
+    con = db.connect()
+    try:
+        return {"note": handoffmod.get_progress(con, ctx.caller.actor)}
+    finally:
+        con.close()
+
+
 def _handoff(ctx, params) -> dict:
     tid, note = rpc_tasks._task_id(params), rpc_tasks._text(params, "note")
     to = rpc_tasks._text(params, "to")
@@ -126,3 +136,4 @@ rpc.METHODS["task.begin"] = rpc.Method(_begin, "agent", write=True)
 rpc.METHODS["task.start"] = rpc.Method(_start, "agent", write=True)
 rpc.METHODS["task.handoff"] = rpc.Method(_handoff, "agent", write=True)
 rpc.METHODS["task.progress"] = rpc.Method(_progress, "agent", write=True)
+rpc.METHODS["progress.get"] = rpc.Method(_progress_get, "agent")

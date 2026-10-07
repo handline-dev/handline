@@ -43,5 +43,10 @@
   "version": 9,
   "name": "devices",
   "additive": true
+ },
+ {
+  "version": 10,
+  "name": "agent_extra_worktrees",
+  "additive": true
  }
 ]

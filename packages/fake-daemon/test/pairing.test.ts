@@ -68,6 +68,38 @@ async function listener(t: { skip(why: string): void; after(fn: () => void): voi
   return { daemon, host, fingerprint, connect: () => pinnedWebSocketTransport(listenerUrl(host), fingerprint) };
 }
 
+test('a pairing link with no fingerprint is accepted for a Tailscale host and served as ws', () => {
+  for (const host of ['box.tail1234.ts.net:7788', 'BOX.tail1234.TS.NET.:7788'])
+    assert.deepEqual(parsePairingUri(`handline://pair?host=${encodeURIComponent(host)}&code=K7Q2`), {
+      host,
+      fingerprint: null,
+      code: 'K7Q2',
+    });
+  assert.equal(listenerUrl('box.tail1234.ts.net:7788', false), 'ws://box.tail1234.ts.net:7788/rpc');
+});
+
+test('a pairing link with no fingerprint is refused for any other host, with the reason', () => {
+  for (const host of [
+    '192.168.1.5:7788',
+    '100.101.1.1:7788',
+    '100.64.0.1:7788',
+    '100.127.255.254:7788',
+    '100.128.0.1:7788',
+    'example.com:7788',
+    'evil.ts.net.example.com:7788',
+  ])
+    assert.throws(
+      () => parsePairingUri(`handline://pair?host=${encodeURIComponent(host)}&code=K7Q2`),
+      /no certificate fingerprint.*not a Tailscale name/,
+    );
+});
+
+test('a pairing link with a fingerprint keeps wss and the pin, on a Tailscale host too', () => {
+  const o = parsePairingUri('handline://pair?host=100.64.0.1%3A7788&fp=AB12&code=K7Q2');
+  assert.deepEqual(o, { host: '100.64.0.1:7788', fingerprint: 'ab12', code: 'K7Q2' });
+  assert.equal(listenerUrl(o.host), 'wss://100.64.0.1:7788/rpc');
+});
+
 test('a pairing uri names the listener, its certificate fingerprint and the code', () => {
   const o = parsePairingUri('handline://pair?host=10.0.0.2%3A7788&fp=AB12&code=K7Q2');
   assert.deepEqual(o, { host: '10.0.0.2:7788', fingerprint: 'ab12', code: 'K7Q2' });
