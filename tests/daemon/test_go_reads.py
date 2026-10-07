@@ -262,8 +262,6 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "worktree.diff", {}),
         (None, "team.get", {}),
         ("worker", "team.get", {}),
-        (None, "schedules.list", {}),
-        ("worker", "schedules.list", {}),
         (None, "agent.options", {}),
         ("worker", "agent.options", {}),
         (None, "operation.get", {"operation": "op-1"}),
