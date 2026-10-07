@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 )
 
@@ -19,10 +20,7 @@ import (
 const noticeFrom = "task-board"
 
 // told is a say written for its target, to be delivered after the commit.
-type told struct {
-	rid      int64
-	to, text string
-}
+type told = db.Notice
 
 // linked is a request linked to a task, as it is now.
 type linked struct {
@@ -173,7 +171,7 @@ func addSay(tx *sql.Tx, from, to, body string, notice bool) (int64, error) {
 
 // closeQueuedQuietly is db.close_if_queued(rid, state, None, announced=True, settle=False): the request leaves the queue because its
 // task ended; a landed one closes as read, with an empty answer already told.
-func closeQueuedQuietly(tx *sql.Tx, r linked) error {
+func closeQueuedQuietly(tx *sql.Tx, r linked) (closed bool, err error) {
 	state := "withdrawn"
 	if r.LandedAt.Valid {
 		state = "landed"
@@ -181,39 +179,39 @@ func closeQueuedQuietly(tx *sql.Tx, r linked) error {
 	now := time.Now().Unix()
 	res, err := tx.Exec("UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'", state, now, r.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return nil
+		return false, nil
 	}
 	if state == "landed" && r.Kind != "say" { // a closed task delivery tells its asker with a say of its own
 		var requester, target, chain string
 		var depth int64
 		var chainID sql.NullString
 		if err := tx.QueryRow("SELECT requester, target, chain_depth, chain_id FROM requests WHERE id = ?", r.ID).Scan(&requester, &target, &depth, &chainID); err != nil {
-			return err
+			return false, err
 		}
 		chain = chainID.String
 		a, err := tx.Exec("INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, settles, chain_id, state, delivered_at, state_at, edge_ok) "+
 			"VALUES(?,?,?,?,'say',?,?,?,?,'landed',?,?,1)", now, target, requester, "", depth, r.ID, r.ID, chain, now, now)
 		if err != nil {
-			return err
+			return false, err
 		}
 		aid, _ := a.LastInsertId()
 		if _, err := tx.Exec("UPDATE requests SET queue_order = ? WHERE id = ?", aid, aid); err != nil {
-			return err
+			return false, err
 		}
 	}
 	var tids []int64
 	if tids, err = ids(tx, "SELECT task_id FROM task_requests WHERE request_id = ?", r.ID); err != nil {
-		return err
+		return false, err
 	}
 	for _, t := range tids {
 		if err := refreshSent(tx, t); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return true, nil
 }
 
 var urgentWord = regexp.MustCompile(`(?i)^(fail(?:ed|ure)?|blocked|fatal)`)
@@ -231,15 +229,20 @@ func urgent(result string) bool {
 
 // endTaskDiscarded is _end_task for a discard: the task's queued deliveries close quietly, and whoever opened it, whoever asked
 // through a linked delivery, and `also` are told in one say each, written in this transaction.
-func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, text string, also []string) ([]told, error) {
+func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, text string, also []string) ([]told, []db.InboxFile, error) {
 	reqs, err := taskRequests(tx, tid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var forget []db.InboxFile
 	for _, r := range reqs {
 		if r.State == "queued" {
-			if err := closeQueuedQuietly(tx, r); err != nil {
-				return nil, err
+			closed, err := closeQueuedQuietly(tx, r)
+			if err != nil {
+				return nil, nil, err
+			}
+			if closed {
+				forget = append(forget, db.InboxFile{Target: r.Target, RID: r.ID})
 			}
 		}
 	}
@@ -251,7 +254,7 @@ func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, te
 		case err == nil:
 			skip[owner] = true
 		case err != sql.ErrNoRows:
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	known := map[string]bool{human: true}
@@ -277,64 +280,70 @@ func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, te
 		}
 		rid, err := addSay(tx, noticeFrom, to, text, to != t.OpenedBy)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := addEvent(tx, by, "task_end_told", kv{"task_id", tid}, kv{"request_id", rid}, kv{"to", to}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		out = append(out, told{rid, to, text})
+		out = append(out, told{RID: rid, To: to, Text: text})
 	}
-	return out, nil
+	return out, forget, nil
 }
 
 // clearBlocksOn drops every block row naming tid after it was discarded, and for each task left with no open blocker writes the
 // notice for its owner (none for the closer's own task) (_clear_blocks_on).
-func clearBlocksOn(tx *sql.Tx, tid int64, closer, how string) ([]told, error) {
+func clearBlocksOn(tx *sql.Tx, tid int64, closer, how string) ([]told, []string, error) {
 	deps, err := ids(tx, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var out []told
+	var freed []string
+	seen := map[string]bool{}
 	for _, dep := range deps {
 		if err := removeBlock(tx, dep, tid); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		d, err := getTask(tx, dep)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if d == nil || d.done() || d.DiscardedBy.Valid && d.DiscardedBy.String != "" {
 			continue
 		}
 		if n, err := childResultNotice(tx, d, closer, tid); err != nil {
-			return nil, err
+			return nil, nil, err
 		} else if n != nil {
 			out = append(out, *n)
 		}
 		left, err := taskBlockers(tx, dep)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if len(left) > 0 {
 			continue
 		}
+		if !seen[d.Owner] { // every owner left with a task to deliver, told or not (its queued task is not reconsidered on its own once skipped over blocked)
+			seen[d.Owner] = true
+			freed = append(freed, d.Owner)
+		}
 		if d.Owner == closer { // no notice for the closer, but the task still comes due again
 			after, err := newestRequest(tx)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if err := addEvent(tx, closer, "unblock_task", kv{"task_id", dep}, kv{"blocks_on", tid}, kv{"after_request", after}); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			continue
 		}
 		n, err := notifyUnblocked(tx, dep, d.Owner, closer, tid, how)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out = append(out, n)
 	}
-	return out, nil
+	return out, freed, nil
 }
 
 func notifyUnblocked(tx *sql.Tx, dep int64, owner, closer string, closed int64, how string) (told, error) {
@@ -361,7 +370,7 @@ func notifyUnblocked(tx *sql.Tx, dep int64, owner, closer string, closed int64, 
 	if err := addEvent(tx, closer, "task_unblocked", kv{"task_id", dep}, kv{"request_id", rid}, kv{"closed_task", closed}, kv{"after_request", after}); err != nil {
 		return told{}, err
 	}
-	return told{rid, owner, text}, nil
+	return told{RID: rid, To: owner, Text: text}, nil
 }
 
 // childResultNotice tells the owner of the parent how a child ended, once per finish (a reopen voids it).
@@ -411,5 +420,5 @@ func childResultNotice(tx *sql.Tx, dep *task, by string, child int64) (*told, er
 	if err := addEvent(tx, by, "child_result_told", kv{"task_id", dep.ID}, kv{"child", child}, kv{"request_id", rid}); err != nil {
 		return nil, err
 	}
-	return &told{rid, dep.Owner, text}, nil
+	return &told{RID: rid, To: dep.Owner, Text: text}, nil
 }

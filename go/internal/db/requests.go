@@ -752,3 +752,15 @@ func AsksSince(q Q, requester string, since int64) (int, error) {
 	err := q.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL", requester, since).Scan(&n)
 	return n, err
 }
+
+// Notice is a say the board wrote for its target in a transaction, to be told after the commit.
+type Notice struct {
+	RID      int64
+	To, Text string
+}
+
+// InboxFile names the inbox file a request wrote for its target, which goes when the request leaves the queue.
+type InboxFile struct {
+	Target string
+	RID    int64
+}

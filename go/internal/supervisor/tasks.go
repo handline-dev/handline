@@ -131,14 +131,8 @@ var urgentResult = regexp.MustCompile(`(?i)^(fail(ed|ure)?|blocked|fatal)\b`)
 // UrgentResult is whether a task's closing words say it failed or is blocked: it needs whoever waits on it now, not in a digest.
 func UrgentResult(result string) bool { return urgentResult.MatchString(strings.TrimSpace(result)) }
 
-// notice is a durable request written in a transaction and told after it commits: (request id, owner, text).
-type notice struct {
-	RID         int64
-	Owner, Text string
-}
-
 // notifyUnblocked is told once, as a durable request linked to the task. Never called when the closer is the owner.
-func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closedTID int64, how string) notice {
+func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closedTID int64, how string) db.Notice {
 	text := fmt.Sprintf("task T%d is unblocked - T%d, its last open blocker, %s", depTID, closedTID, how)
 	closed := must(db.GetTask(q, closedTID))
 	if closed.DoneEvidence.Valid && closed.DoneEvidence.String != "" && !(closed.ParentTask.Valid && closed.ParentTask.Int64 == depTID) {
@@ -148,14 +142,14 @@ func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closed
 	check(db.LinkRequest(q, depTID, rid))
 	must(db.AddEvent(q, closer, "task_unblocked", db.KV{K: "task_id", V: depTID}, db.KV{K: "request_id", V: rid}, db.KV{K: "closed_task", V: closedTID},
 		db.KV{K: "after_request", V: must(db.NewestRequest(q))}))
-	return notice{rid, owner, text}
+	return db.Notice{RID: rid, To: owner, Text: text}
 }
 
 func oneSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // childResultNotice: when a child of dep's task ends, the task's owner is told how, whether or not other blockers remain. Once per finish (a
 // reopen voids it).
-func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *notice {
+func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *db.Notice {
 	child := must(db.GetTask(q, tid))
 	if child == nil || !child.ParentTask.Valid || child.ParentTask.Int64 != dep.ID || dep.Owner == by {
 		return nil
@@ -185,14 +179,14 @@ func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *not
 		Notice: !UrgentResult(child.DoneEvidence.String)}))
 	check(db.LinkRequest(q, dep.ID, rid))
 	must(db.AddEvent(q, by, "child_result_told", db.KV{K: "task_id", V: dep.ID}, db.KV{K: "child", V: tid}, db.KV{K: "request_id", V: rid}))
-	return &notice{rid, dep.Owner, text}
+	return &db.Notice{RID: rid, To: dep.Owner, Text: text}
 }
 
 // ClearBlocksOn runs after tid is discarded: drop every block row naming it, and for each task that leaves with no open blocker, write a notice
 // for its owner (skipped for the closer's own task) and collect that owner to advance. Dropping the row here is what makes "once" true. Returns
 // the notices to deliver, and the owners to advance, once the caller's transaction commits.
-func (e *Env) clearBlocksOn(q db.Q, tid int64, closer, how string) ([]notice, []string) {
-	var notices []notice
+func (e *Env) clearBlocksOn(q db.Q, tid int64, closer, how string) ([]db.Notice, []string) {
+	var notices []db.Notice
 	var freed []string
 	seen := map[string]bool{}
 	for _, depID := range must(db.TasksBlockedBy(q, tid)) {
@@ -236,8 +230,8 @@ func (e *Env) releasedAtDone(q db.Q, tid, dep int64) bool {
 
 // freeBlockedBy runs after tid is done: the tasks it blocked and that now have no open blocker are released - a notice for their owner (not
 // by's own) and the owner to advance. Once per finish and dependent. The block rows stay, so a reopened tid blocks them again.
-func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]notice, []string) {
-	var notices []notice
+func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]db.Notice, []string) {
+	var notices []db.Notice
 	var freed []string
 	seen := map[string]bool{}
 	for _, depID := range must(db.TasksBlockedBy(q, tid)) {
@@ -264,17 +258,17 @@ func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]notice, []string) {
 
 // deliverUnblocked is the half of a release that happens after the write: tell the owners, and give each freed owner its next task now. An
 // "unblocked" notice is typed (it tells a waiting owner to go on); a result notice is not - it rides on the owner's next delivery.
-func (e *Env) deliverUnblocked(q db.Q, notices []notice, freed []string) {
+func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 	for _, n := range notices {
 		queued := must(db.GetRequest(q, n.RID)).State == "queued" // a notice is born landed
 		if queued {
 			must(db.MarkSendNow(q, n.RID))
 		}
-		if err := e.deliver(n.RID, db.NoticeRequester, n.Owner, n.Text, "", team.Decision{Allowed: true, Reason: "task unblocked", Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-			e.log("  #%d: the inbox file for %s was not written: %v", n.RID, n.Owner, err)
+		if err := e.deliver(n.RID, db.NoticeRequester, n.To, n.Text, "", team.Decision{Allowed: true, Reason: "task unblocked", Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
+			e.log("  #%d: the inbox file for %s was not written: %v", n.RID, n.To, err)
 		}
 		if queued {
-			e.Push(q, n.Owner, n.RID)
+			e.Push(q, n.To, n.RID)
 		}
 	}
 	for _, owner := range freed {
@@ -315,7 +309,7 @@ func (e *Env) releaseOne(tid int64, how string) (waiting []int64, err error) {
 	if err != nil {
 		return nil, err
 	}
-	var notices []notice
+	var notices []db.Notice
 	var owners []string
 	func() {
 		defer func() {

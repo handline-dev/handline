@@ -55,6 +55,10 @@ type Config struct {
 	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. It takes the daemon singleton the
 	// Python daemon holds, so it does not start beside one; without it the rows are the other daemon's and are only read.
 	OwnPrompts bool
+
+	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
+	// layer. Nil tells nothing.
+	Teller taskwrites.Teller
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -174,7 +178,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	s.NoEvents = d.cfg.Gateway
 	if d.hooks != nil {
 		d.hooks.Register(s)
-		taskwrites.Register(s, d.cfg.Home)
+		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
 		prompts.Register(s, d.prompts)
 	}
 	if transport == "network" {

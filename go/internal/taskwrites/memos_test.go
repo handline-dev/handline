@@ -62,7 +62,7 @@ func TestMemosAreAddedEditedAndDeletedByTheirAuthorOrTheFounder(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir())
+		Register(s, t.TempDir(), nil)
 		return s
 	}
 	r := call(t, mk("worker"),
@@ -115,7 +115,7 @@ func TestReopenSendsADoneTaskBackOnTheAskersWordAndAReason(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir())
+		Register(s, t.TempDir(), nil)
 		return s
 	}
 	line := func(id int, task int, note, rid string) string {
@@ -165,7 +165,7 @@ func TestStartMakesATaskTheOwnersCurrentOneAndPutsItsRequestFirst(t *testing.T) 
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir())
+		Register(s, t.TempDir(), nil)
 		return s
 	}
 	line := func(id, task int, rid string) string {

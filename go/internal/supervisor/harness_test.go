@@ -13,6 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -283,3 +284,9 @@ type fakeProposals struct{}
 
 func (fakeProposals) OpenProposalOf(int64) string                       { return "" }
 func (fakeProposals) Answered(db.Q, string, *db.Request, string) string { return "" }
+
+func team0() team.Decision { return team.Decision{Allowed: true, Response: "async"} }
+
+func readInbox(r *rig, rid int64) ([]byte, error) {
+	return os.ReadFile(filepath.Join(r.home, "agents", "bob", "inbox", inboxName(rid)))
+}
