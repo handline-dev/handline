@@ -442,9 +442,12 @@ def recover_unsent(con, agent: str, log) -> bool:
         if not mine or typing_hold(con, agent) or not _own_text_in_box(con, agent, handle):
             return True
         if not rec.get("enters"):
+            # Enter is safe in a turn: it only queues the text. Ctrl-C and a retype are not.
             term.send(handle, "")
             log(f"  {agent}: our text was left unsent in its input box; pressed Enter")
             rec.update(enters=1, at=now)
+        elif not term.typeable_now(handle):
+            return True               # Ctrl-C would cancel a running turn: wait for it to end
         elif not rec.get("retyped"):
             term.send(handle, term.CTRL_C, enter=False)
             time.sleep(term.SHELL_SETTLE_S)

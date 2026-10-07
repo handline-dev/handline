@@ -149,6 +149,23 @@ def test_an_enter_that_does_not_take_retypes_once_then_stops(home: Path) -> None
         w.con.close()
 
 
+def test_nothing_is_cleared_or_retyped_into_a_running_turn(home: Path) -> None:
+    w = _World(home, _screen([f"❯ {TEXT}"]))
+    try:
+        w.ctrl_c_clears = False
+        w.typed()
+        w.tick()
+        w.age(11)
+        termmod.typeable_now = lambda h: False             # a turn is running; our text only queued
+        check("unsent: mid-turn with our text in the box there is no Ctrl-C", w.tick() and w.sent == [("", True)],
+              str(w.sent))
+        w.sent.clear()
+        w.screen = _screen(["❯"])
+        check("unsent: an empty box gets no Ctrl-C and no Enter", not w.tick() and w.sent == [], str(w.sent))
+    finally:
+        w.con.close()
+
+
 def test_the_composer_is_read_wrapped_and_collapsed(home: Path) -> None:
     long_text = "word " * 30
     box = ["❯ " + long_text[:70], "  " + long_text[70:140], "  " + long_text[140:].strip()]
@@ -157,6 +174,11 @@ def test_the_composer_is_read_wrapped_and_collapsed(home: Path) -> None:
     check("composer: an empty box is empty", termmod.composer_text(_screen(["❯"])) == "")
     check("composer: no box is None", termmod.composer_text(["just a shell", "$ "]) is None)
     check("composer: wrapped typed text is ours", termmod.is_text_typed(got, long_text))
+    ours = "batch line " * 10
+    check("composer: a long text of ours plus a person's words is not ours",
+          not termmod.is_text_typed("".join((ours + " and also please look at my question").split()), ours))
+    check("composer: a scrolled window of a long text is ours, a stray word of it is not",
+          termmod.is_text_typed("".join(ours.split())[10:60], ours) and not termmod.is_text_typed("batch", ours))
     paste = "a\nb\nc\nd\ne"
     check("composer: a paste placeholder is ours when the lines match",
           termmod.is_text_typed("[Pastedtext#1+4lines]", paste))
@@ -170,6 +192,7 @@ def main() -> int:
         run(lambda: test_text_visible_only_above_the_prompt_is_not_sent_again(Path(td) / "u2"))
         run(lambda: test_a_persons_draft_in_the_box_is_never_sent(Path(td) / "u3"))
         run(lambda: test_an_enter_that_does_not_take_retypes_once_then_stops(Path(td) / "u4"))
+        run(lambda: test_nothing_is_cleared_or_retyped_into_a_running_turn(Path(td) / "u6"))
         run(lambda: test_the_composer_is_read_wrapped_and_collapsed(Path(td) / "u5"))
     return run_area(tests)
 

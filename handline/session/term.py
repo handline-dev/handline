@@ -717,19 +717,19 @@ def composer_text(tail: list) -> str | None:
     return "".join("".join(rows).split())
 
 
-# How much of a long text the box must show to be it: a box scrolls what does not fit.
-_OWN_HEAD = 60
+# A scrolled box shows only part of a long text; less than this of it is not told from a person's draft.
+_OWN_PART = 20
 _PASTED = re.compile(r"\[Pastedtext#\d+\+(\d+)lines\]")
 
 
 def is_text_typed(box: str, typed: str) -> bool:
-    """Is the composer's content the text ocp typed? Equal ignoring whitespace, its head when it is long,
-    or the placeholder a multi-line paste collapses to. Anything else - a person's draft, text of theirs
-    typed after ours - is not ocp's to send."""
+    """Is the composer's content the text ocp typed? Equal ignoring whitespace, a stretch of it (what a
+    scrolled box shows, never longer than the text), or the placeholder a multi-line paste collapses to.
+    Anything else - a person's draft, words of theirs typed after ours - is not ocp's to send."""
     want = "".join(typed.split())
     if not box or not want:
         return False
-    if box == want or (len(want) > _OWN_HEAD and box.startswith(want[:_OWN_HEAD])):
+    if box == want or (len(box) >= _OWN_PART and box in want):
         return True
     m = _PASTED.fullmatch(box)
     return bool(m) and "\n" in typed and int(m.group(1)) in (typed.count("\n"), typed.count("\n") + 1)
