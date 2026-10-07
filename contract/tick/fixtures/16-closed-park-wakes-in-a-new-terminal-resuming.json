@@ -87,6 +87,7 @@
     "continuations": 0,
     "current_task": null,
     "detail": "waiting for the window",
+    "extra_worktrees": null,
     "failed_attempts": 0,
     "handoff": null,
     "launch_fingerprint": null,

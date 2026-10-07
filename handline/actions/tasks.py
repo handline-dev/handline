@@ -1195,6 +1195,11 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     if not ok:
         return False, msg, None
     tid = opened[0]
+    con = db.connect()
+    try:
+        _tell_parent_of_sibling_move(con, me, owner, f"T{tid} opened by {me} for {owner}: {title}")
+    finally:
+        con.close()
     limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
                   f"expects {expects}{limit}): {msg}"), tid
@@ -1326,6 +1331,12 @@ def question_targets(holder: str, agents: list[str], recent=()) -> tuple[list[st
     return first, mine, [a for a in rest if a not in mine]
 
 
+def question_body(tid: int, text: str) -> str:
+    """What an agent is told when the founder asks about T<tid>."""
+    return (f"Question on T{tid} from the founder (the task keeps its holder): {text}\n\n"
+            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'")
+
+
 def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
     """The founder asking `to` about T<tid>: a say linked to the task, whose holder does not change.
     The agent's reply to it joins the task (`say_verb`)."""
@@ -1333,9 +1344,7 @@ def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
         return False, f"no task T{tid}"
     if not text.strip():
         return False, "nothing sent: no question typed"
-    body = (f"Question on T{tid} from the founder (the task keeps its holder): {text.strip()}\n\n"
-            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'")
-    ok, msg, rid = askmod.say(to, body, requester=HUMAN)
+    ok, msg, rid = askmod.say(to, question_body(tid, text.strip()), requester=HUMAN)
     if ok and rid is not None:
         db.link_request(con, tid, rid)
         db.add_event(con, HUMAN, "task_question", {"task": tid, "request": rid}, dedup_key=f"task_question:{rid}")
@@ -1408,7 +1417,20 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         if db.current_task(con, to) is None:
             db.set_current_task(con, to, tid)
         askmod.push(con, to, rid)
+    _tell_parent_of_sibling_move(con, me, to, f"T{tid} handed by {me} to {to}: {row['title']}")
     return True, f"T{tid} handed to {to}: {msg}"
+
+
+def _tell_parent_of_sibling_move(con, me: str, to: str, text: str) -> None:
+    """Siblings give each other work without their manager in between; the manager is told as a notice,
+    which rides on its next delivery and asks nothing of it."""
+    mgr = team.parent_name(me)
+    if mgr is None or to == HUMAN or team.parent_name(to) != mgr or mgr not in paths.list_agents():
+        return
+    rid = db.add_request(con, _UNBLOCK_REQUESTER, mgr, text, None, None, "fire_and_forget", "say", 0, None,
+                         notice=True)
+    askmod.deliver(rid, _UNBLOCK_REQUESTER, mgr, text, None,
+                   team.Decision(True, "sibling move", kind="say", response="fire_and_forget", chain_depth=0))
 
 
 PRIORITIES = (1, 2, 3)

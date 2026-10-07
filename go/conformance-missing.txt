@@ -31,9 +31,6 @@ settings.set
 settings.trust
 task.cancel
 task.edit
-task.memo.add
-task.memo.delete
-task.memo.edit
 task.new
 task.withdraw
 terminal.attach
@@ -57,13 +54,7 @@ task.queue
 task.draft
 task.release
 chat.send_now
-chat.messages
-chat.transcript
-chat.locate
-chat.search
 stats.outlook
-hr.list
-chat.requests
 answer.add
 answer.remove
 task.begin
@@ -80,3 +71,4 @@ team.get
 schedules.list
 stats.get
 settings.get
+task.ask

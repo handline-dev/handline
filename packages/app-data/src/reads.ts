@@ -36,7 +36,7 @@ export const reads = {
   'trust.list': { resource: 'trust' },
   'memory.status': { resource: 'memory' },
   'team.get': { resource: 'team' },
-  'hr.list': { resource: 'hr' },
+  'hr.list': { resource: 'hr', feed: 'hr' },
   'accounts.list': { resource: 'accounts', feed: 'accounts' },
   'repos.list': { resource: 'repos' },
   'worktrees.list': { resource: 'worktrees' },
@@ -83,6 +83,8 @@ export const qk = {
   /** Every inbox list, whatever its filter. */
   inboxes: (d: string) => ['d', d, reads['inbox.list'].resource] as const,
   inbox: (d: string, filter?: object) => keyOf(d, 'inbox.list', filter),
+  /** Every hr list, whatever its filter. */
+  hrs: (d: string) => ['d', d, reads['hr.list'].resource] as const,
   tasks: (d: string) => ['d', d, reads['tasks.list'].resource] as const,
   task: (d: string, task: number) => keyOf(d, 'task.get', { task }),
   memos: (d: string, task: number) => keyOf(d, 'task.memo.list', { task }),

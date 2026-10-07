@@ -121,6 +121,9 @@ type Conn struct {
 	waiting    sync.WaitGroup
 	// afterReply runs once the reply of the call in hand is sent; onClose when the connection ends.
 	afterReply, onClose []func()
+	// callName and callRID name the write in hand while its handler runs (see Effect); calls on a plain connection run one at a time,
+	// so if that ever changes they move into the call.
+	callName, callRID string
 }
 
 // NetGate is what a network server knows of paired devices: a call from a connection that no device token

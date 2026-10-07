@@ -48,8 +48,9 @@ class ControlLink:
     """A control-mode connection: commands out, replies and `%output` in, in the order tmux sends them. `spawn` returns the process (a test passes a
     fake)."""
 
-    def __init__(self, spawn=None) -> None:
+    def __init__(self, spawn=None, greeted: bool | None = None) -> None:
         self.spawn = spawn or _spawn_tmux
+        self.greeted = spawn is None if greeted is None else greeted       # real tmux sends one empty reply block, unasked, as it attaches
         self.proc = None
         self.lock = threading.Lock()
         self.pending: collections.deque = collections.deque()      # (callback, group) of the commands sent and not yet answered, in order
@@ -66,6 +67,8 @@ class ControlLink:
             except OSError:
                 return False
             self.alive = True
+            if self.greeted:
+                self.pending.append((lambda lines: None, None))        # takes that block, so the first command gets its own reply
             self.reader = threading.Thread(target=self._read, daemon=True, name="ocp-tmux-control")
             self.reader.start()
             return True

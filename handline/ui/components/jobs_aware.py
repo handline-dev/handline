@@ -4,7 +4,8 @@ from __future__ import annotations
 from ... import actions
 from ...infra import textsafe
 from ...team import agents
-from .. import tui, jobs as jobsmod
+from .. import jobs as jobsmod
+from ...view import tui
 from .confirm import Confirm
 from .text_prompt import TextPrompt
 

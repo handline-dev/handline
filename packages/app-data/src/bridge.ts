@@ -1,7 +1,17 @@
 // The event bridge: what each pushed event does to the cache (docs/turborepo-layout.md §8.4). The daemon's event is the truth and
 // always wins over an optimistic value, so every rule here replaces by identity and never merges a guess.
 import type { QueryClient } from '@tanstack/react-query';
-import type { Account, AgentDetail, AgentView, DaemonStatus, Event as WireEvent, InboxItem, Operation, Task } from '@handline/client';
+import type {
+  Proposal,
+  Account,
+  AgentDetail,
+  AgentView,
+  DaemonStatus,
+  Event as WireEvent,
+  InboxItem,
+  Operation,
+  Task,
+} from '@handline/client';
 import { edit, upsert, type Ctx } from './cache.ts';
 import { chatEvent } from './chat-events.ts';
 import { qk } from './reads.ts';
@@ -52,9 +62,21 @@ const rules: Record<string, Rule> = {
     void qc.invalidateQueries({ queryKey: qk.prompts(d, agent) });
     void qc.invalidateQueries({ queryKey: qk.agent(d, agent) });
   },
+  'hr.raised': hr,
+  'hr.settled': hr,
   'device.paired': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'device.revoked': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
 };
+
+/** A proposal takes its place in the unfiltered list at once (the dot's count follows); a filtered list is read again. */
+function hr({ qc, d }: Ctx, e: WireEvent) {
+  const p = data<{ proposal: Proposal }>(e).proposal;
+  for (const [key] of qc.getQueriesData({ queryKey: qk.hrs(d) })) {
+    if (key.length === qk.hrs(d).length)
+      edit<{ proposals: Proposal[] }>(qc, key, (l) => ({ ...l, proposals: upsert(l.proposals, p, (x) => x.id === p.id, 'start') }));
+    else void qc.invalidateQueries({ queryKey: key, exact: true });
+  }
+}
 
 /** An unfiltered list takes the item in place; a filtered one may or may not now hold it, so it is read again. */
 function inbox({ qc, d }: Ctx, e: WireEvent) {

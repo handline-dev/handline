@@ -18,7 +18,7 @@ from ..infra import paths
 from ..usage import recover as recovermod
 from ..usage import status
 from ..infra import textsafe
-from ..ui import tui
+from ..view import tui
 from .. import vendors
 from ..infra.yamlcompat import ConfigError
 

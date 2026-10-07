@@ -21,7 +21,7 @@ from ... import actions, db
 from ...infra import textsafe
 from ...session import idle_close
 from ...usage import load as loadmod, status
-from .. import tui
+from ...view import tui
 from ..components import agent_rows, gauge
 from ..components.answer_add import AnswerAdd
 from ..components.ime import ImeInput

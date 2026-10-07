@@ -1,4 +1,4 @@
-import type { DaemonClient, Event } from '@handline/client';
+import { RpcError, type DaemonClient, type Event } from '@handline/client';
 import { badgeText, noticeFor, suppressed, type Notice } from './notices.ts';
 
 /** The part of the client the desk uses. */
@@ -28,6 +28,10 @@ export class Desk {
   async start(): Promise<void> {
     if (!this.off.length) this.listen();
     await this.client.subscribe(['inbox', 'status', 'notifications']);
+    // A daemon that does not serve hr yet refuses the topic; that must not take the badge and the other notices with it.
+    await this.client.subscribe(['hr']).catch((e) => {
+      if (!(e instanceof RpcError && e.code === 'bad_request')) throw e;
+    });
     await this.refresh();
   }
 
@@ -35,7 +39,7 @@ export class Desk {
     this.off.push(
       this.client.onEvent((e) => {
         if (e.topic === 'inbox' || e.topic === 'status') void this.refresh();
-        if (e.topic === 'notifications') this.raise(e);
+        if (e.topic === 'notifications' || e.topic === 'hr') this.raise(e);
       }),
     );
     // A reconnect or a dropped history can have changed the count without an event.

@@ -120,6 +120,16 @@ describe('with the shell', () => {
     expect(location.hash).toBe('#/agents/handline.auditor');
   });
 
+  it('a finished task opens its unread inbox card, and the task itself once none is left', async () => {
+    const sh = stubShell();
+    await mount(ARCH);
+    await until(() => sh.hasListener() && document.title.startsWith('(3)'), 'the listener and the inbox');
+    await sh.navigate({ screen: 'task', id: '12', event: 'task_done' }); // unread result of task 12
+    expect(location.hash).toBe('#/inbox/5');
+    await sh.navigate({ screen: 'task', id: '7', event: 'task_done' }); // its result was read
+    expect(location.hash).toBe('#/tasks/7');
+  });
+
   it('uses only the calls this shell has', async () => {
     const sh = stubShell(['screen']);
     await mount(ARCH);

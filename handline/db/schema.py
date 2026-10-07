@@ -1652,6 +1652,10 @@ def _add_missing_columns(con, legacy: bool = True) -> None:
     if "launch_fingerprint" not in state_cols:
         # No backfill: an existing row reads as drifted, which is right.
         con.execute("ALTER TABLE agent_state ADD COLUMN launch_fingerprint TEXT")
+    if "extra_worktrees" not in state_cols:
+        # The agent's further worktrees (agent.yaml `extra_worktrees`), as a JSON list of paths: the first one stays in `worktree`.
+        # Written once when one is made; a row without it has none.
+        con.execute("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
     if "notified_session" not in state_cols:
         # The session the notify cursor's head was typed into. A delivery
         # belongs to the session that read it, not to the agent.

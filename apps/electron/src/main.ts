@@ -1,9 +1,12 @@
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
+import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
+import { Opener } from './open.ts';
 import { Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
@@ -12,10 +15,25 @@ const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}
 const home = env('HOME') ?? path.join(os.homedir(), '.handline');
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
-const ws = env('WS');
+/** The Go gateway (host:port): the web app reaches it at /rpc and pairs with a device token. */
+const gateway = env('GATEWAY');
+/** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
+const ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
+
+/** VISUAL, EDITOR and PATH: the shell's own environment, else the login shell's, asked once (a Dock launch has neither). */
+let login: Promise<EditorEnv> | null = null;
+async function editorEnv(): Promise<EditorEnv> {
+  if (process.env.VISUAL || process.env.EDITOR) return { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR, PATH: process.env.PATH };
+  login ??= new Promise<EditorEnv>((resolve) => {
+    execFile(process.env.SHELL ?? '/bin/sh', ['-ilc', LOGIN_PROBE], { timeout: 3000, encoding: 'utf8' }, (err, out) =>
+      resolve(err && !out ? {} : parseLoginEnv(out)),
+    );
+  });
+  return login;
+}
 
 function show(): void {
   if (!win) return;
@@ -29,11 +47,30 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
-    const web = await serveDir(dist);
+    // The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides.
+    if (gateway)
+      session.defaultSession.webRequest.onBeforeSendHeaders({ urls: [`ws://${gateway}/*`] }, (d, done) =>
+        done({ requestHeaders: { ...d.requestHeaders, Origin: `http://${gateway}` } }),
+      );
+    // The device token is kept per page origin, so with a gateway the page keeps one port from launch to launch.
+    const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 0)));
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
+    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    // The worktree of an agent comes from the shell's own daemon connection, never from the page.
+    const opener = new Opener(origin, {
+      worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
+      open: (p) => shell.openPath(p),
+      reveal: (p) => shell.showItemInFolder(p),
+    });
+    const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
+    ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
+    ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
+    ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
+    app.on('quit', () => composer.dispose());
+    void sweepTemp(app.getPath('temp'));
     win = new BrowserWindow({
       width: 1280,
       height: 860,
@@ -56,7 +93,7 @@ if (!app.requestSingleInstanceLock()) {
     win.webContents.on('will-navigate', (e, url) => {
       if (new URL(url).origin !== origin) e.preventDefault();
     });
-    await win.loadURL(ws ? `${web.url}?daemon=${encodeURIComponent(ws)}` : web.url);
+    await win.loadURL(`${web.url}?daemon=${encodeURIComponent(ws)}`);
     app.on('activate', show);
     app.on('window-all-closed', () => app.quit());
     app.on('quit', () => web.close());
@@ -65,7 +102,7 @@ if (!app.requestSingleInstanceLock()) {
       build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
       // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
       idle: async () => {
-        if (!win || win.isDestroyed()) return false;
+        if (!win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
         if (page.unsent !== null) return !page.unsent;
         return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
       },
@@ -86,7 +123,6 @@ if (!app.requestSingleInstanceLock()) {
     const checking = setInterval(() => void updater.check().catch(() => undefined), 30_000);
     app.on('quit', () => clearInterval(checking));
 
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
     const desk = new Desk(client, {
       setBadge: (t) => {
         if (app.dock) app.dock.setBadge(t);

@@ -19,6 +19,7 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -145,6 +146,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	s.NoEvents = d.cfg.Gateway
 	if d.hooks != nil {
 		d.hooks.Register(s)
+		taskwrites.Register(s)
 	}
 	if transport == "network" {
 		s.Net = d.dev

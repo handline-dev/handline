@@ -1,5 +1,5 @@
 """daemon.status, tasks.list, task.get, inbox.list."""
-from . import err, fake
+from . import err, fake, task_page
 
 
 @fake("daemon.status", "tasks.list", "task.get", "inbox.list")
@@ -15,7 +15,11 @@ def reads(role, method, params):
     if method == "task.get":
         if isinstance(params.get("task"), bool) or not isinstance(params.get("task"), int):
             return "fail", err(-32602, "bad_request", field="task")
+        if params["task"] == 1 and task_page.opened():
+            return "ok", task_page.detail()
         return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}
+    if method == "tasks.list" and task_page.opened():
+        return "ok", {"items": [task_page.row()], "more": False}
     if method == "inbox.list":          # past the bounds the daemon's own branch answers: its filters and its wait
         return None
     return "ok", {"items": [], "more": False}

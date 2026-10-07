@@ -120,7 +120,7 @@ CREATE TABLE agent_state (
   terminal        TEXT,
   worktree        TEXT,
   account         TEXT
-, closed_at INTEGER, resume_session TEXT, task TEXT, handoff TEXT, account_source TEXT, launch_parts TEXT, launch_fingerprint TEXT, notified_session TEXT, current_task INTEGER REFERENCES tasks(id));
+, closed_at INTEGER, resume_session TEXT, task TEXT, handoff TEXT, account_source TEXT, launch_parts TEXT, launch_fingerprint TEXT, extra_worktrees TEXT, notified_session TEXT, current_task INTEGER REFERENCES tasks(id));
 CREATE TABLE handoff (
   id          TEXT PRIMARY KEY,
   agent       TEXT NOT NULL,

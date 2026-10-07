@@ -18,6 +18,31 @@ export interface ShellApi {
   screen(s: { agent: string | null }): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** True while a restart would lose something. */
   unsent(on: boolean): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** Open a path a message holds in the default app, or reveal it when it is something that runs. Absent in a shell that lacks it. */
+  openPath?(a: {
+    path: string;
+    agent?: string;
+  }): Promise<{ ok: true; how: 'opened' | 'revealed' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
+  compose?(a: {
+    text?: string;
+    ext?: 'md' | 'txt';
+  }): Promise<
+    | { ok: true; text: string; changed: boolean }
+    | Fail<
+        | 'bad_request'
+        | 'no_editor'
+        | 'terminal_editor'
+        | 'bad_editor'
+        | 'not_waiting'
+        | 'editor_failed'
+        | 'cancelled'
+        | 'busy'
+        | 'too_large'
+        | 'unavailable'
+      >
+  >;
+  cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** A notice was clicked. Returns the way to stop listening. */
   onNavigate(cb: (to: NavigateTo) => void): () => void;
 }
@@ -26,17 +51,31 @@ export interface ShellApi {
  * The route a notice's target lands on, or null when there is none to go to (no target, an empty id, the string `None` the daemon
  * emits for a task_done without a task, or a screen this does not know).
  */
-export function routeOfTarget(target: { screen: string; id: string } | null, eventType: string): string | null {
+export function routeOfTarget(
+  target: { screen: string; id: string } | null,
+  eventType: string,
+  /** The inbox's unread items, when the caller has them: a finished task opens its card, and goes to the task once none is left. */
+  unread?: readonly { id: number; task: number | null }[],
+): string | null {
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {
     case 'agent':
       return `#/agents/${id}`;
     case 'task':
-      return eventType === 'task_done' ? '#/inbox' : `#/tasks/${id}`;
+      return eventType === 'task_done' ? doneRoute(target.id, unread) : `#/tasks/${id}`;
     case 'account':
       return `#/accounts/${id}`;
+    case 'hr':
+      return `#/team/hr/${id}`;
     default:
       return null;
   }
+}
+
+/** A finished task: its unread inbox card when the caller knows the inbox and has one, the task itself when none is left, `#/inbox` when the inbox is unknown. */
+function doneRoute(task: string, unread: readonly { id: number; task: number | null }[] | undefined): string {
+  if (!unread) return '#/inbox';
+  const card = unread.find((i) => String(i.task) === task);
+  return card ? `#/inbox/${card.id}` : `#/tasks/${encodeURIComponent(task)}`;
 }

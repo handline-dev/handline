@@ -17,7 +17,7 @@ from ..session import term
 from ..team import ask as askmod
 from ..team import hr
 from ..team import spawn as spawnmod
-from . import rpc
+from . import rpc, rpc_hr
 
 STATUS_MAX = 40
 
@@ -49,6 +49,10 @@ def _num(pid: str) -> int | None:
         return None
 
 
+def pid_text(prop: dict) -> str:
+    return str(prop["id"])
+
+
 def _decide(ctx, params) -> dict:
     decision, note = params.get("decision"), params.get("note")
     if decision not in ("approve", "reject"):
@@ -61,8 +65,23 @@ def _decide(ctx, params) -> dict:
     prop = _proposal(params)
     if decision == "approve" and not subject:
         raise rpc.bad_request("an approve names the subject hr.list showed", "subject", rpc.INVALID_PARAMS)
+    state = rpc_hr.wire(prop)["state"] if rpc_hr.wire(prop) else None
+    if state not in rpc_hr.WAITING:         # decided, applied or taken back already: nothing to decide (checked before the digest)
+        raise rpc_hr.refusal("proposal_settled", f"proposal {pid_text(prop)} is already {state or prop.get('state')}", prop)
+    if decision == "approve" and subject != hr.subject_of(prop):
+        raise rpc_hr.refusal("proposal_changed", f"proposal {pid_text(prop)} changed after you read it: read it again before approving", prop)
+    ctx_con = db.connect()
+    try:
+        rpc_hr.check(ctx_con)               # looked at before the decision, so the change below is the one that is said
+    finally:
+        ctx_con.close()
     ok, said = hr.decide(prop["id"], "approved" if decision == "approve" else "rejected", askmod.HUMAN, note or "",
                          subject or hr.subject_of(prop))
+    ctx_con = db.connect()
+    try:
+        rpc_hr.check(ctx_con)               # said at once, not at the watcher's next look
+    finally:
+        ctx_con.close()
     if not ok:
         raise rpc.refused(said.strip())
     return _wrote(ctx, params, "hr.decide", said)

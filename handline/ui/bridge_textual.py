@@ -31,7 +31,8 @@ from textual.screen import ModalScreen
 from textual import events
 
 from .. import actions
-from . import jobs as jobsmod, stall, tui
+from . import jobs as jobsmod, stall
+from ..view import tui
 from .clipboard_app import ClipboardApp
 from .components.confirm import Confirm
 from .components.dialog import Dialog

@@ -1,7 +1,8 @@
 // The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
+import { useMemo } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
-import type { CallParams, Methods } from '@handline/client';
+import type { CallParams, InboxItem, Methods } from '@handline/client';
 import { useData, useFeed, useServes } from './provider.ts';
 import { keyOf, reads, type ReadMethod, type ReadSpec } from './reads.ts';
 
@@ -52,6 +53,11 @@ export const usePrompts = (agent: string) => useRead('prompt.list', { agent });
 export const useStatus = () => useRead('daemon.status', {});
 export const useAccounts = () => useRead('accounts.list', {});
 export const useInbox = (filter: CallParams<'inbox.list'> = {}) => useRead('inbox.list', filter);
+/** The unread items of the whole inbox: the bell, the tab title and the unread dot of the page all read the one cached list, so a mark drops them together. */
+export function useUnread(): InboxItem[] {
+  const items = useInbox().data?.items;
+  return useMemo(() => (items ?? []).filter((i) => !i.read), [items]);
+}
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
 export const useTask = (task: number) => useRead('task.get', { task });
