@@ -252,9 +252,7 @@ func moveTaskLinks(tx *sql.Tx, tid, into int64) error {
 			return err
 		}
 	}
-	if err := refreshSent(tx, tid); err != nil {
-		return err
-	}
+	// tid is not refreshed: merge already unsent it and it has no request left. The kept task may now have one out.
 	if err := refreshSent(tx, into); err != nil {
 		return err
 	}

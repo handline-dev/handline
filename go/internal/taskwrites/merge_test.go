@@ -17,7 +17,10 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 	defer db.Close()
 	for _, q := range []string{
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'keep', 'w', 'boss', 1), (2, 'two', 'w', 'boss', 1), (3, 'three', 'w', 'boss', 1), " +
-			"(4, 'dep', 'w', 'boss', 1), (5, 'other', 'w', 'else', 1), (6, 'child', 'w', 'boss', 1), (7, 'waiting', 'w', 'boss', 1), (8, 'blocker', 'w', 'boss', 1)",
+			"(4, 'dep', 'w', 'boss', 1), (5, 'other', 'w', 'else', 1), (6, 'child', 'w', 'boss', 1), (7, 'waiting', 'w', 'boss', 1), (8, 'blocker', 'w', 'boss', 1), (9, 'finished', 'w', 'boss', 1), (10, 'gone', 'w', 'boss', 1)",
+		"UPDATE tasks SET done_evidence = 'x', done_at = 2 WHERE id = 9",
+		"UPDATE tasks SET discarded_by = 'boss', discarded_at = 2 WHERE id = 10",
+		"UPDATE tasks SET sent_at = 5 WHERE id = 2", // the request out on T2 makes it read as sent
 		"UPDATE tasks SET parent_task = 2 WHERE id = 6",
 		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x')",
 		"INSERT INTO task_requests(task_id, request_id) VALUES(2, 10)",
@@ -55,9 +58,14 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 	db.Exec("INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 4, 1)") // keep waits on 4, 4 waits on 2: folding 2 into 1 would have 4 wait on 1, which waits on 4
 	refused("a wait cycle", merge("boss", "a8", 1, 2), "T4 waits on T2; waiting on T1 instead would be a cycle")
 	db.Exec("DELETE FROM task_blocks WHERE task_id = 1 AND blocks_on = 4")
+	refused("an unknown kept task", merge("boss", "b1", 98, 2), fmt.Sprintf("no task T%d", 98))
+	refused("a discarded kept task", merge("boss", "b2", 10, 2), "task T10 is discarded - nothing can merge into it")
+	refused("a done folded task", merge("boss", "b3", 1, 9), "task T9 is done - it is not merged")
+	refused("a discarded folded task", merge("boss", "b4", 1, 10), "task T10 is already discarded")
+	refused("no tasks", call(t, mk("boss"), `{"jsonrpc":"2.0","id":2,"method":"task.merge","params":{"into":1,"tasks":[],"request_id":"b5"}}`)[0], "tasks is a list of task numbers")
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM tasks WHERE discarded_by IS NOT NULL").Scan(&n)
-	if n != 0 {
+	if n != 1 { // only the T10 the test seeded
 		t.Fatalf("refusals change nothing: %d discarded", n)
 	}
 
@@ -84,6 +92,12 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 	}
 	if count("SELECT COUNT(*) FROM task_blocks WHERE task_id = 4 AND blocks_on = 1") != 1 || count("SELECT COUNT(*) FROM task_blocks WHERE blocks_on = 2 OR task_id = 2 OR task_id = 1 AND blocks_on = 1") != 0 {
 		t.Fatal("the wait on T2 becomes a wait on T1, and keep's own wait on T2 is dropped")
+	}
+	if count("SELECT COUNT(*) FROM task_blocks WHERE task_id = 1 AND blocks_on = 6") != 1 {
+		t.Fatal("the wait T2 held on its child moves to the kept task")
+	}
+	if count("SELECT COUNT(*) FROM tasks WHERE id = 1 AND sent_at IS NOT NULL") != 1 || count("SELECT COUNT(*) FROM tasks WHERE id = 2 AND sent_at IS NULL") != 1 {
+		t.Fatal("the request out on T2 now makes the kept task read as sent, and T2 not")
 	}
 	if count("SELECT COUNT(*) FROM events WHERE kind = 'merge_task' AND payload LIKE '%dropped_wait%'") != 1 {
 		t.Fatal("the dropped wait is on the event")
