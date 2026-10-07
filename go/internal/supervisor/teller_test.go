@@ -55,3 +55,20 @@ func TestTheTellerAfterADiscardAdvancesTheOwnerTypesTheSaysAndForgetsInboxFiles(
 		t.Fatal("the inbox file of a closed request stays")
 	}
 }
+
+func TestAFailedStatementAfterTheCommitIsLoggedByTheTeller(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.DB.Close()
+	r.Discarded("bob", nil, nil, nil)
+	if !r.logged("moving bob on after a discard failed") {
+		t.Fatalf("%v", r.logs)
+	}
+	if msg := r.QueueDelivered(1, "human", true); msg != "task T1 is queued (human)" || !r.logged("delivering T1 after it was queued failed") {
+		t.Fatalf("%q %v", msg, r.logs)
+	}
+	r.MemoChanged(1, "alice", "added", "x")
+	if !r.logged("telling the holder of T1 about the memo failed") {
+		t.Fatalf("%v", r.logs)
+	}
+}

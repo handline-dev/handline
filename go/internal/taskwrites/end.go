@@ -15,7 +15,7 @@ import (
 
 // What a task's end does in the tables (handline/actions/tasks.py: _end_task, _clear_blocks_on, _notify_unblocked,
 // _child_result_notice; handline/db/tasks.py and requests.py under them). The says it writes are rows; typing them at their
-// target is the delivery layer's (go/TELLINGS.md).
+// target is the Teller's, once the write has committed.
 
 const noticeFrom = "task-board"
 
