@@ -1331,6 +1331,12 @@ def question_targets(holder: str, agents: list[str], recent=()) -> tuple[list[st
     return first, mine, [a for a in rest if a not in mine]
 
 
+def question_body(tid: int, text: str) -> str:
+    """What an agent is told when the founder asks about T<tid>."""
+    return (f"Question on T{tid} from the founder (the task keeps its holder): {text}\n\n"
+            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'")
+
+
 def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
     """The founder asking `to` about T<tid>: a say linked to the task, whose holder does not change.
     The agent's reply to it joins the task (`say_verb`)."""
@@ -1338,9 +1344,7 @@ def ask_on_task(con, tid: int, to: str, text: str) -> tuple[bool, str]:
         return False, f"no task T{tid}"
     if not text.strip():
         return False, "nothing sent: no question typed"
-    body = (f"Question on T{tid} from the founder (the task keeps its holder): {text.strip()}\n\n"
-            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'")
-    ok, msg, rid = askmod.say(to, body, requester=HUMAN)
+    ok, msg, rid = askmod.say(to, question_body(tid, text.strip()), requester=HUMAN)
     if ok and rid is not None:
         db.link_request(con, tid, rid)
         db.add_event(con, HUMAN, "task_question", {"task": tid, "request": rid}, dedup_key=f"task_question:{rid}")

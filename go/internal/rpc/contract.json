@@ -249,6 +249,9 @@
  "subscribe": {
   "role": "agent"
  },
+ "task.ask": {
+  "role": "member"
+ },
  "task.begin": {
   "role": "agent"
  },
