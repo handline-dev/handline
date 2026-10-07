@@ -27,7 +27,7 @@ settings.set settings.trust devices.list chat.messages chat.transcript chat.loca
 AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say ask push land hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \
-                     "terminal.history terminal.resize terminal.close chat.send input.ask devices.list device.pair device.revoke settings.set".split()
+                     "terminal.history terminal.resize terminal.close chat.send chat.send_now input.ask devices.list device.pair device.revoke settings.set".split()
 FOUNDER_ONLY = "schedule.add schedule.edit schedule.remove settings.get settings.set devices.list device.pair device.revoke".split()
 ROLES = SPEC["x-roles"]["order"]
 

@@ -96,6 +96,7 @@ A method marked write takes a required `request_id`.
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` |  |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `request_id` | `Accepted & {request}` | `refused`, `not_found` |  |
+| `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -131,7 +132,7 @@ A method marked write takes a required `request_id`.
 | `task.board` | agent |  | none | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused` |  |
 | `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused` |  |
 | `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused` |  |
@@ -164,6 +165,7 @@ A method marked write takes a required `request_id`.
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` |  |  |
+| `stats.outlook` | member |  | `range` | `Outlook` | `bad_request` |  |
 | `settings.get` | founder |  | `agent?` | `Settings` |  |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -313,6 +315,10 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold.
 
+### `chat.send_now`
+
+Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.
+
 ### `chat.answer`
 
 Answer a message that asked something.
@@ -455,7 +461,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner and title by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
+Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Never silent: the holder is told.
 
 ### `say`
 
@@ -584,6 +590,10 @@ Remove a schedule.
 ### `stats.get`
 
 Counts and sums over a window.
+
+### `stats.outlook`
+
+The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.
 
 ### `settings.get`
 
