@@ -106,7 +106,7 @@ def _send_under(ctx, params, agent: str, parent: int, body: str) -> dict:
         if _waits_on_person(row):
             ok, msg = actions.answer_ok(con, parent, body, effect=_record(ctx, params, "chat.send", request=parent))
             if not ok:
-                raise rpc.refused(msg)
+                raise rpc.refused(msg, gate="state")
             return {"accepted": True, "said": msg, "request": parent}
     finally:
         con.close()
@@ -180,7 +180,12 @@ def _cancel(ctx, params) -> dict:
             raise rpc.RpcError(rpc.REFUSED, "refused", plan, reason=plan, gate="confirm", plan=plan)
     finally:
         con.close()
-    ok, msg = askmod.cancel(rid, effect=_record(ctx, params, "chat.cancel"))
+    def delivered_since(con, now):
+        # a delivery between the check above and this write needs the confirm too
+        if now["delivered_at"] and not confirm:
+            fresh = actions.cancel_plan(con, rid)[1]
+            raise rpc.RpcError(rpc.REFUSED, "refused", fresh, reason=fresh, gate="confirm", plan=fresh)
+    ok, msg = askmod.cancel(rid, effect=_record(ctx, params, "chat.cancel"), guard=delivered_since)
     if not ok:
         raise rpc.refused(msg)
     return {"accepted": True, "said": msg}
