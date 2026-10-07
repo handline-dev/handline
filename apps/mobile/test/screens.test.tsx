@@ -1,55 +1,6 @@
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@handline/app-core';
-import { DataProvider } from '@handline/app-data';
-import { DaemonProvider } from '@handline/app-react';
-import { setup } from '@handline/fake-daemon/helpers';
-import { Home } from '../src/screens/Home.tsx';
-
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const ARCH = 'handline.architect'; // idle with a session
-const sleep = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
-async function until(cond: () => unknown, what: string, ms = 4000) {
-  for (let t = 0; t < ms; t += 10) {
-    if (cond()) return;
-    await sleep(10);
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
-
-let root: Root | null = null;
-let box: HTMLElement;
-const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-const text = () => box.textContent ?? '';
-/** The height a row is styled with (the DOM has no layout here, so this reads the style both rows are given from the tokens). */
-const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
-const press = (el: HTMLElement | null) => act(async () => void el?.click());
-
-async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, daemon?: { bytes?: boolean }, client?: string) {
-  const s = setup({ daemon, client });
-  prepare(s);
-  const store = new Store(s.client);
-  box = document.body.appendChild(document.createElement('div'));
-  root = createRoot(box);
-  await act(async () => {
-    root!.render(
-      <DaemonProvider store={store}>
-        <DataProvider daemonId="test">
-          <Home store={store} onUnpair={() => {}} />
-        </DataProvider>
-      </DaemonProvider>,
-    );
-  });
-  return { ...s, store };
-}
-
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  root = null;
-  box?.remove();
-});
+import { describe, expect, it } from 'vitest';
+import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from './harness.tsx';
 
 describe('the agent list', () => {
   it('shows its skeleton after 150 ms while the daemon is slow, then the rows', async () => {
@@ -573,69 +524,6 @@ describe('the chat tab', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('chat-off'), 'the empty state');
     expect($('chat-input')).toBeNull();
-    m.store.stop();
-  });
-});
-
-describe('the agent verbs menu', () => {
-  async function openMenu() {
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('verbs-open'), 'the page');
-    await press($('verbs-open'));
-  }
-
-  it('lists what applies to the row, without Close and Clear stall', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openMenu();
-    for (const id of ['restart', 'restart_fresh', 'park', 'fold', 'move']) expect($(`verb-${id}`)).not.toBeNull();
-    expect($('verb-close')).toBeNull();
-    expect($('verb-clear_stall')).toBeNull();
-    expect($('verb-wake')).toBeNull(); // it has an open session
-    m.store.stop();
-  });
-
-  it('asks before parking, sends nothing on Cancel, shows the gerund while the daemon decides, then the daemon has parked it', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openMenu();
-    await press($('verb-park'));
-    expect(text()).toContain(`Park ${ARCH}?`);
-    expect(text()).toContain('Its session ends; it wakes on the next task.');
-    await press($('sheet-cancel'));
-    expect($('sheet')).toBeNull();
-    expect(m.daemon.sessions.get(ARCH)!.state).not.toBe('parked');
-    m.daemon.knobs.latency(400);
-    await press($('verbs-open'));
-    await press($('verb-park'));
-    await press($('sheet-submit'));
-    await until(() => $('pending-mark')?.textContent === 'parking…', 'the pending mark', 300);
-    await until(() => m.daemon.sessions.get(ARCH)!.state === 'parked', 'the daemon', 3000);
-    m.store.stop();
-  });
-
-  it('puts the reason on the page when the daemon refuses, and the mark goes', async () => {
-    const m = await mount((s) => s.daemon.knobs.refuse('agent.fold', 'state', 'it is mid-turn'), undefined, 'founder');
-    await openMenu();
-    await press($('verb-fold'));
-    await press($('sheet-submit'));
-    await until(() => text().includes('it is mid-turn'), 'the reason');
-    await until(() => !$('pending-mark'), 'the mark to go');
-    m.store.stop();
-  });
-
-  it('moves the account after choosing one, and restarts fresh', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openMenu();
-    await press($('verb-move'));
-    expect($('sheet-submit')?.getAttribute('aria-disabled')).toBe('true'); // no account chosen yet
-    await press($('account-beta'));
-    await press($('sheet-submit'));
-    await until(() => m.daemon.sessions.get(ARCH)!.fx.account === 'beta', 'the daemon');
-    await press($('verbs-open'));
-    await press($('verb-restart_fresh'));
-    expect(text()).toContain(`Restart fresh ${ARCH}?`);
-    await press($('sheet-submit'));
-    await until(() => !$('sheet'), 'the sheet to close');
     m.store.stop();
   });
 });
