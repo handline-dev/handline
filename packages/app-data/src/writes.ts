@@ -413,4 +413,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
+  // A member command the app does not send yet.
+  'task.ask',
 ] as const;

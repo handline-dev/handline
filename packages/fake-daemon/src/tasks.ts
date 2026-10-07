@@ -113,6 +113,14 @@ export class FakeTasks {
       blockers: t.blockers,
       children: this.rows.filter((r) => r.parent === t.id).map((r) => r.id),
       handoffs: [],
+      asker: t.from,
+      discarded: null,
+      merged_into: null,
+      time: null,
+      parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
+      subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, state: r.state })),
+      timeline: [],
+      people: { recent: [], team: [], others: [] },
     };
   }
 
