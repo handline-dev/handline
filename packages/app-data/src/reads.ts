@@ -42,6 +42,7 @@ export const reads = {
   'worktree.diff': { resource: 'worktree-diff' },
   'schedules.list': { resource: 'schedules' },
   'stats.get': { resource: 'stats' },
+  'stats.outlook': { resource: 'outlook' },
   'settings.get': { resource: 'settings' },
   'answers.list': { resource: 'answers' },
   'devices.list': { resource: 'devices', feed: 'devices' },
