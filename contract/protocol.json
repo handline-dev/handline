@@ -230,8 +230,8 @@
   "hr": {
    "snapshot": "hr.list",
    "data": {
-    "hr.raised": "Proposal",
-    "hr.settled": "Proposal"
+    "hr.raised": "{proposal}",
+    "hr.settled": "{proposal}"
    }
   }
  },
