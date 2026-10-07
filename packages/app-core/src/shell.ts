@@ -66,6 +66,8 @@ export function routeOfTarget(
       return eventType === 'task_done' ? doneRoute(target.id, unread) : `#/tasks/${id}`;
     case 'account':
       return `#/accounts/${id}`;
+    case 'hr':
+      return `#/team/hr/${id}`;
     default:
       return null;
   }

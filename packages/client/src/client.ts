@@ -243,11 +243,17 @@ export class DaemonClient {
 
   /** Streams events for these topics, replacing none already asked for. A reconnect resumes at the last cursor. */
   async subscribe(topics: Topic[]): Promise<void> {
-    const before = this.topics.size;
-    for (const t of topics) this.topics.add(t);
-    if (this.topics.size === before && this.cursor !== undefined) return;
-    const r = await this.call('subscribe', { topics: [...this.topics], since: this.cursor });
-    this.cursor ??= r.cursor;
+    const added = topics.filter((t) => !this.topics.has(t));
+    for (const t of added) this.topics.add(t);
+    if (!added.length && this.cursor !== undefined) return;
+    try {
+      const r = await this.call('subscribe', { topics: [...this.topics], since: this.cursor });
+      this.cursor ??= r.cursor;
+    } catch (e) {
+      // A refused topic must not ride along on every reconnect.
+      for (const t of added) this.topics.delete(t);
+      throw e;
+    }
   }
   onEvent(fn: Handler<WireEvent>): () => void {
     this.eventHandlers.add(fn);
