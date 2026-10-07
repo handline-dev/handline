@@ -67,10 +67,29 @@ def _seed(home: Path) -> dict:
     repo.mkdir()
     for args in (["init", "-q", "-b", "feature"], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    git = lambda d, *args: subprocess.run(["git", "-C", str(d), "-c", "user.name=t", "-c", "user.email=t@example.com", *args], check=True, capture_output=True)
+    (repo / "a.txt").write_text("one\n")
+    (repo / "kept ünï.txt").write_text("k\n")
+    git(repo, "add", "."), git(repo, "commit", "-q", "-m", "files")
+    (repo / "a.txt").write_text("one\ntwo\n")
+    (repo / "new.txt").write_text("fresh\n")
+    (repo / "link").symlink_to("/etc")
+    boss_tree = home.parent / "boss-tree"
+    boss_tree.mkdir()
+    git(boss_tree, "init", "-q", "-b", "trunk"), git(boss_tree, "commit", "-q", "--allow-empty", "-m", "x")
+    extra_tree = home.parent / "extra-tree"
+    extra_tree.mkdir()
+    git(extra_tree, "init", "-q", "-b", "side"), git(extra_tree, "commit", "-q", "--allow-empty", "-m", "x")
+    agents.write("worker", {**(agents.read("worker") or {}), "repo": str(repo)})
+    agents.write("manager", {**(agents.read("manager") or {}), "repo": str(boss_tree)})
     db.set_agent_state(con, "worker", "idle")
     con.execute("UPDATE agent_state SET worktree = ?, terminal = 't-1', resume_session = 'sess-9' WHERE agent = 'worker'", (str(repo),))
     db.set_agent_state(con, "manager", "idle")
     con.execute("UPDATE agent_state SET terminal = 't-2', closed_at = ? WHERE agent = 'manager'", (int(time.time()),))
+    con.execute("UPDATE agent_state SET worktree = ?, extra_worktrees = ? WHERE agent = 'manager'", ("id-7::" + str(boss_tree), json.dumps([str(extra_tree), "/nowhere"])))
+    for op, state, step, msg, res in (("op-1", "done", "start", "ok", {"agent": "worker"}), ("op-2", "running", "register", None, None), ("op-3", "failed", "start", "no repo", None)):
+        con.execute("INSERT INTO operations(id, kind, state, step, steps_done, steps_total, message, result_json, agent, created_at, updated_at) "
+                    "VALUES(?, 'agent.create', ?, ?, 1, 2, ?, ?, 'worker', 1, 1)", (op, state, step, msg, json.dumps(res) if res else None))
     now = int(time.time())
     con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('worker', 'person', 'holder-1', ?, ?)", (now - 60, now - 5))
     con.execute("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('manager', 'person', 'holder-1', ?, ?)", (now - 9000, now - 9000))
@@ -190,6 +209,27 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "inbox.list", {"agent": "worker", "limit": 2}),
         (None, "inbox.list", {"before": ids["card"]}),
         (None, "inbox.list", {"wait_s": 601}),
+        (None, "worktrees.list", {}),
+        (None, "worktrees.list", {"owner": "worker"}),
+        (None, "worktrees.list", {"repo": "boss-tree"}),
+        (None, "worktrees.list", {"repo": 3}),
+        ("worker", "worktrees.list", {}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree")}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree"), "file": "a.txt"}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree"), "file": "new.txt"}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree"), "file": "link"}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree"), "file": "../x"}),
+        (None, "worktree.diff", {"path": str(home.parent / "worktree"), "file": "-x"}),
+        (None, "worktree.diff", {"path": str(home.parent / "boss-tree")}),
+        (None, "worktree.diff", {"path": "/tmp"}),
+        (None, "worktree.diff", {}),
+        (None, "agent.options", {}),
+        ("worker", "agent.options", {}),
+        (None, "operation.get", {"operation": "op-1"}),
+        (None, "operation.get", {"operation": "op-2"}),
+        (None, "operation.get", {"operation": "op-3"}),
+        (None, "operation.get", {"operation": "nope"}),
+        (None, "operation.get", {}),
         (None, "answers.list", {}),
         ("manager", "answers.list", {}),
         (None, "inbox.get", {"id": ids["ask"]}),

@@ -4,7 +4,6 @@ account.login
 account.set
 account.set_cap
 agent.create
-agent.options
 hr.decide
 inbox.answer
 inbox.mark_read
@@ -12,9 +11,7 @@ inbox.reply
 input.ask
 input.release
 input.take
-operation.get
 prompt.answer
-repos.list
 schedule.add
 schedule.edit
 schedule.remove
@@ -39,9 +36,7 @@ terminal.detach
 terminal.history
 terminal.input
 terminal.resize
-worktree.diff
 worktree.set_status
-worktrees.list
 chat.send
 chat.answer
 chat.dismiss
