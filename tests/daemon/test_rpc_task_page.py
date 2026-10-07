@@ -53,7 +53,8 @@ def test_task_get_says_what_the_page_draws(home: Path) -> None:
     d = _get(parent)
     check("TaskDetail.asker: the opener when no request came from the founder", d["asker"] == "manager", str(d["asker"]))
     check("TaskDetail: not discarded, not merged", d["discarded"] is None and d["merged_into"] is None)
-    check("TaskDetail.subtasks: the child with its title and state", d["subtasks"] == [{"id": kid, "title": "the kid", "state": d["subtasks"][0]["state"]}]
+    check("TaskDetail.subtasks: the child with its title, owner and state", d["subtasks"] == [{"id": kid, "title": "the kid", "owner": d["subtasks"][0]["owner"], "state": d["subtasks"][0]["state"]}]
+          and d["subtasks"][0]["owner"] in ("manager", "worker") and d["subtasks"][0]["state"]
           and d["children"] == [kid], str(d["subtasks"]))
     k = _get(kid)
     check("TaskDetail.parent_title: the parent's title; Task.parent stays the id", k["parent_title"] == "the work" and k["parent"] == parent, str(k["parent_title"]))

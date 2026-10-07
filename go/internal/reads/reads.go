@@ -56,6 +56,8 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("worktree.diff", rpc.Method{Role: "member", Handler: e.worktreeDiff})
 	s.Register("agent.options", rpc.Method{Role: "member", Handler: e.agentOptions})
 	s.Register("operation.get", rpc.Method{Role: "member", Handler: e.operationGet})
+	s.Register("accounts.list", rpc.Method{Role: "agent", Handler: e.accountsList})
+	s.Register("stats.get", rpc.Method{Role: "member", Handler: e.statsGet})
 	s.Register("inbox.list", rpc.Method{Role: "agent", Handler: e.inboxList, Waits: true})
 }
 

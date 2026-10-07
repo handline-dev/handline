@@ -38,6 +38,31 @@ def _task(title: str, owner: str = "worker", by: str = "manager") -> int:
     return tid
 
 
+def _seed_accounts(home: Path, con, now: int) -> None:
+    """Three accounts: a measured one with a label, a cap and a typed end, one with a carried legacy-shaped window, one with no reading."""
+    os.environ["TZ"] = "Asia/Seoul"     # both daemons read a zoneless start as local time; a zone away from UTC tells them apart
+    time.tzset()
+    acc = home / "accounts"
+    for name in ("alpha", "beta", "gamma", "delta", "epsilon"):
+        (acc / name).mkdir(parents=True, exist_ok=True)
+    (acc / "alpha" / "status.json").write_text(json.dumps({"windows": [
+        {"minutes": 10080, "used_percent": 41.2, "resets_at": now + 86400, "observed_at": now, "carried": False, "lost": False},
+        {"minutes": 300, "used_percent": 12.0, "resets_at": now + 3600, "observed_at": now, "carried": False, "lost": False}]}))
+    (acc / "beta" / "status.json").write_text(json.dumps({"pct_5h": 28.999999999999996, "reset_5h": now + 100, "rl_carried": 1, "pct_7d": None}))
+    # profiles: a zoned start, a zoneless one (read as local time) and a month-end one, each on a cycle with no typed end
+    for name, started in (("gamma", "2026-03-31T15:00:00"), ("delta", "2025-08-31T23:30:00.433836Z"), ("epsilon", "2024-01-31T00:00:00+09:00")):
+        (acc / name / ".claude").mkdir(parents=True, exist_ok=True)
+        (acc / name / ".claude" / ".claude.json").write_text(json.dumps({"oauthAccount": {"subscriptionCreatedAt": started}}))
+    (home / "config.yaml").write_text("active_cap: 3\nactive_cap_alpha: 1\nlabel_alpha: Main\nmonth_cycle_alpha: true\n"
+                                      "sub_end_alpha: \"2099-01-31\"\nusage_recover_beta: false\nmonth_cycle_gamma: true\nmonth_cycle_delta: true\nmonth_cycle_epsilon: true\n")
+    con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'worker'")
+    db.add_event(con, "manager", "moved_account", {"from": "beta", "to": "alpha", "trigger": "wall"})
+    db.add_event(con, "worker", "moved_account", {"from": "alpha", "to": None})
+    for kind, at in (("UserPromptSubmit", now - 600), ("Stop", now - 500), ("UserPromptSubmit", now - 400), ("UserPromptSubmit", now - 300), ("SessionEnd", now - 100)):
+        db.add_event(con, "worker", kind, None)
+        con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
+
+
 def _seed(home: Path) -> dict:
     """A board with every state, a child, a wait, a memo, a handoff, and a founder's mailbox of each kind."""
     support._board_world(home)
@@ -101,6 +126,7 @@ def _seed(home: Path) -> dict:
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
+    _seed_accounts(home, con, now)
     stream.append(con, "notifications", "task.done", {"task": a, "n": 1}, agent="worker", actor={"kind": "agent", "name": "worker"}, title="done")
     stream.append(con, "tasks", "task.changed", {"task": a}, target={"kind": "task", "id": a})
     stream.append(con, "notifications", "plain", {})
@@ -176,6 +202,8 @@ def _normal(method: str, reply: dict) -> dict:
         for t in res.get("items", [res]):
             for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
+    if method == "stats.get" and res:
+        res["since"], res["until"] = None, None     # the clock: now less the window, read a second apart
     r.pop("id", None)
     return r
 
@@ -233,6 +261,13 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         (None, "operation.get", {"operation": "op-3"}),
         (None, "operation.get", {"operation": "nope"}),
         (None, "operation.get", {}),
+        (None, "accounts.list", {}),
+        ("manager", "accounts.list", {}),
+        (None, "stats.get", {"window": "24h"}),
+        (None, "stats.get", {"window": "7d"}),
+        ("manager", "stats.get", {"window": "7d"}),
+        (None, "stats.get", {"window": "1h"}),
+        (None, "stats.get", {}),
         (None, "answers.list", {}),
         ("manager", "answers.list", {}),
         (None, "inbox.get", {"id": ids["ask"]}),

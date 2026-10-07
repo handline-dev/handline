@@ -243,6 +243,8 @@ export type TaskDetail = Task & {
   blockers: {
     task: number;
     reason: string;
+    owner: string;
+    title: string;
   }[];
   children: number[];
   handoffs: {
@@ -271,10 +273,11 @@ export type TaskDetail = Task & {
     told: number;
   } | null;
   parent_title: string | null;
-  /** The sub-tasks by number: `children` with their titles and states. */
+  /** The sub-tasks by number: `children` with their titles, owners and states. */
   subtasks: {
     id: number;
     title: string;
+    owner: string;
     state: string;
   }[];
   /** What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one) and the requests linked to it. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay. */
@@ -1389,7 +1392,7 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "task.progress": { params: {
-  task: number;
+  task?: number;
   note: string;
   request_id: RequestId;
 }; result: Accepted };
