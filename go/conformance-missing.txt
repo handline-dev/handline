@@ -59,12 +59,7 @@ task.queue
 task.draft
 task.release
 chat.send_now
-chat.messages
-chat.transcript
-chat.locate
-chat.search
 stats.outlook
-chat.requests
 answers.list
 answer.add
 answer.remove
