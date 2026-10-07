@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": { "supportsTablet": false, "bundleIdentifier": "dev.handline.mobile" },
+    "plugins": ["./plugins/tailscale-cleartext.cjs"],
     "android": { "package": "dev.handline.mobile", "predictiveBackGestureEnabled": false }
   }
 }
