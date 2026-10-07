@@ -744,7 +744,7 @@ def test_a_message_between_two_other_agents_can_be_picked_in_all_chat() -> None:
         con.commit()
         msgs = cp.messages_of(_items("reviewer", True), "reviewer")
         check("all chat: a message from another agent is replyable", msgs and all(m["replyable"] for m in msgs), str(msgs))
-        cp.send_reply("reviewer", rid, "a word from the founder")
+        cp.send_reply(next(m for m in msgs if m["rid"] == rid)["agent"], rid, "a word from the founder")
         kid = db.get_request(con, rid + 1)
         check("all chat: a reply to it goes to its speaker, under it",
               kid["target"] == "backend" and kid["parent_id"] == rid, str(dict(kid)))
