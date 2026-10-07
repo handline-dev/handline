@@ -123,6 +123,7 @@ def _seed(home: Path) -> dict:
     db.prompt_open(con, "manager", "question", "fp2", "Which?", ["Which?"],
                    {"options": [{"label": "A", "checked": True}, {"label": "B"}]}, None, True, now)
     con.execute("UPDATE prompt_blocks SET first_seen = ? WHERE agent = 'manager'", (now - 100,))
+    con.execute("UPDATE prompt_blocks SET last_seen = ?", (now + 3600,))    # still seen when the slow run reaches prompt.list: the stale cut-off is not what this holds
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
