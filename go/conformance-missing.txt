@@ -66,10 +66,8 @@ chat.search
 stats.outlook
 hr.list
 chat.requests
-answers.list
 answer.add
 answer.remove
-inbox.get
 task.begin
 task.start
 task.handoff

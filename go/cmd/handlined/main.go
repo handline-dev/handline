@@ -32,7 +32,7 @@ func resolveHome(flagHome string, allowReal bool) (string, error) {
 }
 
 // defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here.
-const defaultNative = "daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list"
+const defaultNative = "daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list,inbox.get,answers.list"
 
 func main() {
 	home := flag.String("home", "", "the handline home (required while the daemon is in development)")

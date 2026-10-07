@@ -82,6 +82,8 @@ def _seed(home: Path) -> dict:
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
+    protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
+    protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
     agentview.refresh(con, int(time.time()))
     con.close()
     return {"tasks": [a, b, c, done], "ask": ask, "card": card}
