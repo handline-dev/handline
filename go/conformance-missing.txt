@@ -60,8 +60,6 @@ task.draft
 task.release
 chat.send_now
 stats.outlook
-hr.list
-chat.requests
 answers.list
 answer.add
 answer.remove
