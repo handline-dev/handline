@@ -1,6 +1,6 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
 import { useState } from 'react';
-import { useWrite } from '@handline/app-data';
+import { classify, sentence, useWrite } from '@handline/app-data';
 import { Sheet } from './taskui.tsx';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
@@ -17,6 +17,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
     setMissing('');
     ask.mutate({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority }, { onSuccess: onClose });
   };
+  const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
   return (
     <Sheet label="New task" submit="Ask" full onCancel={onClose} onSubmit={send} busy={ask.isPending}>
       <div className="tform">
@@ -50,9 +51,9 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           </select>
         </label>
       </div>
-      {missing ? (
+      {said ? (
         <span className="tsheet-err" role="alert">
-          {missing}
+          {said}
         </span>
       ) : null}
     </Sheet>

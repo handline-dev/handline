@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { Desk } from './desk.ts';
@@ -15,7 +15,9 @@ const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}
 const home = env('HOME') ?? path.join(os.homedir(), '.handline');
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
-const ws = env('WS');
+/** The Go gateway (host:port): the web app reaches it at /rpc and pairs with a device token. */
+const gateway = env('GATEWAY');
+const ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : undefined);
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
@@ -44,7 +46,13 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
-    const web = await serveDir(dist);
+    // The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides.
+    if (gateway)
+      session.defaultSession.webRequest.onBeforeSendHeaders({ urls: [`ws://${gateway}/*`] }, (d, done) =>
+        done({ requestHeaders: { ...d.requestHeaders, Origin: `http://${gateway}` } }),
+      );
+    // The device token is kept per page origin, so with a gateway the page keeps one port from launch to launch.
+    const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 0)));
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });

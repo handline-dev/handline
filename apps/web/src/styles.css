@@ -1453,6 +1453,21 @@ button.opt {
   }
 }
 
+.pair-screen {
+  max-width: 420px;
+  margin: 18vh auto 0;
+  padding: 0 16px;
+  display: grid;
+  gap: 12px;
+}
+.pair-screen h1 {
+  margin: 0;
+  font-size: 20px;
+}
+.pair-screen p {
+  margin: 0;
+}
+
 /* Inbox page */
 .inbox {
   max-width: 760px;
