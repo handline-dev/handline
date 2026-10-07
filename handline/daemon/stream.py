@@ -212,7 +212,7 @@ def _agents(con, state: dict) -> None:
         if before.get(name) != view:
             v = json.loads(view)
             emit(con, "agents", "agent.changed", v, agent=name, title=None, target={"screen": "agent", "id": name})
-            if v["state"] == "FATAL" and (json.loads(before[name])["state"] if name in before else None) != "FATAL":
+            if v["state"] == "stalled" and (json.loads(before[name])["state"] if name in before else None) != "stalled":
                 emit(con, "notifications", "stall", {"agent": name}, agent=name, title=f"{name} stalled",
                      target={"screen": "agent", "id": name})
     for name in set(before) - set(now):

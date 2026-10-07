@@ -44,7 +44,7 @@
   {
    "name": "agent.get.state_running",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `running` is sent as the word `running`, in agent.get and in agents.list. Needs --var state_running: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `running` is sent as the word `running`, in agent.get and in agents.list. Needs --var state_running: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -95,7 +95,7 @@
   {
    "name": "agent.get.state_idle",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `idle` is sent as the word `idle`, in agent.get and in agents.list. Needs --var state_idle: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `idle` is sent as the word `idle`, in agent.get and in agents.list. Needs --var state_idle: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -146,7 +146,7 @@
   {
    "name": "agent.get.state_queued",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `queued` is sent as the word `queued`, in agent.get and in agents.list. Needs --var state_queued: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `queued` is sent as the word `queued`, in agent.get and in agents.list. Needs --var state_queued: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -197,7 +197,7 @@
   {
    "name": "agent.get.state_parked",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `parked` is sent as the word `parked`, in agent.get and in agents.list. Needs --var state_parked: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `parked` is sent as the word `parked`, in agent.get and in agents.list. Needs --var state_parked: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -248,7 +248,7 @@
   {
    "name": "agent.get.state_waiting",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `waiting` is sent as the word `waiting`, in agent.get and in agents.list. Needs --var state_waiting: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `waiting` is sent as the word `waiting`, in agent.get and in agents.list. Needs --var state_waiting: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -299,7 +299,7 @@
   {
    "name": "agent.get.state_stalled",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `stalled` is sent as the word `stalled`, in agent.get and in agents.list. Needs --var state_stalled: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `stalled` is sent as the word `stalled`, in agent.get and in agents.list. Needs --var state_stalled: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
@@ -350,7 +350,7 @@
   {
    "name": "agent.get.state_no_terminal",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent in state `no_terminal` is sent as the word `no_terminal`, in agent.get and in agents.list. Needs --var state_no_terminal: an agent in that state (what it means is in x-state-words).",
+   "about": "An agent in state `no_terminal` is sent as the word `no_terminal`, in agent.get and in agents.list. Needs --var state_no_terminal: an agent in that state (what it means is in x-state-words).",
    "as": "founder",
    "steps": [
     {
