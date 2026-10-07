@@ -1391,6 +1391,43 @@ def test_a_delivery_changes_the_chat_signature() -> None:
         con.close()
 
 
+def test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down() -> None:
+    """chat.cancel on a delivered message is refused with gate confirm and its plan: the page asks, then calls again."""
+    from handline.daemon import client
+    from handline.ui import chat_page as cp
+    real = api.call
+
+    def gated(method, params):
+        raise client.RpcError({"message": "refused", "data": {"code": "refused", "gate": "confirm", "plan": "the agent is told to stop"}})
+
+    def down(method, params):
+        raise client.DaemonDown("gone")
+    try:
+        api.call = gated
+        check("cancel: the confirm gate returns the plan to ask with", api.write_asking("chat.cancel", {"request": 1}) == ("confirm", "the agent is told to stop"))
+        api.call = down
+        state, said = api.write_asking("chat.cancel", {"request": 1})
+        check("cancel: a daemon that is down is a refusal that says so", state == "refused" and "cannot be reached" in said, said)
+    finally:
+        api.call = real
+    asked = []
+
+    class Stub:
+        is_attached = True
+        app = None
+        _cancel = lambda self, rid, body, confirm: asked.append((rid, confirm))
+    import handline.ui.chat_page as page
+    ran = []
+    real_ask = page.Confirm.ask
+    page.Confirm.ask = staticmethod(lambda app, yes_fn, *a, **kw: ran.append(yes_fn))
+    try:
+        cp.ChatPage._cancel_answered(Stub(), 7, "b", "confirm", "plan text")
+    finally:
+        page.Confirm.ask = real_ask
+    ran[0]()
+    check("cancel: a confirm is asked first, and its yes cancels with confirm", asked == [(7, True)], str(asked))
+
+
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
     from handline.ui import chat_page as cp
@@ -5640,6 +5677,7 @@ async def _run_all() -> None:
     test_the_overlay_draws_what_the_agent_ate_in_front_of_the_headroom_and_shares_add_up()
     test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
+    test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
