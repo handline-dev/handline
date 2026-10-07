@@ -400,7 +400,45 @@ def test_events_view_starts_at_the_newest(home: Path) -> None:
         con.close()
 
 
-def test_a_control_byte_is_never_accepted_as_an_identifier(home: Path) -> None:
+def test_a_control_byte_from_the_environment_is_never_recorded(home: Path) -> None:
+    """The door that does not depend on the host: `launch._record_terminal` reads its
+    handle and worktree from the session's environment and stores both, to be compared and named in messages
+    later. One carrying a control byte or a line break is refused, not rewritten: no handle, no worktree."""
+    os.environ["OCP_HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    agents.register("spawny")
+    csi = "\u009b31m"
+    bad_wt, good_wt = home / f"w{csi}t", home / "wt"
+    bad_wt.mkdir()
+    good_wt.mkdir()
+    con = db.connect()
+    here = os.getcwd()
+
+    def stored():
+        row = db.get_agent_state(con, "spawny")
+        return (row["terminal"], row["worktree"]) if row else (None, None)
+
+    try:
+        os.environ["TMUX"] = f"/tmp/tmux-501/{SUITE_TMUX_SOCKET},1,0"
+        os.chdir(good_wt)
+        for label, pane in (("a newline", "%1\nerror: forged line"), ("a control", f"%1{csi}")):
+            os.environ["TMUX_PANE"] = pane
+            launch._record_terminal("spawny", "alpha")
+            check(f"_record_terminal: a handle carrying {label} is refused", stored()[0] is None, stored())
+        os.environ["TMUX_PANE"] = "%7"
+        os.chdir(bad_wt)
+        launch._record_terminal("spawny", "alpha")
+        check("_record_terminal: and a worktree carrying one beside a good handle is too",
+              stored() == ("%7", None), stored())
+        os.chdir(good_wt)
+        launch._record_terminal("spawny", "alpha")
+        check("_record_terminal: a clean pair is stored as it is", stored() == ("%7", os.getcwd()), stored())
+    finally:
+        os.chdir(here)
+        con.close()
+
+
+def test_a_control_byte_in_what_orca_returns_is_never_an_identifier(home: Path) -> None:
     """auditor's #1695: sanitising the parsed worktree path and handle at the
     four messages that embedded them left `db.set_terminal` storing them raw,
     and `start_in` read one back into "started in {worktree}" - a fifth sink,
@@ -781,24 +819,23 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
         db.clear_closed(con, "backend")     # closed with a session to resume, it is woken instead (T407)
         credentialed(home, "alpha")         # a start needs an account to land on: logged in, it has room
 
-        started: list[list[str]] = []
-        real_run, real_exec = spawnmod._run, orcacli._exec
+        repo = home / "repo"
+        (repo / ".git").mkdir(parents=True, exist_ok=True)
+        real_run, real_wait = spawnmod._run, dmn_delivery.wait_for_session
         try:
-            # git finds `main` (T483 asks it); Orca is the one that is missing
-            spawnmod._run = lambda argv, **kw: (started.append(argv),
-                                                (0, "", "") if argv[:2] == ["git", "rev-parse"]
-                                                else (1, "", "no orca here"))[1]
-            orcacli._exec = lambda argv, timeout=120: (started.append(argv), (1, "", "no orca here"))[1]
-            actions.start(con, "backend", repo=str(home))
+            host = TmuxStandIn()
+            spawnmod._run = lambda argv, **kw: (0, "", "")      # git finds `main` (start asks it for the base)
+            dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
+            actions.start(con, "backend", repo=str(repo))
             check("start: an agent with a worktree is started in it, not given another",
-                  [a[1] for a in started] == ["terminal"], str(started))
+                  host.worktrees_made() == [] and [a[a.index("-c") + 1] for a in host.windows()] == [str(wt)],
+                  str(host.calls))
             db.set_terminal(con, "backend", None, None)
-            started.clear()
-            actions.start(con, "backend", repo=str(home))
+            actions.start(con, "backend", repo=str(repo))
             check("start: and one with nowhere to run gets a worktree first",
-                  any(a[:2] == ["orca", "worktree"] for a in started), str(started))
+                  len(host.worktrees_made()) == 1, str(host.git))
         finally:
-            spawnmod._run, orcacli._exec = real_run, real_exec
+            spawnmod._run, dmn_delivery.wait_for_session = real_run, real_wait
         db.set_terminal(con, "backend", "term_x", "wt")
         termmod.live_terminals = lambda: {"term_x"}
         sessions_are("backend")
@@ -836,16 +873,10 @@ def test_top_acts_through_the_same_calls_the_daemon_makes(home: Path) -> None:
             termmod.focus, spawnmod.spawn = real_focus, real_spawn
         db.set_terminal(con, "backend", None, None)
         check("top: one with none is", actions.can(con, "backend", "start")[0])
-        real_run, real_exec = spawnmod._run, orcacli._exec
-        # The Orca that refuses: `worktree create` on a folder that is not a repository.
-        spawnmod._run = lambda args, cwd=None: (1, "", "orca: not a git repository")
-        orcacli._exec = lambda args, timeout=120: (1, "", "orca: not a git repository")
-        try:
-            said = actions.start(con, "backend", repo=str(home))
-        finally:
-            spawnmod._run, orcacli._exec = real_run, real_exec
+        # A folder that is not a repository: the host refuses to make a worktree there, and the start says why.
+        said = actions.start(con, "backend", repo=str(home))
         check("top: and starting it says why when it cannot",
-              "orca" in said or "worktree" in said or "base" in said or "commit" in said, said)
+              "repositor" in said or "worktree" in said or "base" in said or "commit" in said, said)
         db.set_terminal(con, "backend", "term_x", "wt")
 
         # Answering closes the request and tells the agent, which is what
@@ -2671,9 +2702,9 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "service logs", "fold reviewer (model lost a done item)"}
     check("cli: the poison is really on screen for every command this test claims to grade",
           must <= shows, str(sorted(must - shows)))
-    # (JSON writes a control byte as the text \\u001b, and git quotes one in a path as
-    # \\033: both are text, not a byte, and are safe to show.)
-    quoted = re.compile(r"\\+(?:u001b|033)\]0;PWNED\\+(?:u0007|a|007)")
+    # (JSON writes a control byte as the text \\u001b, git quotes one in a path as \\033, and a
+    # Python repr (the doctor's saved-terminal warning) as \\x1b: all text, not a byte, and safe to show.)
+    quoted = re.compile(r"\\+(?:u001b|033|x1b)\]0;PWNED\\+(?:u0007|a|007|x07)")
     check("cli: the payload of a title is not printed either",
           not [k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)],
           str([k for k, v in dirty.items() if "PWNED" in quoted.sub("", v)]))
@@ -3501,8 +3532,8 @@ def main() -> int:
         run(lambda: test_for_you_folds_to_one_line_per_agent(Path(td) / 'fold'))
         run(lambda: test_display_agrees_with_the_daemon(Path(td) / 'disp'))
         run(lambda: test_events_view_starts_at_the_newest(Path(td) / 'evview'))
-        run(lambda: test_a_control_byte_is_never_accepted_as_an_identifier(
-            Path(td) / 'spawnjson'))
+        skip(lambda: test_a_control_byte_in_what_orca_returns_is_never_an_identifier(Path(td) / 'spawnjson'), ORCA_UNMAINTAINED)
+        run(lambda: test_a_control_byte_from_the_environment_is_never_recorded(Path(td) / 'recordenv'))
         run(lambda: test_the_bridge_says_what_an_agent_is_where_there_is_room(Path(td) / 'agentkind'))
         run(lambda: test_the_bridges_wake_column_dates_a_weekly_wall(Path(td) / 'walledwkclock'))
         run(lambda: test_top_shows_what_is_waiting_on_the_human(Path(td) / 'foryou'))

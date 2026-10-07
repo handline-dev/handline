@@ -2570,73 +2570,72 @@ def test_nothing_is_typed_at_a_modal(home: Path) -> None:
         check("modal: it is told once the modal is gone",
               dmn_delivery.deliver_queued(con, "backend", lambda _m: None))
 
-        # The reader itself, against what Orca returns.
+        # The reader itself, against what tmux captures. A pane it cannot capture is `captured` False.
         termmod.modal_open = REAL_ORCA["modal_open"]
         termmod.screen_blocker = REAL_ORCA["screen_blocker"]
         termmod._screen = REAL_ORCA["_screen"]
-        screen = {"ok": True}
-        def fake_run(args, timeout=180):
-            term = {"tail": screen["tail"], "source": screen.get("source", "screen")}
-            if "draft" in screen:
-                term["draft"] = screen["draft"]
-            return screen["ok"], json.dumps({"result": {"terminal": term}})
-        real_run = orcacli._run
-        orcacli._run = fake_run
+        screen = {"captured": True}
+
+        def fake_tmux(args, timeout=10, stdin=None):
+            if args[0] != "capture-pane" or not screen["captured"] or screen["tail"] is None:
+                return 1, "", "can't find pane"
+            return 0, "\n".join(screen["tail"]), ""
+        real_tmux = tmuxbackend._tmux
+        tmuxbackend._tmux = fake_tmux
         try:
             screen["tail"] = ["Teach auto mode about your environment?", "Enter to confirm · Esc to cancel"]
-            check("modal: the auto-mode prompt is read as a modal", termmod.modal_open("h"))
+            check("modal: the auto-mode prompt is read as a modal", termmod.modal_open("%1"))
             screen["tail"] = (["quoted: Esc to cancel", "old output", "more", "❯ ", "────",
                               "? for shortcuts"] + COMPOSER_EMPTY)
             check("modal: the words higher up in the transcript are not a modal",
-                  not termmod.modal_open("h"))
+                  not termmod.modal_open("%1"))
             screen["tail"] = ["❯ "]
-            screen["source"] = "screen-unavailable"
-            check("modal: anything but a rendered screen counts as a modal",
-                  termmod.modal_open("h"))
-            screen["source"] = "screen"
+            screen["captured"] = False
+            check("modal: a pane tmux cannot capture counts as a modal", termmod.modal_open("%1"))
+            screen["captured"] = True
             screen["tail"] = COMPOSER_EMPTY
-            check("modal: an empty prompt is not", not termmod.modal_open("h"))
+            check("modal: an empty prompt is not", not termmod.modal_open("%1"))
             screen["tail"] = None
-            check("modal: a screen that cannot be read counts as a modal", termmod.modal_open("h"))
+            check("modal: a screen that cannot be read counts as a modal", termmod.modal_open("%1"))
             # `draft` is not consulted at all (2026-09-21: a stale one rendered
             # identically to an empty box and blocked delivery for 8 hours
             # with nothing to clear it but the send it was refusing). Nor is
             # composer CONTENT (#1157: the screen cannot tell a person's
             # typing from handline's own echoed sends), so a recognized composer
             # box - whatever it shows - is just an idle input, never a block.
-            screen["tail"] = _composer_typed("orca half-typed")
-            check("composer: text in a recognized box is not a block", termmod.screen_blocker("h") is None)
+            screen["tail"] = _composer_typed("half-typed")
+            check("composer: text in a recognized box is not a block", termmod.screen_blocker("%1") is None)
             screen["tail"] = COMPOSER_EMPTY
-            check("composer: an empty composer is an empty input", termmod.screen_blocker("h") is None)
+            check("composer: an empty composer is an empty input", termmod.screen_blocker("%1") is None)
             screen["tail"] = ["> "]
             check("composer: no composer box at all fails closed",
-                  termmod.screen_blocker("h").kind == termmod.UNREADABLE)
-            screen["source"] = "screen-unavailable"
-            check("composer: a screen that is not rendered fails closed too",
-                  termmod.screen_blocker("h").kind == termmod.UNREADABLE)
-            screen["source"] = "screen"
+                  termmod.screen_blocker("%1").kind == termmod.UNREADABLE)
+            screen["captured"] = False
+            check("composer: a pane that cannot be captured fails closed too",
+                  termmod.screen_blocker("%1").kind == termmod.UNREADABLE)
+            screen["captured"] = True
             screen["tail"] = _composer_typed("typed")
             termmod.idle_now = lambda h: True
             check("composer: an idle agent with text in the input is still typeable",
-                  termmod.typeable_now("h"))
+                  termmod.typeable_now("%1"))
             sent_: list[str] = []
             termmod.wait_idle = lambda h, t=0: True
             termmod.alive = lambda h: True
             termmod.send = lambda h, text, enter=True: (sent_.append(text), (True, ""))[1]
-            ok_c, why_c = REAL_ORCA["close_session"]("h")
+            ok_c, why_c = REAL_ORCA["close_session"]("%1")
             check("composer: /exit is typed even with text in the box", ok_c and sent_ == ["/exit"], why_c)
             sent_.clear()
-            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
             check("composer: /clear is typed even with text in the box", ok_c and sent_ == ["/clear"], why_c)
             sent_.clear()
             screen["tail"] = ["Confirm?", "Enter to confirm · Esc to cancel"]
-            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
             check("modal: /clear is refused at an open modal", not ok_c and not sent_, why_c)
             screen["tail"] = COMPOSER_EMPTY
-            ok_c, why_c = REAL_ORCA["clear_context"]("h")
+            ok_c, why_c = REAL_ORCA["clear_context"]("%1")
             check("composer: with the input empty /clear is typed", ok_c and sent_ == ["/clear"], why_c)
         finally:
-            orcacli._run = real_run
+            tmuxbackend._tmux = real_tmux
     finally:
         con.close()
 
@@ -3756,30 +3755,23 @@ def test_confirm_trust_presses_down_then_enter() -> None:
     the cursor happened to be sitting on instead."""
     from handline.vendors import claude as claudemod
     calls: list[list[str]] = []
-    real = orcacli._run
+    real, delay = tmuxbackend._tmux, tmuxbackend.ENTER_DELAY_S
+    tmuxbackend.ENTER_DELAY_S = 0
     try:
-        orcacli._run = lambda args, *a, **k: (calls.append(args), (True, "{}"))[1]
-        ok, why = termmod.confirm_trust("term_x")
+        tmuxbackend._tmux = lambda args, *a, **k: (calls.append(args), (0, "", ""))[1]
+        ok, why = termmod.confirm_trust("%1")
         check("confirm_trust: reports success", ok, why)
-        check("confirm_trust: sends exactly two commands", len(calls) == 2, str(calls))
-        check("confirm_trust: the first moves down, with no --enter",
-              calls[0] == ["terminal", "send", "--terminal", "term_x",
-                           "--text", claudemod.TRUST_PROMPT_DOWN_ARROW],
+        check("confirm_trust: sends exactly two keys", len(calls) == 2, str(calls))
+        check("confirm_trust: the first moves down, with no Enter",
+              calls[0] == ["send-keys", "-t", "%1", "Down"] and claudemod.TRUST_PROMPT_DOWN_ARROW == "\x1b[B",
               str(calls[0]))
-        check("confirm_trust: the second is a bare Enter",
-              calls[1] == ["terminal", "send", "--terminal", "term_x", "--text", "", "--enter"],
-              str(calls[1]))
-    finally:
-        orcacli._run = real
-
-    real = orcacli._run
-    try:
-        orcacli._run = lambda *a, **k: (False, "no such terminal")
-        ok, why = termmod.confirm_trust("term_x")
+        check("confirm_trust: the second is a bare Enter", calls[1] == ["send-keys", "-t", "%1", "Enter"], str(calls[1]))
+        tmuxbackend._tmux = lambda *a, **k: (1, "", "can't find pane: %1")
+        ok, why = termmod.confirm_trust("%1")
         check("confirm_trust: a failed first key is reported, not silently retried",
               not ok and "trust dialog" in why, why)
     finally:
-        orcacli._run = real
+        tmuxbackend._tmux, tmuxbackend.ENTER_DELAY_S = real, delay
 
 
 def test_clear_refuses_mid_turn() -> None:
@@ -4851,7 +4843,7 @@ def main() -> int:
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
         run(lambda: test_wake_on_a_self_clearing_park_refuses_and_says_when(Path(td) / 'selfclearwake'))
-        run(lambda: test_orca_idle_parsing())
+        skip(lambda: test_orca_idle_parsing(), ORCA_UNMAINTAINED)
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_a_context_handoff_backs_off_when_the_clear_keeps_failing(Path(td) / 'ctxclearfail'))

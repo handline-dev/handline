@@ -610,12 +610,9 @@ def test_a_rename_refuses_when_liveness_cannot_be_confirmed(home: Path) -> None:
         con.close()
 
 
-def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
-    """harbor #753: a rename leaves Orca's label right (`hr.label`, already
-    covered by test_a_rename_names_the_agents_orca_worktree) but the folder,
-    and so Claude's per-project memory, on the old name. `hl hr rehome` is
-    the other half - actually moving it. Driven on a throwaway git repo with
-    an uncommitted file, two accounts' memory and a transcript."""
+def _rehome_world(home: Path):
+    """A throwaway git repo with a worktree holding an uncommitted file, two accounts' memory and a transcript
+    under its old name, and the agent `harbor.marina` registered: (git, old_wt, new_wt, old_key, new_key)."""
     _daemon_home(home, 20)
     accounts.register("beta")
     repo = home / "repo"
@@ -636,6 +633,14 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         (proj / "memory" / "note.md").write_text(f"remember {acct}\n")
         (proj / "sess-1.jsonl").write_text("{}\n")
     agents.register("harbor.marina")
+    return git, old_wt, new_wt, old_key, new_key
+
+
+def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Path) -> None:
+    """A rename left the folder, and so Claude's per-project memory, on the old name. `hl hr
+    rehome` is the other half - actually moving it. Driven on a throwaway git repo with an uncommitted file,
+    two accounts' memory and a transcript, on the default host."""
+    git, old_wt, new_wt, old_key, new_key = _rehome_world(home)
     con = db.connect()
     real_live = obsmod.live_sessions
     try:
@@ -685,6 +690,43 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
               and all((vendors.config_dir(a) / "projects" / old_key).is_dir()
                       and not (vendors.config_dir(a) / "projects" / new_key).exists()
                       for a in ("alpha", "beta")), said)
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: moves once closed", ok and new_wt.is_dir() and not old_wt.exists(), said)
+        check("rehome: the uncommitted file survived the move",
+              (new_wt / "Strings.swift").read_text() == "uncommitted\n")
+        listed = git("worktree", "list", "--porcelain").stdout
+        check("rehome: git's own records follow (worktree list, branch, status)",
+              str(new_wt) in listed and str(old_wt) not in listed
+              and "?? Strings.swift" in git("status", "--short", cwd=new_wt).stdout
+              and git("branch", "--show-current", cwd=new_wt).stdout.strip() == "work")
+        for acct in ("alpha", "beta"):
+            root = vendors.config_dir(acct) / "projects"
+            check(f"rehome: {acct}'s memory and transcript are under the new key",
+                  (root / new_key / "memory" / "note.md").read_text() == f"remember {acct}\n"
+                  and (root / new_key / "sess-1.jsonl").is_file() and not (root / old_key).exists())
+        row = db.get_agent_state(con, "harbor.marina")
+        check("rehome: the recorded worktree keeps its selector form and names the new folder",
+              row["worktree"] == f"repo-id::{new_wt}" and row["terminal"] is None,
+              str(dict(row)))
+        ok, said = rehome.move(con, "harbor.marina", "marina")
+        check("rehome: run again it is a no-op that says so", not ok and "already" in said, said)
+
+    finally:
+        obsmod.live_sessions = real_live
+        con.close()
+
+
+
+def test_a_rehome_carries_orcas_label_parent_and_children(home: Path) -> None:
+    """On Orca a moved checkout is a new automatic entry: rehome waits for it, names it for the agent,
+    carries the old entry's comment, parent and status, re-points its children, and refuses while a
+    terminal is open in it or Orca cannot be read."""
+    git, old_wt, new_wt, old_key, new_key = _rehome_world(home)
+    con = db.connect()
+    real_live = obsmod.live_sessions
+    try:
+        obsmod.live_sessions = lambda: {}
+        db.set_terminal(con, "harbor.marina", "term_m", f"repo-id::{old_wt}")
         # Orca as measured: the old entry has a comment and a parent; after the
         # move it knows the new path only as an automatic entry.
         calls: list[list[str]] = []
@@ -1998,18 +2040,18 @@ def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Pat
 
 
 def test_an_opencode_session_under_ocp(home: Path) -> None:
-    """#1926, each part measured on opencode 1.18.32 in an Orca terminal: the
+    """Each part measured on opencode 1.18.32: the
     preamble reaches the session as an instructions file, the start prompt
     as --prompt, Agent's denial as opencode's task permission; /new and
-    /exit are its commands; and since Orca's tui-idle reads an opencode turn
-    as idle throughout, idle and what is in the way come from its screen."""
+    /exit are its commands; and idle and what is in the way come from its
+    screen, a still frame being no proof that its turn has ended."""
     os.environ["OCP_HOME"] = str(home)
     drv = vendors.get("opencode")
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
     real = {n: getattr(termmod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
-    real_cli_run = orcacli._run
     real_execve, real_record = os.execve, launch._record_terminal
+    real_settle = (tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S)
     try:
         accounts.register("alpha")
         accounts.register("zai", vendor="opencode")
@@ -2050,12 +2092,12 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
 
         con = db.connect()
         try:
-            db.set_terminal(con, "glm", "term_oc", None)
-            db.set_terminal(con, "backend", "term_cl", None)
+            db.set_terminal(con, "glm", "%1", None)
+            db.set_terminal(con, "backend", "%2", None)
         finally:
             con.close()
         check("opencode session: a terminal is read as its agent's vendor",
-              [termmod._driver_for(h).name for h in ("term_oc", "term_cl", "term_nobody")]
+              [termmod._driver_for(h).name for h in ("%1", "%2", "%9")]
               == ["opencode", "claude", "claude"])
 
         # What is in the way, read off opencode's own screen.
@@ -2067,68 +2109,61 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
                                  ("permission", OC_PERMISSION, termmod.MODAL),
                                  ("no prompt box", ["loading"], termmod.UNREADABLE)):
             shown["tail"] = tail
-            b = termmod.screen_blocker("term_oc")
+            b = termmod.screen_blocker("%1")
             check(f"opencode session: its {name} screen has {want or 'nothing'} in the way",
                   (b.kind if b else None) == want, str(b))
         shown["tail"] = OC_PERMISSION
         check("opencode session: the permission request is quoted",
-              termmod.screen_blocker("term_oc").detail
+              termmod.screen_blocker("%1").detail
               == "△ Permission required / ← Access external directory /etc / Patterns",
-              termmod.screen_blocker("term_oc").detail)
+              termmod.screen_blocker("%1").detail)
         shown["tail"] = OC_IDLE
         check("opencode session: claude's reading of the same screen is unchanged",
-              termmod.screen_blocker("term_cl").kind == termmod.UNREADABLE)
+              termmod.screen_blocker("%2").kind == termmod.UNREADABLE)
 
-        # Idle: Orca says yes throughout an opencode turn, so the screen decides.
+        # Idle: a still tmux frame is only a precondition for opencode, so its screen decides.
         termmod.SCREEN_POLL_S = 0
-        orca_says = {"satisfied": True}
-        waits: list[str] = []
-
-        def fake_run(args, timeout=180):
-            waits.append(args[0])
-            return True, json.dumps({"result": {"wait": {"satisfied": orca_says["satisfied"]}}})
-        orcacli._run = fake_run
+        host = TmuxStandIn()
+        tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = 0.05, 0.01
+        host.screens.update({"%1": OC_IDLE, "%2": COMPOSER_EMPTY})
         reads = iter([OC_WORKING, OC_WORKING, OC_IDLE])
         termmod._screen = lambda h: _screen_of(next(reads))
         check("opencode session: idle once the screen stops offering an interrupt",
-              termmod.wait_idle("term_oc", 5000) and next(reads, "spent") == "spent")
+              termmod.wait_idle("%1", 5000) and next(reads, "spent") == "spent")
         termmod._screen = lambda h: _screen_of(OC_WORKING)
-        check("opencode session: a turn still running is not idle, whatever Orca says",
-              not termmod.wait_idle("term_oc", 30))
+        check("opencode session: a turn still running is not idle, however still the frame",
+              not termmod.wait_idle("%1", 300))
         termmod._screen = lambda h: _screen_of(OC_HOME)
-        check("opencode session: its start screen is idle", termmod.wait_idle("term_oc", 30))
+        check("opencode session: its start screen is idle", termmod.wait_idle("%1", 300))
         termmod._screen = lambda h: _screen_of(OC_HOME[:1])
         check("opencode session: a screen still booting, no prompt box yet, is not",
-              not termmod.wait_idle("term_oc", 30))
-        orca_says["satisfied"] = False
+              not termmod.wait_idle("%1", 300))
+        del host.screens["%1"]
         termmod._screen = lambda h: _screen_of(OC_HOME)
-        check("opencode session: Orca's no stands over an idle screen",
-              not termmod.wait_idle("term_oc", 30))
-        orca_says["satisfied"] = True
+        check("opencode session: a pane tmux cannot capture is not idle", not termmod.wait_idle("%1", 300))
         termmod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
-        check("opencode session: a claude terminal is still Orca's word alone",
-              termmod.wait_idle("term_cl", 30))
+        check("opencode session: a claude terminal is idle on the still frame alone", termmod.wait_idle("%2", 300))
 
         # /new and /exit, typed only where nothing is in the way.
         sent: list[tuple[str, str]] = []
         termmod.alive = lambda h: True
         termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
-        for h in ("term_oc", "term_cl"):
+        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "%1" else COMPOSER_EMPTY)
+        for h in ("%1", "%2"):
             termmod.clear_context(h, wait=False)
             termmod.close_session(h, wait=False)
         check("opencode session: its clear is /new and its exit /exit; claude's are unchanged",
-              sent == [("term_oc", "/new"), ("term_oc", "/exit"),
-                       ("term_cl", "/clear"), ("term_cl", "/exit")], str(sent))
+              sent == [("%1", "/new"), ("%1", "/exit"),
+                       ("%2", "/clear"), ("%2", "/exit")], str(sent))
         termmod._screen = lambda h: _screen_of(OC_PERMISSION)
         sent.clear()
-        ok, why = termmod.clear_context("term_oc", wait=False)
+        ok, why = termmod.clear_context("%1", wait=False)
         check("opencode session: nothing is typed at a permission request",
               not ok and sent == [] and "not typing /new" in why, why)
     finally:
         for n, f in real.items():
             setattr(termmod, n, f)
-        orcacli._run = real_cli_run
+        tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = real_settle
         os.execve, launch._record_terminal = real_execve, real_record
         del drv.binary, drv.credential_present
 
@@ -4286,11 +4321,12 @@ def main() -> int:
             Path(td) / 'readguard'))
         run(lambda: test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(Path(td) / 'nameguard'))
         run(lambda: test_one_unreadable_proposal_does_not_take_the_hr_listing_down(Path(td) / 'hrlist'))
-        run(lambda: test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(Path(td) / 'repoadd'))
-        run(lambda: test_a_team_registers_each_distinct_repo_once(Path(td) / 'teamrepo'))
-        run(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'))
+        skip(lambda: test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(Path(td) / 'repoadd'), ORCA_UNMAINTAINED)
+        skip(lambda: test_a_team_registers_each_distinct_repo_once(Path(td) / 'teamrepo'), ORCA_UNMAINTAINED)
+        skip(lambda: test_a_rename_names_the_agents_orca_worktree(Path(td) / 'renamelabel'), ORCA_UNMAINTAINED)
         run(lambda: test_a_rename_refuses_when_liveness_cannot_be_confirmed(Path(td) / 'renameunknown'))
         run(lambda: test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(Path(td) / 'rehome'))
+        skip(lambda: test_a_rehome_carries_orcas_label_parent_and_children(Path(td) / 'rehomeorca'), ORCA_UNMAINTAINED)
         run(lambda: test_hr_rehome_cli_moves_the_folder(Path(td) / 'rehomecli'))
         run(lambda: test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(Path(td) / 'agentyaml'))
         run(lambda: test_yaml_booleans())

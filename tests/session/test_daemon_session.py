@@ -2932,8 +2932,9 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         termmod.available, termmod.live_terminals, obsmod.live_sessions = real
         con.close()
 
-    # The distinction has to survive into the implementation, not only the fake.
-    restore_world()
+
+def test_orca_failing_to_list_terminals_reads_as_unknown() -> None:
+    """The sweep's unknown-versus-empty distinction has to survive into the implementation, not only the fake."""
     real_run = orcacli._run
     try:
         orcacli._run = lambda *a, **k: (False, "connection refused")
@@ -5294,7 +5295,7 @@ def test_a_launch_records_its_fingerprint_and_says_when_it_cannot(home: Path) ->
     never lands, the daemon relaunches the session at every wake, so a failed
     write has to be said, not swallowed."""
     _daemon_home(home, 20)
-    os.environ["ORCA_TERMINAL_HANDLE"] = "term_rec"
+    os.environ["TMUX"], os.environ["TMUX_PANE"] = f"/tmp/tmux-501/{SUITE_TMUX_SOCKET},1,0", "%41"     # a pane of our server
     real_set, real_err = db.set_launch_fingerprint, sys.stderr
     try:
         con = db.connect()
@@ -5320,7 +5321,8 @@ def test_a_launch_records_its_fingerprint_and_says_when_it_cannot(home: Path) ->
         con.close()
     finally:
         db.set_launch_fingerprint, sys.stderr = real_set, real_err
-        os.environ.pop("ORCA_TERMINAL_HANDLE", None)
+        os.environ.pop("TMUX", None)
+        os.environ.pop("TMUX_PANE", None)
 
 
 def test_a_drifted_wake_that_cannot_relaunch_says_why(home: Path) -> None:
@@ -5671,6 +5673,7 @@ def main() -> int:
         run(lambda: test_a_move_prompt_says_nothing_of_a_request_or_a_missing_transcript(Path(td) / 'movepr'))
         run(lambda: test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(Path(td) / 'prevsess'))
         run(lambda: test_the_sweep_corrects_what_it_can_see(Path(td) / 'sweep'))
+        skip(lambda: test_orca_failing_to_list_terminals_reads_as_unknown(), ORCA_UNMAINTAINED)
         run(lambda: test_sweep_does_not_close_a_live_session_on_an_unmappable_pid(Path(td) / 'sweepflaky'))
         run(lambda: test_an_agent_with_nowhere_to_run_is_not_handed_off(Path(td) / 'noterm'))
         run(lambda: test_a_wake_is_believed_only_when_a_session_appears(Path(td) / 'wakereceipt'))
