@@ -401,8 +401,12 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	ms := []any{}
 	for _, m := range memos {
+		var edited any
+		if m.set("edited_at") {
+			edited = ts(m["edited_at"])
+		}
 		ms = append(ms, map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
-			"at": ts(m["created_at"]), "text": m.str("body")})
+			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited})
 	}
 	task["memos"] = ms
 	blockers, err := e.blockers(*tid)
