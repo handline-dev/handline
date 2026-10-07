@@ -140,12 +140,17 @@ def _asks(r) -> bool:
         r["state"] == "landed" and r["kind"] == "task" and r["queue_order"] is not None)
 
 
+# A task begun on a founder's message, or started as its owner's own (`_start_own`). The second kind is not
+# in db.AGENT_ACTIVITY_KINDS: ocp often writes it on the tick, and it is not the owner doing anything.
+_BEGUN_SQL = "kind IN ('task_begin', 'task_self_start')"
+
+
 def _begun(con, tid: int) -> bool:
-    """Was this task begun on a founder's message (`task_begin`)? Its work is
+    """Was this task begun on a founder's message (`task_begin`), or started as its owner's own? Its work is
     under way from then until it is done or discarded, whatever became of the
     chat request that is its only link."""
     return con.execute(
-        f"SELECT 1 FROM events WHERE kind = 'task_begin' AND {db.EVENT_TASK} = ? "
+        f"SELECT 1 FROM events WHERE {_BEGUN_SQL} AND {db.EVENT_TASK} = ? "
         "LIMIT 1", (tid,)).fetchone() is not None
 
 
@@ -1063,6 +1068,13 @@ def _note_refusal(con, agent: str, tid: int, msg: str, refused: dict | None = No
     db.add_event(con, agent, "task_deliver_refused", {"task_id": tid, "why": msg})
 
 
+def _start_own(con, agent: str, tid: int) -> None:
+    """`tid` would be asked of `agent` by `agent` itself (a task its opener gave itself by an edit), which
+    routing refuses: there is nobody to ask, so it starts as its owner's own work, begun as `task_begin` is."""
+    db.set_current_task(con, agent, tid)
+    db.add_event(con, agent, "task_self_start", {"task_id": tid})
+
+
 def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
     """T318/T325: moves `agent` on to its next open task, by priority then
     age, once the current one stops being worth holding. True if anything
@@ -1084,6 +1096,9 @@ def advance_current_task(con, agent: str, refused: dict | None = None) -> bool:
         if req is not None:
             db.set_current_task(con, agent, row["id"])
             db.promote_to_front(con, req["id"])
+            return True
+        if row["queued_by"] == agent:
+            _start_own(con, agent, row["id"])
             return True
         ok, msg, rid = askmod.ask(agent, row["title"], requester=row["queued_by"], kind="task",
                                   on_behalf_of=True)
@@ -1718,14 +1733,15 @@ def send_moved_task(con, tid: int, old_owner: str, by: str) -> None:
     if in_hand and old_owner != HUMAN:
         _type_say(con, old_owner, f"T{tid} moved to {new_owner} by {by} - stop work on it", "task moved")
     if taken and new_owner != HUMAN:
-        ok, msg, rid = askmod.ask(new_owner, taken[0]["body"], requester=taken[0]["requester"],
-                                  kind="task", on_behalf_of=True)
-        if ok:
-            _link_delivery(con, tid, new_owner, rid)
-            askmod.push(con, new_owner)
-            return
-        _note_refusal(con, new_owner, tid, msg)
-        db.set_task_queued(con, tid, taken[0]["requester"])     # the tick tries again, with the title
+        asker = taken[0]["requester"]
+        if asker != new_owner:      # given to the one who asked: advance starts it as its own below
+            ok, msg, rid = askmod.ask(new_owner, taken[0]["body"], requester=asker, kind="task", on_behalf_of=True)
+            if ok:
+                _link_delivery(con, tid, new_owner, rid)
+                askmod.push(con, new_owner)
+                return
+            _note_refusal(con, new_owner, tid, msg)
+        db.set_task_queued(con, tid, asker)     # the tick tries again, with the title
     if advance_current_task(con, new_owner):
         askmod.push(con, new_owner)
 
@@ -1901,7 +1917,7 @@ class _board_facts:
         self.current = {r["agent"]: r["current_task"] for r in con.execute(
             "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL")}
         self.begun = {r[0] for r in con.execute(
-            f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE kind = 'task_begin'") if r[0] is not None}
+            f"SELECT DISTINCT {db.EVENT_TASK} FROM events WHERE {_BEGUN_SQL}") if r[0] is not None}
         self.sent = {r[0] for r in con.execute("SELECT id FROM tasks WHERE sent_at IS NOT NULL")}
         self.children: dict[int, list[int]] = {}
         for c in open_tasks:

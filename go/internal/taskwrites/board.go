@@ -51,7 +51,7 @@ const eventTask = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.t
 // isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
 func isDoing(tx *sql.Tx, t *task) (bool, error) {
 	var n int
-	if err := tx.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'task_begin' AND "+eventTask+" = ?", t.ID).Scan(&n); err != nil {
+	if err := tx.QueryRow("SELECT COUNT(*) FROM events WHERE kind IN ('task_begin', 'task_self_start') AND "+eventTask+" = ?", t.ID).Scan(&n); err != nil {
 		return false, err
 	}
 	reads := n > 0 || t.SentAt.Valid
