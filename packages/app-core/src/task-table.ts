@@ -20,8 +20,7 @@ export const defaultFilter = (): TaskFilter => ({ states: new Set(LISTED), agent
 
 export function shown(tasks: readonly Task[], f: TaskFilter): Task[] {
   return tasks.filter(
-    (t) =>
-      (CLOSED.includes(t.state) ? f.closed : f.states.has(t.state)) && (!f.agent || t.to === f.agent || t.from === f.agent),
+    (t) => (CLOSED.includes(t.state) ? f.closed : f.states.has(t.state)) && (!f.agent || t.to === f.agent || t.from === f.agent),
   );
 }
 
@@ -113,7 +112,8 @@ export function taskTree(rows: readonly Task[], all: readonly Task[]): TreeRow[]
   // A row sorts where it is; a parent that is only there for the chain sorts where its first shown descendant does.
   const order = new Map<number, number>();
   rows.forEach((t, i) => {
-    for (let n: Task | undefined = t; n && keep.has(n.id); n = n.parent === null ? undefined : byId.get(n.parent)) if (!order.has(n.id)) order.set(n.id, i);
+    for (let n: Task | undefined = t; n && keep.has(n.id); n = n.parent === null ? undefined : byId.get(n.parent))
+      if (!order.has(n.id)) order.set(n.id, i);
   });
   const out: TreeRow[] = [];
   const walk = (up: number | null, depth: number) => {

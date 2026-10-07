@@ -115,7 +115,7 @@ describe('the list', () => {
     await press('j');
     expect(row(1688)!.classList.contains('cursor')).toBe(true);
     await press(' ');
-    expect(($('input[aria-label="Mark #1688"]') as HTMLInputElement).checked).toBe(true);
+    expect(($('input[aria-label="Mark #1688"]') as HTMLInputElement).checked).toBe(true); // local-ref-ok
     expect(text($('.tbar'))).toContain('1 marked');
     await press('A');
     expect(text($('.tbar'))).toContain('4 marked');
@@ -135,7 +135,7 @@ describe('the list', () => {
     expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
     expect($$('th').map((h) => text(h).trim())).toEqual(['', 'task', 'owner', 'state', 'under']);
     expect(($('td.c-title', row(1688)!) as HTMLElement).style.paddingLeft).toBe('26px');
-    expect(text(row(1688))).toContain('#1684');
+    expect(text(row(1688))).toContain('#1684'); // local-ref-ok
     expect(storage.data.get('tasksView')).toBe('tree');
     await click($$('.seg button')[0]!); // back to the list
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
@@ -269,7 +269,7 @@ describe('writes', () => {
     const mine = $$('tr.trow').find((r) => text(r).includes('Check the lint doc'))!;
     expect(mine.classList.contains('pending')).toBe(true);
     expect(text(mine)).toContain('#new');
-    await until(() => text($$('tr.trow').find((r) => text(r).includes('Check the lint doc'))).includes('#2000'), 'its number', 600);
+    await until(() => text($$('tr.trow').find((r) => text(r).includes('Check the lint doc'))).includes('#2000'), 'its number', 600); // local-ref-ok
     expect($('.tsheet')).toBeNull(); // the form closed on success
   });
 
@@ -312,10 +312,14 @@ describe('writes', () => {
     await mark(1688);
     await cursorTo(1690);
     await press('m');
-    expect(sheet('fold 2 into #1690?')).toBeDefined();
+    expect(sheet('fold 2 into #1690?')).toBeDefined(); // local-ref-ok
+    const merges: unknown[] = [];
+    const fold = s.daemon.tasks.merge.bind(s.daemon.tasks);
+    s.daemon.tasks.merge = (p) => (merges.push(p), fold(p));
     await click(button('Fold')!);
     await until(() => !row(1700) && !row(1688), 'the folded rows gone');
     expect(rowIds()).toEqual([1684, 1690]);
+    expect(merges).toHaveLength(1);
   });
 });
 
@@ -330,7 +334,7 @@ describe('the detail', () => {
     const d = $('article.tdetail')!;
     expect(text(d)).toContain('Terminal pane on the bytes channel');
     expect(text(d)).toContain('asked by handline.architect');
-    expect(text(d)).toContain('under #1684');
+    expect(text(d)).toContain('under #1684'); // local-ref-ok
     expect(text(d)).toContain('Delivery history');
     expect(text(d)).toContain('No memos.');
     await press('Escape', {}, $('.tbody')!);
@@ -379,7 +383,7 @@ describe('the detail', () => {
     await mount('#/tasks/1700', s);
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('Edit')!);
-    const form = sheet('Edit #1700')!;
+    const form = sheet('Edit #1700')!; // local-ref-ok
     const [title] = $$('input.tinput', form);
     await typeInto(title as HTMLInputElement, 'Pair the web UI');
     await choose($('select', form) as HTMLSelectElement, '1');
@@ -392,8 +396,8 @@ describe('the detail', () => {
     s.daemon.knobs.latency(0);
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await click(button('Edit')!);
-    await typeInto($$('input.tinput', sheet('Edit #1700')!)[0] as HTMLInputElement, 'Nope');
-    await click(button('Save', sheet('Edit #1700')!)!);
+    await typeInto($$('input.tinput', sheet('Edit #1700')!)[0] as HTMLInputElement, 'Nope'); // local-ref-ok
+    await click(button('Save', sheet('Edit #1700')!)!); // local-ref-ok
     await until(() => text($('.toast')).includes('locked'), 'the refusal');
     await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the title back');
     expect($('.tsheet')).not.toBeNull(); // the form stays with the person's text
@@ -408,11 +412,11 @@ describe('the detail', () => {
     await choose($('.tsheet select') as HTMLSelectElement, 'handline.auditor');
     await typeInto($('.tsheet .tform input') as HTMLInputElement, 'Mine to take back');
     await click(button('Ask')!);
-    await until(() => $$('tr.trow').some((r) => text(r).includes('#2000')), 'its number');
+    await until(() => $$('tr.trow').some((r) => text(r).includes('#2000')), 'its number'); // local-ref-ok
     await act(async () => void (location.hash = '#/tasks/2000'));
     await until(() => button('Withdraw', $('.tverbs') ?? box), 'Withdraw');
     await click(button('Withdraw', $('.tverbs')!)!);
-    const ask = sheet('withdraw #2000?')!;
+    const ask = sheet('withdraw #2000?')!; // local-ref-ok
     s.daemon.knobs.latency(300);
     await click(button('Withdraw', ask)!);
     await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
@@ -434,7 +438,7 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
-    await until(() => text($('.tdetail-head')).includes('#1650'), 'task 1650');
+    await until(() => text($('.tdetail-head')).includes('#1650'), 'task 1650'); // local-ref-ok
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');

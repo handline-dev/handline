@@ -42,6 +42,13 @@ export function useBulk(afterwards: () => void) {
     owner: (ids: number[], owner: string) => each(ids, 'owner', (task) => edit.mutateAsync({ task, owner })),
     priority: (ids: number[], priority: 1 | 2 | 3) => each(ids, 'priority', (task) => edit.mutateAsync({ task, priority })),
     discard: (ids: number[], reason: string) => each(ids, 'discard', (task) => discard.mutateAsync({ task, reason })),
-    merge: (into: number, tasks: number[]) => each(tasks, 'merge', () => merge.mutateAsync({ into, tasks })),
+    merge: async (into: number, tasks: number[]) => {
+      try {
+        await merge.mutateAsync({ into, tasks });
+      } catch {
+        flash(tasks);
+      }
+      afterwards();
+    },
   };
 }
