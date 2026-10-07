@@ -3991,6 +3991,7 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
     """The invariant (#1259): the tasks table is exactly db.TASK_FIELDS, and the
     board reads a linked request's state live - the task row never changes when
     the request does."""
+    from handline.daemon import rpc_taskview
     _board_world(home)
     con = db.connect()
     try:
@@ -4006,13 +4007,13 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         before = dict(db.get_task(con, tid))
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            clitask._print_board(con, db.open_tasks(con))
+            clitask._print_board([rpc_taskview.task_of(con, t, actions.task_state(con, t)) for t in db.open_tasks(con)])
         check("task row: the board shows the request's state as it is now",
               "queued" in buf.getvalue(), buf.getvalue())
         db.close_if_queued(con, rid, "done", "x")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            clitask._print_board(con, db.open_tasks(con))
+            clitask._print_board([rpc_taskview.task_of(con, t, actions.task_state(con, t)) for t in db.open_tasks(con)])
         check("task row: it reads the new state, from the request",
               "landed" in buf.getvalue() and "queued" not in buf.getvalue(), buf.getvalue())
         after = dict(db.get_task(con, tid))
@@ -7409,7 +7410,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
     check("list: --owner narrows, and a row says who may reopen it",
           rc == 0 and f"T{b}" in out
           and not any(l.startswith(f"T{a} ") for l in out.splitlines()) and "may reopen: manager" in out
-          and f"blocked by T{a}" in out, out)
+          and f"waiting on T{a}" in out, out)
 
 
 def test_merging_tasks_moves_titles_and_requests_and_discards_the_rest(home: Path) -> None:
