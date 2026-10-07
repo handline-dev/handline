@@ -1428,6 +1428,43 @@ def test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down() -> N
     check("cancel: a confirm is asked first, and its yes cancels with confirm", asked == [(7, True)], str(asked))
 
 
+def test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request() -> None:
+    """The page's own writes: a reply in All chat goes to the message's agent, send-now and cancel name the request,
+    and a confirmed cancel carries confirm."""
+    from handline.ui import chat_page as cp
+    calls = []
+
+    class Stub:
+        agent = "reviewer"
+        is_attached = True
+        sending = 0
+        pending = []
+        history = []
+        hist_pos = history_mode = None
+        _send_lock = __import__("threading").Lock()
+        app = type("A", (), {"call_from_thread": staticmethod(lambda fn, *a: fn(*a))})()
+        run_worker = lambda self, fn, **kw: fn()
+        sent = lambda self, ok, said, body, rec: calls.append(("sent", ok))
+        _sent_now = lambda self, ok, said: calls.append(("sent_now", ok))
+        _cancel_answered = lambda self, rid, body, state, said: calls.append(("cancelled", state))
+        _spin = lambda self: None
+        query_one = lambda self, sel, *a: type("P", (), {"mount": lambda s, w: None, "scroll_end": lambda s, **k: None})()
+    real_call, real_reply = api.call, cp.send_reply
+    api.call = lambda method, params=None: calls.append((method, {k: v for k, v in params.items() if k != "request_id"})) or {"said": "ok"}
+    cp.send_reply = lambda agent, rid, body: calls.append(("reply", agent, rid)) or (True, "sent")
+    try:
+        cp.ChatPage.send_now(Stub(), 4)
+        cp.ChatPage._cancel(Stub(), 5, "b", False)
+        cp.ChatPage._cancel(Stub(), 5, "b", True)
+        cp.ChatPage.start_send(Stub(), "hi", 6, typed=False, agent="backend")
+    finally:
+        api.call, cp.send_reply = real_call, real_reply
+    check("page calls: send now names the request", ("chat.send_now", {"request": 4}) in calls, str(calls))
+    check("page calls: a first cancel carries no confirm, a confirmed one does",
+          ("chat.cancel", {"request": 5}) in calls and ("chat.cancel", {"request": 5, "confirm": True}) in calls, str(calls))
+    check("page calls: a reply goes to the message's agent, not the page's", ("reply", "backend", 6) in calls, str(calls))
+
+
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
     """T186: send-now, cancel and send report through toasts, not the sub-title."""
     from handline.ui import chat_page as cp
@@ -4786,8 +4823,18 @@ async def test_a_chat_clears_its_agents_for_you_and_opens_on_an_old_message() ->
                   [m["id"] for m in actions.messages(con) if m["from"] == "reviewer"] == [late])
         finally:
             con.close()
-        page.refresh_conversation(force=True)
-        await pilot.pause()
+        real_call = api.call
+        seen_calls = []
+        api.call = lambda method, params=None: (seen_calls.append(method) if method == "chat.seen" else None) or real_call(method, params)
+        try:
+            page.refresh_conversation(force=True)
+            await pilot.pause()
+            page.refresh_conversation(force=True)
+            await pilot.pause()
+        finally:
+            api.call = real_call
+        check("for-you chat: chat.seen is written once for a new id, not on a refresh that draws nothing new",
+              len(seen_calls) == 1, str(seen_calls))
         con = db.connect()
         try:
             check("for-you chat: once drawn it is seen too",
@@ -5678,6 +5725,7 @@ async def _run_all() -> None:
     test_the_agents_table_is_a_tree_with_the_group_total_on_top()
     test_the_outlook_chart_draws_a_column_per_slot_with_the_guess_apart()
     test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down()
+    test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()

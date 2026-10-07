@@ -1756,8 +1756,8 @@ class ChatPage(JobsAware, Screen):
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
             seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
             if seen > self._seen:      # a write only when something new is drawn
-                self._seen = seen
-                api.write("chat.seen", {"agent": self.agent, "up_to": seen})
+                if api.write("chat.seen", {"agent": self.agent, "up_to": seen})[0]:
+                    self._seen = seen      # a refused write is sent again on the next refresh
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
         finally:
             con.close()
