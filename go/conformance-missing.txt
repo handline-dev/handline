@@ -48,17 +48,11 @@ worktree.diff
 worktree.set_status
 worktrees.list
 device.pair
-device.redeem
-device.revoke
 devices.list
 chat.send
 chat.answer
 chat.dismiss
 chat.withdraw
-device.pair
-device.redeem
-device.revoke
-devices.list
 task.done
 task.reopen
 task.discard
