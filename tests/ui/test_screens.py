@@ -2005,8 +2005,9 @@ def test_the_panel_and_the_daemon_agree_about_what_is_in_the_way(home: Path) -> 
               "the next tick wakes it" in said, said)
 
         _, said = world(*live, dmn_states.RUNNING, told=False)
-        check("agree: a working agent is named as working, not as idle",
-              "mid-turn" in said, said)
+        check("agree: a request waiting for a working agent's turn to end is not drawn as stuck", not said, said)
+        check("agree: but the chat page still says why it waits",
+              "mid-turn" in actions.queue_reason(con, "backend", rid), actions.queue_reason(con, "backend", rid))
 
         # Told, and now working on it: the age is of the request, not of the
         # wait, so a two-day-old ask handed over a minute ago is a queue doing
