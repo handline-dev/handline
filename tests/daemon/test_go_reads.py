@@ -305,6 +305,7 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         try:
             for who, m, p in cases:
                 _forget_sessions()
+                _refresh_prompts()      # a prompt is open while the screen watch has seen it in the last 10 s; the build above can take longer than that
                 if who is None:
                     hello = _hp()
                 else:
@@ -325,6 +326,14 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
             log = go.stop()
             if "panic" in log:
                 check("go reads: the daemon did not panic", False, log)
+
+
+def _refresh_prompts() -> None:
+    con = db.connect()
+    try:
+        con.execute("UPDATE prompt_blocks SET last_seen = ? WHERE gone_at IS NULL", (int(time.time()),))
+    finally:
+        con.close()
 
 
 def main() -> int:
