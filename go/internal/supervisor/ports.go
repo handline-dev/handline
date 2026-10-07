@@ -98,7 +98,8 @@ type Channel interface {
 	HeldWhy(agent, holder string) string
 }
 
-// Proposals is team/trust.py and decisions.py: the founder answering a trust proposal.
+// Proposals is team/trust.py and decisions.py: the founder answering a trust proposal. Required: a reply or a resolve with no Proposals
+// port closes nothing, since it cannot tell a proposal's card from any other.
 type Proposals interface {
 	// OpenProposalOf is the id of the open trust proposal a request is the card of, "" for none.
 	OpenProposalOf(rid int64) string

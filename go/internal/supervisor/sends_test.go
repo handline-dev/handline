@@ -124,25 +124,25 @@ func TestCheckHumanResolveGuardsTasksAndTheFoundersRows(t *testing.T) {
 	mine := r.newTask("alice", "alice", "mine")
 	theirs := r.newTask("bob", "bob", "theirs")
 	row := &db.Request{ID: 5, Requester: db.Human}
-	if got := r.CheckHumanResolve(r.DB, row, []int64{9}, nil, "alice", false); got != "no task T9" {
+	if got := r.checkHumanResolve(r.DB, row, []int64{9}, nil, "alice", false); got != "no task T9" {
 		t.Fatal(got)
 	}
-	if got := r.CheckHumanResolve(r.DB, row, []int64{theirs}, nil, "alice", false); got != "T2 is not yours: only a task you hold, or opened, can be named here (it is bob's)" {
+	if got := r.checkHumanResolve(r.DB, row, []int64{theirs}, nil, "alice", false); got != "T2 is not yours: only a task you hold, or opened, can be named here (it is bob's)" {
 		t.Fatal(got)
 	}
 	db.MarkTaskDone(r.DB, mine, "ok", "reason")
-	if got := r.CheckHumanResolve(r.DB, row, []int64{mine}, nil, "alice", false); got != "task T1 is already done" {
+	if got := r.checkHumanResolve(r.DB, row, []int64{mine}, nil, "alice", false); got != "task T1 is already done" {
 		t.Fatal(got)
 	}
-	if got := r.CheckHumanResolve(r.DB, row, []int64{theirs}, nil, db.Human, false); got != "" {
+	if got := r.checkHumanResolve(r.DB, row, []int64{theirs}, nil, db.Human, false); got != "" {
 		t.Fatalf("the founder's own hands pass: %q", got)
 	}
 	both := "why"
-	if got := r.CheckHumanResolve(r.DB, row, []int64{theirs}, &both, "bob", false); !strings.Contains(got, "say whether work follows it. --task T<n> [T<n> ...] names") {
+	if got := r.checkHumanResolve(r.DB, row, []int64{theirs}, &both, "bob", false); !strings.Contains(got, "say whether work follows it. --task T<n> [T<n> ...] names") {
 		t.Fatal(got)
 	}
 	agentRow := &db.Request{ID: 6, Requester: "bob"}
-	if got := r.CheckHumanResolve(r.DB, agentRow, nil, nil, "alice", false); got != "" {
+	if got := r.checkHumanResolve(r.DB, agentRow, nil, nil, "alice", false); got != "" {
 		t.Fatalf("agent-to-agent rows are conversation: %q", got)
 	}
 }

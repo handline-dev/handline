@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -196,7 +197,7 @@ func newRig(t *testing.T) *rig {
 	r.Env = &Env{DB: d, Home: home, Now: func() time.Time { return time.Unix(r.clock, 0) }, Sleep: func(d time.Duration) { r.clock += int64(d / time.Second) }}
 	r.Env.Log = func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }
 	r.Env.Ports = Ports{Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},
-		Idle: fakeIdle{}, Sessions: r.sessions, Lifecycle: r.life, Evaluate: r.eval, Channel: r.channel, Stuck: fakeStuck{}}
+		Idle: fakeIdle{}, Sessions: r.sessions, Lifecycle: r.life, Evaluate: r.eval, Channel: r.channel, Stuck: fakeStuck{}, Proposals: fakeProposals{}}
 	return r
 }
 
@@ -259,3 +260,26 @@ func copyTemplateDB(dst string) error {
 	}
 	return os.WriteFile(dst, b, 0o644)
 }
+
+func lockTerminal(home, agent string) *lock.Hold { return lock.TakeTerminal(home, agent) }
+
+// flipTerm shows no blocker for the first `after` reads and then the blocker.
+type flipTerm struct {
+	*fakeTerm
+	after int
+	then  *term.Blocker
+	reads int
+}
+
+func (f *flipTerm) ScreenBlocker(h string) *term.Blocker {
+	f.reads++
+	if f.reads > f.after {
+		return f.then
+	}
+	return f.fakeTerm.ScreenBlocker(h)
+}
+
+type fakeProposals struct{}
+
+func (fakeProposals) OpenProposalOf(int64) string                       { return "" }
+func (fakeProposals) Answered(db.Q, string, *db.Request, string) string { return "" }

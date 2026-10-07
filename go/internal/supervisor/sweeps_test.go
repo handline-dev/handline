@@ -58,34 +58,34 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 func TestAgentReasonNamesTheFirstGateInTheOrderItIsMet(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	if why, able := r.AgentReason(r.DB, "bob", r.clock); why != "" || !able {
+	if why, able := r.agentReason(r.DB, "bob", r.clock); why != "" || !able {
 		t.Fatalf("%q %v", why, able)
 	}
 	r.NoteHold("bob", "its screen is not idle (mid-turn, or unreadable)", true)
-	if why, able := r.AgentReason(r.DB, "bob", r.clock); why != "its screen is not idle (mid-turn, or unreadable)" || !able {
+	if why, able := r.agentReason(r.DB, "bob", r.clock); why != "its screen is not idle (mid-turn, or unreadable)" || !able {
 		t.Fatalf("%q %v", why, able)
 	}
 	db.SetAgentState(r.DB, "bob", "RUNNING", 0, "")
-	if _, able := r.AgentReason(r.DB, "bob", r.clock); able {
+	if _, able := r.agentReason(r.DB, "bob", r.clock); able {
 		t.Fatal("a contestable screen reading is contested only when the state says idle")
 	}
 	db.SetCursor(r.DB, "clear_owed:bob", 5)
-	if why, _ := r.AgentReason(r.DB, "bob", r.clock); !strings.Contains(why, "owes a context clear first") {
+	if why, _ := r.agentReason(r.DB, "bob", r.clock); !strings.Contains(why, "owes a context clear first") {
 		t.Fatal(why)
 	}
 	r.Stuck = fakeStuck{why: "bob is mid-turn - nothing is typed at a working agent"}
-	if why, _ := r.AgentReason(r.DB, "bob", r.clock); !strings.Contains(why, "mid-turn") {
+	if why, _ := r.agentReason(r.DB, "bob", r.clock); !strings.Contains(why, "mid-turn") {
 		t.Fatal(why)
 	}
 	db.BlockOpen(r.DB, "bob", "dialog", "trust?", "w", 1, 1, "tick", "t")
-	if why, _ := r.AgentReason(r.DB, "bob", r.clock); why != "dialog: trust?" {
+	if why, _ := r.agentReason(r.DB, "bob", r.clock); why != "dialog: trust?" {
 		t.Fatal(why)
 	}
 	r.NoteFailure("bob", "the wake failed")
-	if why, _ := r.AgentReason(r.DB, "bob", r.clock); why != "the wake failed" {
+	if why, _ := r.agentReason(r.DB, "bob", r.clock); why != "the wake failed" {
 		t.Fatal(why)
 	}
-	if why, _ := r.AgentReason(r.DB, "bob", r.clock+HeldFreshS+1); why == "the wake failed" {
+	if why, _ := r.agentReason(r.DB, "bob", r.clock+HeldFreshS+1); why == "the wake failed" {
 		t.Fatal("a stale failure is still told")
 	}
 }

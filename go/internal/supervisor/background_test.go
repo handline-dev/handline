@@ -13,18 +13,18 @@ func TestTrackBackgroundWorkFollowsTheFooterAndEndsTheSpell(t *testing.T) {
 	row, _ := db.GetAgentState(r.DB, "bob")
 	r.term.background = "3 monitors"
 	r.must(r.TrackBackgroundWork(r.DB, "bob", row))
-	if !r.HasBackgroundWork(r.DB, "bob") {
+	if !r.hasBackgroundWork(r.DB, "bob") {
 		t.Fatal("not recorded")
 	}
 	if n, _ := db.Cursor(r.DB, "bgcount:bob"); n != 1 {
 		t.Fatal(n)
 	}
-	if since, ok := r.BgSince(r.DB, "bob"); !ok || since != r.clock {
+	if since, ok := r.bgSince(r.DB, "bob"); !ok || since != r.clock {
 		t.Fatal(since, ok)
 	}
 	r.term.background = ""
 	r.must(r.TrackBackgroundWork(r.DB, "bob", row))
-	if r.HasBackgroundWork(r.DB, "bob") {
+	if r.hasBackgroundWork(r.DB, "bob") {
 		t.Fatal("still recorded")
 	}
 	if n, _, _ := db.LastEventID(r.DB, "bob", "background_work_ended"); n == 0 {
@@ -36,7 +36,7 @@ func TestTrackBackgroundWorkFollowsTheFooterAndEndsTheSpell(t *testing.T) {
 	db.SetClosed(r.DB, "bob", "")
 	row, _ = db.GetAgentState(r.DB, "bob")
 	r.TrackBackgroundWork(r.DB, "bob", row)
-	if r.HasBackgroundWork(r.DB, "bob") {
+	if r.hasBackgroundWork(r.DB, "bob") {
 		t.Fatal("a closed session reports work")
 	}
 }
@@ -48,24 +48,24 @@ func TestBackgroundWorkGoesStaleOnlyWhenNothingElseIsShown(t *testing.T) {
 	r.term.background = "1 monitor"
 	r.TrackBackgroundWork(r.DB, "bob", row)
 	start := r.clock
-	if r.BgStale(r.DB, "bob", start+StaleBgS-1) {
+	if r.bgStale(r.DB, "bob", start+StaleBgS-1) {
 		t.Fatal("stale too soon")
 	}
-	if !r.BgStale(r.DB, "bob", start+StaleBgS) {
+	if !r.bgStale(r.DB, "bob", start+StaleBgS) {
 		t.Fatal("not stale")
 	}
-	if silent, ok := r.BgSilentS(r.DB, "bob", start+100); !ok || silent != 100 {
+	if silent, ok := r.bgSilentS(r.DB, "bob", start+100); !ok || silent != 100 {
 		t.Fatal(silent, ok)
 	}
 	// a running turn is never forgotten work
 	db.SetAgentState(r.DB, "bob", "RUNNING", 0, "")
-	if r.BgStale(r.DB, "bob", start+StaleBgS*2) {
+	if r.bgStale(r.DB, "bob", start+StaleBgS*2) {
 		t.Fatal("a running turn is stale")
 	}
 	db.SetAgentState(r.DB, "bob", "IDLE", 0, "")
 	// activity inside the window resets the silence
 	db.AddEventAt(r.DB, start+StaleBgS-10, "bob", "Stop")
-	if r.BgStale(r.DB, "bob", start+StaleBgS) {
+	if r.bgStale(r.DB, "bob", start+StaleBgS) {
 		t.Fatal("stale with recent activity")
 	}
 }
@@ -82,13 +82,13 @@ func TestACheckAnswerTurnDoesNotCountAsShownActivity(t *testing.T) {
 	db.AddEventAt(r.DB, t0+25, "bob", "UserPromptSubmit")
 	db.AddEventAt(r.DB, t0+30, "bob", "Stop") // the check's answer turn ends here
 	db.AddEventAt(r.DB, t0+40, "bob", "UserPromptSubmit")
-	last, ok := r.BgLastShown(r.DB, "bob")
+	last, ok := r.bgLastShown(r.DB, "bob")
 	if !ok || last != t0+40 {
 		t.Fatalf("%d %v", last, ok)
 	}
 	db.AddEventAt(r.DB, t0+50, "bob", "background_checked")
 	db.AddEventAt(r.DB, t0+55, "bob", "UserPromptSubmit")
-	if last, _ := r.BgLastShown(r.DB, "bob"); last != t0+40 {
+	if last, _ := r.bgLastShown(r.DB, "bob"); last != t0+40 {
 		t.Fatalf("the answer turn counted: %d", last)
 	}
 }
@@ -100,26 +100,26 @@ func TestBgMayStopAnAgentThatOwesNothingAfterItsGraceOrAStaleOneAfterTheVeto(t *
 	r.term.background = "1 monitor"
 	r.TrackBackgroundWork(r.DB, "bob", row)
 	now := r.clock + 1000
-	if r.BgMayStop(r.DB, "bob", now) {
+	if r.bgMayStop(r.DB, "bob", now) {
 		t.Fatal("stopped before it was told")
 	}
 	db.SetCursor(r.DB, "bg_prompt:bob", r.clock)
-	if !r.BgMayStop(r.DB, "bob", now) {
+	if !r.bgMayStop(r.DB, "bob", now) {
 		t.Fatal("told and silent past the grace, but not stoppable")
 	}
-	if r.BgHolds(r.DB, "bob", now) {
+	if r.bgHolds(r.DB, "bob", now) {
 		t.Fatal("still holds")
 	}
 	// something owed: only stale work told to the supervisor and past the veto
 	r.ask("alice", "bob", "waiting", "ask")
-	if r.BgMayStop(r.DB, "bob", now) {
+	if r.bgMayStop(r.DB, "bob", now) {
 		t.Fatal("stopped while it owes an answer")
 	}
 	db.SetCursor(r.DB, "stale_bg_told:bob", now-StaleBgVetoS)
-	if r.BgMayStop(r.DB, "bob", now) {
+	if r.bgMayStop(r.DB, "bob", now) {
 		t.Fatal("not stale yet")
 	}
-	if !r.BgMayStop(r.DB, "bob", r.clock+StaleBgS+StaleBgVetoS) {
+	if !r.bgMayStop(r.DB, "bob", r.clock+StaleBgS+StaleBgVetoS) {
 		t.Fatal("stale and vetoed past its window, but not stoppable")
 	}
 }
@@ -130,15 +130,15 @@ func TestForgottenResolveFindsAToldTaskNobodyAnswered(t *testing.T) {
 	head := r.task("bob", "alice", "the job")
 	r.DeliverQueued(r.DB, "bob")
 	row, _ := db.GetAgentState(r.DB, "bob")
-	if f := r.ForgottenResolve(r.DB, "bob", row, r.clock); f == nil || f.Head.ID != head || f.Behind != 0 {
+	if f := r.forgottenResolve(r.DB, "bob", row, r.clock); f == nil || f.Head.ID != head || f.Behind != 0 {
 		t.Fatalf("%+v", f)
 	}
-	if f := r.ForgottenResolve(r.DB, "bob", row, r.clock+700); f == nil || f.IdleS != 700 {
+	if f := r.forgottenResolve(r.DB, "bob", row, r.clock+700); f == nil || f.IdleS != 700 {
 		t.Fatalf("%+v", f)
 	}
 	// it asked something and is waiting on the answer: not forgotten
 	r.ask("bob", "alice", "can you check?", "ask")
-	if f := r.ForgottenResolve(r.DB, "bob", row, r.clock); f != nil {
+	if f := r.forgottenResolve(r.DB, "bob", row, r.clock); f != nil {
 		t.Fatal("a wait on an ask is not a forgotten resolve")
 	}
 }
@@ -159,7 +159,7 @@ func TestNudgeWalksTheScheduleAndStops(t *testing.T) {
 	if !sent || !strings.HasPrefix(r.term.last(), "T1 (#1) is still yours and you have been idle 10m. Done: hand it on (`hl task handoff T1 ...`) or `hl task done T1`.") {
 		t.Fatalf("%v %q", sent, r.term.last())
 	}
-	if r.NudgeCount(r.DB, "bob", head) != 1 {
+	if r.nudgeCount(r.DB, "bob", head) != 1 {
 		t.Fatal("not counted")
 	}
 	// not again inside the retry gap, nor before the second rung
@@ -176,7 +176,7 @@ func TestNudgeWalksTheScheduleAndStops(t *testing.T) {
 	if sent, _ := r.NudgeForgottenResolve(r.DB, "bob", row, r.clock); !sent {
 		t.Fatal("third rung missed")
 	}
-	if !r.NudgeExhausted(r.DB, "bob", head) {
+	if !r.nudgeExhausted(r.DB, "bob", head) {
 		t.Fatal("not exhausted")
 	}
 	r.clock += 10 * 3600
@@ -192,7 +192,7 @@ func TestNudgeForAMessageNamesTheAnswerVerb(t *testing.T) {
 	// an ask is typed at once and stays open until answered; make it the told head
 	r.TellNow(r.DB, rid)
 	db.SetCursor(r.DB, "notify:bob", rid)
-	if f := r.ForgottenResolve(r.DB, "bob", mustState(r, "bob"), r.clock+1000); f != nil {
+	if f := r.forgottenResolve(r.DB, "bob", mustState(r, "bob"), r.clock+1000); f != nil {
 		t.Fatal("only a task head is forgotten")
 	}
 }

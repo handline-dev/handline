@@ -172,7 +172,7 @@ func (e *Env) accountOf(q db.Q, agent string) string { return must(team.CurrentA
 
 // LandedAlready: the transcript first. Is rid already in the agent's session? Then it is landed and typing it again would only repeat
 // it. False when nothing says where to look.
-func (e *Env) LandedAlready(q db.Q, agent string, rid int64) bool {
+func (e *Env) landedAlready(q db.Q, agent string, rid int64) bool {
 	acct := e.accountOf(q, agent)
 	if acct == "" || !e.Sessions.KeepsTranscripts(acct) {
 		return false

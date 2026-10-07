@@ -15,7 +15,7 @@ import (
 // memo says. They run after the write that caused them has committed, on the database itself.
 
 // LinkDelivery links a task to the request that delivers it, and makes it the owner's current task if it holds none yet.
-func (e *Env) LinkDelivery(q db.Q, tid int64, owner string, rid int64) {
+func (e *Env) linkDelivery(q db.Q, tid int64, owner string, rid int64) {
 	check(db.LinkRequest(q, tid, rid))
 	if owner != db.Human {
 		if _, held := ok2(db.CurrentTask(q, owner)); !held {
@@ -72,7 +72,7 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 			e.noteRefusal(q, agent, w.Task.ID, msg, refused)
 			continue
 		}
-		e.LinkDelivery(q, w.Task.ID, agent, out.RID)
+		e.linkDelivery(q, w.Task.ID, agent, out.RID)
 		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
 		return true, refused, nil
 	}
@@ -100,7 +100,7 @@ func (e *Env) QueueDeliver(q db.Q, tid int64, by string, queued bool, row *db.Ta
 		if !out.OK {
 			return fmt.Sprintf("task T%d is queued (%s) but its card was not raised: %s", tid, by, text), nil
 		}
-		e.LinkDelivery(q, tid, db.Human, out.RID)
+		e.linkDelivery(q, tid, db.Human, out.RID)
 		return fmt.Sprintf("task T%d is queued (%s) - its card is on the founder's board", tid, by), nil
 	}
 	word := "draft"
@@ -339,7 +339,7 @@ func (e *Env) releaseOne(tid int64, how string) (waiting []int64, err error) {
 // ---------------------------------------------------------------- memos
 
 // TypeSay writes a say from the task board to owner, typed at once.
-func (e *Env) TypeSay(q db.Q, owner, body, why string) {
+func (e *Env) typeSay(q db.Q, owner, body, why string) {
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: body, Response: "fire_and_forget", Kind: "say"}))
 	must(db.MarkSendNow(q, rid))
 	if err := e.deliver(rid, db.NoticeRequester, owner, body, "", team.Decision{Allowed: true, Reason: why, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
@@ -364,6 +364,6 @@ func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err erro
 		}
 		body += ": " + t
 	}
-	e.TypeSay(q, row.Owner, body, "task memo")
+	e.typeSay(q, row.Owner, body, "task memo")
 	return nil
 }

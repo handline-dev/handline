@@ -11,10 +11,11 @@ import (
 // recordTold is what a delivered tell leaves behind, once it is known to have landed.
 func (e *Env) recordTold(q db.Q, agent string, head *db.Request, depth int, session string, aheadOf *db.Request, parked bool) {
 	more := depth - 1
-	if session == "" {
-		session = e.liveSession(q, agent)
+	typedInto := session // what the request was typed into: the live session when none was given; notified_session takes only what was given
+	if typedInto == "" {
+		typedInto = e.liveSession(q, agent)
 	}
-	check(db.MarkTyped(q, head.ID, session))
+	check(db.MarkTyped(q, head.ID, typedInto))
 	e.NoteTyped(head.ID)
 	if aheadOf == nil {
 		check(db.SetCursor(q, "notify:"+agent, head.ID))
@@ -54,7 +55,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 		if !must(db.MarkDelivered(q, r.ID)) {
 			continue // retired in the gap since it was listed
 		}
-		if e.LandedAlready(q, agent, r.ID) {
+		if e.landedAlready(q, agent, r.ID) {
 			// the transcript first - a line it already holds is not typed again.
 			check(db.MarkTyped(q, r.ID, e.liveSession(q, agent)))
 			check(db.MarkLanded(q, r.ID))
@@ -67,12 +68,12 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 	if len(live) == 0 {
 		return landed
 	}
-	folded := FoldedNotices(q, agent)
+	folded := foldedNotices(q, agent)
 	var text string
 	if len(live) == 1 {
-		text = TellText(q, live[0], depth, aheadOf, parked, folded)
+		text = tellText(q, live[0], depth, aheadOf, parked, folded)
 	} else {
-		text = BatchText(q, live, folded, aheadOf)
+		text = batchText(q, live, folded, aheadOf)
 	}
 	if ok, _ := e.send(handle, text); !ok {
 		for _, r := range live {
@@ -80,7 +81,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 		}
 		return false
 	}
-	e.MarkTyped(q, agent, nil)
+	e.markTyped(q, agent, nil)
 	session := e.liveSession(q, agent)
 	check(db.MarkNoticesShown(q, requestIDs(folded), session))
 	for n, r := range live {
@@ -103,34 +104,36 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 }
 
 // WaitingPrompt is the message waiting for a parked agent, as the first prompt of the session that resumes it, and what to record once that
-// session is up (told, called with the session id); ok false when nothing waits. It is the tell DeliverQueued and DeliverAnswers would type
+// session is up (told, called with the session id; q must stay usable until then); ok false when nothing waits. It is the tell DeliverQueued and DeliverAnswers would type
 // on the next tick. Marked delivered here, before the launch, for the reason tellBatch is.
-func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(session string), ok bool, err error) {
+func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(session string) error, ok bool, err error) {
 	defer Catch(&err)
 	if edges, err := e.EnforceEdges(q, agent); !edges || err != nil {
 		return "", nil, false, err
 	}
-	if head := e.EffectiveHeadOrMarked(q, agent); head != nil {
+	if head := e.effectiveHeadOrMarked(q, agent); head != nil {
 		if !must(db.MarkDelivered(q, head.ID)) {
 			return "", nil, false, nil
 		}
 		depth := must(db.QueueDepth(q, agent))
-		folded := FoldedNotices(q, agent)
-		return TellText(q, head, depth, nil, false, folded), func(session string) {
+		folded := foldedNotices(q, agent)
+		return tellText(q, head, depth, nil, false, folded), func(session string) (err error) {
+			defer Catch(&err)
 			e.recordTold(q, agent, head, depth, session, nil, false)
 			if head.Kind.String == "say" {
-				e.FinishSay(head)
+				e.FinishSay(q, head)
 			}
 			check(db.MarkNoticesShown(q, requestIDs(folded), session))
+			return nil
 		}, true, nil
 	}
 	if answered := must(db.UnannouncedAnswers(q, agent)); len(answered) > 0 {
-		return AnswersText(answered), func(string) { e.recordAnswers(q, agent, answered) }, true, nil
+		return AnswersText(answered), func(string) (err error) { defer Catch(&err); e.recordAnswers(q, agent, answered); return nil }, true, nil
 	}
 	// A pending message is the same kind of "owed" as a head or an answer. Typed as-is, not wrapped like a request's tell.
 	if pending := must(db.ListPending(q, agent)); len(pending) > 0 {
 		row := pending[0]
-		return row.Text, func(string) { check(db.DeletePending(q, row.ID)) }, true, nil
+		return row.Text, func(string) (err error) { defer Catch(&err); return db.DeletePending(q, row.ID) }, true, nil
 	}
 	return "", nil, false, nil
 }
@@ -149,11 +152,11 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 	if len(answered) == 0 {
 		return false, nil
 	}
-	if e.TypingHold(q, agent) != "" {
+	if e.typingHold(q, agent) != "" {
 		return false, nil // stays unannounced; told when it wakes or moves
 	}
 	handle := must(db.Terminal(q, agent))
-	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) || !e.SessionPresent(agent) || !e.Terminal.TypeableNow(handle) {
+	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) || !e.sessionPresent(agent) || !e.Terminal.TypeableNow(handle) {
 		return false, nil
 	}
 	text := AnswersText(answered)
@@ -162,7 +165,7 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 			return
 		}
 		if sent, _ = e.send(handle, text); sent {
-			e.MarkTyped(q, agent, nil)
+			e.markTyped(q, agent, nil)
 		}
 	})
 	if sent {
@@ -176,13 +179,13 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 	defer Catch(&err)
 	agent := row.Target
 	handle := must(db.Terminal(q, agent))
-	if held := e.TypingHold(q, agent); held != "" {
+	if held := e.typingHold(q, agent); held != "" {
 		return false, held, nil
 	}
 	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
 		return false, agent + " has no terminal", nil
 	}
-	if !e.SessionPresent(agent) {
+	if !e.sessionPresent(agent) {
 		return false, agent + " has no running session", nil
 	}
 	if !e.Terminal.TypeableNow(handle) {
@@ -203,7 +206,7 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 		typed, _ = e.send(handle, fmt.Sprintf("#%d from %s was cancelled: %s. Stop work on it; it is closed and needs no resolve%s. `hl read %d` shows it.",
 			row.ID, row.Requester, verdict, held, row.ID))
 		if typed {
-			e.MarkTyped(q, agent, nil)
+			e.markTyped(q, agent, nil)
 		} else {
 			why = "the send failed"
 		}

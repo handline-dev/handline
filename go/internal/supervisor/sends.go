@@ -172,7 +172,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 			tasks = []int64{task}
 		}
 		if !plain {
-			if refusal := e.CheckHumanResolve(q, parent, tasks, in.NoTask, me, true); refusal != "" {
+			if refusal := e.checkHumanResolve(q, parent, tasks, in.NoTask, me, true); refusal != "" {
 				m := mine()
 				if len(m) > 3 {
 					m = m[:3]
@@ -194,7 +194,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 						check(db.LinkRequest(c, tid, rid))
 					}
 				} else if must(db.GetRequest(c, in.Parent)).State != "queued" { // it settled, not lost a race
-					e.RecordHumanResolve(c, in.Parent, tasks, in.NoTask, me)
+					e.recordHumanResolve(c, in.Parent, tasks, in.NoTask, me)
 				}
 			}()
 			if err != nil {
@@ -387,7 +387,7 @@ func (e *Env) NotifyCancelledVerb(q db.Q, rid int64) (bool, string, error) {
 // CheckHumanResolve is the refusal for resolving a request the human made without saying what it becomes; "" when it may go ahead. Any --task
 // id is checked on every row, before anything is written. The guard is on the answer, not on the ask: agent-to-agent rows are conversation and
 // never reach it. The founder's own hands pass.
-func (e *Env) CheckHumanResolve(q db.Q, row *db.Request, tasks []int64, noTask *string, me string, oneTask bool) string {
+func (e *Env) checkHumanResolve(q db.Q, row *db.Request, tasks []int64, noTask *string, me string, oneTask bool) string {
 	for _, tid := range tasks {
 		t := must(db.GetTask(q, tid))
 		if t == nil {
@@ -420,7 +420,7 @@ func (e *Env) CheckHumanResolve(q db.Q, row *db.Request, tasks []int64, noTask *
 }
 
 // RecordHumanResolve is what a guarded close leaves behind: the links (--task), or the reason nothing was built (--no-task).
-func (e *Env) RecordHumanResolve(q db.Q, rid int64, tasks []int64, noTask *string, me string) {
+func (e *Env) recordHumanResolve(q db.Q, rid int64, tasks []int64, noTask *string, me string) {
 	for _, tid := range tasks {
 		check(db.LinkRequest(q, tid, rid))
 	}

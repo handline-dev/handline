@@ -68,7 +68,7 @@ func (e *Env) TableListsSession(agent string) (yes, known bool) {
 }
 
 // ScreenDrawsSession is whether the agent's terminal draws a session right now: the screen's word, held DrawnFreshS.
-func (e *Env) ScreenDrawsSession(agent string) bool {
+func (e *Env) screenDrawsSession(agent string) bool {
 	e.init()
 	e.mu.Lock()
 	hit, have := e.drawn[agent]
@@ -86,11 +86,11 @@ func (e *Env) ScreenDrawsSession(agent string) bool {
 
 // SessionPresent is whether there is a session to type into, or only the shell it left behind. Fail-closed, with two witnesses: a
 // process the table lists, or a session drawn on the agent's terminal. An unreadable table with nothing drawn is a no.
-func (e *Env) SessionPresent(agent string) bool {
+func (e *Env) sessionPresent(agent string) bool {
 	if yes, _ := e.TableListsSession(agent); yes {
 		return true
 	}
-	return e.ScreenDrawsSession(agent)
+	return e.screenDrawsSession(agent)
 }
 
 // WaitSessionGone is whether the agent's session is out of a fresh reading of the process table, within EndWaitS. An unreadable table is a no.
@@ -177,7 +177,7 @@ func (e *Env) pastDialog(q db.Q, agent string, onlyLimit bool) string {
 }
 
 // StalledOnDialog: a dialog ocp cannot get past, standing as long as a block takes to be raised with the founder, stops the agent.
-func (e *Env) StalledOnDialog(q db.Q, agent, why string) bool {
+func (e *Env) stalledOnDialog(q db.Q, agent, why string) bool {
 	since := must(db.Cursor(q, "dialog_since:"+agent))
 	if since == 0 || e.now()-since < e.Dialogs.DecisionAfterS() {
 		return false
@@ -188,7 +188,7 @@ func (e *Env) StalledOnDialog(q db.Q, agent, why string) bool {
 }
 
 // ReclaimContext clears the agent's session so a handoff costs it its context. The caller holds the agent's terminal.
-func (e *Env) ReclaimContext(q db.Q, agent string) (bool, string) {
+func (e *Env) reclaimContext(q db.Q, agent string) (bool, string) {
 	handle := must(db.Terminal(q, agent))
 	if handle == "" {
 		return false, "no terminal recorded; start the agent with `hl spawn` or `hl launch` inside an Orca terminal so its context can be reclaimed"
@@ -196,7 +196,7 @@ func (e *Env) ReclaimContext(q db.Q, agent string) (bool, string) {
 	if !e.Terminal.Available() {
 		return false, e.Terminal.Missing()
 	}
-	if !e.SessionPresent(agent) {
+	if !e.sessionPresent(agent) {
 		return false, fmt.Sprintf("no session process; not typing %s at a shell prompt", e.Terminal.ClearCommand(handle))
 	}
 	if e.pastDialog(q, agent, false) != "" {
@@ -209,25 +209,25 @@ func (e *Env) ReclaimContext(q db.Q, agent string) (bool, string) {
 }
 
 // ClearOwed is when the agent was told its clear is coming, 0 when none is owed.
-func (e *Env) ClearOwed(q db.Q, agent string) int64 { return must(db.Cursor(q, "clear_owed:"+agent)) }
+func (e *Env) clearOwed(q db.Q, agent string) int64 { return must(db.Cursor(q, "clear_owed:"+agent)) }
 
 // ClearHold: nothing new is typed at an agent whose clear is owed.
-func (e *Env) ClearHold(q db.Q, agent string) string {
-	if e.ClearOwed(q, agent) != 0 {
+func (e *Env) clearHold(q db.Q, agent string) string {
+	if e.clearOwed(q, agent) != 0 {
 		return agent + " is about to be cleared; nothing is typed at it until then"
 	}
 	return ""
 }
 
 // TypingHold is why nothing may be typed at this agent's session now: someone holds its input, the wall, or a clear owed.
-func (e *Env) TypingHold(q db.Q, agent string) string {
+func (e *Env) typingHold(q db.Q, agent string) string {
 	if held := e.Channel.HeldByOther(q, agent); held != "" {
 		return e.Channel.HeldWhy(agent, held)
 	}
-	if w := e.WallReason(q, agent, nil); w != "" {
+	if w := e.wallReason(q, agent, nil); w != "" {
 		return w
 	}
-	return e.ClearHold(q, agent)
+	return e.clearHold(q, agent)
 }
 
 func (e *Env) cacheLapsed(q db.Q, agent string, now int64) bool {
@@ -248,7 +248,7 @@ func (e *Env) clearNow(q db.Q, agent, handle string) (bool, string) {
 // is told, and the clear waits for its work to end or for ClearWaitS. False here is "not yet".
 func (e *Env) clearOverBackground(q db.Q, agent, handle, running string) (bool, string) {
 	now := e.now()
-	since := e.ClearOwed(q, agent)
+	since := e.clearOwed(q, agent)
 	if e.cacheLapsed(q, agent, now) {
 		e.log("  %s: background work is running (%s) but its cache has lapsed - clearing", agent, running)
 		return e.clearNow(q, agent, handle)
@@ -284,7 +284,7 @@ func (e *Env) clearOverBackground(q db.Q, agent, handle, running string) (bool, 
 }
 
 // WallReason is why typing at this agent's open session would only spend quota, "" for none. Checked where the keystrokes are sent.
-func (e *Env) WallReason(q db.Q, agent string, row *db.AgentState) string {
+func (e *Env) wallReason(q db.Q, agent string, row *db.AgentState) string {
 	if e.Waits.AtLimit(q, agent) {
 		return agent + " is at its usage limit"
 	}
@@ -303,7 +303,7 @@ func (e *Env) liveSession(q db.Q, agent string) string { return e.Sessions.LiveS
 
 // SessionChanged is whether the session on screen is a different one from the one the head was typed into. An id that cannot be read
 // is not a difference.
-func (e *Env) SessionChanged(q db.Q, agent string) bool {
+func (e *Env) sessionChanged(q db.Q, agent string) bool {
 	live := e.liveSession(q, agent)
 	return live != "" && live != must(db.NotifiedSession(q, agent))
 }
@@ -411,7 +411,7 @@ func (e *Env) RecoverUnsent(q db.Q, agent string) (held bool, err error) {
 		return true, nil // an open dialog would take the Enter
 	}
 	e.withTerminal(agent, func() {
-		if e.TypingHold(q, agent) != "" || !e.ownTextInBox(q, agent, handle) {
+		if e.typingHold(q, agent) != "" || !e.ownTextInBox(q, agent, handle) {
 			return
 		}
 		switch {
@@ -449,7 +449,7 @@ func (e *Env) RecoverUnsent(q db.Q, agent string) (held bool, err error) {
 
 // MarkTyped is called after every successful type at the agent's terminal: the other half of typeGate's settle window. by names the
 // person whose control call it was ("" for the daemon typing).
-func (e *Env) MarkTyped(q db.Q, agent string, by map[string]any) {
+func (e *Env) markTyped(q db.Q, agent string, by map[string]any) {
 	check(db.SetCursor(q, "typed_at:"+agent, e.now()))
 	handle := must(db.Terminal(q, agent))
 	e.mu.Lock()
@@ -490,8 +490,8 @@ func (e *Env) send(handle, text string) (bool, string) {
 func (e *Env) TypeNotice(q db.Q, agent, text string) (sent bool, err error) {
 	defer Catch(&err)
 	handle := must(db.Terminal(q, agent))
-	if e.TypingHold(q, agent) != "" || handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) ||
-		!e.SessionPresent(agent) || !e.Terminal.TypeableNow(handle) {
+	if e.typingHold(q, agent) != "" || handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) ||
+		!e.sessionPresent(agent) || !e.Terminal.TypeableNow(handle) {
 		return false, nil
 	}
 	e.withTerminal(agent, func() {
@@ -499,7 +499,7 @@ func (e *Env) TypeNotice(q db.Q, agent, text string) (sent bool, err error) {
 			return
 		}
 		if sent, _ = e.send(handle, text); sent {
-			e.MarkTyped(q, agent, nil)
+			e.markTyped(q, agent, nil)
 		}
 	})
 	return sent, nil

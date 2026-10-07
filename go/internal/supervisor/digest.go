@@ -95,7 +95,7 @@ func DigestText(rows []*db.Request) string {
 // idleWithSession: a live session at its prompt, not mid-turn, not closed, no background work running.
 func (e *Env) idleWithSession(q db.Q, agent string) bool {
 	row := stateOf(q, agent)
-	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && !e.HasBackgroundWork(q, agent) && e.SessionPresent(agent)
+	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && !e.hasBackgroundWork(q, agent) && e.sessionPresent(agent)
 }
 
 // SweepDigests types one digest to each idle agent with a notice waiting, and to a busy one whose oldest notice has waited its window out.

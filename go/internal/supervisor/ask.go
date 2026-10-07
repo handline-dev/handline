@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -151,7 +152,7 @@ func ptr(s string) *string { return &s }
 // RaiseDecision puts something only a human can act on in front of them: a decision task of the founder's, opened by agent, with the
 // request that shows it as its card. agent is who it is about. Fire and forget, so nothing is typed back at agent when the human reads it.
 // Once per shape: exactly the same text still waiting from the same agent is that decision, not a second one.
-func (e *Env) RaiseDecision(q db.Q, after *After, agent, text, reason, files string, chainID string, depth int64, parentID int64, extra ...db.KV) int64 {
+func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files string, chainID string, depth int64, parentID int64, extra ...db.KV) int64 {
 	title := firstLineTitle(text)
 	body := text
 	if same := must(db.OpenDecisionCardIDs(q, agent, "", &body)); len(same) > 0 {
@@ -169,7 +170,7 @@ func (e *Env) RaiseDecision(q db.Q, after *After, agent, text, reason, files str
 }
 
 // Report tells the human something that asks nothing: a say, so nothing is typed back at agent and nothing waits on the human.
-func (e *Env) Report(q db.Q, after *After, agent, text, reason string) int64 {
+func (e *Env) report(q db.Q, after *After, agent, text, reason string) int64 {
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
 	e.deliverAfter(after, rid, agent, db.Human, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"})
 	must(db.AddEvent(q, agent, "report", db.KV{K: "request_id", V: rid}, db.KV{K: "reason", V: reason}))
@@ -178,7 +179,7 @@ func (e *Env) Report(q db.Q, after *After, agent, text, reason string) int64 {
 
 func (e *Env) stopRunaway(q db.Q, after *After, requester, target, body, files, chainID string, depth, parentID int64, reason string) int64 {
 	text := fmt.Sprintf("[stopped] %s -> %s was stopped: %s\n\nOriginal request:\n%s", requester, target, reason, body)
-	return e.RaiseDecision(q, after, requester, text, reason, files, chainID, depth, parentID, db.KV{K: "blocked_target", V: target})
+	return e.raiseDecision(q, after, requester, text, reason, files, chainID, depth, parentID, db.KV{K: "blocked_target", V: target})
 }
 
 // cycleInChain detects A->B->A inside one chain (team model section 6). A chain with the human at one end is exempt, and so is a say.
@@ -442,6 +443,10 @@ func (e *Env) Say(q db.Q, in SayIn) (*AskOut, *Settled, error) {
 	return out, settled, nil
 }
 
+// errNoProposals is what a reply or a resolve raises while the trust proposals port is not wired: a card that is a proposal's must not be
+// closed without applying it, so nothing is closed.
+var errNoProposals = errors.New("the trust proposals port is not wired: a request cannot be answered until it is")
+
 // Settled is what closeReplied closed, for the tell after the commit (the arguments of afterClose).
 type Settled struct {
 	RID    int64
@@ -462,7 +467,10 @@ func (e *Env) SettledTell(q db.Q, s *Settled) (string, error) {
 // answer. Only when it comes from the request's own target, to its requester, and the request is no roster proposal and no task.
 func (e *Env) closeReplied(q db.Q, parentID, replyID int64, replyBody string) *Settled {
 	parent, reply := must(db.GetRequest(q, parentID)), must(db.GetRequest(q, replyID))
-	proposal := parent != nil && e.Proposals != nil && e.Proposals.OpenProposalOf(parentID) != ""
+	if e.Proposals == nil {
+		panic(dbFailure{errNoProposals})
+	}
+	proposal := parent != nil && e.Proposals.OpenProposalOf(parentID) != ""
 	if parent != nil && parent.State == "queued" && !proposal && parent.Kind.String != "task" &&
 		reply != nil && reply.Requester == parent.Target && reply.Target == parent.Requester &&
 		must(db.CloseIfQueued(q, parentID, "done", replyBody, db.CloseOpts{Announced: true, AnsweredBy: replyID})) {

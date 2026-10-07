@@ -51,7 +51,7 @@ func TestMarkTypedKeepsWhatWasTypedUntilThePromptIsSeenWithoutIt(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	r.send("%bob", "do the thing")
-	r.MarkTyped(r.DB, "bob", nil)
+	r.markTyped(r.DB, "bob", nil)
 	raw, _, _ := db.Meta(r.DB, "unsent:bob")
 	if raw != `{"text": "do the thing", "at": 100000, "enters": 0, "retyped": false, "blocked": false}` {
 		t.Fatalf("%s", raw)
@@ -145,20 +145,20 @@ func TestTypeNoticeOnlyTypesPastEveryGate(t *testing.T) {
 func TestWallReasonCoversALimitAndAMovableParkOnly(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	if w := r.WallReason(r.DB, "bob", nil); w != "" {
+	if w := r.wallReason(r.DB, "bob", nil); w != "" {
 		t.Fatal(w)
 	}
 	db.SetAgentState(r.DB, "bob", "PARKED", r.clock+100, "usage")
 	r.DB.Exec("INSERT INTO handoff(id, agent, trigger_kind, step, state, updated) VALUES('h', 'bob', 'usage', 'done', 'done', 5)")
-	if w := r.WallReason(r.DB, "bob", nil); w != "bob is parked until its usage window rolls over" {
+	if w := r.wallReason(r.DB, "bob", nil); w != "bob is parked until its usage window rolls over" {
 		t.Fatal(w)
 	}
 	r.DB.Exec("UPDATE handoff SET trigger_kind = 'by hand'")
-	if w := r.WallReason(r.DB, "bob", nil); w != "" {
+	if w := r.wallReason(r.DB, "bob", nil); w != "" {
 		t.Fatalf("a hand park is not the wall: %q", w)
 	}
 	r.Waits = fakeWaits{limit: map[string]bool{"bob": true}}
-	if w := r.WallReason(r.DB, "bob", nil); w != "bob is at its usage limit" {
+	if w := r.wallReason(r.DB, "bob", nil); w != "bob is at its usage limit" {
 		t.Fatal(w)
 	}
 }
@@ -167,7 +167,7 @@ func TestAClearBackgroundWorkHoldsOffIsToldOnceThenTypedWhenItsTimeIsUp(t *testi
 	r := newRig(t)
 	r.agentUp("bob")
 	r.term.background = "2 monitors"
-	ok, why := r.ReclaimContext(r.DB, "bob")
+	ok, why := r.reclaimContext(r.DB, "bob")
 	if ok || why != "background work is running (2 monitors); /clear is owed" {
 		t.Fatalf("%v %q", ok, why)
 	}
@@ -175,21 +175,21 @@ func TestAClearBackgroundWorkHoldsOffIsToldOnceThenTypedWhenItsTimeIsUp(t *testi
 		t.Fatalf("%q", r.term.last())
 	}
 	n := len(r.term.typed)
-	if r.ClearHold(r.DB, "bob") != "bob is about to be cleared; nothing is typed at it until then" {
+	if r.clearHold(r.DB, "bob") != "bob is about to be cleared; nothing is typed at it until then" {
 		t.Fatal("no hold while the clear is owed")
 	}
-	if ok, _ := r.ReclaimContext(r.DB, "bob"); ok || len(r.term.typed) != n {
+	if ok, _ := r.reclaimContext(r.DB, "bob"); ok || len(r.term.typed) != n {
 		t.Fatal("told twice")
 	}
 	r.clock += ClearWaitS
-	ok, why = r.ReclaimContext(r.DB, "bob")
+	ok, why = r.reclaimContext(r.DB, "bob")
 	if !ok || why != "cleared" {
 		t.Fatalf("%v %q", ok, why)
 	}
 	if rec, _ := db.GetHandoff(r.DB, "bob"); !strings.Contains(rec, "## Cut off by the clear") {
 		t.Fatalf("%q", rec)
 	}
-	if r.ClearOwed(r.DB, "bob") != 0 {
+	if r.clearOwed(r.DB, "bob") != 0 {
 		t.Fatal("clear still owed")
 	}
 }
@@ -197,17 +197,17 @@ func TestAClearBackgroundWorkHoldsOffIsToldOnceThenTypedWhenItsTimeIsUp(t *testi
 func TestAClearGoesAtOnceWhenTheCacheHasLapsedOrNothingRuns(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	if ok, _ := r.ReclaimContext(r.DB, "bob"); !ok {
+	if ok, _ := r.reclaimContext(r.DB, "bob"); !ok {
 		t.Fatal("nothing runs behind the prompt")
 	}
 	r.term.background = "1 monitor"
 	db.AddEventAt(r.DB, r.clock-3700, "bob", "Stop")
-	if ok, _ := r.ReclaimContext(r.DB, "bob"); !ok || !r.logged("its cache has lapsed - clearing") {
+	if ok, _ := r.reclaimContext(r.DB, "bob"); !ok || !r.logged("its cache has lapsed - clearing") {
 		t.Fatal(r.logs)
 	}
 	r.Observer = fakeObserver{map[string]bool{}}
 	r.Terminal = noSession{r.term}
-	if ok, why := r.ReclaimContext(r.DB, "bob"); ok || why != "no session process; not typing /clear at a shell prompt" {
+	if ok, why := r.reclaimContext(r.DB, "bob"); ok || why != "no session process; not typing /clear at a shell prompt" {
 		t.Fatalf("%v %q", ok, why)
 	}
 }
@@ -215,15 +215,15 @@ func TestAClearGoesAtOnceWhenTheCacheHasLapsedOrNothingRuns(t *testing.T) {
 func TestADialogStandingLongEnoughStallsTheAgent(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	if r.StalledOnDialog(r.DB, "bob", "a trust dialog") {
+	if r.stalledOnDialog(r.DB, "bob", "a trust dialog") {
 		t.Fatal("stalled with no dialog standing")
 	}
 	db.SetCursor(r.DB, "dialog_since:bob", r.clock-100)
-	if r.StalledOnDialog(r.DB, "bob", "a trust dialog") {
+	if r.stalledOnDialog(r.DB, "bob", "a trust dialog") {
 		t.Fatal("stalled too soon")
 	}
 	r.clock += 600
-	if !r.StalledOnDialog(r.DB, "bob", "a trust dialog") {
+	if !r.stalledOnDialog(r.DB, "bob", "a trust dialog") {
 		t.Fatal("not stalled")
 	}
 	if s, _ := db.GetAgentState(r.DB, "bob"); s.State != "STALLED" || s.Detail.String != "cannot get past a dialog: a trust dialog" {
@@ -267,12 +267,12 @@ func (stubDialogs) DecisionAfterS() int64                            { return 60
 func TestSessionPresenceNeedsAWitnessAndWaitsAreBounded(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	if !r.SessionPresent("bob") {
+	if !r.sessionPresent("bob") {
 		t.Fatal("the table lists it")
 	}
 	r.Observer = fakeObserver{map[string]bool{}}
 	r.Terminal = noSession{r.term}
-	if r.SessionPresent("bob") {
+	if r.sessionPresent("bob") {
 		t.Fatal("no witness, still present")
 	}
 	if r.WaitSessionGone("bob") != true {

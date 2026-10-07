@@ -116,7 +116,7 @@ func pyNullNone(ns sql.NullString) string {
 
 // HeadTaskBlocked is delivery.head_task_blocked: is the head's own task on record as waited on, blocked by another open task or
 // held up on an ask the agent itself sent that is linked to the same task. A head with no task is never this.
-func (e *Env) HeadTaskBlocked(q db.Q, agent string, head *db.Request) bool {
+func (e *Env) headTaskBlocked(q db.Q, agent string, head *db.Request) bool {
 	for _, t := range must(db.TasksForRequest(q, head.ID)) {
 		if len(must(db.TaskBlockers(q, t.ID))) > 0 {
 			return true
@@ -132,17 +132,17 @@ func (e *Env) HeadTaskBlocked(q db.Q, agent string, head *db.Request) bool {
 
 // EffectiveHead is db.head_of_queue unless it is blocked on record: then the next request behind it, so the one-at-a-time rule
 // falls on whatever the agent can actually act on. Only one level.
-func (e *Env) EffectiveHead(q db.Q, agent string) *db.Request {
+func (e *Env) effectiveHead(q db.Q, agent string) *db.Request {
 	head := must(db.HeadOfQueue(q, agent, 0))
-	if head != nil && e.HeadTaskBlocked(q, agent, head) {
+	if head != nil && e.headTaskBlocked(q, agent, head) {
 		return must(db.HeadOfQueue(q, agent, head.ID))
 	}
 	return head
 }
 
 // EffectiveHeadOrMarked is EffectiveHead, or with none the oldest send_now_pending row (a say is never a head, but is still the one thing waiting).
-func (e *Env) EffectiveHeadOrMarked(q db.Q, agent string) *db.Request {
-	if h := e.EffectiveHead(q, agent); h != nil {
+func (e *Env) effectiveHeadOrMarked(q db.Q, agent string) *db.Request {
+	if h := e.effectiveHead(q, agent); h != nil {
 		return h
 	}
 	if rows := must(db.SendNowPending(q, agent)); len(rows) > 0 {
@@ -152,9 +152,9 @@ func (e *Env) EffectiveHeadOrMarked(q db.Q, agent string) *db.Request {
 }
 
 // EffectiveTaskHead is db.task_head unless it is blocked on record: then the next task behind it.
-func (e *Env) EffectiveTaskHead(q db.Q, agent string) *db.Request {
+func (e *Env) effectiveTaskHead(q db.Q, agent string) *db.Request {
 	head := must(db.TaskHead(q, agent, 0))
-	if head != nil && e.HeadTaskBlocked(q, agent, head) {
+	if head != nil && e.headTaskBlocked(q, agent, head) {
 		return must(db.TaskHead(q, agent, head.ID))
 	}
 	return head
@@ -185,7 +185,7 @@ func (e *Env) forgetHeld(agent string) {
 func (e *Env) untoldBehind(q db.Q, agent string, head *db.Request) []*db.Request {
 	var out []*db.Request
 	for _, r := range must(db.QueuedFor(q, agent)) {
-		if r.Kind.String == "task" && r.EdgeOK.Int64 != 0 && r.ID != head.ID && !r.DeliveredAt.Valid && !e.HeadTaskBlocked(q, agent, r) {
+		if r.Kind.String == "task" && r.EdgeOK.Int64 != 0 && r.ID != head.ID && !r.DeliveredAt.Valid && !e.headTaskBlocked(q, agent, r) {
 			out = append(out, r)
 		}
 	}
@@ -218,12 +218,12 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 	if ok, err := e.EnforceEdges(q, agent); !ok || err != nil {
 		return false, err
 	}
-	head := e.EffectiveTaskHead(q, agent)
+	head := e.effectiveTaskHead(q, agent)
 	if head == nil {
 		e.forgetHeld(agent)
 		return false, nil
 	}
-	changed := e.SessionChanged(q, agent)
+	changed := e.sessionChanged(q, agent)
 	headDue := must(db.Cursor(q, "notify:"+agent)) != head.ID || changed
 	if headDue && must(db.ToldAhead(q, agent, head.ID)) && !changed {
 		// Told already, out of turn, to the session that is running; becoming the head is not news.
@@ -244,18 +244,18 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 		}
 		head = batch[0]
 	}
-	fresh := headDue && (e.SessionChanged(q, agent) || must(db.Cursor(q, "notify:"+agent)) == 0)
+	fresh := headDue && (e.sessionChanged(q, agent) || must(db.Cursor(q, "notify:"+agent)) == 0)
 	if !e.batchDue(q, agent, batch, fresh) {
 		return false, nil // collected; goes out when the minute is up
 	}
-	if why := e.TypingHold(q, agent); why != "" {
+	if why := e.typingHold(q, agent); why != "" {
 		return e.holdBack(agent, head, why, false), nil // stays queued; told when it wakes or moves
 	}
 	handle := must(db.Terminal(q, agent))
 	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
 		return e.holdBack(agent, head, "it has no live terminal", false), nil
 	}
-	if !e.SessionPresent(agent) {
+	if !e.sessionPresent(agent) {
 		// Nothing here is read by an agent that is not running; at a shell prompt this line is four commands in backticks and a redirection.
 		return e.holdBack(agent, head, "no session is running in its terminal", false), nil
 	}

@@ -89,7 +89,7 @@ func (r *holdRec) write(q db.Q, tid int64) {
 
 // AgentReason is why work is not reaching the agent, and whether it looks able to take it: the daemon's own gates in the order it meets them.
 // ("", true) when nothing is in the way.
-func (e *Env) AgentReason(q db.Q, agent string, now int64) (string, bool) {
+func (e *Env) agentReason(q db.Q, agent string, now int64) (string, bool) {
 	row := stateOf(q, agent)
 	if failed := e.FailedReason(agent, now); failed != "" {
 		return failed, false
@@ -103,7 +103,7 @@ func (e *Env) AgentReason(q db.Q, agent string, now int64) (string, bool) {
 	if row != nil && e.Waits.WaitingOnPrompt(q, row) {
 		return agent + " is waiting on a permission prompt", false
 	}
-	if e.ClearOwed(q, agent) != 0 {
+	if e.clearOwed(q, agent) != 0 {
 		return agent + " owes a context clear first (background work is still running)", false
 	}
 	if why, contestable, ok := e.HeldReason(agent, now); ok {
@@ -115,7 +115,7 @@ func (e *Env) AgentReason(q db.Q, agent string, now int64) (string, bool) {
 
 // TaskReason is why the task, queued or doing, has not been given to its owner, and whether the owner looks able to take it. ok false when it
 // has been (typed, or nothing is waiting to type).
-func (e *Env) TaskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bool) {
+func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bool) {
 	tid, agent := t.ID, t.Owner
 	linked := must(db.TaskRequests(q, tid))
 	var req *db.Request
@@ -165,10 +165,10 @@ func (e *Env) TaskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bo
 	if req.DeliveredAt.Valid && req.DeliveredAt.Int64 != 0 {
 		return "", false, false
 	}
-	if head := e.EffectiveHead(q, agent); head != nil && head.ID != req.ID {
+	if head := e.effectiveHead(q, agent); head != nil && head.ID != req.ID {
 		return fmt.Sprintf("behind #%d, which %s has not resolved", head.ID, agent), false, true
 	}
-	if why, able := e.AgentReason(q, agent, now); why != "" {
+	if why, able := e.agentReason(q, agent, now); why != "" {
 		return why, able, true
 	}
 	return Ready, true, true
@@ -191,7 +191,7 @@ func (e *Env) SweepHolds(now int64) (err error) {
 		if t.Owner == db.Human || t.DoneEvidence.String != "" {
 			continue
 		}
-		why, able, found := e.TaskReason(q, t, now)
+		why, able, found := e.taskReason(q, t, now)
 		if !found {
 			continue
 		}
@@ -218,7 +218,7 @@ func (e *Env) SweepHolds(now int64) (err error) {
 		}
 		if able && rec.Warned == nil && now-ableSince >= AbleWarnS {
 			after := &After{}
-			e.Report(q, after, t.Owner, fmt.Sprintf("T%d has waited %d min for %s, which looks able to take it (%s). Delivery should have landed it - this is a missed delivery, not a queue.",
+			e.report(q, after, t.Owner, fmt.Sprintf("T%d has waited %d min for %s, which looks able to take it (%s). Delivery should have landed it - this is a missed delivery, not a queue.",
 				tid, (now-ableSince)/60, t.Owner, why), "queued task not landing")
 			after.Run()
 			rec.Warned = &now

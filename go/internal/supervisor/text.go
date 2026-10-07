@@ -49,7 +49,7 @@ func taskOf(q db.Q, r *db.Request) *db.Task {
 
 // AnswerVerb is how the agent answers what it was just told: a task is handed on or finished; the founder is answered through ocp;
 // another agent's request by a reply that names it; a say or a report asks nothing.
-func AnswerVerb(q db.Q, head *db.Request) string {
+func answerVerb(q db.Q, head *db.Request) string {
 	if head.Kind.String == "task" {
 		if t := taskOf(q, head); t != nil {
 			return fmt.Sprintf("you own T%d now: hand it on with `hl task handoff T%d <agent> \"<note>\"`, or `hl task done T%d` if you are its last step", t.ID, t.ID, t.ID)
@@ -76,7 +76,7 @@ func MoreWaiting(kind string, more int) string {
 }
 
 // FoldedNotices are the notices the next typed delivery to the agent carries; the caller marks them shown once the send went through.
-func FoldedNotices(q db.Q, agent string) []*db.Request {
+func foldedNotices(q db.Q, agent string) []*db.Request {
 	rows := must(db.PendingNotices(q, agent))
 	if len(rows) > NoticesShown {
 		rows = rows[:NoticesShown]
@@ -113,7 +113,7 @@ func noticesText(q db.Q, agent string, folded []*db.Request) string {
 }
 
 // InReplyTo is `in reply to #M: <first line of M>` for a request with a parent; "" for one without, or whose parent is gone.
-func InReplyTo(q db.Q, r *db.Request) string {
+func inReplyTo(q db.Q, r *db.Request) string {
 	if !r.ParentID.Valid {
 		return ""
 	}
@@ -147,7 +147,7 @@ func splitLines(s string) []string {
 
 // TellText is the message that tells an agent about head, as typed. aheadOf is the head a "send now" request is jumping, or with parked
 // the open head the task is queued behind. folded is FoldedNotices, carried on the same line.
-func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request) string {
+func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request) string {
 	more := depth - 1
 	var shown string
 	tid, _, title, note, isHandoff := HandoffParts(head.Body)
@@ -196,7 +196,7 @@ func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		}
 	}
 	reply := ""
-	if r := InReplyTo(q, head); r != "" {
+	if r := inReplyTo(q, head); r != "" {
 		reply = " (" + r + ")"
 	}
 	end := ", or `hl inbox` any time."
@@ -204,11 +204,11 @@ func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		end = "."
 	}
 	return fmt.Sprintf("#%d from %s%s, waiting for you:\n%s%s\n`hl read %d` shows it whole; %s%s",
-		head.ID, head.Requester, reply, shown, tail, head.ID, AnswerVerb(q, head), end)
+		head.ID, head.Requester, reply, shown, tail, head.ID, answerVerb(q, head), end)
 }
 
 // BatchText is one message for several queued tasks: a line each, then how to work them.
-func BatchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Request) string {
+func batchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Request) string {
 	lines := make([]string, len(batch))
 	for i, r := range batch {
 		var text string

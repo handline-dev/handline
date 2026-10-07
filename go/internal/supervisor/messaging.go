@@ -14,11 +14,11 @@ import (
 
 // CanTypeNow is whether nothing is on screen a typed line would answer instead, and not at the wall: the two things immediate typing waits
 // for. Not TypeableNow, which also requires idle.
-func (e *Env) CanTypeNow(q db.Q, agent, handle string) (bool, string) {
+func (e *Env) canTypeNow(q db.Q, agent, handle string) (bool, string) {
 	if !e.Terminal.Available() {
 		return false, e.Terminal.Missing()
 	}
-	if reason := e.TypingHold(q, agent); reason != "" {
+	if reason := e.typingHold(q, agent); reason != "" {
 		return false, reason
 	}
 	if b := e.Terminal.ScreenBlocker(handle); b != nil {
@@ -29,9 +29,9 @@ func (e *Env) CanTypeNow(q db.Q, agent, handle string) (bool, string) {
 
 // FinishSay: a say is finished once it is typed. Nothing is owed on it, so it is settled quietly with no verdict (a verdict is drawn as the
 // target's reply, and nobody replied). Anything else typed for a request stays open until it is answered.
-func (e *Env) FinishSay(row *db.Request) {
+func (e *Env) FinishSay(q db.Q, row *db.Request) {
 	if row.Kind.String == "say" {
-		if _, _, err := e.Resolve(ResolveIn{RID: row.ID}); err != nil {
+		if _, _, err := e.Resolve(q, ResolveIn{RID: row.ID}); err != nil {
 			e.log("  #%d: settling the say failed: %v", row.ID, err)
 		}
 	}
@@ -47,10 +47,10 @@ func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, 
 	if !e.Terminal.Available() || !e.Terminal.Alive(handle) {
 		return false, fmt.Sprintf("%s's terminal is gone", agent)
 	}
-	if !e.SessionPresent(agent) {
+	if !e.sessionPresent(agent) {
 		return false, agent + " has no running session"
 	}
-	if ok, why := e.CanTypeNow(q, agent, handle); !ok {
+	if ok, why := e.canTypeNow(q, agent, handle); !ok {
 		return false, why
 	}
 	ok, why := false, ""
@@ -61,7 +61,7 @@ func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, 
 			return
 		}
 		// Re-read once the lock is actually held: a reading taken before asking for it can already be stale.
-		if can, w := e.CanTypeNow(q, agent, handle); !can {
+		if can, w := e.canTypeNow(q, agent, handle); !can {
 			why = w
 			return
 		}
@@ -73,7 +73,7 @@ func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, 
 			why = err
 			return
 		}
-		e.MarkTyped(q, agent, nil)
+		e.markTyped(q, agent, nil)
 		check(db.DeletePending(q, rowID))
 		ok, why = true, "typed"
 	})
@@ -93,7 +93,7 @@ func (e *Env) SendMessage(q db.Q, agent, text string) (ok bool, msg string, err 
 	if sent {
 		return true, agent + ": typed", nil
 	}
-	if !e.SessionPresent(agent) {
+	if !e.sessionPresent(agent) {
 		woke, wakeWhy := e.Lifecycle.WakeAgent(q, agent)
 		if woke {
 			if sent, why = e.deliverRow(q, agent, rowID, text); sent {
@@ -146,13 +146,13 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 		return "already told", nil
 	}
 	handle := must(db.Terminal(q, agent))
-	if handle == "" || !e.SessionPresent(agent) {
+	if handle == "" || !e.sessionPresent(agent) {
 		return "queued - no running session; told when it is up", nil
 	}
 	if !e.Terminal.Available() || !e.Terminal.Alive(handle) {
 		return fmt.Sprintf("queued - %s's terminal is gone", agent), nil
 	}
-	if ok, why := e.CanTypeNow(q, agent, handle); !ok {
+	if ok, why := e.canTypeNow(q, agent, handle); !ok {
 		return "queued - " + why, nil
 	}
 	result := ""
@@ -163,7 +163,7 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 			result = "already told"
 			return
 		}
-		if ok, why := e.CanTypeNow(q, agent, handle); !ok {
+		if ok, why := e.canTypeNow(q, agent, handle); !ok {
 			result = "queued - " + why
 			return
 		}
@@ -171,14 +171,14 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 			result = "withdrawn first"
 			return
 		}
-		if e.LandedAlready(q, agent, rid) { // the transcript first
+		if e.landedAlready(q, agent, rid) { // the transcript first
 			check(db.MarkTyped(q, rid, e.liveSession(q, agent)))
 			check(db.MarkLanded(q, rid))
 			result = "already in its transcript"
 			return
 		}
-		folded := FoldedNotices(q, agent)
-		sent, err := e.send(handle, TellText(q, row, 1, nil, false, folded))
+		folded := foldedNotices(q, agent)
+		sent, err := e.send(handle, tellText(q, row, 1, nil, false, folded))
 		if !sent {
 			check(db.ClearDelivered(q, rid))
 			if err == "" {
@@ -187,7 +187,7 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 			result = "queued - " + err
 			return
 		}
-		e.MarkTyped(q, agent, nil)
+		e.markTyped(q, agent, nil)
 		check(db.MarkNoticesShown(q, requestIDs(folded), e.liveSession(q, agent)))
 		check(db.MarkToldAhead(q, agent, rid, requestIDs(must(db.QueuedFor(q, agent))))) // becoming the head is not news
 		check(db.MarkTyped(q, rid, e.liveSession(q, agent)))
@@ -202,7 +202,7 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 		return result, nil
 	}
 	e.log("  %s: told about #%d at once", agent, rid)
-	e.FinishSay(told)
+	e.FinishSay(q, told)
 	return "typed", nil
 }
 
@@ -246,7 +246,7 @@ func (e *Env) MigrateOldMessages(q db.Q) (err error) {
 	defer Catch(&err)
 	ids := must(idsOf(q, "SELECT id FROM requests WHERE state = 'queued' AND kind = 'say' AND target != ?", db.Human))
 	for _, id := range ids {
-		if _, _, err := e.Resolve(ResolveIn{RID: id}); err != nil {
+		if _, _, err := e.Resolve(q, ResolveIn{RID: id}); err != nil {
 			return err
 		}
 		e.log("  #%d: an old say, settled", id)

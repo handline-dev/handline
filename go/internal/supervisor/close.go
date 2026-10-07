@@ -209,7 +209,7 @@ func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string, notif
 	must(db.AddEvent(q, row.Target, "resolve", db.KV{K: "request_id", V: rid}, db.KV{K: "state", V: state}, db.KV{K: "requester", V: row.Requester}))
 	// The reply is the wake. Only queue the requester when nothing else it asked for is still outstanding, and never out of a terminal state or a
 	// usage park: an answer is not evidence the window rolled over.
-	if row.Response.String == "async" && row.Requester != db.Human && !e.isTerminal(q, row.Requester) && e.WallReason(q, row.Requester, nil) == "" {
+	if row.Response.String == "async" && row.Requester != db.Human && !e.isTerminal(q, row.Requester) && e.wallReason(q, row.Requester, nil) == "" {
 		var outstanding int
 		check(q.QueryRow("SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' AND response = 'async'", row.Requester).Scan(&outstanding))
 		if outstanding == 0 {
@@ -276,8 +276,11 @@ func (e *Env) ResolveWrite(q db.Q, in ResolveIn) (r *Resolved, ok bool, msg stri
 	if row == nil {
 		return nil, false, fmt.Sprintf("request %d does not exist", in.RID), nil
 	}
+	if e.Proposals == nil {
+		return nil, false, "", errNoProposals
+	}
 	proposal := ""
-	if row.State == "queued" && e.Proposals != nil {
+	if row.State == "queued" {
 		proposal = e.Proposals.OpenProposalOf(in.RID)
 	}
 	verdict := in.Verdict
@@ -313,7 +316,7 @@ func (e *Env) ResolveWrite(q db.Q, in ResolveIn) (r *Resolved, ok bool, msg stri
 // ResolveTell is what resolve says once ResolveWrite has committed.
 func (e *Env) ResolveTell(q db.Q, r *Resolved) (string, error) {
 	applied := ""
-	if r.Proposal != "" && e.Proposals != nil {
+	if r.Proposal != "" {
 		applied = e.Proposals.Answered(q, r.Proposal, r.Row, r.Verdict)
 	}
 	msg, err := e.AfterClose(q, r.In.RID, r.Row, r.State, r.In.Notify)
@@ -326,16 +329,16 @@ func (e *Env) ResolveTell(q db.Q, r *Resolved) (string, error) {
 	return msg, nil
 }
 
-// Resolve is ResolveWrite and ResolveTell in one, on the database itself: each statement commits, as the Python resolve does when it has no
-// effect or tasks to open. With either, the caller holds a transaction and uses the halves.
-func (e *Env) Resolve(in ResolveIn) (bool, string, error) {
+// Resolve is ResolveWrite and ResolveTell in one, on the Q given: on the database each statement commits, as the Python resolve does when it
+// has no effect or tasks to open. With either, the caller holds a transaction and uses the halves.
+func (e *Env) Resolve(q db.Q, in ResolveIn) (bool, string, error) {
 	if in.OpenTasks != nil || in.Effect != nil {
 		return false, "", fmt.Errorf("Resolve with OpenTasks or Effect needs a transaction: use ResolveWrite and ResolveTell")
 	}
-	r, ok, msg, err := e.ResolveWrite(e.DB, in)
+	r, ok, msg, err := e.ResolveWrite(q, in)
 	if err != nil || !ok {
 		return false, msg, err
 	}
-	msg, err = e.ResolveTell(e.DB, r)
+	msg, err = e.ResolveTell(q, r)
 	return err == nil, msg, err
 }

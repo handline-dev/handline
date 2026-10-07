@@ -249,7 +249,7 @@ func TestDeliverAnswersTellsWhatCameBackOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("alice")
 	q := r.ask("alice", "bob", "what time is it", "ask")
-	ok, msg, err := r.Resolve(ResolveIn{RID: q, Verdict: "noon", Notify: true})
+	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: q, Verdict: "noon", Notify: true})
 	r.must(err)
 	if !ok || !strings.Contains(msg, "alice has been told") {
 		t.Fatal(ok, msg)

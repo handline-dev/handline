@@ -48,7 +48,7 @@ func (e *Env) PushHere(q db.Q, target string, rid int64) (out string) {
 		_, why := e.Lifecycle.WakeAgent(q, target)
 		said = append(said, fmt.Sprintf("%s: %s", target, why))
 	}
-	if sentQ, _ := e.DeliverQueued(q, target); sentQ {
+	if sentQ := must(e.DeliverQueued(q, target)); sentQ {
 		said = append(said, "delivered to "+target)
 	} else if len(said) == 0 {
 		why, _ := e.Stuck.DeliveryBlock(q, target)
@@ -77,7 +77,7 @@ func (e *Env) PushAnswer(q db.Q, requester string) (out string) {
 		return "  the founder reads it on `hl`"
 	}
 	if !e.registered(requester) {
-		return fmt.Sprintf("%s is not registered with ocp - nothing to tell", requester)
+		return fmt.Sprintf("  %s is not registered with ocp - nothing to tell", requester)
 	}
 	return e.PushAnswerHere(q, requester)
 }
@@ -91,7 +91,7 @@ func (e *Env) PushAnswerHere(q db.Q, requester string) (out string) {
 		_, why := e.Lifecycle.WakeAgent(q, requester)
 		said = append(said, fmt.Sprintf("%s: %s", requester, why))
 	}
-	if sentA, _ := e.DeliverAnswers(q, requester); sentA {
+	if sentA := must(e.DeliverAnswers(q, requester)); sentA {
 		said = append(said, requester+" has been told")
 	} else if len(said) == 0 {
 		said = append(said, requester+" will be told when it is free")

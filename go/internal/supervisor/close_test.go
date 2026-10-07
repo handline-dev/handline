@@ -96,7 +96,7 @@ func TestCancelGuardRefusesInsideTheTransaction(t *testing.T) {
 func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
-	ok, msg, err := r.Resolve(ResolveIn{RID: rid, Verdict: "yes", Notify: true})
+	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
 	r.must(err)
 	if !ok || !strings.HasPrefix(msg, "request #1 -> done") {
 		t.Fatalf("%v %q", ok, msg)
@@ -104,17 +104,17 @@ func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
 	if len(r.eval.calls) != 1 || r.eval.calls[0] != "alice: request 1 resolved: done" {
 		t.Fatalf("%v", r.eval.calls)
 	}
-	if ok, msg, _ := r.Resolve(ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || msg != "#1 is already landed - nothing to resolve" {
+	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || msg != "#1 is already landed - nothing to resolve" {
 		t.Fatalf("%v %q", ok, msg)
 	}
-	if ok, msg, _ := r.Resolve(ResolveIn{RID: 99}); ok || msg != "request 99 does not exist" {
+	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: 99}); ok || msg != "request 99 does not exist" {
 		t.Fatal(msg)
 	}
 	// not while the asker still has another async ask out
 	a := r.ask("alice", "bob", "q1", "ask")
 	r.ask("alice", "bob", "q2", "ask")
 	r.eval.calls = nil
-	r.Resolve(ResolveIn{RID: a, Verdict: "ok", Notify: true})
+	r.Resolve(r.DB, ResolveIn{RID: a, Verdict: "ok", Notify: true})
 	if len(r.eval.calls) != 0 {
 		t.Fatalf("the asker is queued with another ask outstanding: %v", r.eval.calls)
 	}

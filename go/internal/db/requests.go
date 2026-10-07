@@ -727,7 +727,12 @@ func (r *Request) Dismissal() (bool, string, string) {
 
 // OldestCountedAsk is db.oldest_counted_ask: when the ask that has to leave the window before a slot frees was sent.
 func OldestCountedAsk(q Q, requester string, since int64) (int64, bool, error) {
-	return maxInt(q, "SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL ORDER BY ts LIMIT 1", requester, since)
+	var ts int64
+	err := q.QueryRow("SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL ORDER BY ts LIMIT 1", requester, since).Scan(&ts)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	return ts, err == nil, err
 }
 
 // StandingDenial is db.standing_denial: the id of an identical ask already refused inside the window, 0 for none.

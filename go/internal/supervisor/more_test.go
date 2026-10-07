@@ -101,18 +101,18 @@ func TestTypeGateExportedAndTheTextsOfAReplyAndADismissal(t *testing.T) {
 	q := r.ask("alice", "bob", "first line of the question\nsecond", "ask")
 	out, _, _ := r.Say(r.DB, SayIn{Target: "alice", Body: "the answer", Requester: "bob", ParentID: q})
 	head := mustReq(r, out.RID)
-	if got := InReplyTo(r.DB, head); got != "in reply to #"+itoa(q)+": first line of the question" {
+	if got := inReplyTo(r.DB, head); got != "in reply to #"+itoa(q)+": first line of the question" {
 		t.Fatalf("%q", got)
 	}
-	if got := TellText(r.DB, head, 1, nil, false, nil); !strings.HasPrefix(got, "#2 from bob (in reply to #1: first line of the question), waiting for you:\nthe answer\n") {
+	if got := tellText(r.DB, head, 1, nil, false, nil); !strings.HasPrefix(got, "#2 from bob (in reply to #1: first line of the question), waiting for you:\nthe answer\n") {
 		t.Fatalf("%q", got)
 	}
 	// parked and send-now tails
 	other := mustReq(r, r.ask("alice", "bob", "x", "ask"))
-	if got := TellText(r.DB, other, 2, head, true, nil); !strings.Contains(got, "[Queued behind #2, which is still open: the next task comes when you hand it on or finish it.]") {
+	if got := tellText(r.DB, other, 2, head, true, nil); !strings.Contains(got, "[Queued behind #2, which is still open: the next task comes when you hand it on or finish it.]") {
 		t.Fatalf("%q", got)
 	}
-	if got := TellText(r.DB, other, 1, head, false, nil); !strings.Contains(got, "[Sent now, ahead of #2, which is still open.]") {
+	if got := tellText(r.DB, other, 1, head, false, nil); !strings.Contains(got, "[Sent now, ahead of #2, which is still open.]") {
 		t.Fatalf("%q", got)
 	}
 	if MoreWaiting("ask", 2) != "2 more waiting - the next comes when you answer this one." || MoreWaiting("say", 3) != "" || MoreWaiting("task", 0) != "" {
