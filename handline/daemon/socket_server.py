@@ -56,6 +56,7 @@ from . import (  # noqa: F401 - importing a module registers its methods; one pe
     rpc_tasks,
     rpc_taskverbs,
     rpc_taskview,
+    rpc_hr,
     rpc_team,
     rpc_terminal,
     rpc_typing,
