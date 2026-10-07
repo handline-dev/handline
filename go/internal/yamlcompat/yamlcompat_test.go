@@ -137,3 +137,35 @@ func TestRefuseUnsafeValues(t *testing.T) {
 		t.Fatal("a C1 control was read")
 	}
 }
+
+func TestParsePairsKeepsTheFilesOrderAndOMapKeepsNestedOrder(t *testing.T) {
+	pairs, ok, err := ParsePairs("zeta: 1\nalpha:\n  - x\nmid: {b: 1, a: 2}\nalpha2: 3\n")
+	if err != nil || !ok {
+		t.Fatal(err, ok)
+	}
+	var keys []string
+	for _, p := range pairs {
+		keys = append(keys, p.Key)
+	}
+	if !reflect.DeepEqual(keys, []string{"zeta", "alpha", "mid", "alpha2"}) {
+		t.Fatalf("%v", keys)
+	}
+	v, err := ParseOrdered("teams:\n  zz: [a]\n  aa: [b]\n  mm: [c]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teams := v.(*OMap).M["teams"].(*OMap)
+	if !reflect.DeepEqual(teams.Keys, []string{"zz", "aa", "mm"}) {
+		t.Fatalf("%v", teams.Keys)
+	}
+	if _, ok, _ := ParsePairs("- a\n"); ok {
+		t.Fatal("a list is not a map")
+	}
+	if _, _, err := ParsePairs("a: &x 1\n"); err == nil {
+		t.Fatal("a refused source was taken")
+	}
+	dup, _, _ := ParsePairs("a: 1\nb: 2\na: 3\n")
+	if len(dup) != 2 || dup[0] != (Pair{"a", int64(3)}) {
+		t.Fatalf("a repeated key keeps its first place and its last value: %v", dup)
+	}
+}
