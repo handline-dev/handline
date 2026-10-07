@@ -111,6 +111,7 @@ export class Composer {
 
   async cancel(e: Sender, arg: unknown): Promise<{ ok: true } | Fail<'bad_request'>> {
     if (!fromWindow(e, this.origin) || arg !== undefined) return { ok: false, code: 'bad_request', message: 'cancelCompose takes nothing' };
+    if (!this.running) return { ok: true }; // nothing to cancel: a late click must not mark the next compose
     this.cancelled = true;
     this.killGroup();
     return { ok: true };
@@ -162,6 +163,7 @@ export class Composer {
     } catch (err) {
       return fail('unavailable', `The temp file could not be made: ${err instanceof Error ? err.message : String(err)}`);
     }
+    if (this.cancelled) return fail('cancelled', 'Cancelled.'); // cancelled while the file was being made: the editor never starts
     const started = Date.now();
     const exit = await new Promise<{ code: number | null; error?: Error }>((resolve) => {
       const child = (this.deps.spawn ?? nodeSpawn)(file, [...words.slice(1), target], {

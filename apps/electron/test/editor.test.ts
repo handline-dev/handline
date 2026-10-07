@@ -124,3 +124,24 @@ test('at launch a handline-* directory older than a day is removed and a fresh o
   assert.equal(fs.existsSync(fresh), true);
   fs.rmSync(fresh, { recursive: true });
 });
+
+test('a cancel with no editor open does nothing, so the next compose is not cancelled', async () => {
+  const c = mk({ VISUAL: appends, PATH: '' });
+  assert.deepEqual(await c.cancel(top, undefined), { ok: true });
+  assert.deepEqual(await c.compose(top, { text: 'hello\n' }), { ok: true, text: 'hello\nadded\n', changed: true });
+});
+
+test('a cancel while the compose is still being set up stops the editor from starting', async () => {
+  const marker = path.join(tmp, 'started');
+  const touch = script('touch-marker', `touch ${marker}; sleep 0.05`);
+  const c = new Composer(ORIGIN, {
+    env: async () => (await new Promise((r) => setTimeout(r, 150)), { VISUAL: touch, PATH: '' }),
+    tmp,
+  });
+  const first = c.compose(top, { text: 'a' });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(await c.cancel(top, undefined), { ok: true });
+  assert.equal(code(await first), 'cancelled');
+  assert.equal(fs.existsSync(marker), false);
+  assert.deepEqual(left(), []);
+});

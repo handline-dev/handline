@@ -23,5 +23,5 @@ test('a line and column are dropped from what the shell is given but stay in the
 test('plain words, numbers, urls and emails are not paths', () => {
   assert.deepEqual(found('hello world 3.14 and v2'), []);
   assert.deepEqual(found('https://example.com/a/b.html'), []);
-  assert.deepEqual(found('mail ron@example.com'), []);
+  assert.deepEqual(found('mail user@example.com'), []);
 });
