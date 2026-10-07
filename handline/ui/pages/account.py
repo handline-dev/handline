@@ -17,7 +17,7 @@ from ...team import accounts
 from ... import actions, db
 from ...usage import cycle, load as loadmod, status
 from ...infra import paths, textsafe
-from .. import tui
+from ...view import tui
 from ...infra import timefmt
 from ..components import gauge
 from ..components.confirm import leave_or_ask

@@ -36,7 +36,8 @@ from ..team.agent_settings import (BROWSER_CUSTOM, BROWSER_MODES, EDITABLE, WEIG
 from ..infra import paths, textsafe
 from ..session import idle_close
 from ..usage import status
-from . import api, stall, tui
+from . import api, stall
+from ..view import tui
 from .clipboard_app import ClipboardApp
 from .theme import follow_os_theme
 from ..infra import timefmt

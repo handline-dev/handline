@@ -18,7 +18,7 @@ from support import *  # noqa: E402,F401,F403
 from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import term  # noqa: E402
-from handline.ui import tui  # noqa: E402
+from handline.view import tui  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402

@@ -1428,7 +1428,7 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
     every tick: tried again (with a pause after a launch that started nothing), FATAL with the reason
     after three, shown as PENDING meanwhile."""
     from handline.actions import control
-    from handline.ui import tui
+    from handline.view import tui
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []

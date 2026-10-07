@@ -1776,7 +1776,7 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     """`state_hooks()` is the one fact hooks, init, doctor and the state word
     ask: claude has them, opencode and a second vendor do not, and a vendor
     without them is one whose row state is read off its screen."""
-    from handline.ui import tui
+    from handline.view import tui
     use_home(home)
     check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
     check("state hooks: opencode has none - its screen is the witness",
