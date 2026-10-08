@@ -111,6 +111,11 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 	return out, err
 }
 
+// CommitThen is what an Effect function returns to commit its writes and still answer with Err.
+type CommitThen struct{ Err error }
+
+func (c *CommitThen) Error() string { return c.Err.Error() }
+
 // Effect runs the effect of the write in hand in one transaction with the record of its result (write_effects), as
 // handline/daemon/rpc_taskverbs.py does: a retry after a crash between the two finds the record and answers, and repeats
 // nothing. fn gets the transaction and returns the result the caller is told; an error rolls everything back.
@@ -124,6 +129,13 @@ func (c *Conn) Effect(fn func(tx *sql.Tx) (map[string]any, error)) (map[string]a
 	}
 	defer tx.Rollback()
 	out, err := fn(tx)
+	if keep, ok := err.(*CommitThen); ok {
+		// a refusal whose writes stand (a denied request, a throttle): no record is kept, so a retry is judged again
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return nil, keep.Err
+	}
 	if err != nil {
 		return nil, err
 	}
