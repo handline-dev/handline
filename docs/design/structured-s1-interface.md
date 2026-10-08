@@ -13,7 +13,7 @@ Package `go/internal/structured`. Stable unless a task memo to the S1 owner chan
 
 Prompt rows: `DBPrompts` writes the open permission prompt to `prompt_blocks` (kind permission, answerable, no wait id) and refreshes `last_seen` every few seconds while it waits, so `prompt.list` shows it. `prompt.answer` for an agent with a structured session (`prompts.Env.Structured`, set to the `Manager`) goes to `Broker.Answer` and takes `yes`, `no` or `esc` (deny); no terminal lock or input holder applies. A structured agent has no terminal handle, so the screen watch never touches its row.
 
-Note line (#21854): **drops:** screen-read permission answering (`term.AnswerConfirmation`) -> `can_use_tool` callback; typing a message -> `Send`; `autoaccept` dialog rules -> the Policy's guard and allow list (the dialogs they answered do not exist in `--print`). **straight:** the shell guard (`session.Guard`) and the `prompt_blocks` row and `prompt.answer` shape, which the apps already read.
+Note line: **drops:** screen-read permission answering (`term.AnswerConfirmation`) -> `can_use_tool` callback; typing a message -> `Send`; `autoaccept` dialog rules -> the Policy's guard and allow list (the dialogs they answered do not exist in `--print`). **straight:** the shell guard (`session.Guard`) and the `prompt_blocks` row and `prompt.answer` shape, which the apps already read.
 
 ## Live check on the real CLI (2.1.294, account sigma, 2026-10-08)
 

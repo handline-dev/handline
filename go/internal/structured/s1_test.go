@@ -147,7 +147,7 @@ func TestAMessageTheCLIReportsQueuedIsConfirmedWithoutAnEcho(t *testing.T) {
 
 func TestTheChildSeesWhatTheCLINeedsToFindTheLoginAndNothingElse(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
-	t.Setenv("USER", "ron")
+	t.Setenv("USER", "someone")
 	for _, kv := range (Launch{ConfigDir: "/c"}).env() {
 		if kv == "ANTHROPIC_API_KEY=secret" {
 			t.Fatal("the daemon's API key reached the child")
@@ -155,7 +155,7 @@ func TestTheChildSeesWhatTheCLINeedsToFindTheLoginAndNothingElse(t *testing.T) {
 	}
 	var user, state bool
 	for _, kv := range (Launch{ConfigDir: "/c"}).env() {
-		user = user || kv == "USER=ron"
+		user = user || kv == "USER=someone"
 		state = state || kv == "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"
 	}
 	if !user || !state {
