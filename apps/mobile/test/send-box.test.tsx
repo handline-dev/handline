@@ -11,18 +11,26 @@ async function open(running = false) {
   await until(() => $('tab-chat'), 'the page');
   await press($('tab-chat'));
   await until(() => $('chat-input'), 'the chat');
-  if (running) m.daemon.sessions.get(AUD)!.state = 'running'; // a turn runs: the daemon queues what follows
+  if (running) {
+    // A turn runs: the working line shows it and the daemon queues what follows.
+    m.daemon.sessions.get(AUD)!.state = 'running';
+    await act(async () => m.daemon.chat.setTurn(AUD, true));
+    await until(() => $('working') && $('chat-send-now'), 'the turn running');
+  }
   return m;
 }
 const type = async (v: string) => {
   const input = $('chat-input') as unknown as HTMLInputElement;
   await act(async () => {
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set ?? Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    const set =
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set ??
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     set?.call(input, v);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 };
-const row = (body: string) => [...document.body.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
+const row = (body: string) =>
+  [...document.body.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
 const landing = (body: string) => row(body)?.querySelector('[data-testid^="landing-"]')?.textContent;
 
 describe('the send box over the one send path', () => {
@@ -34,6 +42,28 @@ describe('the send box over the one send path', () => {
     await until(() => landing('hello')?.includes('Sent'), 'sent');
     await act(async () => void m.daemon.chat.tick());
     await until(() => landing('hello')?.includes('Confirmed'), 'confirmed');
+    m.store.stop();
+  });
+
+  it('while a turn runs the person picks Queue or Send now', async () => {
+    const m = await open(true);
+    await type('later');
+    await press($('chat-send'));
+    await until(() => landing('later')?.includes('Queued'), 'queued');
+    await type('right now');
+    await press($('chat-send-now'));
+    await until(() => landing('right now')?.includes('Sent'), 'written at once');
+    m.store.stop();
+  });
+
+  it('a terminal agent has no choice to make', async () => {
+    const m = await mount();
+    await until(() => $('agent-handline.architect'), 'the rows');
+    await press($('agent-handline.architect'));
+    await until(() => $('tab-chat'), 'the page');
+    await press($('tab-chat'));
+    await until(() => $('chat-input'), 'the chat');
+    expect($('chat-send-now')).toBeNull();
     m.store.stop();
   });
 

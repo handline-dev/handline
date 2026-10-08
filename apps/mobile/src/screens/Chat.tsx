@@ -320,7 +320,9 @@ function Bubble(props: {
       )}
       {undoable && (
         <Row>
-          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />}
+          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
+            <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+          )}
           <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (got ? ask() : void takeBack())} />
         </Row>
       )}
