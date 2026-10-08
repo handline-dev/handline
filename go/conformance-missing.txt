@@ -15,8 +15,6 @@ session.start
 session.stop
 session.type
 session.wake
-stats.outlook
 terminal.close
 terminal.input
 terminal.resize
-transcript.events

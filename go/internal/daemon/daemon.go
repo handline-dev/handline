@@ -28,6 +28,7 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
+	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -70,6 +71,17 @@ type Config struct {
 	// Env is the telling layer the chat, mailbox and say writes run on (supervisor.Env). Nil is an Env of this database and home alone: its
 	// writes are made, and what needs a port that has not landed is left to the tick.
 	Env *supervisor.Env
+
+	// Transcript is where the structured sessions' events go (structured.Manager.Events). With Structured it makes the daemon serve the
+	// transcript topic and transcript.events, and say so in hello. Nil serves neither.
+	Transcript *transcript.Sink
+	// Structured says whether an agent runs as a structured session.
+	Structured func(agent string) bool
+	// OnOpen is given the database once it is open, for the parts built before it was (the structured manager's ledger and prompt rows).
+	OnOpen func(db *sql.DB)
+	// Agents is the structured sessions as the supervisor's telling layer sees them (supervisor.Ports.Agents): it types a structured agent
+	// through its session. Nil leaves every agent a terminal agent.
+	Agents supervisor.Agents
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -121,6 +133,9 @@ func Start(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.OnOpen != nil {
+		cfg.OnOpen(db)
+	}
 	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
@@ -155,6 +170,13 @@ func Start(cfg Config) (*Daemon, error) {
 		d.dev.Log = cfg.Log
 	}
 	d.hub = stream.NewHub()
+	if d.transcripts() {
+		sink := cfg.Transcript
+		sink.DB = db
+		sink.Publish = func(e transcript.Event) { d.hub.EmitTranscript(e.Agent, e.JSON()) }
+		sink.Prompt = (&reads.Env{DB: db}).PromptOf
+		sink.Err = func(agent string, err error) { cfg.Log("  transcript: %s: an event was not kept: %v", agent, err) }
+	}
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -196,9 +218,12 @@ func Start(cfg Config) (*Daemon, error) {
 // env is the telling layer the writes run on.
 func (d *Daemon) env() *supervisor.Env {
 	if d.cfg.Env != nil {
+		if d.cfg.Env.Agents == nil {
+			d.cfg.Env.Agents = d.cfg.Agents
+		}
 		return d.cfg.Env
 	}
-	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log}
+	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log, Ports: supervisor.Ports{Agents: d.cfg.Agents}}
 }
 
 // hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
@@ -210,6 +235,10 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	}
 	return h
 }
+
+// transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
+// structured sessions.
+func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
 
 // writeRegistrars are the packages that register methods once the hooks are wired, one per line in alphabetical order of the package: a port
 // adds its line at its own place, so two ports do not edit the same spot and git merges them.
@@ -240,7 +269,12 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
-	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()}
+	if d.transcripts() {
+		renv.Structured = d.cfg.Structured
+		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
+	}
+	reads.Register(s, renv)
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 // Burn-rate costs and per-account load (handline/usage/burnrate.py's reader half, load.py). The writers (observe, the week ratios) are
-// the next unit's: with no samples a typical agent's starting value stands.
+// in burn.go: with no samples a typical agent's starting value stands.
 
 const (
 	// TypicalAgentBurnPerS is triggers.TYPICAL_AGENT_BURN_PER_S: the starting value for what one agent costs, percent of the shortest

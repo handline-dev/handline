@@ -409,15 +409,17 @@ func TestAStructuredAgentIsAnsweredByCallbackAndNeverByKeys(t *testing.T) {
 	register(e)
 	f := &fakeStructured{}
 	e.Structured = f
-	got, err := answers(e, "fp1", "no")
-	if err != nil || got.(map[string]any)["said"] != "backend: answered No" || len(f.called) != 1 || f.called[0] != "backendfp1falsecasey" || len(h.sent) != 0 {
+	got, err := answers(e, "fp1", "deny")
+	if err != nil || got.(map[string]any)["said"] != "backend: answered Deny" || len(f.called) != 1 || f.called[0] != "backendfp1falsecasey" || len(h.sent) != 0 {
 		t.Fatalf("%v %v %v %v", got, err, f.called, h.sent)
 	}
-	if _, err := answers(e, "fp1", "maybe"); err == nil {
-		t.Fatal("an unknown choice was taken")
+	for _, c := range []string{"maybe", "yes", "esc"} {
+		if _, err := answers(e, "fp1", c); err == nil {
+			t.Fatalf("%q was taken: a structured prompt offers allow and deny", c)
+		}
 	}
 	f.err = structured.ErrStale
-	if _, err := answers(e, "fp1", "yes"); err == nil || strings.Contains(err.Error(), "backend: answered") {
+	if _, err := answers(e, "fp1", "allow"); err == nil || strings.Contains(err.Error(), "backend: answered") {
 		t.Fatalf("a stale answer must be refused: %v", err)
 	}
 }

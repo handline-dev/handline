@@ -10,6 +10,8 @@ package structured
 //	turn_end          {subtype, is_error, cost_usd, duration_ms, usage}
 //	permission_request {prompt, tool, input, reason}       (from the broker)
 //	permission_answer  {prompt, allow, said, by}           (from the broker)
+//	error              {code, text}                         (from the manager: the CLI exited without being stopped)
+//	session_end        {}                                   (from the manager: the CLI exited, stopped or not)
 type Event struct {
 	Type string
 	Data map[string]any

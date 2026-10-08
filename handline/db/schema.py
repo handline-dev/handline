@@ -732,6 +732,24 @@ def _agent_extra_worktrees(con) -> None:
         con.execute("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
 
 
+def _transcript_events(con) -> None:
+    """A structured session's events, numbered per agent (contract/protocol.md, Transcript stream). Only the Go daemon
+    writes them. Additive: a process that does not know the table never reads it."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS transcript_events (
+          agent   TEXT    NOT NULL,
+          seq     INTEGER NOT NULL,
+          session TEXT    NOT NULL,
+          turn    TEXT,
+          at      INTEGER NOT NULL,
+          kind    TEXT    NOT NULL,
+          item    INTEGER,
+          body    TEXT    NOT NULL,
+          PRIMARY KEY (agent, seq)
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -743,6 +761,7 @@ MIGRATIONS = [
     (8, "operations", _operations, True),
     (9, "devices", _devices, True),
     (10, "agent_extra_worktrees", _agent_extra_worktrees, True),
+    (11, "transcript_events", _transcript_events, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

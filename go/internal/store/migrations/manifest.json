@@ -48,5 +48,10 @@
   "version": 10,
   "name": "agent_extra_worktrees",
   "additive": true
+ },
+ {
+  "version": 11,
+  "name": "transcript_events",
+  "additive": true
  }
 ]

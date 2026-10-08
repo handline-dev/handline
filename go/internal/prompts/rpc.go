@@ -214,11 +214,11 @@ type Structured interface {
 // apply; the prompt is named by its id as always, and a different open prompt is stale.
 func (e *Env) answerStructured(c *rpc.Conn, name, prompt string, choice any) (any, error) {
 	key, _ := choice.(string)
-	if key != "yes" && key != "no" && key != "esc" {
-		return nil, bad("this prompt offers esc, no, yes", "choice")
+	if key != "allow" && key != "deny" {
+		return nil, bad("this prompt offers allow, deny", "choice")
 	}
 	me, _ := c.Caller.ActorInfo()["name"].(string)
-	err := e.Structured.Answer(name, prompt, key == "yes", "", me)
+	err := e.Structured.Answer(name, prompt, key == "allow", "", me)
 	if errors.Is(err, structured.ErrStale) || errors.Is(err, structured.ErrNoPrompt) {
 		current, qerr := e.Reads.OpenPrompt(name)
 		if qerr != nil {
@@ -229,6 +229,6 @@ func (e *Env) answerStructured(c *rpc.Conn, name, prompt string, choice any) (an
 	if err != nil {
 		return nil, err
 	}
-	said := name + ": answered " + map[string]string{"yes": "Yes", "no": "No", "esc": "No"}[key]
+	said := name + ": answered " + map[string]string{"allow": "Allow", "deny": "Deny"}[key]
 	return map[string]any{"accepted": true, "said": said}, nil
 }
