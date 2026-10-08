@@ -45,7 +45,7 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 		}
 	}
 	refused("not the opener", release("else", "a1", 1, ""), "task T1 can only be edited by whoever opened it (boss) or the founder")
-	refused("unknown", release("boss", "a2", 99, ""), "no task T99")
+	refused("unknown", release("boss", "a2", 99, ""), fmt.Sprintf("no task T%d", 99))
 	refused("not doing", release("boss", "a3", 5, ""), "task T5 is queued, not doing - nothing to release")
 	refused("through a child", release("boss", "a4", 3, ""), "task T3 is doing through its child T4 - release it there")
 	if e := errText(release("boss", "a5", 1, `,"to":"draft"`)); e != "to is not served yet" {
