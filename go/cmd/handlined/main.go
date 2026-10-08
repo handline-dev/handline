@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/version"
@@ -82,6 +83,7 @@ func main() {
 	serveNetFDs := flag.String("serve-net-fds", "", "like -serve-fds, but each connection is served as one of the network listener's "+
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	ownPrompts := flag.Bool("own-prompts", false, "run the screen watch that writes prompt_blocks: this daemon is then the only writer, so it takes the daemon singleton and does not start beside a Python daemon, and is refused with -gateway")
+	structuredCLI := flag.String("structured-cli", "", "the claude binary structured sessions run: with it the daemon builds the structured manager and serves the transcript for the agents whose agent.yaml says mode: structured; empty runs none")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -94,6 +96,11 @@ func main() {
 	}
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
+	if *structuredCLI != "" && !*gateway {
+		parts := compose.New(compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI,
+			ConfigDir: func(string) string { return "" }, Args: []string{"--setting-sources", "project"}})
+		cfg.Transcript, cfg.Structured, cfg.Agents, cfg.OnOpen = parts.Sink, parts.Kind, parts.Agents, parts.Bind
+	}
 	if *gateway {
 		for _, n := range strings.Split(*native, ",") {
 			if n = strings.TrimSpace(n); n != "" {
