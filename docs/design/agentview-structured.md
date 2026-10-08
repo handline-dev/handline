@@ -44,7 +44,7 @@ The word is made in the order Python makes it, from the row, with the session as
 
 `Env.RefreshOne` is the reconciler's `RefreshView` port (after a sweep records a gone session, after a wake). `Env.Refresh` is one of
 the tick's guarded passes (`Tick.Passes`), placed where Python refreshes: after the blocked sweep and the spool, before auto-accept. It
-stores every structured agent's view and deletes the row of an agent that is gone. Terminal agents are skipped by `RefreshOne`. The
+stores every structured agent's view. It deletes the row of an agent that is gone only at the cutover (`-cutover`, `Env.DropGone`): until the Python daemon stops it keeps the rows of terminal agents and the Go tick writes no row but a structured agent's, nor polls usage (`TickConfig.Cutover` is the one switch for both). The Python view pass leaves a structured agent's row alone in turn. Terminal agents are skipped by `RefreshOne`. The
 composition root wires both.
 
 ## Tests

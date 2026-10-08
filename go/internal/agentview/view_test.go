@@ -171,9 +171,14 @@ func TestARowForAnAgentThatIsGoneGoesAndAFailingAgentKeepsItsLast(t *testing.T) 
 	if _, err := r.env.Q.Exec("INSERT INTO agent_view(agent, view, updated) VALUES('old', '{}', 1)"); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.env.Refresh(); err != nil {
+	if err := r.env.Refresh(); err != nil { // DropGone off: a row not written here stays
 		t.Fatal(err)
 	}
+	var kept int
+	if err := r.env.Q.QueryRow("SELECT count(*) FROM agent_view WHERE agent = 'old'").Scan(&kept); err != nil || kept != 1 {
+		t.Fatalf("a row this Env does not write was dropped (%d, %v)", kept, err)
+	}
+	r.env.DropGone = true
 	before := r.stored(t, "b")
 	r.bg.wallErr["b"] = errors.New("db is locked")
 	r.state(t, "a", states.Running, "")
