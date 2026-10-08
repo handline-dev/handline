@@ -580,15 +580,14 @@ func (ch *Channel) Notify(method string, params map[string]any) int {
 type Hub struct {
 	host func() Host
 
-	mu      sync.Mutex
-	text    map[string]*Channel
-	styled  map[string]*Channel
-	restore map[string][2]int // handle -> the size before a resize, put back when its holder leaves
+	mu     sync.Mutex
+	text   map[string]*Channel
+	styled map[string]*Channel
 }
 
 // NewHub is a hub whose channels read the terminals of host().
 func NewHub(host func() Host) *Hub {
-	return &Hub{host: host, text: map[string]*Channel{}, styled: map[string]*Channel{}, restore: map[string][2]int{}}
+	return &Hub{host: host, text: map[string]*Channel{}, styled: map[string]*Channel{}}
 }
 
 func (h *Hub) store(fmt string) map[string]*Channel {
@@ -653,21 +652,4 @@ func (h *Hub) reap(handle, fmt string) {
 		}
 		ch.mu.Unlock()
 	}
-}
-
-// Restore remembers the size a terminal had before its holder resized it, unless one is remembered already.
-func (h *Hub) Restore(handle string, cols, rows int) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.restore[handle]; !ok {
-		h.restore[handle] = [2]int{cols, rows}
-	}
-}
-
-func (h *Hub) takeRestore(handle string) ([2]int, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v, ok := h.restore[handle]
-	delete(h.restore, handle)
-	return v, ok
 }

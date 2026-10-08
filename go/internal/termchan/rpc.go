@@ -2,16 +2,12 @@ package termchan
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sync"
 	"time"
 
-	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/inputhold"
-	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
@@ -27,15 +23,9 @@ import (
 // leaves. A terminal account.login opened belongs to no agent: it can be watched, has no holder, and is not resized.
 
 const (
-	DefaultHistory  = 100
-	MaxHistory      = 2000
-	MaxCols         = 500
-	MaxRows         = 200
-	MaxInput        = 16384
-	typingElsewhere = "someone else is typing at this agent"
+	DefaultHistory = 100
+	MaxHistory     = 2000
 )
-
-var base64RE = regexp.MustCompile(`^[A-Za-z0-9+/]*={0,2}$`)
 
 // Env is what the terminal methods share.
 type Env struct {
@@ -96,17 +86,12 @@ func (e *Env) controlLink() *ControlLink {
 	return e.link
 }
 
-// Register adds the terminal and input methods, and makes this the channel that is told when a holder changes.
+// Register adds the terminal methods.
 func Register(s *rpc.Server, e *Env) {
-	inputhold.Changed = e.holdersChanged
 	s.Capabilities = capabilities
 	s.Register("terminal.attach", rpc.Method{Role: "member", Handler: e.attach})
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
-	s.Register("terminal.resize", rpc.Method{Role: "member", Write: true, Handler: e.resize})
-	s.Register("terminal.input", rpc.Method{Role: "member", Write: true, Handler: e.input})
-	s.Register("input.take", rpc.Method{Role: "member", Write: true, Handler: e.take})
-	s.Register("input.release", rpc.Method{Role: "member", Write: true, Handler: e.release})
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
@@ -273,7 +258,14 @@ func (e *Env) holders(agent string) ([]map[string]any, error) {
 	if agent == "" {
 		return []map[string]any{}, nil
 	}
-	return inputhold.View(e.DB, e.Home, agent, e.now())
+	r, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return []map[string]any{daemonHolder()}, nil
+	}
+	return []map[string]any{{"kind": r.Kind, "name": r.Name, "since": time.Unix(r.Since, 0).UTC().Format("2006-01-02T15:04:05Z")}}, nil
 }
 
 func daemonHolder() map[string]any {
@@ -418,230 +410,6 @@ func (e *Env) history(_ *rpc.Conn, params map[string]any) (any, error) {
 		return ch.HistoryPage(before, limit), nil
 	}
 	return map[string]any{"first": 0, "lines": []any{}, "more": false}, nil
-}
-
-func callerName(c *rpc.Conn) string {
-	n, _ := c.Caller.ActorInfo()["name"].(string)
-	return n
-}
-
-func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
-	cols, err := intParam(params, "cols", 10, MaxCols)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := intParam(params, "rows", 3, MaxRows)
-	if err != nil {
-		return nil, err
-	}
-	handle, agent, err := e.handleOf(map[string]any{"terminal": params["terminal"]})
-	if err != nil {
-		return nil, err
-	}
-	if agent == "" {
-		return nil, rpc.Refused("a login terminal has no input holder to resize it", "input_holder", "")
-	}
-	me := callerName(c)
-	holder, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
-	if err != nil {
-		return nil, err
-	}
-	if holder == nil || holder.Name != me {
-		who := "; the daemon does"
-		if holder != nil {
-			who = "; " + holder.Name + " does"
-		}
-		return nil, rpc.Refused("only whoever holds the terminal's input may resize it"+who, "input_holder", "")
-	}
-	h := e.host()
-	bc, br, hadSize := h.Size(handle)
-	if ok, why := h.Resize(handle, cols, rows); !ok {
-		return nil, rpc.Refused(fmt.Sprintf("%s's terminal host cannot resize it: %s", agent, why), "unsupported", "")
-	}
-	if hadSize {
-		e.Hub.Restore(handle, bc, br)
-	}
-	for _, ch := range e.Hub.OpenAll(handle) {
-		ch.setSize(cols, rows)
-		ch.Notify("resize", map[string]any{"cols": cols, "rows": rows})
-	}
-	e.Bytes.Resized(handle) // a bytes attach is sent a snapshot, reason resize, and no resize notice
-	if err := inputhold.Touch(e.DB, agent, me, e.now()); err != nil {
-		return nil, err
-	}
-	return map[string]any{"accepted": true, "said": fmt.Sprintf("%s: terminal is %d by %d", agent, cols, rows)}, nil
-}
-
-// input is keystrokes and pasted bytes, from the input holder alone: refused while the daemon holds the input, and for a login
-// terminal, which has none. Recorded as an event of the agent (kind type) by who sent it, with the byte count and never the bytes.
-func (e *Env) input(c *rpc.Conn, params map[string]any) (any, error) {
-	data, ok := params["data"].(string)
-	if !ok || !base64RE.MatchString(data) {
-		return nil, bad("data is base64", "data")
-	}
-	raw, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil, bad("data is base64", "data")
-	}
-	if len(raw) < 1 || len(raw) > MaxInput {
-		return nil, bad(fmt.Sprintf("data is 1 to %d bytes", MaxInput), "data")
-	}
-	_, agent, err := e.handleOf(map[string]any{"terminal": params["terminal"]})
-	if err != nil {
-		return nil, err
-	}
-	handle, _ := params["terminal"].(string)
-	if agent == "" {
-		return nil, rpc.Refused("a login terminal has no input holder to take its keystrokes", "input_holder", "")
-	}
-	if lock.TerminalBusy(e.Home, agent) {
-		return nil, rpc.Refused(agent+": "+typingElsewhere, "terminal_lock", "")
-	}
-	me := callerName(c)
-	holder, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
-	if err != nil {
-		return nil, err
-	}
-	if holder == nil {
-		return nil, rpc.Refused(agent+"'s input is held by the daemon: take it first", "input_holder", "")
-	}
-	if holder.Name != me {
-		return nil, rpc.Refused(inputhold.HeldWhy(agent, holder.Name), "input_holder", "")
-	}
-	h := e.host()
-	if !h.Backend.Available() || !h.ServesBytes() {
-		return nil, rpc.Refused(fmt.Sprintf("the terminal host (%s) cannot send raw bytes", h.Backend.Name()), "unsupported", "")
-	}
-	hold := lock.TakeTerminal(e.Home, agent)
-	if hold == nil {
-		return nil, rpc.Refused(agent+": typing is going on elsewhere", "terminal_lock", "")
-	}
-	sent, why := h.SendBytes(handle, raw)
-	hold.Release()
-	if !sent {
-		return nil, rpc.Refused(fmt.Sprintf("%s: nothing sent - %s", agent, why), "state", "")
-	}
-	result, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		if _, err := db.AddEvent(tx, agent, "type", db.KV{K: "actor", V: c.Caller.ActorInfo()}, db.KV{K: "bytes", V: len(raw)}); err != nil {
-			return nil, err
-		}
-		return map[string]any{"accepted": true, "said": fmt.Sprintf("%s: %d bytes sent", agent, len(raw))}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := inputhold.Touch(e.DB, agent, me, e.now()); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func (e *Env) inputAgent(params map[string]any) (string, error) {
-	name, _ := params["agent"].(string)
-	if name == "" {
-		return "", bad("agent is a name", "agent")
-	}
-	if !has(paths.ListAgents(e.Home), name) {
-		return "", notFound("no such agent: "+name, "agent", name)
-	}
-	return name, nil
-}
-
-// holderKind is the spec's holder kind of the caller: a person, or a device.
-func holderKind(c *rpc.Conn) string {
-	if c.Caller.Info["kind"] == "device" {
-		return "device"
-	}
-	return "person"
-}
-
-// holderGate refuses a call while a person or device other than the caller holds the input. The daemon holding it is a short hold, not
-// a refusal.
-func (e *Env) holderGate(c *rpc.Conn, agent string) error {
-	row, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
-	if err != nil {
-		return err
-	}
-	if row != nil && row.Name != callerName(c) {
-		return rpc.Refused(inputhold.HeldWhy(agent, row.Name), "input_holder", "")
-	}
-	return nil
-}
-
-func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
-	agent, err := e.inputAgent(params)
-	if err != nil {
-		return nil, err
-	}
-	if err := e.holderGate(c, agent); err != nil {
-		return nil, err
-	}
-	won, err := inputhold.Take(e.DB, e.Home, agent, holderKind(c), callerName(c), e.now())
-	if err != nil {
-		return nil, err
-	}
-	if !won { // another took it first
-		if err := e.holderGate(c, agent); err != nil {
-			return nil, err
-		}
-		return nil, rpc.Refused(agent+"'s terminal was taken by someone else", "input_holder", "")
-	}
-	holders, err := inputhold.View(e.DB, e.Home, agent, e.now())
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"accepted": true, "said": agent + ": you hold its input", "holder": holders[0]}, nil
-}
-
-func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
-	agent, err := e.inputAgent(params)
-	if err != nil {
-		return nil, err
-	}
-	row, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
-	if err != nil {
-		return nil, err
-	}
-	if row == nil {
-		return map[string]any{"accepted": true, "said": agent + ": the daemon already holds its input"}, nil
-	}
-	if err := e.holderGate(c, agent); err != nil { // only its holder gives it back
-		return nil, err
-	}
-	if err := inputhold.Release(e.DB, e.Home, agent, e.now()); err != nil {
-		return nil, err
-	}
-	return map[string]any{"accepted": true, "said": agent + ": its input is the daemon's again"}, nil
-}
-
-// holdersChanged sends holder to every client of agent's terminal; a size taken for a holder that left is given back. This runs
-// wherever the hold is found to have changed, an idle expiry noticed by a gate check included, so a host resize can run from a read path.
-func (e *Env) holdersChanged(agent string, holders []map[string]any) {
-	handle, err := e.terminalOf(agent)
-	if err != nil || handle == "" {
-		return
-	}
-	open := e.Hub.OpenAll(handle)
-	hs := make([]any, len(holders))
-	for i, h := range holders {
-		hs[i] = h
-	}
-	for _, ch := range open {
-		ch.Notify("holder", map[string]any{"holders": hs, "format": ch.Fmt})
-	}
-	e.Bytes.Notify(handle, "holder", map[string]any{"holders": hs})
-	if holders[0]["kind"] != "daemon" {
-		return
-	}
-	if size, ok := e.Hub.takeRestore(handle); ok {
-		if done, _ := e.host().Resize(handle, size[0], size[1]); done {
-			for _, ch := range open {
-				ch.setSize(size[0], size[1])
-				ch.Notify("resize", map[string]any{"cols": size[0], "rows": size[1]})
-			}
-			e.Bytes.Resized(handle)
-		}
-	}
 }
 
 // Marker tells whoever watches agent's terminal that the daemon typed (daemon_typed) or a control call happened (control).

@@ -2,8 +2,8 @@
 // took it. While someone else holds it the daemon types nothing and presses nothing there. A holder who has not typed for
 // `input_hold_idle_s` loses the hold, found out whenever the hold is read.
 //
-// A change of holder (a take, a release, an idle loss) is an `input_holder` event of the agent and, through Changed, a `holder`
-// notice to whoever watches its terminal.
+// Only what a press needs is here: who holds, the refusal's words, and the holder's keystroke. Taking, releasing and the events
+// are the terminal channel's.
 package inputhold
 
 import (
@@ -11,7 +11,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
@@ -50,68 +49,6 @@ func IdleSeconds(home string) int64 {
 	return defaultIdleS
 }
 
-// Changed is told, after the event is written, whenever the holder of agent's input has changed; the terminal channel sets it.
-var Changed func(agent string, holders []map[string]any)
-
-// Daemon is the holder when no person or device holds: the spec's InputHolder.
-func daemonHolder() map[string]any {
-	return map[string]any{"kind": "daemon", "name": "daemon", "since": nil}
-}
-
-func stamp(epoch int64) string { return time.Unix(epoch, 0).UTC().Format("2006-01-02T15:04:05Z") }
-
-// View is the spec's InputHolder list: the person or device holding, else the daemon.
-func View(q *sql.DB, home, agent string, now time.Time) ([]map[string]any, error) {
-	r, err := Holder(q, home, agent, now)
-	if err != nil {
-		return nil, err
-	}
-	if r == nil {
-		return []map[string]any{daemonHolder()}, nil
-	}
-	return []map[string]any{{"kind": r.Kind, "name": r.Name, "since": stamp(r.Since)}}, nil
-}
-
-func changed(q *sql.DB, home, agent string, now time.Time) error {
-	holders, err := View(q, home, agent, now)
-	if err != nil {
-		return err
-	}
-	if _, err := db.AddEvent(q, agent, "input_holder", db.KV{K: "holders", V: holders}); err != nil {
-		return err
-	}
-	if Changed != nil {
-		Changed(agent, holders)
-	}
-	return nil
-}
-
-// Take holds agent's input as name: one statement that sets the row only when there is none or it is already name's, and says
-// whether it did, so two takes at once cannot both win. An idle hold is dropped first.
-func Take(q *sql.DB, home, agent, kind, name string, now time.Time) (bool, error) {
-	if _, err := Holder(q, home, agent, now); err != nil {
-		return false, err
-	}
-	res, err := q.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "+
-		"ON CONFLICT(agent) DO UPDATE SET last_typed = excluded.last_typed WHERE input_holders.name = excluded.name",
-		agent, kind, name, now.Unix(), now.Unix())
-	if err != nil {
-		return false, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return false, nil
-	}
-	return true, changed(q, home, agent, now)
-}
-
-// Release gives agent's input back to the daemon.
-func Release(q *sql.DB, home, agent string, now time.Time) error {
-	if _, err := q.Exec("DELETE FROM input_holders WHERE agent = ?", agent); err != nil {
-		return err
-	}
-	return changed(q, home, agent, now)
-}
-
 // Row is whoever holds an agent's input.
 type Row struct {
 	Kind, Name string
@@ -119,10 +56,10 @@ type Row struct {
 }
 
 // Holder is whoever holds agent's input, or nil when the daemon does; an idle hold is dropped here.
-func Holder(q *sql.DB, home, agent string, now time.Time) (*Row, error) {
+func Holder(db *sql.DB, home, agent string, now time.Time) (*Row, error) {
 	var r Row
 	var last int64
-	err := q.QueryRow("SELECT kind, name, since, last_typed FROM input_holders WHERE agent = ?", agent).Scan(&r.Kind, &r.Name, &r.Since, &last)
+	err := db.QueryRow("SELECT kind, name, since, last_typed FROM input_holders WHERE agent = ?", agent).Scan(&r.Kind, &r.Name, &r.Since, &last)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -130,16 +67,14 @@ func Holder(q *sql.DB, home, agent string, now time.Time) (*Row, error) {
 		return nil, err
 	}
 	if now.Unix()-last >= IdleSeconds(home) {
-		if _, err := q.Exec("DELETE FROM input_holders WHERE agent = ?", agent); err != nil {
-			return nil, err
-		}
-		return nil, changed(q, home, agent, now)
+		_, err := db.Exec("DELETE FROM input_holders WHERE agent = ?", agent)
+		return nil, err
 	}
 	return &r, nil
 }
 
 // Touch is the holder typing: the idle hold counts from now.
-func Touch(q *sql.DB, agent, name string, now time.Time) error {
-	_, err := q.Exec("UPDATE input_holders SET last_typed = ? WHERE agent = ? AND name = ?", now.Unix(), agent, name)
+func Touch(db *sql.DB, agent, name string, now time.Time) error {
+	_, err := db.Exec("UPDATE input_holders SET last_typed = ? WHERE agent = ? AND name = ?", now.Unix(), agent, name)
 	return err
 }

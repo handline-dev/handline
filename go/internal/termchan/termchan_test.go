@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
@@ -402,77 +401,6 @@ func gate(t *testing.T, err error) string {
 	return g
 }
 
-func TestTakingTheInputIsFirstComeAndReleasingIsTheHoldersAlone(t *testing.T) {
-	r := newRig(t)
-	r.agent(t)
-	out, err := r.e.take(person("pat"), map[string]any{"agent": "ann"})
-	if err != nil || out.(map[string]any)["holder"].(map[string]any)["name"] != "pat" {
-		t.Fatalf("%v %v", out, err)
-	}
-	if _, err := r.e.take(person("lee"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
-		t.Fatalf("a second taker is refused: %v", err)
-	}
-	if _, err := r.e.release(person("lee"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
-		t.Fatalf("only the holder releases: %v", err)
-	}
-	if _, err := r.e.release(person("pat"), map[string]any{"agent": "ann"}); err != nil {
-		t.Fatal(err)
-	}
-	out, _ = r.e.release(person("pat"), map[string]any{"agent": "ann"})
-	if !strings.Contains(out.(map[string]any)["said"].(string), "already holds") {
-		t.Fatalf("%v", out)
-	}
-	var n int
-	r.e.DB.QueryRow("SELECT count(*) FROM events WHERE kind = 'input_holder' AND agent = 'ann'").Scan(&n)
-	if n != 2 {
-		t.Fatalf("a take and a release are events, got %d", n)
-	}
-}
-
-func TestResizeIsTheHoldersAndTheSizeComesBackWhenTheyLeave(t *testing.T) {
-	r := newRig(t)
-	r.agent(t)
-	p := map[string]any{"terminal": "%1", "cols": json.Number("100"), "rows": json.Number("30")}
-	if _, err := r.e.resize(person("pat"), p); gate(t, err) != "input_holder" {
-		t.Fatalf("the daemon holding is refused too: %v", err)
-	}
-	r.e.take(person("pat"), map[string]any{"agent": "ann"})
-	if _, err := r.e.resize(person("pat"), p); err != nil {
-		t.Fatal(err)
-	}
-	if r.h.cols != 100 || r.h.nrows != 30 {
-		t.Fatalf("size %dx%d", r.h.cols, r.h.nrows)
-	}
-	if _, err := r.e.resize(person("pat"), map[string]any{"terminal": "%1", "cols": json.Number("120"), "rows": json.Number("40")}); err != nil {
-		t.Fatal(err)
-	}
-	inputholdChanged(r.e)
-	r.e.release(person("pat"), map[string]any{"agent": "ann"})
-	if r.h.cols != 80 || r.h.nrows != 24 {
-		t.Fatalf("the size before the first resize is given back: %dx%d", r.h.cols, r.h.nrows)
-	}
-}
-
-func TestInputIsTheHoldersAloneAndLeavesAnEventWithTheCountNotTheBytes(t *testing.T) {
-	r := newRig(t)
-	r.agent(t)
-	b64 := base64.StdEncoding.EncodeToString([]byte("ls\r"))
-	p := map[string]any{"terminal": "%1", "data": b64}
-	if _, err := r.e.input(person("pat"), p); gate(t, err) != "input_holder" {
-		t.Fatalf("held by the daemon: %v", err)
-	}
-	r.e.take(person("pat"), map[string]any{"agent": "ann"})
-	if _, err := r.e.input(person("lee"), p); gate(t, err) != "input_holder" {
-		t.Fatalf("held by another: %v", err)
-	}
-	for _, bad := range []string{"not base64!", "", base64.StdEncoding.EncodeToString(make([]byte, MaxInput+1))} {
-		_, err := r.e.input(person("pat"), map[string]any{"terminal": "%1", "data": bad})
-		if e, ok := err.(*rpc.Error); !ok || e.RPCCode != rpc.InvalidParams {
-			t.Fatalf("%q: %v", bad[:min(len(bad), 12)], err)
-		}
-	}
-}
-
 func TestAttachingTwiceToOneTerminalAndFormatKeepsTheSecond(t *testing.T) {
 	r := newRig(t)
 	r.agent(t)
@@ -501,9 +429,6 @@ func TestAttachingTwiceToOneTerminalAndFormatKeepsTheSecond(t *testing.T) {
 }
 
 func mkdir(p string) error { return os.MkdirAll(p, 0o755) }
-
-// inputholdChanged is a no-op: Register wires inputhold.Changed, and these tests call the methods directly.
-func inputholdChanged(e *Env) { inputhold.Changed = e.holdersChanged }
 
 func TestWidthFollowsPythonsRuleForEmojiAndCombiningMarks(t *testing.T) {
 	for r, want := range map[rune]int{'a': 1, '日': 2, '✅': 2, '❌': 2, '⚡': 2, '☕': 2, '⌚': 2, '🚀': 2, '🟢': 2, '́': 0, '‍': 1, '✓': 1} {

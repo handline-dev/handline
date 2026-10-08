@@ -9,9 +9,11 @@ agent.unstall
 agent.strip
 hr.decide
 inbox.answer
-input.ask
 inbox.mark_read
 inbox.reply
+input.ask
+input.release
+input.take
 schedule.add
 schedule.edit
 schedule.remove
@@ -30,6 +32,8 @@ task.cancel
 task.edit
 task.new
 terminal.close
+terminal.input
+terminal.resize
 worktree.set_status
 chat.refs
 chat.send
