@@ -27,6 +27,7 @@ export const reads = {
   'chat.requests': { resource: 'chat-requests' },
   'chat.refs': { resource: 'chat-refs', id: by('agent') },
   'chat.transcript': { resource: 'chat-transcript', id: by('agent'), feed: 'chat' },
+  'transcript.events': { resource: 'transcript', id: by('agent') }, // the stream is applied by seq by the transcript view; no feed yet
   'chat.locate': { resource: 'chat-locate' },
   'chat.search': { resource: 'chat-search' },
   'inbox.list': { resource: 'inbox', feed: 'inbox' },

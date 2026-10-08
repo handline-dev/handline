@@ -62,3 +62,4 @@ task.ask
 chat.cancel
 chat.seen
 progress.get
+transcript.events

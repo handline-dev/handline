@@ -27,6 +27,8 @@ import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { Knobs } from './knobs.ts';
+import { Replies } from './replies.ts';
+import { FakeTranscript } from './transcript.ts';
 import { watcherNotice } from './watchers.ts';
 import { accountsReply, detail, newSession, tid, view, type Attach, type Session } from './session.ts';
 
@@ -51,6 +53,7 @@ export interface FakeDaemonOptions {
   retention?: number; // events kept for resume; older ones give `gap`
   now?: () => Date;
   accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
+  transcript?: boolean; // serve the transcript stream (default); false is a daemon that does not yet
   admin?: boolean; // serve stats, outlook, settings and standing answers (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
@@ -75,13 +78,15 @@ export class FakeDaemon {
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;
   readonly admin: FakeAdmin;
+  /** The agents played as structured sessions and their transcript events; `transcript.push` and `ask` drive the stream. */
+  readonly transcript: FakeTranscript;
   private serveChat: boolean;
   private serveBytes: boolean;
   private events: WireEvent[] = [];
   private head = 0;
   private floor = 0; // cursor of the newest event dropped by retention
   private conns = new Set<Conn>();
-  private replies = new Map<string, { params: string; result: Record<string, unknown> }>();
+  private replies = new Replies();
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
@@ -121,6 +126,7 @@ export class FakeDaemon {
       (a) => this.sessions.get(a)?.state !== 'parked',
     );
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
+    this.transcript = new FakeTranscript(this, () => this.iso(), opts.transcript ?? true);
     seedChat(this.chat, this.iso());
   }
 
@@ -298,16 +304,7 @@ export class FakeDaemon {
   private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
     if (!spec?.write || typeof p.request_id !== 'string' || UNKEPT.has(method)) return this.dispatch(c, method, p);
-    const { request_id, ...rest } = p;
-    const sig = JSON.stringify(rest);
-    const kept = this.replies.get(request_id);
-    if (kept) {
-      if (kept.params !== sig) throw badRequest('That request_id was used for different params.', 'request_id');
-      return { ...kept.result, replayed: true };
-    }
-    const result = this.dispatch(c, method, p) as Record<string, unknown>;
-    this.replies.set(request_id, { params: sig, result });
-    return result;
+    return this.replies.once(p, () => this.dispatch(c, method, p) as Record<string, unknown>);
   }
 
   // Replayed events follow the subscribe reply, never precede it.
@@ -344,7 +341,7 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: this.serveChat, review: false, input_ask: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
+        capabilities: { chat: this.serveChat, transcript: this.transcript.on, review: false, input_ask: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
           .filter(([name]) => this.served.every((m) => m.lists(name)))
@@ -369,7 +366,7 @@ export class FakeDaemon {
     if (owned) return owned.value;
     const handler = HANDLERS[method];
     if (handler)
-      return handler({ c, p, actor, script: this.script, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
+      return handler({ c, p, actor, script: this.script, transcript: this.transcript, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
     switch (method as MethodName) {
       case 'whoami':
         return {
@@ -435,7 +432,7 @@ export class FakeDaemon {
 
   /** Everything that may leave a method out of what this daemon lists and serves. */
   private get served(): { lists(name: string): boolean }[] {
-    return [this.tasks, this.inbox, this.accounts, this.admin, this.knobs, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
+    return [this.tasks, this.inbox, this.accounts, this.admin, this.transcript, this.knobs, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
   }
 
   /** The fake modules' methods (accounts, stats and settings, inbox, tasks); null for a method none of them owns. */
