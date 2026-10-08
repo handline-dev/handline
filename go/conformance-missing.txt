@@ -22,11 +22,6 @@ terminal.close
 terminal.input
 terminal.resize
 stats.outlook
-settings.get
-task.begin
-task.handoff
-task.progress
-task.ask
 ask
 push
 push.answer
