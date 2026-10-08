@@ -256,3 +256,10 @@ func (a *AgentsPort) Live(agent string) bool       { return a.mgr.Has(agent) }
 func (a *AgentsPort) Send(agent, op, text string, d structured.Delivery) (structured.Receipt, error) {
 	return a.mgr.Send(agent, op, text, d)
 }
+
+func (a *AgentsPort) Withdraw(agent, op string) (structured.Receipt, bool, error) {
+	return a.mgr.Withdraw(agent, op)
+}
+func (a *AgentsPort) Promote(agent, op string) (structured.Receipt, error) {
+	return a.mgr.Promote(agent, op)
+}

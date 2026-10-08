@@ -3,6 +3,7 @@ package reads
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -204,8 +205,46 @@ func (c *chat) sendingReason(r row) (any, error) {
 	return "waiting for the agent", nil
 }
 
+// receiptOf is the receipt of a message to a structured agent: the state its session's ledger holds for the message, nil for a message
+// the session never took. Landing follows it: queued is queued, sent and unknown are typed, confirmed is delivered.
+func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) {
+	switch landing {
+	case "queued", "typed", "delivered", "delivered_unanswered":
+	default:
+		return nil, landing, nil
+	}
+	op, err := queryOne(c.e.DB, "SELECT state, result_json FROM operations WHERE kind = 'send' AND id = ?",
+		"send:"+r.str("target")+":request:"+strconv.FormatInt(r.i("id"), 10))
+	if err != nil {
+		return nil, landing, err
+	}
+	state := op.str("state")
+	if !op.set("state") || state == "withdrawn" {
+		return nil, landing, nil
+	}
+	var kept struct {
+		UUID string `json:"uuid"`
+	}
+	json.Unmarshal([]byte(op.str("result_json")), &kept)
+	switch state {
+	case "queued":
+		landing = "queued"
+	case "confirmed":
+		if landing == "queued" || landing == "typed" {
+			landing = "delivered"
+		}
+	default: // sent, unknown, and a word a later daemon adds
+		landing = "typed"
+	}
+	return map[string]any{"state": state, "uuid": kept.UUID}, landing, nil
+}
+
 func (c *chat) messageOf(r row) (map[string]any, error) {
 	state := landingOf(r)
+	receipt, state, err := c.receiptOf(r, state)
+	if err != nil {
+		return nil, err
+	}
 	verdict, hasVerdict := shownVerdict(r)
 	tasks := []any{}
 	var ids []int64
@@ -228,6 +267,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		if why, err = c.sendingReason(r); err != nil {
 			return nil, err
 		}
+		if receipt != nil && receipt["state"] == "unknown" {
+			why = "unknown"
+		}
 	}
 	stateAt := r["state_at"]
 	if r.i("state_at") == 0 {
@@ -238,10 +280,14 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		answer = map[string]any{"id": r.i("answer_id"), "text": verdict, "at": ts(answeredAt(r))}
 	}
 	dismissed, _, _ := dismissal(r)
-	return map[string]any{"id": r.i("id"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
+	m := map[string]any{"id": r.i("id"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
 		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
 		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
-		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}, nil
+		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
+	if receipt != nil {
+		m["receipt"] = receipt
+	}
+	return m, nil
 }
 
 func (c *chat) messagesOf(rs []row) ([]any, error) {

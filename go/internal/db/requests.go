@@ -764,3 +764,13 @@ type InboxFile struct {
 	Target string
 	RID    int64
 }
+
+// ReopenLanded puts a landed request back to queued: the one undo of landing, for a message the person may still cancel.
+func ReopenLanded(q Q, rid int64) (bool, error) {
+	res, err := q.Exec("UPDATE requests SET state = 'queued', state_at = ? WHERE id = ? AND state = 'landed'", Now(), rid)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}

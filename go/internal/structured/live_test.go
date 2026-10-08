@@ -49,7 +49,7 @@ func TestLiveCLI(t *testing.T) {
 	// The account's allow list (Bash(ls:*) on one account) would answer a prompt before can_use_tool fires, so the check does not
 	// depend on it twice over: only the project settings are read (an empty temp dir), and the command has a name nothing allows.
 	cwd := t.TempDir()
-	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: uuidFor(time.Now().String()), Args: []string{"--setting-sources", "project"}}
+	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: UUIDFor(time.Now().String()), Args: []string{"--setting-sources", "project"}}
 	s, err := Open(context.Background(), l, h, 60*time.Second)
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -69,7 +69,7 @@ func TestLiveCLI(t *testing.T) {
 	}
 	waitIdle()
 	t.Logf("state after turn 1: %q", s.State())
-	marker := filepath.Join(cwd, "live-check-"+uuidFor(time.Now().String())[:8])
+	marker := filepath.Join(cwd, "live-check-"+UUIDFor(time.Now().String())[:8])
 	s.Send("live-2", "Run the shell command `touch "+marker+"` with the Bash tool and tell me when it is done.", Now)
 	select {
 	case r := <-asked:

@@ -57,7 +57,7 @@ def send(params):
     op = led["ops"].get(rid)
     if op:
         if op["sig"] != _sig(params):
-            return "fail", err(-32602, "bad_request", field="request_id")
+            return "fail", err(-32600, "bad_request", field="request_id")
         if op["gone"]:
             return _refused("state", "that message was withdrawn")
         if op["state"] == "sent":       # a script, not a clock: the CLI's echo is taken to arrive between the send and its retry, so the retry is what confirms

@@ -280,8 +280,8 @@ func TestAnUnpinnedCLIIsRefused(t *testing.T) {
 }
 
 func TestAnOperationIdIsAValidUUIDAndTheSameEachTime(t *testing.T) {
-	a := uuidFor("x")
-	if a != uuidFor("x") || a == uuidFor("y") || len(a) != 36 || a[14] != '5' {
+	a := UUIDFor("x")
+	if a != UUIDFor("x") || a == UUIDFor("y") || len(a) != 36 || a[14] != '5' {
 		t.Fatal(a)
 	}
 }

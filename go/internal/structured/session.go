@@ -171,8 +171,8 @@ type entry struct {
 	timer          *time.Timer   // the echo deadline while Sent
 }
 
-// uuidFor is a valid UUID that is the same for the same operation id, so the CLI's echo names the operation.
-func uuidFor(op string) string {
+// UUIDFor is a valid UUID that is the same for the same operation id, so the CLI's echo names the operation.
+func UUIDFor(op string) string {
 	h := sha256.Sum256([]byte("handline-operation:" + op))
 	b := h[:16]
 	b[6] = b[6]&0x0f | 0x50
@@ -296,7 +296,7 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 		s.mu.Unlock()
 		return Receipt{}, errors.New("session closed")
 	}
-	e := &entry{op: op, uuid: uuidFor(op), text: text, delivery: d, state: Queued, settled: make(chan struct{})}
+	e := &entry{op: op, uuid: UUIDFor(op), text: text, delivery: d, state: Queued, settled: make(chan struct{})}
 	held := d == Queue && s.busy
 	if !held {
 		e.state = Sent

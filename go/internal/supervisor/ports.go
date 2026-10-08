@@ -124,6 +124,9 @@ type Agents interface {
 	// Send delivers text under the operation id. The same op twice writes once and answers the first receipt. Now joins a running turn; Queue is
 	// held until the turn ends. An error means nothing was written.
 	Send(agent, op, text string, d structured.Delivery) (structured.Receipt, error)
+	// Withdraw takes back a message still held behind a turn; ok is whether it was (also on a repeat). Promote writes a held message now.
+	Withdraw(agent, op string) (structured.Receipt, bool, error)
+	Promote(agent, op string) (structured.Receipt, error)
 }
 
 // Ports is every port; a nil field is an owner that has not landed yet.
