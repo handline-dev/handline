@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -143,6 +143,8 @@ export type AgentView = {
   }[];
   /** Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true). */
   wake_wait_reason?: string | null;
+  /** The daemon runs this agent as a structured session: the transcript topic and transcript.events serve it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too. */
+  structured?: boolean;
 };
 
 export type AgentDetail = AgentView & {
@@ -745,6 +747,8 @@ export type Capabilities = {
   terminal_format: ("text" | "bytes" | "styled")[];
   /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has. */
   terminal_hosts?: { [key: string]: string[] };
+  /** The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal. */
+  transcript?: boolean;
 };
 
 export type Listener = {
@@ -1004,6 +1008,90 @@ export type ScheduleError = {
   error: string;
 };
 
+/** One thing a structured session did, in order. Exactly the field named like `kind` is present besides the common ones (`text` for kind text). Events are never changed after they are sent. */
+export type TranscriptEvent = {
+  agent: AgentName;
+  /** The session id the event belongs to. A new session (a fresh start, not a resume) changes it; seq goes on. */
+  session: string;
+  /** Per agent, starting at 1, up by exactly 1 with each event, across sessions, never reused. A client ignores an event whose seq is not above the last it applied and reads transcript.events on a hole. */
+  seq: number;
+  turn: string | null;
+  at: Timestamp;
+  /** Open set: a client skips a kind it does not know. */
+  kind: "turn_start" | "text" | "tool_use" | "tool_result" | "permission" | "permission_answer" | "turn_end" | "error";
+  item: number | null;
+  /** kind text: one whole assistant text block (no partial deltas in v1). */
+  text?: string;
+  /** kind turn_start: a message began a turn. */
+  turn_start?: {
+    /** The message uuid. */
+    message: string;
+    from: string | null;
+    text: string;
+  };
+  /** kind tool_use: the model called a tool. */
+  tool_use?: {
+    /** The tool call's id; its tool_result and its permission carry it. */
+    id: string;
+    tool: string;
+    /** The tool's input as the model gave it. */
+    input: { [key: string]: unknown };
+  };
+  /** kind tool_result: what the tool returned. */
+  tool_result?: {
+    tool_use_id: string;
+    ok: boolean;
+    /** At most 64 KiB; longer output is cut and `truncated` is true. */
+    text: string;
+    truncated: boolean;
+  };
+  /** kind permission: a person is asked. Answered by prompt.answer, with choice allow or deny. */
+  permission?: {
+    tool_use_id: string;
+    /** kind permission; its id is tool_use_id; options are allow and deny; `reason` is the CLI's decision_reason. */
+    prompt: Prompt;
+  };
+  /** kind permission_answer: a tool call was allowed or denied. A call a policy decides has this event alone, with no permission before it. */
+  permission_answer?: {
+    tool_use_id: string;
+    behavior: "allow" | "deny";
+    /** person: prompt.answer. policy: the rule named in `rule`. cancel: the CLI withdrew the prompt. closed: the session closed or no handler answered (fail closed: deny). */
+    by: "person" | "policy" | "cancel" | "closed";
+    rule: string | null;
+    message: string | null;
+  };
+  /** kind turn_end: the turn is over. */
+  turn_end?: {
+    reason: "done" | "interrupted" | "error";
+    cost_usd: number;
+    duration_ms: number;
+    usage: {
+      input: number;
+      output: number;
+      cache_read: number;
+      cache_write: number;
+    };
+  };
+  /** kind error: the session or the CLI failed; a turn_end follows if a turn was running. */
+  error?: {
+    code: string;
+    text: string;
+  };
+};
+
+export type TranscriptEvents = {
+  events: TranscriptEvent[];
+  /** There are more in the direction asked. */
+  more: boolean;
+  /** The oldest seq the daemon still keeps for the agent; 0 when it has none. */
+  first_seq: number;
+  /** The newest seq of the agent; 0 when it has none. */
+  last_seq: number;
+  /** since_seq was older than first_seq - 1: the read starts at first_seq, and what lay between is gone. */
+  gap: boolean;
+  working: Working;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1234,6 +1322,15 @@ export interface Methods {
     more: boolean;
     working: Working;
   } };
+  "transcript.events": { params: {
+  agent: AgentName;
+  /** The events after this seq, oldest first. 0 or absent with no before_seq: the newest `limit` events, oldest first. */
+  since_seq?: number;
+  /** The page just older than this seq, oldest first. Not with since_seq. */
+  before_seq?: number;
+  /** 1 to 500, default 200. */
+  limit?: number;
+}; result: TranscriptEvents };
   "chat.locate": { params: {
   request: number;
   /** Optional: the daemon finds the conversation from the message itself. */
@@ -1927,6 +2024,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
   "chat.requests": { role: "member", callers: null, write: false, since: 1 },
   "chat.transcript": { role: "member", callers: null, write: false, since: 1 },
+  "transcript.events": { role: "member", callers: null, write: false, since: 1 },
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "agent.strip": { role: "member", callers: null, write: false, since: 1 },
   "chat.refs": { role: "member", callers: null, write: false, since: 1 },
