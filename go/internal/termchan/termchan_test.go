@@ -443,10 +443,13 @@ func TestResizeIsTheHoldersAndTheSizeComesBackWhenTheyLeave(t *testing.T) {
 	if r.h.cols != 100 || r.h.nrows != 30 {
 		t.Fatalf("size %dx%d", r.h.cols, r.h.nrows)
 	}
+	if _, err := r.e.resize(person("pat"), map[string]any{"terminal": "%1", "cols": json.Number("120"), "rows": json.Number("40")}); err != nil {
+		t.Fatal(err)
+	}
 	inputholdChanged(r.e)
 	r.e.release(person("pat"), map[string]any{"agent": "ann"})
 	if r.h.cols != 80 || r.h.nrows != 24 {
-		t.Fatalf("the size before is given back: %dx%d", r.h.cols, r.h.nrows)
+		t.Fatalf("the size before the first resize is given back: %dx%d", r.h.cols, r.h.nrows)
 	}
 }
 
@@ -550,21 +553,22 @@ func TestAFailedBatchDoesNotSkipTheCommandsOfTheNextOne(t *testing.T) {
 	p := newPipeProc()
 	l := linkOn(p)
 	l.Start()
-	res := make(chan string, 3)
+	res := make(chan string, 4)
 	cb := func(name string) func([]string) {
 		return func(lines []string) { res <- name + map[bool]string{true: ":nil", false: ":ok"}[lines == nil] }
 	}
 	l.BatchAsync([]string{"a", "b"}, []func([]string){cb("a"), cb("b")})
-	l.BatchAsync([]string{"c"}, []func([]string){cb("c")})
+	l.BatchAsync([]string{"c", "d"}, []func([]string){cb("c"), cb("d")})
 	p.line(t)
 	p.line(t)
 	p.fail()
 	p.reply("y")
+	p.reply("z")
 	var got []string
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		got = append(got, <-res)
 	}
-	if strings.Join(got, ",") != "a:nil,b:nil,c:ok" {
+	if strings.Join(got, ",") != "a:nil,b:nil,c:ok,d:ok" {
 		t.Fatalf("%v", got)
 	}
 }
