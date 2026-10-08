@@ -5,6 +5,7 @@ tools/test.sh     # every area file in parallel, no network, no tokens
 tools/test.sh tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
 tools/test.sh -k reconcile --write-labels before.txt   # a subset, labels saved
 tools/test.sh --diff-labels before.txt after.txt       # labels that changed state
+tools/check.sh main   # what a change needs: Go only for go/ and the apps, the whole suite otherwise
 ```
 
 `tools/test.sh` runs them under the machine's venv python, unbuffered, with `OCP_AGENT` unset and a
