@@ -24,8 +24,10 @@ export function Compose(props: {
   onClear?: () => void;
   /** Text to put back in the box (a message that was taken back); `n` tells one from the next. */
   restore?: { text: string; n: number } | null;
+  /** The agent is mid-turn: a message to a structured agent is then queued behind it or joins the turn. */
+  running?: boolean;
 }) {
-  const { agent, detail, storage, canSend, history, messages, target, onClear, restore } = props;
+  const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
   const act = useChatActions(agent);
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
@@ -37,6 +39,7 @@ export function Compose(props: {
   const [at, setAt] = useState(0);
   const [verb, setVerb] = useState<Verb | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
   const box = useRef<HTMLTextAreaElement>(null);
   const openTerminal = useOpenTerminal(detail);
@@ -75,12 +78,15 @@ export function Compose(props: {
   };
 
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
+  const choosing = !!running && !!view?.structured;
   const send = () => {
     if (!text.trim()) return;
+    const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
     if (target && isOpenAsk(target, agent)) act.answer(target.id, text);
-    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)) });
-    else act.send(text);
+    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
+    else act.send(text, { delivery });
+    setNow(false);
     onClear?.();
     set('');
     back.current = -1;
@@ -176,6 +182,11 @@ export function Compose(props: {
           <span className="compose-clear" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
           </span>
+        ) : null}
+        {choosing ? (
+          <label className="compose-now" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
+            <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
+          </label>
         ) : null}
         {canSend ? <EditorButton text={text} onText={set} /> : null}
         <Button

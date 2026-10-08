@@ -236,6 +236,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         target={target}
         onClear={() => setPicked(null)}
         restore={restore}
+        running={chat.working.turn_running}
       />
     </section>
   );

@@ -155,6 +155,7 @@ const ICONS = {
   answered: [CheckCheck, 'Answered'],
   dismissed: [CircleX, 'Dismissed'],
   failed: [CircleAlert, 'Not sent'],
+  maybeRan: [TriangleAlert, 'May or may not have run'],
   // chat: verbs
   send: [SendHorizontal, 'Send'],
   reference: [CornerUpLeft, 'Reply to this'],
