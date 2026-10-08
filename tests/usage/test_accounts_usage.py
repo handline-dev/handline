@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import subscriptions  # noqa: E402
+from handline.infra import timefmt  # noqa: E402
 
 
 
@@ -273,6 +274,25 @@ def test_pick_account_stale_and_unknown_pace(home: Path) -> None:
     allowed, why = status.read("stale_full").assignable()
     check("stale/unknown: a stale reading too close to the wall still "
           "refuses", not allowed, why)
+
+
+def test_a_stale_account_at_the_weekly_wall_is_refused_for_the_week(home: Path) -> None:
+    """The 5h window of a stale account has reset, so staleness is not what
+    blocks it: the 7d reading at the wall is, and the reason says so with the
+    week's reset. One with room takes work, and says it rolled over."""
+    os.environ["OCP_HOME"] = str(home)
+    now = int(time.time())
+    write_status(home, "walled", pct_5h=10, reset_5h=now - 600, pct_7d=100,
+                 reset_7d=now + 86400, collected_at=now - 54000)
+    st = status.read("walled")
+    ok, why = st.takes_work(0)
+    check("stale at the weekly wall: refused", not ok, why)
+    check("stale at the weekly wall: the reason is the week and its reset, not staleness",
+          why == f"7d 100% at last reading - resets {timefmt.stamp(now + 86400, timefmt.SHORT)}", why)
+    write_status(home, "room", pct_5h=10, reset_5h=now - 600, pct_7d=40,
+                 reset_7d=now + 86400, collected_at=now - 54000)
+    ok, why = status.read("room").takes_work(0)
+    check("stale with room in the week: takes work", ok and "rolled over" in why, why)
 
 
 def test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(home: Path) -> None:
@@ -6024,6 +6044,7 @@ def main() -> int:
         run(lambda: test_pick_account_degrades_when_every_account_would_hit_the_wall(
             Path(td) / 'allwall'))
         run(lambda: test_pick_account_stale_and_unknown_pace(Path(td) / 'staleknown'))
+        run(lambda: test_a_stale_account_at_the_weekly_wall_is_refused_for_the_week(Path(td) / 'staleweek'))
         run(lambda: test_live_refresh_asks_a_carried_old_candidate_before_refusing_it(
             Path(td) / 'liverefreshcarried'))
         run(lambda: test_live_refresh_checks_a_stale_idle_floor_before_admitting_it(
