@@ -21,6 +21,7 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+	starting map[string]bool // agents whose session is being started
 }
 
 // Has says whether agent has a live structured session.
@@ -38,12 +39,25 @@ func (m *Manager) Get(agent string) *Session {
 
 // Start checks the CLI version, starts agent's session and keeps it. A CLI that is not the pinned one is not started.
 func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, error) {
+	// Reserve the slot before the slow part, so two Starts for one agent never run two CLIs on one session.
 	m.mu.Lock()
-	if old := m.sessions[agent]; old != nil && old.ExitErr() == nil {
+	old := m.sessions[agent]
+	if m.starting[agent] || (old != nil && old.ExitErr() == nil) {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("%s already has a structured session", agent)
 	}
+	if m.starting == nil {
+		m.starting = map[string]bool{}
+	}
+	m.starting[agent] = true
 	m.mu.Unlock()
+	release := func() { m.mu.Lock(); delete(m.starting, agent); m.mu.Unlock() }
+	defer release()
+	if old != nil { // the process exited; prove its group is gone before another takes the session id
+		if err := old.Close(); err != nil {
+			return nil, err
+		}
+	}
 	want := m.CLIVersion
 	if want == "" {
 		want = PinnedCLI
