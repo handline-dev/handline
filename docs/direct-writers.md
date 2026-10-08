@@ -39,7 +39,7 @@ are listed first, then every writer found.
 |---|---|---|
 | account.cmd_account_remove | accounts.remove_account | **gap**: the spec has no account.remove; founder command |
 | agent.cmd_resume | set_agent_state, wake | method: session.wake (served) |
-| agent.cmd_unstall | actions.unstall | method: session.wake (founder), which unstalls a STALLED agent as the verb does |
+| agent.cmd_unstall | actions.unstall | method: session.wake (founder), which unstalls a STALLED agent as the verb does; agent.unstall is in the contract for the fake daemon only |
 | ask.cmd_cancel | actions.cancel_plan | **gap**: no method for cancelling a planned message; chat slice 2 |
 | ask.cmd_inbox | mark_delivered, mark_landed, answer verb | method: inbox.mark_read (slice b) |
 | ask.cmd_read | db.dismissal | **gap**: inbox.get, which also records the dismissal |
