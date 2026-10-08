@@ -114,6 +114,8 @@ func truthy(v any) bool {
 	case json.Number:
 		f, _ := x.Float64()
 		return f != 0
+	case float64:
+		return x != 0
 	case []any:
 		return len(x) > 0
 	case map[string]any:
