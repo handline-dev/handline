@@ -2732,14 +2732,13 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
     page._blocks_done, page._block_pressing, sent, said = set(), True, [], []
     page.send_block = lambda bid, kind, choice: sent.append((bid, kind, choice))
     page.block_result = lambda kind, ok, text: said.append((kind, ok, text))
-    page.block_picked(7, "permission", None, None)
-    page.block_picked(8, "dialog", (1, False), {"number": 1, "always": False})
-    page.block_asked(9, None)
-    page.block_asked(10, (True, "sent"))
+    page.block_picked("a", "permission", None, None)
+    page.block_picked("b", "dialog", ("1", False), "1")
+    page.block_asked("c", None)
+    page.block_asked("d", (True, "sent"))
     check("block modals: Esc sends a cancel, a pick sends the pick, a finished question sends nothing more",
-          sent == [(7, "permission", {"cancel": True}), (8, "dialog", {"number": 1, "always": False}),
-                   (9, "question", {"cancel": True})] and said == [("question", True, "sent")], str((sent, said)))
-    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
+          sent == [("a", "permission", "esc"), ("b", "dialog", "1"), ("c", "question", "esc")] and said == [("question", True, "sent")], str((sent, said)))
+    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {"a", "b", "c", "d"})
 
 
 def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
