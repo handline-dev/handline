@@ -172,7 +172,7 @@ func TestLiveHooks(t *testing.T) {
 		OnExit:     func(err error) { t.Logf("exit: %v", err) },
 	}
 	cwd := t.TempDir()
-	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: uuidFor(time.Now().String()),
+	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: UUIDFor(time.Now().String()),
 		Args: []string{"--setting-sources", "project", "--settings", settings}}
 	s, err := Open(context.Background(), l, h, 60*time.Second)
 	if err != nil {
