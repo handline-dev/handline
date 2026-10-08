@@ -11,13 +11,13 @@ import (
 
 // Five notices about work that has run long, all read from the db every tick.
 //
-// A task's own timeout (`ocp task new -t/--timeout`, T286) only counts while it is doing; past it, its opener is told, and again every
+// A task's own timeout (`ocp task new -t/--timeout`) only counts while it is doing; past it, its opener is told, and again every
 // further timeout_s stretch, until the task answers with one of `hl task edit --timeout` (continue) or `hl task release` (back to queued) -
 // or is simply done. An agent that shows RUNNING - working, or with background work behind its prompt - while nothing is asked of it tells
 // its supervisor once, so the manager can ask what it is doing. Background work with the agent silent for STALE_BG_S tells its supervisor it
 // may be stopped after a veto window. An agent IDLE with its current task's own wait never recorded tells the founder once, the Stop-hook
-// gate's own backstop (T288). An agent nudged to resolve a forgotten head as many times as the schedule allows, still open, tells its
-// supervisor once (T337) - nothing more is typed at the agent about it past that. The first three act on nothing.
+// gate's own backstop. An agent nudged to resolve a forgotten head as many times as the schedule allows, still open, tells its
+// supervisor once - nothing more is typed at the agent about it past that. The first three act on nothing.
 //
 // A notice to an agent is a line typed at its open session, so one that cannot be typed now is tried again; a notice to the human has no
 // session to type at and is an event.
@@ -160,12 +160,12 @@ func (b *Timebox) unaskedRunning(t *Tick, agent string, row *db.AgentState) bool
 	if row == nil || closedAt(row) || row.Terminal.String == "" || len(must(db.QueuedFor(t.Q, agent))) > 0 {
 		return false
 	}
-	// Background work does not exempt a RUNNING agent (T359): the sweeps that settle it leave an agent mid-turn alone, so this is its
+	// Background work does not exempt a RUNNING agent: the sweeps that settle it leave an agent mid-turn alone, so this is its
 	// one report.
 	if row.State != states.Running {
 		return false
 	}
-	return !b.Ports.ChildWait(t.Q, agent) // T443: waiting on a child of its own is a reason
+	return !b.Ports.ChildWait(t.Q, agent) // waiting on a child of its own is a reason
 }
 
 // SweepUnaskedRunning tells an agent's supervisor once that it has shown RUNNING for long with nothing asked of it.
@@ -254,9 +254,9 @@ func (b *Timebox) SweepForgottenBackground(t *Tick, now int64) {
 	}
 }
 
-// SweepBackgroundCheck (T450): every bg_check_s while an agent has background work, at a turn's end, it is told what is running and asked
+// SweepBackgroundCheck: every bg_check_s while an agent has background work, at a turn's end, it is told what is running and asked
 // to stop what it no longer needs - a shell nobody stops holds off the context rollover. Not the idle close: busy or idle, owing or not, a
-// "never close" agent too. It waits out a T424 notice already in flight.
+// "never close" agent too. It waits out a notice already in flight.
 func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 	for _, agent := range t.Host.Agents() {
 		key := "bg_check:" + agent
@@ -325,8 +325,8 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 	}
 }
 
-// SweepStopWaitBackstop is T288's own backstop: the clock starts the moment the task-level wait goes missing and only clears once it is
-// recorded or the task moves on - even to another with no recorded wait in between (T323); a RUNNING turn in between does not buy a fresh
+// SweepStopWaitBackstop is the gate's own backstop: the clock starts the moment the task-level wait goes missing and only clears once it is
+// recorded or the task moves on - even to another with no recorded wait in between; a RUNNING turn in between does not buy a fresh
 // 15 minutes. It only tells while IDLE now, once, past the limit.
 func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 	limit := t.Config.Seconds("stop_wait_backstop_s", StopWaitBackstopS)
@@ -363,7 +363,7 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 	}
 }
 
-// SweepForgottenResolveCapped (T337, founder #2002/#2003): the nudge about a forgotten head stops once its schedule is used up rather than
+// SweepForgottenResolveCapped: the nudge about a forgotten head stops once its schedule is used up rather than
 // typing at the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so its
 // supervisor is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
 // schedule is told again.

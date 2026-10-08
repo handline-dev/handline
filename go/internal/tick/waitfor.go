@@ -9,7 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// The wait-for graph over task_blocks (T296): what can never finish, told to the human once. A task waits on the tasks in task_blocks (a
+// The wait-for graph over task_blocks: what can never finish, told to the human once. A task waits on the tasks in task_blocks (a
 // blocked-by, or the block a child task gives its parent). Two shapes are stuck for good, both read from the db every tick, not caught at
 // the moment they arise: a cycle (add_block refuses one, but a merge or a reopen can still close a loop), and a wait on a blocker that was
 // discarded, which stops blocking, so the waiter quietly proceeds without what it waited for. Each goes to the founder once, as a decision,

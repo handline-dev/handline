@@ -148,11 +148,11 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	if h := must(db.InFlightFor(q, agent)); h != nil {
 		return
 	}
-	// T415: a clear held off by background work is settled before anything else is done for the agent.
+	// A clear held off by background work is settled before anything else is done for the agent.
 	if t.Handoff.SettleOwedClear(q, agent) {
 		return
 	}
-	// T351: whatever a message could not type at once gets one more try every tick, RUNNING included.
+	// Whatever a message could not type at once gets one more try every tick, RUNNING included.
 	t.Messaging.LandingSweep(q, agent)
 	t.Messaging.TellUndelivered(q, agent)
 	t.Messaging.DeliverPending(q, agent)
@@ -176,7 +176,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		// The streak is NOT cleared here: waking is the normal end of every park. It is cleared by a handoff that actually succeeds.
 		restored := closedAt(row)
 		if restored {
-			// A closed agent's edges are enforced by nothing else (T146 pt.1).
+			// A closed agent's edges are enforced by nothing else.
 			check(t.Delivery.EnforceEdges(q, agent))
 		}
 		var woke bool
