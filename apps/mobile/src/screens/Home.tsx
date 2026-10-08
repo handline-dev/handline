@@ -9,10 +9,11 @@ import { Accounts } from './Accounts.tsx';
 import { AgentList } from './AgentList.tsx';
 import { AgentPage } from './AgentPage.tsx';
 import { Inbox } from './Inbox.tsx';
+import { Stats } from './Stats.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Banner } from './parts.tsx';
 
-const TABS = ['agents', 'inbox', 'tasks', 'accounts'] as const;
+const TABS = ['agents', 'inbox', 'tasks', 'accounts', 'stats'] as const;
 type Tab = (typeof TABS)[number];
 
 export function Home(props: { store: Store; onUnpair: () => void }) {
@@ -37,6 +38,8 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
           <Tasks selected={task} onSelect={setTask} />
         ) : tab === 'accounts' ? (
           <Accounts selected={account} onSelect={setAccount} />
+        ) : tab === 'stats' ? (
+          <Stats />
         ) : (
           <AgentList onUnpair={props.onUnpair} />
         )}
@@ -62,7 +65,15 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
               }}
             >
               <Text style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
-                {t === 'agents' ? 'Agents' : t === 'inbox' ? `Inbox${unread ? ` (${unread})` : ''}` : t === 'tasks' ? 'Tasks' : 'Accounts'}
+                {t === 'agents'
+                  ? 'Agents'
+                  : t === 'inbox'
+                    ? `Inbox${unread ? ` (${unread})` : ''}`
+                    : t === 'tasks'
+                      ? 'Tasks'
+                      : t === 'accounts'
+                        ? 'Accounts'
+                        : 'Stats'}
               </Text>
             </Pressable>
           ))}
