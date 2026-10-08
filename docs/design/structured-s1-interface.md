@@ -26,3 +26,11 @@ Run from the sandbox with `LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v 
 - A signed-out account: the process stays alive, the assistant frame has `error: "authentication_failed"` and the result is `is_error` with "Not logged in"; exit status 1 only at close.
 - Model API unreachable: `system/api_retry` frames, ten attempts with growing delay (about 3 minutes in all), then a result with `is_error` and no text. A stall limit on `api_retry` is needed in S3.
 - NOT observed, still open: the `isReplay` echo on a successful turn, `priority:"now"` steering, `idle` after a turn and its order around a permission prompt, `can_use_tool` (no turn reached a tool), the `get_settings` shape (`effective.model`, `effective.permissions.defaultMode` are from the SDK types). Run the live test outside the sandbox once to settle these.
+
+## Known limits and rules for callers
+
+- `Close` proves the CLI's process group is gone, and every call proves it again, so a Close that failed is never reported as done by a retry. A descendant that leaves the group (setsid, a detached daemon) is not found; Orca walks the process tree, this does not.
+- `Policy.Allow` is by tool name with no input. The composition root must not put Bash, Write or Edit there; it should map the founder's dialog rules to narrower guards, or leave the call to be asked.
+- A written message the CLI never acknowledges within `EchoDeadline`, or that it queued and then cancelled, is `unknown`: not written again, and `WaitConfirmed` returns an error. A failed write is `unknown` too (it may have been partial); the error means the caller must not assume it was sent.
+- `Manager.Start` reserves the agent's slot first, so two Starts for one agent run one CLI; an exited session is closed (group proven gone) before it is replaced.
+- The send path (S4) can read `Receipt.State` from the session and drop a second ledger under the same key.

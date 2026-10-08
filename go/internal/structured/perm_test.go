@@ -17,6 +17,11 @@ type sink struct {
 }
 
 func (s *sink) Emit(_ string, ev Event) { s.mu.Lock(); s.all = append(s.all, ev); s.mu.Unlock() }
+func (s *sink) snapshot() []Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Event(nil), s.all...)
+}
 func (s *sink) types() (out []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

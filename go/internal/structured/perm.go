@@ -79,7 +79,6 @@ type Broker struct {
 type pending struct {
 	fingerprint string
 	toolUse     string
-	answered    bool // an answer is taken; guarded by Broker.mu
 	answer      chan Decision
 }
 
@@ -188,8 +187,16 @@ wait:
 			break wait
 		}
 	}
+	// Leave the table and take any answer sent meanwhile in one step with Answer, so a reported answer is the one that was used.
 	b.mu.Lock()
 	delete(b.waiting, agent)
+	if !answered {
+		select {
+		case d = <-p.answer:
+			answered = true
+		default:
+		}
+	}
 	b.mu.Unlock()
 	b.Store.Close(id, answered, answered && d.Allow, d.Message)
 	if !answered {
@@ -209,25 +216,25 @@ func (b *Broker) Has(agent string) bool {
 // Answer answers the prompt agent waits on. prompt is its fingerprint; a different one is ErrStale and nothing is sent. allow false
 // denies, and message is what the model is told.
 func (b *Broker) Answer(agent, prompt string, allow bool, message, by string) error {
-	b.mu.Lock()
-	p := b.waiting[agent]
-	if p == nil || p.answered {
-		b.mu.Unlock()
-		return ErrNoPrompt
-	}
-	if p.fingerprint != prompt {
-		b.mu.Unlock()
-		return ErrStale
-	}
-	p.answered = true
-	b.mu.Unlock()
 	d := Decision{Allow: allow, Message: message}
 	if !allow && d.Message == "" {
 		d.Message = "the user denied the tool call"
 	}
+	b.mu.Lock()
+	p := b.waiting[agent]
+	switch {
+	case p == nil:
+		b.mu.Unlock()
+		return ErrNoPrompt
+	case p.fingerprint != prompt:
+		b.mu.Unlock()
+		return ErrStale
+	}
+	delete(b.waiting, agent) // the prompt leaves the table in the same step as its answer is sent: one answer per prompt
 	// The event goes before the decision, so it comes before whatever the CLI does with it.
 	b.emit(agent, "permission_answer", map[string]any{"prompt": prompt, "tool_use": p.toolUse, "allow": allow, "by": by, "said": d.Message})
 	p.answer <- d // buffered, and taken once
+	b.mu.Unlock()
 	return nil
 }
 

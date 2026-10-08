@@ -282,7 +282,47 @@ func (r *rig) answered(asker string) {
 	rid := r.ask(asker, "alice", "q?", "ask")
 	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "the answer", Notify: true})
 	r.must(err)
-	if got, _ := db.UnannouncedAnswers(r.DB, asker); len(got) != 1 {
-		r.t.Fatalf("%d answers to announce", len(got))
+	if got, _ := db.UnannouncedAnswers(r.DB, asker); len(got) == 0 {
+		r.t.Fatal("no answer to announce")
+	}
+}
+
+func TestAnswersThatArriveWhileOthersAreHeldAreNotToldTwice(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.live["bob"] = false
+	r.answered("bob")
+	fa.live["bob"], fa.state = true, structured.Queued
+	r.DeliverAnswers(r.DB, "bob") // answer one is held behind the running turn
+	fa.live["bob"] = false
+	r.answered("bob") // a second one arrives during the same turn
+	fa.live["bob"] = true
+	r.DeliverAnswers(r.DB, "bob")
+	r.DeliverAnswers(r.DB, "bob")
+	var told int
+	for _, m := range fa.sent {
+		if strings.Contains(m.text, "the answer") {
+			told += strings.Count(m.text, "the answer")
+		}
+	}
+	if told != 2 {
+		t.Fatalf("the answers were written %d times in all, want once each: %+v", told, fa.sent)
+	}
+}
+
+func TestAWrittenAnswersBatchIsAnnouncedOnceNotAgainByItsEcho(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.live["bob"] = false
+	r.answered("bob")
+	fa.live["bob"] = true
+	if sent, _ := r.DeliverAnswers(r.DB, "bob"); !sent {
+		t.Fatal("not sent")
+	}
+	var op string
+	r.must(r.DB.QueryRow("SELECT substr(name, length('send:bob:')+1) FROM cursors WHERE name LIKE 'send:bob:answers:%'").Scan(&op))
+	r.must(r.SessionConfirmed(r.DB, "bob", op))
+	var n int
+	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'bob' AND kind = 'answered'").Scan(&n)
+	if n != 1 {
+		t.Fatalf("%d answered events", n)
 	}
 }
