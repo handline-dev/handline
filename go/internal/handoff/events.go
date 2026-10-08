@@ -29,3 +29,10 @@ func AtLimit(q db.Q, agent string) (map[string]any, error) {
 	data["at"] = ts
 	return data, nil
 }
+
+// RecordCommit is the git post-commit event: commit and diffstat, no model. The same commit is recorded once.
+func RecordCommit(q db.Q, agent, repo, sha, subject, diffstat string) error {
+	_, err := db.AddEventDeduped(q, agent, "commit", "commit:"+repo+":"+sha,
+		db.KV{K: "repo", V: repo}, db.KV{K: "sha", V: sha}, db.KV{K: "subject", V: cutRunes(subject, 200)}, db.KV{K: "diffstat", V: cutRunes(diffstat, 300)})
+	return err
+}

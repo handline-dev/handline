@@ -362,3 +362,19 @@ func TestAtLimitIsTheWallTheLastTurnEndedOn(t *testing.T) {
 		t.Errorf("no payload: %v", got)
 	}
 }
+
+func TestACommitIsRecordedOnceWithItsSubjectAndDiffstatCut(t *testing.T) {
+	w := newWorld(t)
+	for i := 0; i < 2; i++ {
+		if err := RecordCommit(w.DB, "a", "/r", "abc123", strings.Repeat("s", 250), strings.Repeat("d", 350)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	var payload string
+	w.DB.QueryRow("SELECT COUNT(*), MIN(payload) FROM events WHERE kind = 'commit'").Scan(&n, &payload)
+	want := `{"repo": "/r", "sha": "abc123", "subject": "` + strings.Repeat("s", 200) + `", "diffstat": "` + strings.Repeat("d", 300) + `"}`
+	if n != 1 || payload != want {
+		t.Errorf("%d events, payload %q", n, payload)
+	}
+}
