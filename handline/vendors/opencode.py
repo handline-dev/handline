@@ -43,6 +43,24 @@ class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_RefuseRedirect)
 
+GLM_BASE_URL = "https://api.z.ai/api/anthropic"
+
+
+def zai_key(config_dir: Path) -> str | None:
+    """The coding-plan key in this account's `opencode/auth.json`, read in memory, or None."""
+    try:
+        doc = json.loads((config_dir / "opencode" / "auth.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    key = (doc.get("zai-coding-plan") or {}).get("key") if isinstance(doc, dict) else None
+    return key if isinstance(key, str) and key.strip() else None
+
+
+def glm_env(config_dir: Path) -> dict[str, str]:
+    """Temporary, by the founder's word: what makes the Claude CLI run GLM on an account holding a coding-plan key, or {}."""
+    key = zai_key(config_dir)
+    return {"ANTHROPIC_BASE_URL": GLM_BASE_URL, "ANTHROPIC_AUTH_TOKEN": key} if key else {}
+
 
 
 class _Meter:
@@ -124,12 +142,8 @@ class Opencode:
         sometimes as a float and is rounded down the way the endpoint's own
         display does.
         """
-        try:
-            doc = json.loads((config_dir / "opencode" / "auth.json").read_text())
-        except (OSError, json.JSONDecodeError):
-            return None
-        key = (doc.get("zai-coding-plan") or {}).get("key") if isinstance(doc, dict) else None
-        if not isinstance(key, str) or not key.strip():
+        key = zai_key(config_dir)
+        if key is None:
             return None
         req = urllib.request.Request(
             self.QUOTA_URL,

@@ -37,6 +37,7 @@ import urllib.request
 
 from ..team import accounts
 from .base import Reading, Window
+from . import opencode
 from .claude import keychain_service
 from .. import vendors
 
@@ -205,4 +206,7 @@ class ClaudeMeter:
     renews_by_turn = True
 
     def read_usage(self, acct: str, refresh: bool = True) -> tuple[Reading | None, bool]:
+        # Temporary, by the founder's word: an account that runs GLM spends the coding plan, not claude's.
+        if opencode.zai_key(vendors.config_dir(acct)):
+            return vendors.get("opencode").meter().read_usage(acct, refresh)
         return _read_claude(acct, refresh)
