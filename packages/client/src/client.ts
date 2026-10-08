@@ -65,6 +65,7 @@ export class DaemonClient {
   private holders = new Map<string, number>(); // how many screens hold each agent's view
   private requestCounter = 0;
   private closing = false;
+  private opening = false;
 
   private opts: ClientOptions;
   constructor(opts: ClientOptions) {
@@ -97,11 +98,31 @@ export class DaemonClient {
     for (const fn of this.stateHandlers) fn(s);
   }
 
+  /** Connects and shakes hands. A connection that fails part way is closed here, and its retry is the caller's. */
   private async open(): Promise<void> {
     const t = await this.opts.connect();
     this.transport = t;
     t.onmessage = (m) => this.receive(t, m);
     t.onclose = () => this.lost(t);
+    this.opening = true;
+    try {
+      await this.handshake(t);
+    } catch (e) {
+      // Left open, it would stay connected to the daemon with no one reading it, one more for every retry.
+      t.onclose = null;
+      t.close();
+      if (this.transport === t) this.transport = null;
+      throw e;
+    } finally {
+      this.opening = false;
+    }
+    this.setState('open');
+    const waiters = this.waitingForOpen;
+    this.waitingForOpen = [];
+    for (const w of waiters) w.ok();
+  }
+
+  private async handshake(t: Transport): Promise<void> {
     const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null;
@@ -119,10 +140,6 @@ export class DaemonClient {
     // answers from its stored reply instead of repeating it.
     for (const p of this.pending.values()) this.transmit(p);
     await this.establish();
-    this.setState('open');
-    const waiters = this.waitingForOpen;
-    this.waitingForOpen = [];
-    for (const w of waiters) w.ok();
   }
 
   private async establish(): Promise<void> {
@@ -136,6 +153,8 @@ export class DaemonClient {
     this.transport = null;
     this.bytes.markStale();
     this.failInflightInternal();
+    // Lost while opening: `open` fails and whoever called it retries. A second loop here would double on every failure.
+    if (this.opening) return;
     const r = this.opts.reconnect;
     if (r === false) {
       this.setState('closed');
