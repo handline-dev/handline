@@ -131,3 +131,15 @@ func TestPruneTokensDropsWhatIsOlderThanSixtyDays(t *testing.T) {
 		t.Fatalf("%d %v", n, err)
 	}
 }
+
+func TestIngestPassesOverARecordLongerThanTheLimit(t *testing.T) {
+	e, q, dir := tokenEnv(t)
+	huge := strings.Repeat("x", MaxRecordBytes+1)
+	os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte(huge+"\n"+callLine+"\n"), 0o644)
+	if n, _ := e.IngestTokens(q, "a", 1024); n != 0 {
+		t.Fatalf("the record is passed over, not read: %d", n)
+	}
+	if n, _ := e.IngestTokens(q, "a", 1024); n != 1 {
+		t.Fatalf("the next tick starts after it: %d", n)
+	}
+}

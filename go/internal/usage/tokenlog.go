@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -27,7 +28,7 @@ const (
 	BackfillDays = 14
 	// BytesPerTick of transcript are read per account per tick, so the first run catches up a slice at a time.
 	BytesPerTick = 4 * 1024 * 1024
-	// MaxRecordBytes bounds the overspend on one record that does not fit the tick's budget; a longer line is left unread.
+	// MaxRecordBytes bounds the overspend on one record that does not fit the tick's budget; a longer one is passed over unread.
 	MaxRecordBytes = 64 * 1024 * 1024
 
 	offsetsMeta = "tokenoffsets:"
@@ -199,7 +200,12 @@ func (e *Env) IngestTokens(q db.Q, acct string, budget int) (int, error) {
 		if budget <= 0 {
 			break
 		}
-		chunk, end := readWhole(t.path, t.done, budget)
+		chunk, end, skip := readWhole(t.path, t.done, budget)
+		if skip > 0 {
+			budget -= skip
+			kept[t.key] = t.done + int64(skip)
+			continue
+		}
 		if end == 0 {
 			continue
 		}
@@ -226,33 +232,47 @@ func (e *Env) IngestTokens(q db.Q, acct string, budget int) (int, error) {
 }
 
 // readWhole reads up to budget bytes of the file from off and answers them with the length of the whole lines among them. A record
-// that does not fit the budget is read whole rather than stall the file forever, up to MaxRecordBytes.
-func readWhole(path string, off int64, budget int) ([]byte, int) {
+// that does not fit the budget is read whole rather than stall the file forever, up to MaxRecordBytes; a longer one is passed over
+// unread and skip is its length, so the next tick starts after it. A record the file ends inside is not whole yet.
+func readWhole(path string, off int64, budget int) (chunk []byte, end, skip int) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, 0
+		return nil, 0, 0
 	}
 	defer f.Close()
 	if _, err := f.Seek(off, io.SeekStart); err != nil {
-		return nil, 0
+		return nil, 0, 0
 	}
-	chunk, _ := io.ReadAll(io.LimitReader(f, int64(budget)))
-	end := bytes.LastIndexByte(chunk, '\n') + 1
-	if end == 0 && len(chunk) >= budget {
-		rest := bytes.Buffer{}
-		one := make([]byte, 1)
-		for rest.Len() < MaxRecordBytes {
-			if k, _ := f.Read(one); k == 0 {
-				return chunk, 0 // the file ends inside a record: not whole yet
-			}
-			rest.WriteByte(one[0])
-			if one[0] == '\n' {
-				chunk = append(chunk, rest.Bytes()...)
-				return chunk, len(chunk)
+	chunk, _ = io.ReadAll(io.LimitReader(f, int64(budget)))
+	end = bytes.LastIndexByte(chunk, '\n') + 1
+	if end > 0 || len(chunk) < budget {
+		return chunk, end, 0
+	}
+	br := bufio.NewReaderSize(f, 64<<10)
+	var rest []byte
+	n, over := 0, false
+	for {
+		part, err := br.ReadSlice('\n')
+		n += len(part)
+		if !over {
+			if len(chunk)+n > MaxRecordBytes {
+				over, rest = true, nil
+			} else {
+				rest = append(rest, part...)
 			}
 		}
+		if err == nil {
+			break
+		}
+		if err != bufio.ErrBufferFull {
+			return chunk, 0, 0
+		}
 	}
-	return chunk, end
+	if over {
+		return nil, 0, len(chunk) + n
+	}
+	chunk = append(chunk, rest...)
+	return chunk, len(chunk), 0
 }
 
 // PruneTokens is tokenlog.prune: delete calls older than the retention window and report how many.
