@@ -33,6 +33,11 @@ PAINT = b"printf 'A\\033[31mred\\033[0mB\\n'\n"
 THE: "Real"
 
 
+class ColouredWorld(gs.World):
+    """The scratch world whose `claude` paints its banner green."""
+    FAKE_CLAUDE = '#!/bin/sh\nprintf "\\033[32mfake claude ready\\033[0m\\n"\nwhile IFS= read -r line; do echo "got: $line"; done\n'
+
+
 def _texts(lines: list) -> list[str]:
     return [(x["text"] if isinstance(x, dict) else x) for x in lines]
 
@@ -53,7 +58,7 @@ def _have_tools() -> str | None:
 class Real:
     """The scratch world up, a paired connection, and the worker's pane at a shell prompt."""
 
-    def __init__(self, make_world=lambda: gs.World(False, None)) -> None:
+    def __init__(self, make_world=lambda: gs.World(False, None), leave_program: bool = False) -> None:
         self.ws = None
         os.environ["HANDLINE_TEST_REAL_TMUX"] = "1"      # the suite's stand-in tmux would refuse every call
         self.world = make_world()
@@ -66,8 +71,9 @@ class Real:
             # The daemon starts the worker by itself (it has a task waiting) in the fake claude. Ending that leaves a shell
             # at its prompt, which takes whatever a test types, as the contract's terminal_bytes fixtures do.
             self.wait_screen(lambda rows: any("ready" in t for t in rows))
-            self.type(b"\x04")
-            self.wait_screen(lambda rows: bool(rows) and rows[-1].rstrip().endswith("$"))
+            if not leave_program:
+                self.type(b"\x04")
+                self.wait_screen(lambda rows: bool(rows) and rows[-1].rstrip().endswith("$"))
         except BaseException:      # SystemExit included: the world's daemons, tmux server and scratch home must not outlive a failed start
             self.close()
             raise
@@ -208,6 +214,19 @@ def test_the_shared_client_drives_the_terminal_end_to_end() -> None:
     check("the painted row keeps its colour after the resize", bool(again) and bool(again[-1].get("spans")), str(again))
 
 
+def test_the_pane_the_daemon_launches_runs_the_fake_claude_the_test_put_in_place() -> None:
+    r = Real(lambda: ColouredWorld(False, None), leave_program=True)
+    try:
+        res = r.call("terminal.attach", {"agent": AGENT, "format": "styled"}).get("result") or {}
+        rows = [x for x in res.get("lines", []) if isinstance(x, dict) and x.get("text") == "fake claude ready"]
+        check("the banner of the test's fake is on the pane", len(rows) == 1, str(res.get("lines"))[-300:])
+        spans = rows[0].get("spans") if rows else []
+        check("the whole banner is green", [(s["from"], s["to"]) for s in spans] == [(0, 17)] and spans[0]["style"].get("fg") in (2, "2"), str(spans))
+        r.call("terminal.detach", {"terminal": res.get("terminal"), "format": "styled"})
+    finally:
+        r.close()
+
+
 def test_a_failed_start_stops_the_world() -> None:
     class Doomed:
         stopped = False
@@ -230,9 +249,11 @@ def main() -> int:
         if missing:
             for t in (test_styled_attach_shows_the_colour_the_program_painted, test_keys_in_come_back_as_a_styled_frame,
                       test_bytes_attach_snapshot_and_output, test_resize_by_the_holder_changes_the_pane_and_repaints,
-                      test_the_shared_client_drives_the_terminal_end_to_end):
+                      test_the_shared_client_drives_the_terminal_end_to_end,
+                      test_the_pane_the_daemon_launches_runs_the_fake_claude_the_test_put_in_place):
                 skip(t, missing)
             return
+        run(lambda: test_the_pane_the_daemon_launches_runs_the_fake_claude_the_test_put_in_place())
         global THE
         THE = Real()
         try:
