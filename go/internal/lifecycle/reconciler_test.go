@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -118,9 +120,9 @@ func TestReconcileWakesDueClosedAgentsAndKeepsAFailedWakeDue(t *testing.T) {
 	var enforced []string
 	woke, wakeOK := 0, false
 	r.Ports.Agents = func() []string { return []string{"a", "b", "new"} }
-	r.Ports.EnforceEdges = func(_ db.Q, a string) { enforced = append(enforced, a) }
-	r.Ports.WaitingFor = func(db.Q, string) bool { return true }
-	r.Ports.WakeAgent = func(db.Q, string) (bool, string) { woke++; return wakeOK, "no room" }
+	r.Ports.EnforceEdges = func(_ db.Q, a string) error { enforced = append(enforced, a); return nil }
+	r.Ports.WaitingFor = func(db.Q, string) (bool, error) { return true, nil }
+	r.Ports.WakeAgent = func(db.Q, string) (bool, string, error) { woke++; return wakeOK, "no room", nil }
 	r.Ports.QueuedOrIdle = func(q db.Q, a, why string) (string, error) {
 		return states.Idle, db.SetAgentState(q, a, states.Idle, 0, why)
 	}
@@ -221,5 +223,61 @@ func TestARunningAgentIsUnstuckOnlyWithTwoWitnesses(t *testing.T) {
 	}
 	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle || len(acts) != 1 || !strings.Contains(acts[0], "back to IDLE") {
 		t.Fatalf("%+v %v", row, acts)
+	}
+}
+
+func TestADescriptorShortageIsNotCountedAgainstTheAgent(t *testing.T) {
+	r, logs := newRec(t, nil)
+	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error {
+		return &fs.PathError{Op: "open", Path: "agent.yaml", Err: syscall.EMFILE}
+	}
+	db.StartHandoff(r.Q, "h1", "a", "", "idle", 0)
+	for i := 0; i < states.MaxFailedAttempts+1; i++ {
+		if _, err := r.Reconcile(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row != nil && (row.State == states.Stalled || row.FailedAttempts != 0) {
+		t.Fatalf("%+v", row)
+	}
+	if n := strings.Count(strings.Join(*logs, "\n"), "out of file descriptors"); n != 1 {
+		t.Fatalf("said %d times in one minute", n)
+	}
+}
+
+func TestOnlyAnAgentsOwnFailureStallsItAndTheDaemonsPropagates(t *testing.T) {
+	r, _ := newRec(t, nil)
+	db.StartHandoff(r.Q, "h1", "a", "", "idle", 0)
+	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error { return errors.New("database is locked") }
+	if _, err := r.Reconcile(); err == nil {
+		t.Fatal("a failed statement was counted against the agent")
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row != nil && row.FailedAttempts != 0 {
+		t.Fatalf("%+v", row)
+	}
+	// A wake that fails on the agent's own config counts against it; any other error ends the pass.
+	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error { return nil }
+	db.AdvanceHandoff(r.Q, "h1", "done", "finished", "")
+	db.SetAgentState(r.Q, "w", states.Parked, 4000, "")
+	db.SetTerminal(r.Q, "w", "t", "/wt")
+	db.SetClosed(r.Q, "w", "s")
+	r.Ports.EnforceEdges = func(db.Q, string) error { return nil }
+	r.Ports.WaitingFor = func(db.Q, string) (bool, error) { return true, nil }
+	r.Ports.QueuedOrIdle = func(db.Q, string, string) (string, error) { return states.Idle, nil }
+	r.Ports.WakeAgent = func(db.Q, string) (bool, string, error) { return false, "", &ConfigError{errors.New("bad yaml")} }
+	acts, err := r.Reconcile()
+	if err != nil || !strings.Contains(strings.Join(acts, "|"), "w: could not wake at reconciliation: bad yaml") {
+		t.Fatalf("%v %v", acts, err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "w"); row.FailedAttempts != 1 {
+		t.Fatalf("%+v", row)
+	}
+	r.Ports.WakeAgent = func(db.Q, string) (bool, string, error) { return false, "", errors.New("database is locked") }
+	if _, err := r.Reconcile(); err == nil {
+		t.Fatal("a database error at the wake disappeared")
+	}
+	r.Ports.WaitingFor = func(db.Q, string) (bool, error) { return false, errors.New("database is locked") }
+	if _, err := r.Reconcile(); err == nil {
+		t.Fatal("a database error reading what is waiting disappeared")
 	}
 }

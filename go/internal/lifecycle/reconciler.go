@@ -1,9 +1,13 @@
 package lifecycle
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -31,9 +35,9 @@ type ReconcilerPorts struct {
 	Observe          func(agents []string, terminals map[string]string) map[string]session.Observed // session/observe.observe
 	NoteSeen         func(seen map[string]session.Observed, at time.Time)                           // delivery's last look at the table
 	ResumeHandoff    func(q db.Q, h db.HandoffRow) error                                            // handoff.resume_handoff
-	EnforceEdges     func(q db.Q, agent string)                                                     // delivery.enforce_edges
-	WaitingFor       func(q db.Q, agent string) bool                                                // lifecycle.waiting_for
-	WakeAgent        func(q db.Q, agent string) (bool, string)                                      // lifecycle.wake_agent
+	EnforceEdges     func(q db.Q, agent string) error                                               // delivery.enforce_edges
+	WaitingFor       func(q db.Q, agent string) (bool, error)                                       // lifecycle.waiting_for
+	WakeAgent        func(q db.Q, agent string) (bool, string, error)                               // lifecycle.wake_agent
 	QueuedOrIdle     func(q db.Q, agent, why string) (string, error)                                // evaluate.queued_or_idle: the state it chose
 	RefreshView      func(q db.Q, agent string)                                                     // agentview.refresh_one
 	LiftLogin        func(q db.Q, agent string, row *db.AgentState, actions *[]string)              // login_expired.lift
@@ -55,9 +59,35 @@ type Reconciler struct {
 	Log   func(string)
 	Ports ReconcilerPorts
 
-	probeTurn int
-	saidDrawn map[string]string
+	probeTurn      int
+	saidExhaustion int64
+	saidDrawn      map[string]string
 }
+
+// ownFailure is an error that belongs to one agent - its unreadable agent.yaml or a file it needs - as against the daemon's own fault,
+// which the pass keeps propagating: the class Python's reconcile catches (ConfigError, UnicodeDecodeError, OSError).
+func ownFailure(err error) bool {
+	var cfg *ConfigError
+	var pathErr *fs.PathError
+	var linkErr *os.LinkError
+	var sysErr *os.SyscallError
+	var errno syscall.Errno
+	return errors.As(err, &cfg) || errors.As(err, &pathErr) || errors.As(err, &linkErr) || errors.As(err, &sysErr) || errors.As(err, &errno)
+}
+
+func isExhaustion(err error) bool {
+	return errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE)
+}
+
+// sayExhaustion says a descriptor shortage at most once a minute, so a spell of it does not become the log.
+func (r *Reconciler) sayExhaustion(err error, doing string) {
+	if now := r.now(); r.saidExhaustion == 0 || now-r.saidExhaustion >= exhaustionEveryS {
+		r.saidExhaustion = now
+		r.logf("out of file descriptors while %s: %v", doing, err)
+	}
+}
+
+const exhaustionEveryS = 60
 
 func (r *Reconciler) now() int64 {
 	if r.Ports.Now != nil {
@@ -99,6 +129,11 @@ func (r *Reconciler) ExpireHandoffs() ([]string, error) {
 // stallAgent counts one agent's own failure against it and stalls it once the streak reaches MaxFailedAttempts, rather than let it
 // wedge every other agent behind it. What counts as the agent's own is the caller's decision.
 func (r *Reconciler) stallAgent(agent string, actions *[]string, cause error, where string) error {
+	if isExhaustion(cause) {
+		// The daemon ran out of descriptors: no agent's fault, and three of these stalled every agent in the team.
+		r.sayExhaustion(cause, fmt.Sprintf("%s for %s", where, agent))
+		return nil
+	}
 	if err := db.BumpCounter(r.Q, agent, "failed_attempts", 1); err != nil {
 		return err
 	}
@@ -132,6 +167,9 @@ func (r *Reconciler) Reconcile() ([]string, error) {
 	}
 	for _, h := range rows {
 		if err := r.Ports.ResumeHandoff(r.Q, h); err != nil {
+			if !ownFailure(err) {
+				return actions, err
+			}
 			// One agent's unreadable agent.yaml must not leave every other handoff, and every due wake below, unresolved.
 			if e := r.stallAgent(h.Agent, &actions, err, fmt.Sprintf("could not resume handoff from step '%s'", h.Step)); e != nil {
 				return actions, e
@@ -154,10 +192,27 @@ func (r *Reconciler) Reconcile() ([]string, error) {
 		// A closed agent has no session left to notice its own wake_at, so it is woken here, before the deadline is cleared: a wake that
 		// failed - the dead terminal a reboot leaves is the ordinary way - has to stay due, or the agent sleeps until a human looks.
 		if closed {
-			r.Ports.EnforceEdges(r.Q, agent)
+			if err := r.Ports.EnforceEdges(r.Q, agent); err != nil {
+				return actions, err
+			}
 		}
-		if closed && row.Terminal.String != "" && r.Ports.WaitingFor(r.Q, agent) {
-			ok, why := r.Ports.WakeAgent(r.Q, agent)
+		waiting := false
+		if closed && row.Terminal.String != "" {
+			if waiting, err = r.Ports.WaitingFor(r.Q, agent); err != nil {
+				return actions, err
+			}
+		}
+		if waiting {
+			ok, why, err := r.Ports.WakeAgent(r.Q, agent)
+			if err != nil {
+				if !ownFailure(err) {
+					return actions, err
+				}
+				if e := r.stallAgent(agent, &actions, err, "could not wake at reconciliation"); e != nil {
+					return actions, e
+				}
+				continue
+			}
 			if !ok {
 				actions = append(actions, fmt.Sprintf("%s: could not wake at reconciliation, still due - %s", agent, why))
 				continue
