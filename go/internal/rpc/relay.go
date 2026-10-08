@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,65 +58,63 @@ func memberMay(name string) (known, allowed bool) {
 type Relay struct {
 	// Dial connects to it; a call fails at once when it cannot.
 	Dial func() (net.Conn, error)
-	// Capabilities, when set, is what hello asks for the terminal formats the daemon behind serves.
-	Capabilities func(device, name string) map[string]any
 }
 
+const gatewayIDPrefix = "gateway-hello-"
+
 const (
-	relayOpenWait    = 5 * time.Second
-	relayWriteWait   = 5 * time.Second
-	relayRetryMS     = 2000
-	capabilitiesWait = time.Second // a hello does not wait longer than this for the daemon's formats
+	relayOpenWait  = 5 * time.Second
+	relayWriteWait = 5 * time.Second
+	relayRetryMS   = 2000
+	helloWait      = time.Second // a hello does not wait longer than this for the daemon's own
 )
 
-// TerminalCapabilities asks the Python daemon, over a relay connection of its own for the device, which terminal formats
-// it serves (hello.capabilities.terminal_format and terminal_hosts): what the gateway says in its hello for the calls it
-// relays. Nil when the relay does not answer.
-func (r *Relay) TerminalCapabilities(device, name string) map[string]any {
-	up, err := r.Dial()
+// forget ends the wait for a reply of the gateway's own; one that comes later is dropped, not forwarded.
+func (rs *relaySession) forget(id string) {
+	rs.mu.Lock()
+	delete(rs.asked, id)
+	rs.mu.Unlock()
+}
+
+// relayHello asks the daemon for its own hello, over the device's relay session, and returns its result: what the daemon
+// serves (capabilities and methods) is what the gateway tells the device. Nil when the relay does not answer in time.
+func (c *Conn) relayHello(client string, protocol int64) map[string]any {
+	rs, err := c.relaySession()
 	if err != nil {
 		return nil
 	}
-	defer up.Close()
-	up.SetDeadline(time.Now().Add(capabilitiesWait))
-	open, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "relay.open",
-		"params": map[string]any{"device_id": device, "name": name, "role": "member"}})
-	hello, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "hello",
-		"params": map[string]any{"client": "gateway", "protocol": MinClient}})
-	br := bufio.NewReader(up)
-	if _, err := up.Write(append(open, '\n')); err != nil {
+	id := fmt.Sprintf("%s%d", gatewayIDPrefix, rs.next.Add(1))
+	got := make(chan []byte, 1)
+	rs.mu.Lock()
+	if rs.closed {
+		rs.mu.Unlock()
 		return nil
 	}
-	var opened struct {
-		Error any `json:"error"`
-	}
-	line, err := br.ReadBytes('\n') // the open's reply
-	if err != nil || json.Unmarshal(line, &opened) != nil || opened.Error != nil {
+	rs.asked[id] = got // a reply to it goes to this call, not to the device
+	rs.mu.Unlock()
+	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": "hello",
+		"params": map[string]any{"client": client, "protocol": protocol}})
+	rs.wmu.Lock()
+	rs.up.SetWriteDeadline(time.Now().Add(relayWriteWait))
+	_, err = rs.up.Write(append(raw, '\n'))
+	rs.wmu.Unlock()
+	if err != nil {
+		rs.forget(id)
+		rs.up.Close()
 		return nil
 	}
-	if _, err := up.Write(append(hello, '\n')); err != nil {
-		return nil
-	}
-	for {
-		line, err := br.ReadBytes('\n')
-		if err != nil {
+	select {
+	case line := <-got:
+		var m struct {
+			Result map[string]any `json:"result"`
+		}
+		if json.Unmarshal(line, &m) != nil {
 			return nil
 		}
-		var m struct {
-			ID     any `json:"id"`
-			Result struct {
-				Capabilities map[string]any `json:"capabilities"`
-			} `json:"result"`
-		}
-		if json.Unmarshal(line, &m) == nil && m.ID == float64(1) {
-			caps := map[string]any{}
-			for _, k := range []string{"terminal_format", "terminal_hosts"} {
-				if v, ok := m.Result.Capabilities[k]; ok {
-					caps[k] = v
-				}
-			}
-			return caps
-		}
+		return m.Result
+	case <-time.After(helloWait):
+		rs.forget(id)
+		return nil
 	}
 }
 
@@ -131,7 +131,9 @@ type relaySession struct {
 	up      net.Conn
 	wmu     sync.Mutex
 	mu      sync.Mutex
-	pending map[string]struct{} // ids of calls sent and not yet answered
+	pending map[string]struct{}    // ids of calls sent and not yet answered
+	asked   map[string]chan []byte // the gateway's own calls on the session, by id: their replies are not the device's
+	next    atomic.Int64
 	closed  bool
 }
 
@@ -202,7 +204,7 @@ func (c *Conn) relaySession() (*relaySession, error) {
 		return nil, relayDown()
 	}
 	up.SetDeadline(time.Time{})
-	rs := &relaySession{c: c, up: up, pending: map[string]struct{}{}}
+	rs := &relaySession{c: c, up: up, pending: map[string]struct{}{}, asked: map[string]chan []byte{}}
 	c.rs = rs
 	go rs.pump(br)
 	return rs, nil
@@ -251,6 +253,20 @@ func (rs *relaySession) forward(line []byte) {
 		Method string          `json:"method"`
 	}
 	if json.Unmarshal(line, &m) == nil && m.Method == "" && len(m.ID) > 0 {
+		var own string
+		if json.Unmarshal(m.ID, &own) == nil {
+			rs.mu.Lock()
+			ch, mine := rs.asked[own]
+			delete(rs.asked, own)
+			rs.mu.Unlock()
+			if mine {
+				ch <- line
+				return
+			}
+			if strings.HasPrefix(own, gatewayIDPrefix) {
+				return // a reply the gateway stopped waiting for
+			}
+		}
 		var id any
 		d := json.NewDecoder(bytes.NewReader(m.ID))
 		d.UseNumber()
