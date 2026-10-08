@@ -235,6 +235,23 @@ func Allowed(c *rpc.Conn, names ...string) error {
 	return nil
 }
 
+// AgentMay is whether an event may be sent to the agent `name`: a topic delivers to a role only what that role's read would return. An agent's
+// inbox.list is its own, its tasks are its own and its reports' (reach), and prompt.list is a member's. Whatever no rule names is not sent.
+// topic, typ and who (the event's agent, "" for none) are the event's.
+func AgentMay(name, topic, typ, who string, reach map[string]bool) bool {
+	switch topic {
+	case "accounts", "agents", "hr", "status":
+		return true
+	case "inbox":
+		return who == name
+	case "tasks":
+		return reach[who]
+	case "notifications":
+		return (typ == "account_out" || typ == "stall" || typ == "task_done") && reach[who]
+	}
+	return false
+}
+
 // Daemon reports whether name is a topic the Python daemon's stream_log holds (every topic but devices, which is this
 // gateway's own).
 func Daemon(name string) bool { return topics[name] && name != devicesTopic }

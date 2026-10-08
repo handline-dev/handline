@@ -386,6 +386,47 @@ def test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_sessi
     check("hl events: still works from an agent session", rc == 0, out.getvalue()[:200])
 
 
+def test_an_agent_is_sent_only_what_its_own_reads_would_return(home: Path) -> None:
+    """A topic delivers to a role only what that role's read returns: prompt.list is a member's, inbox.list is the agent's own, tasks are its own
+    and its reports'. The stream and the feed cut the events to that, and drop what no rule names."""
+    support._daemon_home(home, 20)
+    stream.HUB.subs.clear()
+    con = db.connect()
+    real = sessiontoken.agent_of
+    sessiontoken.agent_of = lambda pid: "frontend"
+    asked = {"agent": "backend", "kind": "permission", "command": "rm -rf /secret"}
+    try:
+        w = Wire()
+        w.call("hello", {"client": "t", "protocol": 1})
+        topics = ["notifications", "inbox", "tasks", "agents", "hr"]
+        w.call("subscribe", {"topics": topics})
+        sent = [stream.emit(con, "notifications", "prompt_asked", asked, agent="backend", title="backend asks"),
+                stream.emit(con, "notifications", "stall", {"agent": "frontend"}, agent="frontend", title="stalled"),
+                stream.emit(con, "notifications", "something_new", {"x": 1}, agent="frontend"),
+                stream.emit(con, "inbox", "inbox.added", {"id": "a"}, agent="backend"),
+                stream.emit(con, "inbox", "inbox.added", {"id": "b"}, agent="frontend"),
+                stream.emit(con, "tasks", "task.changed", {"id": 1}, agent="backend"),
+                stream.emit(con, "tasks", "task.changed", {"id": 2}, agent="frontend"),
+                stream.emit(con, "hr", "hr.changed", {}, agent=None)]
+        got = _notices(w, 4)
+        feed = w.call("events.feed", {"topics": topics, "since": sent[0]["cursor"] - 1})["result"]
+        w.close()
+    finally:
+        sessiontoken.agent_of = real
+    seen = [(n["params"]["topic"], n["params"]["type"], n["params"]["agent"]) for n in got]
+    want = [("notifications", "stall", "frontend"), ("inbox", "inbox.added", "frontend"), ("tasks", "task.changed", "frontend"), ("hr", "hr.changed", None)]
+    check("an agent is sent its own inbox and tasks, an open topic and the notifications about itself", seen == want, str(seen))
+    check("and nothing else: no prompt contents, no other agent's inbox or tasks, no event no rule names",
+          [(e["topic"], e["type"], e["agent"]) for e in feed["events"]] == want and "rm -rf" not in str(got) + str(feed), str(feed["events"]))
+    check("the feed's cursor is where the log was read to", feed["cursor"] == sent[-1]["cursor"], str(feed["cursor"]))
+    w = Wire()
+    w.call("hello", _hp())
+    full = w.call("events.feed", {"topics": topics, "since": sent[0]["cursor"] - 1})["result"]["events"]
+    w.close()
+    check("a member still gets all of it", len(full) == len(sent) and any("rm -rf" in str(e) for e in full), str(len(full)))
+    con.close()
+
+
 def test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(home: Path) -> None:
     _fresh(home)
     con = db.connect()
@@ -578,6 +619,7 @@ def main() -> int:
         run(lambda: test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(Path(td) / "s7c"))
         run(lambda: test_feed_unsubscribe_and_bad_requests(Path(td) / "s8"))
         run(lambda: test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_session(Path(td) / "s9"))
+        run(lambda: test_an_agent_is_sent_only_what_its_own_reads_would_return(Path(td) / "s9b"))
         run(lambda: test_a_resume_far_behind_but_within_the_limit_is_served_whole_then_live(Path(td) / "s11"))
         run(lambda: test_a_real_slow_client_is_still_dropped_after_a_replay(Path(td) / "s12"))
         run(lambda: test_the_watcher_goes_on_after_a_failure_anywhere_in_its_loop(Path(td) / "s13"))
