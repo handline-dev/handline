@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"sync"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -176,6 +177,12 @@ type Manager struct {
 	Status   StatusPort
 	Observe  Observer
 	Typing   Typing
+	// Run is the structured sessions; nil keeps every agent a terminal agent.
+	Run   Runner
+	NewID func() string // a new session id; random when nil
+
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
 
 	Now   func() int64
 	Sleep func(time.Duration)

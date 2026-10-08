@@ -50,6 +50,8 @@ type ReconcilerPorts struct {
 		ScreenBlocker(handle string) *term.Blocker
 		IdleNow(handle string) bool
 	}
+	// Run is the structured sessions; nil keeps every agent a terminal agent.
+	Run Runner
 	Now func() int64
 }
 
@@ -197,7 +199,7 @@ func (r *Reconciler) Reconcile() ([]string, error) {
 			}
 		}
 		waiting := false
-		if closed && row.Terminal.String != "" {
+		if closed && (row.Terminal.String != "" || r.structured(agent)) {
 			if waiting, err = r.Ports.WaitingFor(r.Q, agent); err != nil {
 				return actions, err
 			}
@@ -319,6 +321,12 @@ func (r *Reconciler) Sweep(actions *[]string) error {
 			return err
 		}
 		if row == nil {
+			continue
+		}
+		if r.structured(agent) {
+			if err := r.sweepStructured(agent, row, actions); err != nil {
+				return err
+			}
 			continue
 		}
 		o := seen[agent]
@@ -513,5 +521,88 @@ func (r *Reconciler) unstickRunning(agent string, row *db.AgentState, actions *[
 	}
 	*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; back to IDLE", agent, mins))
 	r.logf("  %s: stuck in RUNNING for %dm and idle at its prompt - back to IDLE", agent, mins)
+	return nil
+}
+
+func (r *Reconciler) structured(agent string) bool {
+	return r.Ports.Run != nil && r.Ports.Run.Structured(agent)
+}
+
+// sweepStructured compares a structured agent's record with its process, which the daemon owns: there is no terminal to look at and
+// nothing to probe twice, so one reading of the process is the evidence. After a daemon restart no process is alive, and every agent that
+// was running is recorded closed with its stored session, which the wake resumes.
+func (r *Reconciler) sweepStructured(agent string, row *db.AgentState, actions *[]string) error {
+	alive := r.Ports.Run.Alive(agent)
+	closed := isClosed(row)
+	switch {
+	case alive && closed:
+		if err := db.ClearClosed(r.Q, agent); err != nil {
+			return err
+		}
+		if err := db.SetResumeSession(r.Q, agent, row.ResumeSession.String); err != nil {
+			return err
+		}
+		if row.WakeFailures != 0 {
+			if err := db.ResetCounter(r.Q, agent, "wake_failures"); err != nil {
+				return err
+			}
+		}
+		if row.State == states.Stalled && row.WakeFailures >= states.MaxFailedAttempts {
+			if err := db.SetAgentState(r.Q, agent, states.Idle, 0, "a session is running; the wake stall is lifted"); err != nil {
+				return err
+			}
+			*actions = append(*actions, agent+": STALLED -> IDLE (it is running after all)")
+		}
+		*actions = append(*actions, agent+": a session is running; the closed mark was wrong")
+		r.logf("  %s: running again; cleared the closed mark", agent)
+	case !alive && !closed && row.Worktree.String != "":
+		sid := row.ResumeSession.String
+		if err := db.SetClosed(r.Q, agent, sid); err != nil {
+			return err
+		}
+		if row.State == states.Running {
+			if err := db.SetAgentState(r.Q, agent, states.Idle, 0, "session ended without us"); err != nil {
+				return err
+			}
+		}
+		if _, err := db.AddEvent(r.Q, agent, "session_gone", db.KV{K: "session", V: nilIfEmpty(sid)}); err != nil {
+			return err
+		}
+		*actions = append(*actions, agent+": its session is gone; recorded as closed")
+		r.logf("  %s: session gone; recorded as closed (resume %s)", agent, orUnknown(sid))
+		r.Ports.RefreshView(r.Q, agent)
+	case alive && row.State == states.Running:
+		return r.unstickStructured(agent, row, actions)
+	}
+	return nil
+}
+
+// unstickStructured: RUNNING with nothing heard for StuckRunningS. The CLI says whether a turn runs: if it does not, the label is
+// wrong and is corrected; if it does, the turn has stalled and is interrupted by control request, not by keys.
+func (r *Reconciler) unstickStructured(agent string, row *db.AgentState, actions *[]string) error {
+	mins, err := SilentMinutes(r.Q, agent, row, r.now())
+	if err != nil || mins < 0 {
+		return err
+	}
+	if r.Ports.Run.Busy(agent) {
+		if err := r.Ports.Run.Interrupt(agent); err != nil {
+			*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; the interrupt failed: %v", agent, mins, err))
+			return nil
+		}
+		if _, err := db.AddEvent(r.Q, agent, "interrupted", db.KV{K: "silent_minutes", V: mins}); err != nil {
+			return err
+		}
+		*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; turn interrupted", agent, mins))
+		r.logf("  %s: no frames for %dm - interrupted its turn", agent, mins)
+		return nil
+	}
+	if err := db.SetAgentState(r.Q, agent, states.Idle, 0, fmt.Sprintf("RUNNING with nothing heard for %dm, and idle", mins)); err != nil {
+		return err
+	}
+	if _, err := db.AddEvent(r.Q, agent, "unstuck", db.KV{K: "was", V: states.Running}, db.KV{K: "silent_minutes", V: mins}); err != nil {
+		return err
+	}
+	*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; back to IDLE", agent, mins))
+	r.logf("  %s: stuck in RUNNING for %dm and idle - back to IDLE", agent, mins)
 	return nil
 }
