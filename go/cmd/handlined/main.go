@@ -101,7 +101,7 @@ func main() {
 	}
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
-	var tickLoop func(stop <-chan struct{}) // set when the policy tick is on; runs it until stop closes
+	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
 		parts := compose.New(ccfg)
@@ -111,7 +111,9 @@ func main() {
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
 			if *structuredTick {
-				tickLoop = func(stop <-chan struct{}) { parts.Tick(ccfg, compose.TickConfig{Stop: stop}).Loop.Run(nil) }
+				startTick = func(stop <-chan struct{}) <-chan struct{} {
+					return parts.Tick(ccfg, compose.TickConfig{Stop: stop}).Start()
+				}
 			}
 		}
 		cfg.Session = func() *sessionrpc.Env { return parts.SessionRPC(ccfg) }
@@ -166,8 +168,13 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if tickLoop != nil {
-		go tickLoop(ctx.Done())
+	var tickDone <-chan struct{}
+	if startTick != nil {
+		tickDone = startTick(ctx.Done())
 	}
-	d.Wait(ctx)
+	<-ctx.Done()
+	if tickDone != nil {
+		<-tickDone // the tick in hand finishes before the database closes: a wake or a close is not cut off in the middle
+	}
+	d.Close()
 }

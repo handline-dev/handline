@@ -64,6 +64,8 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 			st := uenv.ReadForAgent(agent, account)
 			return st.SessionID, st.Transcript
 		}}
+	settings := &lifecycle.Settings{Home: home, Roster: roster}
+	ho.Note = handoff.NoteEnv{Settings: noteSettings{settings, roster}, Telling: lc.Env, Log: cfg.Log}
 	spawns := &lifecycle.Spawns{Q: q, Host: noHost{}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
 		Run: p.Run, Locks: p.Locks}
 	waiting := func(q db.Q, agent string) bool {
@@ -74,7 +76,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		return false
 	}
 	launcher.Ports.WaitingFor = waiting
-	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: &lifecycle.Settings{Home: home, Roster: roster},
+	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
 		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, Locks: p.Locks}
@@ -369,4 +371,19 @@ func (s spawner) Spawn(agent, repo string) (bool, string, error) {
 	}
 	// Spawn is for an agent with no worktree, and making one is Orca's.
 	return false, "", fmt.Errorf("%s: %w", agent, errNoWorktree)
+}
+
+// noteSettings is handoff.Settings: config.yaml's flags, and an agent.yaml's own boolean under a key.
+type noteSettings struct {
+	*lifecycle.Settings
+	roster *team.Roster
+}
+
+func (n noteSettings) AgentFlag(agent, key string) (value, ok bool) {
+	cfg, err := n.roster.Read(agent)
+	if err != nil {
+		return false, false
+	}
+	value, ok = cfg[key].(bool)
+	return value, ok
 }
