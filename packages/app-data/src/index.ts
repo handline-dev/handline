@@ -6,6 +6,7 @@ export * from './errors.ts';
 export * from './provider.ts';
 export * from './read.ts';
 export * from './reads.ts';
+export * from './send-ops.ts';
 export * from './skeleton.ts';
 export * from './skeletons.ts';
 export * from './transcript.ts';
