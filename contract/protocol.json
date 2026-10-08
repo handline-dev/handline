@@ -234,6 +234,12 @@
     "hr.raised": "{proposal}",
     "hr.settled": "{proposal}"
    }
+  },
+  "transcript": {
+   "snapshot": "transcript.events",
+   "data": {
+    "transcript.event": "TranscriptEvent"
+   }
   }
  },
  "x-state-words": {
@@ -2336,6 +2342,68 @@
     }
    ],
    "description": "Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet."
+  },
+  {
+   "name": "transcript.events",
+   "summary": "A page of the agent's transcript events, by seq: the snapshot of the transcript topic.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "since_seq",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The events after this seq, oldest first. 0 or absent with no before_seq: the newest `limit` events, oldest first."
+     }
+    },
+    {
+     "name": "before_seq",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The page just older than this seq, oldest first. Not with since_seq."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 500, default 200."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/TranscriptEvents"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "unsupported"
+   ],
+   "description": "Refused (gate unsupported) for an agent the daemon does not run as a structured session (a terminal agent: watch its terminal). since_seq with before_seq, or a limit outside 1 to 500, is bad_request naming the field."
   },
   {
    "name": "chat.locate",
@@ -7430,9 +7498,10 @@
      "operations",
      "chat",
      "devices",
-     "hr"
+     "hr",
+     "transcript"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
    },
    "Caller": {
     "type": "object",
@@ -10703,6 +10772,10 @@
        }
       },
       "description": "Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has."
+     },
+     "transcript": {
+      "type": "boolean",
+      "description": "The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal."
      }
     },
     "required": [
@@ -11691,6 +11764,327 @@
      "target",
      "error"
     ]
+   },
+   "TranscriptEvent": {
+    "type": "object",
+    "description": "One thing a structured session did, in order. Exactly the field named like `kind` is present besides the common ones (`text` for kind text). Events are never changed after they are sent.",
+    "properties": {
+     "agent": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "session": {
+      "type": "string",
+      "description": "The session id the event belongs to. A new session (a fresh start, not a resume) changes it; seq goes on."
+     },
+     "seq": {
+      "type": "integer",
+      "description": "Per agent, starting at 1, up by exactly 1 with each event, across sessions, never reused. A client ignores an event whose seq is not above the last it applied and reads transcript.events on a hole."
+     },
+     "turn": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "The uuid of the message that began the turn (the one chat.send's operation derives); null for an event outside a turn (an error at start)."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "turn_start",
+       "text",
+       "tool_use",
+       "tool_result",
+       "permission",
+       "permission_answer",
+       "turn_end",
+       "error"
+      ],
+      "description": "Open set: a client skips a kind it does not know."
+     },
+     "item": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The id of the chat.transcript item the daemon also publishes for this event (kind text is a reply, permission is a prompt), so a view that shows both draws it once; null for a kind the chat view has no item for."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string",
+      "description": "kind text: one whole assistant text block (no partial deltas in v1)."
+     },
+     "turn_start": {
+      "type": "object",
+      "description": "kind turn_start: a message began a turn.",
+      "properties": {
+       "message": {
+        "type": "string",
+        "description": "The message uuid."
+       },
+       "from": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "Who sent it: a person, an agent, or the daemon."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "text": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "message",
+       "from",
+       "text"
+      ]
+     },
+     "tool_use": {
+      "type": "object",
+      "description": "kind tool_use: the model called a tool.",
+      "properties": {
+       "id": {
+        "type": "string",
+        "description": "The tool call's id; its tool_result and its permission carry it."
+       },
+       "tool": {
+        "type": "string"
+       },
+       "input": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "The tool's input as the model gave it."
+       }
+      },
+      "required": [
+       "id",
+       "tool",
+       "input"
+      ]
+     },
+     "tool_result": {
+      "type": "object",
+      "description": "kind tool_result: what the tool returned.",
+      "properties": {
+       "tool_use_id": {
+        "type": "string"
+       },
+       "ok": {
+        "type": "boolean"
+       },
+       "text": {
+        "type": "string",
+        "description": "At most 64 KiB; longer output is cut and `truncated` is true."
+       },
+       "truncated": {
+        "type": "boolean"
+       }
+      },
+      "required": [
+       "tool_use_id",
+       "ok",
+       "text",
+       "truncated"
+      ]
+     },
+     "permission": {
+      "type": "object",
+      "description": "kind permission: a person is asked. Answered by prompt.answer, with choice allow or deny.",
+      "properties": {
+       "tool_use_id": {
+        "type": "string"
+       },
+       "prompt": {
+        "$ref": "#/components/schemas/Prompt",
+        "description": "kind permission; its id is tool_use_id; options are allow and deny; `reason` is the CLI's decision_reason."
+       }
+      },
+      "required": [
+       "tool_use_id",
+       "prompt"
+      ]
+     },
+     "permission_answer": {
+      "type": "object",
+      "description": "kind permission_answer: a tool call was allowed or denied. A call a policy decides has this event alone, with no permission before it.",
+      "properties": {
+       "tool_use_id": {
+        "type": "string"
+       },
+       "behavior": {
+        "type": "string",
+        "enum": [
+         "allow",
+         "deny"
+        ]
+       },
+       "by": {
+        "type": "string",
+        "enum": [
+         "person",
+         "policy",
+         "cancel",
+         "closed"
+        ],
+        "description": "person: prompt.answer. policy: the rule named in `rule`. cancel: the CLI withdrew the prompt. closed: the session closed or no handler answered (fail closed: deny)."
+       },
+       "rule": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The policy rule that matched, when by is policy."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "message": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The text the model saw with a deny."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "tool_use_id",
+       "behavior",
+       "by",
+       "rule",
+       "message"
+      ]
+     },
+     "turn_end": {
+      "type": "object",
+      "description": "kind turn_end: the turn is over.",
+      "properties": {
+       "reason": {
+        "type": "string",
+        "enum": [
+         "done",
+         "interrupted",
+         "error"
+        ]
+       },
+       "cost_usd": {
+        "type": "number"
+       },
+       "duration_ms": {
+        "type": "integer"
+       },
+       "usage": {
+        "type": "object",
+        "properties": {
+         "input": {
+          "type": "integer"
+         },
+         "output": {
+          "type": "integer"
+         },
+         "cache_read": {
+          "type": "integer"
+         },
+         "cache_write": {
+          "type": "integer"
+         }
+        },
+        "required": [
+         "input",
+         "output",
+         "cache_read",
+         "cache_write"
+        ]
+       }
+      },
+      "required": [
+       "reason",
+       "cost_usd",
+       "duration_ms",
+       "usage"
+      ]
+     },
+     "error": {
+      "type": "object",
+      "description": "kind error: the session or the CLI failed; a turn_end follows if a turn was running.",
+      "properties": {
+       "code": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "code",
+       "text"
+      ]
+     }
+    },
+    "required": [
+     "agent",
+     "session",
+     "seq",
+     "turn",
+     "at",
+     "kind",
+     "item"
+    ]
+   },
+   "TranscriptEvents": {
+    "type": "object",
+    "properties": {
+     "events": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/TranscriptEvent"
+      }
+     },
+     "more": {
+      "type": "boolean",
+      "description": "There are more in the direction asked."
+     },
+     "first_seq": {
+      "type": "integer",
+      "description": "The oldest seq the daemon still keeps for the agent; 0 when it has none."
+     },
+     "last_seq": {
+      "type": "integer",
+      "description": "The newest seq of the agent; 0 when it has none."
+     },
+     "gap": {
+      "type": "boolean",
+      "description": "since_seq was older than first_seq - 1: the read starts at first_seq, and what lay between is gone."
+     },
+     "working": {
+      "$ref": "#/components/schemas/Working"
+     }
+    },
+    "required": [
+     "events",
+     "more",
+     "first_seq",
+     "last_seq",
+     "gap",
+     "working"
+    ]
    }
   },
   "errors": {
@@ -11730,5 +12124,15 @@
     "data": "{code, log_path}; raised by the client library, never sent on the wire."
    }
   }
+ },
+ "x-transcript": {
+  "what": "The per-agent stream a view draws for a structured session (the CLI's frames reduced to what a view needs), in place of a terminal. Topic `transcript`, event type `transcript.event`, data TranscriptEvent; events carry `agent`, so subscribe's `agent` filters. `hello.capabilities.transcript` says the daemon serves it; an agent it does not run as a structured session is refused by transcript.events (gate unsupported) and a client shows its terminal.",
+  "kinds": "turn_start (a message began a turn: uuid, sender, text), text (one whole assistant text block), tool_use (id, tool, input), tool_result (tool_use_id, ok, text cut at 64 KiB), permission (a person is asked: a Prompt), permission_answer (allowed or denied, and by whom), turn_end (reason, cost_usd, duration_ms, usage), error (code, text). The order within a turn: turn_start, then text, tool_use, permission, permission_answer and tool_result as they happen, then turn_end. A tool_result follows its tool_use, not necessarily next. Open set: a client skips a kind it does not know.",
+  "permission": "A tool call that needs a person is a `permission` event whose `prompt` is an ordinary Prompt: kind permission, id = the tool call's id, options `allow` and `deny`, tool, command and reason as for any prompt. The card calls prompt.answer with choice allow or deny, and prompt.list holds it while it is open (it is also in the chat view as a prompt item and in the inbox, as today). The `permission_answer` event ends it, whoever answered: `by` person (prompt.answer), policy (a rule decided; no `permission` came before), cancel (the CLI withdrew it) or closed (the session closed or no handler answered: deny). A client that reconnects and sees a permission with no answer after it asks prompt.list before showing buttons.",
+  "sequence": "`seq` is per agent, starts at 1, goes up by exactly 1 with each event, continues across sessions of the agent (the `session` field changes on a fresh start, not on a resume) and is never reused. Events are final: nothing is changed after it is sent.",
+  "resume": "The connection's cursor works as for every topic: subscribe with `since` replays what was missed, up to the usual 5000 events, in full. A client that has no cursor, or gets `gap`, or sees a seq that is not last + 1, reads transcript.events: first load with no since_seq (the newest page), older pages with before_seq, the missed ones with since_seq = the last seq it applied. To start without a race: subscribe first, then read, then apply stream events above the read's last_seq and drop those at or below the last it holds. `gap: true` in the read means the daemon no longer keeps the events between; the client shows the break and goes on from first_seq.",
+  "send": "A message goes in by chat.send with the client's own request_id, as today; the daemon derives the message uuid from it, so the `turn_start` event for that message carries the uuid, and chat.messages has the message under the same operation.",
+  "chat": "chat.transcript is unchanged and stays the chat view's feed: a `text` event is also a reply item and a `permission` also a prompt item (the event's `item` is that item's id, so a view showing both draws it once); tool_use, tool_result, turn_start, turn_end and error have no chat item, and chat.transcript has still no tool item. The task_event and session items exist only in chat.transcript. A view that renders the transcript uses this stream and ignores chat.transcript's reply and prompt items for the same agent.",
+  "not_in_v1": "Partial text deltas, thinking blocks, images, and the edit diff of a tool. A tool's input is whatever the model sent."
  }
 }
