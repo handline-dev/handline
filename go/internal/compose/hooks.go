@@ -100,9 +100,13 @@ func WriteHooksSettings(home, agent string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	if err := os.Chmod(dir, 0o700); err != nil { // a directory that was there keeps its old mode otherwise
+		return "", err
+	}
 	path := filepath.Join(dir, "settings.json")
+	// atomicfile writes through a temporary file made with mode 0600, which the rename keeps: the file is never readable by others.
 	if err := atomicfile.Write(path, string(b)+"\n"); err != nil {
 		return "", err
 	}
-	return path, os.Chmod(path, 0o600)
+	return path, nil
 }

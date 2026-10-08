@@ -2,6 +2,7 @@ package compose
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -44,6 +45,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		Accounts:       accounts,
 		Vendors:        vendors{home: home, roster: roster},
 		CurrentAccount: func(q db.Q, agent string) string { a, _ := team.CurrentAccount(q, agent); return a },
+		// The reading is made on the database, not inside a call's transaction: the lifecycle is never called inside one.
 		AccountReading: func(q db.Q, agent string) (string, string, bool) {
 			r, ok, err := team.ReadAccount(q.(*sql.DB), agent, nil)
 			if err != nil || !ok {
@@ -69,11 +71,18 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	}
 	launcher.Ports.WaitingFor = waiting
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: &lifecycle.Settings{Home: home, Roster: roster},
-		Delivery: lc.Env, Handoff: handoffPort{env: ho, q: q}, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
-		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
+		Delivery: lc.Env, Handoff: handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
+		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
 		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, Locks: p.Locks}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho}
 	return p.LC
+}
+
+func nowOf(f func() time.Time) func() time.Time {
+	if f != nil {
+		return f
+	}
+	return time.Now
 }
 
 // vendors is lifecycle.VendorsPort. A structured session has no driver: the Claude CLI is launched by the runner, not by a vendor's command line.
@@ -113,6 +122,8 @@ type agentsPort struct {
 	roster   *team.Roster
 	trust    *team.Trust
 	accounts team.Accounts
+	env      *supervisor.Env
+	usage    *usage.Env
 }
 
 var _ lifecycle.AgentsPort = agentsPort{}
@@ -139,13 +150,23 @@ func (a agentsPort) SkipPermissionsInEffect(agent string) (bool, error) {
 
 func (a agentsPort) IsDeclared(folder string) bool { return a.trust.IsDeclared(folder) }
 
-// MeasureBegin starts the cold-start measurement of a move; the measurement is the policy tick's and is not served here, so a move
-// begins unmeasured.
-func (a agentsPort) MeasureBegin(db.Q, string, string) {}
+// MeasureBegin starts the cold-start measurement of a move: what the new account's usage was when the agent was put on it.
+func (a agentsPort) MeasureBegin(q db.Q, agent, account string) {
+	if err := a.usage.BeginColdStart(q, agent, account); err != nil {
+		if a.env.Log != nil {
+			a.env.Log("  %s: the cold-start measurement did not begin: %v", agent, err)
+		}
+	}
+}
 
-// RaiseDecision asks the founder for a decision about an agent: a request to the person.
+// RaiseDecision puts a decision in front of the founder about an agent: a task of theirs with the request as its card.
 func (a agentsPort) RaiseDecision(q db.Q, agent, text, reason string) error {
-	return fmt.Errorf("raising a decision about %s (%s) is not served by this daemon yet", agent, reason)
+	var after supervisor.After
+	if _, err := a.env.RaiseDecision(q, &after, agent, text, reason, "", "", 0, 0); err != nil {
+		return err
+	}
+	after.Run()
+	return nil
 }
 
 func (a agentsPort) VendorName(agent string) string {
@@ -161,6 +182,7 @@ func (a agentsPort) VendorName(agent string) string {
 type handoffPort struct {
 	env *handoff.Env
 	q   db.Q
+	now func() time.Time
 }
 
 var _ lifecycle.HandoffPort = handoffPort{}
@@ -211,7 +233,7 @@ func (h handoffPort) BackingOff(q db.Q, agent string) bool {
 	if q.QueryRow("SELECT MAX(updated) FROM handoff WHERE agent = ?", agent).Scan(&last) != nil || !last.Valid {
 		return false
 	}
-	return time.Now().Unix() < last.Int64+int64(states.BackoffFor(int(row.ThrottleCount)).Seconds())
+	return h.now().Unix() < last.Int64+int64(states.BackoffFor(int(row.ThrottleCount)).Seconds())
 }
 
 func (h handoffPort) AnsweredTurn(_ db.Q, agent string) bool {
@@ -302,6 +324,9 @@ func (noHost) CreateWorktree(string, string, string) (string, string) {
 	return "", "making a worktree is not served by this daemon yet"
 }
 
+// errNoWorktree is a start with nowhere to run: not counted against the agent.
+var errNoWorktree = errors.New("making a worktree is not served by this daemon yet")
+
 func (noHost) OpenTerminal(string, string, string) (string, string) { return "", notServed }
 func (noHost) Manual(wt, repo, name, baseRef, command string) string {
 	return fmt.Sprintf("git -C %s worktree add -b %s %s %s", repo, name, wt, baseRef)
@@ -315,3 +340,29 @@ func (noHost) RunUse(string)                          {}
 func (noHost) RunCreate(string) string                { return "" }
 func (noHost) TaskCreate(_, _, _, _, _ string) string { return "" }
 func (noHost) Dispatch(_, _, _ string) string         { return "" }
+
+// spawner is lifecycle.Spawner for what this daemon can start. A start it cannot do - a terminal agent, or a structured one with no
+// worktree yet - is an error, which the lifecycle does not count against the agent: it is not a failed start, it was never tried.
+type spawner struct {
+	inner *lifecycle.Spawns
+	kind  func(agent string) bool
+}
+
+var _ lifecycle.Spawner = spawner{}
+
+func (s spawner) WorktreePath(worktree string) string { return s.inner.WorktreePath(worktree) }
+
+func (s spawner) StartIn(agent, worktree, cmd string) (bool, string, error) {
+	if !s.kind(agent) {
+		return false, "", fmt.Errorf("%s: %s", agent, notServed)
+	}
+	return s.inner.StartIn(agent, worktree, cmd)
+}
+
+func (s spawner) Spawn(agent, repo string) (bool, string, error) {
+	if !s.kind(agent) {
+		return false, "", fmt.Errorf("%s: %s", agent, notServed)
+	}
+	// Spawn is for an agent with no worktree, and making one is Orca's.
+	return false, "", fmt.Errorf("%s: %w", agent, errNoWorktree)
+}

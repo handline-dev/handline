@@ -274,6 +274,7 @@ const sharedSettings = `{
 
 func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) {
 	p, home := rig(t)
+	os.MkdirAll(filepath.Join(home, "structured", "alice"), 0o755) // a directory that was there with the wrong mode
 	path, err := WriteHooksSettings(home, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -311,4 +312,50 @@ func TestASessionIsNotStartedWithoutTheShellGuardOrWithUnreadableSettings(t *tes
 	if err == nil || p.Run.Alive("alice") {
 		t.Fatal("no shared settings, no session")
 	}
+}
+
+func TestAStartTheDaemonCannotDoIsNotCountedAgainstTheAgent(t *testing.T) {
+	p, lc, _, _ := wired(t)
+	d := p.Sink.DB
+	// bob is a terminal agent and carol a structured one with no worktree: neither can be started here, and neither may be stalled for it.
+	os.MkdirAll(filepath.Join(p.home, "agents", "carol"), 0o755)
+	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nmode: structured\nrepo: "+t.TempDir()+"\n"), 0o644)
+	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+t.TempDir()+"\n"), 0o644)
+	for _, agent := range []string{"bob", "carol"} {
+		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: agent, Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 3; i++ {
+			lc.Manager.StartForWork(agent) // an error is the answer: it is not a failed start
+		}
+		row, _ := dbpkg.GetAgentState(d, agent)
+		if row != nil && (row.WakeFailures != 0 || row.State == "STALLED") {
+			t.Fatalf("%s was counted or stalled: %+v", agent, row)
+		}
+	}
+}
+
+func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
+	p, lc, env, _ := wired(t)
+	d := p.Sink.DB
+	ports := lc.Manager.Agents
+	if err := ports.RaiseDecision(d, "alice", "[trust] add /x - asked by alice\n\nwhy", "trust"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ports.RaiseDecision(d, "alice", "[trust] add /x - asked by alice\n\nwhy", "trust"); err != nil {
+		t.Fatal(err) // the same text still waiting is that decision, not a second
+	}
+	var cards, tasks int
+	d.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'alice' AND target = 'human' AND body LIKE '[trust]%'").Scan(&cards)
+	d.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = 'human' AND expects = 'decision'").Scan(&tasks)
+	if cards != 1 || tasks != 1 {
+		t.Fatalf("cards %d, tasks %d", cards, tasks)
+	}
+	// An account with no trusted reading is not measured, as measure.begin does: the call is made, and leaves no open start.
+	dbpkg.SetMeta(d, "coldstart:alice", "stale")
+	ports.MeasureBegin(d, "alice", "a1")
+	if v, _, _ := dbpkg.Meta(d, "coldstart:alice"); v != "" {
+		t.Fatalf("an unread account left an open start: %q", v)
+	}
+	_ = env
 }
