@@ -22,6 +22,7 @@ import {
 } from './mode.ts';
 import { commands, Owner, type Child, type Cmd } from './owner.ts';
 import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
+import { grant } from './grant.ts';
 import { onTailnet } from './tailnet.ts';
 import { trayMenu, type TrayFollow } from './tray.ts';
 
@@ -29,8 +30,9 @@ import { trayMenu, type TrayFollow } from './tray.ts';
 const answers = (file: string): Promise<boolean> =>
   new Promise((resolve) => {
     const c = net.createConnection(file);
+    c.setTimeout(3000, () => (c.destroy(), resolve(false))); // a full backlog never answers; the probe must not stay open
     c.once('connect', () => (c.destroy(), resolve(true)));
-    c.once('error', () => resolve(false));
+    c.once('error', () => (c.destroy(), resolve(false)));
   });
 
 /** Whether the gateway answers an HTTP request at all within three seconds. */
@@ -60,6 +62,13 @@ function spawnChild(cmd: Cmd, log: number): Child {
     }
   };
   return { kill: stop, onExit: (f) => void p.on('exit', f).on('error', () => f(null)) };
+}
+
+/** Every failure of the daemon the app owns, with its reason, in daemon.log among the daemon's own lines: the tray forgets it. */
+function logFailures(owner: Owner, log: number): void {
+  owner.onChange(() => {
+    if (owner.state === 'failed') fs.writeSync(log, `${new Date().toISOString()} app: the daemon is not up: ${owner.reason}\n`);
+  });
 }
 
 /** The founder key from the protected store, or null while the daemon has not made it. */
@@ -149,13 +158,14 @@ export function ownDaemon(o: {
       ),
     );
   owner.onChange(draw);
+  logFailures(owner, log);
   draw();
   tray.on('click', o.openWindow);
   // The key stays in this process; the page gets the device token only, from its own origin's top frame.
   let token: string | null = null;
   let ownHost: string | null = null;
   ipcMain.on(CHANNELS.token, (e) => {
-    e.returnValue = fromWindow(e, o.origin) ? { token, ownHost } : null;
+    e.returnValue = fromWindow(e, o.origin) ? grant(token, ownHost, owner) : null;
   });
   const pairing = {
     readKey: () => readFounderKey(o.home),
@@ -200,6 +210,7 @@ export function ownDaemon(o: {
       if (mode === 'connect') return connect();
       if (!o.gateway) return undefined;
       await owner.start();
+      ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null; // named even when nothing started: the page shows the reason (grant)
       if (owner.state !== 'running') return o.gateway;
       let address = o.gateway;
       // A Mac firewall can accept the connection on the Tailscale address and answer nothing. Loopback is only for a gateway this app

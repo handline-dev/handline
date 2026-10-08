@@ -233,6 +233,9 @@ class WS(Conn):
 class World:
     """The scratch home and the processes on it."""
 
+    # Seeding the world starts the worker, so the fake must be written before it: a subclass changes this, not the file after setup.
+    FAKE_CLAUDE = '#!/bin/sh\necho "fake claude ready"\nwhile IFS= read -r line; do echo "got: $line"; done\n'
+
     def __init__(self, keep: bool, port: int | None) -> None:
         self.keep = keep
         self.root = Path(tempfile.mkdtemp(prefix="gwsmoke.")).resolve()
@@ -244,7 +247,8 @@ class World:
         self.env = {**os.environ, "HANDLINE_HOME": str(self.home), "OCP_HOME": str(self.home),
                     "HANDLINE_TEST_ROOT": str(self.user), "OCP_TEST_ROOT": str(self.user), "OCP_TERMINAL": "tmux",
                     "HANDLINE_TERMINAL": "tmux", "OCP_TMUX_SOCKET": f"gwsmoke{os.getpid()}", "HANDLINE_TMUX_SOCKET": f"gwsmoke{os.getpid()}",
-                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh"}
+                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh",
+                    "OCP_BIN": str(ROOT / "bin" / "hl")}      # the pane runs this checkout's hl, not whichever `hl` the PATH finds
         for k in ("OCP_AGENT", "HANDLINE_AGENT", "OCP_ACCOUNT", "HANDLINE_ACCOUNT", "CLAUDE_CONFIG_DIR", "SANDBOX_RUNTIME"):
             self.env.pop(k, None)
 
@@ -256,7 +260,7 @@ class World:
             d.mkdir(parents=True, exist_ok=True)
         # A fake claude: it prints a banner and answers every line it is typed, so a terminal has bytes to show and to take.
         fake = self.root / "bin" / "claude"
-        fake.write_text('#!/bin/sh\necho "fake claude ready"\nwhile IFS= read -r line; do echo "got: $line"; done\n')
+        fake.write_text(self.FAKE_CLAUDE)
         fake.chmod(0o755)
         repo = self.root / "repo"
         repo.mkdir()
@@ -307,10 +311,11 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
         if r.returncode:
             raise SystemExit("could not seed the scratch world:\n" + r.stdout + r.stderr)
         self.seed = json.loads(r.stdout.strip().splitlines()[-1])
+        self.seed["repo"] = str(repo)
 
     def start_daemon(self) -> None:
         out = open(self.log("python-daemon"), "w")
-        p = subprocess.Popen([str(ROOT / "bin" / "hl"), "daemon", "--quiet"], env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(ROOT))
+        p = subprocess.Popen([str(ROOT / "bin" / "hl"), "daemon", "--quiet"], env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(self.user))
         self.procs.append(p)
         self.wait_for(lambda: (self.home / "daemon.sock").exists() and (self.home / "relay.sock").exists(), 60, "the Python daemon's sockets", p, "python-daemon")
 
@@ -451,7 +456,7 @@ def run_writes(s: Smoke, world: dict) -> None:
     s.row("task.new", {"owner": agent, "title": "smoke task from the app", "body": "do it", "time_box": "1h", "request_id": rid()})
     s.row("task.memo.add", {"task": seed["task"], "text": "a note from the smoke", "request_id": rid()})
     s.row("task.done", {"task": seed["task"], "evidence": "smoke: done in words", "request_id": rid()})
-    s.row("session.start", {"agent": agent, "request_id": rid()})
+    s.row("session.start", {"agent": agent, "repo": seed["repo"], "request_id": rid()})
     time.sleep(3)
     s.row("session.wake", {"agent": agent, "request_id": rid()})
     s.row("input.take", {"agent": agent, "request_id": rid()})

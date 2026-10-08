@@ -147,3 +147,30 @@ func TestDurationsAndAges(t *testing.T) {
 		}
 	}
 }
+
+func TestChatRefsAreTheAgentsNewestRequestsAndLeaveOutWhatNeverReached(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "alice", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state) VALUES(1, 1, 'human', 'alice', '  ', 'queued')",
+		"INSERT INTO requests(id, ts, requester, target, body, state) VALUES(2, 2, 'alice', 'bob', 'first line' || char(10) || 'second', 'queued')",
+		"INSERT INTO requests(id, ts, requester, target, body, state) VALUES(3, 3, 'human', 'alice', 'taken back', 'withdrawn')",
+		"INSERT INTO requests(id, ts, requester, target, body, state) VALUES(4, 4, 'bob', 'carol', 'not alice''s', 'queued')",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatRefs(nil, map[string]any{"agent": "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqs := got.(map[string]any)["requests"].([]any)
+	first := reqs[0].(map[string]any)
+	if len(reqs) != 2 || first["request"] != int64(2) || first["line"] != "first line" || first["from"] != "alice" || first["to"] != "bob" {
+		t.Fatalf("%v", reqs)
+	}
+	if _, err := e.chatRefs(nil, map[string]any{"agent": "nobody"}); err == nil {
+		t.Fatal("an agent that is not registered is not found")
+	}
+}

@@ -66,3 +66,14 @@ test('a handshake the daemon answers with an error closes the connection the dae
   assert.equal(net.open(), 0, 'the connection the daemon kept open is closed by the client');
   client.close();
 });
+
+test('closing the client while it connects closes the connection that arrives', async () => {
+  const daemon = new FakeDaemon();
+  const { net, connect } = flaky(daemon);
+  const client = new DaemonClient({ client: 'electron', connect: async () => (await new Promise((r) => setTimeout(r, 20)), connect()), reconnect: { minMs: 1, maxMs: 2 } });
+  const started = client.start().catch(() => {});
+  client.close();
+  await started;
+  await until(() => net.connects === 1, 'the connect to finish');
+  await until(() => net.open() === 0, 'the late connection to close');
+});

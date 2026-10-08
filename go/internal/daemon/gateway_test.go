@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/tls"
@@ -42,6 +43,7 @@ type fakePython struct {
 	script func(conn net.Conn, open map[string]any)
 	mu     sync.Mutex
 	opens  []map[string]any
+	calls  []string      // the methods it was sent after relay.open, in order
 	closed chan struct{} // one value per relay connection that ended
 }
 
@@ -63,9 +65,44 @@ func (f *fakePython) dial() (net.Conn, error) {
 		f.opens = append(f.opens, open)
 		f.mu.Unlock()
 		b.Write([]byte(`{"jsonrpc":"2.0","id":0,"result":{"ok":true}}` + "\n"))
-		f.script(b, open)
+		f.script(&listening{Conn: b, f: f}, open)
 	}()
 	return a, nil
+}
+
+// listening records the method of every line read from it, as the relay's calls.
+type listening struct {
+	net.Conn
+	f    *fakePython
+	rest []byte
+}
+
+func (l *listening) Read(p []byte) (int, error) {
+	n, err := l.Conn.Read(p)
+	l.rest = append(l.rest, p[:n]...)
+	for {
+		i := bytes.IndexByte(l.rest, '\n')
+		if i < 0 {
+			break
+		}
+		var m struct{ Method string }
+		json.Unmarshal(l.rest[:i], &m)
+		l.rest = l.rest[i+1:]
+		l.f.mu.Lock()
+		l.f.calls = append(l.f.calls, m.Method)
+		l.f.mu.Unlock()
+	}
+	return n, err
+}
+
+// onlyHelloReached fails unless the relay was sent a hello and nothing else.
+func (f *fakePython) onlyHelloReached(t *testing.T) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !reflect.DeepEqual(f.calls, []string{"hello"}) {
+		t.Fatalf("the relay was sent %v, want only the hello", f.calls)
+	}
 }
 
 // echo answers every call with its method and the device it was opened for.
@@ -78,6 +115,10 @@ func echo(b net.Conn, open map[string]any) {
 		}
 		var m map[string]any
 		json.Unmarshal(line, &m)
+		if m["method"] == "hello" {
+			b.Write([]byte(`{"jsonrpc":"2.0","id":` + string(mustJSON(m["id"])) + `,"result":{"capabilities":{"chat":true,"terminal_format":["text","bytes","styled"],"terminal_hosts":{"tmux":["text","bytes","styled"]}},"methods":[{"name":"chat.send","since":1,"role":"member","allowed":false}]}}` + "\n"))
+			continue
+		}
 		if m["method"] == "stats.get" {
 			b.Write([]byte(`{"jsonrpc":"2.0","method":"event","params":{"n":1}}` + "\n"))
 		}
@@ -137,6 +178,53 @@ func helloAs(t *testing.T, d *Daemon, token string) *wsClient {
 		t.Fatalf("%v", r)
 	}
 	return c
+}
+
+func TestAGatewayHelloReportsTheCapabilitiesAndMethodsTheDaemonServes(t *testing.T) {
+	d, _, _ := startGateway(t, "")
+	token, _ := pair(t, d, "phone")
+	c := dialNet(t, d)
+	r := c.ask(`{"jsonrpc":"2.0","id":"h","method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`)
+	res := r["result"].(map[string]any)
+	caps := res["capabilities"].(map[string]any)
+	if !reflect.DeepEqual(caps["terminal_format"], []any{"text", "bytes", "styled"}) || caps["terminal_hosts"] == nil || caps["chat"] != true {
+		t.Fatalf("%v", caps)
+	}
+	var found map[string]any
+	for _, m := range res["methods"].([]any) {
+		if e := m.(map[string]any); e["name"] == "chat.send" {
+			found = e
+		}
+	}
+	if found == nil || found["allowed"] != false {
+		t.Fatalf("the daemon says a device may not call chat.send; the hello says %v", found)
+	}
+}
+
+func TestAGatewayHelloAsksTheDaemonOnTheConnectionTheDeviceUsesForItsCalls(t *testing.T) {
+	d, f, _ := startGateway(t, "")
+	token, id := pair(t, d, "phone")
+	c := helloAs(t, d, token)
+	if f.dials.Load() != 1 {
+		t.Fatalf("%d relay connections for a hello", f.dials.Load())
+	}
+	if r := c.ask(`{"jsonrpc":"2.0","id":2,"method":"chat.send","params":{"request_id":"x"}}`); r["result"].(map[string]any)["device"] != id {
+		t.Fatalf("%v", r)
+	}
+	if f.dials.Load() != 1 {
+		t.Fatalf("%d relay connections for a hello and a call", f.dials.Load())
+	}
+}
+
+func TestAGatewayHelloAnswersWithoutTheDaemonsFormatsWhenTheRelayIsDown(t *testing.T) {
+	d, f, _ := startGateway(t, "")
+	f.down.Store(true)
+	token, _ := pair(t, d, "phone")
+	r := dialNet(t, d).ask(`{"jsonrpc":"2.0","id":"h","method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`)
+	caps := r["result"].(map[string]any)["capabilities"].(map[string]any)
+	if caps["chat"] != false || !reflect.DeepEqual(caps["terminal_format"], []any{}) {
+		t.Fatalf("%v", caps)
+	}
 }
 
 func (c *wsClient) read() map[string]any {
@@ -209,9 +297,7 @@ func TestACallAboveAMemberOrOutsideTheContractNeverReachesTheRelay(t *testing.T)
 			t.Fatalf("%q: %v", call, r)
 		}
 	}
-	if f.dials.Load() != 0 {
-		t.Fatal("a refused call reached the relay")
-	}
+	f.onlyHelloReached(t)
 }
 
 func mustPair(t *testing.T, d *Daemon) string { token, _ := pair(t, d, "phone"); return token }
@@ -295,9 +381,10 @@ func TestOnlyWhatIsNamedNativeIsServedHere(t *testing.T) {
 		t.Fatalf("a read the config does not name is relayed: %v", r)
 	}
 	d2, f2, _ := startGateway(t, "", "daemon.status")
-	if r := helloAs(t, d2, mustPair(t, d2)).ask(`{"jsonrpc":"2.0","id":1,"method":"daemon.status"}`); r["result"] == nil || f2.dials.Load() != 0 || r["result"].(map[string]any)["method"] != nil {
+	if r := helloAs(t, d2, mustPair(t, d2)).ask(`{"jsonrpc":"2.0","id":1,"method":"daemon.status"}`); r["result"] == nil || r["result"].(map[string]any)["method"] != nil {
 		t.Fatalf("a named read is served here: %v", r)
 	}
+	f2.onlyHelloReached(t)
 }
 
 func dump(t *testing.T, db interface {
