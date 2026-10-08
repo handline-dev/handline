@@ -34,3 +34,9 @@ Run from the sandbox with `LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v 
 - A written message the CLI never acknowledges within `EchoDeadline`, or that it queued and then cancelled, is `unknown`: not written again, and `WaitConfirmed` returns an error. A failed write is `unknown` too (it may have been partial); the error means the caller must not assume it was sent.
 - `Manager.Start` reserves the agent's slot first, so two Starts for one agent run one CLI; an exited session is closed (group proven gone) before it is replaced.
 - The send path (S4) can read `Receipt.State` from the session and drop a second ledger under the same key.
+
+## The account allow list and the Policy
+
+On the real CLI an allow rule in the account's `settings.json` (`Bash(ls:*)` on one account) accepted a tool call before `can_use_tool` fired, so the Broker never saw it and the Policy never ran. The CLI checks its own rules first; `can_use_tool` only sees what they leave open.
+
+Answer: the daemon must not let user or local settings decide. Launch the CLI with `--setting-sources project` (the agent's checkout may still carry a project file, which is the repo's own and visible to review), or `--setting-sources ""` if the project file should also go. The login is not in `settings.json`, so the account still authenticates. This is set through `Launch.Args` by the composition root, not by default in `Launch.args()`, until the live rerun shows the flag takes effect with `can_use_tool` firing for a command no one allows; `TestLiveCLI` now passes it and uses `touch` of a fresh file, so its result settles that.
