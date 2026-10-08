@@ -52,7 +52,10 @@ def _confirm_session(agent: str) -> str | None:
 def _run(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
     """`git`'s own text, clean at the source, so a caller that embeds `out` or
     `err` in a message it returns need not sanitise it first."""
-    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
+    try:
+        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
+    except OSError as e:    # out of descriptors, or the program is gone: a refusal the caller reports, not a raise through the spawn
+        return 127, "", textsafe.oneline(f"could not run {args[0]}: {e}")
     return (r.returncode, textsafe.oneline(r.stdout.strip()),
             textsafe.oneline(r.stderr.strip()))
 

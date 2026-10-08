@@ -13,7 +13,7 @@ from ..infra import textsafe
 from ..session import observe as obs, triggers
 from ..team import ask as askmod
 
-from . import devmode, evaluate, locks, messaging, prompts, reconciler, socket_server, spool
+from . import devmode, evaluate, fds, locks, messaging, prompts, reconciler, socket_server, spool
 
 
 # ---------------------------------------------------------------- loop
@@ -125,6 +125,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
             while not stopping["now"]:
                 t = evaluate.tick(con, log, samples=samples)
                 ticks += 1
+                fds.check(log)
                 # A supervisor that runs for weeks must not fill the disk.
                 # Cheap when under threshold: two stat() calls and nothing
                 # else. Caught separately so a rotation failure (e.g. a full

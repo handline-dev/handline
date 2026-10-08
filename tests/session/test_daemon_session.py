@@ -189,6 +189,13 @@ def test_daemon_kill_recovery(home: Path) -> None:
         con.close()
 
 
+def test_every_tick_logs_the_open_descriptor_count(home: Path) -> None:
+    """A daemon that ran out of descriptors said nothing; each tick now says how many it holds."""
+    _daemon_home(home, 20)
+    out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
+    check("daemon: a tick logs its open descriptor count", re.search(r"fds: \d+/\d+", out) is not None, out[-300:])
+
+
 def test_the_daemon_marks_itself_before_its_socket_takes_a_verb(home: Path) -> None:
     """T408 (auditor #5913): a push made inside the daemon starts the session itself, and the flag
     that says so is up before the socket can take a push verb."""
@@ -5607,6 +5614,7 @@ def main() -> int:
         run(lambda: test_daemon_kill_recovery(Path(td) / 'd3'))
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
         run(lambda: test_the_daemon_marks_itself_before_its_socket_takes_a_verb(Path(td) / 'inddaemon'))
+        run(lambda: test_every_tick_logs_the_open_descriptor_count(Path(td) / 'fdcount'))
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))
