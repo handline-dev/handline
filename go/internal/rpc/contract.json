@@ -45,6 +45,9 @@
  "agent.triggers": {
   "role": "agent"
  },
+ "agent.unstall": {
+  "role": "founder"
+ },
  "agents.list": {
   "role": "agent"
  },

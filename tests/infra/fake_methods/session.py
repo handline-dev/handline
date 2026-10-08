@@ -1,10 +1,10 @@
-"""session.start, wake, stop, restart, park and terminal.close."""
+"""session.start, wake, stop, restart, park, agent.unstall and terminal.close."""
 from . import err, fake
 
 KNOWN = ("a.one",)
 
 
-@fake("session.start", "session.wake", "session.stop", "session.restart", "session.park", "terminal.close")
+@fake("session.start", "session.wake", "session.stop", "session.restart", "session.park", "agent.unstall", "terminal.close")
 def session(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")

@@ -429,7 +429,7 @@ export class FakeDaemon {
 
   /** Everything that may leave a method out of what this daemon lists and serves. */
   private get served(): { lists(name: string): boolean }[] {
-    return [this.tasks, this.inbox, this.accounts, this.admin, { lists: (name) => this.serveChat || !name.startsWith('chat.') }];
+    return [this.tasks, this.inbox, this.accounts, this.admin, this.knobs, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
   }
 
   /** The fake modules' methods (accounts, stats and settings, inbox, tasks); null for a method none of them owns. */
