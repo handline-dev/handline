@@ -528,6 +528,11 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			caps[k] = v
 		}
 	}
+	if c.srv.Relay != nil && c.srv.Relay.Capabilities != nil && c.device != "" {
+		for k, v := range c.srv.Relay.Capabilities(c.device, c.deviceName) {
+			caps[k] = v
+		}
+	}
 	return map[string]any{
 		"protocol": Protocol, "min_client": MinClient, "daemon": c.srv.Sha, "schema": c.srv.Schema,
 		"role": c.Caller.Role, "caller": c.Caller.Info,

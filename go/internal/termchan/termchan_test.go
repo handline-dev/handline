@@ -405,20 +405,20 @@ func gate(t *testing.T, err error) string {
 func TestTakingTheInputIsFirstComeAndReleasingIsTheHoldersAlone(t *testing.T) {
 	r := newRig(t)
 	r.agent(t)
-	out, err := r.e.take(person("ron"), map[string]any{"agent": "ann"})
-	if err != nil || out.(map[string]any)["holder"].(map[string]any)["name"] != "ron" {
+	out, err := r.e.take(person("pat"), map[string]any{"agent": "ann"})
+	if err != nil || out.(map[string]any)["holder"].(map[string]any)["name"] != "pat" {
 		t.Fatalf("%v %v", out, err)
 	}
-	if _, err := r.e.take(person("kim"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
+	if _, err := r.e.take(person("lee"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
 		t.Fatalf("a second taker is refused: %v", err)
 	}
-	if _, err := r.e.release(person("kim"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
+	if _, err := r.e.release(person("lee"), map[string]any{"agent": "ann"}); gate(t, err) != "input_holder" {
 		t.Fatalf("only the holder releases: %v", err)
 	}
-	if _, err := r.e.release(person("ron"), map[string]any{"agent": "ann"}); err != nil {
+	if _, err := r.e.release(person("pat"), map[string]any{"agent": "ann"}); err != nil {
 		t.Fatal(err)
 	}
-	out, _ = r.e.release(person("ron"), map[string]any{"agent": "ann"})
+	out, _ = r.e.release(person("pat"), map[string]any{"agent": "ann"})
 	if !strings.Contains(out.(map[string]any)["said"].(string), "already holds") {
 		t.Fatalf("%v", out)
 	}
@@ -433,18 +433,18 @@ func TestResizeIsTheHoldersAndTheSizeComesBackWhenTheyLeave(t *testing.T) {
 	r := newRig(t)
 	r.agent(t)
 	p := map[string]any{"terminal": "%1", "cols": json.Number("100"), "rows": json.Number("30")}
-	if _, err := r.e.resize(person("ron"), p); gate(t, err) != "input_holder" {
+	if _, err := r.e.resize(person("pat"), p); gate(t, err) != "input_holder" {
 		t.Fatalf("the daemon holding is refused too: %v", err)
 	}
-	r.e.take(person("ron"), map[string]any{"agent": "ann"})
-	if _, err := r.e.resize(person("ron"), p); err != nil {
+	r.e.take(person("pat"), map[string]any{"agent": "ann"})
+	if _, err := r.e.resize(person("pat"), p); err != nil {
 		t.Fatal(err)
 	}
 	if r.h.cols != 100 || r.h.nrows != 30 {
 		t.Fatalf("size %dx%d", r.h.cols, r.h.nrows)
 	}
 	inputholdChanged(r.e)
-	r.e.release(person("ron"), map[string]any{"agent": "ann"})
+	r.e.release(person("pat"), map[string]any{"agent": "ann"})
 	if r.h.cols != 80 || r.h.nrows != 24 {
 		t.Fatalf("the size before is given back: %dx%d", r.h.cols, r.h.nrows)
 	}
@@ -455,15 +455,15 @@ func TestInputIsTheHoldersAloneAndLeavesAnEventWithTheCountNotTheBytes(t *testin
 	r.agent(t)
 	b64 := base64.StdEncoding.EncodeToString([]byte("ls\r"))
 	p := map[string]any{"terminal": "%1", "data": b64}
-	if _, err := r.e.input(person("ron"), p); gate(t, err) != "input_holder" {
+	if _, err := r.e.input(person("pat"), p); gate(t, err) != "input_holder" {
 		t.Fatalf("held by the daemon: %v", err)
 	}
-	r.e.take(person("ron"), map[string]any{"agent": "ann"})
-	if _, err := r.e.input(person("kim"), p); gate(t, err) != "input_holder" {
+	r.e.take(person("pat"), map[string]any{"agent": "ann"})
+	if _, err := r.e.input(person("lee"), p); gate(t, err) != "input_holder" {
 		t.Fatalf("held by another: %v", err)
 	}
 	for _, bad := range []string{"not base64!", "", base64.StdEncoding.EncodeToString(make([]byte, MaxInput+1))} {
-		_, err := r.e.input(person("ron"), map[string]any{"terminal": "%1", "data": bad})
+		_, err := r.e.input(person("pat"), map[string]any{"terminal": "%1", "data": bad})
 		if e, ok := err.(*rpc.Error); !ok || e.RPCCode != rpc.InvalidParams {
 			t.Fatalf("%q: %v", bad[:min(len(bad), 12)], err)
 		}
@@ -474,7 +474,7 @@ func TestAttachingTwiceToOneTerminalAndFormatKeepsTheSecond(t *testing.T) {
 	r := newRig(t)
 	r.agent(t)
 	first, second := NewClient((&inbox{}).send, func() {}), NewClient((&inbox{}).send, func() {})
-	c := person("ron")
+	c := person("pat")
 	ch := r.e.Hub.Attach("%1", first, "text")
 	r.e.hold(c, "%1", "text", func() { ch.Detach(first) })
 	ch2 := r.e.Hub.Attach("%1", second, "text")

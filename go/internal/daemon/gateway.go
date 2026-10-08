@@ -60,6 +60,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 			}
 			return c, nil
 		}}
+		s.Relay.Capabilities = s.Relay.TerminalCapabilities
 	}
 	s.Restrict(func(name string) bool { return keep[name] })
 }
