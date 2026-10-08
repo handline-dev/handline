@@ -1,0 +1,136 @@
+package lifecycle
+
+import (
+	"database/sql"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/handline/handline/go/internal/db"
+)
+
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func repoWithOrigin(t *testing.T) (repo, origin string) {
+	t.Helper()
+	origin = t.TempDir()
+	gitIn(t, origin, "init", "-q", "-b", "main", "--bare")
+	repo = t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "main")
+	gitIn(t, repo, "remote", "add", "origin", origin)
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	gitIn(t, repo, "push", "-q", "origin", "main")
+	return
+}
+
+func TestPickBaseBranchesFromTheSideThatLeadsAndRefusesDivergence(t *testing.T) {
+	repo, _ := repoWithOrigin(t)
+	if ref, why := PickBase(repo, "main"); ref != "main" || why != "main and origin/main agree" {
+		t.Fatalf("%q %q", ref, why)
+	}
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "two")
+	if ref, why := PickBase(repo, "main"); ref != "main" || why != "local main leads by 1" {
+		t.Fatalf("%q %q", ref, why)
+	}
+	gitIn(t, repo, "push", "-q", "origin", "main")
+	gitIn(t, repo, "reset", "-q", "--hard", "HEAD~1")
+	if ref, why := PickBase(repo, "main"); ref != "origin/main" || why != "origin/main leads by 1" {
+		t.Fatalf("%q %q", ref, why)
+	}
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "other")
+	if ref, why := PickBase(repo, "main"); ref != "" || !strings.Contains(why, "have diverged (1 local, 1 remote)") {
+		t.Fatalf("%q %q", ref, why)
+	}
+}
+
+func TestPickBaseWithNoBaseUsesTheCheckedOutBranch(t *testing.T) {
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-q", "-b", "trunk")
+	if ref, _ := PickBase(repo, "main"); ref != "" {
+		t.Fatalf("a repo with no commit has nothing to branch from: %q", ref)
+	}
+	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
+	if ref, why := PickBase(repo, "main"); ref != "trunk" || !strings.Contains(why, "using the checked-out trunk") {
+		t.Fatalf("%q %q", ref, why)
+	}
+}
+
+func TestAWorktreeIsFoundThroughAnOrcaSelectorOrAPlainPath(t *testing.T) {
+	dir := t.TempDir()
+	if WorktreePath("repo-id::"+dir) != dir || WorktreePath(dir) != dir || WorktreePath(filepath.Join(dir, "gone")) != "" || WorktreePath("") != "" {
+		t.Fatal("selector or path not resolved")
+	}
+	row := &db.AgentState{Worktree: ns(dir), ExtraWorktrees: ns(`["` + dir + `", "/nowhere", 3]`)}
+	if got := AllPaths(row); len(got) != 2 || got[0] != dir || got[1] != dir {
+		t.Fatalf("%v", got)
+	}
+	if ExtraPaths(&db.AgentState{ExtraWorktrees: ns("not json")}) != nil {
+		t.Fatal("garbage should list nothing")
+	}
+}
+
+type fakeHost struct {
+	Host
+	opened []string
+	handle string
+}
+
+func (*fakeHost) Available() bool { return true }
+func (*fakeHost) HasRuns() bool   { return false }
+func (h *fakeHost) OpenTerminal(cmd, cwd, title string) (string, string) {
+	h.opened = append(h.opened, cmd+"|"+cwd+"|"+title)
+	return h.handle, ""
+}
+
+type upDelivery struct {
+	Delivery
+	up bool
+}
+
+func (d upDelivery) WaitForSession(string, int, string) bool { return d.up }
+
+func TestStartInOpensTheTerminalInTheKeptWorktreeAndChecksASessionCameUp(t *testing.T) {
+	wt := t.TempDir()
+	q := openDB(t)
+	h := &fakeHost{handle: "t9"}
+	s := &Spawns{Q: q, Host: h, Launch: fakeLaunch{}, Delivery: upDelivery{up: true}, Sleep: func(time.Duration) {}}
+	ok, said := s.StartIn("a", wt, "hl launch a --why 'wake'")
+	if !ok || !strings.Contains(said, "a: started in "+wt+" (terminal t9)") {
+		t.Fatalf("%v %q", ok, said)
+	}
+	if row, _ := db.GetAgentState(q, "a"); row.Terminal.String != "t9" || row.Worktree.String != wt {
+		t.Fatalf("%+v", row)
+	}
+	s.Delivery = upDelivery{up: false}
+	if ok, said := s.StartIn("a", wt, "x"); ok || !strings.Contains(said, "no session is running in it after 20s") {
+		t.Fatalf("%v %q", ok, said)
+	}
+	if ok, said := s.StartIn("a", filepath.Join(wt, "gone"), "x"); ok || !strings.Contains(said, "its worktree") {
+		t.Fatalf("%v %q", ok, said)
+	}
+}
+
+func TestPromptLandedWaitsForTheAgentsOwnHook(t *testing.T) {
+	q := openDB(t)
+	now := time.Unix(0, 0)
+	s := &Spawns{Q: q, Now: func() time.Time { return now }, Sleep: func(d time.Duration) { now = now.Add(d) }}
+	if ok, _ := s.PromptLanded("a", 0, 10*time.Second); ok {
+		t.Fatal("landed with no event")
+	}
+	since, _ := db.MaxEventID(q)
+	db.AddEvent(q, "a", "UserPromptSubmit")
+	if ok, _ := s.PromptLanded("a", since, 10*time.Second); !ok {
+		t.Fatal("the hook was not believed")
+	}
+}
+
+func ns(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }

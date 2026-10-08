@@ -316,3 +316,16 @@ func LastEvent(q Q, agent, kind string) (id int64, payload map[string]any, ok bo
 	}
 	return id, payload, true, nil
 }
+
+// MaxEventID is db.max_event_id: the newest event's id, 0 when there are none.
+func MaxEventID(q Q) (int64, error) {
+	n, _, err := maxInt(q, "SELECT MAX(id) FROM events")
+	return n, err
+}
+
+// HasEventAfter is whether the agent has an event of kind newer than event id since.
+func HasEventAfter(q Q, since int64, agent, kind string) (bool, error) {
+	var n int
+	err := q.QueryRow("SELECT COUNT(*) FROM events WHERE id > ? AND agent = ? AND kind = ?", since, agent, kind).Scan(&n)
+	return n > 0, err
+}
