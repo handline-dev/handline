@@ -341,7 +341,7 @@ export class FakeDaemon {
         schema: 1,
         role: c.role,
         caller: c.caller,
-        capabilities: { chat: this.serveChat, transcript: this.transcript.on, review: false, input_ask: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
+        capabilities: { chat: this.serveChat, transcript: this.transcript.on, review: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
           .filter(([name]) => this.served.every((m) => m.lists(name)))

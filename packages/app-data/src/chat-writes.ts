@@ -1,5 +1,5 @@
-// The four chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
-// withdraw, dismiss and answer change the message and are put back if refused.
+// The three chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
+// dismiss and answer change the message and are put back if refused.
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence } from './errors.ts';
 import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
@@ -77,12 +77,6 @@ export const chatWrites: Record<string, WriteSpec> = {
         }));
       });
     },
-  },
-  'chat.withdraw': {
-    kind: 'authored',
-    label: 'withdraw',
-    touches: allChats,
-    patch: (c, p) => setRow(c, (p as { request: number }).request, { landing: 'withdrawn', state: 'withdrawn' }),
   },
   'chat.dismiss': {
     kind: 'authored',

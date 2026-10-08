@@ -1,10 +1,9 @@
-"""chat.send, chat.answer, chat.dismiss, chat.withdraw, chat.cancel and chat.seen: the chat page's writes, through the daemon.
+"""chat.send, chat.answer, chat.dismiss, chat.cancel and chat.seen: the chat page's writes, through the daemon.
 
 chat.send is the person's message to an agent (`hl say` is the agent's, `chat_reply` the screen's): a plain message, or with `task` a
 task the agent is given (title and time box, the message its brief). It goes through delivery as any request does (queued, typed,
 landed) and needs no input hold. chat.answer answers what an agent asked the person (a card, a question, an answer to something they
-asked), as `inbox.answer` does for the mailbox; chat.dismiss takes a message off without answering; chat.withdraw is `hl withdraw`: the
-caller's own request taken back before it was delivered. chat.cancel is the person's taking back of a request they sent, delivered or not
+asked), as `inbox.answer` does for the mailbox; chat.dismiss takes a message off without answering. chat.cancel is the person's taking back of a request they sent, delivered or not
 (`/cancel`), and chat.seen records what of an agent's messages they have in front of them. chat.send with `parent` answers the message
 it replies to when that one waits on the person, and is a say under it otherwise. Each writes its effect and its `write_effects` record in one transaction, so a
 retry after a crash answers and repeats nothing; the telling follows the commit."""
@@ -149,21 +148,6 @@ def _dismiss(ctx, params) -> dict:
     return {"accepted": True, "said": msg}
 
 
-def _withdraw(ctx, params) -> dict:
-    rid, reason = _request_id(params), params.get("reason")
-    if reason is not None and (not isinstance(reason, str) or not reason.strip()):
-        raise rpc.bad_request("reason is text and not empty, or left out", "reason", rpc.INVALID_PARAMS)
-    con = db.connect()
-    try:
-        _message(con, rid)
-    finally:
-        con.close()
-    ok, msg = askmod.withdraw(rid, requester=ctx.caller.actor, reason=reason, effect=_record(ctx, params, "chat.withdraw"))
-    if not ok:
-        raise rpc.refused(msg)
-    return {"accepted": True, "said": msg}
-
-
 def _cancel(ctx, params) -> dict:
     rid, confirm = _request_id(params), params.get("confirm", False)
     if not isinstance(confirm, bool):
@@ -223,6 +207,5 @@ def _agent_named(params) -> str:
 rpc.METHODS["chat.send"] = rpc.Method(_send, "member", write=True)
 rpc.METHODS["chat.answer"] = rpc.Method(_answer, "member", write=True)
 rpc.METHODS["chat.dismiss"] = rpc.Method(_dismiss, "member", write=True)
-rpc.METHODS["chat.withdraw"] = rpc.Method(_withdraw, "agent", write=True)
 rpc.METHODS["chat.cancel"] = rpc.Method(_cancel, "member", write=True)
 rpc.METHODS["chat.seen"] = rpc.Method(_seen, "member", write=True)
