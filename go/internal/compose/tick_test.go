@@ -141,6 +141,19 @@ func TestAStructuredAgentWhoseTranscriptShowsAFullContextIsHandedOffByTheTick(t 
 	if p.Run.Alive("alice") || row.State != "PARKED" || row.ThrottleCount != 0 {
 		t.Fatalf("alive %v %+v", p.Run.Alive("alice"), row)
 	}
+	// The park has run out and nothing else waits: the tick still opens a fresh session and sends it the record.
+	for i := 0; i < 3 && !p.Run.Alive("alice"); i++ {
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row, _ = dbpkg.GetAgentState(d, "alice")
+	if !p.Run.Alive("alice") || row.ResumeSession.String == "" || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+		t.Fatalf("no fresh session after the park: %+v", row)
+	}
+	if h, _ := dbpkg.GetHandoff(d, "alice"); h != "" {
+		t.Fatalf("the record was not handed over: %q", h)
+	}
 }
 
 func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {

@@ -156,6 +156,7 @@ func (v *Mover) closeFresh(agent string) (bool, string) {
 	ok, why := m.endStructured(agent, "", st)
 	if ok {
 		check(db.ForgetResume(m.Q, agent))
+		check(db.SetCursor(m.Q, RecordOwedKey(agent), m.now()))
 		m.Handoff.ClearNote(m.Q, agent)
 	}
 	return ok, why

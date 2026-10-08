@@ -131,6 +131,9 @@ func (s *Sessions) Start(agent, wt string, o StartOpts) (string, error) {
 	if err := db.SetResumeSession(s.Q, agent, id); err != nil {
 		return "", err
 	}
+	if err := db.ClearCursor(s.Q, RecordOwedKey(agent)); err != nil {
+		return "", err
+	}
 	if acct != "" {
 		if err := db.SetAccount(s.Q, agent, acct, ""); err != nil {
 			return "", err
