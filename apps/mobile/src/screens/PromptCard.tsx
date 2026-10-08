@@ -14,7 +14,7 @@ import { Button, Row } from './parts.tsx';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 
-function PromptCard(props: { agent: string; prompt: Prompt; onStale: () => void }) {
+export function PromptCard(props: { agent: string; prompt: Prompt; onStale: () => void }) {
   const c = usePalette();
   const { agent, prompt: p } = props;
   const answer = useWrite('prompt.answer', agent);

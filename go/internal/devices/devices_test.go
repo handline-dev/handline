@@ -1,6 +1,7 @@
 package devices
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -146,6 +147,8 @@ func TestAHostQuietForAWholeWindowIsForgotten(t *testing.T) {
 func TestADeviceAtItsCapLosesItsOldestConnectionsForTheNewOne(t *testing.T) {
 	m := New(NewMemStore())
 	m.maxConns = 3
+	var logged []string
+	m.Log = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
 	code, _, _, _ := m.Pair(time.Minute)
 	token, d, _ := m.Redeem(code, "a", "h")
 	code, _, _, _ = m.Pair(time.Minute)
@@ -162,6 +165,9 @@ func TestADeviceAtItsCapLosesItsOldestConnectionsForTheNewOne(t *testing.T) {
 	}
 	if n := len(m.conns[d.ID]); n != 3 {
 		t.Fatalf("%d open, want the cap", n)
+	}
+	if len(logged) != 2 || !strings.Contains(logged[0], "device a ") {
+		t.Fatalf("each eviction is logged with the device's name: %q", logged)
 	}
 	// another device is not counted against it
 	if _, _, _, ok := m.Login(otherToken, nil); !ok || len(m.conns[other.ID]) != 1 || len(closed) != 2 {

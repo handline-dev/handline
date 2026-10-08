@@ -27,6 +27,7 @@ export const reads = {
   'chat.requests': { resource: 'chat-requests' },
   'chat.refs': { resource: 'chat-refs', id: by('agent') },
   'chat.transcript': { resource: 'chat-transcript', id: by('agent'), feed: 'chat' },
+  'transcript.events': { resource: 'transcript-events', id: by('agent'), feed: 'transcript' },
   'chat.locate': { resource: 'chat-locate' },
   'chat.search': { resource: 'chat-search' },
   'inbox.list': { resource: 'inbox', feed: 'inbox' },
@@ -96,6 +97,7 @@ export const qk = {
   chatMessagesOf: (d: string, agent: string) => ['d', d, 'chat-messages', agent] as const,
   chatMessages: (d: string, agent: string, scope: string) => ['d', d, 'chat-messages', agent, scope] as const,
   transcript: (d: string, agent: string) => keyOf(d, 'chat.transcript', { agent }),
+  transcriptEvents: (d: string, agent: string) => keyOf(d, 'transcript.events', { agent }),
   /** Everything of this daemon, for a gap or a reconnect. */
   all: (d: string) => ['d', d] as const,
   resource: (d: string, method: ReadMethod) => ['d', d, reads[method].resource] as const,

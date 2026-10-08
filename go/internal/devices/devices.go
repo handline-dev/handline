@@ -62,6 +62,8 @@ type Manager struct {
 	conns      map[string]map[int]func() // by device id: what closes each open connection, by the order they logged in
 	next       int
 	maxConns   int
+	// Log, when set, hears of each connection closed to make room: a client that leaks connections shows up by its device's name.
+	Log func(format string, args ...any)
 }
 
 // MaxConnsPerDevice is how many connections one paired device may hold open at once. A client that leaks sockets fills the daemon's
@@ -262,6 +264,9 @@ func (m *Manager) Login(token string, closeConn func()) (id, name string, releas
 			}
 		}
 		evict = append(evict, m.conns[d.ID][oldest])
+		if m.Log != nil {
+			m.Log("  device %s (%s): at %d connections, closing the oldest for a new one", d.Name, d.ID, m.maxConns)
+		}
 		delete(m.conns[d.ID], oldest)
 	}
 	m.next++

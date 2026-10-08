@@ -47,7 +47,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `wall` | The usage limit (wall_reason): typing would only spend quota. |
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
-| `unsupported` | The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented. |
+| `unsupported` | The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented. transcript.events for an agent the daemon runs as a terminal. |
 | `not_self` | The agent named is not the caller's own session. |
 | `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
@@ -65,7 +65,7 @@ A method marked write takes a required `request_id`.
 |---|---|---|---|---|---|---|
 | `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
 | `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
-| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` | `bad_request` |  |
+| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` | `bad_request`, `refused` | role |
 | `unsubscribe` | agent |  | `topics` | `object` | `bad_request` |  |
 | `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
 | `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` | `bad_request` |  |
@@ -96,6 +96,7 @@ A method marked write takes a required `request_id`.
 | `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
 | `chat.requests` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{items, more, version, cursor}` | `not_found`, `bad_request` |  |
 | `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
+| `transcript.events` | member |  | `agent`, `since_seq?`, `before_seq?`, `limit?` | `TranscriptEvents` | `not_found`, `bad_request`, `refused` | unsupported |
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer}` | `not_found`, `bad_request` |  |
 | `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail}` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
@@ -199,7 +200,7 @@ The viewer, the device, the role and the methods allowed.
 
 ### `subscribe`
 
-Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again.
+Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again. The transcript topic needs member, as transcript.events does: an agent session that names it is refused, gate role, and nothing is subscribed (the stream holds every agent's tool inputs and results).
 
 ### `unsubscribe`
 
@@ -320,6 +321,10 @@ A chat's threads for the screen that draws them: the requests of an agent's chat
 ### `chat.transcript`
 
 The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state. Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, the prompts it opened and the events of the tasks it owns; there is no tool item yet.
+
+### `transcript.events`
+
+A page of the agent's transcript events, by seq: the snapshot of the transcript topic. Refused (gate unsupported) for an agent the daemon does not run as a structured session (a terminal agent: watch its terminal). since_seq with before_seq, or a limit outside 1 to 500, is bad_request naming the field.
 
 ### `chat.locate`
 
@@ -769,6 +774,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
 | `hr` | `hr.raised` ({proposal}), `hr.settled` ({proposal}) | `hr.list` |
+| `transcript` | `transcript.event` (TranscriptEvent) | `transcript.events` |
 
 ## State words
 
@@ -835,6 +841,17 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 - **Size.** A row's spans are what its colours need and no more; `terminal.history` pages and the 1 MiB trim of a text page apply to the JSON as sent, spans included, and `more` says when it was trimmed. A frame for a screen of a few hundred runs is a few KiB; the slow-client rule of text is unchanged (`full: true`).
 - **Input.** `styled` is read-only like text: keys go by `terminal.input` where the host supports bytes in, and by `session.type` and `session.keys` as before.
 - **Not in it.** No hyperlink, image, blink or font-weight beyond bold, no wide-character marker beyond what `text` has, no mouse or screen-mode state: a client that needs the real terminal asks for `bytes`.
+
+## Transcript stream
+
+- **What.** The per-agent stream a view draws for a structured session (the CLI's frames reduced to what a view needs), in place of a terminal. Topic `transcript`, event type `transcript.event`, data TranscriptEvent; events carry `agent`, so subscribe's `agent` filters. `hello.capabilities.transcript` says the daemon serves it; `AgentView.structured` says which agents it serves it for (absent: a terminal agent, whose transcript.events is refused, gate unsupported, and whose terminal a client shows). The topic needs member, as transcript.events does: subscribe naming it from an agent session is refused, gate role.
+- **Kinds.** turn_start (a message began a turn: uuid, sender, text), text (one whole assistant text block), tool_use (id, tool, input), tool_result (tool_use_id, ok, text cut at 64 KiB), permission (a person is asked: a Prompt), permission_answer (allowed or denied, and by whom), turn_end (reason, cost_usd, duration_ms, usage), error (code, text). The order within a turn: turn_start, then text, tool_use, permission, permission_answer and tool_result as they happen, then turn_end. A tool_result follows its tool_use, not necessarily next. Open set: a client skips a kind it does not know.
+- **Permission.** A tool call that needs a person is a `permission` event whose `prompt` is an ordinary Prompt: kind permission, id = the tool call's id, options `allow` and `deny`, tool, command and reason as for any prompt. The card calls prompt.answer with choice allow or deny, and prompt.list holds it while it is open (it is also in the chat view as a prompt item and in the inbox, as today). The `permission_answer` event ends it, whoever answered: `by` person (prompt.answer), policy (a rule decided; no `permission` came before), cancel (the CLI withdrew it) or closed (the session closed or no handler answered: deny). A client that reconnects and sees a permission with no answer after it asks prompt.list before showing buttons.
+- **Sequence.** `seq` is per agent, starts at 1, goes up by exactly 1 with each event, continues across sessions of the agent (the `session` field changes on a fresh start, not on a resume) and is never reused. Events are final: nothing is changed after it is sent.
+- **Resume.** The connection's cursor works as for every topic: subscribe with `since` replays what was missed, up to the usual 5000 events, in full. A client that has no cursor, or gets `gap`, or sees a seq that is not last + 1, reads transcript.events: first load with no since_seq (the newest page), older pages with before_seq, the missed ones with since_seq = the last seq it applied. To start without a race: subscribe first, then read, then apply stream events above the read's last_seq and drop those at or below the last it holds. `gap: true` in the read means the daemon no longer keeps the events between; the client shows the break and goes on from first_seq.
+- **Send.** A message goes in by chat.send with the client's own request_id, as today; the daemon derives the message uuid from it, so the `turn_start` event for that message carries the uuid, and chat.messages has the message under the same operation.
+- **Chat.** chat.transcript is unchanged and stays the chat view's feed: a `text` event is also a reply item and a `permission` also a prompt item (the event's `item` is that item's id, so a view showing both draws it once); tool_use, tool_result, turn_start, turn_end and error have no chat item, and chat.transcript has still no tool item. The task_event and session items exist only in chat.transcript. A view that renders the transcript uses this stream and ignores chat.transcript's reply and prompt items for the same agent.
+- **Not in v1.** Partial text deltas, thinking blocks, images, and the edit diff of a tool. A tool's input is whatever the model sent.
 
 ## Legacy verbs
 
