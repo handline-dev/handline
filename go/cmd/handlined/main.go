@@ -31,8 +31,35 @@ func resolveHome(flagHome string, allowReal bool) (string, error) {
 	return paths.Home(), nil
 }
 
-// defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here.
-const defaultNative = "daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list,inbox.get,answers.list,events.feed,prompt.list,chat.messages,chat.requests,chat.transcript,chat.locate,chat.search,accounts.list,stats.get,repos.list,worktrees.list,worktree.diff,agent.options,team.get,schedules.list"
+// defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here. One name per
+// line in alphabetical order, so a port that adds one merges with the others.
+var defaultNative = strings.Join([]string{
+	"accounts.list",
+	"agent.get",
+	"agent.options",
+	"agent.timeline",
+	"agents.list",
+	"answers.list",
+	"chat.locate",
+	"chat.messages",
+	"chat.requests",
+	"chat.search",
+	"chat.transcript",
+	"daemon.status",
+	"events.feed",
+	"inbox.get",
+	"inbox.list",
+	"prompt.list",
+	"repos.list",
+	"schedules.list",
+	"settings.get",
+	"stats.get",
+	"task.get",
+	"tasks.list",
+	"team.get",
+	"worktree.diff",
+	"worktrees.list",
+}, ",")
 
 func main() {
 	home := flag.String("home", "", "the handline home (required while the daemon is in development)")

@@ -1,6 +1,7 @@
 package taskwrites
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
@@ -17,6 +18,14 @@ type fakeTeller struct {
 	told      []db.Notice
 	freed     []string
 	forget    []db.InboxFile
+	released  []Retired
+	cancelled []Retired
+	done      []string
+	stopped   bool
+	deny      string
+	handed    []Handover
+	opened    []string
+	edited    []Edited
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -29,6 +38,18 @@ func (f *fakeTeller) QueueDelivered(tid int64, by string, queued bool) string {
 func (f *fakeTeller) Discarded(owner string, told []db.Notice, freed []string, forget []db.InboxFile) {
 	f.discarded = append(f.discarded, owner)
 	f.told, f.freed, f.forget = told, freed, forget
+}
+
+func (f *fakeTeller) Cancelled(tid int64, by, owner string, stop bool, closed []Retired) {
+	f.cancelled = closed
+	f.stopped = stop
+}
+func (f *fakeTeller) Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool) {
+	f.done = append(f.done, fmt.Sprintf("T%d %s %s %d %v", tid, by, owner, len(told), finished))
+}
+func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
+	f.released = retired
+	return []string{fmt.Sprintf("%d stopped", len(retired))}
 }
 
 func TestADiscardHandsItsSaysItsFreedOwnersAndItsClosedInboxFilesToTheTeller(t *testing.T) {
@@ -114,4 +135,50 @@ func TestQueueRepliesWithWhatDeliveryDidForEachTask(t *testing.T) {
 	if !reflect.DeepEqual(f.queued, []string{"T1 human true", "T2 human true"}) {
 		t.Fatalf("%v", f.queued)
 	}
+}
+
+// TaskAsk writes the request row the real ask would (or a denial when f.deny is set) and runs within.
+func (f *fakeTeller) TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error) {
+	from, to, body, within := in.From, in.To, in.Body, in.Within
+	if f.deny != "" {
+		rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task", State: "denied", Verdict: f.deny})
+		return &Asked{Msg: f.deny, RID: rid}, err
+	}
+	rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task"})
+	if err != nil {
+		return nil, err
+	}
+	if err := within(rid); err != nil {
+		return nil, err
+	}
+	return &Asked{OK: true, Msg: fmt.Sprintf("queued as #%d for %s", rid, to), RID: rid}, nil
+}
+func (f *fakeTeller) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), error) {
+	ok, err := db.CloseIfQueued(tx, rid, "done", verdict, db.CloseOpts{Announced: true, NoSettle: true})
+	if err != nil || !ok {
+		return nil, err
+	}
+	return func() {}, nil
+}
+func (f *fakeTeller) HandedOver(h Handover) string {
+	f.handed = append(f.handed, h)
+	return "pushed"
+}
+func (f *fakeTeller) Opened(tid int64, by, owner, title string) {
+	f.opened = append(f.opened, fmt.Sprintf("T%d %s %s %s", tid, by, owner, title))
+}
+func (f *fakeTeller) Edited(ed Edited) { f.edited = append(f.edited, ed) }
+func (f *fakeTeller) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*Asked, error) {
+	if f.deny != "" {
+		return &Asked{Msg: f.deny}, nil
+	}
+	rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: to, Body: body, Kind: "say"})
+	if err != nil {
+		return nil, err
+	}
+	note := fmt.Sprintf("queued as #%d for %s", rid, to)
+	if err := within(rid, note); err != nil {
+		return nil, err
+	}
+	return &Asked{OK: true, Msg: note, RID: rid}, nil
 }

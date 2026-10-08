@@ -140,7 +140,7 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     ctx.caller = caller = ctx.caller_for(params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,
-            "capabilities": {"chat": False, "review": False, "input_ask": False, **_terminal_capabilities()},
+            "capabilities": {"chat": False, "review": False, **_terminal_capabilities()},
             "transport": "local",
             "methods": _methods(caller)}
 

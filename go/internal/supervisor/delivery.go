@@ -117,27 +117,12 @@ func pyNullNone(ns sql.NullString) string {
 // HeadTaskBlocked is delivery.head_task_blocked: is the head's own task on record as waited on, blocked by another open task or
 // held up on an ask the agent itself sent that is linked to the same task. A head with no task is never this.
 func (e *Env) headTaskBlocked(q db.Q, agent string, head *db.Request) bool {
-	for _, t := range must(db.TasksForRequest(q, head.ID)) {
-		if len(must(db.TaskBlockers(q, t.ID))) > 0 {
-			return true
-		}
-		for _, r := range must(db.TaskRequests(q, t.ID)) {
-			if r.Requester == agent && r.ID != head.ID && r.State == "queued" {
-				return true
-			}
-		}
-	}
-	return false
+	return must(db.HeadTaskBlocked(q, agent, head))
 }
 
-// EffectiveHead is db.head_of_queue unless it is blocked on record: then the next request behind it, so the one-at-a-time rule
-// falls on whatever the agent can actually act on. Only one level.
+// EffectiveHead is db.EffectiveHead: db.head_of_queue unless it is blocked on record, then the next request behind it.
 func (e *Env) effectiveHead(q db.Q, agent string) *db.Request {
-	head := must(db.HeadOfQueue(q, agent, 0))
-	if head != nil && e.headTaskBlocked(q, agent, head) {
-		return must(db.HeadOfQueue(q, agent, head.ID))
-	}
-	return head
+	return must(db.EffectiveHead(q, agent))
 }
 
 // EffectiveHeadOrMarked is EffectiveHead, or with none the oldest send_now_pending row (a say is never a head, but is still the one thing waiting).
@@ -248,30 +233,45 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 	if !e.batchDue(q, agent, batch, fresh) {
 		return false, nil // collected; goes out when the minute is up
 	}
-	if why := e.typingHold(q, agent); why != "" {
-		return e.holdBack(agent, head, why, false), nil // stays queued; told when it wakes or moves
-	}
-	handle := must(db.Terminal(q, agent))
-	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
-		return e.holdBack(agent, head, "it has no live terminal", false), nil
-	}
-	if !e.sessionPresent(agent) {
-		// Nothing here is read by an agent that is not running; at a shell prompt this line is four commands in backticks and a redirection.
-		return e.holdBack(agent, head, "no session is running in its terminal", false), nil
-	}
-	// Typing at an agent mid-turn leaves the text sitting in its input box unsent.
-	if !e.Terminal.TypeableNow(handle) {
-		// An open dialog is a reason the agent cannot take it, not a delivery gone wrong; only a busy screen with nothing to explain it is worth contesting.
-		if b := e.Terminal.ScreenBlocker(handle); b != nil && b.Kind != term.Unreadable {
-			return e.holdBack(agent, head, b.Reason(), false), nil
+	handle := ""
+	if e.structuredAgent(agent) {
+		if !e.Agents.Live(agent) {
+			return e.holdBack(agent, head, "it has no live session", false), nil
 		}
-		return e.holdBack(agent, head, "its screen is not idle (mid-turn, or unreadable)", true), nil
+	} else {
+		if why := e.typingHold(q, agent); why != "" {
+			return e.holdBack(agent, head, why, false), nil // stays queued; told when it wakes or moves
+		}
+		handle = must(db.Terminal(q, agent))
+		if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
+			return e.holdBack(agent, head, "it has no live terminal", false), nil
+		}
+		if !e.sessionPresent(agent) {
+			// Nothing here is read by an agent that is not running; at a shell prompt this line is four commands in backticks and a redirection.
+			return e.holdBack(agent, head, "no session is running in its terminal", false), nil
+		}
+		// Typing at an agent mid-turn leaves the text sitting in its input box unsent.
+		if !e.Terminal.TypeableNow(handle) {
+			// An open dialog is a reason the agent cannot take it, not a delivery gone wrong; only a busy screen with nothing to explain it is worth contesting.
+			if b := e.Terminal.ScreenBlocker(handle); b != nil && b.Kind != term.Unreadable {
+				return e.holdBack(agent, head, b.Reason(), false), nil
+			}
+			return e.holdBack(agent, head, "its screen is not idle (mid-turn, or unreadable)", true), nil
+		}
 	}
 	depth := 0
 	for _, r := range must(db.QueuedFor(q, agent)) {
 		if r.Kind.String == "task" {
 			depth++
 		}
+	}
+	if e.structuredAgent(agent) {
+		// No screen to read and no terminal lock: the session takes the write.
+		if sent = e.tellBatch(q, agent, batch, depth, "", aheadOf, aheadOf != nil); sent {
+			check(db.SetCursor(q, "batch:"+agent, e.now()))
+			e.forgetHeld(agent)
+		}
+		return sent, nil
 	}
 	locked := e.withTerminal(agent, func() {
 		if e.typeGate(q, agent, handle, true, false) != "" {

@@ -88,7 +88,7 @@ func (e *Env) controlLink() *ControlLink {
 
 // Register adds the terminal methods.
 func Register(s *rpc.Server, e *Env) {
-	s.Capabilities = capabilities
+	s.DeclareCapabilities(capabilities)
 	s.Register("terminal.attach", rpc.Method{Role: "member", Handler: e.attach})
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})

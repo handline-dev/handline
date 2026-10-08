@@ -218,3 +218,21 @@ func TestSubscribeForAnotherTopicOnTheGatewaysOwnSocketIsAnsweredAndSilent(t *te
 		}
 	}
 }
+
+func TestAnAgentIsRefusedTheTopicsWhoseReadsAreAMembers(t *testing.T) {
+	d, _ := startStream(t)
+	ag, fo := pipeTo(t, d, ""), pipeTo(t, d, "k")
+	for _, topic := range []string{"chat", "operations"} {
+		call := `{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"topics":["` + topic + `"]}}`
+		e, _ := ag.ask(call)["error"].(map[string]any)
+		if e == nil || e["data"].(map[string]any)["code"] != "refused" {
+			t.Fatalf("an agent subscribing to %s: %v", topic, e)
+		}
+		if r := fo.ask(call)["result"]; r == nil {
+			t.Fatalf("the founder is refused %s", topic)
+		}
+	}
+	if r := ag.ask(`{"jsonrpc":"2.0","id":3,"method":"subscribe","params":{"topics":["tasks","agents"]}}`)["result"]; r == nil {
+		t.Fatal("an agent still follows the topics it may read")
+	}
+}

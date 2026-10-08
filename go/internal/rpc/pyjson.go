@@ -8,6 +8,15 @@ import (
 	"unicode/utf16"
 )
 
+// Pairs is an object whose keys go out in the order given, as a Python dict's insertion order does.
+type Pairs []Pair
+
+// Pair is one key and value of Pairs.
+type Pair struct {
+	K string
+	V any
+}
+
 // PyJSON is v as Python's json.dumps writes it (", " and ": " between items, keys in the order given by sortKeys,
 // non-ASCII escaped when ensureASCII): text the Python daemon reads back and compares as it wrote it, such as a
 // write's params in rpc_replies. v holds nil, bool, string, json.Number, int, int64, float64, []string, []any, map[string]any.
@@ -53,6 +62,17 @@ func pyWrite(b *strings.Builder, v any, sortKeys, ascii bool) {
 			pyWrite(b, x, sortKeys, ascii)
 		}
 		b.WriteByte(']')
+	case Pairs:
+		b.WriteByte('{')
+		for i, e := range t {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			pyString(b, e.K, ascii)
+			b.WriteString(": ")
+			pyWrite(b, e.V, sortKeys, ascii)
+		}
+		b.WriteByte('}')
 	case map[string]any:
 		keys := make([]string, 0, len(t))
 		for k := range t {

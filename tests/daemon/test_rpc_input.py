@@ -1,4 +1,4 @@
-"""Tests: the input holder (input.take, input.release, input.ask), prompt.list and prompt.answer (contract/protocol.md):
+"""Tests: the input holder (input.take, input.release), prompt.list and prompt.answer (contract/protocol.md):
 who holds a terminal's input, the daemon typing nothing at a held one, the idle hold, the prompt a screen shows and the
 answer to it, and the gates each refusal names (role, terminal lock, input holder, stale prompt).
 
@@ -100,9 +100,7 @@ def test_the_founder_takes_and_releases_the_input_and_nobody_takes_it_from_a_hol
     check("input.release: the holder hands it back to the daemon", r["accepted"] and _holders("worker") == [inputhold.DAEMON], str(r))
     check("every take and release is an event with the holders", len(_events("input_holder")) >= 4
           and json.loads(_events("input_holder")[-1]["payload"])["holders"] == [inputhold.DAEMON])
-    r = _call("input.ask", {"agent": "worker", "request_id": "a1"})
-    check("input.ask: reserved, refused with gate unsupported", _code(r) == "refused" and _gate(r) == "unsupported", str(r))
-    for method in ("input.take", "input.release", "input.ask"):
+    for method in ("input.take", "input.release"):
         r = _call(method, {"agent": "worker", "request_id": "x"}, as_agent="manager")
         check(f"{method}: an agent session is refused by role", _gate(r) == "role", str(r))
     for method in ("input.take", "input.release"):

@@ -12,6 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
@@ -489,6 +490,10 @@ func (e *Env) send(handle, text string) (bool, string) {
 // nothing on screen a line would answer, the terminal lock held and the screen read again. False for any of them, or a failed send.
 func (e *Env) TypeNotice(q db.Q, agent, text string) (sent bool, err error) {
 	defer Catch(&err)
+	if e.structuredAgent(agent) {
+		state, _ := e.sendOnce(q, agent, e.nextOp(q, "notice"), text, structured.Now)
+		return state != NotSent, nil
+	}
 	handle := must(db.Terminal(q, agent))
 	if e.typingHold(q, agent) != "" || handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) ||
 		!e.sessionPresent(agent) || !e.Terminal.TypeableNow(handle) {

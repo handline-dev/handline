@@ -233,3 +233,80 @@
   align-items: center;
   gap: var(--sp-3);
 }
+
+/* ---- Transcript of a structured agent ---- */
+.tr {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.tr-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.tr-turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.tr-said {
+  font: var(--t-body);
+  color: var(--ink);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-2);
+  border-radius: var(--r-ctl);
+}
+.tr-said span,
+.tr-end,
+.tr-note,
+.tr-fold {
+  font: var(--t-hint);
+  color: var(--ink-2);
+}
+.tr-text {
+  margin: 0;
+  font: var(--t-body);
+  white-space: pre-wrap;
+}
+.tr-fold summary {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tr-fold[data-tone='bad'] {
+  color: var(--s-bad);
+}
+.tr-fold pre {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3);
+  background: var(--bg-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+.tr-error {
+  font: var(--t-body);
+  color: var(--s-bad);
+  border-left: 3px solid var(--s-bad);
+  padding-left: var(--sp-3);
+}
+.tr-newest {
+  position: absolute;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--bg-2);
+  color: var(--ink);
+  font: var(--t-hint);
+  cursor: pointer;
+}
