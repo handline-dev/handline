@@ -177,10 +177,12 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 		return false, nil
 	}
 	if e.structuredAgent(agent) {
-		// The same answers are the same operation; held behind a running turn.
-		state, _ := e.sendOnce(q, agent, "answers:"+idList(requestIDs(answered)), AnswersText(answered), structured.Queue)
-		if state == NotSent {
-			return false, nil // stays unannounced; told when the session is up
+		// The same answers are the same operation; held behind a running turn. They are announced once they are out: a held one is
+		// announced by the echo, and owed again if the session ends first.
+		ids := requestIDs(answered)
+		state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), structured.Queue)
+		if state == NotSent || state == Held {
+			return false, nil
 		}
 		e.recordAnswers(q, agent, answered)
 		return true, nil

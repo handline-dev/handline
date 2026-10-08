@@ -30,7 +30,7 @@ type Env struct {
 	Sleep func(time.Duration)
 
 	mu        sync.Mutex
-	sendMu    sync.Mutex // the send ledger is read and written under it, so two callers never write one operation twice
+	sendLocks map[string]*sync.Mutex // per agent: its send ledger is read and written under its lock, so two callers never write one operation twice
 	seen      map[string]Seen
 	seenAt    time.Time
 	drawn     map[string]drawnAt
