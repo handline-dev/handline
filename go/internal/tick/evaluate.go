@@ -35,7 +35,6 @@ type Tick struct {
 	Blocked   Blocked
 	Config    Config
 	Cost      *CostPilot
-	Login     *LoginExpired
 
 	said, saidClose map[string]string
 	rolloverDay     string
@@ -158,25 +157,11 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	t.Messaging.TellUndelivered(q, agent)
 	t.Messaging.DeliverPending(q, agent)
 
-	// A turn still running when the park began can hit the usage wall on its own afterward: the dialog that puts on screen is not one a
-	// person is answering, so it is pressed past here rather than left up until the wake (#2087).
-	if (state == states.Parked || state == states.Throttled || state == states.Degraded) && hasTerminal(row) && !closedAt(row) && t.Host.TermAvailable() {
-		if mine, release := t.Host.LockTerminal(agent); mine {
-			t.Delivery.PastDialog(q, agent, true)
-			release()
-		} else {
-			release()
-		}
-	}
-
 	// The live reading this tick judges the agent against, not the account a resume would use.
 	reading := t.confirmedReading(agent, t.accountReading(agent))
 	acct := ""
 	if reading != nil {
 		acct = reading.Account
-	}
-	if t.Login.Check(t, agent, row, acct, actions) {
-		return
 	}
 	st := t.Usage.ReadForAgent(agent, acct)
 	ctxLimit := t.Usage.ContextLimit(agent, st.ModelID)
@@ -287,8 +272,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 			*actions = append(*actions, fmt.Sprintf("%s: cache expired; session closed, the wake delivers", agent))
 			row = must(db.GetAgentState(q, agent))
 		}
-		// Our own text still in its box, Enter lost: pressed again, and nothing else is typed this tick.
-		if closed == nil && !t.Delivery.RecoverUnsent(q, agent) {
+		if closed == nil {
 			t.Delivery.DeliverAnswers(q, agent)
 			// A task told past an idle head starts a turn: the nudge about that head waits.
 			if !t.Delivery.DeliverQueued(q, agent) {
@@ -363,7 +347,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	// enough to wake this agent into.
 	if !wokeNow && hasTerminal(row) && !closedAt(row) && state == states.Parked &&
 		reading != nil && reading.Source != "assumed" &&
-		t.Host.TermAvailable() && t.Host.TermAlive(row.Terminal.String) {
+		t.Host.SessionAlive(agent) {
 		last := must(db.LastHandoffTrigger(q, agent))
 		verdict := Evaluate(st.ShortTrusted, st.TrustedCtxUsed, st.LongTrusted, ctxLimit)
 		movable := last != "" && t.Handoff.Movable(last)
@@ -371,19 +355,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		// start, move now rather than wait out this account's own window.
 		if movable && verdict.Fired && t.Handoff.Movable(verdict.Kind) {
 			if dest, _ := t.Handoff.MovePlan(q, agent, verdict.Kind); dest != "" {
-				moved := false
-				if mine, release := t.Host.LockTerminal(agent); mine {
-					// requireIdle false: the move ends the session itself, through its own fresh idle read inline where /exit is typed.
-					if t.Delivery.TypeGate(q, agent, false, true) == "" {
-						moved = t.Handoff.MoveToRoom(q, agent, verdict)
-					}
-					if moved {
-						t.Delivery.MarkTyped(q, agent)
-					}
-					release()
-				} else {
-					release()
-				}
+				moved := t.Handoff.MoveToRoom(q, agent, verdict)
 				if moved {
 					*actions = append(*actions, fmt.Sprintf("%s: moved off a parked account", agent))
 					return

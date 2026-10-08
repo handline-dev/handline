@@ -112,8 +112,8 @@ func (a *ApplySettings) apply(t *Tick, agent string) {
 	if applied, _ := must2(db.Meta(t.Q, SettingsApplied+agent)); applied == text {
 		return
 	}
-	if !t.Delivery.SessionPresent(agent) || !t.Host.TermAvailable() || !t.Host.TypeableNow(row.Terminal.String) {
-		return // busy, or a dialog is open: the next tick asks again
+	if !t.Delivery.SessionPresent(agent) || !t.Host.SessionIdle(agent) {
+		return // mid-turn or waiting on a permission: the next tick asks again
 	}
 	st := t.Usage.ReadForAgent(agent, a.Ports.CurrentAccount(t.Q, agent))
 	if st.SessionID == "" {

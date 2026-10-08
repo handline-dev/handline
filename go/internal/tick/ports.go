@@ -24,20 +24,15 @@ type Limit struct{ Text, Source string }
 // Need is lifecycle.start_or_wake_needed: "start" or "wake", and the sentence for what is waiting.
 type Need struct{ Kind, What string }
 
-// Host is what the tick asks of the machine it runs on: the agents and accounts it knows, the terminal host, the per-agent terminal
-// lock and the process table.
+// Host is what the tick asks of the machine it runs on: the agents and accounts it knows and the structured sessions it supervises.
 type Host interface {
 	// Agents is paths.list_agents, Accounts paths.list_accounts.
 	Agents() []string
 	Accounts() []string
-	// TermAvailable is term.available; TermAlive term.alive; ScreenText term.screen_text (ok false when unreadable); TypeableNow
-	// term.typeable_now.
-	TermAvailable() bool
-	TermAlive(handle string) bool
-	ScreenText(handle string) (string, bool)
-	TypeableNow(handle string) bool
-	// LockTerminal is lock.terminal(agent): mine is false when someone else holds it, and release is always safe to call.
-	LockTerminal(agent string) (mine bool, release func())
+	// SessionAlive is whether the agent has a live structured session; SessionIdle whether its S1 state is idle (not running, not
+	// requires_action), so a restart will not cut a turn or an open permission prompt short.
+	SessionAlive(agent string) bool
+	SessionIdle(agent string) bool
 	// RunningAccount is the account the agent's running process spends, "" when the sweep's snapshot has no process for it or its
 	// environment cannot be read: "I don't know", which never contradicts anything.
 	RunningAccount(agent string) string
@@ -58,17 +53,12 @@ type Usage interface {
 
 // Delivery is daemon/delivery.py as supervise calls it.
 type Delivery interface {
-	PastDialog(q db.Q, agent string, onlyLimit bool)
 	EnforceEdges(q db.Q, agent string) error
 	NoteFailure(agent, why string) // why "" clears
 	TrackBackgroundWork(q db.Q, agent string, row *db.AgentState)
-	RecoverUnsent(q db.Q, agent string) bool
 	DeliverAnswers(q db.Q, agent string)
 	DeliverQueued(q db.Q, agent string) bool
 	NudgeForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64)
-	// TypeGate is delivery._type_gate (refusal text, "" when open) and MarkTyped delivery._mark_typed.
-	TypeGate(q db.Q, agent string, requireIdle, requireSettled bool) string
-	MarkTyped(q db.Q, agent string)
 	// SessionPresent is delivery.session_present.
 	SessionPresent(agent string) bool
 	HasBackgroundWork(q db.Q, agent string) bool
