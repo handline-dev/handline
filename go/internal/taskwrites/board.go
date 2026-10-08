@@ -13,7 +13,7 @@ import (
 // task is the columns of a task row the writes read.
 type task struct {
 	ID                                  int64
-	Owner, OpenedBy                     string
+	Owner, OpenedBy, Title              string
 	DoneEvidence, DiscardedBy, QueuedBy sql.NullString
 	Expects                             sql.NullString
 	SentAt                              sql.NullInt64
@@ -23,8 +23,8 @@ type task struct {
 
 func getTask(tx *sql.Tx, tid int64) (*task, error) {
 	t := &task{ID: tid}
-	err := tx.QueryRow("SELECT owner, opened_by, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, expects FROM tasks WHERE id = ?", tid).
-		Scan(&t.Owner, &t.OpenedBy, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Expects)
+	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, expects FROM tasks WHERE id = ?", tid).
+		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Expects)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

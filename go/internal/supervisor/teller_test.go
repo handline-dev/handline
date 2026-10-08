@@ -142,3 +142,45 @@ func TestTheTellerAfterADoneMovesTheOwnerOnAndReleasesWhatWaitedOnTheTask(t *tes
 		t.Fatalf("the owner of the task that waited is told once: %d", n)
 	}
 }
+
+func TestTheTellerRoutesAHandoffInTheTransactionOfTheMoveAndTypesItAfterTheCommit(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	tid := r.newTask("bob", "alice", "job")
+	tx, err := r.DB.Begin()
+	r.must(err)
+	var moved int64
+	asked, err := r.HandoffAsk(tx, "bob", "alice", "T1 handed to you by bob: job\n\ncheck it", func(rid int64) error {
+		moved = rid
+		to := "alice"
+		return db.EditTask(tx, tid, "bob", db.TaskEdit{Owner: &to})
+	})
+	r.must(err)
+	if !asked.OK || asked.RID == 0 || moved != asked.RID {
+		t.Fatalf("%+v", asked)
+	}
+	var n int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests").Scan(&n)
+	if n != 0 {
+		t.Fatal("nothing is visible before the commit")
+	}
+	r.must(tx.Commit())
+	r.term.typed = nil
+	r.must(db.LinkRequest(r.DB, tid, asked.RID))
+	db.MarkSendNow(r.DB, asked.RID)
+	asked.After()
+	r.HandedOver(taskwrites.Handover{Task: tid, By: "bob", From: "bob", To: "alice", Title: "job", RID: asked.RID})
+	if !strings.Contains(strings.Join(r.term.typed, "\n"), "check it") {
+		t.Fatalf("the new owner is typed the handoff: %q", r.term.typed)
+	}
+
+	tx, err = r.DB.Begin()
+	r.must(err)
+	denied, err := r.HandoffAsk(tx, "bob", "nobody.such", "x", func(int64) error { return fmt.Errorf("not reached") })
+	r.must(err)
+	r.must(tx.Commit())
+	if denied.OK || denied.Msg == "" {
+		t.Fatalf("an agent the routing table does not know is refused: %+v", denied)
+	}
+}

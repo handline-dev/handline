@@ -30,15 +30,10 @@ chat.answer
 chat.dismiss
 chat.withdraw
 chat.send_now
-task.done
-task.release
 stats.outlook
 answer.add
 answer.remove
-task.begin
-task.handoff
 say
-task.progress
 settings.get
 task.ask
 ask

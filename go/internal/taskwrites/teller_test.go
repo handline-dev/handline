@@ -1,6 +1,7 @@
 package taskwrites
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
 	"strings"
@@ -21,6 +22,8 @@ type fakeTeller struct {
 	cancelled []Retired
 	done      []string
 	stopped   bool
+	deny      string
+	handed    []Handover
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -130,4 +133,31 @@ func TestQueueRepliesWithWhatDeliveryDidForEachTask(t *testing.T) {
 	if !reflect.DeepEqual(f.queued, []string{"T1 human true", "T2 human true"}) {
 		t.Fatalf("%v", f.queued)
 	}
+}
+
+// HandoffAsk writes the request row the real ask would (or a denial when f.deny is set) and runs within.
+func (f *fakeTeller) HandoffAsk(tx *sql.Tx, from, to, body string, within func(rid int64) error) (*Asked, error) {
+	if f.deny != "" {
+		rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task", State: "denied", Verdict: f.deny})
+		return &Asked{Msg: f.deny, RID: rid}, err
+	}
+	rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task"})
+	if err != nil {
+		return nil, err
+	}
+	if err := within(rid); err != nil {
+		return nil, err
+	}
+	return &Asked{OK: true, Msg: fmt.Sprintf("queued as #%d for %s", rid, to), RID: rid}, nil
+}
+func (f *fakeTeller) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), error) {
+	ok, err := db.CloseIfQueued(tx, rid, "done", verdict, db.CloseOpts{Announced: true, NoSettle: true})
+	if err != nil || !ok {
+		return nil, err
+	}
+	return func() {}, nil
+}
+func (f *fakeTeller) HandedOver(h Handover) string {
+	f.handed = append(f.handed, h)
+	return "pushed"
 }
