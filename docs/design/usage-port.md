@@ -46,7 +46,7 @@ L = live and used today. S = made unnecessary by structured sessions. D = legacy
 | `vendors/claude` | 641 | launch, accounts | **P** for argv/env/identity/profile/login (about 0.25k; `lifecycle/build.go` has argv). Screen blockers, trust and bypass screens, `_describe_backgrounded` etc. (about 0.35k) **S/D**. |
 | `vendors/claude_collect` | 182 | collect | **S**. |
 | `vendors/claude_ask`, `claude_confirm` | 235 | prompts | **S** (the `can_use_tool` callback replaces the picker). |
-| `vendors/claude_hooks` | 402 | install, doctor | **T/decide.** Writes the shared settings.json hooks that report RUNNING/IDLE and the PreToolUse guard. Structured sessions need none of the state hooks; the PreToolUse guard still runs in `--print` (S1 review T2582), so the guard hook must stay installed. Keep only `ensure_shared` and `install` for that, if a hook-based guard is still wanted. Needs a decision. |
+| `vendors/claude_hooks` | 402 | install, doctor | **T/decide.** Writes the shared settings.json hooks that report RUNNING/IDLE and the PreToolUse guard. Structured sessions need none of the state hooks; the PreToolUse guard still runs in `--print` (found in the S1 review), so the guard hook must stay installed. Keep only `ensure_shared` and `install` for that, if a hook-based guard is still wanted. Needs a decision. |
 | `vendors/opencode` | 433 | accounts on that vendor | **Ask.** Is any account on it? If not: **D** (433 lines, plus its own meter and `usage_reading`, 93). Default drop. |
 
 Net to port: about 2.6k Python lines of the 6.2k (status, load, burn costs, windows, record, poll, recover, trimmed vendor
