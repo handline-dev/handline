@@ -30,6 +30,8 @@ def expire_handoffs(con, log) -> list[str]:
         if not row["deadline"] or row["deadline"] >= now:
             continue
         agent = row["agent"]
+        if agents.is_structured(agent):
+            continue  # the Go daemon drives it
         db.advance_handoff(con, row["id"], row["step"], state="degraded",
                            detail=f"deadline passed at {row['deadline']}")
         db.bump_counter(con, agent, "throttle_count")
@@ -83,6 +85,8 @@ def reconcile(con, log) -> list[str]:
     actions += expire_handoffs(con, log)
     for row in db.in_flight_handoffs(con):
         agent, step = row["agent"], row["step"]
+        if agents.is_structured(agent):
+            continue
         try:
             handoff.resume_handoff(con, row, log)
         except (ConfigError, UnicodeDecodeError, OSError) as e:
@@ -96,7 +100,7 @@ def reconcile(con, log) -> list[str]:
     # 2. wake_at deadlines that have come due.
     for row in db.due_agents(con, now):
         agent = row["agent"]
-        if row["state"] not in (PARKED, THROTTLED, DEGRADED):
+        if row["state"] not in (PARKED, THROTTLED, DEGRADED) or agents.is_structured(agent):
             continue
         # A closed agent has no session left to notice its own wake_at - the
         # wake_at branch in supervise() is what would normally call this, and
@@ -124,7 +128,7 @@ def reconcile(con, log) -> list[str]:
         actions.append(f"{agent}: {row['state']} -> {new_state} (wake_at was {row['wake_at']})")
 
     # 3. Agents we know about but have no state row for.
-    known = set(paths.list_agents())
+    known = set(agents.driven())
     have = {r["agent"] for r in db.all_agent_states(con)}
     for agent in sorted(known - have):
         db.set_agent_state(con, agent, IDLE, detail="registered, first seen")
@@ -222,7 +226,7 @@ def sweep(con, log, actions: list[str]) -> None:
     process is not running. Where the only evidence is a probe, it wants two
     witnesses before it moves.
     """
-    agent_names = paths.list_agents()
+    agent_names = agents.driven()
     terminals = {a: db.get_terminal(con, a) for a in agent_names}
     seen = obs.observe(agent_names, terminals)
     delivery._seen.clear()

@@ -68,7 +68,7 @@ func rig(t *testing.T) (*Parts, string) {
 	t.Setenv("FAKE_CLAUDE", "1")
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755)
-	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nmode: structured # the real CLI\n"), 0o644)
+	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true # the real CLI\n"), 0o644)
 	os.MkdirAll(filepath.Join(home, "shared", ".claude"), 0o755)
 	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte(sharedSettings), 0o644)
 	os.MkdirAll(filepath.Join(home, "agents", "bob"), 0o755)
@@ -326,7 +326,7 @@ func TestAStartTheDaemonCannotDoIsNotCountedAgainstTheAgent(t *testing.T) {
 	d := p.Sink.DB
 	// bob is a terminal agent and carol a structured one with no worktree: neither can be started here, and neither may be stalled for it.
 	os.MkdirAll(filepath.Join(p.home, "agents", "carol"), 0o755)
-	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nmode: structured\nrepo: "+t.TempDir()+"\n"), 0o644)
+	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nstructured: true\nrepo: "+t.TempDir()+"\n"), 0o644)
 	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+t.TempDir()+"\n"), 0o644)
 	for _, agent := range []string{"bob", "carol"} {
 		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: agent, Body: "begin", Response: "async", Kind: "ask"}); err != nil {
@@ -365,6 +365,31 @@ func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
 		t.Fatalf("an unread account left an open start: %q", v)
 	}
 	_ = env
+}
+
+// TestTheAgentKindIsReadAsThePythonDaemonReadsIt plays the cases both daemons share (contract/agent-kind-cases.json).
+func TestTheAgentKindIsReadAsThePythonDaemonReadsIt(t *testing.T) {
+	raw, err := os.ReadFile("../../../contract/agent-kind-cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Cases []struct {
+			Yaml       string `json:"yaml"`
+			Structured bool   `json:"structured"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil || len(f.Cases) == 0 {
+		t.Fatal(err)
+	}
+	for i, c := range f.Cases {
+		home := t.TempDir()
+		os.MkdirAll(filepath.Join(home, "agents", "x"), 0o755)
+		os.WriteFile(filepath.Join(home, "agents", "x", "agent.yaml"), []byte(c.Yaml), 0o644)
+		if got := KindFromYAML(home)("x"); got != c.Structured {
+			t.Errorf("case %d %q: %v, want %v", i, c.Yaml, got, c.Structured)
+		}
+	}
 }
 
 func TestAHeldMessageThatIsWrittenIsToldAsWrittenOnceAndAnImmediateSendIsNot(t *testing.T) {

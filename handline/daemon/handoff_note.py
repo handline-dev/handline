@@ -28,6 +28,7 @@ from __future__ import annotations
 import time
 
 from .. import db
+from ..team import agents
 from ..infra import paths, textsafe
 from ..session import cachettl, events, idle_close
 from . import delivery
@@ -166,6 +167,8 @@ def _eligible(con, agent: str, now: int) -> bool:
 
 
 def ask(con, agent: str, log, kind: str = "close") -> bool:
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     path = note_path(agent)
     path.unlink(missing_ok=True)
     last_event = con.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
@@ -188,6 +191,8 @@ def at_cache_edge(con, agent: str, now: int, st, log) -> bool:
     or whose line cannot be typed now (a turn running, a dialog open, the wall), is simply asked on
     a later tick while the window lasts; one the ask cannot reach is left to the facts. A closed
     session, one that is not idle, and one at the usage wall are not asked."""
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     row = db.get_agent_state(con, agent)
     if not row or row["closed_at"] or row["state"] != IDLE or events.at_limit(con, agent):
         return False                      # not an open, idle session that can take a turn
@@ -206,6 +211,8 @@ def hold(con, agent: str, now: int, log) -> bool:
     """Should the close or move this agent is due wait for its note? Asks once per stretch
     and holds while the ask's turn has not begun, for at most `ASK_WAIT_S`. False means go
     on, with the note if it was written and without it otherwise - never a block."""
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     got = asked(con, agent)
     if got is None:
         return _eligible(con, agent, now) and ask(con, agent, log)

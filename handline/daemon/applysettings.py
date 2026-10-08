@@ -38,7 +38,7 @@ def changed(agent: str, row) -> list[str]:
 
 
 def sweep(con, log, now: int) -> None:
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         try:
             _apply(con, agent, log)
         except Exception as e:  # noqa: BLE001 - one agent's failure is not the tick's

@@ -24,6 +24,7 @@ an event.
 from __future__ import annotations
 
 from ..infra import paths
+from ..team import agents
 from ..infra import timefmt
 from ..session import handoff as progressmod
 from ..session import bgjobs, idle_close
@@ -65,6 +66,8 @@ def sweep_task_timeouts(con, log, now: int) -> None:
     or released. A task with no timeout_s takes the default where it becomes doing."""
     from .. import actions
     for row in db.tasks_to_clock(con):
+        if agents.is_structured(row["owner"]):
+            continue  # the Go daemon's clock: no pause, no deadline, no notice from here
         tid = int(row["id"])
         if actions.task_state(con, row) != "doing":
             if row["timeout_at"] is not None:
@@ -109,7 +112,7 @@ def sweep_unasked_running(con, log, now: int) -> None:
     from .. import actions
     limit = idle_close.config_seconds("unasked_running_s", UNASKED_RUNNING_S)
     team = actions.routing()
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         since_key, told_key = f"unasked_since:{agent}", f"unasked_told:{agent}"
         if not _unasked_running(con, agent, db.get_agent_state(con, agent)):
             db.clear_cursor(con, since_key)
@@ -138,7 +141,7 @@ def sweep_stale_background(con, log, now: int) -> None:
     stretch is told again."""
     from .. import actions
     team = actions.routing()
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         key = f"stale_bg_told:{agent}"
         if not delivery.bg_stale(con, agent, now) or delivery.bg_owes_nothing(con, agent) \
                 or idle_close.close_timeout_s(agent) == idle_close.NEVER:
@@ -165,7 +168,7 @@ def sweep_forgotten_background(con, log, now: int) -> None:
     idle close ends the session and its work (`bg_may_stop`; `lifecycle.close_agent` records
     why). An agent set to never close is left alone. Both marks clear with the stretch: when
     the work ends, or a request, an ask or a task makes it something owed."""
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         key, noted = f"bg_prompt:{agent}", f"bg_stop_noted:{agent}"
         if not delivery.has_background_work(con, agent) or not delivery.bg_owes_nothing(con, agent) \
                 or idle_close.close_timeout_s(agent) == idle_close.NEVER:
@@ -191,7 +194,7 @@ def sweep_background_check(con, log, now: int) -> None:
     end, it is told what is running and asked to stop what it no longer needs - a shell
     nobody stops holds off the context rollover. Not the idle close: busy or idle, owing
     or not, a "never close" agent too. It waits out a T424 notice already in flight."""
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         key = f"bg_check:{agent}"
         row = db.get_agent_state(con, agent)
         if not row or not delivery.has_background_work(con, agent):
@@ -235,7 +238,7 @@ def sweep_stop_wait_backstop(con, log, now: int) -> None:
     IDLE now, once, past the limit."""
     from .. import actions
     limit = idle_close.config_seconds("stop_wait_backstop_s", STOP_WAIT_BACKSTOP_S)
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         since_key, told_key = f"stop_wait_since:{agent}", f"stop_wait_told:{agent}"
         task_key = f"stop_wait_task:{agent}"
         row = db.get_agent_state(con, agent)
@@ -273,7 +276,7 @@ def sweep_forgotten_resolve_capped(con, log, now: int) -> None:
     again."""
     from .. import actions
     team = actions.routing()
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         told_key = f"forgotten_capped_told:{agent}"
         found = delivery.forgotten_resolve(con, agent, db.get_agent_state(con, agent), now)
         head_id = int(found["head"]["id"]) if found else None
