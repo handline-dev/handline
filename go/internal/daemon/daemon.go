@@ -211,19 +211,29 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
+// writeRegistrars are the packages that register methods once the hooks are wired, one per line in alphabetical order of the package: a port
+// adds its line at its own place, so two ports do not edit the same spot and git merges them.
+func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
+	return []func(*rpc.Server){
+		func(s *rpc.Server) { adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home}) },
+		func(s *rpc.Server) { chatwrites.Register(s, d.env()) },
+		func(s *rpc.Server) { d.hooks.Register(s) },
+		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
+		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
+		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.cfg.Teller) },
+		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
+	}
+}
+
 // newServer is a connection server on one transport, with the methods this daemon serves.
 func (d *Daemon) newServer(transport string) *rpc.Server {
 	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
 	s.DB = d.db
 	s.NoEvents = d.cfg.Gateway
 	if d.hooks != nil {
-		d.hooks.Register(s)
-		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
-		chatwrites.Register(s, d.env())
-		adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home})
-		hrwrites.Register(s, d.hrEnv())
-		prompts.Register(s, d.prompts)
-		termchan.Register(s, d.tchan)
+		for _, register := range d.writeRegistrars() {
+			register(s)
+		}
 	}
 	if transport == "network" {
 		s.Net = d.dev
