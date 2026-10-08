@@ -155,6 +155,12 @@ func SetClosed(q Q, agent, session string) error {
 	return err
 }
 
+// SetResumeSession records the session a structured agent runs under: the id a restart or a wake resumes. A closed mark is not touched.
+func SetResumeSession(q Q, agent, session string) error {
+	_, err := q.Exec("UPDATE agent_state SET resume_session = ?, updated = ? WHERE agent = ?", nullStr(session), Now(), agent)
+	return err
+}
+
 // ForgetResume is db.forget_resume: closed still, with no session to resume.
 func ForgetResume(q Q, agent string) error {
 	_, err := q.Exec("UPDATE agent_state SET resume_session = NULL, updated = ? WHERE agent = ?", Now(), agent)
