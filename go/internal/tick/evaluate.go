@@ -32,7 +32,6 @@ type Tick struct {
 	Sweeps    Sweeps
 	Passes    []NamedSweep // the guarded passes after the per-agent turns, in order (see StandardPasses)
 	Observe   Observe
-	Blocked   Blocked
 	Config    Config
 	Cost      *CostPilot
 
@@ -126,8 +125,6 @@ func closedAt(row *db.AgentState) bool {
 	return row != nil && row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
 }
 
-func hasTerminal(row *db.AgentState) bool { return row != nil && row.Terminal.String != "" }
-
 // Supervise is one agent's turn in a tick, its own function so that all of it sits inside the single guard in Run that treats a failure
 // as this agent's failure.
 func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, actions *[]string) {
@@ -181,7 +178,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		}
 		var woke bool
 		var why string
-		if restored && !((hasTerminal(row) || t.Lifecycle.ResumableWithoutTerminal(row)) && t.Lifecycle.WaitingFor(q, agent)) {
+		if restored && !((t.Host.SessionAlive(agent) || t.Lifecycle.ResumableWithoutTerminal(row)) && t.Lifecycle.WaitingFor(q, agent)) {
 			// The deadline is spent and nothing came for it: a closed session is not resumed to be told nothing. It stays closed, and
 			// what arrives next is what wakes it.
 			woke, restored = false, false
@@ -198,7 +195,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 			t.logf("  %s: stays %s, still due", agent, state)
 			return
 		}
-		// The prompt has been typed by now, so the agent may already have answered it: only write QUEUED if nothing has claimed it since.
+		// The prompt has been sent by now, so the agent may already have answered it: only write QUEUED if nothing has claimed it since.
 		if fresh := must(db.GetAgentState(q, agent)); fresh != nil && fresh.State != state {
 			return
 		}
@@ -221,7 +218,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		said := t.Lifecycle.StartForWork(q, agent)
 		*actions = append(*actions, said)
 		row = must(db.GetAgentState(q, agent))
-		if hasTerminal(row) {
+		if t.Host.SessionAlive(agent) {
 			t.Delivery.NoteFailure(agent, "")
 			delete(t.said, agent)
 		} else {
@@ -260,14 +257,14 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	}
 
 	// Work that has arrived is delivered before anything else is decided. An agent woken in this tick is told on the next one. An agent
-	// whose turn ended on the usage limit cannot run one: typing work into it would start a turn that fails at once.
+	// whose turn ended on the usage limit cannot run one: sending work to it would start a turn that fails at once.
 	t.Delivery.TrackBackgroundWork(q, agent, row)
 	row = must(db.GetAgentState(q, agent))
 	atWall := t.Usage.AtLimit(q, agent)
 	openIdle := state != states.Running && state != states.Handoff && !wokeNow && atWall == nil && !closedAt(row)
 	if openIdle {
 		// An answer first: an agent that asked something and parked is waiting on that.
-		closed := t.Lifecycle.ColdBeforeTyping(q, agent, row, now, st)
+		closed := t.Lifecycle.ColdBeforeSend(q, agent, row, now, st)
 		if closed != nil && *closed {
 			*actions = append(*actions, fmt.Sprintf("%s: cache expired; session closed, the wake delivers", agent))
 			row = must(db.GetAgentState(q, agent))
@@ -311,7 +308,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 			*actions = append(*actions, fmt.Sprintf("%s: session closed while idle", agent))
 			row = must(db.GetAgentState(q, agent))
 		} else if t.saidClose[agent] != why {
-			// Once per reason: a refusal that leaves no close_failed behind, a dialog still open above all, comes round every tick.
+			// Once per reason: a refusal that leaves no close_failed behind comes round every tick.
 			t.saidClose[agent] = why
 			t.logf("  %s: idle but not closed - %s", agent, why)
 		}
@@ -345,7 +342,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	// Un-parks a usage park - PARKED only, and only when the handoff that put it there named a usage trigger - the moment that same
 	// reading, evaluated the way the park itself was, no longer fires. Never on an assumed or unknown account: a guess is not evidence
 	// enough to wake this agent into.
-	if !wokeNow && hasTerminal(row) && !closedAt(row) && state == states.Parked &&
+	if !wokeNow && !closedAt(row) && state == states.Parked &&
 		reading != nil && reading.Source != "assumed" &&
 		t.Host.SessionAlive(agent) {
 		last := must(db.LastHandoffTrigger(q, agent))
@@ -410,7 +407,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		case fresh != nil && fresh.ThrottleCount >= states.MaxThrottleStreak:
 			// 8.6: raise to the founder only after repeated automatic recovery failed.
 			check(db.SetAgentState(q, agent, states.Stalled, 0,
-				fmt.Sprintf("%d consecutive degraded handoffs", fresh.ThrottleCount)+t.Blocked.DialogNote(q, agent)))
+				fmt.Sprintf("%d consecutive degraded handoffs", fresh.ThrottleCount)))
 			*actions = append(*actions, fmt.Sprintf("%s: STALLED after %d degraded handoffs", agent, fresh.ThrottleCount))
 			t.logf("  %s: STALLED - needs a human", agent)
 		case fresh != nil && fresh.FailedAttempts >= states.MaxFailedAttempts:

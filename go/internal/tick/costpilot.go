@@ -140,7 +140,7 @@ func (c *CostPilot) RenewalDue(t *Tick, agent string, row *db.AgentState, now in
 	return c.renewals(t, agent) < MaxRenewals
 }
 
-// Renew asks for the note if a renewal is due, and records it. True when the ask was typed.
+// Renew asks for the note if a renewal is due, and records it. True when the ask was sent.
 func (c *CostPilot) Renew(t *Tick, agent string, row *db.AgentState, now int64, st Status) bool {
 	if !c.RenewalDue(t, agent, row, now, st) {
 		return false

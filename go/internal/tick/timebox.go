@@ -17,16 +17,16 @@ import (
 // its supervisor once, so the manager can ask what it is doing. Background work with the agent silent for STALE_BG_S tells its supervisor it
 // may be stopped after a veto window. An agent IDLE with its current task's own wait never recorded tells the founder once, the Stop-hook
 // gate's own backstop. An agent nudged to resolve a forgotten head as many times as the schedule allows, still open, tells its
-// supervisor once - nothing more is typed at the agent about it past that. The first three act on nothing.
+// supervisor once - nothing more is sent to the agent about it past that. The first three act on nothing.
 //
-// A notice to an agent is a line typed at its open session, so one that cannot be typed now is tried again; a notice to the human has no
+// A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
 	UnaskedRunningS     = 900
 	TitleShown          = 60
 	StopWaitBackstopS   = 900
 	DefaultTaskTimeoutS = 3600 // actions.DEFAULT_TASK_TIMEOUT_S
-	// NoticeRetryS: a notice that could not be typed (mid-turn, a modal, no session) is not tried again for this long, per agent.
+	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
 	NoticeRetryS = 60
 )
 
@@ -54,8 +54,8 @@ type TimeboxPorts interface {
 	// ChildWait is actions.child_wait; StopWaitReason actions.stop_wait_reason ("" for none).
 	ChildWait(q db.Q, agent string) bool
 	StopWaitReason(q db.Q, agent string) string
-	// TypeNotice is delivery.type_notice: true when the line was typed.
-	TypeNotice(q db.Q, agent, text string) bool
+	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
+	SendNotice(q db.Q, agent, text string) bool
 	BgStale(q db.Q, agent string, now int64) bool
 	BgOwesNothing(q db.Q, agent string) bool
 	BgSilentS(q db.Q, agent string, now int64) (int64, bool)
@@ -85,7 +85,7 @@ func (b *Timebox) tell(t *Tick, who, text string, now int64) bool {
 		return false
 	}
 	check(db.SetCursor(t.Q, key, now))
-	return b.Ports.TypeNotice(t.Q, who, text)
+	return b.Ports.SendNotice(t.Q, who, text)
 }
 
 func (b *Timebox) stateOf(t *Tick, agent string) string {
@@ -157,7 +157,7 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 }
 
 func (b *Timebox) unaskedRunning(t *Tick, agent string, row *db.AgentState) bool {
-	if row == nil || closedAt(row) || row.Terminal.String == "" || len(must(db.QueuedFor(t.Q, agent))) > 0 {
+	if row == nil || closedAt(row) || !t.Host.SessionAlive(agent) || len(must(db.QueuedFor(t.Q, agent))) > 0 {
 		return false
 	}
 	// Background work does not exempt a RUNNING agent: the sweeps that settle it leave an agent mid-turn alone, so this is its
@@ -307,12 +307,12 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 		text := fmt.Sprintf("Background work has been running for %s: %s. Stop what you no longer need, and for each one you keep say in a line why. "+
 			"If it watches for another task, stop it and set `--blocked-by T<n>` on your task instead. You are asked again in %s while any runs.",
 			timefmt.Ago(now-since), listing, timefmt.Ago(every))
-		// The event goes in before the typing: its id is what separates the turn that ended before the check from the one that answers it.
+		// The event goes in before the send: its id is what separates the turn that ended before the check from the one that answers it.
 		checked := must(db.AddEvent(t.Q, agent, "background_checked", db.KV{K: "jobs", V: len(jobs)}, db.KV{K: "unnamed", V: unnamed}))
 		told := false
 		func() {
 			defer func() {
-				if !told { // nothing typed, or the typing raised: no check was asked
+				if !told { // nothing sent, or the send raised: no check was asked
 					_, _ = t.Q.Exec("DELETE FROM events WHERE id = ?", checked)
 				}
 			}()
@@ -364,7 +364,7 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 }
 
 // SweepForgottenResolveCapped: the nudge about a forgotten head stops once its schedule is used up rather than
-// typing at the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so its
+// nudging the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so its
 // supervisor is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
 // schedule is told again.
 func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {

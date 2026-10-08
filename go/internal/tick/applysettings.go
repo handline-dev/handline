@@ -94,7 +94,7 @@ func (a *ApplySettings) Sweep(t *Tick, now int64) error {
 
 func (a *ApplySettings) apply(t *Tick, agent string) {
 	row := must(db.GetAgentState(t.Q, agent))
-	if row == nil || closedAt(row) || row.Terminal.String == "" || (row.State != states.Idle && row.State != states.Queued) {
+	if row == nil || closedAt(row) || !t.Host.SessionAlive(agent) || (row.State != states.Idle && row.State != states.Queued) {
 		return
 	}
 	names := must(a.Changed(agent, row))

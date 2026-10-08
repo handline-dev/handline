@@ -65,7 +65,7 @@ type Delivery interface {
 	IdleSince(q db.Q, agent string) (int64, bool)
 }
 
-// Messaging is daemon/messaging.py and daemon/landing.py: what could not be typed at once is tried again every tick.
+// Messaging is daemon/messaging.py and daemon/landing.py: what could not be sent at once is tried again every tick.
 type Messaging interface {
 	LandingSweep(q db.Q, agent string)
 	TellUndelivered(q db.Q, agent string)
@@ -79,8 +79,8 @@ type Lifecycle interface {
 	WakeAgent(q db.Q, agent string) (bool, string)
 	StartOrWakeNeeded(q db.Q, agent string, row *db.AgentState) *Need
 	StartForWork(q db.Q, agent string) string
-	// ColdBeforeTyping is nil when it did not apply, true when it closed the session, false when it applied and closed nothing.
-	ColdBeforeTyping(q db.Q, agent string, row *db.AgentState, now int64, st Status) *bool
+	// ColdBeforeSend is nil when it did not apply, true when it closed the session, false when it applied and closed nothing.
+	ColdBeforeSend(q db.Q, agent string, row *db.AgentState, now int64, st Status) *bool
 	ShouldClose(q db.Q, agent, state string, row *db.AgentState, now int64, st Status) bool
 	CloseAgent(q db.Q, agent string, st Status) (bool, string)
 	CloseFresh(q db.Q, agent string, st Status) (bool, string)
@@ -143,11 +143,6 @@ type Observe interface {
 	IngestTokens(q db.Q, acct string) error
 	PruneTokens(q db.Q) error
 	RefreshLongRatios(q db.Q) error
-}
-
-// Blocked is session/blocked.py's note for a stall.
-type Blocked interface {
-	DialogNote(q db.Q, agent string) string
 }
 
 // Config is the agent's own settings as the policies read them (idle_close._agent_cfg and the daemon's config.yaml).
