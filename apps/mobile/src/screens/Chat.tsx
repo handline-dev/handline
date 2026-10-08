@@ -10,6 +10,7 @@ import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handlin
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
+import { Sheet } from './TaskActions.tsx';
 import { Button, Row } from './parts.tsx';
 
 /** A shape for each stage, so the stage does not rest on colour. */
@@ -357,17 +358,45 @@ function Line({ i }: { i: TranscriptItem }) {
       </Text>
     );
   }
-  if (i.kind === 'session')
-    return (
-      <Text style={small}>
-        ↻ {i.session?.handoff ? `Handoff: ${i.session.handoff}` : 'Session'} · {clock(i.at)}
-      </Text>
-    );
+  if (i.kind === 'session') return <SessionMark i={i} />;
   const e = i.task_event;
   return (
     <Text style={small} numberOfLines={2}>
       ▣ T{e?.task} {e?.event ?? 'changed'}
       {e?.evidence ? ` · ${e.evidence}` : ''} · {clock(i.at)}
     </Text>
+  );
+}
+
+/** Where a session started; one that was given a handoff opens it in a sheet on a tap. */
+function SessionMark({ i }: { i: TranscriptItem }) {
+  const c = usePalette();
+  const [open, setOpen] = useState(false);
+  const handoff = i.session?.handoff;
+  const mark = (
+    <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: 12 }}>
+      ↻ Session started · {clock(i.at)}
+      {handoff ? ' · Handoff' : ''}
+    </Text>
+  );
+  if (!handoff) return mark;
+  return (
+    <View>
+      <Pressable
+        testID={`session-open-${i.id}`}
+        accessibilityRole="button"
+        style={{ minHeight: 44, justifyContent: 'center' }}
+        onPress={() => setOpen(true)}
+      >
+        {mark}
+      </Pressable>
+      {open && (
+        <Sheet label="Handoff" onCancel={() => setOpen(false)}>
+          <Text testID="handoff-text" style={{ color: c.ink }}>
+            {handoff}
+          </Text>
+        </Sheet>
+      )}
+    </View>
   );
 }

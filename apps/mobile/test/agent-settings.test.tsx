@@ -241,3 +241,20 @@ describe('schedules', () => {
     m.store.stop();
   });
 });
+
+describe('the way in from the agent page', () => {
+  it('opens the settings and schedules from the ⋯ menu, and goes back to the page', async () => {
+    const m = await mountHarness(() => {}, undefined, 'founder', { role: 'founder' });
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('verbs-open'), 'the page');
+    await press($('verbs-open'));
+    await press($('verb-settings'));
+    await until(() => $('agent-settings'), 'the settings');
+    expect($('model-input')).not.toBeNull();
+    await press($('settings-back'));
+    await until(() => $('verbs-open'), 'the page again');
+    expect($('agent-settings')).toBeNull();
+    m.store.stop();
+  });
+});

@@ -2,27 +2,13 @@
 // daemon can keep a rule), a question with numbered options, free text and, for a multi prompt, checkboxes with a Submit.
 // The answer is a decided write: the clicked option shows "…", the rest are disabled, and a prompt that changed sends nothing.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { Prompt, PromptOption } from '@handline/client';
-import { isAlways, offered } from '@handline/app-core';
+import type { Prompt } from '@handline/client';
+import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
-
-function title(p: Prompt): string {
-  if (p.kind === 'permission') return `Permission: ${p.tool ?? ''}`;
-  if (p.kind === 'question') return 'Question';
-  if (p.kind === 'dialog') return 'Dialog';
-  return `Dialog: ${p.kind}`;
-}
-
-/** What the card offers: a permission only yes and no; a dialog its options, minus the "always" ones when no rule can be kept. */
-export function choices(p: Prompt, rules: boolean): PromptOption[] {
-  if (p.kind === 'dialog' && !rules) return p.options.filter((o) => !isAlways(o));
-  if (p.kind === 'permission') return offered(p);
-  return p.options;
-}
 
 export function PromptCard({ agent, prompt: p, onStale }: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const answer = useWrite('prompt.answer', agent);
@@ -49,7 +35,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     return () => clearTimeout(t);
   }, [answering]);
 
-  const all = choices(p, rules);
+  const all = promptChoices(p, rules);
   const cancel = p.kind === 'question' ? all.find((o) => o.key === 'esc') : undefined; // its own button, never a checkbox or a numbered row
   const opts = cancel ? all.filter((o) => o !== cancel) : all;
   const multi = p.multi === true;
@@ -91,7 +77,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
   return (
     <div className="card prompt" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title">
-        ⚠ {title(p)}
+        ⚠ {promptTitle(p)}
         <span className="muted since">
           {p.since ? ` · waiting since ${new Date(p.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
         </span>

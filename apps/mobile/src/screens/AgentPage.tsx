@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, offered, type StopMode } from '@handline/app-core';
-import { useAgents, usePending, useRead, useServes, useWrite } from '@handline/app-data';
+import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, type StopMode } from '@handline/app-core';
+import { useAgents, usePending, useRead, useServes, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, AgentView, Prompt } from '@handline/client';
+import type { AgentDetail, AgentView } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { dotColor, usePalette } from '../theme.ts';
-import { AgentVerbs, useVerbMark } from './AgentVerbs.tsx';
+import { AgentSettings } from './AgentSettings.tsx';
+import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
+import { PromptSlot } from './PromptCard.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
 /** What a start, resume, stop or interrupt in flight on this agent says while the daemon decides. */
@@ -33,6 +35,7 @@ export function AgentPage() {
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const release = useWrite('input.release', name);
+  const [settings, setSettings] = useState(false);
   const goBack = useRef<() => void>(() => void store.closeAgent());
   // The Android back button goes from the agent page to the list; the list leaves the app.
   useEffect(() => {
@@ -66,20 +69,25 @@ export function AgentPage() {
         </View>
       </Row>
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
-        {detail && <Body detail={detail} agent={row} tab={page.tab} />}
+        {detail &&
+          (settings ? (
+            <AgentSettings agent={name} onBack={() => setSettings(false)} />
+          ) : (
+            <Body detail={detail} agent={row} tab={page.tab} onSettings={() => setSettings(true)} />
+          ))}
       </Loadable>
     </AboveKeyboard>
   );
 }
 
-function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: 'chat' | 'terminal' }) {
+function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: 'chat' | 'terminal'; onSettings: () => void }) {
   const c = usePalette();
   const store = useStore();
   const me = useSelector((s) => s.me);
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const verbMark = useVerbMark(name);
+  const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
   const resume = useWrite('session.restart', name);
@@ -129,56 +137,14 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         )}
       </Row>
       <View style={{ paddingHorizontal: space.md }}>
-        <AgentVerbs detail={detail} row={row} />
+        <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} />
       </View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {tab('chat', 'Chat')}
         {tab('terminal', 'Terminal')}
       </Row>
-      {detail.prompt && <PermissionCard prompt={detail.prompt} />}
+      <PromptSlot agent={name} prompt={detail.prompt ?? null} />
       {current === 'chat' ? <Chat detail={detail} /> : <Terminal detail={detail} />}
-    </View>
-  );
-}
-
-function PermissionCard(props: { prompt: Prompt }) {
-  const c = usePalette();
-  const p = props.prompt;
-  const answer = useWrite('prompt.answer', p.agent);
-  const answering = usePending('prompt.answer').some((v) => v.agent === p.agent && v.prompt === p.id);
-  const what = p.command ? `${p.tool ?? ''} ${p.command}` : p.lines.join('\n');
-  return (
-    <View
-      testID="permission-card"
-      style={{
-        margin: space.md,
-        padding: space.md,
-        gap: space.sm,
-        backgroundColor: c.panel,
-        borderColor: c.wait,
-        borderWidth: 1,
-        borderRadius: radius.lg,
-      }}
-    >
-      <Text style={{ color: c.ink, fontWeight: '700' }}>
-        {p.kind === 'permission' ? 'Permission' : p.kind}
-        {p.reason ? ` · ${p.reason}` : ''}
-        {answering ? ' · answering…' : ''}
-      </Text>
-      <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: 12 }}>{what}</Text>
-      <Row>
-        {offered(p).map((o) => (
-          <Button
-            key={o.key}
-            testID={`answer-${o.key}`}
-            label={o.label}
-            kind={o.answer === 'yes' ? 'yes' : o.answer === 'no' ? 'no' : 'plain'}
-            disabled={answering}
-            onPress={() => answer.mutate({ agent: p.agent, prompt: p.id, choice: o.key })}
-            style={{ flex: 1 }}
-          />
-        ))}
-      </Row>
     </View>
   );
 }
