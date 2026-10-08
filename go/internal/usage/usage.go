@@ -202,7 +202,7 @@ func entries(raw map[string]any) []map[string]any {
 	var out []map[string]any
 	for _, l := range legacy {
 		e := map[string]any{"minutes": json.Number(itoa(l.minutes)), "used_percent": raw[l.pct], "resets_at": raw[l.reset],
-			"carried": truthyOne(raw[l.carried])}
+			"observed_at": raw[l.at], "carried": truthyOne(raw[l.carried]), "lost": truthyOne(raw[l.lost])}
 		if _, ok := raw[l.pct]; !ok || raw[l.pct+"_readable"] == false || raw[l.pct+"_readable"] == json.Number("0") {
 			e["readable"] = false
 		}
