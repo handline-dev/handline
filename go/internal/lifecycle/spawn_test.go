@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"database/sql"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -241,6 +242,23 @@ func TestGitThatCannotRunIsAnErrorNotAMissingBranch(t *testing.T) {
 	}
 	s, _, _ := spawnRig(t)
 	if ok, said, err := s.SpawnWith("a", gone, SpawnOpts{}); ok || err == nil {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if ok, said, err := s.Spawn("a", gone); ok || err == nil {
+		t.Fatalf("Spawn returns the error too: %v %q %v", ok, said, err)
+	}
+}
+
+type failingLaunch struct{ fakeLaunch }
+
+func (failingLaunch) CommandFor(string, string, string, string) (string, error) {
+	return "", errors.New("config unreadable")
+}
+
+func TestStartInReturnsWhatItCouldNotTry(t *testing.T) {
+	s, _, _ := spawnRig(t)
+	s.Launch = failingLaunch{}
+	if ok, said, err := s.StartIn("a", t.TempDir(), ""); ok || err == nil {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 }
