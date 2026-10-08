@@ -2,6 +2,7 @@
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
 import { refused, storeFailure } from './errors.ts';
 import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
+import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
 
 type Emit = (
   type: 'chat.message' | 'chat.transcript' | 'chat.working',
@@ -44,7 +45,7 @@ export function chatMethod(
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
     case 'chat.send_now':
-      return chatCall(() => (chat.sendNow(p), ok('Typed.')));
+      return chatCall(() => ok('Typed.', chat.sendNow(p)));
     case 'chat.cancel':
       return chatCall(() => (chat.cancel(p), ok('Taken back.')));
     case 'chat.seen':
@@ -81,14 +82,12 @@ export class FakeChat {
 
   private emit: Emit;
   private now: () => string;
-  private isAgent: (name: string) => boolean;
-  private isOpen: (agent: string) => boolean;
+  private sessions: Map<string, { structured?: boolean; state: string }>;
 
-  constructor(emit: Emit, now: () => string, isAgent: (name: string) => boolean, isOpen: (agent: string) => boolean) {
+  constructor(emit: Emit, now: () => string, sessions: Map<string, { structured?: boolean; state: string }>) {
     this.emit = emit;
     this.now = now;
-    this.isAgent = isAgent;
-    this.isOpen = isOpen;
+    this.sessions = sessions;
   }
 
   private thread(agent: string): Thread {
@@ -96,12 +95,12 @@ export class FakeChat {
     if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE }, nextItem: 1 }));
     return t;
   }
-  private find(id: unknown): ChatMessage & { agent: string } {
+  find(id: unknown): ChatMessage & { agent: string } {
     const m = this.messages.find((x) => x.id === id);
     if (!m) throw new ChatFailure('not_found', `no message ${String(id)}`);
     return m;
   }
-  private change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
+  change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
     this.emit('chat.message', m.agent, this.view(m));
   }
@@ -161,7 +160,10 @@ export class FakeChat {
     const agent = String(p.agent);
     const mine = p.scope === 'mine';
     const limit = typeof p.limit === 'number' ? p.limit : 50;
-    let list = this.messages.filter((m) => m.agent === agent && (!mine || !this.isAgent(m.from) || !this.isAgent(m.to)));
+    let list = this.messages.filter(
+      (m) =>
+        m.agent === agent && !(m.receipt && m.landing === 'withdrawn') && (!mine || !this.sessions.has(m.from) || !this.sessions.has(m.to)),
+    );
     if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
     if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
     list = list.sort((a, b) => b.id - a.id);
@@ -181,7 +183,15 @@ export class FakeChat {
     const agent = String(p.agent),
       body = p.body;
     if (typeof body !== 'string' || !body.trim()) throw new ChatFailure('bad_request', 'a message needs a body');
-    const open = this.isOpen(agent);
+    const open = this.sessions.get(agent)?.state !== 'parked';
+    const delivery = deliveryOf(p);
+    const s = this.sessions.get(agent);
+    const receipt = s?.structured
+      ? {
+          state: this.thread(agent).working.turn_running && delivery === 'queue' ? ('queued' as const) : ('sent' as const),
+          uuid: uuidFor(String(p.request_id)),
+        }
+      : undefined;
     const at = this.now();
     const id = this.seed(agent, {
       body,
@@ -195,15 +205,17 @@ export class FakeChat {
       landed_at: null,
       sending_reason: open ? null : 'the agent has no open session',
     });
+    if (receipt) Object.assign(this.find(id), receiptPatch({ ...this.find(id), receipt }, receipt.state, at));
     this.emit('chat.message', agent, this.view(this.find(id)));
-    if (open)
+    if (receipt?.state === 'sent') this.steps.push(() => this.settle(id, 'confirmed'));
+    if (open && !receipt)
       this.steps.push(
         () => this.type(id),
         () => this.land(id),
         () => this.think(id),
         () => this.reply(id),
       );
-    return { request: id };
+    return { request: id, ...(receipt && { receipt: this.find(id).receipt }) };
   }
   private live(id: number) {
     const m = this.messages.find((x) => x.id === id);
@@ -258,18 +270,63 @@ export class FakeChat {
   sendNow(p: Record<string, unknown>) {
     const m = this.find(p.request);
     if (m.landing !== 'queued') throw new ChatFailure('refused', 'that message is not waiting', 'state');
+    if (m.receipt) return this.write(m.id);
     this.type(m.id);
+    return {};
   }
   /** The person's own undo: a message not yet delivered is taken back; a delivered one is closed. */
   cancel(p: Record<string, unknown>) {
     const m = this.find(p.request);
-    if (this.isAgent(m.from) || m.from === m.to) throw new ChatFailure('refused', 'that message is not yours', 'state');
+    if (this.sessions.has(m.from) || m.from === m.to) throw new ChatFailure('refused', 'that message is not yours', 'state');
     if (m.landing === 'withdrawn' || m.landing === 'dismissed' || m.landing === 'answered')
       throw new ChatFailure('refused', 'that message is closed', 'state');
     // The agent already has it: closing it tells the agent to stop, so the caller must say it knows.
-    if ((m.landing === 'delivered' || m.landing === 'delivered_unanswered') && p.confirm !== true)
+    const written = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+    if (written && p.confirm !== true)
       throw new ChatFailure('refused', 'the agent already has this message; cancelling tells it to stop', 'confirm');
     this.change(m, { landing: 'withdrawn', state: 'withdrawn' });
+  }
+  /** A queued message of a structured agent goes to the CLI: receipt sent, then the CLI's echo on the next step. */
+  private write(id: number) {
+    const m = this.find(id);
+    this.change(m, receiptPatch(m as Msg, 'sent', this.now()));
+    this.steps.push(() => this.settle(id, 'confirmed'));
+    return { receipt: m.receipt };
+  }
+  private settle(id: number, state: 'confirmed' | 'unknown') {
+    const m = this.live(id);
+    if (m?.receipt?.state === 'sent') this.change(m, receiptPatch(m as Msg, state, this.now()));
+  }
+  /** A structured session's state moved: its turn starts or ends (one signal for the working line and for what queues), and a session that closed loses what was not echoed. */
+  stateMoved(agent: string, from: string, to: string): void {
+    if (!this.sessions.get(agent)?.structured) return;
+    const turn = (w: string) => w === 'running' || w === 'waiting';
+    if (!turn(from) && turn(to)) this.setTurn(agent, true);
+    else if (turn(from) && !turn(to)) this.setTurn(agent, false, to === 'idle');
+    if (to === 'parked' || to === 'no_terminal') this.lose(agent);
+  }
+  /** The turn of `agent` starts or ends: chat.working shows it, and a message sent now queues behind it. An end that is a finished turn (`done`) writes the next held message. */
+  setTurn(agent: string, running: boolean, done = true): void {
+    const t = this.thread(agent);
+    t.working = running ? { turn_running: true, line: 'Working', since: this.now() } : { ...IDLE };
+    this.emit('chat.working', agent, t.working);
+    if (!running && done) this.turnEnded(agent);
+  }
+  /** A turn of `agent` ended: the oldest message held behind it is written. */
+  turnEnded(agent: string): void {
+    const next = this.messages.find((m) => m.agent === agent && m.receipt?.state === 'queued' && m.landing !== 'withdrawn');
+    if (next) this.write(next.id);
+  }
+  /** The daemon or the CLI of `agent` ended: what was written and not echoed is unknown, and is never written again. */
+  lose(agent: string): void {
+    for (const m of this.messages) if (m.agent === agent) this.settle(m.id, 'unknown');
+  }
+  /** The stored reply of a retried chat.send with its receipt as it is now; a withdrawn operation is refused. */
+  refreshed(r: Record<string, unknown>): Record<string, unknown> {
+    const m = r.receipt ? this.messages.find((x) => x.id === r.request) : undefined;
+    if (!m) return r;
+    if (m.landing === 'withdrawn') throw refused('state', 'that message was withdrawn');
+    return { ...r, receipt: m.receipt };
   }
   /** The newest message number the person has seen per agent. */
   readonly seenUpTo = new Map<string, number>();
@@ -281,7 +338,7 @@ export class FakeChat {
   locate(p: Record<string, unknown>) {
     const m = this.find(p.request);
     const agent = typeof p.agent === 'string' ? p.agent : m.agent;
-    const scope = this.isAgent(m.from) && this.isAgent(m.to) ? 'all' : 'mine';
+    const scope = this.sessions.has(m.from) && this.sessions.has(m.to) ? 'all' : 'mine';
     const list = this.messages.filter((x) => x.agent === agent).sort((a, b) => b.id - a.id);
     const at = list.findIndex((x) => x.id === m.id);
     const limit = typeof p.limit === 'number' ? p.limit : 50;

@@ -148,6 +148,16 @@ def test_the_legacy_verbs_all_map() -> None:
     check("contract: every legacy socket verb is mapped", verbs == set(SPEC["x-legacy"]), str(verbs ^ set(SPEC["x-legacy"])))
 
 
+def test_a_structured_agents_message_has_a_receipt_of_four_states_and_no_chat_withdraw() -> None:
+    schemas = SPEC["components"]["schemas"]
+    check("contract: a receipt is queued, sent, confirmed or unknown", schemas["Receipt"]["properties"]["state"]["enum"] == ["queued", "sent", "confirmed", "unknown"])
+    check("contract: chat.send takes delivery now or queue and returns the receipt",
+          next(p for p in METHODS["chat.send"]["params"] if p["name"] == "delivery")["schema"]["enum"] == ["now", "queue"]
+          and "receipt" in METHODS["chat.send"]["result"]["schema"]["allOf"][1]["properties"] and "receipt" in schemas["ChatMessage"]["properties"])
+    check("contract: queued messages are taken back by chat.cancel and written by chat.send_now, with no chat.withdraw",
+          "chat.withdraw" not in METHODS and "chat.send_now" in METHODS and "queued" in METHODS["chat.cancel"]["description"])
+
+
 def test_generated_files_are_current() -> None:
     r = subprocess.run([sys.executable, str(ROOT / "contract" / "generate.py"), "--check"], capture_output=True, text=True)
     check("contract: protocol.md and protocol.ts match protocol.json", r.returncode == 0, r.stderr)
@@ -164,6 +174,7 @@ def main() -> int:
         run(lambda: test_session_gates_are_declared_and_defined())
         run(lambda: test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text())
         run(lambda: test_the_legacy_verbs_all_map())
+        run(lambda: test_a_structured_agents_message_has_a_receipt_of_four_states_and_no_chat_withdraw())
         run(lambda: test_generated_files_are_current())
     return run_area(tests)
 

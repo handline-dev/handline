@@ -13,7 +13,7 @@ OpenRPC-shaped. Source of contract/protocol.md and contract/protocol.ts: regener
 - **Network:** The network listener is the only way in for a phone, a browser or another machine, and only a paired device may use it. A connection on it is unpaired until its hello carries a valid device `token`. An unpaired connection may call device.redeem and nothing else: every other call, hello and an unknown method name included, is refused before any handler runs with the one reply `{code: -32002, message: "refused", data: {code: "refused", gate: "unpaired", reason: "not paired"}}`, the same words every time: no method list, no state, no version, no hint, nothing that says why. A token that is revoked or was never issued is the same refusal, so a reply does not say which. The Unix socket is not the network: its roles are proven as below. Conformance: the network transport is the WebSocket over TLS the listener speaks, and a client pins the certificate fingerprint from the pairing uri; fixtures with `as: unpaired` or `as: member` over the network are run against it with `--as unpaired=...` and `--as member=...` sockets that are already past TLS and the pinned check (a socket the harness is given, or a connector function); contract/README.md says what that does and does not show.
 - **Params:** By name only.
 - **Legacy:** A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.
-- **Request id:** Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.
+- **Request id:** Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again. One exception: chat.send to a structured agent returns the receipt as it is now (see x-delivery).
 
 ## Handshake and versions
 
@@ -99,8 +99,8 @@ A method marked write takes a required `request_id`.
 | `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail}` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `request_id` | `Accepted & {request}` | `refused`, `not_found`, `bad_request` |  |
-| `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send_now` | member | yes | `request`, `request_id` | `Accepted & {receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -326,11 +326,11 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 ### `chat.send`
 
-A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt. To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back.
 
 ### `chat.send_now`
 
-Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.
+Write a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent. For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before.
 
 ### `chat.answer`
 
@@ -342,7 +342,7 @@ Dismiss a message.
 
 ### `chat.cancel`
 
-Take back a message the person sent, delivered or not. The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state).
+Take back a message the person sent, delivered or not. The person's own undo. A message not yet delivered is taken back and nobody is told. To a structured agent a message whose receipt is queued is withdrawn the same way, with no confirm: it was never written to the CLI. A delivered one (receipt sent, confirmed or unknown, or a terminal agent's delivered message) is closed as rejected after confirm, its agent is told to stop and whatever queued behind it moves up. A withdrawn operation is dropped from chat.messages and a chat.send of its request_id is refused (gate state). A message the person did not send, or one already closed, is refused (gate state).
 
 ### `chat.seen`
 
@@ -797,9 +797,21 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 - **Permission.** A tool call that needs a person is a `permission` event whose `prompt` is an ordinary Prompt: kind permission, id = the tool call's id, options `allow` and `deny`, tool, command and reason as for any prompt. The card calls prompt.answer with choice allow or deny, and prompt.list holds it while it is open (it is also in the chat view as a prompt item and in the inbox, as today). The `permission_answer` event ends it, whoever answered: `by` person (prompt.answer), policy (a rule decided; no `permission` came before), cancel (the CLI withdrew it) or closed (the session closed or no handler answered: deny). A client that reconnects and sees a permission with no answer after it asks prompt.list before showing buttons.
 - **Sequence.** `seq` is per agent, starts at 1, goes up by exactly 1 with each event, continues across sessions of the agent (the `session` field changes on a fresh start, not on a resume) and is never reused. Events are final: nothing is changed after it is sent.
 - **Resume.** The connection's cursor works as for every topic: subscribe with `since` replays what was missed, up to the usual 5000 events, in full. A client that has no cursor, or gets `gap`, or sees a seq that is not last + 1, reads transcript.events: first load with no since_seq (the newest page), older pages with before_seq, the missed ones with since_seq = the last seq it applied. To start without a race: subscribe first, then read, then apply stream events above the read's last_seq and drop those at or below the last it holds. `gap: true` in the read means the daemon no longer keeps the events between; the client shows the break and goes on from first_seq.
-- **Send.** A message goes in by chat.send with the client's own request_id, as today; the daemon derives the message uuid from it, so the `turn_start` event for that message carries the uuid, and chat.messages has the message under the same operation.
+- **Send.** A message goes in by chat.send with the client's own request_id as its operation id (see x-delivery); the daemon derives the message uuid from it, so the `turn_start` event for a message that begins a turn carries the uuid. A message that joined a running turn has no turn_start. chat.messages has the message under the same operation, with its receipt.
 - **Chat.** chat.transcript is unchanged and stays the chat view's feed: a `text` event is also a reply item and a `permission` also a prompt item (the event's `item` is that item's id, so a view showing both draws it once); tool_use, tool_result, turn_start, turn_end and error have no chat item, and chat.transcript has still no tool item. The task_event and session items exist only in chat.transcript. A view that renders the transcript uses this stream and ignores chat.transcript's reply and prompt items for the same agent.
 - **Not in v1.** Partial text deltas, thinking blocks, images, and the edit diff of a tool. A tool's input is whatever the model sent.
+
+## Delivery to a structured agent
+
+- **What.** How a message reaches a structured agent, and what the composer shows. One path serves a person, an agent, the daemon's own notices and a task; the apps use it through chat.send.
+- **Operation.** The caller's request_id is the operation id. The daemon derives the message uuid from it, records the operation before writing, and answers a repeat with the recorded operation without writing again. A client makes a new request_id for each message it means to send and keeps it across retries of that one message.
+- **Receipt.** Receipt.state: queued (held behind a running turn), sent (written to the CLI), confirmed (the CLI echoed the uuid), unknown (see crash rule). The order is queued, sent, confirmed; unknown follows sent. `accepted` is never `delivered`: a caller that needs delivery waits for confirmed, with its own deadline. There is no `published` state: a message that joins a running turn has no turn_start, so `seq` on the receipt is optional and best effort.
+- **Repeat.** The same request_id and params returns {accepted, replayed: true, request, receipt} with the receipt as it is now, so a retry after a lost reply learns whether the message was echoed. The same request_id with other params is bad_request. This is the one write whose replay is not the first reply frozen.
+- **Delivery.** chat.send `delivery`: queue (default) or now. Queue while a turn runs is held by the daemon, which persists it, and is written when the CLI reports the turn over. Now is written at once and joins the running turn. With nothing running both are written at once and the receipt is sent.
+- **Crash.** If the daemon or the CLI ends with an operation sent and not confirmed, the daemon does not write it again: the operation is unknown, the sender is told (the chat event), and it stays unknown. A queued operation survives and is written after the restart. A person who sees unknown may chat.send the text again under a NEW request_id (their call: the CLI may have run it); chat.cancel keeps its meaning for a delivered message. Nothing else changes an unknown operation.
+- **Queued.** chat.send_now writes a queued operation now, with priority now (receipt sent). chat.cancel withdraws it without confirm. Both are refused (gate state) for any other receipt; there is no chat.withdraw.
+- **View.** ChatMessage.receipt carries the receipt, and landing follows it: queued is queued, sent and unknown are typed (sending_reason says unknown), confirmed is delivered. Each change sends the usual chat.message event. A terminal agent's message has no receipt.
+- **Terminal.** An agent whose AgentView.structured is not true accepts `delivery` and ignores it, and its result and messages have no receipt.
 
 ## Legacy verbs
 

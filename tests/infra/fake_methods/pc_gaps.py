@@ -1,5 +1,5 @@
 """chat.send_now and stats.outlook."""
-from . import err, fake
+from . import delivery, err, fake
 
 RANGES = ("12h", "24h", "3d", "7d", "14d", "30d")
 
@@ -14,4 +14,4 @@ def pc_gaps(role, method, params):
         return "fail", err(-32600, "bad_request", field="request_id")
     if isinstance(params.get("request"), bool) or not isinstance(params.get("request"), int):
         return "fail", err(-32602, "bad_request", field="request")
-    return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "request"}}
+    return delivery.send_now(params) or ("fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "request"}})

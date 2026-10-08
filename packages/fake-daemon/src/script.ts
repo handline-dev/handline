@@ -10,6 +10,8 @@ import { row, tid, view, visible, type Session } from './session.ts';
 export interface Host {
   iso(): Timestamp;
   sessions(): Map<string, Session>;
+  /** A session's state changed from `from` (it is `s.state` now). */
+  moved(s: Session, from: string): void;
   emit(topic: Topic, type: string, f?: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> }): void;
   /** Sends a terminal notice to every connection attached to the session's terminal. */
   broadcast(s: Session, method: string, params: unknown): void;
@@ -65,8 +67,10 @@ export class Script {
   }
 
   setState(s: Session, state: string, actor?: Actor) {
+    const from = s.state;
     s.state = state;
     s.since = this.host.iso();
+    if (from !== state) this.host.moved(s, from);
     this.host.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
   }
   control(s: Session, actor: Actor, kind: string, text: string) {
