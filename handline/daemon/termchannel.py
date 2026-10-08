@@ -5,8 +5,9 @@ clients watch, and ends when the last one leaves; detaching never touches the ag
 give text; `Row.spans` is set only on a `styled` channel, whose rows come from the host with their SGR codes). Each client has a writer thread of its own and a bounded queue of the notices that
 must not be lost (markers, holders, resizes) beside one flag for the frame: a client that falls behind on frames is sent the
 newest frame whole, never a backlog, and one that falls `CLIENT_QUEUE` notices behind is hung up to attach again, since no
-frame can make those good. Rows that scroll off the top are kept (`HISTORY_MAX`) under absolute line indexes, found by
-matching the old frame's tail against the new one's head; a redraw that scrolls nothing adds nothing.
+frame can make those good. Scrollback is the host's own where it keeps one (tmux: `read_history`, absolute row 0 the oldest it holds), so
+fast output loses and doubles nothing. For a host without it, rows that scroll off the top are kept (`HISTORY_MAX`) under absolute line
+indexes, found by matching the old frame's tail against the new one's head; a redraw that scrolls nothing adds nothing.
 
 `seq` counts every notice of the terminal (frame, resize, marker, holder), so a client can tell what it missed."""
 from __future__ import annotations
@@ -45,6 +46,26 @@ def read_styled(handle: str, rows: int) -> list[dict] | None:
         text, spans = ansi.parse(r)
         out.append({"text": text, **({"spans": spans} if spans else {})})
     return out
+
+
+def read_host_history(handle: str, fmt: str, before: int | None, limit: int) -> tuple[int, list] | None:
+    """The host's scrollback as read_rows / read_styled give rows, or None when the host keeps none for the channel to read."""
+    from ..infra import ansi
+    from ..session import backends
+    b = backends.current()
+    if not getattr(b, "serves_history", False):
+        return None
+    got = b.read_history(handle, before, limit, fmt == "styled")
+    if got is None:
+        return None
+    first, raw = got
+    if fmt != "styled":
+        return first, raw
+    rows = []
+    for r in raw:
+        text, spans = ansi.parse(r)
+        rows.append({"text": text, **({"spans": spans} if spans else {})})
+    return first, rows
 
 
 def read_cursor(handle: str) -> dict | None:
@@ -166,6 +187,13 @@ class Channel:
         self.history_first = 0              # the absolute index of history[0]
         self.thread: threading.Thread | None = None
         self.reads = 0
+        self.host_history = self._host_keeps_history()
+
+    def _host_keeps_history(self) -> bool:
+        try:
+            return read_host_history(self.handle, self.fmt, None, 0) is not None
+        except Exception:  # noqa: BLE001 - a host that breaks keeps no scrollback for us
+            return False
 
     # -- the poller
     def _start_poller(self) -> None:
@@ -225,7 +253,8 @@ class Channel:
                         c.owe_frame()
                 return
             self.cur = cur
-            self._scrolled(self.lines, rows)
+            if not self.host_history:
+                self._scrolled(self.lines, rows)
             self.prev, self.lines = self.lines, rows
             n = max(len(rows), len(self.prev))
             self.changed = [y for y in range(n) if (rows[y] if y < len(rows) else None) != (self.prev[y] if y < len(self.prev) else None)]
@@ -263,15 +292,22 @@ class Channel:
             return {"jsonrpc": "2.0", "method": "frame", "params": params}
 
     def snapshot(self, history: int, holders: list[dict]) -> dict:
+        got = read_host_history(self.handle, self.fmt, None, max(history, 0)) if self.host_history else None
         with self.lock:
-            lines = self.history[-history:] if history > 0 else []
-            first = self.history_first + len(self.history) - len(lines)
+            if got is not None:
+                first, lines, floor = got[0], got[1], 0
+            else:
+                lines = self.history[-history:] if history > 0 else []
+                first, floor = self.history_first + len(self.history) - len(lines), self.history_first
             return {"terminal": self.handle, "format": self.fmt, "seq": self.seq, "cols": self.cols, "rows": self.rows,
                     "lines": [_row(r) for r in self.lines], "cursor": self.cursor,
-                    "history": {"first": first, "lines": [_row(r) for r in lines], "more": first > self.history_first},
+                    "history": {"first": first, "lines": [_row(r) for r in lines], "more": first > floor},
                     "holder": holders[0], "holders": holders}
 
     def history_page(self, before: int, limit: int) -> dict:
+        got = read_host_history(self.handle, self.fmt, before, limit) if self.host_history else None
+        if got is not None:
+            return {"first": got[0], "lines": [_row(r) for r in got[1]], "more": got[0] > 0}
         with self.lock:
             end = max(min(before, self.history_first + len(self.history)), self.history_first)
             start = max(end - limit, self.history_first)
