@@ -85,8 +85,9 @@ type Launch struct {
 	SessionID string
 	Resume    bool // SessionID is an existing session: --resume instead of --session-id
 	Model     string
-	Env       []string // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
-	Ledger    Ledger   // where sends are recorded before they are written; nil keeps them in memory
+	Env       []string         // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
+	Now       func() time.Time // the clock for RetryingSince; nil is time.Now
+	Ledger    Ledger           // where sends are recorded before they are written; nil keeps them in memory
 }
 
 // Args are the protocol's arguments: stream-json both ways, the user messages replayed for confirmation, permission prompts on stdio.
@@ -138,6 +139,7 @@ type Session struct {
 	in  io.WriteCloser
 	h   Handlers
 	led Ledger
+	now func() time.Time
 
 	wmu sync.Mutex // one writer at a time
 
@@ -146,6 +148,7 @@ type Session struct {
 	held     []*entry          // queued behind the running turn, oldest first
 	byUUID   map[string]*entry
 	echoing  int    // written messages whose echo has not come: an idle seen before it belongs to an earlier turn
+	retrying int64  // unix seconds the current run of api_retry frames began; 0 when the model call is not being retried
 	state    string // the CLI's last session_state_changed: idle, running, requires_action; "" before the first
 	busy     bool   // a turn is running or about to
 	nextReq  int
@@ -193,7 +196,11 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	if led == nil {
 		led = &MemLedger{}
 	}
-	s := &Session{cmd: cmd, in: in, h: h, led: led, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
+	now := l.Now
+	if now == nil {
+		now = time.Now
+	}
+	s := &Session{cmd: cmd, in: in, h: h, led: led, now: now, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
 		prompts: map[string]context.CancelFunc{}, done: make(chan struct{}), initDone: make(chan struct{})}
 	go s.read(out)
 	ictx, cancel := context.WithTimeout(ctx, timeout)
@@ -456,6 +463,7 @@ func (s *Session) read(out io.Reader) {
 }
 
 func (s *Session) handle(m map[string]any) {
+	s.noteRetry(m)
 	switch m["type"] {
 	case "control_response":
 		r, _ := m["response"].(map[string]any)
@@ -621,3 +629,26 @@ func (s *Session) ExitErr() error {
 
 // Pid is the CLI's process id, which is also its process group.
 func (s *Session) Pid() int { return s.cmd.Process.Pid }
+
+// noteRetry tracks a run of api_retry frames: the CLI retries a failed model call for minutes, and a turn that only retries is
+// stalled. Any other frame of the turn (output, a result, a state change) ends the run.
+func (s *Session) noteRetry(m map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case m["type"] == "system" && m["subtype"] == "api_retry":
+		if s.retrying == 0 {
+			s.retrying = s.now().Unix()
+		}
+	case m["type"] == "assistant" || m["type"] == "result" || m["type"] == "stream_event" ||
+		(m["type"] == "system" && m["subtype"] == "session_state_changed"):
+		s.retrying = 0
+	}
+}
+
+// RetryingSince is when the current run of api_retry frames began (unix seconds), or 0 when the model call is not being retried.
+func (s *Session) RetryingSince() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.retrying
+}

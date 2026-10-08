@@ -162,3 +162,19 @@ func TestTheChildSeesWhatTheCLINeedsToFindTheLoginAndNothingElse(t *testing.T) {
 		t.Fatal("USER and the state-event switch are needed")
 	}
 }
+
+func TestARunOfApiRetriesIsTimedAndEndsWithTheNextFrame(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	s := &Session{now: func() time.Time { return clock }}
+	retry := map[string]any{"type": "system", "subtype": "api_retry"}
+	s.noteRetry(retry)
+	clock = clock.Add(90 * time.Second)
+	s.noteRetry(retry)
+	if got := s.RetryingSince(); got != 1000 {
+		t.Fatalf("the run began at 1000, not %d", got)
+	}
+	s.noteRetry(map[string]any{"type": "assistant"})
+	if got := s.RetryingSince(); got != 0 {
+		t.Fatalf("output ends the run: %d", got)
+	}
+}
