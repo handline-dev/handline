@@ -43,7 +43,7 @@ def _subscribe(ctx, params) -> dict:
     agent = params.get("agent")
     if agent is not None and not isinstance(agent, str):
         raise rpc.bad_request("agent is a name", "agent", rpc.INVALID_PARAMS)
-    sub = stream.Subscription(ctx.send_line, ctx.hang_up, topics, agent)
+    sub = stream.Subscription(ctx.send_line, ctx.hang_up, topics, agent, stream.view_for(ctx.caller))
     con = db.connect()
     try:
         top = stream.HUB.subscribe(sub, con, since)
@@ -79,7 +79,11 @@ def _feed(ctx, params) -> dict:
         else:
             gap = since < stream.pruned_through(con)
             events = stream.since(con, max(since, stream.pruned_through(con)), topics, limit=limit)
-        return {"events": events, "cursor": events[-1]["cursor"] if events else max(since or 0, stream.newest(con)), "gap": gap}
+        cursor = events[-1]["cursor"] if events else max(since or 0, stream.newest(con))
+        visible = stream.view_for(ctx.caller)
+        if visible is not None:      # the cursor is where the log was read to, not the last event this caller may see
+            events = [e for e in events if visible(e)]
+        return {"events": events, "cursor": cursor, "gap": gap}
     finally:
         con.close()
 
