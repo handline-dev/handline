@@ -67,3 +67,13 @@ func AgoShort(ts int64, now time.Time) string {
 	}
 	return fmt.Sprintf("%dm", secs/60)
 }
+
+// Layouts for Stamp: the date and time, the month, day and time, and the clock (handline/infra/timefmt.py DATE_TIME, SHORT, CLOCK).
+const (
+	DateTime = "2006-01-02 15:04"
+	Short    = "01-02 15:04"
+	Clock    = "15:04"
+)
+
+// Stamp is ts in local time.
+func Stamp(ts int64, layout string) string { return time.Unix(ts, 0).Local().Format(layout) }

@@ -23,6 +23,13 @@ if [ ! -f "$harness" ]; then
 fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/handlined.XXXXXX")" || exit 1
 trap 'rm -rf "$work"' EXIT
+# The two lists are kept one name per line in byte order, so two branches deleting neighbouring names merge instead of conflicting.
+for list in "$here/../go/conformance-missing.txt" "$here/../go/conformance-needvar.txt"; do
+    grep -v '^#' "$list" | LC_ALL=C sort -c 2>/dev/null || {
+        echo "FAIL  $list is not sorted: run  grep -v '^#' it | LC_ALL=C sort -u  and keep the # header lines on top" >&2
+        exit 1
+    }
+done
 "$here/build-go.sh" "$work/handlined" || exit 1
 # No socket file is bound (a sandbox may forbid it): tools/conformance_fds.py hands the daemon socketpairs, one per
 # fixture, and mints the founder key in a scratch home. The founder and anonymous roles run; agent and member have no
