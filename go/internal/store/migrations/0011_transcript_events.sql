@@ -9,4 +9,4 @@ CREATE TABLE transcript_events (
           item    INTEGER,
           body    TEXT    NOT NULL,
           PRIMARY KEY (agent, seq)
-        ) WITHOUT ROWID;
+        );
