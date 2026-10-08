@@ -1,6 +1,6 @@
-"""input.take, input.release and input.ask: who types at an agent's terminal (daemon/inputhold.py). A person or device
+"""input.take and input.release: who types at an agent's terminal (daemon/inputhold.py). A person or device
 takes it to type or answer without the daemon typing beside them, and gives it back, or loses it by being idle for
-`input_hold_idle_s`. No hl command serves them: they are the IDE's and web UI's own. `input.ask` is reserved."""
+`input_hold_idle_s`. No hl command serves them: they are the IDE's and web UI's own."""
 from __future__ import annotations
 
 from .. import db
@@ -44,10 +44,5 @@ def _release(ctx, params) -> dict:
         con.close()
 
 
-def _ask(ctx, params) -> dict:
-    raise rpc.refused("asking the holder for input is not implemented", gate="unsupported")
-
-
 rpc.METHODS["input.take"] = rpc.Method(_take, "member", write=True)
 rpc.METHODS["input.release"] = rpc.Method(_release, "member", write=True)
-rpc.METHODS["input.ask"] = rpc.Method(_ask, "member", write=True)

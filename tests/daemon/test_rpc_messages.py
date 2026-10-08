@@ -1,5 +1,5 @@
-"""Tests: say, ask, push, push.answer and push.cancelled (contract/protocol.md): what each writes as whom, who is refused, the death between an
-effect and its record (nothing written, the retry does it once, the next is replayed), a nudge that is sent once, and the fixtures.
+"""Tests: say (contract/protocol.md): what it writes as whom, who is refused, the death between an effect and its record (nothing
+written, the retry does it once, the next is replayed), and the fixtures.
 
 Run on its own: python3 tests/daemon/test_rpc_messages.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -155,84 +155,6 @@ def test_say_with_a_task_is_that_tasks_memo_in_one_write(home: Path) -> None:
         check("say: a task that is not there is refused", _code(r) == "refused", str(r))
 
 
-def test_ask_is_a_question_that_needs_an_answer(home: Path) -> None:
-    _world(home)
-    with Nudges() as n:
-        r = _call("ask", {"target": "manager", "title": "which branch?", "body": "main or dev?", "request_id": "q1"})
-        rid = r["result"]["request"]
-        row = _row(rid)
-        check("ask: accepted, with the request's number", r["result"]["accepted"] and isinstance(rid, int), str(r))
-        check("ask: written from the caller to the target, the title first and the body under it", (row["requester"], row["target"]) == ("worker", "manager")
-              and row["body"] == "which branch?\n\nmain or dev?" and row["state"] == "queued", str(dict(row)))
-        check("ask: and the target is told once", n.told == [(rid, "manager")], str(n.told))
-        total = _count("SELECT COUNT(*) FROM requests")
-        _lose_the_reply("q1")
-        again = _call("ask", {"target": "manager", "title": "which branch?", "body": "main or dev?", "request_id": "q1"})
-        check("ask: after a lost reply the retry answers with the same request and asks nothing twice", again["result"]["request"] == rid and again["result"]["replayed"] is True
-              and _count("SELECT COUNT(*) FROM requests") == total, str(again))
-        _dies_then_retries("ask", {"target": "manager", "title": "and the tag?", "body": "v2?", "request_id": "q2"}, "worker",
-                           after=lambda: _count("SELECT COUNT(*) FROM requests WHERE body LIKE 'and the tag?%'") == 1,
-                           unchanged=lambda: _count("SELECT COUNT(*) FROM requests WHERE body LIKE 'and the tag?%'") == 0)
-        for params, field in (({"title": "t", "body": "b"}, "target"), ({"target": "manager", "body": "b"}, "title"), ({"target": "manager", "title": "t"}, "body"),
-                              ({"target": "manager", "title": "t", "body": "b", "options": [{"label": "x"}]}, "options")):
-            r = _call("ask", {**params, "request_id": f"q-{params}"})
-            check(f"ask: {params} is bad_request naming {field}", _code(r) == "bad_request" and r["error"]["data"]["field"] == field, str(r))
-        r = _call("ask", {"target": "ghost", "title": "t", "body": "b", "request_id": "q3"})
-        check("ask: a target that is not there is refused", _code(r) == "refused", str(r))
-
-
-def test_push_nudges_what_is_already_written_and_only_once(home: Path) -> None:
-    _world(home)
-    ok, msg, rid = askmod.say("worker", "an old request", requester="manager")
-    with Nudges() as n:
-        r = _call("push", {"target": "worker", "request": rid, "request_id": "p1"}, as_agent="manager")
-        check("push: the caller's own request is nudged", r["result"]["accepted"] is True and n.told == [(rid, "worker")], str((r, n.told)))
-        again = _call("push", {"target": "worker", "request": rid, "request_id": "p1"}, as_agent="manager")
-        _lose_the_reply("p1")
-        third = _call("push", {"target": "worker", "request": rid, "request_id": "p1"}, as_agent="manager")
-        check("push: a retry is replayed and nudges nothing more, also after a lost reply", again["result"].get("replayed") is True and third["result"].get("replayed") is True
-              and len(n.told) == 1, str((again, third, n.told)))
-        r = _call("push", {"target": "worker", "request": rid, "request_id": "p2"}, as_agent="worker")
-        check("push: another's request is refused, gate state", _code(r) == "refused" and r["error"]["data"]["gate"] == "state", str(r))
-        check("push: no such request is not_found", _code(_call("push", {"target": "worker", "request": 99999, "request_id": "p3"}, as_agent="manager")) == "not_found")
-        check("push: a target that is not an agent is refused", _code(_call("push", {"target": "ghost", "request_id": "p4"}, as_agent="manager")) == "refused"
-              and _code(_call("push", {"target": "human", "request_id": "p5"}, as_agent="manager")) == "refused")
-        check("push: a target that is not text is bad_request", _code(_call("push", {"target": 5, "request_id": "p6"}, as_agent="manager")) == "bad_request")
-        r = _call("push", {"target": "worker", "request_id": "p7"}, as_agent="manager")
-        check("push: with no request, the target's next task is nudged in the background", r["result"]["accepted"] and n.background == ["push-worker"], str(n.background))
-        r = _call("push.answer", {"requester": "manager", "request_id": "p8"}, as_agent="worker")
-        _call("push.answer", {"requester": "manager", "request_id": "p8"}, as_agent="worker")
-        check("push.answer: the asker is nudged once, and a retry is replayed", r["result"]["accepted"] and n.background.count("push-answer-manager") == 1, str(n.background))
-        check("push.answer: an agent that is not there is refused", _code(_call("push.answer", {"requester": "ghost", "request_id": "p9"})) == "refused")
-
-
-def test_push_cancelled_tells_only_of_what_was_closed_after_delivery(home: Path) -> None:
-    _world(home)
-    ok, msg, rid = askmod.say("worker", "work in hand", requester="manager")
-    with Nudges() as n:
-        check("push.cancelled: no such request is not_found", _code(_call("push.cancelled", {"request": 99999, "request_id": "c1"}, as_agent="manager")) == "not_found")
-        r = _call("push.cancelled", {"request": rid, "request_id": "c2"}, as_agent="manager")
-        check("push.cancelled: a request that was not closed under its target is refused, and nothing is nudged", _code(r) == "refused" and n.background == [], str(r))
-        con = db.connect()
-        con.execute("UPDATE requests SET state = 'landed', delivered_at = 5 WHERE id = ?", (rid,))
-        db.add_event(con, "manager", "closed_under", {"request_id": rid, "target": "worker"})
-        con.close()
-        r = _call("push.cancelled", {"request": rid, "request_id": "c3"}, as_agent="manager")
-        check("push.cancelled: one closed under its target is told, in the background", r["result"]["accepted"] and n.background == [f"notify-cancelled-{rid}"], str((r, n.background)))
-        _call("push.cancelled", {"request": rid, "request_id": "c3"}, as_agent="manager")
-        check("push.cancelled: and a retry tells nothing more", len(n.background) == 1)
-        fresh = askmod.say("worker", "another piece of work", requester="manager")[2]
-        refused = _call("push.cancelled", {"request": fresh, "request_id": "c5"}, as_agent="manager")
-        con = db.connect()
-        con.execute("UPDATE requests SET state = 'landed', delivered_at = 5 WHERE id = ?", (fresh,))
-        db.add_event(con, "manager", "closed_under", {"request_id": fresh, "target": "worker"})
-        con.close()
-        again = _call("push.cancelled", {"request": fresh, "request_id": "c5"}, as_agent="manager")
-        check("push.cancelled: a refusal is not kept as a success: the same request_id after the request was cancelled is judged afresh, accepted, and nudges",
-              _code(refused) == "refused" and again["result"]["accepted"] is True and not again["result"].get("replayed") and n.background[-1] == f"notify-cancelled-{fresh}", str((refused, again, n.background)))
-        check("push.cancelled: a request that is not a number is bad_request", _code(_call("push.cancelled", {"request": "1", "request_id": "c4"})) == "bad_request")
-
-
 def test_the_messaging_fixtures_pass_against_this_daemon(home: Path) -> None:
     import socket
     from handline.daemon import socket_server
@@ -251,7 +173,7 @@ def test_the_messaging_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n in results if st != "pass"]
-    check("fixtures: every messaging fixture passes against this daemon", not bad and len({n for _, _, n in results}) == 8, str(bad))
+    check("fixtures: every messaging fixture passes against this daemon", not bad and len({n for _, _, n in results}) == 3, str(bad))
 
 
 def test_a_devices_message_is_recorded_under_the_device_so_its_retry_finds_it(home: Path) -> None:
@@ -271,9 +193,6 @@ def main() -> int:
     def tests(td):
         run(lambda: test_say_is_a_message_from_the_caller_and_is_written_once(Path(td) / "g1"))
         run(lambda: test_say_with_a_task_is_that_tasks_memo_in_one_write(Path(td) / "g2"))
-        run(lambda: test_ask_is_a_question_that_needs_an_answer(Path(td) / "g3"))
-        run(lambda: test_push_nudges_what_is_already_written_and_only_once(Path(td) / "g4"))
-        run(lambda: test_push_cancelled_tells_only_of_what_was_closed_after_delivery(Path(td) / "g5"))
         run(lambda: test_the_messaging_fixtures_pass_against_this_daemon(Path(td) / "g6"))
         run(lambda: test_a_devices_message_is_recorded_under_the_device_so_its_retry_finds_it(Path(td) / "dv"))
     return run_area(tests)

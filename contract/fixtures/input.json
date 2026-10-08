@@ -423,45 +423,6 @@
    ]
   },
   {
-   "name": "input.ask.is_reserved",
-   "spec": "input.ask",
-   "about": "Asking the holder for input is reserved: refused with gate unsupported.",
-   "as": "founder",
-   "steps": [
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 1,
-      "method": "hello",
-      "params": {
-       "client": "conformance/1",
-       "protocol": 1,
-       "key": "{{founder_key}}"
-      }
-     },
-     "result": {}
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 2,
-      "method": "input.ask",
-      "params": {
-       "agent": "a.one",
-       "request_id": "conf-i-3"
-      }
-     },
-     "error": {
-      "code": -32002,
-      "data": {
-       "code": "refused",
-       "gate": "unsupported"
-      }
-     }
-    }
-   ]
-  },
-  {
    "name": "prompt.answer.choice_is_a_key_or_text",
    "spec": "prompt.answer",
    "about": "A choice that is neither an option key nor {text} is bad_request naming it.",

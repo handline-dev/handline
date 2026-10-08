@@ -51,8 +51,6 @@ export function chatMethod(
       return chatCall(() => (chat.seen(p), ok('Seen.')));
     case 'chat.locate':
       return chatCall(() => chat.locate(p));
-    case 'chat.withdraw':
-      return chatCall(() => (chat.withdraw(p), ok('Withdrawn.')));
     default:
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
   }
@@ -298,12 +296,6 @@ export class FakeChat {
       more_newer: from > 0,
     };
   }
-  withdraw(p: Record<string, unknown>) {
-    const m = this.find(p.request);
-    if (m.landing !== 'queued' && m.landing !== 'typed') throw new ChatFailure('refused', 'that message already landed', 'state');
-    this.change(m, { landing: 'withdrawn', state: 'withdrawn' });
-  }
-
   /** One scripted step; false when none is waiting. */
   tick(): boolean {
     const s = this.steps.shift();

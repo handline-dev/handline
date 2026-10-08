@@ -8,14 +8,8 @@
  "account.set": {
   "role": "founder"
  },
- "account.set_cap": {
-  "role": "founder"
- },
  "accounts.list": {
   "role": "agent"
- },
- "agent.create": {
-  "role": "founder"
  },
  "agent.fold": {
   "role": "agent"
@@ -60,9 +54,6 @@
  "answers.list": {
   "role": "founder"
  },
- "ask": {
-  "role": "agent"
- },
  "chat.answer": {
   "role": "member"
  },
@@ -98,9 +89,6 @@
  },
  "chat.transcript": {
   "role": "member"
- },
- "chat.withdraw": {
-  "role": "agent"
  },
  "daemon.status": {
   "role": "agent"
@@ -156,9 +144,6 @@
  "inbox.reply": {
   "role": "agent"
  },
- "input.ask": {
-  "role": "member"
- },
  "input.release": {
   "role": "member"
  },
@@ -200,15 +185,6 @@
  },
  "prompt.list": {
   "role": "member"
- },
- "push": {
-  "role": "agent"
- },
- "push.answer": {
-  "role": "agent"
- },
- "push.cancelled": {
-  "role": "agent"
  },
  "repos.list": {
   "role": "member"
@@ -259,9 +235,6 @@
   "role": "founder"
  },
  "settings.set": {
-  "role": "founder"
- },
- "settings.trust": {
   "role": "founder"
  },
  "stats.get": {
@@ -385,9 +358,6 @@
   "role": "agent"
  },
  "worktree.diff": {
-  "role": "member"
- },
- "worktree.set_status": {
   "role": "member"
  },
  "worktrees.list": {

@@ -1,19 +1,14 @@
-"""settings.set and settings.trust: the founder's timings and switches, and the trust of worktree folders for an account.
-settings.set serves the Settings screen and `hl dev-mode`, `hl idle` and `hl agent set` for the keys they write (an agent's
-own `hl agent set` stays agent.set); settings.trust is the legacy `trust` verb, answering claude's folder-trust screen once
-per worktree in a throwaway session.
+"""settings.set: the founder's timings and switches. It serves the Settings screen and `hl dev-mode`, `hl idle` and `hl agent set` for
+the keys they write (an agent's own `hl agent set` stays agent.set).
 
 settings.set writes every key of `changes` in one step: config.yaml, or with `agent` that agent's agent.yaml, is read and
 written once, so nothing is written if any key is refused. A key set to null is removed (back to the default). The keys are
 config.yaml's own names, read where they are today (session/idle_close.py and the modules that name them). token_prices
-is refused with a value, for config.yaml writes no nested value, and null removes it. settings.trust
-trusts only the worktrees an agent's record names under a declared root; any other is refused before a session starts. It
-takes as long as the sessions do, so it is served on a thread of its own. Both write what a retry writes again or record their
-result once done, so a retry after a lost reply answers and repeats nothing."""
+is refused with a value, for config.yaml writes no nested value, and null removes it. It writes what a retry writes again, so a
+retry after a lost reply repeats nothing."""
 from __future__ import annotations
 
 from .. import db
-from ..actions import details
 from ..infra import paths
 from ..infra.yamlcompat import ConfigError
 from ..team import agents
@@ -79,30 +74,4 @@ def _set(ctx, params) -> dict:
     return result
 
 
-def _trust(ctx, params) -> dict:
-    acct, given = params.get("account"), params.get("worktrees")
-    if not isinstance(acct, str) or not acct:
-        raise rpc.bad_request("account is a name", "account", rpc.INVALID_PARAMS)
-    if acct not in paths.list_accounts():
-        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no such account: {acct}", what="account", name=acct)
-    if not isinstance(given, list) or not given or not all(isinstance(w, dict) and isinstance(w.get("agent"), str)
-                                                          and isinstance(w.get("path"), str) for w in given):
-        raise rpc.bad_request("worktrees is a list of {agent, path}", "worktrees", rpc.INVALID_PARAMS)
-    declared, _ = details.eligible_worktrees()
-    for w in given:
-        if (w["agent"], w["path"]) not in declared:
-            raise rpc.refused(f"{w['path']} is not {w['agent']}'s worktree under a declared root", gate="state")
-    ok, said = details.trust_worktrees(acct, [(w["agent"], w["path"]) for w in given])
-    if not ok:
-        raise rpc.refused(said)
-    result = {"accepted": True, "said": said}
-    con = db.connect()
-    try:
-        db.record_effect(con, ctx.caller.writer, params["request_id"], "settings.trust", result)
-    finally:
-        con.close()
-    return result
-
-
 rpc.METHODS["settings.set"] = rpc.Method(_set, "founder", write=True)
-rpc.METHODS["settings.trust"] = rpc.Method(_trust, "founder", write=True, waits=True)

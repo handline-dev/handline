@@ -79,8 +79,6 @@ export class FakeAccounts {
         return this.list();
       case 'account.set':
         return (this.set(p), accepted('Saved.'));
-      case 'account.set_cap':
-        return (this.set({ account: p.account, cap: p.cap }), accepted('Saved.'));
       case 'account.login':
         return accepted('Login started.', { terminal: this.login(p) });
       case 'account.remove':

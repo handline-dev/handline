@@ -47,7 +47,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `wall` | The usage limit (wall_reason): typing would only spend quota. |
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
-| `unsupported` | The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented. transcript.events for an agent the daemon runs as a terminal. |
+| `unsupported` | The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. transcript.events for an agent the daemon runs as a terminal. |
 | `not_self` | The agent named is not the caller's own session. |
 | `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
@@ -74,7 +74,6 @@ A method marked write takes a required `request_id`.
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
 | `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
-| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `account?`, `parent?`, `request_id` | `Accepted & {operation}` | `refused`, `not_found`, `bad_request` |  |
 | `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | not_self |
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -91,7 +90,6 @@ A method marked write takes a required `request_id`.
 | `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
 | `input.take` | member | yes | `agent`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder |
-| `input.ask` | member | yes | `agent`, `request_id` | `Accepted` | `refused` | unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role |
 | `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
 | `chat.requests` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{items, more, version, cursor}` | `not_found`, `bad_request` |  |
@@ -105,7 +103,6 @@ A method marked write takes a required `request_id`.
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `chat.withdraw` | agent | yes | `request`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?`, `format?` | `TerminalSnapshot \| TerminalBytesSnapshot` | `not_found`, `bad_request`, `refused` | unsupported |
@@ -144,10 +141,6 @@ A method marked write takes a required `request_id`.
 | `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `ask` | agent | yes | `target`, `title`, `body`, `options?`, `request_id` | `Accepted & {request}` | `refused`, `bad_request` |  |
-| `push` | agent | yes | `target`, `request?`, `request_id` | `Accepted` | `refused`, `bad_request`, `not_found` |  |
-| `push.answer` | agent | yes | `requester`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `push.cancelled` | agent | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
@@ -163,14 +156,12 @@ A method marked write takes a required `request_id`.
 | `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
 | `accounts.list` | agent |  | `roster?` | `{accounts}` | `bad_request` |  |
-| `account.set_cap` | founder | yes | `account`, `cap`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {terminal}` | `refused`, `not_found` |  |
 | `account.remove` | founder | yes | `account`, `dry_run?`, `confirm?`, `request_id` | `Accepted & {would_remove, plan}` | `refused`, `not_found`, `bad_request` |  |
 | `repos.list` | member |  | none | `{repos}` |  |  |
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
 | `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
-| `worktree.set_status` | member | yes | `path`, `status`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `schedules.list` | agent |  | none | `{schedules, errors}` |  |  |
 | `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {schedule}` | `refused`, `bad_request`, `not_found` |  |
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -179,7 +170,6 @@ A method marked write takes a required `request_id`.
 | `stats.outlook` | member |  | `range` | `Outlook` | `bad_request` |  |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `settings.trust` | founder | yes | `account`, `worktrees`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `answers.list` | founder |  | none | `{answers}` |  |  |
 | `answer.add` | founder | yes | `folder?`, `vendor?`, `title?`, `label?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `answer.remove` | founder | yes | `kind`, `key`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -233,10 +223,6 @@ The agent's recorded events, newest first. Today this is the agent's generic rec
 ### `agent.options`
 
 What the new-agent form offers.
-
-### `agent.create`
-
-Register, make the worktree, start. Long-running: progress arrives on `operations`.
 
 ### `agent.set`
 
@@ -302,10 +288,6 @@ Answer the prompt the caller saw; if it changed nothing is sent.
 
 Become the one who types at this terminal.
 
-### `input.ask`
-
-Reserved: ask the holder for input. Refused (gate `unsupported`) until implemented; see capabilities.input_ask.
-
 ### `input.release`
 
 Hand the terminal back to the daemon.
@@ -357,10 +339,6 @@ Answer a message that asked something.
 ### `chat.dismiss`
 
 Dismiss a message.
-
-### `chat.withdraw`
-
-Withdraw a message not yet landed.
 
 ### `chat.cancel`
 
@@ -514,22 +492,6 @@ The founder asks an agent a question about a task: a message linked to the task,
 
 A message typed at once; needs no answer, starts no work.
 
-### `ask`
-
-A question that needs an answer.
-
-### `push`
-
-Tell a target about what was queued for it (legacy push).
-
-### `push.answer`
-
-Put an answer in front of the agent that asked (legacy push_answer).
-
-### `push.cancelled`
-
-Tell an agent a delivered request was closed under it (legacy notify_cancelled).
-
 ### `land`
 
 Request a land; accepted only from the session's own hl land (session token and peer pid, as today).
@@ -590,10 +552,6 @@ Approve or reject a proposal; approving an apply_failed one applies it again. Re
 
 Accounts with login state, use, cap, agents, recent moves.
 
-### `account.set_cap`
-
-Set an account's cap, the most agents mid-turn at once (hl account cap).
-
 ### `account.set`
 
 The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
@@ -617,10 +575,6 @@ Worktrees with status and changed files.
 ### `worktree.diff`
 
 Read-only git diff run by the daemon.
-
-### `worktree.set_status`
-
-Set a worktree's status.
 
 ### `schedules.list`
 
@@ -654,10 +608,6 @@ Timings, terminal host, trust folders, hooks installed.
 
 Change settings: any keys of SettingsValues, globally or as one agent's override.
 
-### `settings.trust`
-
-Trust worktree folders for an account (legacy trust).
-
 ### `answers.list`
 
 The founder's saved answers: trusted folders and dialog rules (Home settings).
@@ -690,7 +640,7 @@ Cancel a device and close its connections at once. Cancels the device's token. I
 
 x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
 
-- **Sender:** say, ask and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
+- **Sender:** say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
 - **Ownership:** Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason.
 
 ## Agent commands
@@ -722,8 +672,6 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl inbox` | `inbox.list` |
 | `hl read` | `inbox.get` |
 | `hl say` | `say` |
-| `hl ask` | `ask` |
-| `hl withdraw` | `chat.withdraw` |
 | `hl land` | `land` |
 | `hl land --pass` | `land.pass` |
 | `hl hook` | `hook.record` |
@@ -755,8 +703,8 @@ Every `hl` command an agent runs today and the method that serves it.
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
 - **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
-- **Needs a decision:** `hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)`; `hl agent register (a roster change, founder)`
-- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl memory migrate`; `hl task note (suppressed)`
+- **Needs a decision:** `hl spawn (a founder's act; no method serves it)`; `hl agent register (a roster change, founder)`
+- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 
 The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.
 
@@ -861,11 +809,11 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 | `land_pass` | `land.pass` |
 | `land_authorize` | `land.authorize` |
 | `agent_set` | `agent.set` |
-| `message` | none: the daemon types `say` itself |
+| `message` | none |
 | `say` | `say` |
-| `push` | `push` |
-| `push_answer` | `push.answer` |
-| `notify_cancelled` | `push.cancelled` |
+| `push` | none |
+| `push_answer` | none |
+| `notify_cancelled` | none |
 | `wake` | `session.wake` |
 | `close` | `session.stop{mode:close}` |
 | `restart` | `session.restart` |
@@ -874,4 +822,4 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 | `move` | `agent.move` |
 | `start` | `session.start` |
 | `answer_block` | `prompt.answer` |
-| `trust` | `settings.trust` |
+| `trust` | none |

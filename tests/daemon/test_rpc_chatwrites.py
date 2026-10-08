@@ -1,4 +1,4 @@
-"""Tests: chat.send, chat.answer, chat.dismiss, chat.withdraw, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
+"""Tests: chat.send, chat.answer, chat.dismiss, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
 a death between the effect and its record (nothing written, the retry does it once, the next retry is replayed), a retry after a lost
 reply, and `hl withdraw` still working from an agent session.
 
@@ -188,30 +188,6 @@ def test_dismiss_takes_a_message_off_without_answering_it(home: Path) -> None:
     check("chat.dismiss: the dismissal is the person's, and nobody is told of it as an answer", db.dismissal(_row(msg))[1] == db.HUMAN and not _row(msg)["delivered_at"])
 
 
-def test_withdraw_takes_back_ones_own_request_before_it_was_delivered(home: Path) -> None:
-    _world(home)
-    mine = _add(db.HUMAN, "worker", "never mind this")
-    others = _add("manager", "worker", "not the person's")
-    r = _call("chat.withdraw", {"request": others, "request_id": "w1"})
-    check("chat.withdraw: another's request is refused, and stays", _code(r) == "refused" and _row(others)["state"] == "queued", str(r))
-    for params, code in (({"request": 999}, "not_found"), ({"request": mine, "reason": ""}, "bad_request"), ({"request": mine, "reason": 5}, "bad_request"),
-                         ({"request": "1"}, "bad_request")):
-        check(f"chat.withdraw: {params} is {code}", _code(_call("chat.withdraw", {**params, "request_id": f"w-{params}"})) == code)
-    _dies_then_retries("chat.withdraw", {"request": mine, "reason": "changed my mind", "request_id": "w2"}, None,
-                       after=lambda: _row(mine)["state"] == "withdrawn", unchanged=lambda: _row(mine)["state"] == "queued")
-    delivered = _add(db.HUMAN, "worker", "already told")
-    con = db.connect()
-    con.execute("UPDATE requests SET delivered_at = ?, typed_at = ? WHERE id = ?", (1, 1, delivered))
-    con.close()
-    r = _call("chat.withdraw", {"request": delivered, "request_id": "w3"})
-    check("chat.withdraw: one already delivered is refused, too late", _code(r) == "refused" and _row(delivered)["state"] == "queued", str(r))
-    r = _call("chat.withdraw", {"request": mine, "request_id": "w4"}, as_agent="worker")
-    check("chat.withdraw: an agent may call it, for its own requests only (another's is refused)", _code(r) == "refused", str(r))
-    own = _add("worker", "manager", "my own question")
-    r = _call("chat.withdraw", {"request": own, "request_id": "w5"}, as_agent="worker")
-    check("chat.withdraw: an agent withdraws its own", r["result"]["accepted"] and _row(own)["state"] == "withdrawn", str(r))
-
-
 def test_hl_withdraw_still_works_from_an_agent_session(home: Path) -> None:
     _world(home)
     own = _add("manager", "worker", "a question for the worker")
@@ -383,7 +359,7 @@ def test_the_chat_write_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 18, str(bad))
+    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 15, str(bad))
 
 
 def test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(home: Path) -> None:
@@ -414,7 +390,6 @@ def main() -> int:
         run(lambda: test_send_with_a_task_gives_the_agent_that_task_in_one_write(Path(td) / "w2"))
         run(lambda: test_answer_settles_what_an_agent_asked_the_person(Path(td) / "w3"))
         run(lambda: test_dismiss_takes_a_message_off_without_answering_it(Path(td) / "w4"))
-        run(lambda: test_withdraw_takes_back_ones_own_request_before_it_was_delivered(Path(td) / "w5"))
         run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
         run(lambda: test_send_under_a_message_answers_it_or_says_under_it(Path(td) / "w8"))
         run(lambda: test_cancel_takes_back_a_message_the_person_sent(Path(td) / "w9"))
