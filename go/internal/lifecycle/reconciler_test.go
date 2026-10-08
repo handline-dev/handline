@@ -1,7 +1,6 @@
 package lifecycle
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +24,6 @@ func openDB(t *testing.T) db.Q {
 
 func newRec(t *testing.T, seen map[string]session.Observed) (*Reconciler, *[]string) {
 	var logs []string
-	_ = os.Stdout
 	r := &Reconciler{Q: openDB(t), Log: func(s string) { logs = append(logs, s) }}
 	r.Ports = ReconcilerPorts{
 		Agents:           func() []string { return []string{"a"} },
