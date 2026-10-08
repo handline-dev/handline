@@ -155,7 +155,7 @@ describe('writes', () => {
 
 describe('terminal tab', () => {
   it('shows its skeleton while the terminal attaches, then the grid', async () => {
-    const s = setup();
+    const s = setup({ daemon: { transcript: false } }); // the auditor is a terminal agent here
     await mount(ARCH, s);
     await until(() => $('.term-bar'), 'the terminal tab');
     s.daemon.knobs.latency(500);
