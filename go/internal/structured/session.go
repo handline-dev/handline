@@ -34,7 +34,7 @@ const (
 	Queue Delivery = "queue"
 )
 
-// State of a send: Queued (held behind a turn), Sent (written to the CLI), Confirmed (the CLI echoed it back by uuid).
+// State of a send: Queued (held behind a turn), Sent (written to the CLI), Confirmed (the CLI echoed it back by uuid, or reported it queued or started).
 type State string
 
 const (
@@ -76,7 +76,7 @@ type Handlers struct {
 }
 
 // Launch is how the CLI is started. ConfigDir is the account's CLAUDE_CONFIG_DIR; the child sees nothing of the daemon's
-// environment beyond PATH, HOME, TMPDIR and LANG.
+// environment beyond PATH, HOME, USER, LOGNAME (the CLI finds the account's login by user name), TMPDIR and LANG.
 type Launch struct {
 	Path      string
 	Args      []string // extra arguments, after the protocol's own
@@ -107,11 +107,13 @@ func (l Launch) args() []string {
 
 func (l Launch) env() []string {
 	var env []string
-	for _, k := range []string{"PATH", "HOME", "TMPDIR", "LANG"} {
+	for _, k := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "LANG"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env = append(env, k+"="+v)
 		}
 	}
+	// Without this the CLI sends no session_state_changed frames (seen on the real CLI, live_test.go).
+	env = append(env, "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1")
 	if l.ConfigDir != "" {
 		env = append(env, "CLAUDE_CONFIG_DIR="+l.ConfigDir)
 	}
@@ -474,6 +476,14 @@ func (s *Session) handle(m map[string]any) {
 		s.mu.Unlock()
 		if cancel != nil {
 			cancel()
+		}
+	case "command_lifecycle":
+		// The CLI has taken the message (msg_lifecycle_v1): queued or started, named by command_uuid. Seen on every real turn, also
+		// when the model call then failed and the isReplay echo never came.
+		if st := m["state"]; st == "queued" || st == "started" {
+			if uid, _ := m["command_uuid"].(string); uid != "" {
+				s.echoed(uid)
+			}
 		}
 	case "user":
 		if uid, _ := m["uuid"].(string); uid != "" {

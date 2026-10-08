@@ -131,3 +131,34 @@ func TestFramesBecomeTranscriptEvents(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+func TestAMessageTheCLIReportsQueuedIsConfirmedWithoutAnEcho(t *testing.T) {
+	l := launch(t)
+	l.Env = append(l.Env, "FAKE_LIFECYCLE_ONLY=1")
+	t.Setenv("FAKE_LIFECYCLE_ONLY", "1")
+	s, _ := openWith(t, l, Handlers{})
+	if _, err := s.Send("op-1", "hello", Now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheChildSeesWhatTheCLINeedsToFindTheLoginAndNothingElse(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "secret")
+	t.Setenv("USER", "ron")
+	for _, kv := range (Launch{ConfigDir: "/c"}).env() {
+		if kv == "ANTHROPIC_API_KEY=secret" {
+			t.Fatal("the daemon's API key reached the child")
+		}
+	}
+	var user, state bool
+	for _, kv := range (Launch{ConfigDir: "/c"}).env() {
+		user = user || kv == "USER=ron"
+		state = state || kv == "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS=1"
+	}
+	if !user || !state {
+		t.Fatal("USER and the state-event switch are needed")
+	}
+}

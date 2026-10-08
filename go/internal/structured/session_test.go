@@ -41,7 +41,11 @@ func fakeClaude() {
 	perm := make(chan map[string]any, 1)
 	hold := make(chan struct{}, 1)
 	turn := func(uid, text string) {
-		emit(map[string]any{"type": "user", "uuid": uid, "isReplay": true, "message": map[string]any{"role": "user", "content": text}})
+		if os.Getenv("FAKE_LIFECYCLE_ONLY") == "1" { // what the real CLI did when the model call failed: no echo, only lifecycle
+			emit(map[string]any{"type": "command_lifecycle", "command_uuid": uid, "state": "queued"})
+		} else {
+			emit(map[string]any{"type": "user", "uuid": uid, "isReplay": true, "message": map[string]any{"role": "user", "content": text}})
+		}
 		state("running")
 		switch {
 		case text == "HOLD":
