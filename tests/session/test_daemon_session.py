@@ -189,6 +189,36 @@ def test_daemon_kill_recovery(home: Path) -> None:
         con.close()
 
 
+def test_running_out_of_descriptors_in_a_tick_is_not_counted_against_the_agent(home: Path) -> None:
+    """At 10:31 every agent logged `error: [Errno 24]` three times and was STALLED: the shortage is the daemon's, not any agent's."""
+    import errno as _errno
+    from handline.daemon import fds as dmn_fds
+    _daemon_home(home, 20)
+    con = db.connect()
+    real, lines = dmn_evaluate.supervise, []
+    err = {"e": OSError(_errno.EMFILE, "Too many open files")}
+
+    def supervise(con, agent, log, now, samples, actions):
+        raise err["e"]
+    dmn_evaluate.supervise = supervise
+    dmn_fds._state["said"] = -dmn_fds.EMFILE_EVERY_S
+    try:
+        for _ in range(4):
+            dmn_evaluate.tick(con, lines.append)
+        row = db.get_agent_state(con, "backend")
+        check("fds: four ticks out of descriptors do not count against the agent",
+              (row["failed_attempts"] if row else 0) == 0 and (row is None or row["state"] != dmn_states.STALLED), str(dict(row) if row else row))
+        check("fds: the shortage is said, once, as the daemon's own",
+              sum("out of file descriptors" in l for l in lines) == 1 and not any("STALLED" in l for l in lines), str(lines))
+        err["e"] = ValueError("a real failure")
+        dmn_evaluate.tick(con, lines.append)
+        check("fds: any other error is still counted against the agent",
+              db.get_agent_state(con, "backend")["failed_attempts"] == 1)
+    finally:
+        dmn_evaluate.supervise = real
+        con.close()
+
+
 def test_every_tick_logs_the_open_descriptor_count(home: Path) -> None:
     """A daemon that ran out of descriptors said nothing; each tick now says how many it holds."""
     _daemon_home(home, 20)
@@ -5615,6 +5645,7 @@ def main() -> int:
         run(lambda: test_reconcile_stalls_one_agents_unreadable_config_not_the_others(Path(td) / 'reconbad'))
         run(lambda: test_the_daemon_marks_itself_before_its_socket_takes_a_verb(Path(td) / 'inddaemon'))
         run(lambda: test_every_tick_logs_the_open_descriptor_count(Path(td) / 'fdcount'))
+        run(lambda: test_running_out_of_descriptors_in_a_tick_is_not_counted_against_the_agent(Path(td) / 'fdstall'))
         run(lambda: test_a_hand_edited_control_character_stalls_one_agent_live_through_the_daemon(
             Path(td) / 'readguarddaemon'))
         run(lambda: test_dev_mode_config_round_trips(Path(td) / 'devmodecfg'))

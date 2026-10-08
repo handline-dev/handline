@@ -32,7 +32,7 @@ from ..actions import control, details, prompt_blocks
 from ..infra import paths, sessiontoken
 from ..team import agent_settings
 
-from . import landauth, lands, messaging, relay, rpc, sends, stream
+from . import fds, landauth, lands, messaging, relay, rpc, sends, stream
 from . import (  # noqa: F401 - importing a module registers its methods; one per line, sorted, so branches adding modules do not meet
     rpc_accounts,
     rpc_agents,
@@ -208,6 +208,8 @@ MAX_CONNECTIONS = 256       # served at once; one past it is answered `daemon_bu
 # launchd starts a job with a soft limit of 256 descriptors, no more than MAX_CONNECTIONS alone: the daemon
 # raises its own soft limit, so connections run out before descriptors and the cap answers `daemon_busy`.
 FD_SOFT_LIMIT = 4096
+# What accept() can raise and later succeed again; any other error means the listener is dead.
+RETRY_ACCEPT = (errno.EMFILE, errno.ENFILE, errno.ECONNABORTED)
 
 
 def raise_fd_limit() -> int:
@@ -285,9 +287,12 @@ class SocketServer:
             except OSError as e:
                 if self._stop.is_set():
                     break  # the socket was closed under us by stop()
+                if e.errno not in RETRY_ACCEPT:
+                    self._log(f"socket: accept: {e} - the listener is gone, no longer taking connections")
+                    break
                 # Out of descriptors (or a connection reset before it was taken): the listener is still good, and
                 # leaving the loop would leave the socket deaf until a restart. Wait for descriptors to come back.
-                if e.errno in (errno.EMFILE, errno.ENFILE) and not starved:
+                if fds.is_exhaustion(e) and not starved:
                     starved = True
                     self._log(f"socket: accept: {e.strerror} - retrying")
                 self._stop.wait(0.5)

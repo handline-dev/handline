@@ -5,6 +5,7 @@ A daemon that ran out of descriptors answered nothing and said nothing for 18 mi
 from __future__ import annotations
 
 import errno
+import fcntl
 import os
 import resource
 import stat
@@ -14,7 +15,7 @@ from collections import Counter
 NEAR = 0.8              # of the soft limit: the inventory is logged once per crossing
 EMFILE_EVERY_S = 60     # EMFILE is said at most this often
 
-_state = {"near": False, "said": -EMFILE_EVERY_S}
+_state = {"near": False, "said": -EMFILE_EVERY_S, "last": None}
 
 
 def is_exhaustion(e: BaseException) -> bool:
@@ -24,6 +25,17 @@ def is_exhaustion(e: BaseException) -> bool:
 def count() -> int:
     """Descriptors open in this process (the listing's own descriptor is not counted)."""
     return max(len(os.listdir("/dev/fd")) - 1, 0)
+
+
+def _path(fd: int) -> str:
+    """The file a descriptor is open on: macOS answers F_GETPATH (its /dev/fd cannot be read as a link), Linux the link."""
+    getpath = getattr(fcntl, "F_GETPATH", None)
+    try:
+        if getpath is not None:
+            return os.fsdecode(fcntl.fcntl(fd, getpath, bytes(1024)).split(b"\0", 1)[0])
+        return os.readlink(f"/proc/self/fd/{fd}")
+    except OSError:
+        return ""
 
 
 def kind(fd: int) -> str:
@@ -39,11 +51,8 @@ def kind(fd: int) -> str:
         return "pty" if os.isatty(fd) else "char"
     if stat.S_ISDIR(mode):
         return "dir"
-    try:
-        name = os.readlink(f"/dev/fd/{fd}")
-    except OSError:
-        name = ""
-    return "db" if name.endswith((".db", ".db-wal", ".db-shm", ".sqlite")) else "file"
+    name = os.path.basename(_path(fd))
+    return "db" if any(m in name for m in (".sqlite", ".db")) else "file"
 
 
 def inventory() -> dict[str, int]:
@@ -57,20 +66,26 @@ def soft_limit() -> int:
 
 
 def check(log) -> int:
-    """Run once per tick: logs the count, and the inventory the first tick it is past NEAR of the soft limit (again after it falls back)."""
+    """Run once per tick. The count is logged when it first reads and whenever it moves by a twentieth of the limit; the inventory the
+    first tick it is past NEAR of the soft limit (again after it falls back). Never raises: it runs when descriptors are scarcest."""
     try:
         n, limit = count(), soft_limit()
     except OSError as e:
         say_exhaustion(log, e, "counting descriptors")
         return -1
-    log(f"  fds: {n}/{limit}")
-    if n >= NEAR * limit:
-        if not _state["near"]:
-            _state["near"] = True
-            inv = inventory()
-            log("  fds: near the limit - " + ", ".join(f"{k} {v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1])))
-    else:
+    if _state["last"] is None or abs(n - _state["last"]) >= max(limit // 20, 1):
+        _state["last"] = n
+        log(f"  fds: {n}/{limit}")
+    if n < NEAR * limit:
         _state["near"] = False
+    elif not _state["near"]:
+        try:
+            inv = inventory()
+        except OSError as e:
+            say_exhaustion(log, e, "taking the descriptor inventory")  # tried again next tick
+        else:
+            _state["near"] = True
+            log("  fds: near the limit - " + ", ".join(f"{k} {v}" for k, v in sorted(inv.items(), key=lambda kv: -kv[1])))
     return n
 
 
