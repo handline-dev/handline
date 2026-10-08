@@ -33,21 +33,26 @@ type KV struct {
 
 // AddEvent appends an event stamped now and answers its row id (db.add_event without a dedup key).
 func AddEvent(q Q, agent, kind string, payload ...KV) (int64, error) {
-	return addEvent(q, agent, kind, "", 0, payload)
+	return addEvent(q, agent, "", kind, "", 0, payload)
+}
+
+// AddEventFor is AddEvent with the account the event belongs to.
+func AddEventFor(q Q, agent, account, kind string, payload ...KV) (int64, error) {
+	return addEvent(q, agent, account, kind, "", 0, payload)
 }
 
 // AddEventAt is AddEvent stamped ts.
 func AddEventAt(q Q, ts int64, agent, kind string, payload ...KV) (int64, error) {
-	return addEvent(q, agent, kind, "", ts, payload)
+	return addEvent(q, agent, "", kind, "", ts, payload)
 }
 
 // AddEventDeduped appends an event once for a dedup key; 0 means a row with the key was already there.
 func AddEventDeduped(q Q, agent, kind, dedup string, payload ...KV) (int64, error) {
-	return addEvent(q, agent, kind, dedup, 0, payload)
+	return addEvent(q, agent, "", kind, dedup, 0, payload)
 }
 
-func addEvent(q Q, agent, kind, dedup string, ts int64, payload []KV) (int64, error) {
-	var p, d any
+func addEvent(q Q, agent, account, kind, dedup string, ts int64, payload []KV) (int64, error) {
+	var p, d, acct any
 	if len(payload) > 0 {
 		parts := make([]string, len(payload))
 		for i, e := range payload {
@@ -58,11 +63,14 @@ func addEvent(q Q, agent, kind, dedup string, ts int64, payload []KV) (int64, er
 	if dedup != "" {
 		d = dedup
 	}
+	if account != "" {
+		acct = account
+	}
 	if ts == 0 {
 		ts = Now()
 	}
 	res, err := q.Exec("INSERT INTO events(ts, agent, account, kind, payload, dedup_key) VALUES(?,?,?,?,?,?) ON CONFLICT(dedup_key) DO NOTHING",
-		ts, agent, nil, kind, p, d)
+		ts, agent, acct, kind, p, d)
 	if err != nil {
 		return 0, err
 	}
