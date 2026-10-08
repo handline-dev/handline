@@ -78,6 +78,10 @@ func echo(b net.Conn, open map[string]any) {
 		}
 		var m map[string]any
 		json.Unmarshal(line, &m)
+		if m["method"] == "hello" {
+			b.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"chat":true,"terminal_format":["text","bytes","styled"],"terminal_hosts":{"tmux":["text","bytes","styled"]}}}}` + "\n"))
+			continue
+		}
 		if m["method"] == "stats.get" {
 			b.Write([]byte(`{"jsonrpc":"2.0","method":"event","params":{"n":1}}` + "\n"))
 		}
@@ -127,6 +131,7 @@ func startGateway(t *testing.T, web string, native ...string) (*Daemon, *fakePyt
 	t.Cleanup(d.Close)
 	f := &fakePython{t: t, script: echo, closed: make(chan struct{}, 16)}
 	d.net.rs.Relay.Dial = f.dial
+	d.net.rs.Relay.Capabilities = nil // tests count the dials: no capabilities probe unless one asks
 	return d, f, cfg
 }
 
@@ -137,6 +142,18 @@ func helloAs(t *testing.T, d *Daemon, token string) *wsClient {
 		t.Fatalf("%v", r)
 	}
 	return c
+}
+
+func TestAGatewayHelloOffersTheTerminalFormatsTheDaemonServes(t *testing.T) {
+	d, _, _ := startGateway(t, "")
+	d.net.rs.Relay.Capabilities = d.net.rs.Relay.TerminalCapabilities
+	token, _ := pair(t, d, "phone")
+	c := dialNet(t, d)
+	r := c.ask(`{"jsonrpc":"2.0","id":"h","method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `"}}`)
+	caps := r["result"].(map[string]any)["capabilities"].(map[string]any)
+	if !reflect.DeepEqual(caps["terminal_format"], []any{"text", "bytes", "styled"}) || caps["terminal_hosts"] == nil || caps["chat"] != false {
+		t.Fatalf("%v", caps)
+	}
 }
 
 func (c *wsClient) read() map[string]any {

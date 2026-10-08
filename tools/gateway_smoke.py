@@ -307,10 +307,11 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
         if r.returncode:
             raise SystemExit("could not seed the scratch world:\n" + r.stdout + r.stderr)
         self.seed = json.loads(r.stdout.strip().splitlines()[-1])
+        self.seed["repo"] = str(repo)
 
     def start_daemon(self) -> None:
         out = open(self.log("python-daemon"), "w")
-        p = subprocess.Popen([str(ROOT / "bin" / "hl"), "daemon", "--quiet"], env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(ROOT))
+        p = subprocess.Popen([str(ROOT / "bin" / "hl"), "daemon", "--quiet"], env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(self.user))
         self.procs.append(p)
         self.wait_for(lambda: (self.home / "daemon.sock").exists() and (self.home / "relay.sock").exists(), 60, "the Python daemon's sockets", p, "python-daemon")
 
@@ -451,7 +452,7 @@ def run_writes(s: Smoke, world: dict) -> None:
     s.row("task.new", {"owner": agent, "title": "smoke task from the app", "body": "do it", "time_box": "1h", "request_id": rid()})
     s.row("task.memo.add", {"task": seed["task"], "text": "a note from the smoke", "request_id": rid()})
     s.row("task.done", {"task": seed["task"], "evidence": "smoke: done in words", "request_id": rid()})
-    s.row("session.start", {"agent": agent, "request_id": rid()})
+    s.row("session.start", {"agent": agent, "repo": seed["repo"], "request_id": rid()})
     time.sleep(3)
     s.row("session.wake", {"agent": agent, "request_id": rid()})
     s.row("input.take", {"agent": agent, "request_id": rid()})
