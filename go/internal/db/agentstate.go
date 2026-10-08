@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -293,4 +294,25 @@ func LastEventTS(q Q, agent, kind string) (int64, bool, error) {
 // LastEventID is db.last_event_id.
 func LastEventID(q Q, agent, kind string) (int64, bool, error) {
 	return maxInt(q, "SELECT MAX(id) FROM events WHERE agent = ? AND kind = ?", agent, kind)
+}
+
+// LastEvent is db.last_event: the id and payload of the agent's latest event of kind; ok is false when there is none. A payload that is
+// not a JSON object reads as empty.
+func LastEvent(q Q, agent, kind string) (id int64, payload map[string]any, ok bool, err error) {
+	var p sql.NullString
+	err = q.QueryRow("SELECT id, payload FROM events WHERE agent = ? AND kind = ? ORDER BY id DESC LIMIT 1", agent, kind).Scan(&id, &p)
+	if err == sql.ErrNoRows {
+		return 0, nil, false, nil
+	}
+	if err != nil {
+		return 0, nil, false, err
+	}
+	payload = map[string]any{}
+	if p.String != "" {
+		var m map[string]any
+		if json.Unmarshal([]byte(p.String), &m) == nil && m != nil {
+			payload = m
+		}
+	}
+	return id, payload, true, nil
 }

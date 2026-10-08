@@ -67,3 +67,52 @@ func AdvanceHandoff(q Q, id, step, state, detail string) error {
 		step, nullStr(state), nullStr(detail), Now(), id)
 	return err
 }
+
+// StartHandoff is db.start_handoff: an in-flight handoff at its first step.
+func StartHandoff(q Q, id, agent, sessionID, triggerKind string, deadline int64) error {
+	_, err := q.Exec("INSERT OR REPLACE INTO handoff(id, agent, session_id, trigger_kind, step, deadline, state, detail, updated) VALUES(?,?,?,?,'requested',?,'in_flight',NULL,?)",
+		id, agent, nullStr(sessionID), triggerKind, deadline, Now())
+	return err
+}
+
+// InFlightFor is db.in_flight_for: the agent's oldest handoff still in flight, nil when none.
+func InFlightFor(q Q, agent string) (*HandoffRow, error) {
+	var h HandoffRow
+	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1", agent).
+		Scan(&h.ID, &h.Agent, &h.SessionID, &h.TriggerKind, &h.Step, &h.Deadline, &h.State, &h.Detail, &h.Updated)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &h, err
+}
+
+// Session starts kept per agent, and the window in which a fresh session's first hook claims one.
+const (
+	SessionTextMaxChars = 20000
+	SessionStartsKept   = 50
+	BindWindowS         = 600
+)
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// NoteSessionStart is db.note_session_start: keep that a session was started, why and what it was given; only the oldest beyond
+// SessionStartsKept go. A fresh launch has no session id yet (BindSessionStart).
+func NoteSessionStart(q Q, agent, cause string, resumed bool, sessionID, text, prompt, actor string) (int64, error) {
+	r := 0
+	if resumed {
+		r = 1
+	}
+	res, err := q.Exec("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) VALUES(?,?,?,?,?,?,?,?)",
+		agent, Now(), nullStr(sessionID), cause, r, clip(text, SessionTextMaxChars), clip(prompt, SessionTextMaxChars), clip(actor, 80))
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	_, err = q.Exec("DELETE FROM session_starts WHERE agent = ? AND id NOT IN (SELECT id FROM session_starts WHERE agent = ? ORDER BY id DESC LIMIT ?)", agent, agent, SessionStartsKept)
+	return id, err
+}
