@@ -72,14 +72,14 @@ describe('the permission card', () => {
     await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
     await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // the scripted turn: thinking, a line, then the prompt
-    await until(() => $('permission-card'), 'the card');
+    await until(() => $('prompt-card'), 'the card');
     m.daemon.knobs.latency(400);
     m.daemon.knobs.refuse('prompt.answer', 'state', 'that prompt is not open any more');
     await press($('answer-1'));
-    await until(() => $('permission-card')?.textContent?.includes('answering…'), 'the pending mark', 300);
+    await until(() => $('prompt-card')?.textContent?.includes('answering…'), 'the pending mark', 300);
     expect($('answer-1')?.getAttribute('aria-disabled')).toBe('true');
     await until(() => text().includes('that prompt is not open any more'), 'the reason', 3000);
-    await until(() => !$('permission-card')?.textContent?.includes('answering…'), 'the mark to go');
+    await until(() => !$('prompt-card')?.textContent?.includes('answering…'), 'the mark to go');
     expect($('answer-1')?.getAttribute('aria-disabled')).not.toBe('true');
     m.store.stop();
   }, 20000);

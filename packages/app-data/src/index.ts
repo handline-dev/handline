@@ -8,6 +8,7 @@ export * from './read.ts';
 export * from './reads.ts';
 export * from './skeleton.ts';
 export * from './skeletons.ts';
+export * from './verbs.ts';
 export * from './write.ts';
 export * from './write-spec.ts';
 export * from './writes.ts';

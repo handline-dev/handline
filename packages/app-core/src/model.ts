@@ -110,6 +110,21 @@ export function offered(p: Prompt): PromptOption[] {
   return p.kind === 'permission' ? p.options.filter((o) => (o.answer === 'yes' || o.answer === 'no') && !isAlways(o)) : p.options;
 }
 
+/** The title of a prompt card. */
+export function promptTitle(p: Prompt): string {
+  if (p.kind === 'permission') return `Permission: ${p.tool ?? ''}`;
+  if (p.kind === 'question') return 'Question';
+  if (p.kind === 'dialog') return 'Dialog';
+  return `Dialog: ${p.kind}`;
+}
+
+/** What the card offers: a permission only yes and no; a dialog its options, minus the "always" ones when no rule can be kept. */
+export function promptChoices(p: Prompt, rules: boolean): PromptOption[] {
+  if (p.kind === 'dialog' && !rules) return p.options.filter((o) => !isAlways(o));
+  if (p.kind === 'permission') return offered(p);
+  return p.options;
+}
+
 export type KeyEvent = { key: string; shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };
 
 /**

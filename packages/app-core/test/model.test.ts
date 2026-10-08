@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentDetail, AgentView, Prompt } from '@handline/client';
 import {
+  promptChoices,
+  promptTitle,
   controlsOf,
   dotOf,
   holderLabel,
@@ -208,4 +210,33 @@ test('the pane layout is remembered per agent and survives bad or blocked storag
   assert.deepEqual(loadLayout(throwing, 'a'), DEFAULT_LAYOUT);
   assert.doesNotThrow(() => saveLayout(throwing, 'a', DEFAULT_LAYOUT));
   assert.deepEqual(loadLayout(null, 'a'), DEFAULT_LAYOUT);
+});
+
+const opt = (key: string, label: string, answer: 'yes' | 'no' | 'other' = 'other') => ({ key, label, answer, highlighted: false });
+const card = (kind: string) =>
+  ({
+    id: 'p',
+    agent: 'a',
+    kind,
+    tool: 'Bash',
+    command: null,
+    reason: null,
+    lines: [],
+    since: null,
+    options: [opt('1', 'Yes', 'yes'), opt('2', 'Yes, always', 'yes'), opt('3', 'No', 'no')],
+  }) as unknown as Prompt;
+
+test('a prompt card is titled by its kind', () => {
+  assert.equal(promptTitle(card('permission')), 'Permission: Bash');
+  assert.equal(promptTitle(card('question')), 'Question');
+  assert.equal(promptTitle(card('dialog')), 'Dialog');
+  assert.equal(promptTitle(card('trust')), 'Dialog: trust');
+});
+
+test('a card offers a permission yes and no only, a dialog its always options only when a rule can be kept, and a question everything', () => {
+  const keys = (p: Prompt, rules: boolean) => promptChoices(p, rules).map((o) => o.key);
+  assert.deepEqual(keys(card('permission'), true), ['1', '3']);
+  assert.deepEqual(keys(card('dialog'), true), ['1', '2', '3']);
+  assert.deepEqual(keys(card('dialog'), false), ['1', '3']);
+  assert.deepEqual(keys(card('question'), false), ['1', '2', '3']);
 });
