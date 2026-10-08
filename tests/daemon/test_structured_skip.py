@@ -17,6 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import (applysettings, delivery, evaluate, handoff, handoff_note, landing, lifecycle,  # noqa: E402
                              messaging, reconciler, timebox)
+from handline.daemon import agentview  # noqa: E402
 from handline.session import triggers  # noqa: E402
 
 LOG = lambda _m: None  # noqa: E731
@@ -321,6 +322,23 @@ def test_timebox_and_apply_settings_skip_it_and_a_task_it_holds_is_not_clocked_h
         con.close()
 
 
+def test_the_view_pass_leaves_the_structured_agents_row_alone(home: Path) -> None:
+    con, _typed = _world(home)
+    try:
+        for name in ("backend", "frontend"):
+            con.execute("INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, 5)", (name, json.dumps({"name": name, "go": name == "frontend"})))
+        con.execute("INSERT INTO agent_view(agent, view, updated) VALUES('ghost', '{}', 5)")
+        before = con.execute("SELECT view, updated FROM agent_view WHERE agent = 'frontend'").fetchone()
+        agentview.refresh(con, 99, LOG)
+        agentview.refresh_one(con, "frontend", LOG)
+        rows = {r[0]: (r[1], r[2]) for r in con.execute("SELECT agent, view, updated FROM agent_view")}
+        check("view: the structured agent's row is not rewritten", tuple(rows["frontend"]) == tuple(before), str(rows["frontend"]))
+        check("view: the terminal agent's row is", rows["backend"][1] == 99, str(rows["backend"]))
+        check("view: a gone agent's row is still dropped", "ghost" not in rows)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_kind_is_read_as_the_go_daemon_reads_it(Path(td) / "k1"))
@@ -329,6 +347,7 @@ def main() -> int:
         run(lambda: test_every_acting_call_is_a_no_op_for_a_structured_agent(Path(td) / "k4"))
         run(lambda: test_the_same_calls_do_act_on_a_terminal_agent(Path(td) / "k5"))
         run(lambda: test_timebox_and_apply_settings_skip_it_and_a_task_it_holds_is_not_clocked_here(Path(td) / "k6"))
+        run(lambda: test_the_view_pass_leaves_the_structured_agents_row_alone(Path(td) / "k7"))
     return run_area(tests)
 
 

@@ -65,6 +65,9 @@ type Env struct {
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
 	Now       func() int64
 	Log       func(string)
+	// DropGone has Refresh delete the row of any agent not in Agents. Off while the Python daemon still keeps the rows of terminal
+	// agents: then the rows this Env does not write are none of its business, gone or not.
+	DropGone bool
 }
 
 func (e *Env) now() int64 {
@@ -337,13 +340,16 @@ func (e *Env) RefreshOne(agent string) {
 	}
 }
 
-// Refresh stores a fresh view for every structured agent, each failing alone, and drops the row of an agent that is gone.
+// Refresh stores a fresh view for every structured agent, each failing alone, and (DropGone) drops the row of an agent that is gone.
 func (e *Env) Refresh() error {
 	names := e.Agents()
 	known := make(map[string]bool, len(names))
 	for _, n := range names {
 		known[n] = true
 		e.RefreshOne(n)
+	}
+	if !e.DropGone {
+		return nil
 	}
 	rows, err := e.Q.Query("SELECT agent FROM agent_view")
 	if err != nil {

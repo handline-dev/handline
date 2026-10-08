@@ -95,9 +95,10 @@ def refresh(con, now: int | None = None, log=lambda m: None) -> None:
     """Store a fresh view for every registered agent, writing only what changed, and drop a gone agent's.
     The view is a read model: an agent whose view cannot be worked out keeps its last one, and the others go on."""
     names = paths.list_agents()
+    driven = agents.driven()  # a structured agent's row is the Go daemon's: not written, and not dropped while the agent exists
     kept = {r["agent"]: r["view"] for r in con.execute("SELECT agent, view FROM agent_view")}
     table = actions.routing()
-    for name in names:
+    for name in driven:
         try:
             view = json.dumps(compute(con, name, now, table), sort_keys=True)
         except Exception as e:  # noqa: BLE001 - one agent's failure must not stale every agent after it
@@ -113,7 +114,10 @@ def refresh(con, now: int | None = None, log=lambda m: None) -> None:
 
 def refresh_one(con, name: str, log=lambda m: None) -> None:
     """Store a fresh view for one agent now, for a caller that has just changed what it is made of (the sweep recording a gone session) and
-    would otherwise leave the stored view a whole tick behind. A view that cannot be worked out keeps the last one."""
+    would otherwise leave the stored view a whole tick behind. A view that cannot be worked out keeps the last one.
+    A structured agent's row is the Go daemon's and is left alone."""
+    if agents.is_structured(name):
+        return
     try:
         view = json.dumps(compute(con, name, None, actions.routing()), sort_keys=True)
     except Exception as e:  # noqa: BLE001 - the tick's refresh tries again

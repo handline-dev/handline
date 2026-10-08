@@ -81,6 +81,7 @@ func (p *Parts) OpenedOn(agent string) string {
 // Telling is what the supervisor's Env does with a session's end of a send: the operation is delivered once the CLI echoed it, and what was
 // written and not echoed when the session ended is unknown (supervisor.Env).
 type Telling interface {
+	SessionWritten(q db.Q, agent, op string) error
 	SessionConfirmed(q db.Q, agent, op string) error
 	SessionLost(q db.Q, agent string) error
 }
@@ -106,8 +107,15 @@ type confirming struct {
 }
 
 func (c confirming) Put(o structured.Op) error {
+	prev, _ := c.DBLedger.Get(o.ID)
 	if err := c.DBLedger.Put(o); err != nil {
 		return err
+	}
+	// A message held behind a turn and now written: the request it tells of is delivered and typed, as when it is sent at once.
+	if o.State == structured.Sent && prev != nil && prev.State == structured.Queued && c.p.tell != nil {
+		if err := c.p.tell.SessionWritten(c.p.db, c.DBLedger.Agent, o.ID); err != nil && c.p.log != nil {
+			c.p.log("  %s: telling the write of %s failed: %v", c.DBLedger.Agent, o.ID, err)
+		}
 	}
 	if o.State == structured.Confirmed && c.p.tell != nil {
 		if err := c.p.tell.SessionConfirmed(c.p.db, c.DBLedger.Agent, o.ID); err != nil && c.p.log != nil {

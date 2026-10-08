@@ -29,6 +29,10 @@ type Tick struct {
 type TickConfig struct {
 	// Stop ends the loop when closed.
 	Stop <-chan struct{}
+	// Cutover says the Python daemon no longer ticks: this tick then owns the usage poll (samples, burn, token log) and every agent_view
+	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
+	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
+	Cutover bool
 }
 
 // Tick builds the tick. The lifecycle must be built and the database bound.
@@ -38,6 +42,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	uenv := lc.usage
 	now := func() int64 { return nowOf(cfg.Now)().Unix() }
 	logLine := func(s string) { cfg.Log("%s", s) }
+	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
+	view := p.agentView(cfg, tc.Cutover, tu)
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
 		Agents:        p.structuredAgents,
 		Observe:       func([]string, map[string]string) map[string]session.Observed { return map[string]session.Observed{} },
@@ -48,9 +54,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		WakeAgent: func(q db.Q, agent string) (bool, string, error) {
 			return lc.Manager.WakeAgent(agent, lifecycle.WakeOpts{})
 		},
-		QueuedOrIdle: func(q db.Q, agent, why string) (string, error) { return queuedOrIdle(q, agent, why) },
-		// The stored view is the Python daemon's to keep: agent_view has no Go writer yet (see the note on refreshView).
-		RefreshView:      func(db.Q, string) {},
+		QueuedOrIdle:     func(q db.Q, agent, why string) (string, error) { return queuedOrIdle(q, agent, why) },
+		RefreshView:      func(_ db.Q, agent string) { view.RefreshOne(agent) },
 		LiftLogin:        func(db.Q, string, *db.AgentState, *[]string) {},
 		StillDrawn:       func(string) bool { return false },
 		ResumableSession: func(q db.Q, agent string) string { return p.Manager.SessionID(agent) },
@@ -64,7 +69,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	}}
 	t := &tick.Tick{Q: q, Log: logLine, Now: now,
 		Host:      tickHost{p: p},
-		Usage:     tickUsage{p: p, u: uenv, roster: lc.roster},
+		Usage:     tu,
 		Delivery:  tickDelivery{env: env},
 		Messaging: tickMessaging{env: env},
 		Lifecycle: tickLifecycle{m: lc.Manager},
@@ -78,10 +83,10 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
 		Cost:    &tick.CostPilot{Ports: costPorts{}},
-		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now)},
+		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now), own: tc.Cutover},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
-	t.Passes = p.passes(cfg, t)
+	t.Passes = append(p.passes(cfg, t), agentViewPass(view))
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
 	return &Tick{Tick: t, Loop: loop}
 }
@@ -146,6 +151,7 @@ type tickUsage struct {
 	p      *Parts
 	u      *usage.Env
 	roster *team.Roster
+	own    bool // Cutover: the burn file is this daemon's to write
 }
 
 func statusOf(st *usage.AccountStatus) tick.Status {
@@ -220,6 +226,9 @@ func contextWindow(model string) int {
 }
 
 func (t tickUsage) WriteBurn(acct string, rate float64, at int64) {
+	if !t.own {
+		return
+	}
 	usage.WriteBurn(t.p.home, acct, rate, at)
 }
 
@@ -429,6 +438,7 @@ type tickObserve struct {
 	u    *usage.Env
 	home string
 	now  func() time.Time
+	own  bool // Cutover: the usage poll is this daemon's; before it the Python daemon's, and these writers do nothing
 }
 
 func (o tickObserve) ActiveByAccount(q db.Q) map[string][]string {
@@ -441,18 +451,42 @@ func (o tickObserve) FirstTurnAgents(q db.Q) map[string]bool {
 }
 func (o tickObserve) ReadAccount(acct string) tick.Status { return statusOf(o.u.Read(acct)) }
 func (o tickObserve) ObserveBurn(q db.Q, acct string, working []string, _ tick.Status, firsts map[string]bool) error {
+	if !o.own {
+		return nil
+	}
 	return o.u.Observe(q, acct, working, o.u.Read(acct), firsts)
 }
 func (o tickObserve) RecordUsageSample(q db.Q, acct string, _ tick.Status) error {
+	if !o.own {
+		return nil
+	}
 	return o.u.RecordSample(q, acct, o.u.Read(acct), o.now().Unix())
 }
-func (o tickObserve) PruneUsageSamples(q db.Q) error { _, err := o.u.PruneSamples(q); return err }
+func (o tickObserve) PruneUsageSamples(q db.Q) error {
+	if !o.own {
+		return nil
+	}
+	_, err := o.u.PruneSamples(q)
+	return err
+}
 func (o tickObserve) IngestTokens(q db.Q, acct string) error {
+	if !o.own {
+		return nil
+	}
 	_, err := o.u.IngestTokens(q, acct, usage.BytesPerTick)
 	return err
 }
-func (o tickObserve) PruneTokens(q db.Q) error { _, err := o.u.PruneTokens(q); return err }
+func (o tickObserve) PruneTokens(q db.Q) error {
+	if !o.own {
+		return nil
+	}
+	_, err := o.u.PruneTokens(q)
+	return err
+}
 func (o tickObserve) RefreshLongRatios(q db.Q) error {
+	if !o.own {
+		return nil
+	}
 	return o.u.RefreshLongRatios(q, o.now().Unix(), false)
 }
 
