@@ -16,11 +16,14 @@ func AtLimit(q db.Q, agent string) (map[string]any, error) {
 	var ts int64
 	err := q.QueryRow("SELECT kind, payload, ts FROM events WHERE agent = ? AND kind IN ('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1",
 		agent).Scan(&kind, &payload, &ts)
-	if err == sql.ErrNoRows || kind != "StopFailure" {
+	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if kind != "StopFailure" {
+		return nil, nil
 	}
 	var data map[string]any
 	if !payload.Valid || json.Unmarshal([]byte(payload.String), &data) != nil || !truthy(data["limit"]) {

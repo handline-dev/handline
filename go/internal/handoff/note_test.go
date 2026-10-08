@@ -361,6 +361,12 @@ func TestAtLimitIsTheWallTheLastTurnEndedOn(t *testing.T) {
 	if got, _ := AtLimit(w.DB, "a"); got != nil {
 		t.Errorf("no payload: %v", got)
 	}
+	// A read that fails is an error, never "not at a limit": the cache-edge ask leaves a walled agent alone on this answer.
+	w.event("a", "StopFailure", `{"limit": "rate_limit"}`)
+	w.exec("DROP TABLE events")
+	if got, err := AtLimit(w.DB, "a"); err == nil || got != nil {
+		t.Errorf("an unreadable events table: %v %v", got, err)
+	}
 }
 
 func TestACommitIsRecordedOnceWithItsSubjectAndDiffstatCut(t *testing.T) {
@@ -376,5 +382,14 @@ func TestACommitIsRecordedOnceWithItsSubjectAndDiffstatCut(t *testing.T) {
 	want := `{"repo": "/r", "sha": "abc123", "subject": "` + strings.Repeat("s", 200) + `", "diffstat": "` + strings.Repeat("d", 300) + `"}`
 	if n != 1 || payload != want {
 		t.Errorf("%d events, payload %q", n, payload)
+	}
+}
+
+func TestEachBadByteIsOneReplacementCharacter(t *testing.T) {
+	if got := replaceBad([]byte("a\xff\xfe\xc3(b")); got != "a\ufffd\ufffd\ufffd(b" {
+		t.Errorf("got %q", got)
+	}
+	if got := replaceBad([]byte("é ok")); got != "é ok" {
+		t.Errorf("got %q", got)
 	}
 }

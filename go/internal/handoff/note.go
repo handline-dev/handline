@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
@@ -318,4 +319,19 @@ func (e *Env) Hold(agent string, now int64) (bool, error) {
 		return e.Ask(agent, "close")
 	}
 	return prompts == 0 && now-when < AskWaitS, nil
+}
+
+// replaceBad is bytes.decode("utf-8", errors="replace"): one U+FFFD for each byte that is not part of a valid character.
+func replaceBad(b []byte) string {
+	var out strings.Builder
+	for len(b) > 0 {
+		r, n := utf8.DecodeRune(b)
+		if r == utf8.RuneError && n == 1 {
+			out.WriteRune('\ufffd')
+		} else {
+			out.Write(b[:n])
+		}
+		b = b[n:]
+	}
+	return out.String()
 }
