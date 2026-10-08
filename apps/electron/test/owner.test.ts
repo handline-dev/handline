@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { grant } from '../src/grant.ts';
 import { commands, Owner, type Child, type Cmd } from '../src/owner.ts';
 
 const PY: Cmd = { file: 'py', args: ['daemon'] };
@@ -154,4 +155,52 @@ test('moveGateway leaves a gateway the app did not start alone, and keeps the ol
   assert.equal(silent.owner.reason, 'still nothing');
   assert.equal(await silent.owner.moveGateway(GO2, async () => true, 'x'), true); // the replacement is the app's own, and answers
   assert.equal(silent.owner.state, 'running');
+});
+
+test('a gateway that answers once and is gone a moment later is started, not trusted', async () => {
+  const r = rig({ socket: true, gateway: true });
+  let answers = 0;
+  const spawned: Cmd[] = [];
+  const up = { gateway: true };
+  const owner = new Owner({
+    socketUp: async () => true,
+    gatewayUp: async () => (++answers === 1 ? true : up.gateway),
+    spawn: (cmd) => {
+      spawned.push(cmd);
+      up.gateway = true;
+      return { kill: () => undefined, onExit: () => undefined };
+    },
+    python: PY,
+    gateway: GO,
+    wait: async () => {
+      up.gateway = false; // the earlier run finished shutting down while the app waited
+    },
+    polls: 5,
+  });
+  await owner.start();
+  assert.deepEqual(spawned, [GO]);
+  assert.equal(owner.state, 'running');
+  assert.deepEqual(r.spawned, []);
+});
+
+test('a gateway the app did not start is not moved, and the refusal is the failure the page is told', async () => {
+  const r = rig({ socket: true, gateway: true });
+  await r.owner.start();
+  const moved = await r.owner.moveGateway(GO, async () => false, 'the gateway does not answer on 100.1.2.3:7443 (a firewall?)');
+  assert.equal(moved, false);
+  assert.deepEqual(r.killed, []);
+  assert.deepEqual(grant(null, '100.1.2.3', r.owner), {
+    token: null,
+    ownHost: '100.1.2.3',
+    failure: 'the gateway does not answer on 100.1.2.3:7443 (a firewall?)',
+  });
+});
+
+test('a listener hears every failure, with its reason, also a later one', async () => {
+  const r = rig({ socket: true, gateway: true });
+  const seen: string[] = [];
+  r.owner.onChange(() => r.owner.state === 'failed' && seen.push(r.owner.reason));
+  await r.owner.start();
+  r.owner.fail('the gateway stopped (exit 1)');
+  assert.deepEqual(seen, ['the gateway stopped (exit 1)']);
 });
