@@ -329,6 +329,13 @@
     "applied_at": 1760000000,
     "name": "agent_extra_worktrees",
     "version": 10
+   },
+   {
+    "__rowid": 11,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "transcript_events",
+    "version": 11
    }
   ]
  },

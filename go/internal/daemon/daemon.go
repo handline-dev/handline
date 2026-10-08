@@ -28,6 +28,7 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
+	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -70,6 +71,12 @@ type Config struct {
 	// Env is the telling layer the chat, mailbox and say writes run on (supervisor.Env). Nil is an Env of this database and home alone: its
 	// writes are made, and what needs a port that has not landed is left to the tick.
 	Env *supervisor.Env
+
+	// Transcript is where the structured sessions' events go (structured.Manager.Events). With Structured it makes the daemon serve the
+	// transcript topic and transcript.events, and say so in hello. Nil serves neither.
+	Transcript *transcript.Sink
+	// Structured says whether an agent runs as a structured session.
+	Structured func(agent string) bool
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -155,6 +162,13 @@ func Start(cfg Config) (*Daemon, error) {
 		d.dev.Log = cfg.Log
 	}
 	d.hub = stream.NewHub()
+	if d.transcripts() {
+		sink := cfg.Transcript
+		sink.DB = db
+		sink.Publish = func(e transcript.Event) { d.hub.EmitTranscript(e.Agent, e.JSON()) }
+		sink.Prompt = (&reads.Env{DB: db}).PromptOf
+		sink.Err = func(agent string, err error) { cfg.Log("  transcript: %s: an event was not kept: %v", agent, err) }
+	}
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -211,6 +225,10 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
+// transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
+// structured sessions.
+func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
+
 // writeRegistrars are the packages that register methods once the hooks are wired, one per line in alphabetical order of the package: a port
 // adds its line at its own place, so two ports do not edit the same spot and git merges them.
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
@@ -240,7 +258,12 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
-	reads.Register(s, reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()}
+	if d.transcripts() {
+		renv.Structured = d.cfg.Structured
+		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
+	}
+	reads.Register(s, renv)
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}

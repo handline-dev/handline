@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/transcript"
 )
 
 // chat.messages, chat.requests, chat.transcript, chat.locate and chat.search follow handline/daemon/rpc_chat.py and
@@ -855,7 +856,7 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 
 // ---------------------------------------------------------------- transcript
 
-func itemID(at int64, source int64, n int64) int64 { return at*1_000_000 + source*100_000 + n%100_000 }
+func itemID(at int64, source int64, n int64) int64 { return transcript.ItemID(at, source, n) }
 
 var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "changed", "task_start": "changed", "edit_task": "changed",
 	"task_handoff": "changed", "queue_task": "changed", "draft_task": "changed", "reopen_task": "changed", "release_task": "changed",
@@ -899,6 +900,14 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	var items []map[string]any
 	for _, r := range rs {
 		items = append(items, repliesOf(r, agent)...)
+	}
+	// A structured session's text blocks are its replies: each is a transcript event, and the event holds this item's id.
+	texts, err := transcript.Replies(e.DB, agent, perSource)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range texts {
+		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
 	}
 	blocks, err := query(e.DB, "SELECT * FROM prompt_blocks WHERE agent = ? ORDER BY id DESC LIMIT ?", agent, perSource)
 	if err != nil {
@@ -960,6 +969,19 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 		items = kept
 	}
+	working, err := e.working(agent)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, len(items))
+	for i, it := range items {
+		out[i] = it
+	}
+	return map[string]any{"items": out, "more": more, "working": working}, nil
+}
+
+// working is the spec's Working: whether the agent's turn is running, and the line that says why it is held up.
+func (e *Env) working(agent string) (map[string]any, error) {
 	stored, err := e.storedViews()
 	if err != nil {
 		return nil, err
@@ -976,10 +998,5 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 			break
 		}
 	}
-	out := make([]any, len(items))
-	for i, it := range items {
-		out[i] = it
-	}
-	return map[string]any{"items": out, "more": more, "working": map[string]any{
-		"turn_running": strings.EqualFold(pyStr(view["state"]), "running"), "line": line, "since": view["state_since"]}}, nil
+	return map[string]any{"turn_running": strings.EqualFold(pyStr(view["state"]), "running"), "line": line, "since": view["state_since"]}, nil
 }

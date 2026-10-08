@@ -78,6 +78,7 @@ func baseCapabilities() map[string]any {
 		"chat":            false,
 		"review":          false,
 		"terminal_format": []any{},
+		"transcript":      false,
 	}
 }
 

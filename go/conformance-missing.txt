@@ -19,4 +19,3 @@ stats.outlook
 terminal.close
 terminal.input
 terminal.resize
-transcript.events

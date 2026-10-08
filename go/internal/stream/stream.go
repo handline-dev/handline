@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	devicesTopic = "devices"
+	devicesTopic    = "devices"
+	transcriptTopic = "transcript"
 	// MaxQueue is how many events may wait for one client before it is dropped with a gap.
 	MaxQueue = 1000
 )
 
 var topics = map[string]bool{"status": true, "accounts": true, "agents": true, "inbox": true, "tasks": true,
-	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true}
+	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true, transcriptTopic: true}
 
 // Hub fans events out to the connections subscribed to the devices topic.
 type Hub struct {
@@ -28,6 +29,24 @@ type Hub struct {
 }
 
 func NewHub() *Hub { return &Hub{subs: map[*sub]struct{}{}} }
+
+// EmitTranscript sends a transcript event (a committed row, as transcript.events shows it) to the subscribers of the transcript topic
+// that want its agent. Events are live only and carry cursor 0: a client that missed any reads transcript.events from its last seq.
+func (h *Hub) EmitTranscript(agent string, ev map[string]any) {
+	msg, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "event", "params": map[string]any{
+		"cursor": 0, "topic": transcriptTopic, "type": "transcript.event", "at": ev["at"],
+		"actor": nil, "agent": agent, "title": nil, "target": nil, "data": ev}})
+	if err != nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for s := range h.subs {
+		if s.topic == transcriptTopic && (s.agent == "" || s.agent == agent) {
+			s.offer(msg)
+		}
+	}
+}
 
 // Emit sends a devices event to every subscriber. Events are live only and carry cursor 0: the stream's cursors
 // are the Python daemon's, and a client resumes the devices topic from devices.list.
@@ -48,7 +67,9 @@ func (h *Hub) Emit(typ string, data, actor map[string]any, title string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for s := range h.subs {
-		s.offer(msg)
+		if s.topic == devicesTopic {
+			s.offer(msg)
+		}
 	}
 }
 
@@ -56,6 +77,8 @@ func (h *Hub) Emit(typ string, data, actor map[string]any, title string) {
 type sub struct {
 	send   func([]byte) bool
 	hangUp func()
+	topic  string
+	agent  string // transcript: only this agent's events; "" is every agent's
 
 	mu    sync.Mutex
 	cond  *sync.Cond
@@ -64,8 +87,8 @@ type sub struct {
 	slow  bool // the queue overflowed: send a gap, then hang up
 }
 
-func newSub(c *rpc.Conn) *sub {
-	s := &sub{send: c.SendRaw, hangUp: c.HangUp}
+func newSub(c *rpc.Conn, topic, agent string) *sub {
+	s := &sub{send: c.SendRaw, hangUp: c.HangUp, topic: topic, agent: agent}
 	s.cond = sync.NewCond(&s.mu)
 	return s
 }
@@ -145,7 +168,7 @@ func Register(srv *rpc.Server, h *Hub) {
 	// What is not plainly devices is the daemon behind a gateway to judge, malformed params included.
 	relays := func(p map[string]any) bool {
 		names, ok := topicNames(p)
-		return !ok || !names[devicesTopic]
+		return !ok || !(names[devicesTopic] || names[transcriptTopic])
 	}
 	srv.Register("subscribe", rpc.Method{Role: "agent", Relays: relays, Handler: func(c *rpc.Conn, p map[string]any) (any, error) {
 		names, err := check(p)
@@ -157,16 +180,29 @@ func Register(srv *rpc.Server, h *Hub) {
 				return nil, err
 			}
 		}
-		if !names[devicesTopic] {
+		topic := devicesTopic
+		switch {
+		case names[devicesTopic]:
+			if !c.Caller.Allows("founder") {
+				return nil, rpc.Refused("the devices topic is for a founder; this caller is "+c.Caller.Role, "role", "")
+			}
+		case names[transcriptTopic]:
+			topic = transcriptTopic
+			if !c.Caller.Allows("member") {
+				return nil, rpc.Refused("the transcript topic is for a member; this caller is "+c.Caller.Role, "role", "")
+			}
+		default:
 			return map[string]any{"cursor": 0}, nil
 		}
-		if !c.Caller.Allows("founder") {
-			return nil, rpc.Refused("the devices topic is for a founder; this caller is "+c.Caller.Role, "role", "")
-		}
+		agent, _ := p["agent"].(string)
 		mu.Lock()
 		defer mu.Unlock()
-		if byConn[c] == nil {
-			s := newSub(c)
+		if old := byConn[c]; old != nil { // a second subscribe replaces the first's filter
+			h.mu.Lock()
+			old.topic, old.agent = topic, agent
+			h.mu.Unlock()
+		} else {
+			s := newSub(c, topic, agent)
 			byConn[c] = s
 			h.mu.Lock()
 			h.subs[s] = struct{}{}
@@ -181,7 +217,7 @@ func Register(srv *rpc.Server, h *Hub) {
 		if err != nil {
 			return nil, err
 		}
-		if names[devicesTopic] {
+		if names[devicesTopic] || names[transcriptTopic] {
 			drop(c)
 		}
 		return map[string]any{}, nil
@@ -219,6 +255,9 @@ func check(p map[string]any) (map[string]bool, error) {
 	if names[devicesTopic] && len(names) > 1 {
 		return nil, rpc.BadRequestError("devices is subscribed on its own: it is this gateway's, every other topic is the daemon's", "topics", rpc.InvalidParams)
 	}
+	if names[transcriptTopic] && len(names) > 1 {
+		return nil, rpc.BadRequestError("transcript is subscribed on its own: this daemon serves it live, the other topics are the Python daemon's", "topics", rpc.InvalidParams)
+	}
 	return names, nil
 }
 
@@ -254,4 +293,4 @@ func AgentMay(name, topic, typ, who string, reach map[string]bool) bool {
 
 // Daemon reports whether name is a topic the Python daemon's stream_log holds (every topic but devices, which is this
 // gateway's own).
-func Daemon(name string) bool { return topics[name] && name != devicesTopic }
+func Daemon(name string) bool { return topics[name] && name != devicesTopic && name != transcriptTopic }

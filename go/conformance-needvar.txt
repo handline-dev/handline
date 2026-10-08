@@ -30,3 +30,8 @@ terminal.bytes.text_and_bytes_attaches_coexist
 terminal.history.bytes_lines_are_strings
 terminal.input.refused_to_a_non_holder
 terminal.resize.only_the_input_holder_may
+transcript.events.a_terminal_agent_is_unsupported
+transcript.events.before_reads_the_older_page
+transcript.events.newest_page_has_every_kind
+transcript.events.seq_goes_up_by_one
+transcript.events.since_the_newest_is_empty

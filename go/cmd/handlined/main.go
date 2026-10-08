@@ -57,6 +57,7 @@ var defaultNative = strings.Join([]string{
 	"task.get",
 	"tasks.list",
 	"team.get",
+	"transcript.events",
 	"worktree.diff",
 	"worktrees.list",
 }, ",")
