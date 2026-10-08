@@ -42,7 +42,7 @@ type board struct {
 func (e *Env) loadBoard(open []row) (*board, error) {
 	b := &board{begun: map[int64]bool{}, sent: map[int64]bool{}, children: map[int64][]int64{},
 		current: map[string]int64{}, held: map[int64]row{}}
-	rows, err := query(e.DB, "SELECT DISTINCT "+eventTask+" AS t FROM events WHERE kind = 'task_begin'")
+	rows, err := query(e.DB, "SELECT DISTINCT "+eventTask+" AS t FROM events WHERE kind IN ('task_begin', 'task_self_start')")
 	if err != nil {
 		return nil, err
 	}
