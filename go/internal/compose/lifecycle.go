@@ -27,6 +27,8 @@ type Lifecycle struct {
 	Launch  *lifecycle.Launcher
 	Handoff *handoff.Env
 	Env     *supervisor.Env
+	// Mover is the handoff and the move to another account.
+	Mover *lifecycle.Mover
 
 	usage  *usage.Env
 	roster *team.Roster
@@ -59,8 +61,17 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		},
 	}}
 	launchPort := lifecycle.LaunchPort{L: launcher}
-	ho := &handoff.Env{DB: q, Home: home, Heads: lc.Env, Now: cfg.Now,
+	var ho *handoff.Env
+	ho = &handoff.Env{DB: q, Home: home, Heads: lc.Env, Now: cfg.Now,
 		AgentSession: func(agent, account string) (string, string) {
+			if p.Kind(agent) {
+				// A structured session writes no status file: the session is the one the daemon holds or stored, and the CLI keeps its transcript.
+				session := p.Manager.SessionID(agent)
+				if row, err := db.GetAgentState(q, agent); session == "" && err == nil && row != nil {
+					session = row.ResumeSession.String
+				}
+				return session, ho.FindTranscript(session, account)
+			}
 			st := uenv.ReadForAgent(agent, account)
 			return st.SessionID, st.Transcript
 		}}
@@ -76,11 +87,14 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		return false
 	}
 	launcher.Ports.WaitingFor = waiting
+	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
-		Delivery: lc.Env, Handoff: handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
+		Delivery: lc.Env, Handoff: hp, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
 		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, Locks: p.Locks}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster}
+	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
+	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
 	return p.LC
 }
 
@@ -186,29 +200,30 @@ func (a agentsPort) VendorName(agent string) string {
 
 // handoffPort is lifecycle.HandoffPort over the handoff record.
 type handoffPort struct {
-	env *handoff.Env
-	q   db.Q
-	now func() time.Time
+	env   *handoff.Env
+	q     db.Q
+	now   func() time.Time
+	mover func() *lifecycle.Mover
 }
 
-var _ lifecycle.HandoffPort = handoffPort{}
+var _ lifecycle.HandoffPort = (*handoffPort)(nil)
 
-func (h handoffPort) Capture(_ db.Q, agent string) (string, []string, error) {
+func (h *handoffPort) Capture(_ db.Q, agent string) (string, []string, error) {
 	return h.env.Capture(agent, "")
 }
 
-func (h handoffPort) Record(_ db.Q, agent, closedSession string) ([]string, error) {
+func (h *handoffPort) Record(_ db.Q, agent, closedSession string) ([]string, error) {
 	return h.env.Record(agent, closedSession)
 }
 
-func (h handoffPort) MemoryLine(agent string) string {
+func (h *handoffPort) MemoryLine(agent string) string {
 	if h.env.MemoryLine == nil {
 		return ""
 	}
 	return h.env.MemoryLine(agent)
 }
 
-func (h handoffPort) PreviousSession(_ db.Q, agent, account string) (string, string) {
+func (h *handoffPort) PreviousSession(_ db.Q, agent, account string) (string, string) {
 	s, path, err := h.env.PreviousSession(agent, account, "")
 	if err != nil {
 		return "", ""
@@ -216,7 +231,7 @@ func (h handoffPort) PreviousSession(_ db.Q, agent, account string) (string, str
 	return s, path
 }
 
-func (h handoffPort) RequestLine(_ db.Q, agent string) string {
+func (h *handoffPort) RequestLine(_ db.Q, agent string) string {
 	line, err := h.env.RequestLine(agent)
 	if err != nil {
 		return ""
@@ -224,13 +239,17 @@ func (h handoffPort) RequestLine(_ db.Q, agent string) string {
 	return line
 }
 
-// MovePlan: choosing another account for a walled agent belongs to the policy tick; until it lands an agent at a wall stays where it is.
-func (h handoffPort) MovePlan(db.Q, string, string) (string, string) {
-	return "", "moving to another account is the policy tick's, which this daemon does not run yet"
+// MovePlan is the account a walled agent can move to: the same plan the tick makes, so a wake and a handoff agree.
+func (h *handoffPort) MovePlan(_ db.Q, agent, kind string) (string, string) {
+	dest, why, err := h.mover().MovePlan(agent, kind)
+	if err != nil {
+		return "", err.Error()
+	}
+	return dest, why
 }
 
 // BackingOff is daemon/handoff._handoff_backing_off: a handoff that keeps degrading is not retried every tick.
-func (h handoffPort) BackingOff(q db.Q, agent string) bool {
+func (h *handoffPort) BackingOff(q db.Q, agent string) bool {
 	row, err := db.GetAgentState(q, agent)
 	if err != nil || row == nil || row.ThrottleCount == 0 {
 		return false
@@ -242,12 +261,12 @@ func (h handoffPort) BackingOff(q db.Q, agent string) bool {
 	return h.now().Unix() < last.Int64+int64(states.BackoffFor(int(row.ThrottleCount)).Seconds())
 }
 
-func (h handoffPort) AnsweredTurn(_ db.Q, agent string) bool {
+func (h *handoffPort) AnsweredTurn(_ db.Q, agent string) bool {
 	ok, err := h.env.AnsweredTurn(agent)
 	return err == nil && ok
 }
 
-func (h handoffPort) CacheClock(_ db.Q, agent, session string) (int64, int64, bool, bool) {
+func (h *handoffPort) CacheClock(_ db.Q, agent, session string) (int64, int64, bool, bool) {
 	c, err := h.env.CacheClock(agent, session)
 	if err != nil || c == nil {
 		return 0, 0, false, false
@@ -255,9 +274,9 @@ func (h handoffPort) CacheClock(_ db.Q, agent, session string) (int64, int64, bo
 	return int64(c.At), int64(c.TTL), c.TTL != 0, true
 }
 
-func (h handoffPort) CacheMargin(ttl int64) int64 { return int64(handoff.Margin(int(ttl))) }
+func (h *handoffPort) CacheMargin(ttl int64) int64 { return int64(handoff.Margin(int(ttl))) }
 
-func (h handoffPort) ClearNote(_ db.Q, agent string) { _ = h.env.ClearNote(agent) }
+func (h *handoffPort) ClearNote(_ db.Q, agent string) { _ = h.env.ClearNote(agent) }
 
 // observer is the process table of the structured sessions: the agents whose session this daemon has open, with its pid.
 type observer struct{ p *Parts }

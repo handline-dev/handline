@@ -2,12 +2,15 @@ package compose
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 )
 
@@ -32,6 +35,8 @@ func TestOneTickWakesAClosedStructuredAgentWithWorkWaitingAndLeavesATerminalAgen
 	if row, _ := dbpkg.GetAgentState(d, "bob"); row != nil && (row.WakeFailures != 0 || row.FailedAttempts != 0 || row.State == "STALLED") {
 		t.Fatalf("a terminal agent was touched: %+v", row)
 	}
+	// The fake CLI leaves no transcript to read a cache clock from, so the answer just given is the activity that keeps the cache warm.
+	dbpkg.AddEvent(d, "alice", "Stop")
 	if _, err := tk.Tick.Run(nil); err != nil { // a second tick leaves a running agent running
 		t.Fatal(err)
 	}
@@ -93,5 +98,45 @@ func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the loop did not return after the tick finished")
+	}
+}
+
+func TestAStructuredAgentWhoseTranscriptShowsAFullContextIsHandedOffByTheTick(t *testing.T) {
+	p, lc, _, wt := wired(t)
+	d := p.Sink.DB
+	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"}} {
+		if out, err := exec.Command("git", append([]string{"-C", wt}, args...)...).CombinedOutput(); err != nil {
+			t.Skipf("git: %v %s", err, out)
+		}
+	}
+	lc.Handoff.SetDefaultEnabled(false) // the note is asked and answered over turns; this is about the trigger
+	if ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{}); err != nil || !ok {
+		t.Fatalf("wake: %v %q %v", ok, said, err)
+	}
+	if !p.Run.WaitIdle("alice", 10*time.Second) {
+		t.Fatal("her turn ends")
+	}
+	row, _ := dbpkg.GetAgentState(d, "alice")
+	acct := p.Run.parts.OpenedOn("alice")
+	if acct == "" {
+		t.Fatal("the account the session was opened under is not known")
+	}
+	dir, _ := team.AccountConfigDir(p.home, acct)
+	os.MkdirAll(filepath.Join(dir, "projects", "x"), 0o755)
+	reply := `{"type":"assistant","isSidechain":false,"message":{"model":"claude-opus-5","usage":{"input_tokens":10,"cache_read_input_tokens":290000,"cache_creation_input_tokens":5000}}}` + "\n"
+	os.WriteFile(filepath.Join(dir, "projects", "x", row.ResumeSession.String+".jsonl"), []byte(reply), 0o644)
+	dbpkg.AddEvent(d, "alice", "Stop")
+
+	st := tickUsage{p: p, u: lc.usage, roster: lc.roster}.ReadForAgent("alice", acct)
+	if st.TrustedCtxUsed == nil || *st.TrustedCtxUsed != 295010 || st.TranscriptPath == "" || st.ModelID != "claude-opus-5" {
+		t.Fatalf("%+v", st)
+	}
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = dbpkg.GetAgentState(d, "alice")
+	if p.Run.Alive("alice") || row.State != "PARKED" || row.ThrottleCount != 0 {
+		t.Fatalf("alive %v %+v", p.Run.Alive("alice"), row)
 	}
 }

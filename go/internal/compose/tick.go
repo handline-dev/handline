@@ -40,14 +40,12 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	now := func() int64 { return nowOf(cfg.Now)().Unix() }
 	logLine := func(s string) { cfg.Log("%s", s) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
-		Agents:   p.structuredAgents,
-		Observe:  func([]string, map[string]string) map[string]session.Observed { return map[string]session.Observed{} },
-		NoteSeen: func(map[string]session.Observed, time.Time) {},
-		ResumeHandoff: func(db.Q, db.HandoffRow) error {
-			return errNotServed("resuming a handoff left in flight")
-		},
-		EnforceEdges: func(q db.Q, agent string) error { _, err := env.EnforceEdges(q, agent); return err },
-		WaitingFor:   func(q db.Q, agent string) (bool, error) { return lc.Manager.WaitingFor(agent) },
+		Agents:        p.structuredAgents,
+		Observe:       func([]string, map[string]string) map[string]session.Observed { return map[string]session.Observed{} },
+		NoteSeen:      func(map[string]session.Observed, time.Time) {},
+		ResumeHandoff: func(_ db.Q, row db.HandoffRow) error { return lc.Mover.ResumeHandoff(row) },
+		EnforceEdges:  func(q db.Q, agent string) error { _, err := env.EnforceEdges(q, agent); return err },
+		WaitingFor:    func(q db.Q, agent string) (bool, error) { return lc.Manager.WaitingFor(agent) },
 		WakeAgent: func(q db.Q, agent string) (bool, string, error) {
 			return lc.Manager.WakeAgent(agent, lifecycle.WakeOpts{})
 		},
@@ -71,7 +69,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Delivery:  tickDelivery{env: env},
 		Messaging: tickMessaging{env: env},
 		Lifecycle: tickLifecycle{m: lc.Manager},
-		Handoff:   tickHandoff{ho: lc.Handoff, port: handoffPort{env: lc.Handoff, q: q, now: nowOf(cfg.Now)}},
+		Handoff:   tickHandoff{ho: lc.Handoff, mv: lc.Mover},
 		Reconcile: tickReconciler{r: reconciler},
 		Sweeps: tick.Sweeps{
 			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none
@@ -146,8 +144,8 @@ func (h tickHost) SessionIdle(agent string) bool {
 	return h.p.Run.Alive(agent) && !h.p.Run.Busy(agent) && !(h.p.Manager.Broker != nil && h.p.Manager.Broker.Has(agent))
 }
 
-// RunningAccount is not known: the CLI's environment is not read, which never contradicts the recorded account.
-func (h tickHost) RunningAccount(string) string { return "" }
+// RunningAccount is the account the session was opened under; "" when unknown, which never contradicts the recorded account.
+func (h tickHost) RunningAccount(agent string) string { return h.p.OpenedOn(agent) }
 
 // tickUsage is tick.Usage over the usage package.
 type tickUsage struct {
@@ -179,7 +177,26 @@ func (t tickUsage) AccountReading(q db.Q, agent string) (tick.AccountReading, bo
 }
 
 func (t tickUsage) ReadForAgent(agent, acct string) tick.Status {
-	return statusOf(t.u.ReadForAgent(agent, acct))
+	st := statusOf(t.u.ReadForAgent(agent, acct))
+	if acct == "" || !t.p.Kind(agent) || t.p.LC == nil {
+		return st
+	}
+	// A structured session writes no status file: its session is the one the daemon holds, and its context is in the transcript the CLI keeps.
+	st.SessionID = t.p.Manager.SessionID(agent)
+	if st.SessionID == "" {
+		if row, err := db.GetAgentState(t.p.db, agent); err == nil && row != nil {
+			st.SessionID = row.ResumeSession.String
+		}
+	}
+	if st.SessionID == "" {
+		return st
+	}
+	st.TranscriptPath = t.p.LC.Handoff.FindTranscript(st.SessionID, acct)
+	if used, model, ok := lastContext(st.TranscriptPath); ok {
+		n := int(used)
+		st.TrustedCtxUsed, st.ModelID = &n, model
+	}
+	return st
 }
 
 // ContextLimit is status.effective_context_limit: the agent's own figure, held to a share of the model's window when the window is known.
@@ -210,6 +227,21 @@ func contextWindow(model string) int {
 
 func (t tickUsage) WriteBurn(acct string, rate float64, at int64) {
 	usage.WriteBurn(t.p.home, acct, rate, at)
+}
+
+// limitAt is when the limit the agent's last turn ended on was hit, ok false when it did not end on one.
+func (t tickUsage) limitAt(q db.Q, agent string) (int64, bool) {
+	at, err := handoff.AtLimit(q, agent)
+	if err != nil || at == nil {
+		return 0, false
+	}
+	switch v := at["at"].(type) {
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	}
+	return 0, false
 }
 
 func (t tickUsage) AtLimit(q db.Q, agent string) *tick.Limit {
@@ -334,20 +366,32 @@ func (l tickLifecycle) TriggersApply(row *db.AgentState) bool {
 	return row != nil && l.m.TriggersApplyTo(row.Agent, row)
 }
 
-// tickHandoff is tick.Handoff: the note is real; performing a handoff and moving an agent to another account are not served yet, and the
-// tick then leaves the agent where it is.
+// tickHandoff is tick.Handoff: the note, the handoff itself and the move to another account.
 type tickHandoff struct {
-	ho   *handoff.Env
-	port handoffPort
+	ho *handoff.Env
+	mv *lifecycle.Mover
 }
 
-func (tickHandoff) SettleOwedClear(db.Q, string) bool { return false } // a structured session has no context to clear by key
-func (h tickHandoff) Movable(kind string) bool        { return sessions{}.MovableTrigger(kind) }
-func (h tickHandoff) MovePlan(q db.Q, agent, kind string) (string, string) {
-	return h.port.MovePlan(q, agent, kind)
+func (h tickHandoff) SettleOwedClear(_ db.Q, agent string) bool {
+	owed, _ := h.mv.SettleOwedClear(agent)
+	return owed
 }
-func (tickHandoff) MoveToRoom(db.Q, string, tick.Trigger) bool             { return false }
-func (tickHandoff) PerformHandoff(db.Q, string, tick.Trigger, string) bool { return false }
+func (h tickHandoff) Movable(kind string) bool { return lifecycle.MovableTrigger(kind) }
+func (h tickHandoff) MovePlan(_ db.Q, agent, kind string) (string, string) {
+	dest, why, err := h.mv.MovePlan(agent, kind)
+	if err != nil {
+		return "", err.Error()
+	}
+	return dest, why
+}
+func (h tickHandoff) MoveToRoom(_ db.Q, agent string, t tick.Trigger) bool {
+	moved, _ := h.mv.MoveToRoom(agent, lifecycle.HandoffTrigger{Kind: t.Kind, Reason: t.Reason})
+	return moved
+}
+func (h tickHandoff) PerformHandoff(_ db.Q, agent string, t tick.Trigger, dest string) bool {
+	ok, err := h.mv.PerformHandoff(agent, lifecycle.HandoffTrigger{Kind: t.Kind, Reason: t.Reason}, dest)
+	return ok && err == nil
+}
 func (h tickHandoff) NoteHold(_ db.Q, agent string, now int64) bool {
 	hold, _ := h.ho.Hold(agent, now)
 	return hold
