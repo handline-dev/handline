@@ -168,3 +168,17 @@ func (f *fakeTeller) Opened(tid int64, by, owner, title string) {
 	f.opened = append(f.opened, fmt.Sprintf("T%d %s %s %s", tid, by, owner, title))
 }
 func (f *fakeTeller) Edited(ed Edited) { f.edited = append(f.edited, ed) }
+func (f *fakeTeller) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*Asked, error) {
+	if f.deny != "" {
+		return &Asked{Msg: f.deny}, nil
+	}
+	rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: to, Body: body, Kind: "say"})
+	if err != nil {
+		return nil, err
+	}
+	note := fmt.Sprintf("queued as #%d for %s", rid, to)
+	if err := within(rid, note); err != nil {
+		return nil, err
+	}
+	return &Asked{OK: true, Msg: note, RID: rid}, nil
+}

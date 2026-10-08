@@ -42,6 +42,8 @@ type Teller interface {
 	// refusal's denial row too, which stands), then within once the ask is allowed. The ask's inbox file and telling wait for the commit
 	// (Asked.After).
 	TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error)
+	// TaskSay sends the founder's question about a task as a say to `to`, typed at once, in the transaction that links it to the task.
+	TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*Asked, error)
 	// HandoffRetire closes a request of the old owner's quietly (done, nobody told, the decision task it is the card of not settled), in the
 	// transaction of the move. told, nil when the request was already closed, runs after the commit.
 	HandoffRetire(tx *sql.Tx, rid int64, verdict string) (told func(), err error)
@@ -66,6 +68,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.handoff", rpc.Method{Role: "agent", Write: true, Handler: handoffMethod(home, tell)})
 	s.Register("task.new", rpc.Method{Role: "agent", Write: true, Handler: newMethod(home, tell)})
 	s.Register("task.edit", rpc.Method{Role: "agent", Write: true, Handler: editMethod(home, tell)})
+	s.Register("task.ask", rpc.Method{Role: "member", Write: true, Handler: askMethod(home, tell)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})

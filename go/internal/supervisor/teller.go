@@ -143,12 +143,28 @@ func (e *Env) TaskAsk(tx *sql.Tx, in taskwrites.AskReq) (*taskwrites.Asked, erro
 	if err != nil {
 		return nil, err
 	}
+	return askedOf(out, in.Notify), nil
+}
+
+// askedOf is the answer a write hands back for an ask: the inbox file and the telling run in After, whose line (what the push said) joins the
+// reply, as Finish does.
+func askedOf(out *AskOut, notify bool) *taskwrites.Asked {
 	return &taskwrites.Asked{OK: out.OK, Msg: out.Message, RID: out.RID, After: func() string {
-		if extra := out.After.Run(); extra != "" && out.OK && in.Notify { // what the push said joins the reply, as Finish does
+		if extra := out.After.Run(); extra != "" && out.OK && notify {
 			return extra
 		}
 		return ""
-	}}, nil
+	}}
+}
+
+// TaskSay sends the founder's question about a task as a say, typed at once; within links it to the task in the transaction that writes it.
+func (e *Env) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*taskwrites.Asked, error) {
+	out, _, err := e.Say(tx, SayIn{Target: to, Body: body, Requester: db.Human, Notify: true,
+		Within: func(_ db.Q, note string, rid int64) error { return within(rid, note) }})
+	if err != nil {
+		return nil, err
+	}
+	return askedOf(out, true), nil
 }
 
 // HandoffRetire closes a request of the old owner's as resolve does for a handoff: done, the requester not told, the decision task it is the

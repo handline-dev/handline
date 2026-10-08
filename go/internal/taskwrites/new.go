@@ -121,9 +121,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if tell == nil {
-			return nil, fmt.Errorf("task.new needs the supervisor to route its ask")
-		}
 		if expects == "" {
 			expects = "report"
 			if owner == human { // a task of the founder's is a decision unless it says otherwise
@@ -158,6 +155,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			kind := "task"
 			if owner == human {
 				kind = ""
+			}
+			if tell == nil {
+				return nil, fmt.Errorf("task.new needs the supervisor to route its ask")
 			}
 			asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
 				var err error

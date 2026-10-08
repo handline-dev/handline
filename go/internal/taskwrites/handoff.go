@@ -88,9 +88,6 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			e.Data = map[string]any{"what": "agent", "name": to}
 			return nil, e
 		}
-		if tell == nil {
-			return nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")
-		}
 		me := c.Caller.Actor()
 		said := strings.TrimSpace(textsafe.Text(note))
 		var (
@@ -111,6 +108,9 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 				return nil, refusal(why)
 			}
 			h = Handover{Task: tid, By: me, From: t.Owner, To: to, Title: t.Title}
+			if tell == nil {
+				return nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")
+			}
 			asked, err = tell.TaskAsk(tx, AskReq{From: me, To: to, Kind: "task", Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, me, t.Title, said),
 				Within: func(rid int64) error {
 					h.RID = rid
