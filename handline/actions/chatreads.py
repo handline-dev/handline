@@ -109,14 +109,6 @@ def locate_message(con, mid: int, agent: str, everyone: bool) -> Located:
     return Located("chat", req, elsewhere[0], "mine" if founders else "all")
 
 
-def message_alone(con, mid: int) -> tuple[str, str] | None:
-    """A message by its number alone, when no chat shows it: (who to whom, its text), None when there is no such request."""
-    row = con.execute("SELECT requester, target, body FROM requests WHERE id = ?", (mid,)).fetchone()
-    if row is None:
-        return None
-    return f"#{mid}  {row['requester']} \u2192 {row['target']}", row["body"] or ""
-
-
 def page_back_to(con, agent: str, everyone: bool, want: int | None, limit: int = PAGE) -> tuple[list, bool]:
     """The newest page of a chat and, while `want` (a request number) is older than what it holds,
     the pages before it: the rows to draw with that request among them, and whether older ones remain."""

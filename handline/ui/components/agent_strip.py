@@ -7,8 +7,6 @@ from rich.text import Text
 from textual.widgets import Static
 
 from ...infra import textsafe
-from ...team import agents
-from ...usage import status
 from . import agent_rows
 
 BAR_CELLS = 8
@@ -25,21 +23,9 @@ class AgentInfo:
     cache_left_s: int | None = None      # seconds until the prompt cache lapses, negative once it has
 
 
-def read_info(con, agent: str, now: float | None = None) -> AgentInfo:
-    """The strip's figures: the usage snapshot of the agent's own session and the life left in its prompt
-    cache. Small reads only."""
-    now = time.time() if now is None else now
-    account = agents.current_account(agent, con)
-    info = AgentInfo(account=account, cache_left_s=agent_rows.cache_left(con, agent, int(now)))
-    if not account:
-        return info
-    st = status.read_for_agent(agent, account)
-    info.model, info.ctx_pct, info.ctx_used = st.model_id, st.trusted_ctx_pct, st.trusted_ctx_used
-    try:
-        info.ctx_limit = status.effective_context_limit(agents.read(agent), st.model_id)
-    except Exception:       # noqa: BLE001 - an unreadable config leaves the limit unknown
-        pass
-    return info
+def info_of(got: dict) -> AgentInfo:
+    """The strip's figures from `agent.strip`."""
+    return AgentInfo(**{k: got[k] for k in AgentInfo.__dataclass_fields__})
 
 
 def _tokens(n: int) -> str:
@@ -82,9 +68,9 @@ class AgentStrip(Static):
         self._read_at = 0.0
         self.set_interval(1, self._tick)
 
-    def show(self, con, agent: str) -> None:
+    def show(self, got: dict) -> None:
         self._read_at = time.time()
-        self._info = read_info(con, agent, self._read_at)
+        self._info = info_of(got)
         self.update(strip_text(self._info))
 
     def _tick(self) -> None:
