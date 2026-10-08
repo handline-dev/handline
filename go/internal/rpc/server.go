@@ -520,10 +520,16 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
+	caps := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}}
+	if c.srv.Relay != nil && c.srv.Relay.Capabilities != nil && c.device != "" {
+		for k, v := range c.srv.Relay.Capabilities(c.device, c.deviceName) {
+			caps[k] = v
+		}
+	}
 	return map[string]any{
 		"protocol": Protocol, "min_client": MinClient, "daemon": c.srv.Sha, "schema": c.srv.Schema,
 		"role": c.Caller.Role, "caller": c.Caller.Info,
-		"capabilities": map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}},
+		"capabilities": caps,
 		"transport":    c.srv.Transport,
 		"methods":      c.methodList(),
 	}, nil
