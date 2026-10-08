@@ -124,8 +124,26 @@ func TestAWakeHoldsItsSlotFromTheMomentItIsDecided(t *testing.T) {
 	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
-	if _, p, ok, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !ok || p["account"] != "acct" {
-		t.Fatalf("the slot is reserved on the account the launch lands on: %v %v", ok, p)
+	if _, p, ok, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !ok || p["account"] != "resume-acct" {
+		t.Fatalf("a resume reserves the account its session lives on: %v %v", ok, p)
+	}
+	db.SetTerminal(m.Q, "w", "t3", "/wt-w")
+	db.SetClosed(m.Q, "w", "sess-w")
+	db.AddEvent(m.Q, "w", "Stop")
+	if ok, said, err := m.WakeAgentLocked("w", WakeOpts{Force: true, Warm: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "w", "wake_reserved"); !ok || p["account"] != "resume-acct" {
+		t.Fatalf("a warm resume reserves the account its session lives on: %v %v", ok, p)
+	}
+	db.SetTerminal(m.Q, "f", "t4", "/wt-f")
+	db.SetClosed(m.Q, "f", "")
+	db.AddEvent(m.Q, "f", "Stop")
+	if ok, said, err := m.WakeAgentLocked("f", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "f", "wake_reserved"); !ok || p["account"] != "room-acct" {
+		t.Fatalf("a fresh start reserves where find_room points: %v %v", ok, p)
 	}
 	db.SetTerminal(m.Q, "b", "t2", "/wt-b")
 	db.SetClosed(m.Q, "b", "sess-b")

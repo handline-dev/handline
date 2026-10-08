@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/handline/handline/go/internal/states"
 	"math"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
