@@ -51,8 +51,12 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once.
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap shrunk by its weekly pace (none when it is ahead
+	// of its week).
 	CapOf(acct string) int
+	// Headroom is what the account's weekly bucket still holds as a share of the week's quota, ok false when the pace cannot be read. The
+	// larger, the slower-paced.
+	Headroom(acct string) (float64, bool)
 	// ActiveOn is how many agents are mid-turn on the account, agent itself left out (load.active_agents with exclude): one counted
 	// from its wake_reserved event until its Stop counts too. PickAccount and Fit leave agent out of the load the same way
 	// (load.read_all(exclude=agent)), so a placement is not refused for the slot the agent being placed holds.
@@ -221,7 +225,9 @@ type WakeWait struct {
 	Assumed bool
 	Window  string // the walled window's length as a person says it
 	IsLong  bool   // the longest window, not the shortest
-	// Full > 0: no wall, no slot - the account's cap. Busy is the others mid-turn on it, Older the closed agents the daemon wakes first.
+	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it is ahead of its week), Busy the others mid-turn on it,
+	// Older the closed agents the daemon wakes first.
+	Slot              bool
 	Full, Busy, Older int
 }
 
@@ -261,7 +267,31 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 	if others+older < cap {
 		return nil, nil
 	}
-	return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Full: cap, Busy: others, Older: older}, nil
+	return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Slot: true, Full: cap, Busy: others, Older: older}, nil
+}
+
+// SlowestPaced is the account a closed agent moves to when its own (skip) is full and its cache is cold: of the other accounts that may
+// start, take this vendor, fit, and have a free slot the way a resume's wait judges it (the others mid-turn plus the older closed agents
+// waiting there, so a move does not jump their queue), the one furthest behind its week. "" when none has room.
+func (l *Launcher) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string {
+	vendor := l.Ports.Vendors.AgentVendor(agent)
+	best, most := "", math.Inf(-1)
+	for _, a := range l.mayStartAccounts() {
+		if a == skip || l.Ports.Usage.NotFor(a, vendor) || !l.Ports.Usage.Fit(a, agent) {
+			continue
+		}
+		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+			continue
+		}
+		h, ok := l.Ports.Usage.Headroom(a)
+		if !ok {
+			h = 0 // a pace nobody can read is not evidence of room beyond the burst
+		}
+		if h > most {
+			best, most = a, h
+		}
+	}
+	return best
 }
 
 // FreesFirst is, for an agent no account has room for, the walled account whose wall lifts first; nil when none is walled.
@@ -350,7 +380,10 @@ func WaitClock(w *WakeWait, unknown string) string {
 
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
-	if w.Full > 0 {
+	if w.Slot && w.Full == 0 {
+		return fmt.Sprintf("waiting for %s: it is ahead of its week and takes no new agent", w.Account)
+	}
+	if w.Slot {
 		first := ""
 		if w.Older > 0 {
 			first = fmt.Sprintf(", %d older waiting go first", w.Older)

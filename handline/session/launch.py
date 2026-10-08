@@ -29,6 +29,7 @@ from dataclasses import dataclass
 
 from ..team import accounts, agents, trust
 from .. import db, vendors
+from ..vendors import opencode
 from ..infra import gitrun, names, paths, sessiontoken, textsafe
 from ..usage import status
 from . import events, triggers
@@ -529,6 +530,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
 
     env = accounts.env_for(acct, agent)
     env.update(drv.launch_env(preamble, DISALLOWED_TOOLS, paths.agent_dir(agent)))
+    if drv.name == "claude":
+        env.update(opencode.glm_env(vendors.config_dir(acct)))
     return argv, env
 
 

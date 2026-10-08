@@ -250,7 +250,7 @@ func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.St
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 	return []func(*rpc.Server){
 		func(s *rpc.Server) { adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home}) },
-		func(s *rpc.Server) { chatwrites.Register(s, d.env()) },
+		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.cfg.Teller) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },

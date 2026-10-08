@@ -1,7 +1,7 @@
 // Package usage is handline/usage's readers for what the accounts screens draw: config.yaml's per-account settings
 // (usage/load.py), a status file's windows (usage/windows.py, status.read) and the month cycle (usage/cycle.py).
-// Nothing here writes, and no credential is read: the one vendor file touched is claude's `.claude.json`, for the
-// subscription's start only, as the Python driver's profile() does.
+// The writers (burn.go, measure.go, tokenlog.go) are the tick's burn-rate, cold-start and token-log bookkeeping. No credential is read:
+// the one vendor file touched is claude's `.claude.json`, for the subscription's start only, as the Python driver's profile() does.
 package usage
 
 import (

@@ -539,6 +539,7 @@ def _end_session(con, agent: str, log, st, resume: str | None,
                            detail="session closed while idle")
     db.add_event(con, agent, "close", {"session": st.session_id,
                                        "ctx_pct": st.ctx_pct})
+    clear_dialog(con, agent, "its session was closed", log)
     log(f"  {agent}: session closed (resume {st.session_id or 'unknown'})")
     if pane_gone:
         log(f"  {agent}: its screen could not be read; terminal closed with the session")
@@ -1083,6 +1084,7 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         db.add_event(con, agent, "wake", {"resumed_session": session if resumed else None,
                                           **({"cache_expired": True} if cold else {})})
         db.set_handoff(con, agent, None)
+        clear_dialog(con, agent, "it was woken", log)
         log(f"  {agent}: relaunched with its wake prompt"
             f"{' (session resumed)' if resumed else ' (fresh - its prompt cache had expired)' if cold else ''}")
         return True, "relaunched with the wake prompt"
@@ -1310,6 +1312,17 @@ def _handle_startup_dialog(con, agent: str, handle: str, log) -> tuple[bool, str
     if autoaccept.enabled() and autoaccept.answer_by_rule(con, agent, handle, log):
         return True, "answered by a standing rule"
     return False, _raise_dialog_stall(con, agent, seen, log)
+
+
+def clear_dialog(con, agent: str, why: str, log) -> None:
+    """A close or a wake ends the session whose screen showed a dialog: its block, the decision that block raised, and a start-up dialog
+    stall with its decision all go."""
+    blocked.release(con, agent, why, log)
+    for rid in db.open_decision_ids(con, agent, DIALOG_DECISION):
+        askmod.resolve(rid, f"cleared - {why}", state="done", notify=False)
+    row = db.get_agent_state(con, agent)
+    if row and row["state"] == STALLED and DIALOG_STALL in (row["detail"] or ""):
+        db.set_agent_state(con, agent, IDLE, detail=f"{why}; the dialog stall is lifted")
 
 
 def _raise_dialog_stall(con, agent: str, seen, log) -> str:

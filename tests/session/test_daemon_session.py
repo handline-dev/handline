@@ -3690,6 +3690,61 @@ def test_a_resumed_agent_is_rescued_from_a_7d_wall_too(home: Path) -> None:
         con.close()
 
 
+def test_a_close_and_a_wake_each_clear_the_dialog_the_agent_was_stuck_at(home: Path) -> None:
+    """The founder's report: `hl ps` kept saying DIALOG, and its stall request stayed open, after the session had been closed and
+    woken. A close and a wake each end the session whose screen showed the dialog, so its block, the request that block raised and a
+    start-up dialog stall with its decision all go."""
+    _daemon_home(home, 20)
+    con = db.connect()
+    sent: list[str] = []
+    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send, termmod.available)
+
+    def stuck() -> tuple[int, int]:
+        """The state a dialog leaves: a block with the request it raised, and a start-up dialog stall with its decision."""
+        db.block_open(con, "backend", termmod.MODAL, "a dialog", "", int(time.time()), show_at=0, origin="close", title="Exit")
+        blocked_rid = askmod.raise_decision(con, "backend", "[blocked] backend cannot be given its work", "delivery blocked")
+        db.block_set_request(con, ["backend"], blocked_rid)
+        why = "backend's terminal is showing a start-up dialog no standing rule answers"
+        stall_rid = askmod.raise_decision(con, "backend", f"{dmn_lifecycle.DIALOG_DECISION} {why}", why)
+        db.set_agent_state(con, "backend", dmn_states.STALLED, wake_at=None, detail=why)
+        return blocked_rid, stall_rid
+
+    def cleared(label: str, rids: tuple[int, int]) -> None:
+        row = db.get_agent_state(con, "backend")
+        check(f"{label}: the block is gone, so hl ps no longer reads DIALOG", db.block_get(con, "backend") is None)
+        check(f"{label}: both requests it raised are closed",
+              all(db.get_request(con, r)["state"] != "queued" for r in rids), str([db.get_request(con, r)["state"] for r in rids]))
+        check(f"{label}: and the stall no longer holds the row", row["state"] != dmn_states.STALLED, str(dict(row)))
+
+    try:
+        orca_seen()
+        termmod.wait_idle = lambda h, timeout_ms=0: True
+        termmod.idle_now = lambda h: True
+        termmod.close_terminal = lambda h, tab=True: (False, "this test keeps the pane")
+        table = sessions_are("backend")
+        termmod.send = relaunching_send(sent, table)
+        db.set_terminal(con, "backend", "term_x", "wt")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
+        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
+            "account": "alpha", "collected_at": int(time.time()),
+            "session_id": "sess-4", "pct_5h": 20}))
+        rids = stuck()
+        ok, said = dmn_lifecycle.close_agent(con, "backend", lambda _m: None, status.read_for_agent("backend", "alpha"))
+        check("close: the session closes", ok, said)
+        cleared("close", rids)
+
+        rids = stuck()
+        db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
+        sent.clear()
+        ok, why = dmn_lifecycle._wake_agent(con, "backend", lambda _m: None)
+        check("wake: the session comes back", ok, why)
+        cleared("wake", rids)
+    finally:
+        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send, termmod.available) = real
+        con.close()
+
+
 def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agents(home: Path) -> None:
     """The founder's report: "Login expired · Please run /login" left the agent
     RUNNING for good, and the bridge still showed the account as logged in, so it never
@@ -5727,6 +5782,7 @@ def main() -> int:
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_a_resumed_agent_is_rescued_from_a_7d_wall_too(Path(td) / 'walled7drescue'))
+        run(lambda: test_a_close_and_a_wake_each_clear_the_dialog_the_agent_was_stuck_at(Path(td) / 'dialogcleared'))
         run(lambda: test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agents(Path(td) / 'loginexpired'))
         run(lambda: test_the_claude_driver_reads_when_a_keychain_credential_changed(Path(td) / 'mdat'))
         run(lambda: test_a_park_that_cannot_be_woken_keeps_its_deadline(Path(td) / 'parkdue'))

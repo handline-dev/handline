@@ -275,7 +275,7 @@ func (w *writes) inboxAnswer(c *rpc.Conn, p map[string]any) (any, error) {
 		if !in {
 			return nil, nil, noItem(rid)
 		}
-		res, err := AnswerWrite(w.e, tx, rid, body, nil)
+		res, err := AnswerWrite(w.e, w.tell, tx, rid, body, nil)
 		return res, nil, err
 	})
 }

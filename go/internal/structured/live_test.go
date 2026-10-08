@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -45,7 +46,10 @@ func TestLiveCLI(t *testing.T) {
 		},
 		OnExit: func(err error) { t.Logf("exit: %v", err) },
 	}
-	l := Launch{Path: path, Cwd: t.TempDir(), ConfigDir: cfg, SessionID: uuidFor(time.Now().String())}
+	// The account's allow list (Bash(ls:*) on one account) would answer a prompt before can_use_tool fires, so the check does not
+	// depend on it twice over: only the project settings are read (an empty temp dir), and the command has a name nothing allows.
+	cwd := t.TempDir()
+	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: uuidFor(time.Now().String()), Args: []string{"--setting-sources", "project"}}
 	s, err := Open(context.Background(), l, h, 60*time.Second)
 	if err != nil {
 		t.Fatalf("open: %v", err)
@@ -65,7 +69,8 @@ func TestLiveCLI(t *testing.T) {
 	}
 	waitIdle()
 	t.Logf("state after turn 1: %q", s.State())
-	s.Send("live-2", "Run the shell command `ls` with the Bash tool and tell me the first entry.", Now)
+	marker := filepath.Join(cwd, "live-check-"+uuidFor(time.Now().String())[:8])
+	s.Send("live-2", "Run the shell command `touch "+marker+"` with the Bash tool and tell me when it is done.", Now)
 	select {
 	case r := <-asked:
 		t.Logf("permission asked: %+v (state %q)", r, s.State())
@@ -74,4 +79,49 @@ func TestLiveCLI(t *testing.T) {
 	}
 	waitIdle()
 	t.Logf("state at the end: %q; frames %d", s.State(), len(frames))
+}
+
+// TestLiveGetUsage asks a real CLI for an account's usage with the get_usage control request: no model turn, no session spoken in. It
+// is the live check for the usage port. LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveGetUsage -v ./internal/structured
+func TestLiveGetUsage(t *testing.T) {
+	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
+	if cfg == "" {
+		t.Skip("LIVE_CLAUDE_CONFIG is not set")
+	}
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(context.Background(), Launch{Path: path, Cwd: t.TempDir(), ConfigDir: cfg}, Handlers{
+		OnEvent: func(m map[string]any) {
+			if m["type"] == "rate_limit_event" {
+				b, _ := json.Marshal(m)
+				t.Logf("rate_limit_event %s", b)
+			}
+		}}, 60*time.Second)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	r, err := s.GetUsage(c)
+	if err != nil {
+		t.Fatalf("get_usage: %v", err)
+	}
+	b, _ := json.MarshalIndent(r, "", " ")
+	t.Logf("get_usage answered:\n%s", b)
+	if avail, _ := r["rate_limits_available"].(bool); !avail {
+		t.Error("rate_limits_available is false: the plan limits did not come back")
+	}
+	limits, _ := r["rate_limits"].(map[string]any)
+	for _, w := range []string{"five_hour", "seven_day"} {
+		if m, _ := limits[w].(map[string]any); m == nil || m["utilization"] == nil || m["resets_at"] == nil {
+			t.Errorf("%s has no utilization and reset: %v", w, limits[w])
+		}
+	}
+	// A second ask must not take a turn or fail: the poll asks once per account per cycle.
+	if _, err := s.GetUsage(c); err != nil {
+		t.Errorf("second get_usage: %v", err)
+	}
 }

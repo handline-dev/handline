@@ -906,6 +906,32 @@ def test_a_launch_does_not_inherit_an_opencode_sessions_config(home: Path) -> No
                 os.environ[k] = v
 
 
+def test_a_claude_account_with_a_coding_plan_key_launches_on_glm(home: Path) -> None:
+    """Temporary, by the founder's word: the key in a claude account's opencode/auth.json reaches the env of
+    the agent launched on it, with z.ai's base url, and no other account's launch."""
+    use_home(home)
+    accounts.register("alpha")
+    accounts.register("beta")
+    agents.register("backend")
+    for a in ("alpha", "beta"):
+        (vendors.config_dir(a) / ".credentials.json").write_text("{}")
+    (vendors.config_dir("alpha") / "opencode").mkdir()
+    (vendors.config_dir("alpha") / "opencode" / "auth.json").write_text('{"zai-coding-plan": {"key": "fake-key"}}')
+    cdrv = vendors.get("claude")
+    cdrv.binary = lambda: "/x/bin/claude"
+    try:
+        env = launch.build("backend", account="alpha")[1]
+        check("launch: a claude account with a coding-plan key runs on z.ai with it",
+              (env.get("ANTHROPIC_BASE_URL"), env.get("ANTHROPIC_AUTH_TOKEN")) == ("https://api.z.ai/api/anthropic", "fake-key"))
+        env = launch.build("backend", account="beta")[1]
+        check("launch: one without it gets neither variable",
+              "ANTHROPIC_BASE_URL" not in env and "ANTHROPIC_AUTH_TOKEN" not in env)
+        check("launch: the key is in no other env built for the account",
+              "fake-key" not in accounts.env_for("alpha", "backend").values())
+    finally:
+        del cdrv.binary
+
+
 def test_launch_refuses_stale(home: Path) -> None:
     use_home(home)
     bindir = home / "stub"
@@ -2510,6 +2536,7 @@ def main() -> int:
         run(lambda: test_a_session_may_not_write_the_roster_files(Path(td) / 'rosterdeny'))
         run(lambda: test_launch_hides_the_hook_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
+        run(lambda: test_a_claude_account_with_a_coding_plan_key_launches_on_glm(Path(td) / 'glmkey'))
         run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))
         run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
         run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))

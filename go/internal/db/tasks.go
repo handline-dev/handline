@@ -408,3 +408,25 @@ func SyncSelfBlocks(q Q, tid int64, oldOwner string) ([][2]int64, error) {
 	}
 	return went, nil
 }
+
+// TasksToClock is db.tasks_to_clock: every open task, since whether it is doing is not a column.
+func TasksToClock(q Q) ([]*Task, error) {
+	return taskRows(q, "SELECT "+taskCols+" FROM tasks WHERE done_evidence IS NULL AND discarded_by IS NULL ORDER BY id")
+}
+
+// AdvanceTaskTimeout is db.advance_task_timeout: starts or re-arms a task's clock, timeout_s from now, defaultS for a task never given one.
+func AdvanceTaskTimeout(q Q, tid, now, defaultS int64) error {
+	_, err := q.Exec("UPDATE tasks SET timeout_s = COALESCE(timeout_s, ?), timeout_at = ? + COALESCE(timeout_s, ?) WHERE id = ?", defaultS, now, defaultS, tid)
+	return err
+}
+
+// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing.
+func PauseTaskTimeout(q Q, tid int64) error {
+	_, err := q.Exec("UPDATE tasks SET timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", tid)
+	return err
+}
+
+// AllTasks is db.all_tasks.
+func AllTasks(q Q) ([]*Task, error) {
+	return taskRows(q, "SELECT "+taskCols+" FROM tasks ORDER BY priority, id")
+}

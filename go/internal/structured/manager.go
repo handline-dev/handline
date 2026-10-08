@@ -184,6 +184,24 @@ func (m *Manager) Send(agent, op, text string, d Delivery) (Receipt, error) {
 	return s.Send(op, text, d)
 }
 
+// Withdraw takes back a held message of agent's session (chat.cancel of a queued message).
+func (m *Manager) Withdraw(agent, op string) (Receipt, bool, error) {
+	s := m.Get(agent)
+	if s == nil {
+		return Receipt{}, false, errors.New(agent + " has no structured session")
+	}
+	return s.Withdraw(op)
+}
+
+// Promote writes a held message of agent's session now (chat.send_now of a queued message).
+func (m *Manager) Promote(agent, op string) (Receipt, error) {
+	s := m.Get(agent)
+	if s == nil {
+		return Receipt{}, errors.New(agent + " has no structured session")
+	}
+	return s.Promote(op)
+}
+
 // Answer answers agent's waiting permission prompt (prompt.answer for a structured agent).
 func (m *Manager) Answer(agent, prompt string, allow bool, message, by string) error {
 	if m.Broker == nil {
@@ -198,4 +216,32 @@ func (m *Manager) RetryingSince(agent string) int64 {
 		return s.RetryingSince()
 	}
 	return 0
+}
+
+// Interrupt stops the running turn of agent's session.
+func (m *Manager) Interrupt(agent string) error {
+	s := m.Get(agent)
+	if s == nil {
+		return errors.New(agent + " has no structured session")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return s.Interrupt(ctx)
+}
+
+// Kill ends agent's process group at once and forgets the session when the group is gone.
+func (m *Manager) Kill(agent string) error {
+	s := m.Get(agent)
+	if s == nil {
+		return errors.New(agent + " has no structured session")
+	}
+	if err := s.Kill(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if m.sessions[agent] == s {
+		delete(m.sessions, agent)
+	}
+	m.mu.Unlock()
+	return nil
 }

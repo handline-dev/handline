@@ -384,9 +384,18 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// rather than losing its conversation - a fresh start elsewhere comes back with only the handoff.
 	session := row.ResumeSession.String
 	wait := m.Launch.WakeWait(m.Q, agent, row)
-	if wait != nil && wait.Full > 0 {
-		// No wall, no slot: a resume is not moved to another account for that, it waits for one here.
-		return false, m.Launch.DescribeWakeWait(wait)
+	if wait != nil && wait.Slot {
+		// No wall, no slot. While the prompt cache is warm a resume is free, so it waits for a slot here; once the cache is cold a fresh
+		// start costs only the handoff, so it moves to the account furthest behind its week. With nowhere to go it waits.
+		cold := movedTo == "" && !warm && session != "" && m.cacheExpiredAt(agent, session, m.now())
+		to := ""
+		if cold {
+			to = m.Launch.SlowestPaced(m.Q, agent, row, wait.Account)
+		}
+		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full and its cache is cold", wait.Account)) {
+			return false, m.Launch.DescribeWakeWait(wait)
+		}
+		session, movedTo, wait = "", to, nil
 	}
 	if wait != nil {
 		// The resume account is at the wall. If another account has room, start fresh there: a resume id cannot follow an account change.
@@ -403,25 +412,9 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 			elsewhere, planWhy = m.Handoff.MovePlan(m.Q, agent, kind)
 		}
 		if elsewhere != "" {
-			hid := newHandoffID()
-			check(db.StartHandoff(m.Q, hid, agent, session, "pinned", m.now()+states.HandoffDeadlineS))
-			var missing []string
-			if must(db.GetHandoff(m.Q, agent)) == "" {
-				missing = must(m.Handoff.Record(m.Q, agent, ""))
-			}
-			if len(missing) == 0 {
-				check(db.AdvanceHandoff(m.Q, hid, "released", "done", ""))
-				check(db.ResetCounter(m.Q, agent, "throttle_count"))
-				check(db.SetClosed(m.Q, agent, ""))
-				must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: acct}, db.KV{K: "to", V: elsewhere}, db.KV{K: "trigger", V: "pinned"}))
-				m.Log("  %s: pinned to %s at %d%% (%s) - starting fresh on %s", agent, acct, pct, wait.Window, elsewhere)
+			why := fmt.Sprintf("pinned to %s at %d%% (%s)", acct, pct, wait.Window)
+			if m.startFreshElsewhere(agent, session, acct, elsewhere, why) {
 				session, movedTo, rescued = "", elsewhere, true
-				m.Agents.MeasureBegin(m.Q, agent, elsewhere)
-			} else {
-				why := "could not read " + strings.Join(missing, ", ")
-				check(db.AdvanceHandoff(m.Q, hid, "released", "degraded", clip300(why)))
-				check(db.BumpCounter(m.Q, agent, "throttle_count", 1))
-				m.Log("  %s: handoff degraded (%s); keeping the resume id", agent, why)
 			}
 		}
 		if !rescued {
@@ -439,6 +432,32 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		return m.launchStructured(agent, row, wt, session, c)
 	}
 	return m.launchClosed(agent, row, wt, session, c)
+}
+
+// startFreshElsewhere moves a closed agent off the account its session is tied to: the handoff the close took is the record, the closed mark
+// goes, and the wake that follows starts fresh on `to`. why is what the log says the agent was stuck on. False when the handoff could not be
+// read whole: the session is the only complete copy of the context, so the resume id stays and the wake goes on waiting.
+func (m *Manager) startFreshElsewhere(agent, session, from, to, why string) bool {
+	hid := newHandoffID()
+	check(db.StartHandoff(m.Q, hid, agent, session, "pinned", m.now()+states.HandoffDeadlineS))
+	var missing []string
+	if must(db.GetHandoff(m.Q, agent)) == "" {
+		missing = must(m.Handoff.Record(m.Q, agent, ""))
+	}
+	if len(missing) > 0 {
+		gap := "could not read " + strings.Join(missing, ", ")
+		check(db.AdvanceHandoff(m.Q, hid, "released", "degraded", clip300(gap)))
+		check(db.BumpCounter(m.Q, agent, "throttle_count", 1))
+		m.Log("  %s: handoff degraded (%s); keeping the resume id", agent, gap)
+		return false
+	}
+	check(db.AdvanceHandoff(m.Q, hid, "released", "done", ""))
+	check(db.ResetCounter(m.Q, agent, "throttle_count"))
+	check(db.SetClosed(m.Q, agent, ""))
+	must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: from}, db.KV{K: "to", V: to}, db.KV{K: "trigger", V: "pinned"}))
+	m.Log("  %s: %s - starting fresh on %s", agent, why, to)
+	m.Agents.MeasureBegin(m.Q, agent, to)
+	return true
 }
 
 func clip300(s string) string {

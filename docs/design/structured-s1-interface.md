@@ -35,4 +35,16 @@ Run from the sandbox with `LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v 
 - `Manager.Start` reserves the agent's slot first, so two Starts for one agent run one CLI; an exited session is closed (group proven gone) before it is replaced.
 - The send path (S4) can read `Receipt.State` from the session and drop a second ledger under the same key.
 
+## The account allow list and the Policy
+
+On the real CLI an allow rule in the account's `settings.json` (`Bash(ls:*)` on one account) accepted a tool call before `can_use_tool` fired, so the Broker never saw it and the Policy never ran. The CLI checks its own rules first; `can_use_tool` only sees what they leave open.
+
+Answer: the daemon must not let user or local settings decide. Launch the CLI with `--setting-sources project` (the agent's checkout may still carry a project file, which is the repo's own and visible to review), or `--setting-sources ""` if the project file should also go. The login is not in `settings.json`, so the account still authenticates. This is set through `Launch.Args` by the composition root, not by default in `Launch.args()`, until the live rerun shows the flag takes effect with `can_use_tool` firing for a command no one allows; `TestLiveCLI` now passes it and uses `touch` of a fresh file, so its result settles that.
+
 Follow-up (lost echo): when a message is given up as unknown (no acknowledgement by `EchoDeadline`, or cancelled) and no turn is running, the held queue goes on. **straight:** a repair of S1's own state handling; nothing legacy is carried.
+
+## Withdraw and Promote (held messages)
+
+`Withdraw(op)` takes back a message still held behind a turn; `Promote(op)` writes a held message now with priority `now`. Both are under the same lock as the queue release, so a message is withdrawn or written, never both, and a started write is never withdrawn. A message not held (written, settled, withdrawn) gets its recorded receipt back and nothing is written; `Withdraw` then says not-withdrawn, except on a repeat of a withdrawn op, which says ok. `Withdrawn` is a recorded state: after a restart it stays withdrawn and a `Send` retried with that op id gets it back. `Manager.Withdraw` and `Manager.Promote` delegate by agent.
+
+**drops:** nothing. **straight:** new queue operations on S1's own state; no legacy path is carried.

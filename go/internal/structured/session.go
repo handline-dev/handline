@@ -44,6 +44,8 @@ const (
 	// Unknown: the message was written, and the daemon or the CLI died before the echo. The CLI may or may not have run it, so it is
 	// never written again; the sender is told.
 	Unknown State = "unknown"
+	// Withdrawn: the message was held and its sender took it back before any write began. It is never written.
+	Withdrawn State = "withdrawn"
 )
 
 // Receipt is the recorded answer of one operation; a retry with the same operation id gets it back and writes nothing.
@@ -324,6 +326,89 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 	return Receipt{e.op, e.uuid, Sent}, nil
 }
 
+// heldEntry is the held message for op and its place in the queue, with s.mu held. Missing is a message that is not held: written,
+// settled, withdrawn, or never sent.
+func (s *Session) heldEntry(op string) (*entry, int) {
+	for i, e := range s.held {
+		if e.op == op {
+			return e, i
+		}
+	}
+	return nil, -1
+}
+
+// recorded is the receipt of an operation that is not held, from memory or the ledger, with s.mu held.
+func (s *Session) recorded(op string) (Receipt, error) {
+	if e, ok := s.ledger[op]; ok {
+		return Receipt{e.op, e.uuid, e.state}, nil
+	}
+	prior, err := s.led.Get(op)
+	if err != nil {
+		return Receipt{}, err
+	}
+	if prior == nil {
+		return Receipt{}, errors.New("no such operation")
+	}
+	return Receipt{prior.ID, prior.UUID, prior.State}, nil
+}
+
+// Withdraw takes back a message that is still held behind a turn. It is atomic with the release of the queue: a message is withdrawn
+// or written, never both, and one whose write has started is not withdrawn. ok is whether it was withdrawn (also true on a repeat);
+// when it is not, the receipt is the message's recorded state. The withdrawn state is recorded, so it stays withdrawn after a restart
+// and a Send retried with the same operation id gets that back and writes nothing.
+func (s *Session) Withdraw(op string) (r Receipt, ok bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, i := s.heldEntry(op)
+	if e == nil {
+		r, err = s.recorded(op)
+		return r, r.State == Withdrawn, err
+	}
+	e.state = Withdrawn
+	if err := s.led.Put(e.record()); err != nil {
+		e.state = Queued
+		return Receipt{e.op, e.uuid, Queued}, false, err
+	}
+	s.held = append(s.held[:i], s.held[i+1:]...)
+	close(e.settled)
+	return Receipt{e.op, e.uuid, Withdrawn}, true, nil
+}
+
+// Promote writes a held message now with priority "now", as Send with Now would. A message that is not held (written, settled,
+// withdrawn) is answered with its recorded receipt and nothing is written. If the write fails the message is Unknown, as in Send.
+func (s *Session) Promote(op string) (Receipt, error) {
+	s.mu.Lock()
+	e, i := s.heldEntry(op)
+	if e == nil {
+		defer s.mu.Unlock()
+		return s.recorded(op)
+	}
+	if s.closed {
+		s.mu.Unlock()
+		return Receipt{}, errors.New("session closed")
+	}
+	wasBusy := s.busy
+	s.markWritten(e)
+	if err := s.led.Put(e.record()); err != nil {
+		e.timer.Stop()
+		e.state = Queued
+		s.echoing--
+		s.busy = wasBusy
+		s.mu.Unlock()
+		return Receipt{}, err
+	}
+	s.held = append(s.held[:i], s.held[i+1:]...)
+	s.mu.Unlock()
+	if err := s.writeUser(e, Now); err != nil {
+		s.unknown(e)
+		s.mu.Lock()
+		s.busy = wasBusy
+		s.mu.Unlock()
+		return Receipt{}, err
+	}
+	return Receipt{e.op, e.uuid, Sent}, nil
+}
+
 func (e *entry) record() Op {
 	return Op{ID: e.op, UUID: e.uuid, Text: e.text, Delivery: e.delivery, State: e.state}
 }
@@ -421,6 +506,9 @@ func (s *Session) WaitConfirmed(ctx context.Context, op string) error {
 	case <-e.settled:
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if e.state == Withdrawn {
+			return errors.New("the message was withdrawn")
+		}
 		if e.state != Confirmed {
 			return errors.New("the message is unknown: the CLI never acknowledged it")
 		}
@@ -729,4 +817,13 @@ func (s *Session) RetryingSince() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.retrying
+}
+
+// Kill ends the CLI's process group at once, without the grace Close gives, and returns once the group is gone.
+func (s *Session) Kill() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	<-s.done
+	return proveGone(s.cmd.Process.Pid)
 }
