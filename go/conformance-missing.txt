@@ -11,9 +11,6 @@ hr.decide
 inbox.answer
 inbox.mark_read
 inbox.reply
-input.ask
-input.release
-input.take
 schedule.add
 schedule.edit
 schedule.remove
@@ -31,12 +28,7 @@ settings.trust
 task.cancel
 task.edit
 task.new
-terminal.attach
 terminal.close
-terminal.detach
-terminal.history
-terminal.input
-terminal.resize
 worktree.set_status
 chat.refs
 chat.send

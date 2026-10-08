@@ -23,6 +23,7 @@ import (
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
+	"github.com/handline/handline/go/internal/termchan"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -69,6 +70,7 @@ type Daemon struct {
 	db      *sql.DB
 	hooks   *hooks.Recorder
 	prompts *prompts.Env  // nil on a gateway: the Python daemon alone presses keys
+	tchan   *termchan.Env // the terminal channel and the input hold; nil on a gateway
 	single  *lock.Hold    // the daemon singleton, held while this daemon watches screens
 	stop    chan struct{} // closed by Close: the spool loop ends
 	started time.Time
@@ -118,6 +120,12 @@ func Start(cfg Config) (*Daemon, error) {
 		if cfg.Terminal != nil {
 			d.prompts.Term = term.New(cfg.Terminal, nil)
 		}
+		d.tchan = termchan.New(db, cfg.Home, func() term.Backend {
+			if cfg.Terminal != nil {
+				return cfg.Terminal
+			}
+			return term.Current(cfg.Home)
+		})
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	}
 	if cfg.Gateway {
@@ -185,6 +193,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		d.hooks.Register(s)
 		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
 		prompts.Register(s, d.prompts)
+		termchan.Register(s, d.tchan)
 	}
 	if transport == "network" {
 		s.Net = d.dev
