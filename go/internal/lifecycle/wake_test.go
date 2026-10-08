@@ -161,13 +161,13 @@ type fullLaunch struct{ fakeLaunch }
 func (fullLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
 	return &WakeWait{Account: "a", Window: "slot", Slot: true, Full: 2, Busy: 2}
 }
-func (fullLaunch) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
-func (fullLaunch) SlowestPaced(string) string          { return "" }
+func (fullLaunch) DescribeWakeWait(w *WakeWait) string                      { return DescribeWakeWait(w) }
+func (fullLaunch) SlowestPaced(db.Q, string, *db.AgentState, string) string { return "" }
 
 // slowLaunch has a slower-paced account with room.
 type slowLaunch struct{ fullLaunch }
 
-func (slowLaunch) SlowestPaced(string) string { return "slow" }
+func (slowLaunch) SlowestPaced(db.Q, string, *db.AgentState, string) string { return "slow" }
 
 func TestAResumeOntoAFullAccountWaitsAndHoldsNothing(t *testing.T) {
 	m, d, tm := newManager(t)
@@ -227,5 +227,19 @@ func TestAColdResumeWithNowhereToGoWaitsForItsSlot(t *testing.T) {
 	db.SetClosed(m.Q, "a", "sess-1")
 	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" {
 		t.Fatalf("%v %q %v", ok, said, err)
+	}
+}
+
+func TestAColdResumeWhoseOwnAccountIsFullOnlyByOlderWaitersDoesNotMoveToItself(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = fullLaunch{} // the account is full, and no other account has a free slot
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, _, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || ok {
+		t.Fatalf("it waits: %v %v", ok, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
+		t.Fatalf("and is not moved, least of all to the account it is on: %v", p)
 	}
 }

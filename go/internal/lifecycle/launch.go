@@ -270,13 +270,17 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 	return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Slot: true, Full: cap, Busy: others, Older: older}, nil
 }
 
-// SlowestPaced is the account a closed agent moves to when its own is full and its cache is cold: of the accounts with room and nothing
-// against them, the one furthest behind its week. "" when none has room.
-func (l *Launcher) SlowestPaced(agent string) string {
+// SlowestPaced is the account a closed agent moves to when its own (skip) is full and its cache is cold: of the other accounts that may
+// start, take this vendor, fit, and have a free slot the way a resume's wait judges it (the others mid-turn plus the older closed agents
+// waiting there, so a move does not jump their queue), the one furthest behind its week. "" when none has room.
+func (l *Launcher) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string {
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
 	for _, a := range l.mayStartAccounts() {
-		if l.Ports.Usage.NotFor(a, vendor) || !l.Ports.Usage.Fit(a, agent) {
+		if a == skip || l.Ports.Usage.NotFor(a, vendor) || !l.Ports.Usage.Fit(a, agent) {
+			continue
+		}
+		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
 			continue
 		}
 		h, ok := l.Ports.Usage.Headroom(a)

@@ -9,6 +9,7 @@ const (
 	PaceBurst = 0.10 // the share of the week's quota that may be spent ahead of the clock
 )
 
+// An account may run ahead of the clock by up to the burst and still take an agent: it is ahead of its week only once the burst is spent.
 // Headroom is the tokens in the account's bucket, as a share of the week's quota: how far the week has run, plus the burst, less what is
 // spent. Positive is room; zero or less is ahead of the week. ok is false when the weekly figure cannot be acted on (unread, stale beyond
 // carrying, or its window already rolled over), in which case the pace says nothing and the plain cap stands.

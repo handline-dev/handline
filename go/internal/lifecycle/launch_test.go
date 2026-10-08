@@ -467,18 +467,41 @@ func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t
 	}
 }
 
-func TestAColdWakeMovesToTheSlowestPacedAccountWithRoom(t *testing.T) {
+func TestAColdWakeMovesToTheSlowestPacedAccountWithRoomNotItsOwnNorOneWithOlderWaiters(t *testing.T) {
 	r := newLaunchRig(t)
 	pct := 10
 	ok := AccountStatus{Exists: true, ShortTrusted: &pct}
 	hot := AccountStatus{Exists: true, ShortTrusted: func() *int { n := 99; return &n }()}
 	r.l.Ports.Accounts = fakeAccounts{true}
-	r.l.Ports.Usage = fakeUsage{st: ok, by: map[string]AccountStatus{"walled": hot}, head: map[string]float64{"ahead": 0.02, "behind": 0.6, "slow": 0.9, "walled": 0.95}}
-	home := r.l.Home
-	for _, a := range []string{"ahead", "behind", "slow", "walled"} {
+	r.l.Ports.CurrentAccount = func(_ db.Q, agent string) string {
+		if agent == "waiting-on-b" {
+			return "b"
+		}
+		return "a"
+	}
+	r.l.Ports.WaitingFor = func(db.Q, string) bool { return true }
+	r.l.Ports.Usage = fakeUsage{st: ok, cap: 1, by: map[string]AccountStatus{"walled": hot},
+		head: map[string]float64{"a": 0.99, "b": 0.9, "c": 0.5, "ahead": 0.02, "walled": 0.95}}
+	home, q := r.l.Home, r.l.Q
+	for _, a := range []string{"a", "b", "c", "ahead", "walled"} {
 		os.MkdirAll(filepath.Join(paths.AccountsDir(home), a), 0o755)
 	}
-	if got := r.l.SlowestPaced("ann"); got != "slow" {
-		t.Fatalf("the account furthest behind its week among those that fit: %q", got)
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	db.SetAgentState(q, "waiting-on-b", states.Idle, 0, "")
+	db.SetClosed(q, "waiting-on-b", "s-b")
+	q.Exec("UPDATE agent_state SET closed_at = 10 WHERE agent = 'ann'")
+	q.Exec("UPDATE agent_state SET closed_at = 1 WHERE agent = 'waiting-on-b'")
+	row, _ := db.GetAgentState(q, "ann")
+	// "a" has the most headroom but is ann's own, "b" the next but an older closed agent is waiting for its one slot, "walled" does not fit.
+	if got := r.l.SlowestPaced(q, "ann", row, "a"); got != "c" {
+		t.Fatalf("the furthest behind among the other accounts with a free slot: %q", got)
+	}
+	r.l.Ports.Usage = fakeUsage{st: ok, cap: 1, by: map[string]AccountStatus{"walled": hot}, head: map[string]float64{"a": 0.99, "b": 0.9}}
+	for _, a := range []string{"c", "ahead", "walled"} {
+		os.RemoveAll(filepath.Join(paths.AccountsDir(home), a))
+	}
+	if got := r.l.SlowestPaced(q, "ann", row, "a"); got != "" {
+		t.Fatalf("an account an older waiter holds the slot of is not room, and the agent's own is left out: %q", got)
 	}
 }

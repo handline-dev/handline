@@ -390,7 +390,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		cold := movedTo == "" && !warm && session != "" && m.cacheExpiredAt(agent, session, m.now())
 		to := ""
 		if cold {
-			to = m.Launch.SlowestPaced(agent)
+			to = m.Launch.SlowestPaced(m.Q, agent, row, wait.Account)
 		}
 		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full and its cache is cold", wait.Account)) {
 			return false, m.Launch.DescribeWakeWait(wait)
