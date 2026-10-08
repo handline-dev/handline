@@ -38,14 +38,8 @@ terminal.history
 terminal.input
 terminal.resize
 worktree.set_status
-chat.refs
-chat.send
-chat.answer
-chat.dismiss
-chat.withdraw
 task.done
 task.release
-chat.send_now
 stats.outlook
 answer.add
 answer.remove
@@ -59,6 +53,4 @@ push.answer
 push.cancelled
 settings.get
 task.ask
-chat.cancel
-chat.seen
 progress.get

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/chatwrites"
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/lock"
@@ -21,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/version"
@@ -61,6 +63,10 @@ type Config struct {
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
 	// layer. Nil tells nothing.
 	Teller taskwrites.Teller
+
+	// Env is the telling layer the chat, mailbox and say writes run on (supervisor.Env). Nil is an Env of this database and home alone: its
+	// writes are made, and what needs a port that has not landed is left to the tick.
+	Env *supervisor.Env
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -176,6 +182,14 @@ func Start(cfg Config) (*Daemon, error) {
 	return d, nil
 }
 
+// env is the telling layer the writes run on.
+func (d *Daemon) env() *supervisor.Env {
+	if d.cfg.Env != nil {
+		return d.cfg.Env
+	}
+	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log}
+}
+
 // newServer is a connection server on one transport, with the methods this daemon serves.
 func (d *Daemon) newServer(transport string) *rpc.Server {
 	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
@@ -184,6 +198,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.hooks != nil {
 		d.hooks.Register(s)
 		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
+		chatwrites.Register(s, d.env())
 		prompts.Register(s, d.prompts)
 	}
 	if transport == "network" {
