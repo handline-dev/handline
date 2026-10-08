@@ -117,27 +117,12 @@ func pyNullNone(ns sql.NullString) string {
 // HeadTaskBlocked is delivery.head_task_blocked: is the head's own task on record as waited on, blocked by another open task or
 // held up on an ask the agent itself sent that is linked to the same task. A head with no task is never this.
 func (e *Env) headTaskBlocked(q db.Q, agent string, head *db.Request) bool {
-	for _, t := range must(db.TasksForRequest(q, head.ID)) {
-		if len(must(db.TaskBlockers(q, t.ID))) > 0 {
-			return true
-		}
-		for _, r := range must(db.TaskRequests(q, t.ID)) {
-			if r.Requester == agent && r.ID != head.ID && r.State == "queued" {
-				return true
-			}
-		}
-	}
-	return false
+	return must(db.HeadTaskBlocked(q, agent, head))
 }
 
-// EffectiveHead is db.head_of_queue unless it is blocked on record: then the next request behind it, so the one-at-a-time rule
-// falls on whatever the agent can actually act on. Only one level.
+// EffectiveHead is db.EffectiveHead: db.head_of_queue unless it is blocked on record, then the next request behind it.
 func (e *Env) effectiveHead(q db.Q, agent string) *db.Request {
-	head := must(db.HeadOfQueue(q, agent, 0))
-	if head != nil && e.headTaskBlocked(q, agent, head) {
-		return must(db.HeadOfQueue(q, agent, head.ID))
-	}
-	return head
+	return must(db.EffectiveHead(q, agent))
 }
 
 // EffectiveHeadOrMarked is EffectiveHead, or with none the oldest send_now_pending row (a say is never a head, but is still the one thing waiting).

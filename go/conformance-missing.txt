@@ -48,7 +48,6 @@ answer.add
 answer.remove
 task.begin
 task.handoff
-task.progress
 say
 ask
 push
@@ -58,4 +57,3 @@ settings.get
 task.ask
 chat.cancel
 chat.seen
-progress.get
