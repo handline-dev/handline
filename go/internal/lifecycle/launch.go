@@ -493,16 +493,19 @@ func (l *Launcher) ExtraWorktreesOf(agent string, cfg team.Config) ([]string, er
 }
 
 // worktreesLine says which of the agent's worktrees is which, when it has more than one.
-func (l *Launcher) worktreesLine(agent string) string {
+func (l *Launcher) worktreesLine(agent string) (string, error) {
 	cfg, err := l.Roster.Read(agent)
 	if err != nil {
-		return "" // a config that cannot be read says nothing here
+		return "", nil // a config that cannot be read says nothing here
 	}
 	extra, err := l.ExtraWorktreesOf(agent, cfg)
 	if err != nil || len(extra) == 0 {
-		return ""
+		return "", nil
 	}
-	row, _ := db.GetAgentState(l.Q, agent)
+	row, err := db.GetAgentState(l.Q, agent)
+	if err != nil {
+		return "", err
+	}
 	first := ""
 	if row != nil {
 		first = row.Worktree.String
@@ -515,19 +518,23 @@ func (l *Launcher) worktreesLine(agent string) string {
 		verb = "is"
 	}
 	return fmt.Sprintf("You have %d worktrees of this repo, all yours: %s (where you were started) is for probes and checking out other shas; %s %s for suite runs, so a long run there is not disturbed when you check out something else in the first. Stay inside these.",
-		len(extra)+1, first, strings.Join(extra, ", "), verb)
+		len(extra)+1, first, strings.Join(extra, ", "), verb), nil
 }
 
 // staticPreamble is the part of ContextFor that a rebuild reproduces byte for byte: everything except the handoff, which is supposed to
 // differ every time this agent is parked; Fingerprint hashes only this part.
-func (l *Launcher) staticPreamble(agent string) string {
+func (l *Launcher) staticPreamble(agent string) (string, error) {
 	d := paths.AgentDir(l.Home, agent)
 	parts := []string{
 		fmt.Sprintf("You are `%s`, one agent in a Handline team. Your name is also in $OCP_AGENT.", agent),
 		"Stay inside your own worktree. To read another branch's version of a file, use `git show <ref>:<path>` - it needs nothing outside the worktree. Copying a file out to /tmp to read it stops you on a permission prompt only a human can answer, and you will sit there until one does.",
 		"On a long request, keep `hl progress \"done: ... left: ...\"` current: your handoff carries it to the session that takes over.",
 	}
-	if where := l.worktreesLine(agent); where != "" {
+	where, err := l.worktreesLine(agent)
+	if err != nil {
+		return "", err
+	}
+	if where != "" {
 		parts = append(parts[:2], append([]string{where}, parts[2:]...)...)
 	}
 	if line := l.yourTeam(agent); line != "" {
@@ -541,12 +548,16 @@ func (l *Launcher) staticPreamble(agent string) string {
 		}
 	}
 	parts = append(parts, l.Ports.TeamRules(agent)...)
-	return strings.Join(parts, "\n\n")
+	return strings.Join(parts, "\n\n"), nil
 }
 
 // ContextFor is ROLE.md + base.md + the handoff waiting for it, as one system-prompt appendix.
 func (l *Launcher) ContextFor(agent string) (string, error) {
-	parts := []string{l.staticPreamble(agent)}
+	static, err := l.staticPreamble(agent)
+	if err != nil {
+		return "", err
+	}
+	parts := []string{static}
 	text, err := db.GetHandoff(l.Q, agent)
 	if err != nil {
 		return "", err
@@ -638,7 +649,11 @@ func (l *Launcher) Fingerprint(agent string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	material := strings.Join([]string{modelOf(cfg), l.effortOf(cfg), DisallowedTools, l.mcpConfigMaterial(), l.staticPreamble(agent)}, "\x1e")
+	static, err := l.staticPreamble(agent)
+	if err != nil {
+		return "", err
+	}
+	material := strings.Join([]string{modelOf(cfg), l.effortOf(cfg), DisallowedTools, l.mcpConfigMaterial(), static}, "\x1e")
 	if l.Roster.SkipPermissionsInEffect(agent, cfg) {
 		material += "\x1eskip-permissions" // only when on: turning it off returns to the old hash
 	}

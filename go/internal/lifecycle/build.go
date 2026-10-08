@@ -199,7 +199,7 @@ func (l *Launcher) hiddenFolders() []string {
 
 // keepWhatItStartsWith keeps every session a launch starts (db.session_starts): why, whether it resumes the old conversation (then its
 // id is the one after --resume), and what it is given. Bookkeeping never blocks a launch.
-func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, why, by string) {
+func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, why, by string) error {
 	resumed, sid := false, ""
 	for i, x := range extra {
 		if x == "--resume" {
@@ -210,13 +210,17 @@ func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, wh
 			break
 		}
 	}
-	text, _ := db.GetHandoff(l.Q, agent)
+	text, err := db.GetHandoff(l.Q, agent)
+	if err != nil {
+		return err
+	}
 	if why == "" {
 		why = "launch"
 	}
 	if _, err := db.NoteSessionStart(l.Q, agent, why, resumed, sid, text, prompt, by); err != nil {
 		l.warn("hl launch: could not keep how %s was started: %v", agent, err)
 	}
+	return nil
 }
 
 // ExecAgent builds the launch and becomes the agent. It returns only when the launch is refused or the exec fails.
@@ -226,7 +230,9 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 		return err
 	}
 	prompt := TakePrompt(promptFile)
-	l.keepWhatItStartsWith(agent, extra, prompt, why, by)
+	if err := l.keepWhatItStartsWith(agent, extra, prompt, why, by); err != nil {
+		return err // Python reads the waiting handoff outside its never-block try
+	}
 	if prompt != "" {
 		drv, err := l.Ports.Vendors.ForAgent(agent)
 		if err != nil {
