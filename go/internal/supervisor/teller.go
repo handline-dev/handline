@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/textsafe"
 )
 
 // What the task writes (go/internal/taskwrites) leave to the telling layer once they have committed: Env satisfies taskwrites.Teller. Nothing
@@ -224,4 +225,95 @@ func (e *Env) Opened(tid int64, by, owner, title string) {
 	var out string
 	defer e.guard("telling after a task was opened", &out)
 	e.tellParentOfSiblingMove(by, owner, fmt.Sprintf("T%d opened by %s for %s: %s", tid, by, owner, title))
+}
+
+// Edited is what an edit does after it commits (rpc_tasks._edit): a changed body told to the holder, a task that changed hands sent on, and an
+// owner whose last blocker the edit cleared moved on.
+func (e *Env) Edited(ed taskwrites.Edited) {
+	var out string
+	defer e.guard("telling after an edit", &out)
+	if ed.Body {
+		e.tellBodyEdited(e.DB, ed.Task, ed.By)
+	}
+	if ed.WasOwner != "" {
+		e.sendMovedTask(e.DB, ed.Task, ed.WasOwner, ed.By)
+	}
+	if ed.Freed != "" {
+		if changed, _, err := e.AdvanceCurrentTask(e.DB, ed.Freed); err != nil {
+			e.log("  moving %s on after an unblock failed: %v", ed.Freed, err)
+		} else if changed {
+			e.Push(e.DB, ed.Freed, 0)
+		}
+	}
+}
+
+// tellBodyEdited: after an edit changed a task's body, the holder is told at once, typed like a say, when the task is being worked.
+func (e *Env) tellBodyEdited(q db.Q, tid int64, by string) {
+	row := must(db.GetTask(q, tid))
+	var latest sql.NullString
+	err := q.QueryRow("SELECT json_extract(payload, '$.body.new') FROM events WHERE kind = 'edit_task' AND json_valid(payload) AND "+
+		"json_extract(payload, '$.task_id') = ? AND json_type(payload, '$.body') = 'object' ORDER BY id DESC LIMIT 1", tid).Scan(&latest)
+	if err == sql.ErrNoRows || row == nil || row.Owner == db.Human || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
+		return
+	}
+	check(err)
+	e.typeSay(q, row.Owner, fmt.Sprintf("T%d body edited by %s: %s", tid, by, firstRunes(textsafe.Oneline(latest.String), 400)), "task body edited")
+}
+
+// sendMovedTask (actions.send_moved_task): after an edit gave the task to a new owner, the old owner's request for it is taken back and the
+// new owner is asked the same brief now, as task.new would; an old owner that had the task in hand is told to stop. No-op if the owner did not change.
+func (e *Env) sendMovedTask(q db.Q, tid int64, old, by string) {
+	row := must(db.GetTask(q, tid))
+	if row == nil || row.Owner == old {
+		return
+	}
+	owner := row.Owner
+	var taken []*db.Request
+	if live := must(db.LiveDelivery(q, tid, old)); live != nil {
+		taken = append(taken, live)
+	}
+	cur, held := ok2(db.CurrentTask(q, old))
+	inHand := held && cur == tid
+	for _, r := range taken {
+		inHand = inHand || r.DeliveredAt.Valid && r.DeliveredAt.Int64 != 0
+		if r.State == "queued" {
+			if _, _, err := e.Resolve(q, ResolveIn{RID: r.ID, Verdict: "moved to " + owner, State: "withdrawn"}); err != nil {
+				panic(dbFailure{err})
+			}
+		}
+	}
+	check(db.EndHeld(q, tid, old))
+	if cur, held := ok2(db.CurrentTask(q, old)); held && cur == tid {
+		check(db.SetCurrentTask(q, old, 0, false))
+		if changed, _, err := e.AdvanceCurrentTask(q, old); err != nil {
+			panic(dbFailure{err})
+		} else if changed {
+			e.Push(q, old, 0)
+		}
+	}
+	if inHand && old != db.Human {
+		e.typeSay(q, old, fmt.Sprintf("T%d moved to %s by %s - stop work on it", tid, owner, by), "task moved")
+	}
+	if len(taken) > 0 && owner != db.Human {
+		asker := taken[0].Requester
+		if asker != owner { // given to the one who asked: advance starts it as its own below
+			out, err := e.Ask(q, AskIn{Target: owner, Body: taken[0].Body, Requester: asker, Kind: "task", OnBehalfOf: true})
+			if err != nil {
+				panic(dbFailure{err})
+			}
+			msg := out.Finish()
+			if out.OK {
+				e.linkDelivery(q, tid, owner, out.RID)
+				e.Push(q, owner, 0)
+				return
+			}
+			e.noteRefusal(q, owner, tid, msg, nil)
+		}
+		must(db.SetTaskQueued(q, tid, asker)) // the tick tries again, with the title
+	}
+	if changed, _, err := e.AdvanceCurrentTask(q, owner); err != nil {
+		panic(dbFailure{err})
+	} else if changed {
+		e.Push(q, owner, 0)
+	}
 }

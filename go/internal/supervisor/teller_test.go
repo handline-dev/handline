@@ -184,3 +184,33 @@ func TestTheTellerRoutesAHandoffInTheTransactionOfTheMoveAndTypesItAfterTheCommi
 		t.Fatalf("an agent the routing table does not know is refused: %+v", denied)
 	}
 }
+
+func TestTheTellerSendsATaskThatAnEditGaveToANewOwnerAndTellsTheOldOneToStop(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	tid, err := db.NewTask(r.DB, "job", "bob", "human", 0, db.DefaultPriority, "", 0)
+	r.must(err)
+	rid := r.ask("human", "bob", "the brief", "task")
+	r.must(db.LinkRequest(r.DB, tid, rid))
+	r.must(db.SetCurrentTask(r.DB, "bob", tid, true))
+	to := "alice"
+	r.must(db.EditTask(r.DB, tid, "human", db.TaskEdit{Owner: &to}))
+	r.term.typed = nil
+	r.Edited(taskwrites.Edited{Task: tid, By: "human", WasOwner: "bob"})
+	var old, fresh int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'withdrawn'", rid).Scan(&old)
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? AND r.target = 'alice' AND r.body = 'the brief'", tid).Scan(&fresh)
+	if old != 1 || fresh != 1 {
+		t.Fatalf("the old request is taken back (%d) and alice is asked the same brief (%d)", old, fresh)
+	}
+	if cur, held, _ := db.CurrentTask(r.DB, "bob"); held && cur == tid {
+		t.Fatal("bob still holds the task")
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "alice"); cur != tid {
+		t.Fatalf("alice holds %d", cur)
+	}
+	if !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 moved to alice by human - stop work on it") {
+		t.Fatalf("the old owner is told to stop: %q", r.term.typed)
+	}
+}

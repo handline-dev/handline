@@ -25,6 +25,7 @@ type fakeTeller struct {
 	deny      string
 	handed    []Handover
 	opened    []string
+	edited    []Edited
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -166,3 +167,4 @@ func (f *fakeTeller) HandedOver(h Handover) string {
 func (f *fakeTeller) Opened(tid int64, by, owner, title string) {
 	f.opened = append(f.opened, fmt.Sprintf("T%d %s %s %s", tid, by, owner, title))
 }
+func (f *fakeTeller) Edited(ed Edited) { f.edited = append(f.edited, ed) }

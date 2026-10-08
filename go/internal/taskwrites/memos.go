@@ -50,6 +50,9 @@ type Teller interface {
 	HandedOver(h Handover) string
 	// Opened is what a committed task.new leaves: the opener's manager told when siblings pass work.
 	Opened(tid int64, by, owner, title string)
+	// Edited is what a committed task.edit leaves: a changed body told to the holder of a doing task, a task that changed hands sent on to its new
+	// owner, an owner whose last blocker cleared moved on.
+	Edited(ed Edited)
 }
 
 func Register(s *rpc.Server, home string, tell Teller) {
@@ -62,6 +65,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.begin", rpc.Method{Role: "agent", Write: true, Handler: begin})
 	s.Register("task.handoff", rpc.Method{Role: "agent", Write: true, Handler: handoffMethod(home, tell)})
 	s.Register("task.new", rpc.Method{Role: "agent", Write: true, Handler: newMethod(home, tell)})
+	s.Register("task.edit", rpc.Method{Role: "agent", Write: true, Handler: editMethod(home, tell)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})

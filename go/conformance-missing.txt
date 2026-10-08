@@ -18,7 +18,6 @@ session.stop
 session.type
 session.wake
 settings.trust
-task.edit
 terminal.close
 terminal.input
 terminal.resize
