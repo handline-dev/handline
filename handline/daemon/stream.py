@@ -85,11 +85,52 @@ def prune(con, now: int | None = None) -> None:
         db.set_cursor(con, PRUNED, through)
 
 
+# What an agent is sent: a topic delivers to a role only what that role's read would return. An agent's inbox.list is its own, its tasks are its
+# own and its reports', and prompt.list is a member's, so those events are cut to the same scope (or dropped) before they reach it.
+# Whatever this does not name is not sent: the rule fails closed.
+OPEN_TO_AGENTS = ("accounts", "agents", "hr", "status")     # their reads are an agent's whole
+AGENT_NOTIFICATIONS = ("account_out", "stall", "task_done")
+_REACH_TTL_S = 10
+
+
+class AgentView:
+    """Which events one agent session may be sent."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self._reach: set[str] | None = None
+        self._at = 0.0
+
+    def reach(self) -> set[str]:
+        now = time.monotonic()
+        if self._reach is None or now - self._at > _REACH_TTL_S:
+            from .. import actions
+            self._reach, self._at = set(actions.reach(self.name) or ()) | {self.name}, now
+        return self._reach
+
+    def __call__(self, ev: dict) -> bool:
+        topic, who = ev["topic"], ev["agent"]
+        if topic in OPEN_TO_AGENTS:
+            return True
+        if topic == "inbox":
+            return who == self.name
+        if topic == "tasks":
+            return who in self.reach()
+        if topic == "notifications":
+            return ev["type"] in AGENT_NOTIFICATIONS and who in self.reach()
+        return False
+
+
+def view_for(caller) -> "AgentView | None":
+    """The filter for what this caller may be sent, None when it may be sent everything."""
+    return AgentView(caller.info["name"]) if caller.role == "agent" else None
+
+
 class Subscription:
     """One connection's stream: a bounded queue a writer thread drains into the connection."""
 
-    def __init__(self, send, close, topics, agent) -> None:
-        self.send, self.close, self.topics, self.agent = send, close, set(topics), agent
+    def __init__(self, send, close, topics, agent, visible=None) -> None:
+        self.send, self.close, self.topics, self.agent, self.visible = send, close, set(topics), agent, visible
         self.replay: collections.deque = collections.deque()    # what a resume missed: up to REPLAY_MAX, outside the live bound
         self.queue: collections.deque = collections.deque()     # live messages, bounded by MAX_QUEUE
         self.last = 0                       # the newest cursor queued: nothing at or below it is queued twice
@@ -103,7 +144,8 @@ class Subscription:
         threading.Thread(target=self._run, daemon=True, name="ocp-stream-writer").start()
 
     def wants(self, ev: dict) -> bool:
-        return ev["topic"] in self.topics and (not self.agent or ev["agent"] in (None, self.agent))
+        return (ev["topic"] in self.topics and (not self.agent or ev["agent"] in (None, self.agent))
+                and (self.visible is None or self.visible(ev)))
 
     def offer(self, ev: dict) -> None:
         with self.cond:

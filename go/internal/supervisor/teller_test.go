@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -93,5 +94,123 @@ func TestAFailedStatementAfterTheCommitIsLoggedByTheTeller(t *testing.T) {
 	r.MemoChanged(1, "alice", "added", "x")
 	if !r.logged("telling the holder of T1 about the memo failed") {
 		t.Fatalf("%v", r.logs)
+	}
+}
+
+func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.ask("alice", "bob", "x", "task")
+	queued := r.ask("alice", "bob", "y", "task")
+	r.term.typed = nil
+	said := r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: held, Requester: "alice", Target: "bob", Held: true}})
+	if len(said) != 1 || said[0] != "#"+fmt.Sprint(held)+" ended; bob told to stop" || !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 released by alice - stop work on it") {
+		t.Fatalf("%q %q", said, r.term.typed)
+	}
+	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice", db.CloseOpts{NoSettle: true})
+	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob", Notify: true}})
+	if len(said) != 1 || said[0] != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {
+		t.Fatalf("%q", said)
+	}
+}
+
+func TestTheTellerAfterACancelClosesTheTellsAndTypesTheStopToAnOwnerWithNoDelivery(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	rid := r.ask("alice", "bob", "x", "task")
+	db.CloseIfQueued(r.DB, rid, "rejected", CancelVerdict, db.CloseOpts{})
+	r.term.typed = nil
+	r.Cancelled(1, "human", "bob", true, []taskwrites.Retired{{RID: rid, Requester: "alice", Target: "bob", Delivered: true, Notify: true}})
+	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "T1 discarded by human - stop work on it") {
+		t.Fatalf("%q", typed)
+	}
+}
+
+func TestTheTellerAfterADoneMovesTheOwnerOnAndReleasesWhatWaitedOnTheTask(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	first := r.newTask("bob", "alice", "current")
+	waiting := r.newTask("alice", "alice", "waits on the first")
+	r.must(db.AddBlock(r.DB, waiting, first))
+	db.MarkTaskDone(r.DB, first, "done", "reason")
+	r.term.typed = nil
+	r.Done(first, "bob", "bob", nil, nil, true)
+	var n int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE 'task T2 is unblocked%'").Scan(&n)
+	if n != 1 {
+		t.Fatalf("the owner of the task that waited is told once: %d", n)
+	}
+}
+
+func TestTheTellerRoutesAHandoffInTheTransactionOfTheMoveAndTypesItAfterTheCommit(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	tid := r.newTask("bob", "alice", "job")
+	tx, err := r.DB.Begin()
+	r.must(err)
+	var moved int64
+	asked, err := r.TaskAsk(tx, taskwrites.AskReq{From: "bob", To: "alice", Kind: "task", Body: "T1 handed to you by bob: job\n\ncheck it", Within: func(rid int64) error {
+		moved = rid
+		to := "alice"
+		return db.EditTask(tx, tid, "bob", db.TaskEdit{Owner: &to})
+	}})
+	r.must(err)
+	if !asked.OK || asked.RID == 0 || moved != asked.RID {
+		t.Fatalf("%+v", asked)
+	}
+	var n int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests").Scan(&n)
+	if n != 0 {
+		t.Fatal("nothing is visible before the commit")
+	}
+	r.must(tx.Commit())
+	r.term.typed = nil
+	r.must(db.LinkRequest(r.DB, tid, asked.RID))
+	db.MarkSendNow(r.DB, asked.RID)
+	asked.After()
+	r.HandedOver(taskwrites.Handover{Task: tid, By: "bob", From: "bob", To: "alice", Title: "job", RID: asked.RID})
+	if !strings.Contains(strings.Join(r.term.typed, "\n"), "check it") {
+		t.Fatalf("the new owner is typed the handoff: %q", r.term.typed)
+	}
+
+	tx, err = r.DB.Begin()
+	r.must(err)
+	denied, err := r.TaskAsk(tx, taskwrites.AskReq{From: "bob", To: "nobody.such", Kind: "task", Body: "x", Within: func(int64) error { return fmt.Errorf("not reached") }})
+	r.must(err)
+	r.must(tx.Commit())
+	if denied.OK || denied.Msg == "" {
+		t.Fatalf("an agent the routing table does not know is refused: %+v", denied)
+	}
+}
+
+func TestTheTellerSendsATaskThatAnEditGaveToANewOwnerAndTellsTheOldOneToStop(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	tid, err := db.NewTask(r.DB, "job", "bob", "human", 0, db.DefaultPriority, "", 0)
+	r.must(err)
+	rid := r.ask("human", "bob", "the brief", "task")
+	r.must(db.LinkRequest(r.DB, tid, rid))
+	r.must(db.SetCurrentTask(r.DB, "bob", tid, true))
+	to := "alice"
+	r.must(db.EditTask(r.DB, tid, "human", db.TaskEdit{Owner: &to}))
+	r.term.typed = nil
+	r.Edited(taskwrites.Edited{Task: tid, By: "human", WasOwner: "bob"})
+	var old, fresh int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'withdrawn'", rid).Scan(&old)
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? AND r.target = 'alice' AND r.body = 'the brief'", tid).Scan(&fresh)
+	if old != 1 || fresh != 1 {
+		t.Fatalf("the old request is taken back (%d) and alice is asked the same brief (%d)", old, fresh)
+	}
+	if cur, held, _ := db.CurrentTask(r.DB, "bob"); held && cur == tid {
+		t.Fatal("bob still holds the task")
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "alice"); cur != tid {
+		t.Fatalf("alice holds %d", cur)
+	}
+	if !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 moved to alice by human - stop work on it") {
+		t.Fatalf("the old owner is told to stop: %q", r.term.typed)
 	}
 }

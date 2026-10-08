@@ -175,6 +175,11 @@ func Register(srv *rpc.Server, h *Hub) {
 		if err != nil {
 			return nil, err
 		}
+		for n := range names {
+			if err := Allowed(c, n); err != nil {
+				return nil, err
+			}
+		}
 		topic := devicesTopic
 		switch {
 		case names[devicesTopic]:
@@ -254,6 +259,36 @@ func check(p map[string]any) (map[string]bool, error) {
 		return nil, rpc.BadRequestError("transcript is subscribed on its own: this daemon serves it live, the other topics are the Python daemon's", "topics", rpc.InvalidParams)
 	}
 	return names, nil
+}
+
+// memberTopics are the topics an agent may not follow: the reads behind them (chat.*, operation.get) are a member's.
+var memberTopics = map[string]bool{"chat": true, "operations": true}
+
+// Allowed refuses a caller below a member any of the named topics that are a member's.
+func Allowed(c *rpc.Conn, names ...string) error {
+	for _, n := range names {
+		if memberTopics[n] && !c.Caller.Allows("member") {
+			return rpc.Refused("the "+n+" topic is for a member or above; this caller is "+c.Caller.Role, "role", "")
+		}
+	}
+	return nil
+}
+
+// AgentMay is whether an event may be sent to the agent `name`: a topic delivers to a role only what that role's read would return. An agent's
+// inbox.list is its own, its tasks are its own and its reports' (reach), and prompt.list is a member's. Whatever no rule names is not sent.
+// topic, typ and who (the event's agent, "" for none) are the event's.
+func AgentMay(name, topic, typ, who string, reach map[string]bool) bool {
+	switch topic {
+	case "accounts", "agents", "hr", "status":
+		return true
+	case "inbox":
+		return who == name
+	case "tasks":
+		return reach[who]
+	case "notifications":
+		return (typ == "account_out" || typ == "stall" || typ == "task_done") && reach[who]
+	}
+	return false
 }
 
 // Daemon reports whether name is a topic the Python daemon's stream_log holds (every topic but devices, which is this

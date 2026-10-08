@@ -12,6 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -29,7 +30,7 @@ var TerminalStates = map[string]bool{states.Stalled: true}
 const ReviewPingpongLimit = 3
 
 // CancelVerdict is what a cancelled request says, to the requester as its answer and to anyone who reads the row.
-const CancelVerdict = "withdrawn by the founder"
+const CancelVerdict = taskwrites.CancelVerdict
 
 // After is what a write leaves to run once it has committed, in order; each may add a line to the reply.
 type After struct{ fns []func() string }
