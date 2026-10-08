@@ -1,5 +1,5 @@
 // What the screen tests share: mounting Home on the fake daemon, and looking things up by testID.
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach } from 'vitest';
 import { Store } from '@handline/app-core';
@@ -28,8 +28,14 @@ export const text = () => box.textContent ?? '';
 export const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
 export const press = (el: HTMLElement | null) => act(async () => void el?.click());
 
-export async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, daemon?: { bytes?: boolean }, client?: string) {
-  const s = setup({ daemon, client });
+/** `role` is the caller's; `screen` replaces Home for a screen that Home does not reach yet. */
+export async function mount(
+  prepare: (s: ReturnType<typeof setup>) => void = () => {},
+  daemon?: { bytes?: boolean },
+  client?: string,
+  as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode } = {},
+) {
+  const s = setup({ daemon, client, role: as.role });
   prepare(s);
   const store = new Store(s.client);
   box = document.body.appendChild(document.createElement('div'));
@@ -37,9 +43,7 @@ export async function mount(prepare: (s: ReturnType<typeof setup>) => void = () 
   await act(async () => {
     root!.render(
       <DaemonProvider store={store}>
-        <DataProvider daemonId="test">
-          <Home store={store} onUnpair={() => {}} />
-        </DataProvider>
+        <DataProvider daemonId="test">{as.screen ? as.screen(store) : <Home store={store} onUnpair={() => {}} />}</DataProvider>
       </DaemonProvider>,
     );
   });
