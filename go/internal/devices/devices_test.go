@@ -1,6 +1,8 @@
 package devices
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -139,5 +141,50 @@ func TestAHostQuietForAWholeWindowIsForgotten(t *testing.T) {
 	m.Redeem("WRONG", "p", "d")
 	if len(m.wrongs) != 1 {
 		t.Fatalf("%d hosts kept", len(m.wrongs))
+	}
+}
+
+func TestADeviceAtItsCapLosesItsOldestConnectionsForTheNewOne(t *testing.T) {
+	m := New(NewMemStore())
+	m.maxConns = 3
+	var logged []string
+	m.Log = func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }
+	code, _, _, _ := m.Pair(time.Minute)
+	token, d, _ := m.Redeem(code, "a", "h")
+	code, _, _, _ = m.Pair(time.Minute)
+	otherToken, other, _ := m.Redeem(code, "b", "h")
+	var closed []int
+	for i := 1; i <= 5; i++ {
+		i := i
+		if _, _, _, ok := m.Login(token, func() { closed = append(closed, i) }); !ok {
+			t.Fatal("refused", i)
+		}
+	}
+	if !reflect.DeepEqual(closed, []int{1, 2}) {
+		t.Fatalf("closed %v, want the two oldest", closed)
+	}
+	if n := len(m.conns[d.ID]); n != 3 {
+		t.Fatalf("%d open, want the cap", n)
+	}
+	if len(logged) != 2 || !strings.Contains(logged[0], "device a ") {
+		t.Fatalf("each eviction is logged with the device's name: %q", logged)
+	}
+	// another device is not counted against it
+	if _, _, _, ok := m.Login(otherToken, nil); !ok || len(m.conns[other.ID]) != 1 || len(closed) != 2 {
+		t.Fatal("the cap is per device")
+	}
+}
+
+func TestAClosedConnectionsReleaseDoesNotFreeAnotherOnesPlace(t *testing.T) {
+	m := New(NewMemStore())
+	m.maxConns = 2
+	code, _, _, _ := m.Pair(time.Minute)
+	token, d, _ := m.Redeem(code, "a", "h")
+	_, _, release1, _ := m.Login(token, nil)
+	m.Login(token, nil)
+	m.Login(token, nil) // the first is evicted
+	release1()          // its connection ends and releases late
+	if n := len(m.conns[d.ID]); n != 2 {
+		t.Fatalf("%d open after a late release of an evicted one, want 2", n)
 	}
 }

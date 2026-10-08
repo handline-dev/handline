@@ -883,7 +883,7 @@
   {
    "name": "transcript.events.before_reads_the_older_page",
    "spec": "transcript.events",
-   "about": "before_seq reads the page just older than a seq, oldest first, every seq below it.",
+   "about": "before_seq reads the page just older than a seq, oldest first: with limit 1 before the newest it is the event one below the newest.",
    "as": "founder",
    "steps": [
     {
@@ -930,11 +930,75 @@
       "events": [
        {
         "seq": {
+         "$save": "older",
          "$type": "integer"
         }
        }
       ],
       "more": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "since_seq": "{{older}}",
+       "limit": 1
+      }
+     },
+     "result": {
+      "events": [
+       {
+        "seq": {
+         "$next": "older"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.topic_is_refused_to_an_agent_session",
+   "spec": "transcript.events",
+   "about": "An agent session may not subscribe to the transcript topic: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "transcript"
+       ]
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
      }
     }
    ]

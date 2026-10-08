@@ -45,6 +45,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})
 	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
 	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})
+	s.Register("settings.get", rpc.Method{Role: "founder", Handler: e.settingsGet})
 	s.Register("answers.list", rpc.Method{Role: "founder", Handler: e.answersList})
 	s.Register("inbox.get", rpc.Method{Role: "agent", Handler: e.inboxGet, Waits: true})
 	s.Register("chat.messages", rpc.Method{Role: "member", Handler: e.chatMessages})

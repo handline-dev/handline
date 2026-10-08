@@ -41,6 +41,7 @@ export interface Session {
   composing: boolean; // the last line shows the buffer
   holder: InputHolder;
   prompt: Prompt | null;
+  structured?: boolean; // played as a structured session by the transcript
   queue: (() => void)[]; // the scripted turn, one step per tick
   counter: number;
   settings: Record<string, string>; // agent.set's values
@@ -102,6 +103,7 @@ export function view(s: Session): AgentView {
     cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
     has_dialog: s.prompt !== null,
     parent: s.fx.parent,
+    ...(s.structured && { structured: true }),
   };
 }
 

@@ -210,6 +210,12 @@ type WakeOpts struct {
 // what it knows when it wakes. A closed agent has no terminal; a new one is opened for it in its worktree.
 func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err error) {
 	defer catch(&err)
+	if m.structured(agent) {
+		// No pane to type into: no terminal lock or input hold, one lifecycle act at a time instead.
+		defer m.lockAgent(agent)()
+		ok, said = m.wakeAgent(agent, o)
+		return ok, said, nil
+	}
 	if held := m.Typing.HeldByOther(m.Q, agent); held != "" {
 		// nothing is typed into a pane someone holds, a launch line included; the work stays queued
 		return false, m.Typing.HeldWhy(agent, held), nil
@@ -231,6 +237,9 @@ func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err
 // WakeAgentLocked is a wake for callers already holding the terminal lock.
 func (m *Manager) WakeAgentLocked(agent string, o WakeOpts) (ok bool, said string, err error) {
 	defer catch(&err)
+	if m.structured(agent) {
+		defer m.lockAgent(agent)()
+	}
 	ok, said = m.wakeAgent(agent, o)
 	return ok, said, nil
 }
@@ -260,6 +269,9 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 	handle := must(db.Terminal(m.Q, agent))
 	row := must(db.GetAgentState(m.Q, agent))
 	closed := isClosed(row)
+	if m.structured(agent) {
+		return m.wakeStructured(agent, row, o)
+	}
 	// A closed session's pane was closed with it; the wake opens a new terminal in the worktree the agent kept.
 	wt := ""
 	if row != nil {
@@ -422,7 +434,11 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 			return false, msg
 		}
 	}
-	return m.launchClosed(agent, row, wt, session, closed2{force, warm, cause, restartedBy, movedTo, o.Applying})
+	c := closed2{force, warm, cause, restartedBy, movedTo, o.Applying}
+	if m.structured(agent) {
+		return m.launchStructured(agent, row, wt, session, c)
+	}
+	return m.launchClosed(agent, row, wt, session, c)
 }
 
 func clip300(s string) string {
@@ -574,28 +590,7 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		}
 	}
 	if !ok {
-		if took {
-			// A record no session was handed would be typed at whichever live session the next wake finds, as if it had been parked.
-			check(db.ClearHandoff(m.Q, agent))
-		}
-		// The closed mark and resume_session are the whole way back. A wake that started nothing leaves both alone: the next attempt -
-		// work arriving, or the next restart - has nothing else to use.
-		must(db.AddEvent(m.Q, agent, "wake_failed", db.KV{K: "resume_session", V: nilIfEmpty(session)}, db.KV{K: "why", V: why}))
-		if foreign {
-			// The agent is running, so this is no failed wake to count toward STALLED; the sweep sees the session and clears the closed mark.
-			m.Log("  %s: %s; typed nothing more", agent, why)
-			return false, why
-		}
-		check(db.BumpCounter(m.Q, agent, "wake_failures", 1))
-		m.Log("  %s: %s; still closed", agent, why)
-		if f := must(db.GetAgentState(m.Q, agent)); f != nil && f.WakeFailures >= states.MaxFailedAttempts {
-			// Work arriving retries the wake every tick, so a launch that will never work is a loop that never ends and never says so.
-			// Three launches that started nothing is not the wall - that was turned away above - and not a resume that can be dropped,
-			// which the fallback above already did. It waits for a human, or for the sweep to see a session after all.
-			check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d wakes started no session: %s", f.WakeFailures, why)))
-			m.Log("  %s: STALLED after %d failed wakes", agent, f.WakeFailures)
-		}
-		return false, why
+		return false, m.wakeFailed(agent, session, why, took, foreign)
 	}
 	// A relaunch is where claude shows its folder-trust screen - on a moved agent the new account has never trusted this folder - and the
 	// wake prompt waits behind it. Until it is past, the agent is not woken.
@@ -635,6 +630,33 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	}
 	m.Log("  %s: relaunched with its wake prompt%s", agent, how)
 	return true, "relaunched with the wake prompt"
+}
+
+// wakeFailed records a wake that started nothing and returns what to say. foreign: a session it did not start is running, which is no
+// failed wake to count toward STALLED.
+func (m *Manager) wakeFailed(agent, session, why string, took, foreign bool) string {
+	if took {
+		// A record no session was handed would be typed at whichever live session the next wake finds, as if it had been parked.
+		check(db.ClearHandoff(m.Q, agent))
+	}
+	// The closed mark and resume_session are the whole way back. A wake that started nothing leaves both alone: the next attempt -
+	// work arriving, or the next restart - has nothing else to use.
+	must(db.AddEvent(m.Q, agent, "wake_failed", db.KV{K: "resume_session", V: nilIfEmpty(session)}, db.KV{K: "why", V: why}))
+	if foreign {
+		// The agent is running, so this is no failed wake to count toward STALLED; the sweep sees the session and clears the closed mark.
+		m.Log("  %s: %s; typed nothing more", agent, why)
+		return why
+	}
+	check(db.BumpCounter(m.Q, agent, "wake_failures", 1))
+	m.Log("  %s: %s; still closed", agent, why)
+	if f := must(db.GetAgentState(m.Q, agent)); f != nil && f.WakeFailures >= states.MaxFailedAttempts {
+		// Work arriving retries the wake every tick, so a launch that will never work is a loop that never ends and never says so.
+		// Three launches that started nothing is not the wall - that was turned away above - and not a resume that can be dropped,
+		// which the fallback above already did. It waits for a human, or for the sweep to see a session after all.
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d wakes started no session: %s", f.WakeFailures, why)))
+		m.Log("  %s: STALLED after %d failed wakes", agent, f.WakeFailures)
+	}
+	return why
 }
 
 func ifTrue(b bool, s string) string {

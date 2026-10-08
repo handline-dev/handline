@@ -397,7 +397,7 @@ export class FakeDaemon {
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
         for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');
-        c.topics = new Set(p.topics as Topic[]);
+        c.topics = new Set(this.transcript.gate(p.topics as Topic[], c.role));
         return { cursor: this.head };
       }
       case 'unsubscribe':

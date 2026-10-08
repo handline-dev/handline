@@ -159,6 +159,7 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
+		d.dev.Log = cfg.Log
 	}
 	d.hub = stream.NewHub()
 	if d.transcripts() {

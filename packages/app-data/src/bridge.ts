@@ -14,6 +14,7 @@ import type {
 } from '@handline/client';
 import { edit, upsert, type Ctx } from './cache.ts';
 import { chatEvent } from './chat-events.ts';
+import { transcriptEvent } from './transcript.ts';
 import { qk } from './reads.ts';
 
 type Rule = (c: Ctx, e: WireEvent) => void;
@@ -90,7 +91,7 @@ function inbox({ qc, d }: Ctx, e: WireEvent) {
 
 /** Notifications that only toast (task_done, stall, account_out) change no cache; the shell shows them from the event itself. */
 export function applyEvent(c: Ctx, e: WireEvent): void {
-  (rules[e.type] ?? (e.topic === 'chat' ? chatEvent : undefined))?.(c, e);
+  (rules[e.type] ?? (e.topic === 'chat' ? chatEvent : e.topic === 'transcript' ? transcriptEvent : undefined))?.(c, e);
 }
 
 /** Everything the daemon described since the last cursor may have changed: every active query reads again. */

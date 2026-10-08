@@ -147,6 +147,7 @@ the transcript. The daemon publishes a per-agent event stream (the CLI's frames 
 tool use with its input, tool result, permission request and its answer, turn start and end with cost, errors), through the
 existing `stream` topics with a sequence number, so a client that reconnects resumes. The permission request is a card with
 allow and deny, which calls `prompt.answer`. The composer sends through the one send path with a client-made operation id.
+Tool inputs and results are stored verbatim in `transcript_events` (the last 20000 rows per agent), so they are as sensitive as the files and commands they touched.
 The apps need a transcript renderer; they do not need a terminal emulator for this mode.
 
 ## Fallbacks compared

@@ -214,6 +214,8 @@ class FakeDaemon:
             topics = params.get("topics")
             if not isinstance(topics, list) or not topics or not set(topics) <= set(SPEC["components"]["schemas"]["Topic"]["enum"]):
                 return fail(_err(-32602, "bad_request", field="topics")), said_hello
+            if method == "subscribe" and "transcript" in topics and self.role == "agent":     # the stream holds every agent's tool inputs
+                return fail({"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "role", "reason": "the transcript is not for an agent session"}}), said_hello
             if "devices" in topics:     # the gateway's own topic: alone, and the founder's
                 if len(topics) > 1:
                     return fail(_err(-32602, "bad_request", field="topics")), said_hello

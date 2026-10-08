@@ -143,6 +143,8 @@ export type AgentView = {
   }[];
   /** Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true). */
   wake_wait_reason?: string | null;
+  /** The daemon runs this agent as a structured session: the transcript topic and transcript.events serve it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too. */
+  structured?: boolean;
 };
 
 export type AgentDetail = AgentView & {
