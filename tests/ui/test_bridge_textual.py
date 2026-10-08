@@ -567,9 +567,6 @@ def test_a_message_number_finds_its_chat_and_its_page() -> None:
         orphan = con.execute("INSERT INTO requests(ts, requester, target, body, state, settles) VALUES(?,?,?,?,'queued',?)",
                              (int(time.time()), "frontend", "backend", "an answer to nothing", 999998)).lastrowid
         check("locate: an answer whose request is gone is alone", at(orphan, "backend", False).kind == "alone")
-        check("locate: its text is there to show alone",
-              cp.message_alone(con, ids["f_r"]) == (f"#{ids['f_r']}  frontend \u2192 reviewer", "frontend asks reviewer")
-              and cp.message_alone(con, 999999) is None)
         con.execute("UPDATE requests SET state = 'withdrawn' WHERE id = ?", (ids["f_r"],))
         check("locate: one that never reached anyone, no chat draws, is alone",
               at(ids["f_r"], "backend", False).kind == "alone")
@@ -1479,6 +1476,67 @@ def test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to() ->
         start_send = lambda self, body, rid, **kw: sent.append((body, rid, kw.get("agent")))
     cp.ChatPage.on_text_box_send(Stub(), type("E", (), {"stop": lambda self: None})())
     check("reply in all chat: the message's agent is passed to start_send", sent == [("yes", 9, "backend")], str(sent))
+
+
+def test_the_page_reads_refs_the_strip_and_a_lone_message_from_the_daemon() -> None:
+    """chat.refs fills the `#` menu, agent.strip the strip, and chat.locate's not_found carries a message no chat shows."""
+    from handline.daemon import client
+    from handline.ui import chat_page as cp
+    from handline.ui.components.agent_strip import info_of
+    real = api.call
+    shown = []
+    notes = []
+    err = client.RpcError({"message": "x", "data": {"code": "not_found", "from": "a", "to": "b", "body": "hi"}})
+
+    def fake(method, params=None):
+        if method == "chat.refs":
+            return {"requests": [{"request": 7, "from": "a", "to": "b", "line": "hi"}]}
+        if method == "tasks.list":
+            return {"items": [], "more": False}
+        raise err
+    api.call = fake
+
+    class Stub:
+        agent = "a"
+        app = type("A", (), {"push_screen": lambda s, m: shown.append(m)})()
+        notify = lambda self, text, **kw: notes.append(text)
+    real_modal = cp.HandoffModal
+    cp.HandoffModal = lambda who, body: (who, body)
+    try:
+        refs = cp.refs_of("a")
+        cp.ChatPage._show_alone(Stub(), 7)
+        err.data = {"code": "not_found"}
+        cp.ChatPage._show_alone(Stub(), 8)
+        first = (list(shown), list(notes))
+        shown.clear()
+        notes.clear()
+        api.call = lambda method, params=None: {"message": {"id": 9, "from": "c", "to": "d", "body": "found"}}
+        cp.ChatPage._show_alone(Stub(), 9)
+        found = list(shown)
+        notes.clear()
+        shown.clear()
+        api.call = lambda method, params=None: {"message": {"id": 3, "from": "c", "to": "d", "body": "q", "answer": {"id": 9, "text": "a"}}}
+        cp.ChatPage._show_alone(Stub(), 9)
+        answered = list(shown)
+        shown.clear()
+        api.call = lambda method, params=None: {"message": {"id": 3, "from": "c", "to": "d", "body": "q", "answer": None}}
+        cp.ChatPage._show_alone(Stub(), 9)
+        other = (list(shown), len(notes))
+        notes.clear()
+
+        def down(method, params=None):
+            raise client.DaemonDown("down")
+        api.call = down
+        cp.ChatPage._show_alone(Stub(), 10)
+    finally:
+        api.call, cp.HandoffModal = real, real_modal
+    check("alone: a message locate found but no widget drew is shown, a down daemon is a toast",
+          found == [("#9  c \u2192 d", "found")] and answered == [("#9  d \u2192 c", "a")] and other == ([], 1) and len(notes) == 1 and "cannot be found" in notes[0], str((found, notes)))
+    check("refs: a request is (number, from → to, first line)", refs[1] == [(7, "a → b", "hi")], str(refs))
+    check("alone: a message no chat shows is drawn from locate's not_found, else there is none",
+          first == ([("#7  a → b", "hi")], ["#8: there is no such message"]), str(first))
+    check("strip: the figures are the daemon's", info_of({"model": "m", "account": "x", "ctx_pct": 1, "ctx_used": 2, "ctx_limit": 3,
+          "cache_left_s": 4, "screen_word": "IDLE", "screen_detail": ""}).ctx_limit == 3)
 
 
 def test_a_not_sent_or_not_cancelled_reply_is_an_error_toast() -> None:
@@ -4474,8 +4532,8 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
         return html.unescape(re.sub(r"<[^>]*>", "", app.export_screenshot())).replace("\xa0", " ")
 
     want = [("IDLE", "")]               # the page's 2s poll re-reads the state: what it reads is set here, not by hand
-    real_state = cp.agent_state_of
-    cp.agent_state_of = lambda con, agent: want[0]
+    real_state = cp.read_strip
+    cp.read_strip = lambda agent: {**real_state(agent), "screen_word": want[0][0], "screen_detail": want[0][1]}
     try:
         async with app.run_test(size=(100, 30)) as pilot:
             page = cp.ChatPage("reviewer")
@@ -4511,7 +4569,7 @@ async def test_a_change_of_the_agents_state_redraws_the_spinner_not_the_chat() -
             check("noflash: a change of the wait text alone shows on the screen",
                   "waiting for y's reply (#2)" in screen_text() and list(page.query(cp.ChatMessage)) == before)
     finally:
-        cp.agent_state_of = real_state
+        cp.read_strip = real_state
 
 
 async def test_neither_tasks_tab_scrolls_sideways() -> None:
@@ -5013,7 +5071,7 @@ async def test_a_blocked_task_says_so_where_working_would_be() -> None:
             con.commit()
         finally:
             con.close()
-        page.refresh_agent_state()
+        page.refresh_agent_strip()
         page._sig = None
         page.refresh_conversation()
         await pilot.pause()
@@ -5751,6 +5809,7 @@ async def _run_all() -> None:
     test_a_cancel_asks_on_the_confirm_gate_and_says_a_daemon_that_is_down()
     test_the_page_calls_the_daemon_with_the_agent_the_confirm_and_the_request()
     test_a_reply_in_all_chat_is_sent_to_the_agent_of_the_message_replied_to()
+    test_the_page_reads_refs_the_strip_and_a_lone_message_from_the_daemon()
     test_a_not_sent_or_not_cancelled_reply_is_an_error_toast()
     test_the_status_line_under_the_box_leaves_out_what_the_agent_waits_on()
     test_a_send_that_went_shows_no_toast_and_a_refused_one_does()
