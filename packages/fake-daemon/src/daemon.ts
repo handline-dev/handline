@@ -64,6 +64,12 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  /** The role a paired device gets: a phone is a member; a test or demo that wants the founder's verbs on one sets 'founder'. */
+  deviceRole: Role = 'member';
+  /** Puts a proposal in as an agent raised it (the hr topic announces it); a demo or test uses this instead of reaching into the script. */
+  raiseProposal(p: Parameters<Script['hr']['raise']>[0]) {
+    return this.script.hr.raise(p);
+  }
   readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
@@ -325,7 +331,7 @@ export class FakeDaemon {
       if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
       const device = c.network && typeof p.token === 'string' ? this.tokens.get(p.token) : undefined;
       if (device) {
-        c.role = 'member';
+        c.role = this.deviceRole;
         c.paired = true;
         c.caller = { kind: 'device', device: device.id, name: device.name };
       }
