@@ -46,7 +46,6 @@ chat.send_now
 stats.outlook
 answer.add
 answer.remove
-task.begin
 task.handoff
 say
 ask

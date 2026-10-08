@@ -47,6 +47,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, false)})
 	s.Register("task.progress", rpc.Method{Role: "agent", Write: true, Handler: progress})
 	s.Register("progress.get", rpc.Method{Role: "agent", Handler: progressGet})
+	s.Register("task.begin", rpc.Method{Role: "agent", Write: true, Handler: begin})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
