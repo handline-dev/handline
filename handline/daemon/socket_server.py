@@ -19,8 +19,10 @@ for it, and prints nothing here: what to do about it is the caller's.
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
+import resource
 import socket
 import threading
 import time
@@ -203,6 +205,22 @@ def _serve_one(conn: socket.socket, log) -> None:
 
 
 MAX_CONNECTIONS = 256       # served at once; one past it is answered `daemon_busy` and closed
+# launchd starts a job with a soft limit of 256 descriptors, no more than MAX_CONNECTIONS alone: the daemon
+# raises its own soft limit, so connections run out before descriptors and the cap answers `daemon_busy`.
+FD_SOFT_LIMIT = 4096
+
+
+def raise_fd_limit() -> int:
+    """Raises the soft descriptor limit to FD_SOFT_LIMIT (never past the hard one, never down); returns the limit in force."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = FD_SOFT_LIMIT if hard == resource.RLIM_INFINITY else min(FD_SOFT_LIMIT, hard)
+    if soft != resource.RLIM_INFINITY and soft < want:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
+            soft = want
+        except (ValueError, OSError):
+            pass
+    return soft
 
 
 class SocketServer:
@@ -220,6 +238,9 @@ class SocketServer:
         self._relay = relay.RelayServer(log)
 
     def start(self) -> None:
+        limit = raise_fd_limit()
+        if limit != resource.RLIM_INFINITY and limit <= MAX_CONNECTIONS + 64:
+            self._log(f"socket: only {limit} file descriptors - connections can run out of them before the cap")
         path = paths.socket_file()
         path.parent.mkdir(parents=True, exist_ok=True)
         # The daemon singleton lock already guarantees we are the only
@@ -254,13 +275,23 @@ class SocketServer:
         self._watcher.start()
 
     def _accept_loop(self) -> None:
+        starved = False     # said once per spell without descriptors, not every half second
         while not self._stop.is_set():
             try:
                 conn, _ = self._sock.accept()
+                starved = False
             except socket.timeout:
                 continue
-            except OSError:
-                break  # the socket was closed under us by stop()
+            except OSError as e:
+                if self._stop.is_set():
+                    break  # the socket was closed under us by stop()
+                # Out of descriptors (or a connection reset before it was taken): the listener is still good, and
+                # leaving the loop would leave the socket deaf until a restart. Wait for descriptors to come back.
+                if e.errno in (errno.EMFILE, errno.ENFILE) and not starved:
+                    starved = True
+                    self._log(f"socket: accept: {e.strerror} - retrying")
+                self._stop.wait(0.5)
+                continue
             with self._open_lock:
                 full = self._open >= MAX_CONNECTIONS
                 self._open += not full

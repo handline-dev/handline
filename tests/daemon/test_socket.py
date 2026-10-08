@@ -446,6 +446,54 @@ def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home
           reply2 is not None and reply2["ok"] is False, str(reply2))
 
 
+def test_the_accept_loop_outlives_running_out_of_descriptors(home: Path) -> None:
+    """EMFILE from accept() is an OSError too, but the listener is still good: the loop waits and
+    takes the next connection instead of leaving, which left the socket deaf until a restart."""
+    import errno as _errno
+    srv = dmn_socket_server.SocketServer(lambda m: None)
+    served, said = [], []
+    srv._log = said.append
+    a, b = socket.socketpair()
+
+    class Listener:
+        calls = 0
+
+        def accept(self):
+            Listener.calls += 1
+            if Listener.calls <= 3:
+                raise OSError(_errno.EMFILE, "Too many open files")
+            if Listener.calls == 4:
+                return a, None
+            srv._stop.set()
+            raise socket.timeout()
+
+    srv._sock = Listener()
+    srv._serve = served.append
+    srv._stop.wait = lambda s: None     # no half-second waits in a test
+    srv._accept_loop()
+    b.close()
+    a.close()
+    check("socket: a connection after EMFILE is still served", served == [a], str(served))
+    check("socket: EMFILE is said once for the spell, not per retry", len(said) == 1, str(said))
+
+
+def test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(home: Path) -> None:
+    """launchd hands a job 256 descriptors, as many as MAX_CONNECTIONS: the soft limit is raised, never past the hard one."""
+    res, real = dmn_socket_server.resource, dmn_socket_server.resource.getrlimit
+    seen = []
+    for soft, hard, want in ((256, res.RLIM_INFINITY, 4096), (256, 1024, 1024), (10240, 20000, 10240)):
+        res_get, res_set = res.getrlimit, res.setrlimit
+        res.getrlimit = lambda _k, s=soft, h=hard: (s, h)
+        res.setrlimit = lambda _k, v: seen.append(v)
+        try:
+            got = dmn_socket_server.raise_fd_limit()
+        finally:
+            res.getrlimit, res.setrlimit = res_get, res_set
+        check(f"socket: soft {soft} hard {hard} ends at {want}", got == want, str(got))
+    check("socket: a soft limit already above the target is left alone", len(seen) == 2, str(seen))
+    check("socket: the real getrlimit is put back", res.getrlimit is real)
+
+
 def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     """The daemon takes the peer pid from the kernel and accepts `land_pass` only from the process tree
     of the session recorded for the auditor."""
@@ -497,6 +545,8 @@ def main() -> int:
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
         run(lambda: test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
+        run(lambda: test_the_accept_loop_outlives_running_out_of_descriptors(Path(td) / 's7'))
+        run(lambda: test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(Path(td) / 's8'))
     return run_area(tests)
 
 
