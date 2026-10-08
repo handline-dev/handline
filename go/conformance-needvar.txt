@@ -26,8 +26,6 @@ transcript.events.newest_page_has_every_kind
 transcript.events.seq_goes_up_by_one
 transcript.events.since_the_newest_is_empty
 transcript.events.before_reads_the_older_page
-account.set_cap.a_cap_below_one_is_bad_request
-account.set_cap.sets_the_cap_and_a_retry_is_replayed
 account.set.a_label_that_is_not_one_plain_line_is_bad_request
 account.set.a_cycle_end_that_is_not_a_date_is_bad_request
 account.set.sets_the_fields_it_is_given

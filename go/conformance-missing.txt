@@ -28,11 +28,3 @@ task.begin
 task.handoff
 task.progress
 task.ask
-ask
-push
-push.answer
-push.cancelled
-worktree.set_status
-chat.withdraw
-account.set_cap
-transcript.events
