@@ -30,16 +30,11 @@ stats.outlook
 task.begin
 task.handoff
 task.progress
-settings.get
 task.ask
 ask
 push
 push.answer
 push.cancelled
-task.ask
-chat.cancel
-chat.seen
-progress.get
 worktree.set_status
 chat.withdraw
 account.set_cap
