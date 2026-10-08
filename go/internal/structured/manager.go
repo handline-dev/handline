@@ -51,6 +51,9 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 	if err := CheckVersion(ctx, l.Path, want); err != nil {
 		return nil, err
 	}
+	if l.Now == nil {
+		l.Now = m.Now
+	}
 	if l.Ledger == nil && m.DB != nil {
 		l.Ledger = &DBLedger{DB: m.DB, Agent: agent, Now: m.Now}
 	}
@@ -112,4 +115,12 @@ func (m *Manager) Answer(agent, prompt string, allow bool, message, by string) e
 		return ErrNoPrompt
 	}
 	return m.Broker.Answer(agent, prompt, allow, message, by)
+}
+
+// RetryingSince is when agent's session began retrying the model call (unix seconds), or 0 when it is not, or has no session.
+func (m *Manager) RetryingSince(agent string) int64 {
+	if s := m.Get(agent); s != nil {
+		return s.RetryingSince()
+	}
+	return 0
 }
