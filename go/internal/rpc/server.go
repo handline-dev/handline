@@ -534,12 +534,15 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	key, _ := params["key"].(string)
 	if c.srv.Net != nil {
 		tok, _ := params["token"].(string)
+		// The earlier login goes first: Login counts this device's connections, and at its cap it would close the oldest, which can be this one.
+		if c.release != nil {
+			c.release()
+			c.device, c.deviceName, c.release = "", "", nil
+			c.Caller = Caller{"anonymous", map[string]any{"kind": "anonymous", "name": "anonymous"}}
+		}
 		id, name, release, ok := c.srv.Net.Login(tok, c.closeFn)
 		if !ok {
 			return nil, UnpairedError()
-		}
-		if c.release != nil {
-			c.release()
 		}
 		c.device, c.deviceName, c.release = id, name, release
 		c.Caller = Caller{"member", map[string]any{"kind": "device", "device": id, "name": name}}
