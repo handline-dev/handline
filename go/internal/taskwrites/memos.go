@@ -25,6 +25,9 @@ type Teller interface {
 	// Discarded types the says a discard wrote, moves the owner on to its next task, advances the owners it freed, and removes the inbox
 	// files of the requests it closed.
 	Discarded(owner string, told []db.Notice, freed []string, forget []db.InboxFile)
+	// Released stops the owner on the held requests a release ended, tells the requesters of the queued ones it closed (why is the reason on
+	// them), moves the queues up, and answers a phrase for each ("#12 ended; w told to stop").
+	Released(tid int64, why string, retired []Retired) []string
 }
 
 func Register(s *rpc.Server, home string, tell Teller) {
@@ -34,6 +37,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, false)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
+	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: merge})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})
 	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(tell)})

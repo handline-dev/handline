@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -93,5 +94,22 @@ func TestAFailedStatementAfterTheCommitIsLoggedByTheTeller(t *testing.T) {
 	r.MemoChanged(1, "alice", "added", "x")
 	if !r.logged("telling the holder of T1 about the memo failed") {
 		t.Fatalf("%v", r.logs)
+	}
+}
+
+func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.ask("alice", "bob", "x", "task")
+	queued := r.ask("alice", "bob", "y", "task")
+	r.term.typed = nil
+	said := r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: held, Requester: "alice", Target: "bob", Held: true}})
+	if len(said) != 1 || said[0] != "#"+fmt.Sprint(held)+" ended; bob told to stop" || !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 released by alice - stop work on it") {
+		t.Fatalf("%q %q", said, r.term.typed)
+	}
+	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice", db.CloseOpts{NoSettle: true})
+	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob", Notify: true}})
+	if len(said) != 1 || said[0] != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {
+		t.Fatalf("%q", said)
 	}
 }

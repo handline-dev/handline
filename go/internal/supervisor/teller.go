@@ -2,8 +2,10 @@ package supervisor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/taskwrites"
 )
 
 // What the task writes (go/internal/taskwrites) leave to the telling layer once they have committed: Env satisfies taskwrites.Teller. Nothing
@@ -52,4 +54,35 @@ func (e *Env) Discarded(owner string, told []db.Notice, freed []string, forget [
 		e.Push(e.DB, owner, 0)
 	}
 	e.deliverUnblocked(e.DB, told, freed)
+}
+
+// Released is what a release does after it commits (actions.release_task): the owner of a held request is typed to stop, and each queued
+// request it closed is told like any retirement (the target told to stop if it had it, the requester told, the queue moved up). It answers
+// a phrase for each, the first line of what the retirement says.
+func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []string {
+	var out string
+	defer e.guard("telling after a release", &out)
+	said := make([]string, 0, len(retired))
+	for _, r := range retired {
+		if r.Held {
+			e.typeSay(e.DB, r.Target, why+" - stop work on it", "task released")
+			said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+			continue
+		}
+		row, err := db.GetRequest(e.DB, r.RID)
+		if err != nil || row == nil {
+			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
+			continue
+		}
+		target, _, extra, err := e.closeTell(e.DB, r.RID, row, why, r.Notify)
+		if err != nil {
+			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
+		}
+		line := fmt.Sprintf("#%d to %s retired", r.RID, target)
+		if len(extra) > 0 {
+			line += " (" + strings.Join(extra, "; ") + ")"
+		}
+		said = append(said, line)
+	}
+	return said
 }

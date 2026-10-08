@@ -17,6 +17,7 @@ type fakeTeller struct {
 	told      []db.Notice
 	freed     []string
 	forget    []db.InboxFile
+	released  []Retired
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -29,6 +30,11 @@ func (f *fakeTeller) QueueDelivered(tid int64, by string, queued bool) string {
 func (f *fakeTeller) Discarded(owner string, told []db.Notice, freed []string, forget []db.InboxFile) {
 	f.discarded = append(f.discarded, owner)
 	f.told, f.freed, f.forget = told, freed, forget
+}
+
+func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
+	f.released = retired
+	return []string{fmt.Sprintf("%d stopped", len(retired))}
 }
 
 func TestADiscardHandsItsSaysItsFreedOwnersAndItsClosedInboxFilesToTheTeller(t *testing.T) {

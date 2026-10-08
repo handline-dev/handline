@@ -44,7 +44,6 @@ chat.answer
 chat.dismiss
 chat.withdraw
 task.done
-task.release
 chat.send_now
 stats.outlook
 answer.add
