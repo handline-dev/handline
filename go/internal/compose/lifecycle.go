@@ -26,6 +26,10 @@ type Lifecycle struct {
 	Spawns  *lifecycle.Spawns
 	Launch  *lifecycle.Launcher
 	Handoff *handoff.Env
+	Env     *supervisor.Env
+
+	usage  *usage.Env
+	roster *team.Roster
 }
 
 // LifecycleConfig is what only the daemon main knows beyond Config.
@@ -74,7 +78,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		Delivery: lc.Env, Handoff: handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
 		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, Locks: p.Locks}
-	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho}
+	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster}
 	return p.LC
 }
 

@@ -88,6 +88,7 @@ func main() {
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	ownPrompts := flag.Bool("own-prompts", false, "run the screen watch that writes prompt_blocks: this daemon is then the only writer, so it takes the daemon singleton and does not start beside a Python daemon, and is refused with -gateway")
 	structuredCLI := flag.String("structured-cli", "", "the claude binary structured sessions run: with it the daemon builds the structured manager and serves the transcript for the agents whose agent.yaml says mode: structured; empty runs none")
+	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -100,6 +101,7 @@ func main() {
 	}
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
+	var tickLoop func(stop <-chan struct{}) // set when the policy tick is on; runs it until stop closes
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
 		parts := compose.New(ccfg)
@@ -108,6 +110,9 @@ func main() {
 			parts.Bind(db, env)
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
+			if *structuredTick {
+				tickLoop = func(stop <-chan struct{}) { parts.Tick(ccfg, compose.TickConfig{Stop: stop}).Loop.Run(nil) }
+			}
 		}
 		cfg.Session = func() *sessionrpc.Env { return parts.SessionRPC(ccfg) }
 	}
@@ -161,5 +166,8 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if tickLoop != nil {
+		go tickLoop(ctx.Done())
+	}
 	d.Wait(ctx)
 }
