@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -40,6 +41,9 @@ const (
 	Queued    State = "queued"
 	Sent      State = "sent"
 	Confirmed State = "confirmed"
+	// Unknown: the message was written, and the daemon or the CLI died before the echo. The CLI may or may not have run it, so it is
+	// never written again; the sender is told.
+	Unknown State = "unknown"
 )
 
 // Receipt is the recorded answer of one operation; a retry with the same operation id gets it back and writes nothing.
@@ -79,15 +83,20 @@ type Launch struct {
 	Cwd       string
 	ConfigDir string
 	SessionID string
+	Resume    bool // SessionID is an existing session: --resume instead of --session-id
 	Model     string
 	Env       []string // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
+	Ledger    Ledger   // where sends are recorded before they are written; nil keeps them in memory
 }
 
 // Args are the protocol's arguments: stream-json both ways, the user messages replayed for confirmation, permission prompts on stdio.
 func (l Launch) args() []string {
 	a := []string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--replay-user-messages", "--permission-prompt-tool", "stdio"}
-	if l.SessionID != "" {
+	switch {
+	case l.SessionID != "" && l.Resume:
+		a = append(a, "--resume", l.SessionID)
+	case l.SessionID != "":
 		a = append(a, "--session-id", l.SessionID)
 	}
 	if l.Model != "" {
@@ -126,6 +135,7 @@ type Session struct {
 	cmd *exec.Cmd
 	in  io.WriteCloser
 	h   Handlers
+	led Ledger
 
 	wmu sync.Mutex // one writer at a time
 
@@ -133,8 +143,9 @@ type Session struct {
 	ledger   map[string]*entry // operation id -> its send
 	held     []*entry          // queued behind the running turn, oldest first
 	byUUID   map[string]*entry
-	echoing  int  // written messages whose echo has not come: an idle seen before it belongs to an earlier turn
-	busy     bool // a turn is running or about to
+	echoing  int    // written messages whose echo has not come: an idle seen before it belongs to an earlier turn
+	state    string // the CLI's last session_state_changed: idle, running, requires_action; "" before the first
+	busy     bool   // a turn is running or about to
 	nextReq  int
 	waiting  map[string]chan map[string]any // request_id -> the control response
 	prompts  map[string]context.CancelFunc  // request_id -> a permission prompt in flight
@@ -146,6 +157,7 @@ type Session struct {
 
 type entry struct {
 	op, uuid, text string
+	delivery       Delivery
 	state          State
 	settled        chan struct{} // closed on Confirmed
 }
@@ -163,6 +175,7 @@ func uuidFor(op string) string {
 func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Session, error) {
 	cmd := exec.Command(l.Path, l.args()...)
 	cmd.Dir, cmd.Env = l.Cwd, l.env()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // the CLI and what it starts are one group, so close can prove they are gone
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -174,7 +187,11 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
-	s := &Session{cmd: cmd, in: in, h: h, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
+	led := l.Ledger
+	if led == nil {
+		led = &MemLedger{}
+	}
+	s := &Session{cmd: cmd, in: in, h: h, led: led, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
 		prompts: map[string]context.CancelFunc{}, done: make(chan struct{}), initDone: make(chan struct{})}
 	go s.read(out)
 	ictx, cancel := context.WithTimeout(ctx, timeout)
@@ -182,6 +199,10 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	if _, err := s.control(ictx, map[string]any{"subtype": "initialize"}); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("claude did not complete initialize: %w", err)
+	}
+	if err := s.recover(); err != nil {
+		s.Close()
+		return nil, err
 	}
 	return s, nil
 }
@@ -236,8 +257,9 @@ func (s *Session) exitError() error {
 	return errors.New("claude exited")
 }
 
-// Send delivers text. The same op twice writes once and answers with the first receipt. With Queue while a turn runs, the message is
-// held and written when the turn ends.
+// Send delivers text. The same op twice writes once and answers with the first receipt, also after a restart: the ledger has it. With
+// Queue while a turn runs, the message is held and written when the turn ends. The operation is recorded before it is written; if it
+// cannot be recorded it is not written.
 func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 	if op == "" {
 		return Receipt{}, errors.New("a send needs an operation id")
@@ -248,13 +270,30 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 		s.mu.Unlock()
 		return r, nil
 	}
+	prior, err := s.led.Get(op)
+	if err != nil {
+		s.mu.Unlock()
+		return Receipt{}, err
+	}
+	if prior != nil {
+		s.mu.Unlock()
+		return Receipt{prior.ID, prior.UUID, prior.State}, nil
+	}
 	if s.closed {
 		s.mu.Unlock()
 		return Receipt{}, errors.New("session closed")
 	}
-	e := &entry{op: op, uuid: uuidFor(op), text: text, state: Queued, settled: make(chan struct{})}
+	e := &entry{op: op, uuid: uuidFor(op), text: text, delivery: d, state: Queued, settled: make(chan struct{})}
+	held := d == Queue && s.busy
+	if !held {
+		e.state = Sent
+	}
+	if err := s.led.Put(e.record()); err != nil {
+		s.mu.Unlock()
+		return Receipt{}, err
+	}
 	s.ledger[op], s.byUUID[e.uuid] = e, e
-	if d == Queue && s.busy {
+	if held {
 		s.held = append(s.held, e)
 		r := Receipt{e.op, e.uuid, e.state}
 		s.mu.Unlock()
@@ -264,12 +303,42 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 	s.mu.Unlock()
 	if err := s.writeUser(e, d); err != nil {
 		s.mu.Lock()
-		delete(s.ledger, op)
-		delete(s.byUUID, e.uuid)
+		e.state = Unknown // it may have reached the CLI
+		s.led.Put(e.record())
 		s.mu.Unlock()
 		return Receipt{}, err
 	}
 	return Receipt{e.op, e.uuid, Sent}, nil
+}
+
+func (e *entry) record() Op {
+	return Op{ID: e.op, UUID: e.uuid, Text: e.text, Delivery: e.delivery, State: e.state}
+}
+
+// recover settles the ledger of an earlier process: a message written and never echoed is Unknown and is not written again; a
+// message still queued is held again and goes out once the CLI is idle.
+func (s *Session) recover() error {
+	pending, err := s.led.Pending()
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	for _, o := range pending {
+		e := &entry{op: o.ID, uuid: o.UUID, text: o.Text, delivery: o.Delivery, state: o.State, settled: make(chan struct{})}
+		if o.State == Sent {
+			e.state = Unknown
+			if err := s.led.Put(e.record()); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+			continue
+		}
+		s.ledger[o.ID], s.byUUID[o.UUID] = e, e
+		s.held = append(s.held, e)
+	}
+	s.mu.Unlock()
+	s.releaseNext()
+	return nil
 }
 
 // markWritten records that e is about to be written. Caller holds s.mu.
@@ -319,7 +388,11 @@ func (s *Session) Busy() bool {
 	return s.busy
 }
 
-// Close ends stdin, which ends the CLI, and kills it if it does not go.
+// CloseGrace is how long Close waits for the CLI to go after its stdin ends, before it kills the process group.
+var CloseGrace = 3 * time.Second
+
+// Close ends stdin, which ends the CLI, kills the CLI's process group if it does not go, and returns only once no process of the
+// group is left. An error means one is still alive: the caller must not report the agent stopped.
 func (s *Session) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -332,13 +405,27 @@ func (s *Session) Close() error {
 	}
 	s.mu.Unlock()
 	s.in.Close()
+	pgid := s.cmd.Process.Pid // Setpgid made the CLI the leader of its own group
 	select {
 	case <-s.done:
-	case <-time.After(3 * time.Second):
-		s.cmd.Process.Kill()
+	case <-time.After(CloseGrace):
+		syscall.Kill(-pgid, syscall.SIGKILL)
 		<-s.done
 	}
-	return nil
+	return groupGone(pgid)
+}
+
+// groupGone proves the process group is empty, killing what is left of it: the CLI's children outlive it when it dies without
+// reaping them.
+func groupGone(pgid int) error {
+	for i := 0; i < 50; i++ {
+		if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		syscall.Kill(-pgid, syscall.SIGKILL)
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("processes of the claude group %d are still running", pgid)
 }
 
 func (s *Session) read(out io.Reader) {
@@ -408,12 +495,14 @@ func (s *Session) echoed(uid string) {
 	if e := s.byUUID[uid]; e != nil && e.state == Sent {
 		e.state = Confirmed
 		s.echoing--
+		s.led.Put(e.record())
 		close(e.settled)
 	}
 }
 
 func (s *Session) stateChanged(state any) {
 	s.mu.Lock()
+	s.state, _ = state.(string)
 	switch state {
 	case "running", "requires_action":
 		s.busy = true
@@ -425,20 +514,34 @@ func (s *Session) stateChanged(state any) {
 		return
 	}
 	s.busy = false
-	var next *entry
-	if len(s.held) > 0 {
-		next, s.held = s.held[0], s.held[1:]
-		s.markWritten(next)
-	}
 	s.mu.Unlock()
-	if next != nil {
-		if err := s.writeUser(next, Queue); err != nil {
-			s.mu.Lock()
-			next.state = Queued
-			s.echoing--
-			s.held = append([]*entry{next}, s.held...)
-			s.mu.Unlock()
-		}
+	s.releaseNext()
+}
+
+// releaseNext writes the oldest held message if no turn is running. The held message is recorded Sent before it is written.
+func (s *Session) releaseNext() {
+	s.mu.Lock()
+	if s.busy || s.echoing > 0 || s.closed || len(s.held) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	next := s.held[0]
+	s.markWritten(next)
+	if err := s.led.Put(next.record()); err != nil {
+		next.state = Queued
+		s.echoing--
+		s.busy = false
+		s.mu.Unlock()
+		return
+	}
+	s.held = s.held[1:]
+	s.mu.Unlock()
+	if err := s.writeUser(next, Queue); err != nil {
+		s.mu.Lock()
+		next.state = Unknown
+		s.echoing--
+		s.led.Put(next.record())
+		s.mu.Unlock()
 	}
 }
 
@@ -486,3 +589,25 @@ func (s *Session) inbound(m map[string]any) {
 func (s *Session) respondError(id, msg string) {
 	s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": id, "error": msg}})
 }
+
+// State is the CLI's last reported session state: idle, running or requires_action; "" until it has reported one.
+func (s *Session) State() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state
+}
+
+// Done is closed when the CLI process has exited; ExitErr is then why. Liveness is this, not a screen.
+func (s *Session) Done() <-chan struct{} { return s.done }
+
+func (s *Session) ExitErr() error {
+	select {
+	case <-s.done:
+		return s.exitError()
+	default:
+		return nil
+	}
+}
+
+// Pid is the CLI's process id, which is also its process group.
+func (s *Session) Pid() int { return s.cmd.Process.Pid }
