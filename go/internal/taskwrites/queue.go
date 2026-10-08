@@ -11,15 +11,16 @@ import (
 )
 
 // queueMethod is task.queue (approve drafts to run) and task.draft (send queued ones back): the founder's or the owner's
-// manager's call, all the named tasks changing or none (actions.set_queued_all). Telling: go/TELLINGS.md.
-func queueMethod(home string, queued bool) func(*rpc.Conn, map[string]any) (any, error) {
+// manager's call, all the named tasks changing or none (actions.set_queued_all).
+func queueMethod(home string, tell Teller, queued bool) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tids, err := taskIDs(p, "tasks")
 		if err != nil {
 			return nil, err
 		}
 		by := c.Caller.Actor()
-		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+		var done []int64
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			var said []string
 			seen := map[int64]bool{}
 			for _, tid := range tids {
@@ -32,9 +33,20 @@ func queueMethod(home string, queued bool) func(*rpc.Conn, map[string]any) (any,
 					return nil, err
 				}
 				said = append(said, msg)
+				done = append(done, tid)
 			}
 			return accepted(strings.Join(said, "\n"), nil), nil
 		})
+		if err == nil && tell != nil && len(done) > 0 {
+			// Queuing also delivers: the task goes out now if its owner is free. The reply says what happened to each; a replay of this call
+			// is answered with what was kept, which says only that the tasks are queued.
+			delivered := make([]string, len(done))
+			for i, tid := range done {
+				delivered[i] = tell.QueueDelivered(tid, by, queued)
+			}
+			out["said"] = strings.Join(delivered, "\n")
+		}
+		return out, err
 	}
 }
 
