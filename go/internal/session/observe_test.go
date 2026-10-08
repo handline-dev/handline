@@ -15,7 +15,7 @@ func TestIsSession(t *testing.T) {
 		cmd  string
 		want bool
 	}{
-		{"claude --foo", true}, {"/usr/local/bin/claude", true}, {"/Users/x/Library/Application Support/Claude/claude --x", true},
+		{"claude --foo", true}, {"/usr/local/bin/claude", true}, {"/opt/x/Library/Application Support/Claude/claude --x", true},
 		{"claude -p hello", false}, {"claude --model x -p", false}, {"claude --append-system-prompt 'mkdir -p x' --x", true},
 		{"claude --append-system-prompt 'a' -p b", true}, {"node claude", false}, {"/tmp/claude-501/script.sh", false},
 		{"claude", true}, {"claudex", false}, {"opencode", true}, {"opencode --x", true}, {"/opt/bin/opencode -c", true},

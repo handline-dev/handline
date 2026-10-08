@@ -80,8 +80,8 @@ const (
 	TableOrigin = "table"
 )
 
-// Advice is what to do about each, in the words of the bridge's own keys. STALLED's is `w`, not the old `u`/unstall: founder
-// #1620/#1631 folded that key into wake, behind the same confirmation.
+// Advice is what to do about each, in the words of the bridge's own keys. STALLED's is `w`, not the old `u`/unstall: that key was folded into
+// wake, behind the same confirmation.
 var Advice = map[string]string{
 	term.Modal:        "answer it in its terminal (t on the agents panel)",
 	term.Backgrounded: "open its terminal (t on the agents panel) and press Esc to return to the conversation",

@@ -13,8 +13,7 @@ import (
 // its number on the screen just read; a dialog no rule matches is left for the founder. The folder-trust screen is lifecycle's
 // standing consent and stays on the trust roots, never on a rule. This setting gates both.
 //
-// accept answers a hook-reported tool call a driver's AcceptsTool takes; no current vendor takes any (T249 removed claude's one
-// case, the browser tool).
+// accept answers a hook-reported tool call a driver's AcceptsTool takes; no current vendor takes any.
 
 // AutoAcceptKey is the setting that gates both.
 const AutoAcceptKey = "auto_accept_dialogs"
