@@ -235,7 +235,7 @@ describe('schedules', () => {
   });
 
   it('says this daemon does not serve agent settings when hello does not list agent.set', async () => {
-    const m = await mount({}, (s) => s.daemon.unservedMethods.add('agent.set'));
+    const m = await mount({}, (s) => s.daemon.knobs.unserve('agent.set'));
     await until(() => text().includes('This daemon does not serve agent settings.'), 'the sentence');
     expect(input('model-input').readOnly).toBe(true);
     m.store.stop();
