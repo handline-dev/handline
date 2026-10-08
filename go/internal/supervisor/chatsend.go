@@ -127,3 +127,19 @@ func (e *Env) markWritten(q db.Q, row *db.Request) {
 	must(db.MarkDelivered(q, row.ID))
 	check(db.MarkTyped(q, row.ID, e.liveSession(q, row.Target)))
 }
+
+// ReopenConfirmed puts a confirmed message of the person's back among the open requests so chat.cancel can close it: a say that the CLI
+// echoed is settled as landed, and cancelling a delivered message closes it as rejected and tells the agent to stop. Anything else, a message
+// already cancelled included, is left alone. The caller's transaction decides whether the cancel goes ahead.
+func (e *Env) ReopenConfirmed(q db.Q, row *db.Request) (reopened bool, err error) {
+	defer Catch(&err)
+	if row.State != "landed" || row.Kind.String != "say" || row.Requester != db.Human || !e.structuredAgent(row.Target) || must(db.ClosedUnder(q, row.ID)) {
+		return false, nil
+	}
+	state, _, found, err := db.SendOp(q, row.Target, requestOp(row.ID))
+	check(err)
+	if !found || state != string(structured.Confirmed) {
+		return false, nil
+	}
+	return must(db.ReopenLanded(q, row.ID)), nil
+}

@@ -320,6 +320,9 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 		if row.Requester != db.Human {
 			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not a message the person sent", rid), "state", "")
 		}
+		if _, err := w.e.ReopenConfirmed(tx, row); err != nil { // rolled back with the transaction when the confirm is missing
+			return nil, nil, err
+		}
 		ok, plan, err := CancelPlan(tx, rid)
 		if err != nil {
 			return nil, nil, err

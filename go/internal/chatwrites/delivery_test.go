@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -14,12 +15,12 @@ import (
 // fakeSessions is the structured sessions as chat.send sees them: bob has one, alice is a terminal agent. A session records what it takes in
 // the operations table, as the real one does; busy makes a queue message wait, and echo confirms what is written.
 type fakeSessions struct {
-	mu   sync.Mutex
-	r    *rig
-	busy bool
+	mu      sync.Mutex
+	r       *rig
+	busy    bool
 	busyFor map[string]bool // agents with a turn running, besides the one busy covers
-	echo bool
-	sent []string
+	echo    bool
+	sent    []string
 }
 
 func (f *fakeSessions) Structured(a string) bool { return a != "alice" }
@@ -234,6 +235,27 @@ func TestCancelOfAWrittenMessageNeedsTheConfirm(t *testing.T) {
 	if d, ty := r.delivered(held); !d || !ty {
 		t.Fatalf("marked as written: %v %v", d, ty)
 	}
+}
+
+func TestCancelOfAConfirmedMessageNeedsTheConfirmAndTellsTheAgentToStop(t *testing.T) {
+	r, f, s := sessionRig(t)
+	rid := int64(r.result(r.one(s, "chat.send", send("stop me", "d1", "")))["request"].(float64))
+	f.confirmAll()
+	r.refusedWith(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"request_id":"c1"}`, rid)), "confirm")
+	var state string
+	r.db.QueryRow("SELECT state FROM requests WHERE id = ?", rid).Scan(&state)
+	if state != "landed" {
+		t.Fatalf("a refused cancel leaves the message as it was: %s", state)
+	}
+	r.result(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"confirm":true,"request_id":"c2"}`, rid)))
+	if r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = ?", rid, supervisor.CancelVerdict) != 1 {
+		t.Fatal("closed as rejected with the cancel verdict")
+	}
+	row, _ := dbpkg.GetRequest(r.db, rid)
+	if typed, why, err := r.env.NotifyCancelled(r.db, row, supervisor.CancelVerdict); !typed || err != nil || len(f.sent) != 2 || !strings.Contains(f.sent[1], "cancel") {
+		t.Fatalf("the agent is told to stop (the telling itself waits for a wired daemon): %v %q %v %q", typed, why, err, f.sent)
+	}
+	r.refusedWith(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"confirm":true,"request_id":"c3"}`, rid)), "state")
 }
 
 func TestSendNowWritesAQueuedMessageAndRefusesAnyOther(t *testing.T) {
