@@ -31,7 +31,7 @@ export const press = (el: HTMLElement | null) => act(async () => void el?.click(
 /** `role` is the caller's; `screen` replaces Home for a screen that Home does not reach yet. */
 export async function mount(
   prepare: (s: ReturnType<typeof setup>) => void = () => {},
-  daemon?: { bytes?: boolean },
+  daemon?: { bytes?: boolean; admin?: boolean },
   client?: string,
   as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode } = {},
 ) {
