@@ -383,6 +383,106 @@ describe('the task verbs', () => {
     m.store.stop();
   }, 20000);
 
+  it('queues a draft and sends a queued task back to draft', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    expect($('verb-draft')).toBeNull();
+    await press($('verb-queue'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state === 'queued', 'the daemon');
+    await until(() => $('verb-draft'), 'Back to draft');
+    await press($('verb-draft'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state === 'draft', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it('discard wants a reason, sends nothing when cancelled, and shows the refusal', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    await press($('verb-discard'));
+    expect(text()).toContain(`discard #${MINE_DRAFT}? why:`);
+    await press($('sheet-cancel'));
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
+    await press($('verb-discard'));
+    await press($('sheet-submit'));
+    expect($('sheet-error')?.textContent).toBe('A reason is required.');
+    await fill('sheet-text', 'not wanted');
+    m.daemon.knobs.refuse('task.discard', 'state', 'that task is waiting on an audit');
+    await press($('sheet-submit'));
+    await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
+    expect(value('sheet-text')).toBe('not wanted');
+    m.daemon.knobs.clear();
+    await press($('sheet-submit'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state === 'discarded', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it('edits a task and sends only what changed', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    await press($('verb-edit'));
+    await fill('et-title', '');
+    await press($('sheet-submit'));
+    expect($('sheet-error')?.textContent).toBe('A task needs a title.');
+    await fill('et-title', 'Pair the phone with the real daemon');
+    await press($('et-priority-1'));
+    const sent: Record<string, unknown>[] = [];
+    const edit = m.daemon.tasks.edit.bind(m.daemon.tasks);
+    m.daemon.tasks.edit = (p) => (sent.push(p), edit(p));
+    await press($('sheet-submit'));
+    await until(() => $('sheet') === null, 'the sheet to close');
+    expect(sent.map(({ request_id, ...rest }) => rest)).toEqual([
+      { task: MINE_DRAFT, title: 'Pair the phone with the real daemon', priority: 1 },
+    ]);
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).title === 'Pair the phone with the real daemon', 'the daemon');
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).priority).toBe(1);
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).to).toBe('handline.term-build');
+    m.store.stop();
+  }, 20000);
+
+  it('keeps the edit sheet and its text when the daemon refuses, and shows the reason', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    await press($('verb-edit'));
+    await fill('et-title', 'A better title');
+    m.daemon.knobs.refuse('task.edit', 'state', 'that task is being merged');
+    await press($('sheet-submit'));
+    await until(() => text().includes('that task is being merged'), 'the reason', 3000);
+    expect($('sheet')).not.toBeNull();
+    expect(value('et-title')).toBe('A better title');
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).title).not.toBe('A better title');
+    m.store.stop();
+  }, 20000);
+
+  it('puts Queue back and shows the reason when the daemon refuses it', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    m.daemon.knobs.refuse('task.queue', 'state', 'the queue is full');
+    await press($('verb-queue'));
+    await until(() => text().includes('the queue is full'), 'the reason', 3000);
+    expect($('verb-queue')).not.toBeNull();
+    expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
+    m.store.stop();
+  }, 20000);
+
+  it('filters the list: Mine, a state chip and Closed', async () => {
+    await mount(verbs, undefined, 'founder');
+    await tab('tasks');
+    await until(() => $(`task-${MINE_DOING}`) && $('task-1690'), 'the rows');
+    expect($('task-1650')).toBeNull(); // done is out of the way
+    await press($('state-queued'));
+    await until(() => $('task-1690') === null, 'queued hidden');
+    expect($(`task-${MINE_DOING}`)).not.toBeNull();
+    await press($('state-queued'));
+    await until(() => $('task-1690'), 'queued back');
+    await press($('scope-mine'));
+    await until(() => $(`task-${MINE_DOING}`) === null, 'only tasks owned by me');
+    await press($('scope-closed'));
+    await until(() => $('task-1650'), 'the closed task');
+    expect($(`task-${MINE_DOING}`)).toBeNull();
+    await press($('scope-open'));
+    await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
+  }, 20000);
+
   it('disables a verb the daemon does not serve and says why', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openTask(MINE_DOING);
