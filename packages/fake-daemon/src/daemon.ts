@@ -64,6 +64,7 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
+  readonly unservedMethods = new Set<string>(); // methods hello leaves out and a call refuses as unsupported, as an older daemon does
   readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
@@ -341,7 +342,7 @@ export class FakeDaemon {
         capabilities: { chat: this.serveChat, review: false, input_ask: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
         transport: c.network ? 'network' : 'local',
         methods: Object.entries(METHODS)
-          .filter(([name]) => this.served.every((m) => m.lists(name)))
+          .filter(([name]) => this.served.every((m) => m.lists(name)) && !this.unservedMethods.has(name))
           .map(([name, m]) => ({
             name,
             since: m.since,
@@ -354,7 +355,8 @@ export class FakeDaemon {
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
     if (spec.write && typeof p.request_id !== 'string') throw badRequest(`${method} needs a request_id`, 'request_id');
-    if (!this.served.every((m) => m.lists(method))) throw refused('unsupported', `the fake daemon does not serve ${method}`);
+    if (this.unservedMethods.has(method) || !this.served.every((m) => m.lists(method)))
+      throw refused('unsupported', `the fake daemon does not serve ${method}`);
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });

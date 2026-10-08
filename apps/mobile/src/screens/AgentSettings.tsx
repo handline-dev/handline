@@ -37,7 +37,7 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
         <Button testID="settings-back" label={`‹ ${agent}`} onPress={onBack} style={{ alignSelf: 'flex-start' }} />
         <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Settings</Text>
         <Text style={{ color: c.muted }}>Each change saves as you make it.</Text>
-        {served ? null : <Text style={{ color: c.muted }}>This daemon does not edit agent settings.</Text>}
+        {served ? null : <Text style={{ color: c.muted }}>This daemon does not serve agent settings.</Text>}
         {served && !editable ? <Text style={{ color: c.muted }}>Only the founder edits agent settings.</Text> : null}
       </View>
       <ScrollView testID="agent-settings" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>

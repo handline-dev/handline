@@ -1,30 +1,12 @@
 // The phone's agent settings and schedules on the fake daemon: each field saves on its own, a refusal puts the value back with its reason,
 // the two danger switches ask first, a member sees the page read-only, and schedules add, edit and remove for the founder.
 import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@handline/app-core';
-import { DataProvider } from '@handline/app-data';
-import { DaemonProvider } from '@handline/app-react';
-import { setup } from '@handline/fake-daemon/helpers';
+import { describe, expect, it } from 'vitest';
+import type { setup } from '@handline/fake-daemon/helpers';
 import { AgentSettings } from '../src/screens/AgentSettings.tsx';
+import { $, ARCH, box, mount as mountHarness, press, until } from './harness.tsx';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const sleep = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
-async function until(cond: () => unknown, what: string, ms = 4000) {
-  for (let t = 0; t < ms; t += 10) {
-    if (cond()) return;
-    await sleep(10);
-  }
-  throw new Error(`timed out waiting for ${what}`);
-}
-
-let root: Root | null = null;
-let box: HTMLElement;
-const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const text = (el: Element | null = box) => el?.textContent ?? '';
-const press = (el: HTMLElement | null) => act(async () => void el?.click());
 const type = (id: string, value: string) =>
   act(async () => {
     const el = $(id) as HTMLInputElement | HTMLTextAreaElement;
@@ -33,38 +15,26 @@ const type = (id: string, value: string) =>
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-const ARCH = 'handline.architect';
+const screen = () => <AgentSettings agent={ARCH} onBack={() => {}} />;
 
-async function mount(opts: { role?: 'founder' | 'member' | 'agent'; latency?: number } = {}) {
-  const s = setup({ role: opts.role });
-  if (opts.latency) s.daemon.knobs.latency(opts.latency);
-  return mountWith(s);
-}
-async function mountWith(s: ReturnType<typeof setup>) {
-  const store = new Store(s.client);
-  box = document.body.appendChild(document.createElement('div'));
-  root = createRoot(box);
-  await act(async () => {
-    root!.render(
-      <DaemonProvider store={store}>
-        <DataProvider daemonId="test">
-          <AgentSettings agent={ARCH} onBack={() => {}} />
-        </DataProvider>
-      </DaemonProvider>,
-    );
-  });
-  return { ...s, store };
+function mount(
+  opts: { role?: 'founder' | 'member' | 'agent'; latency?: number } = {},
+  prepare: (s: ReturnType<typeof setup>) => void = () => {},
+) {
+  return mountHarness(
+    (s) => {
+      if (opts.latency) s.daemon.knobs.latency(opts.latency);
+      prepare(s);
+    },
+    undefined,
+    undefined,
+    { role: opts.role, screen },
+  );
 }
 const stored = (m: Awaited<ReturnType<typeof mount>>) => m.daemon.sessions.get(ARCH)!.settings;
 /** react-native-web draws no aria-selected or aria-checked: a chosen option is the bold one, a switch says On or Off. */
 const chosen = (id: string) => ($(id)?.firstElementChild as HTMLElement | null)?.style.fontWeight === '700';
 const input = (id: string) => $(id) as HTMLInputElement;
-
-afterEach(async () => {
-  await act(async () => root?.unmount());
-  root = null;
-  box?.remove();
-});
 
 describe('agent settings', () => {
   it('shows each field with the stored value and the account the session runs on', async () => {
@@ -170,18 +140,16 @@ describe('agent settings', () => {
   });
 
   it('says why when the agent cannot be read, and retries', async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('agent.get', 'state', 'the daemon is resting');
-    const m = await mountWith(s);
+    const m = await mount({}, (s) => s.daemon.knobs.refuse('agent.get', 'state', 'the daemon is resting'));
     await until(() => $('error'), 'the error');
     expect(text($('error'))).toContain('the daemon is resting');
     m.store.stop();
   });
 
   it('says this daemon does not serve schedules when it refuses the list as unsupported', async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('schedules.list', 'unsupported', 'the fake daemon does not serve schedules.list');
-    const m = await mountWith(s);
+    const m = await mount({}, (s) =>
+      s.daemon.knobs.refuse('schedules.list', 'unsupported', 'the fake daemon does not serve schedules.list'),
+    );
     await until(() => $('not-served'), 'the notice');
     expect(text($('schedules'))).toContain('This daemon does not serve schedules.');
     m.store.stop();
@@ -232,7 +200,8 @@ describe('schedules', () => {
     await type('schedule-message', 'x');
     await press($('schedule-save'));
     await until(() => text($('schedules-note')).includes('Only the founder'), 'the reason');
-    expect(box.querySelector('[data-testid^="schedule-1"]')).toBeNull();
+    expect(box.querySelectorAll('[data-testid="schedule-remove"]').length).toBe(0);
+    expect(text($('schedules'))).not.toContain('0 9 * * *');
     m.store.stop();
   });
 
@@ -262,6 +231,13 @@ describe('schedules', () => {
     m.daemon.knobs.latency(600);
     await press($('schedule-save'));
     await until(() => $('schedules-pending'), 'the saving note', 1000);
+    m.store.stop();
+  });
+
+  it('says this daemon does not serve agent settings when hello does not list agent.set', async () => {
+    const m = await mount({}, (s) => s.daemon.unservedMethods.add('agent.set'));
+    await until(() => text().includes('This daemon does not serve agent settings.'), 'the sentence');
+    expect(input('model-input').readOnly).toBe(true);
     m.store.stop();
   });
 });
