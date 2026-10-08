@@ -1,4 +1,4 @@
-// The phone's task verbs, as on the web's Tasks page (docs/pc-app-gaps.md U11): new task, done, reopen, memo, withdraw, cancel. Each is a
+// The phone's task verbs, as on the web's Tasks page (docs/pc-app-gaps.md U11): new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. Each is a
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
@@ -30,30 +30,61 @@ function Input(props: {
 }) {
   const c = usePalette();
   return (
-    <TextInput
-      testID={props.testID}
-      accessibilityLabel={props.label}
-      placeholder={props.label}
-      placeholderTextColor={c.muted}
-      value={props.value}
-      onChangeText={props.onChange}
-      multiline={props.multiline}
-      style={{
-        color: c.ink,
-        borderWidth: 1,
-        borderColor: props.invalid ? c.block : c.line,
-        borderRadius: radius.md,
-        padding: space.md,
-        minHeight: props.multiline ? 72 : 44,
-      }}
-    />
+    <View style={{ gap: space.xs }}>
+      <Text style={{ color: c.muted, fontWeight: '600' }}>{props.label}</Text>
+      <TextInput
+        testID={props.testID}
+        accessibilityLabel={props.label}
+        placeholder={props.label}
+        placeholderTextColor={c.muted}
+        value={props.value}
+        onChangeText={props.onChange}
+        multiline={props.multiline}
+        style={{
+          color: c.ink,
+          borderWidth: 1,
+          borderColor: props.invalid ? c.block : c.line,
+          borderRadius: radius.md,
+          padding: space.md,
+          minHeight: props.multiline ? 72 : 44,
+        }}
+      />
+    </View>
   );
 }
 
+function Chip(props: { on: boolean; label: string; onPress: () => void; testID: string }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: props.on }}
+      onPress={props.onPress}
+      style={{
+        borderWidth: props.on ? 2 : 1,
+        borderColor: props.on ? c.ink : c.line,
+        borderRadius: radius.pill,
+        paddingVertical: space.sm,
+        paddingHorizontal: space.md,
+      }}
+    >
+      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+    </Pressable>
+  );
+}
+
+const PRIORITIES = [
+  [1, '1 high'],
+  [2, '2'],
+  [3, '3 low'],
+] as const;
+
 /** A small panel under the verbs: names the thing, takes a reason (required or optional), Submit and Cancel. */
-function Sheet(props: {
+export function Sheet(props: {
   label: string;
   submit: string;
+  kind?: 'yes' | 'no';
   children?: ReactNode;
   onCancel: () => void;
   onSubmit: () => void;
@@ -74,7 +105,14 @@ function Sheet(props: {
         </Text>
       ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button testID="sheet-submit" kind="yes" label={props.submit} disabled={props.busy} onPress={props.onSubmit} style={{ flex: 1 }} />
+        <Button
+          testID="sheet-submit"
+          kind={props.kind ?? 'yes'}
+          label={props.submit}
+          disabled={props.busy}
+          onPress={props.onSubmit}
+          style={{ flex: 1 }}
+        />
         <Button testID="sheet-cancel" label="Cancel" onPress={props.onCancel} />
       </View>
     </View>
@@ -84,6 +122,7 @@ function Sheet(props: {
 function ReasonSheet(props: {
   label: string;
   submit: string;
+  kind?: 'yes' | 'no';
   required: boolean;
   onCancel: () => void;
   onSubmit: (reason: string) => Promise<unknown> | void;
@@ -95,6 +134,7 @@ function ReasonSheet(props: {
     <Sheet
       label={props.label}
       submit={props.submit}
+      kind={props.kind}
       busy={busy}
       onCancel={props.onCancel}
       error={empty ? 'A reason is required.' : undefined}
@@ -115,7 +155,7 @@ function ReasonSheet(props: {
   );
 }
 
-type Ask = null | 'done' | 'reopen' | 'withdraw' | 'cancel';
+type Ask = null | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit';
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
@@ -126,11 +166,18 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const reopen = useWrite('task.reopen');
   const withdraw = useWrite('task.withdraw');
   const cancel = useWrite('task.cancel');
+  const queue = useWrite('task.queue');
+  const draft = useWrite('task.draft');
+  const discard = useWrite('task.discard');
   const off = {
     done: useWhyNot('task.done'),
     reopen: useWhyNot('task.reopen'),
     withdraw: useWhyNot('task.withdraw'),
     cancel: useWhyNot('task.cancel'),
+    queue: useWhyNot('task.queue'),
+    draft: useWhyNot('task.draft'),
+    discard: useWhyNot('task.discard'),
+    edit: useWhyNot('task.edit'),
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
@@ -152,6 +199,24 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
         {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
         {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
+        {t.state === 'draft' && (
+          <Button
+            testID="verb-queue"
+            label="Queue"
+            disabled={!!off.queue || ask !== null || queue.isPending}
+            onPress={() => void queue.mutateAsync({ tasks: [t.id] }).catch(() => {})}
+          />
+        )}
+        {t.state === 'queued' && (
+          <Button
+            testID="verb-draft"
+            label="Back to draft"
+            disabled={!!off.draft || ask !== null || draft.isPending}
+            onPress={() => void draft.mutateAsync({ tasks: [t.id] }).catch(() => {})}
+          />
+        )}
+        {open && verb('edit', 'Edit', off.edit, 'edit')}
+        {open && verb('discard', 'Discard', off.discard, 'discard')}
       </View>
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
@@ -176,6 +241,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         <Sheet
           label={`withdraw #${t.id}?`}
           submit="Withdraw"
+          kind="no"
           onCancel={() => setAsk(null)}
           onSubmit={() => void settle(withdraw.mutateAsync({ task: t.id }))}
         >
@@ -186,11 +252,23 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         <ReasonSheet
           label={running ? `stop #${t.id}? why (optional):` : `cancel #${t.id}? why (optional):`}
           submit={running ? 'Stop it' : 'Cancel task'}
+          kind="no"
           required={false}
           onCancel={() => setAsk(null)}
           onSubmit={(reason) => settle(cancel.mutateAsync({ task: t.id, reason: reason || undefined }))}
         />
       )}
+      {ask === 'discard' && (
+        <ReasonSheet
+          label={running ? `stop #${t.id} and discard it? why:` : `discard #${t.id}? why:`}
+          submit="Discard"
+          kind="no"
+          required
+          onCancel={() => setAsk(null)}
+          onSubmit={(reason) => settle(discard.mutateAsync({ task: t.id, reason }))}
+        />
+      )}
+      {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
     </View>
   );
 }
@@ -203,6 +281,10 @@ export function useTaskPending(id: number): boolean {
     ...usePending('task.reopen'),
     ...usePending('task.withdraw'),
     ...usePending('task.cancel'),
+    ...usePending('task.queue'),
+    ...usePending('task.draft'),
+    ...usePending('task.discard'),
+    ...usePending('task.edit'),
     ...usePending('task.memo.add'),
   ].some(mine);
 }
@@ -239,12 +321,6 @@ export function MemoBox({ id }: { id: number }) {
   );
 }
 
-const PRIORITIES = [
-  [1, '1 high'],
-  [2, '2'],
-  [3, '3 low'],
-] as const;
-
 /** New task: owner, title, body, time box, priority. The row shows in the list at once; a refusal leaves the text here with the reason. */
 export function NewTask({ onClose }: { onClose: () => void }) {
   const c = usePalette();
@@ -265,22 +341,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
   const chip = (on: boolean, label: string, onPress: () => void, testID: string) => (
-    <Pressable
-      key={testID}
-      testID={testID}
-      accessibilityRole="radio"
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      style={{
-        borderWidth: on ? 2 : 1,
-        borderColor: on ? c.ink : c.line,
-        borderRadius: radius.pill,
-        paddingVertical: space.sm,
-        paddingHorizontal: space.md,
-      }}
-    >
-      <Text style={{ color: c.ink, fontWeight: on ? '700' : '400' }}>{on ? `✓ ${label}` : label}</Text>
-    </Pressable>
+    <Chip key={testID} on={on} label={label} onPress={onPress} testID={testID} />
   );
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
@@ -306,5 +367,56 @@ export function NewTask({ onClose }: { onClose: () => void }) {
         <Button testID="nt-cancel" label="Cancel" onPress={onClose} />
       </View>
     </View>
+  );
+}
+
+/** Edit: only what changed is sent. The sheet stays open with the text when the daemon refuses. */
+function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
+  const c = usePalette();
+  const edit = useWrite('task.edit');
+  const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
+  const [title, setTitle] = useState(t.title);
+  const [body, setBody] = useState(t.body ?? '');
+  const [owner, setOwner] = useState(t.to);
+  const [box, setBox] = useState(t.time_box ?? '');
+  const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
+  const [missing, setMissing] = useState('');
+  const save = () => {
+    if (!title.trim()) return setMissing('A task needs a title.');
+    setMissing('');
+    const change = {
+      ...(title.trim() !== t.title ? { title: title.trim() } : {}),
+      ...(body !== (t.body ?? '') ? { body } : {}),
+      ...(owner !== t.to ? { owner } : {}),
+      ...(box.trim() && box.trim() !== t.time_box ? { time_box: box.trim() } : {}),
+      ...(priority !== (t.priority ?? 2) ? { priority } : {}),
+    };
+    if (!Object.keys(change).length) return onClose();
+    edit.mutateAsync({ task: t.id, ...change }).then(onClose, () => {});
+  };
+  return (
+    <Sheet
+      label={`edit #${t.id}`}
+      submit="Save"
+      busy={edit.isPending}
+      onCancel={onClose}
+      onSubmit={save}
+      error={missing || (edit.isError ? sentence(classify(edit.error)) : undefined)}
+    >
+      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+        {[...new Set([t.to, ...agents])].map((a) => (
+          <Chip key={a} on={owner === a} label={a} onPress={() => setOwner(a)} testID={`et-owner-${a}`} />
+        ))}
+      </View>
+      <Input testID="et-title" label="Title" value={title} onChange={setTitle} />
+      <Input testID="et-body" label="Body" value={body} onChange={setBody} multiline />
+      <Input testID="et-box" label="Time box" value={box} onChange={setBox} />
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        {PRIORITIES.map(([p, l]) => (
+          <Chip key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
+        ))}
+      </View>
+    </Sheet>
   );
 }

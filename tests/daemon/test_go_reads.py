@@ -79,7 +79,9 @@ def _seed(home: Path) -> dict:
     db.add_event(con, "worker", "state", {"task_id": a, "text": "working", "actor": {"kind": "agent", "name": "worker"}})
     db.add_event(con, "worker", "key", {"method": "session.keys"})
     db.add_event(con, "worker", "plain", None)
-    db.set_meta(con, f"taskhold:{c}", json.dumps({"why": "behind T1", "able": False, "since": int(time.time()) - 400}))
+    # 2.5 h ago reads "for 2h" for the next half hour; an age in minutes changes wording every 60 s, and the two
+    # daemons are asked minutes apart (the build, a loaded machine).
+    db.set_meta(con, f"taskhold:{c}", json.dumps({"why": "behind T1", "able": False, "since": int(time.time()) - 9000}))
     say = db.add_request(con, "worker", db.HUMAN, "a report\nwith a second line", None, None, None, "say", 0, None)
     ask = db.add_request(con, "worker", db.HUMAN, "may I?", None, "subordinate", "async", "ask", 0, None)
     con.execute("UPDATE requests SET landed_at = ts, state = 'landed' WHERE id = ?", (say,))

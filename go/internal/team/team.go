@@ -1,7 +1,6 @@
 package team
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -531,7 +530,7 @@ func pyStrOr(v any, has bool) string {
 }
 
 // RateLimited is whether the requester has used its asks for the last hour, and the line to say about it.
-func (t *Team) RateLimited(db *sql.DB, requester string, now time.Time) (bool, string, error) {
+func (t *Team) RateLimited(db Querier, requester string, now time.Time) (bool, string, error) {
 	var used int
 	err := db.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL",
 		requester, now.Unix()-AskWindowS).Scan(&used)

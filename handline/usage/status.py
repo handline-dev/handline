@@ -380,6 +380,14 @@ class AccountStatus:
             # In the units a reader thinks in. "59213s > 900s" is two numbers
             # nobody subtracts; the line is on a dashboard, and what it has to
             # say is how long ago anything ran on this account.
+            week = self.long.pct
+            if (week is not None and week >= LONG_BLOCK and not self.long.lost
+                    and not (self.long.reset and self.long.reset <= self._now())):
+                # The weekly wall is the block, not the age: a stale reading with
+                # room would take work (`rolled_over`).
+                back = (f" - resets {timefmt.stamp(self.long.reset, timefmt.SHORT)}"
+                        if self.long.reset else "")
+                return False, f"{self.long.label} {week}% at last reading{back}"
             shown = "unknown" if self.age_s is None else timefmt.ago(self.age_s)
             return False, (f"nothing has run on it for {shown} - the snapshot is "
                            f"stale (fail-closed)")

@@ -18,6 +18,14 @@ export class Knobs {
   refuse(method: string, gate: string, reason: string, hint?: string, times = Infinity): void {
     this.refusals.set(method, { gate, reason, hint, times });
   }
+  private unserved = new Set<string>();
+  /** Leaves `method` out of hello's list and refuses it, as a daemon that does not serve it would. */
+  unserve(method: string): void {
+    this.unserved.add(method);
+  }
+  lists(method: string): boolean {
+    return !this.unserved.has(method);
+  }
   private holds = new Map<string, Promise<void>>();
   /** Holds every call of `method` until the returned function is called: a test can look at the pending state as long as it likes. */
   hold(method: string): () => void {
@@ -40,6 +48,7 @@ export class Knobs {
   clear(): void {
     this.holds.clear();
     this.refusals.clear();
+    this.unserved.clear();
     this.delayMs = 0;
   }
   waits(method: string): number {

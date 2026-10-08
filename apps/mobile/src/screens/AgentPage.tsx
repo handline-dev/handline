@@ -8,6 +8,8 @@ import { radius, space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { dotColor, usePalette } from '../theme.ts';
+import { AgentVerbs, useVerbMark } from './AgentVerbs.tsx';
+import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
@@ -77,7 +79,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const mark = useAgentMark(name);
+  const verbMark = useVerbMark(name);
+  const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
   const resume = useWrite('session.restart', name);
   const stopMode = useWrite('session.stop', name);
@@ -125,22 +128,15 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           </Text>
         )}
       </Row>
+      <View style={{ paddingHorizontal: space.md }}>
+        <AgentVerbs detail={detail} row={row} />
+      </View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {tab('chat', 'Chat')}
         {tab('terminal', 'Terminal')}
       </Row>
       {detail.prompt && <PermissionCard prompt={detail.prompt} />}
-      {current === 'chat' ? <ChatEmpty /> : <Terminal detail={detail} />}
-    </View>
-  );
-}
-
-function ChatEmpty() {
-  const c = usePalette();
-  return (
-    <View style={{ padding: space.xl, gap: space.sm }}>
-      <Text style={{ color: c.ink, fontWeight: '600' }}>Chat is not available yet</Text>
-      <Text style={{ color: c.muted }}>This daemon does not serve chat. Use the Terminal tab to talk to the agent.</Text>
+      {current === 'chat' ? <Chat detail={detail} /> : <Terminal detail={detail} />}
     </View>
   );
 }

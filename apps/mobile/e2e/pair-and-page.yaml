@@ -31,7 +31,8 @@ appId: dev.handline.mobile
 - takeScreenshot: shots/2-agent-list
 - tapOn:
     id: agent-handline.architect
-- assertVisible: Chat is not available yet
+- assertVisible:
+    id: chat-input
 - takeScreenshot: shots/3-agent-page-chat
 - tapOn:
     id: tab-terminal

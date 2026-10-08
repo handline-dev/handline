@@ -12,7 +12,7 @@ from ..infra import paths
 from ..usage import status
 from ..infra.yamlcompat import ConfigError
 
-from . import agentview, delivery, evaluate, handoff, lifecycle, login_expired
+from . import agentview, delivery, evaluate, fds, handoff, lifecycle, login_expired
 from .states import (DEGRADED, DEGRADED_RETRY_S, IDLE, MAX_FAILED_ATTEMPTS, PARKED, RUNNING,
                      STALLED, STUCK_RUNNING_S, THROTTLED)
 
@@ -53,6 +53,10 @@ def _stall_agent(con, agent: str, log, actions: list[str],
     raises, the same distinction hr.listing already draws for a bad proposal
     file; tick(): bare Exception, the wider net a live turn can fail in more
     ways than a config read can)."""
+    if fds.is_exhaustion(e):
+        # The daemon ran out of descriptors: no agent's fault, and three of these stalled every agent in the team.
+        fds.say_exhaustion(log, e, f"{where} for {agent}")
+        return
     db.bump_counter(con, agent, "failed_attempts")
     fresh = db.get_agent_state(con, agent)
     actions.append(f"{agent}: {where}: {e}")

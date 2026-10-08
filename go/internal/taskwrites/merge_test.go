@@ -35,7 +35,7 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir())
+		Register(s, t.TempDir(), nil)
 		return s
 	}
 	merge := func(agent, rid string, into int, tasks ...int) map[string]any {

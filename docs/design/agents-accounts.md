@@ -17,7 +17,7 @@ The menu of `web-main-view.md` §2 holds Interrupt, Exit, Close, Kill, Close ter
 | Park | `p` | `session.park` | decided | yes | a session exists |
 | Fold | `f` | `agent.fold` | decided | yes, and the sheet names the handoff it folds into | a session exists |
 | Move account | `v` | `agent.move` | decided | none: choosing the account is the choice | always |
-| Clear stall **(pending, N4)** | the stalled row's `w` | `agent.unstall` | decided | yes | state STALLED, founder only |
+| Clear stall **(fake daemon only)** | the stalled row's `w` | `agent.unstall` | decided | yes | state STALLED, founder only |
 
 The confirm set is the bridge's `CONFIRM` (close, restart, park, fold, cancel) plus wake-on-stalled (clear stall). Move is not in it. Kill and Close terminal keep their existing confirmations (`web-main-view.md` §2). All are decided writes: the row shows its pending mark in the state cell with the bridge's gerund ("closing…", "parking…", "folding…", "waking…", "restarting…"), the `⋯` stays openable but the verb in flight is disabled, and the row changes only when the `agents` topic says so. Refusals show the daemon's reason in a toast named by the verb.
 

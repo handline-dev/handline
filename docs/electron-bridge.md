@@ -30,6 +30,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `unsent` | page → shell | E4 | no call; a reload asks nothing |
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
+| `mode`, `setMode`, `pairRemote` | page → shell | modes | the pairing screen shows no mode section |
 
 ## 3. Badge, notices, update, and the notice's click
 
@@ -138,6 +139,10 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 7. **Only from the page that asked.** The sender check of §2 applies; the editor runs as the shell's own user with the shell's environment, nothing more.
 
 **Plain browser:** there is no editor to run; the page offers its own multi-line box in the same place (a larger textarea in a dialog, the compose box's own keys). "In editor" appears only when `typeof handline.compose === 'function'`, and a `terminal_editor`, `no_editor` or `not_waiting` result turns the same dialog on with the text kept.
+
+### 4.3 `mode`, `setMode`, `pairRemote`
+
+The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote }` (`remote` the paired device's address in connect mode, else null). `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
 
 ## 5. Tests
 

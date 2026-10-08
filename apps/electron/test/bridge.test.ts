@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NavigateTo } from '@handline/app-core';
 import { makeApi, type Ipc } from '../src/api.ts';
-import { CHANNELS, fromWindow, Page, type Sender } from '../src/bridge.ts';
+import { CHANNELS, Connection, fromWindow, Page, type Sender } from '../src/bridge.ts';
 import { noticeFor } from '../src/notices.ts';
 import type { Event } from '@handline/client';
 
@@ -117,4 +117,29 @@ test('a notice carries its event type and target, so a click can go where the da
   const n = noticeFor(e)!;
   assert.deepEqual([n.target, n.event], [{ screen: 'task', id: '7' }, 'task_done']);
   assert.equal(noticeFor({ ...e, target: null })!.target, null);
+});
+
+test('the page switches the mode and pairs another device only from the window and with the right arguments', async () => {
+  const seen: unknown[] = [];
+  const c = new Connection(ORIGIN, {
+    mode: () => ({ mode: 'connect', remote: 'mac.ts.net:7443' }),
+    setMode: (m) => void seen.push(m),
+    pair: async (i) => {
+      if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
+      seen.push(i);
+    },
+  });
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.deepEqual(c.mode(top), { ok: true, mode: 'connect', remote: 'mac.ts.net:7443' });
+  assert.equal(c.mode(evil).ok, false);
+  assert.deepEqual(c.setMode(top, 'own'), { ok: true });
+  assert.equal(c.setMode(top, 'nonsense').ok, false);
+  assert.equal(c.setMode(evil, 'own').ok, false);
+  assert.deepEqual(await c.pairRemote(top, { address: 'a.ts.net', code: 'c' }), { ok: true });
+  assert.equal((await c.pairRemote(top, { address: 'a.ts.net', code: 'c', extra: 'x' })).ok, false);
+  assert.equal((await c.pairRemote(top, { code: 7 })).ok, false);
+  assert.equal((await c.pairRemote(evil, { link: 'handline://x' })).ok, false);
+  const failed = await c.pairRemote(top, { address: 'a.ts.net', code: 'bad' });
+  assert.deepEqual(failed, { ok: false, code: 'cannot_pair', message: 'the gateway at x cannot be paired with: nothing answered' });
+  assert.deepEqual(seen, ['own', { address: 'a.ts.net', code: 'c' }]);
 });

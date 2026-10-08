@@ -6,38 +6,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
 // discardMethod is task.discard: the asker's or the founder's call, with a one-line reason.
-func discardMethod(home string) func(*rpc.Conn, map[string]any) (any, error) {
+func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		reason, err := text(p, "reason")
 		if err != nil {
 			return nil, err
 		}
-		return discard(c, p, home, reason)
+		return discard(c, p, home, tell, reason)
 	}
 }
 
 // withdrawMethod is task.withdraw: an opener throwing its own task away.
-func withdrawMethod(home string) func(*rpc.Conn, map[string]any) (any, error) {
+func withdrawMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
-		return discard(c, p, home, "withdrawn by whoever opened it")
+		return discard(c, p, home, tell, "withdrawn by whoever opened it")
 	}
 }
 
 // discard throws a task away before it is done (actions.discard_task, without the founder's stop of open requests, which is
 // task.cancel's): refused while a child is open, while it waits on an open blocker, or while a request is still out on it.
-// Telling: go/TELLINGS.md.
-func discard(c *rpc.Conn, p map[string]any, home, reason string) (any, error) {
+// What follows the commit - the says typed, the owner's next task, the closed requests' inbox files - is the Teller's.
+func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string) (any, error) {
 	tid, err := taskID(p)
 	if err != nil {
 		return nil, err
 	}
 	by := c.Caller.Actor()
-	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+	var (
+		owner  string
+		notes  []told
+		freed  []string
+		forget []db.InboxFile
+	)
+	out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		t, err := getTask(tx, tid)
 		if err != nil {
 			return nil, err
@@ -120,9 +127,11 @@ func discard(c *rpc.Conn, p map[string]any, home, reason string) (any, error) {
 		if who != t.Owner {
 			also = append(also, who)
 		}
-		if _, err := endTaskDiscarded(tx, home, tid, by, t, fmt.Sprintf("discarded by %s: %s", byWord, said), also); err != nil {
+		ended, gone, err := endTaskDiscarded(tx, home, tid, by, t, fmt.Sprintf("discarded by %s: %s", byWord, said), also)
+		if err != nil {
 			return nil, err
 		}
+		notes, forget = ended, gone
 		for _, b := range blockers { // only the founder gets here with any: the wait ends with the task
 			if err := removeBlock(tx, tid, b.ID); err != nil {
 				return nil, err
@@ -131,11 +140,17 @@ func discard(c *rpc.Conn, p map[string]any, home, reason string) (any, error) {
 		if err := reparentChildren(tx, tid); err != nil {
 			return nil, err
 		}
-		if _, err := clearBlocksOn(tx, tid, by, "discarded"); err != nil {
+		cleared, owners, err := clearBlocksOn(tx, tid, by, "discarded")
+		if err != nil {
 			return nil, err
 		}
+		notes, freed, owner = append(notes, cleared...), owners, t.Owner
 		return accepted(fmt.Sprintf("task T%d discarded by %s: %s", tid, by, said), nil), nil
 	})
+	if err == nil && owner != "" && tell != nil {
+		tell.Discarded(owner, notes, freed, forget)
+	}
+	return out, err
 }
 
 // endHeld takes the task out of its owners' queues: the landed delivery that asked for it is history from now on.

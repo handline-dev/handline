@@ -1,6 +1,7 @@
 // The shell's side of window.handline (docs/electron-bridge.md §2, §3): what the page last said, and the check each call passes.
 // Electron's own objects are injected, so this runs under node.
 import type { Fail } from '@handline/app-core';
+import { parseMode, type Mode, type OfferInput } from './mode.ts';
 
 export const CHANNELS = {
   screen: 'handline:screen',
@@ -9,6 +10,9 @@ export const CHANNELS = {
   openPath: 'handline:openPath',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
+  mode: 'handline:mode',
+  setMode: 'handline:setMode',
+  pairRemote: 'handline:pairRemote',
   token: 'handline:token',
 } as const;
 
@@ -56,6 +60,53 @@ export class Page {
     if (typeof arg !== 'boolean') return bad('unsent takes true or false');
     this.unsent = arg;
     return { ok: true };
+  }
+}
+
+export interface ConnectionDeps {
+  mode(): { mode: Mode; remote: string | null };
+  /** Saves the mode and relaunches. */
+  setMode(m: Mode): void;
+  /** Pairs and relaunches on the new device; rejects with a sentence when the gateway cannot be paired with. */
+  pair(i: OfferInput): Promise<void>;
+}
+
+const OFFER_KEYS = ['link', 'address', 'code'];
+const MAX_OFFER = 2048;
+
+/** The page's way to change which daemon the app is on, with the same sender and argument checks as the rest. */
+export class Connection {
+  private origin: string;
+  private d: ConnectionDeps;
+  constructor(origin: string, d: ConnectionDeps) {
+    this.origin = origin;
+    this.d = d;
+  }
+  mode(e: Sender): ({ ok: true } & ReturnType<ConnectionDeps['mode']>) | Fail<'bad_request'> {
+    return fromWindow(e, this.origin) ? { ok: true, ...this.d.mode() } : (bad('not from the app window') as Fail<'bad_request'>);
+  }
+  setMode(e: Sender, arg: unknown): Reply {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    const mode = typeof arg === 'string' ? parseMode(arg) : undefined;
+    if (!mode) return bad('setMode takes connect or own');
+    this.d.setMode(mode);
+    return { ok: true };
+  }
+  async pairRemote(e: Sender, arg: unknown): Promise<Reply | Fail<'cannot_pair'>> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    const o = arg as Record<string, unknown> | null;
+    const okShape =
+      typeof o === 'object' &&
+      o !== null &&
+      !Array.isArray(o) &&
+      Object.entries(o).every(([k, v]) => OFFER_KEYS.includes(k) && typeof v === 'string' && v.length <= MAX_OFFER);
+    if (!okShape) return bad('pairRemote takes { link } or { address, code }');
+    try {
+      await this.d.pair(o as OfferInput);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, code: 'cannot_pair', message: err instanceof Error ? err.message : String(err) };
+    }
   }
 }
 

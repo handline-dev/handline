@@ -5,6 +5,7 @@ account.remove
 account.set
 account.set_cap
 agent.create
+agent.unstall
 agent.strip
 hr.decide
 inbox.answer

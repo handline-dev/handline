@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,17 +32,26 @@ def _land(cwd: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 def _repo(td: Path) -> Path:
-    """A main checkout with a module and a suite that is green unless RED exists."""
+    """A main checkout with a module, the real tools/check.sh, and a suite, a Go suite and a test.sh, each green
+    unless its own mark exists: RED, go/RED and go/PARITY_RED."""
     main = td / "main"
     main.mkdir(parents=True)
     _git(main, "init", "-q", "-b", "main")
     (main / "a.py").write_text("x = 1\ny = 2\n")
     (main / "tools").mkdir()
-    suite = main / "tools" / "suite.sh"
-    # Each run adds a line to $SUITE_RUNS when it is set, so a test can count the suite runs.
-    suite.write_text('#!/usr/bin/env bash\n[ -z "${SUITE_RUNS:-}" ] || echo run >> "$SUITE_RUNS"\n'
-                     '[ ! -e "$(dirname "$0")/../RED" ]\n')
-    suite.chmod(0o755)
+    shutil.copy(ROOT / "tools" / "check.sh", main / "tools" / "check.sh")
+    # Each run adds a line to $SUITE_RUNS ($GO_RUNS for the Go suite and test.sh) when it is set, so a test can
+    # count the runs of each.
+    # test.sh is red on its mark for the first Go-only file alone, so a run that went on past a red file to a green
+    # last one would read green.
+    for name, mark, runs, green in (
+            ("suite.sh", "run", "SUITE_RUNS", '[ ! -e "$top/RED" ]'),
+            ("test-go.sh", "go", "GO_RUNS", '[ ! -e "$top/go/RED" ]'),
+            ("test.sh", 'test.sh "$*"', "GO_RUNS", '[ ! -e "$top/go/PARITY_RED" ] || [ "$1" != tests/daemon/test_go_reads.py ]')):
+        stub = main / "tools" / name
+        stub.write_text(f'#!/usr/bin/env bash\ntop="$(dirname "$0")/.."\n'
+                        f'[ -z "${{{runs}:-}}" ] || echo {mark} >> "${runs}"\n{green}\n')
+        stub.chmod(0o755)
     _git(main, "add", "-A")
     _git(main, "commit", "-q", "-m", "base")
     return main
@@ -163,6 +173,39 @@ def test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(home: Path) ->
     r = check_run("--passed", d1, d2)
     check("passed: a docs-only train runs none, and prints a tree for each",
           r.returncode == 0 and _runs(runs) == 0 and len(r.stdout.split()) == 2, r.stdout + r.stderr)
+
+
+def test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_and_the_apps(home: Path) -> None:
+    """The merged tree's tools/check.sh picks the tests from what the merge changes: an apps/ or a go/ change runs
+    the Go suite and the Python files that test only Go, and no Python logic tests; anything else runs the whole suite."""
+    main = _repo(home)
+    runs, go_runs = home / "runs", home / "go-runs"
+
+    def check_run(*shas: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", *shas], cwd=main, capture_output=True, text=True,
+                              env={**ENV, "SUITE_RUNS": str(runs), "GO_RUNS": str(go_runs)}, timeout=60)
+
+    def ran(path: Path) -> list[str]:
+        out = path.read_text().splitlines() if path.exists() else []
+        path.unlink(missing_ok=True)
+        return out
+    gos = ["go", "test.sh tests/daemon/test_go_reads.py", "test.sh tests/daemon/test_go_hooks.py",
+           "test.sh tests/infra/test_go_schema.py"]
+    for name, files, python, go in (
+            ("apps/mobile", [("apps/mobile/app.tsx", "x\n")], [], gos),
+            ("go/", [("go/x.go", "package x\n")], [], gos),
+            ("go/ and the apps' docs", [("go/y.go", "package y\n"), ("apps/README.md", "# r\n")], [], gos),
+            ("Python and Go", [("handline/m.py", "m = 1\n"), ("go/z.go", "package z\n")], ["run"], []),
+            ("tests/", [("tests/t.py", "t = 1\n")], ["run"], []),
+            ("tools/", [("tools/land2.sh", "true\n")], ["run"], [])):
+        sha = _branch(main, name.replace("/", "-").replace(" ", "-").replace("'", ""), *files[0], *files[1:])
+        r = check_run(sha)
+        check(f"check: a change to {name} runs {python or 'no Python suite'} and {go or 'nothing more'}",
+              r.returncode == 0 and ran(runs) == python and ran(go_runs) == go, r.stdout + r.stderr)
+    for name, mark in (("Go suite", "go/RED"), ("Go-only Python file", "go/PARITY_RED")):
+        red = _branch(main, mark.replace("/", "-"), "go/red.go", "package r\n", (mark, "x\n"))
+        r = check_run(red)
+        check(f"check: a red {name} alone stops a go/-only merge", r.returncode == 1, r.stdout + r.stderr)
 
 
 def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(home: Path) -> None:
@@ -702,6 +745,7 @@ def main() -> int:
         run(lambda: test_a_red_suite_or_a_dirty_checkout_lands_nothing(Path(td) / "l2"))
         run(lambda: test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(Path(td) / "l2b"))
         run(lambda: test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(Path(td) / "l2c"))
+        run(lambda: test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_and_the_apps(Path(td) / "l2d"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
