@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from handline.daemon import fds, socket_server  # noqa: E402
+import threading  # noqa: E402
+
+from handline.daemon import fds, rpc, socket_server  # noqa: E402
 from handline.infra import service  # noqa: E402
 
 
@@ -82,6 +84,31 @@ def test_the_plist_carries_the_limit_the_daemon_raises_itself_to() -> None:
     plist = service.build_plist()
     check("fds: the launchd plist sets the soft descriptor limit the daemon raises itself to",
           plist.get("SoftResourceLimits", {}).get("NumberOfFiles") == socket_server.FD_SOFT_LIMIT, str(plist.get("SoftResourceLimits")))
+
+
+def _serving(called: bool, wait: float) -> bool:
+    """Whether a connection that said hello (and `called`, if asked) is still served `wait` seconds into silence."""
+    a, b = socket.socketpair()
+    c = rpc.Connection(a, lambda *_: None, None)
+    c.said_hello, c.called = True, called
+    t = threading.Thread(target=c.serve, daemon=True)
+    t.start()
+    t.join(wait)
+    alive = t.is_alive()
+    b.close()
+    t.join(2)
+    a.close()
+    return alive
+
+
+def test_a_connection_that_asks_for_nothing_is_closed() -> None:
+    saved = rpc.FIRST_CALL_S
+    rpc.FIRST_CALL_S = 0.3
+    try:
+        check("idle: a hello and then silence is closed after FIRST_CALL_S", not _serving(False, 3))
+        check("idle: a connection that has made a call is kept for the long idle", _serving(True, 1))
+    finally:
+        rpc.FIRST_CALL_S = saved
 
 
 def test_the_inventory_names_a_database_handle() -> None:
