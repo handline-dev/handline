@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,5 +80,19 @@ func TestWakeInPlaceTypesAPointerAtTheHandoffAndSpendsIt(t *testing.T) {
 	}
 	if h, _ := db.GetHandoff(m.Q, "a"); h != "" {
 		t.Fatalf("the handoff is spent once typed: %q", h)
+	}
+}
+
+func TestStartForWorkHandsSpawnTheRepoExpandedAndResolved(t *testing.T) {
+	m, _, _ := newManager(t)
+	sp := m.Spawn.(*fakeSpawn)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	db.AddPending(m.Q, "a", "x", 1)
+	m.Agents = fakeAgents{repo: "~/code/x"}
+	m.StartForWork("a")
+	want := realpath(filepath.Join(home, "code", "x"))
+	if len(sp.spawned) != 1 || sp.spawned[0] != "a@"+want {
+		t.Fatalf("%v, want %s", sp.spawned, want)
 	}
 }

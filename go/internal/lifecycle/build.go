@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,9 +25,11 @@ func (l *Launcher) cwd() string {
 // wall, account is a destination someone already chose. A launch that must not go ahead is a *Refusal.
 func (l *Launcher) Build(agent string, extra []string, force bool, account string) ([]string, map[string]string, error) {
 	p := l.Ports
-	if l.Tokens != nil {
-		l.Tokens.EnsureKeyFolders()
+	if l.Tokens == nil {
+		// Without the key store nothing would be hidden from the session and no proof or key recorded for it: a wiring that forgot it must not fail open.
+		return nil, nil, errors.New("launch has no session token store")
 	}
+	l.Tokens.EnsureKeyFolders()
 	drv, err := p.Vendors.ForAgent(agent)
 	if err != nil {
 		return nil, nil, refuse("agent '%s': %v", agent, err)
@@ -94,7 +97,7 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	// Always pass effort explicitly: left unset it comes from whatever the environment carries.
 	effort := l.effortOf(cfg)
 	if !slices.Contains(team.ValidEffort, effort) {
-		return nil, nil, refuse("agent '%s' has effort=%q; must be one of %s", agent, effort, strings.Join(team.ValidEffort, ", "))
+		return nil, nil, refuse("agent '%s' has effort=%s; must be one of %s", agent, pyRepr(effort), strings.Join(team.ValidEffort, ", "))
 	}
 
 	mcpArg, mcpErr := l.mcpConfigArg()
@@ -136,7 +139,7 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	if err != nil {
 		return nil, nil, err
 	}
-	hide := append(append(hiddenT, l.HiddenMemories(agent)...), l.hiddenFolders()...)
+	hide := append(append(hiddenT, l.HiddenMemories(agent)...), l.Tokens.HiddenFolders()...)
 	var trusted []string
 	if len(mode) > 0 && chosen == team.DefaultMode {
 		trusted = l.TrustedEnvironment(cwd)
@@ -190,13 +193,6 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	return argv, env, nil
 }
 
-func (l *Launcher) hiddenFolders() []string {
-	if l.Tokens == nil {
-		return nil
-	}
-	return l.Tokens.HiddenFolders()
-}
-
 // keepWhatItStartsWith keeps every session a launch starts (db.session_starts): why, whether it resumes the old conversation (then its
 // id is the one after --resume), and what it is given. Bookkeeping never blocks a launch.
 func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, why, by string) error {
@@ -247,10 +243,8 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 			return err
 		}
 	}
-	if l.Tokens != nil {
-		l.Tokens.Record(agent, os.Getpid()) // the proof this session is the agent's, for the daemon's land verbs
-		l.Tokens.MintKey(agent)             // what its hook alone can name, to vouch for its own `hl land`
-	}
+	l.Tokens.Record(agent, os.Getpid()) // the proof this session is the agent's, for the daemon's land verbs
+	l.Tokens.MintKey(agent)             // what its hook alone can name, to vouch for its own `hl land`
 	env = paths.Both(env)
 	fp, _ := l.Fingerprint(agent)
 	l.recordTerminal(agent, env["OCP_ACCOUNT"], fp)

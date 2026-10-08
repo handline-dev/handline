@@ -9,6 +9,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -73,6 +74,9 @@ type launchRig struct {
 func newLaunchRig(t *testing.T) *launchRig {
 	t.Helper()
 	home := t.TempDir()
+	t.Setenv("HOME", t.TempDir()) // the protected store lives under the user home
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_AGENT", "")
 	t.Setenv("OCP_HOME", home)
 	t.Setenv("HANDLINE_HOME", home)
 	r := &launchRig{}
@@ -83,7 +87,7 @@ func newLaunchRig(t *testing.T) *launchRig {
 	if err := os.WriteFile(roster.AgentFile("ann"), []byte("vendor: claude\nmodel: m1\neffort: high\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r.l = &Launcher{Q: openDB(t), Home: home, Roster: roster, Ports: LaunchPorts{
+	r.l = &Launcher{Q: openDB(t), Home: home, Roster: roster, Tokens: sessiontoken.New(home), Ports: LaunchPorts{
 		Usage:          fakeUsage{st: AccountStatus{Exists: true}},
 		Accounts:       fakeAccounts{true},
 		Vendors:        fakeVendors{"claude"},
@@ -334,4 +338,46 @@ func TestLaunchPortAnswersForTheLauncher(t *testing.T) {
 	if p.DescribeWakeWait(&WakeWait{Account: "a", Window: "5h", Pct: 99}) == "" {
 		t.Fatal("empty")
 	}
+}
+
+func TestALaunchWithoutTheTokenStoreIsRefusedNotRunBare(t *testing.T) {
+	r := newLaunchRig(t)
+	r.l.Tokens = nil
+	if _, _, err := r.l.Build("ann", nil, false, "main"); err == nil || !strings.Contains(err.Error(), "token store") {
+		t.Fatalf("%v", err)
+	}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err == nil || r.execd != nil {
+		t.Fatalf("%v %v", err, r.execd)
+	}
+}
+
+func TestTheSessionIsGivenItsProofAndKeyAndTheKeyFolderIsHiddenFromIt(t *testing.T) {
+	r := newLaunchRig(t)
+	hide := ""
+	r.l.Ports.Vendors = hidingVendors{&hide}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(hide, r.l.Tokens.KeyFolder()) || r.l.Tokens.KeyHeld("ann") == "" {
+		t.Fatalf("hidden %q, key %q", hide, r.l.Tokens.KeyHeld("ann"))
+	}
+}
+
+type hidingVendors struct{ hide *string }
+
+func (v hidingVendors) ForAgent(string) (Driver, error) {
+	return hidingDriver{fakeDriver{"claude"}, v.hide}, nil
+}
+func (hidingVendors) AgentVendor(string) string   { return "claude" }
+func (hidingVendors) AccountVendor(string) string { return "claude" }
+func (hidingVendors) ConfigDir(string) string     { return "" }
+
+type hidingDriver struct {
+	fakeDriver
+	hide *string
+}
+
+func (d hidingDriver) LaunchArgv(exe string, o LaunchArgs) []string {
+	*d.hide = strings.Join(o.Hide, "\n")
+	return d.fakeDriver.LaunchArgv(exe, o)
 }

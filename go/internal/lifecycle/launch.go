@@ -145,7 +145,7 @@ type Launcher struct {
 	Roster *team.Roster
 	Ports  LaunchPorts
 	Now    func() time.Time
-	// Tokens is the session proof and key store; nil in a launch that keeps neither.
+	// Tokens is the session proof and key store; Build refuses without it.
 	Tokens *sessiontoken.Tokens
 }
 

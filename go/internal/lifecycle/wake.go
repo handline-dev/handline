@@ -165,7 +165,7 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	if wt != "" {
 		ok, said = m.Spawn.StartIn(agent, wt, "")
 	} else {
-		ok, said = m.Spawn.Spawn(agent, repo)
+		ok, said = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
 	}
 	first := strings.SplitN(said, "\n", 2)[0]
 	if ok {

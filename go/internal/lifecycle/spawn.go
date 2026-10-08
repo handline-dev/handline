@@ -92,8 +92,8 @@ func (s *Spawns) confirmSession(agent string) string {
 }
 
 // git runs git as (exit code, stdout, stderr), each cleaned at the source so a caller that embeds them in a message it returns need not
-// sanitise it first.
-func git(cwd string, args ...string) (int, string, string) {
+// sanitise it first. The error is git not running at all (not installed, no such directory, timed out), which Python's _run raises.
+func git(cwd string, args ...string) (int, string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -105,35 +105,49 @@ func git(cwd string, args ...string) (int, string, string) {
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		} else {
-			return 127, "", textsafe.Oneline(err.Error())
+			return 0, "", "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 		}
 	}
-	return code, textsafe.Oneline(strings.TrimSpace(out.String())), textsafe.Oneline(strings.TrimSpace(errb.String()))
+	return code, textsafe.Oneline(strings.TrimSpace(out.String())), textsafe.Oneline(strings.TrimSpace(errb.String())), nil
 }
 
-func hasCommit(repo, ref string) bool {
-	code, _, _ := git(repo, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
-	return code == 0
+func hasCommit(repo, ref string) (bool, error) {
+	code, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return code == 0 && err == nil, err
 }
 
 // PickBase is the ref to branch from and why. An empty ref means the two have diverged, or there is nothing to branch from: a human has
 // to act.
-func PickBase(repo, base string) (ref, why string) {
-	git(repo, "fetch", "-q", "origin")
-	if !hasCommit(repo, base) {
-		// `git worktree add ... <base>` would die on the name (legacy repos have no main).
-		if hasCommit(repo, "origin/"+base) {
-			return "origin/" + base, fmt.Sprintf("no local %s; using origin/%s", base, base)
-		}
-		_, head, _ := git(repo, "symbolic-ref", "--short", "-q", "HEAD")
-		if head != "" && hasCommit(repo, head) {
-			return head, fmt.Sprintf("no %s here; using the checked-out %s", base, head)
-		}
-		return "", fmt.Sprintf("%s has no %s branch and no commit to branch from - make a first commit there", repo, base)
+func PickBase(repo, base string) (ref, why string, err error) {
+	if _, _, _, err := git(repo, "fetch", "-q", "origin"); err != nil {
+		return "", "", err
 	}
-	code, out, _ := git(repo, "rev-list", "--left-right", "--count", fmt.Sprintf("origin/%s...%s", base, base))
+	have, err := hasCommit(repo, base)
+	if err != nil {
+		return "", "", err
+	}
+	if !have {
+		// `git worktree add ... <base>` would die on the name (legacy repos have no main).
+		if have, err := hasCommit(repo, "origin/"+base); err != nil || have {
+			return "origin/" + base, fmt.Sprintf("no local %s; using origin/%s", base, base), err
+		}
+		_, head, _, err := git(repo, "symbolic-ref", "--short", "-q", "HEAD")
+		if err != nil {
+			return "", "", err
+		}
+		if head != "" {
+			if have, err := hasCommit(repo, head); err != nil || have {
+				return head, fmt.Sprintf("no %s here; using the checked-out %s", base, head), err
+			}
+		}
+		return "", fmt.Sprintf("%s has no %s branch and no commit to branch from - make a first commit there", repo, base), nil
+	}
+	code, out, _, err := git(repo, "rev-list", "--left-right", "--count", fmt.Sprintf("origin/%s...%s", base, base))
+	if err != nil {
+		return "", "", err
+	}
 	if code != 0 {
-		return base, fmt.Sprintf("no origin/%s to compare against; using local %s", base, base)
+		return base, fmt.Sprintf("no origin/%s to compare against; using local %s", base, base), nil
 	}
 	f := strings.Fields(out)
 	var remote, local int
@@ -143,17 +157,17 @@ func PickBase(repo, base string) (ref, why string) {
 		local, err2 = strconv.Atoi(f[1])
 	}
 	if len(f) != 2 || err1 != nil || err2 != nil {
-		return base, fmt.Sprintf("could not read the comparison (%s); using local %s", pyRepr(out), base)
+		return base, fmt.Sprintf("could not read the comparison (%s); using local %s", pyRepr(out), base), nil
 	}
 	switch {
 	case remote > 0 && local > 0:
-		return "", fmt.Sprintf("local %s and origin/%s have diverged (%d local, %d remote). Merge origin/%s into %s first, then branch from the result - picking a side would lose work.", base, base, local, remote, base, base)
+		return "", fmt.Sprintf("local %s and origin/%s have diverged (%d local, %d remote). Merge origin/%s into %s first, then branch from the result - picking a side would lose work.", base, base, local, remote, base, base), nil
 	case remote > 0:
-		return "origin/" + base, fmt.Sprintf("origin/%s leads by %d", base, remote)
+		return "origin/" + base, fmt.Sprintf("origin/%s leads by %d", base, remote), nil
 	case local > 0:
-		return base, fmt.Sprintf("local %s leads by %d", base, local)
+		return base, fmt.Sprintf("local %s leads by %d", base, local), nil
 	}
-	return base, fmt.Sprintf("%s and origin/%s agree", base, base)
+	return base, fmt.Sprintf("%s and origin/%s agree", base, base), nil
 }
 
 // pyRepr is repr() of a str, as far as the comparison output needs it.
@@ -238,12 +252,12 @@ func AllPaths(row *db.AgentState) []string {
 }
 
 // repoOf is the repository a worktree belongs to (the folder that holds its .git), "" when it cannot be told.
-func repoOf(worktree string) string {
-	code, out, _ := git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if code != 0 || out == "" {
-		return ""
+func repoOf(worktree string) (string, error) {
+	code, out, _, err := git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil || code != 0 || out == "" {
+		return "", err
 	}
-	return filepath.Dir(out)
+	return filepath.Dir(out), nil
 }
 
 func (s *Spawns) wantedExtras(agent string) int {
@@ -273,12 +287,17 @@ func (s *Spawns) EnsureExtras(agent, first, repo string) (have, told []string, e
 		return have[:want], nil, nil
 	}
 	if repo == "" {
-		repo = repoOf(first)
+		if repo, err = repoOf(first); err != nil {
+			return have, nil, err
+		}
 	}
 	if repo == "" {
 		return have, []string{fmt.Sprintf("%s: could not tell which repository %s belongs to, so its extra worktree was not made", agent, first)}, nil
 	}
-	baseRef, why := PickBase(repo, "main")
+	baseRef, why, err := PickBase(repo, "main")
+	if err != nil {
+		return have, nil, err
+	}
 	if baseRef == "" {
 		return have, []string{fmt.Sprintf("%s: no extra worktree made: %s", agent, why)}, nil
 	}
@@ -382,7 +401,9 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	}
 	baseRef, why := "", "its own worktree, kept"
 	if wt == "" {
-		if baseRef, why = PickBase(repo, o.Base); baseRef == "" {
+		if baseRef, why, err = PickBase(repo, o.Base); err != nil {
+			return false, "", err
+		} else if baseRef == "" {
 			return false, why, nil
 		}
 	}

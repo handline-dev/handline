@@ -153,7 +153,7 @@ func TestReconcileWakesDueClosedAgentsAndKeepsAFailedWakeDue(t *testing.T) {
 
 func TestAHandoffThatCannotBeResumedCountsAgainstItsAgentUntilItStalls(t *testing.T) {
 	r, _ := newRec(t, nil)
-	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error { return errors.New("agent.yaml unreadable") }
+	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error { return &ConfigError{errors.New("agent.yaml unreadable")} }
 	db.StartHandoff(r.Q, "h1", "a", "", "idle", 0)
 	var acts []string
 	for i := 0; i < states.MaxFailedAttempts; i++ {

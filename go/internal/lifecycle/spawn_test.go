@@ -34,20 +34,20 @@ func repoWithOrigin(t *testing.T) (repo, origin string) {
 
 func TestPickBaseBranchesFromTheSideThatLeadsAndRefusesDivergence(t *testing.T) {
 	repo, _ := repoWithOrigin(t)
-	if ref, why := PickBase(repo, "main"); ref != "main" || why != "main and origin/main agree" {
+	if ref, why, _ := PickBase(repo, "main"); ref != "main" || why != "main and origin/main agree" {
 		t.Fatalf("%q %q", ref, why)
 	}
 	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "two")
-	if ref, why := PickBase(repo, "main"); ref != "main" || why != "local main leads by 1" {
+	if ref, why, _ := PickBase(repo, "main"); ref != "main" || why != "local main leads by 1" {
 		t.Fatalf("%q %q", ref, why)
 	}
 	gitIn(t, repo, "push", "-q", "origin", "main")
 	gitIn(t, repo, "reset", "-q", "--hard", "HEAD~1")
-	if ref, why := PickBase(repo, "main"); ref != "origin/main" || why != "origin/main leads by 1" {
+	if ref, why, _ := PickBase(repo, "main"); ref != "origin/main" || why != "origin/main leads by 1" {
 		t.Fatalf("%q %q", ref, why)
 	}
 	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "other")
-	if ref, why := PickBase(repo, "main"); ref != "" || !strings.Contains(why, "have diverged (1 local, 1 remote)") {
+	if ref, why, _ := PickBase(repo, "main"); ref != "" || !strings.Contains(why, "have diverged (1 local, 1 remote)") {
 		t.Fatalf("%q %q", ref, why)
 	}
 }
@@ -55,11 +55,11 @@ func TestPickBaseBranchesFromTheSideThatLeadsAndRefusesDivergence(t *testing.T) 
 func TestPickBaseWithNoBaseUsesTheCheckedOutBranch(t *testing.T) {
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-q", "-b", "trunk")
-	if ref, _ := PickBase(repo, "main"); ref != "" {
+	if ref, _, _ := PickBase(repo, "main"); ref != "" {
 		t.Fatalf("a repo with no commit has nothing to branch from: %q", ref)
 	}
 	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "one")
-	if ref, why := PickBase(repo, "main"); ref != "trunk" || !strings.Contains(why, "using the checked-out trunk") {
+	if ref, why, _ := PickBase(repo, "main"); ref != "trunk" || !strings.Contains(why, "using the checked-out trunk") {
 		t.Fatalf("%q %q", ref, why)
 	}
 }
@@ -231,5 +231,16 @@ func TestEnsureRunRemembersTheRunAndPrefersTheOneTheTerminalIsBoundTo(t *testing
 	}
 	if task, err := s.RegisterWorker("a", "t1"); err != nil || task != "task-a@t1" {
 		t.Fatalf("%q %v", task, err)
+	}
+}
+
+func TestGitThatCannotRunIsAnErrorNotAMissingBranch(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if ref, why, err := PickBase(gone, "main"); err == nil || ref != "" || strings.Contains(why, "make a first commit") {
+		t.Fatalf("%q %q %v", ref, why, err)
+	}
+	s, _, _ := spawnRig(t)
+	if ok, said, err := s.SpawnWith("a", gone, SpawnOpts{}); ok || err == nil {
+		t.Fatalf("%v %q %v", ok, said, err)
 	}
 }
