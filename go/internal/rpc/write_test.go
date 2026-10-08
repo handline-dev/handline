@@ -170,3 +170,53 @@ func TestACommitThenErrorKeepsTheWritesAndTheRefusalButNoRecord(t *testing.T) {
 		t.Fatalf("the write stands, nothing is recorded, so a retry is judged again: %d %d", kept, effects)
 	}
 }
+
+// capNet is a gate whose device holds at most one connection: a login past the cap closes the oldest, as devices.Manager does.
+type capNet struct {
+	fakeNet
+	open   map[int]func()
+	next   int
+	closed int
+}
+
+func (g *capNet) Login(token string, closeConn func()) (string, string, func(), bool) {
+	if token != "t1" {
+		return "", "", nil, false
+	}
+	if g.open == nil {
+		g.open = map[int]func(){}
+	}
+	for len(g.open) >= 1 {
+		for n, f := range g.open {
+			delete(g.open, n)
+			g.closed++
+			if f != nil {
+				f()
+			}
+			break
+		}
+	}
+	g.next++
+	n := g.next
+	g.open[n] = closeConn
+	return "d1", "phone1", func() { delete(g.open, n) }, true
+}
+
+func TestARehelloAtTheCapDoesNotEvictItsOwnConnection(t *testing.T) {
+	g := &capNet{}
+	srv := writeServer(t, newDB(t), new(int), g)
+	c := connect(t, srv, `{"client":"t","protocol":1,"token":"t1"}`)
+	if r := c.raw(t, `{"jsonrpc":"2.0","id":2,"method":"hello","params":{"client":"t","protocol":1,"token":"t1"}}`); r["result"] == nil {
+		t.Fatalf("the second hello was refused or the connection closed: %v", r)
+	}
+	if g.closed != 0 {
+		t.Fatalf("%d connections evicted: the earlier login must be released before the new one", g.closed)
+	}
+	// a re-hello with a token nobody holds is unpaired, and the earlier login is not kept
+	if r := c.raw(t, `{"jsonrpc":"2.0","id":3,"method":"hello","params":{"client":"t","protocol":1,"token":"nope"}}`); r["error"] == nil {
+		t.Fatalf("a bad token was taken: %v", r)
+	}
+	if len(g.open) != 0 {
+		t.Fatalf("%d logins still held", len(g.open))
+	}
+}
