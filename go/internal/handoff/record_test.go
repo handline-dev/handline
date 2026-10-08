@@ -56,9 +56,9 @@ func TestProgressIsKeptOnTheRequestThenTheTaskThenTheAgent(t *testing.T) {
 	if got, _ := w.GetProgress("a"); got != "on the agent" {
 		t.Errorf("got %q", got)
 	}
-	w.exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(12, 't', 'a', 'b', 1)")
-	w.exec("UPDATE agent_state SET current_task = 12")
-	if _, where, _ := w.SetProgress("a", "on the task"); where != "T12 (no request in progress)" {
+	w.exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(7, 't', 'a', 'b', 1)")
+	w.exec("UPDATE agent_state SET current_task = 7")
+	if _, where, _ := w.SetProgress("a", "on the task"); where != "T7 (no request in progress)" {
 		t.Errorf("where %q", where)
 	}
 	if got, _ := w.GetProgress("a"); got != "on the task" {

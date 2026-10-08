@@ -119,7 +119,7 @@ func told(id int64, requester, body string) *db.Request {
 func gitRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, args := range [][]string{{"init", "-q", "-b", "work"}, {"-c", "user.email=a@b.c", "-c", "user.name=n", "commit", "-q", "--allow-empty", "-m", "first"}} {
+	for _, args := range [][]string{{"init", "-q", "-b", "work"}, {"-c", "user.email=git@example.com", "-c", "user.name=n", "commit", "-q", "--allow-empty", "-m", "first"}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {
