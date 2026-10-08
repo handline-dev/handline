@@ -27,11 +27,12 @@ exit "${STUB_RC:-0}"
 
 def _run(script: str, home: Path, *args: str, venv: bool = True, rc: int = 0) -> subprocess.CompletedProcess:
     fake = home / "machine"
-    if venv:
-        (fake / "venv" / "bin").mkdir(parents=True, exist_ok=True)
-        py = fake / "venv" / "bin" / "python"
-        py.write_text(STUB)
-        py.chmod(0o755)
+    # The stub stands in for the venv's python, or, with no venv, for the python3 found first on PATH: the real
+    # one would run the whole suite, every area file in its own process, even for a -k that matches nothing.
+    py = fake / "venv" / "bin" / "python" if venv else home / "bin" / "python3"
+    py.parent.mkdir(parents=True, exist_ok=True)
+    py.write_text(STUB)
+    py.chmod(0o755)
     env = dict(os.environ, OCP_HOME=str(fake), OCP_AGENT="orcapipe.daemon", OCP_ACCOUNT="theta",
                STUB_RC=str(rc), OCP_TEST_GO="true", PATH=str(home / "bin") + os.pathsep + os.environ["PATH"])
     return subprocess.run([str(ROOT / "tools" / script), *args], capture_output=True, text=True, env=env, timeout=60)
@@ -73,8 +74,8 @@ def test_without_a_venv_it_says_so_and_uses_python3_and_suite_sh_is_the_same_pat
     home.mkdir(parents=True, exist_ok=True)
     r = _run("test.sh", home, "-k", "nothing_matches_this_zzz", venv=False)
     check("test.sh: no venv is named on stderr, the run falls back to python3 rather than stopping",
-          "no venv at" in r.stderr and "hl venv install" in r.stderr and "python3 -u tests/test_ocp.py" in r.stderr,
-          r.stderr)
+          "no venv at" in r.stderr and "hl venv install" in r.stderr and "python3 -u tests/test_ocp.py" in r.stderr
+          and "ARGS -u tests/test_ocp.py -k nothing_matches_this_zzz" in r.stdout, r.stdout + r.stderr)
     r = _run("suite.sh", home, "-k", "x")
     check("suite.sh: is test.sh - the same header, the same arguments",
           "tools/test.sh:" in r.stderr and "ARGS -u tests/test_ocp.py -k x" in r.stdout, r.stdout + r.stderr)

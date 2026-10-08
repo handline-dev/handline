@@ -631,11 +631,11 @@ def test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(home: Pa
     con = db.connect()
     try:
         sha = _git(main, "rev-parse", "HEAD")
-        for who in ("alpha.auditor", "beta.auditor", "gamma.sea.auditor"):
+        for who in ("alpha.auditor", "alpha.auditor2", "beta.auditor12", "beta.auditor", "gamma.sea.auditor"):
             ok, said = lands.record_pass(con, sha, who)
             check(f"pass: {who} records one", ok, said)
-        for who in ("alpha.merger", "alpha.core", "auditor", "alpha.auditors", "alpha.auditor.helper",
-                    "alpha.Auditor", "", None, "human"):
+        for who in ("alpha.merger", "alpha.core", "auditor", "auditor2", "alpha.auditors", "alpha.auditor.helper",
+                    "alpha.Auditor", "alpha.auditor2x", "alpha.auditor_2", "alpha.coauditor", "", None, "human"):
             ok, said = lands.record_pass(con, sha, who)
             check(f"pass: {who!r} may not", not ok and "may not record a PASS" in said, said)
         check("pass: the one who recorded it is kept",
