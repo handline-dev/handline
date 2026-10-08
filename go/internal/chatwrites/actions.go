@@ -120,7 +120,7 @@ func answerWrite(e *supervisor.Env, q db.Q, rid int64, verdict string, effect fu
 			}
 			return nil
 		}
-		return SayWrite(e, q, row.Target, verdict, parent, within)
+		return SayWrite(e, q, db.Human, row.Target, verdict, parent, within)
 	}
 	r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: rid, Verdict: verdict, Notify: true, Effect: effect})
 	if err != nil {
@@ -192,11 +192,11 @@ func decide(e *supervisor.Env, q db.Q, tid int64, text string, effect func(q db.
 	}}, nil
 }
 
-// SayWrite is askmod.say as the person's: the message is routed and written (a denied one is kept as a row), and settles the request it
+// SayWrite is askmod.say as requester: the message is routed and written (a denied one is kept as a row), and settles the request it
 // replies to when parent names one. within is more to write in the same transaction, given the message and the new request's id.
-func SayWrite(e *supervisor.Env, q db.Q, target, body string, parent int64, within func(q db.Q, note string, rid int64) error) (*Result, error) {
+func SayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error) (*Result, error) {
 	var note string
-	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: db.Human, ParentID: parent,
+	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent,
 		Within: func(c db.Q, n string, rid int64) error {
 			note = n
 			if within == nil {

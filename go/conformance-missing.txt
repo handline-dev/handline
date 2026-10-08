@@ -8,9 +8,6 @@ agent.create
 agent.unstall
 agent.strip
 hr.decide
-inbox.answer
-inbox.mark_read
-inbox.reply
 input.ask
 input.release
 input.take
@@ -41,16 +38,8 @@ worktree.set_status
 task.done
 task.release
 stats.outlook
-answer.add
-answer.remove
 task.begin
 task.handoff
 task.progress
-say
-ask
-push
-push.answer
-push.cancelled
 settings.get
 task.ask
-progress.get

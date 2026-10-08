@@ -30,6 +30,11 @@ func Register(s *rpc.Server, e *supervisor.Env) {
 	s.Register("chat.withdraw", rpc.Method{Role: "agent", Write: true, Handler: w.withdraw})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
+	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
+	s.Register("inbox.answer", rpc.Method{Role: "member", Write: true, Handler: w.inboxAnswer})
+	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
+	w.registerMessages(s)
+	w.registerAnswers(s)
 }
 
 type writes struct{ e *supervisor.Env }
@@ -173,7 +178,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		if parent != 0 {
 			res, err = w.sendUnder(tx, agent, parent, body)
 		} else {
-			res, err = SayWrite(w.e, tx, agent, body, 0, nil)
+			res, err = SayWrite(w.e, tx, db.Human, agent, body, 0, nil)
 		}
 		if res != nil {
 			return res, map[string]any{"request": res.Request}, err
@@ -218,7 +223,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string) 
 		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
 	if !WaitsOnPerson(row) {
-		return SayWrite(w.e, tx, agent, body, parent, nil)
+		return SayWrite(w.e, tx, db.Human, agent, body, parent, nil)
 	}
 	res, err := AnswerWrite(w.e, tx, parent, body, nil)
 	if err != nil {
