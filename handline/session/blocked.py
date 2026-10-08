@@ -509,6 +509,14 @@ def _end(con, agent: str, rec, why: str, log) -> None:
             askmod.resolve(rid, f"cleared - {why}", state="done", notify=False)
 
 
+def release(con, agent: str, why: str, log) -> None:
+    """The agent's session was closed or woken: whatever dialog its block recorded is not on a screen any more. The block goes, and so
+    does the decision it raised unless another agent's block still stands on it."""
+    rec = db.block_get(con, agent)
+    if rec is not None:
+        _end(con, agent, rec, why, log)
+
+
 def _raise(con, recs, now: int, log) -> None:
     lines = []
     for r in recs:
