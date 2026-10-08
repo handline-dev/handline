@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [conformance args]
+"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [--structured-cli CLI] [conformance args]
 
 A sandbox may refuse to bind a socket, so the daemon (`-serve-fds`) serves connections this script made as socketpairs and
 passes to it, one per fixture. It starts on a scratch home with a founder key minted where it reads it, which is given to
@@ -58,6 +58,9 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     binary, rest = argv[0], argv[1:]
+    structured_cli = []
+    if rest[:1] == ["--structured-cli"]:  # the daemon serves the session.* methods over structured sessions run by this CLI
+        structured_cli, rest = ["-structured-cli", rest[1]], rest[2:]
     with tempfile.TemporaryDirectory(prefix="handlined.") as tmp:
         test_root = Path(tmp).resolve()
         home = test_root / "state"
@@ -72,7 +75,7 @@ def main(argv: list[str]) -> int:
         theirs = [b.fileno() for _a, b in pairs]
         net_theirs = [b.fileno() for _a, b in net_pairs]
         daemon = subprocess.Popen([binary, "-home", str(home), "-listen", "127.0.0.1:0", "-serve-fds", ",".join(map(str, theirs)),
-                                   "-serve-net-fds", ",".join(map(str, net_theirs))], pass_fds=theirs + net_theirs,
+                                   "-serve-net-fds", ",".join(map(str, net_theirs)), *structured_cli], pass_fds=theirs + net_theirs,
                                   stderr=subprocess.PIPE, env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root)})
         for _a, b in pairs + net_pairs:
             b.close()
