@@ -8387,6 +8387,76 @@ limits:
         con.close()
 
 
+def test_a_task_its_opener_gives_itself_starts_and_is_never_asked_of_it(home: Path) -> None:
+    """`task new` with the opener as owner is refused and opens nothing; a task its opener takes back by
+    `edit --owner` has nobody to ask it of the owner, so instead of a delivery routing refuses on every
+    tick (the queued task sat 14h, blocking six behind it), it starts as the owner's own work - at once
+    when the owner is free, or when its turn comes."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.environ["OCP_HOME"] = str(home)
+    hand_edit_team("""
+agents:
+  manager: {}
+  worker: {}
+edges:
+  - { from: "*", to: "*", relation: peer, response: fire_and_forget }
+limits:
+  max_chain_depth: 4
+  ask_rate_per_hour: 500
+""")
+    for n in ("manager", "worker"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        before = con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+        ok, msg, t = actions.task_new("manager", "manager", "for me", "work")
+        check("self task: task new with the opener as owner is refused and opens no task",
+              not ok and t is None and con.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == before, msg)
+
+        def refusals(tid):
+            return con.execute(f"SELECT COUNT(*) FROM events WHERE kind = 'task_deliver_refused' AND {db.EVENT_TASK} = ?",
+                               (tid,)).fetchone()[0]
+
+        ok, _, free = actions.task_new("manager", "worker", "taken back", "w")
+        ok, msg = actions.edit_task(con, free, "manager", owner="manager")
+        actions.send_moved_task(con, free, "worker", "manager")
+        check("self task: given back to a free opener, it is doing and its current task, with no refused delivery",
+              ok and actions.task_state(con, db.get_task(con, free)) == "doing"
+              and db.current_task(con, "manager") == free and not refusals(free)
+              and not [r for r in db.task_requests(con, free) if r["state"] == "queued"], msg)
+        actions.advance_current_task(con, "manager")
+        check("self task: and stays current through the next advance", db.current_task(con, "manager") == free)
+
+        ok, _, later = actions.task_new("manager", "worker", "taken back while busy", "w")
+        ok, msg = actions.edit_task(con, later, "manager", owner="manager")
+        actions.send_moved_task(con, later, "worker", "manager")
+        check("self task: given back to a busy opener, it waits its turn, with no refused delivery",
+              ok and actions.task_state(con, db.get_task(con, later)) == "queued"
+              and db.current_task(con, "manager") == free and not refusals(later), msg)
+        ok, msg = actions.mark_task_done(con, free, "manager", reason="done")
+        actions.advance_current_task(con, "manager")
+        check("self task: once the one before it is done, it starts",
+              ok and db.current_task(con, "manager") == later
+              and actions.task_state(con, db.get_task(con, later)) == "doing" and not refusals(later), msg)
+
+        actions.mark_task_done(con, later, "manager", reason="done")
+        ok, _, stuck = actions.task_new("manager", "worker", "stuck before the fix", "w")
+        actions.edit_task(con, stuck, "manager", owner="manager")
+        from handline.team import ask as askmod      # what send_moved_task left before the fix: no delivery, queued
+        askmod.resolve(db.task_requests(con, stuck)[0]["id"], "moved to manager", state="withdrawn", notify=False)
+        db.end_held(con, stuck, "worker")
+        db.set_task_queued(con, stuck, "manager")
+        con.execute("UPDATE events SET ts = ts - 1000 WHERE agent = 'manager'")
+        active = db.last_activity(con, "manager")
+        from handline.daemon import taskqueue
+        taskqueue.sweep(con, lambda *_: None, int(time.time()))
+        check("self task: the tick starts one left queued, and that is not the owner's own activity",
+              db.current_task(con, "manager") == stuck and actions.task_state(con, db.get_task(con, stuck)) == "doing"
+              and db.last_activity(con, "manager") == active, f"{active} {db.last_activity(con, 'manager')}")
+    finally:
+        con.close()
+
+
 def test_a_task_knows_when_its_owner_had_it(home: Path) -> None:
     """T720 (step A): tasks.delivered_at - set when the delivery lands with the owner, cleared when the
     owner changes, backfilled once, and the ghost deliveries settled by the migration."""
@@ -9449,6 +9519,7 @@ def main() -> int:
         run(lambda: test_a_reopened_or_unblocked_task_goes_out_again_after_an_answer(Path(td) / 'resend2'))
         run(lambda: test_a_founder_message_lets_the_agent_begin_its_own_task(Path(td) / 'begin'))
         run(lambda: test_a_task_knows_when_its_owner_had_it(Path(td) / 'delivered'))
+        run(lambda: test_a_task_its_opener_gives_itself_starts_and_is_never_asked_of_it(Path(td) / 'selftask'))
         run(lambda: test_a_task_is_handed_over_with_a_note(Path(td) / 'handoff'))
         run(lambda: test_the_agent_handing_a_task_on_is_not_parked(Path(td) / 'handoffpark'))
         run(lambda: test_a_review_is_an_ordinary_child_the_owner_waits_on(Path(td) / 'reviewkid'))

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Store, type KV } from '@handline/app-core';
 import { DaemonClient, webSocketTransport, type Transport } from '@handline/client';
 import { App } from './App.tsx';
+import { shell } from './shell.ts';
 import { forgetToken, loadToken, needsToken, pairWith, tokenRefused } from './pairing.ts';
 
 type Open = (url: string) => Promise<Transport>;
@@ -77,6 +78,64 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
         {busy ? 'Pairing…' : 'Pair'}
       </button>
       {error && <p role="alert">{error}</p>}
+      <Connection />
     </form>
+  );
+}
+
+/** In the desktop app: which daemon it is on, the switch to the other mode, and pairing with another device by address and code. */
+function Connection() {
+  const [now, setNow] = useState<{ mode: 'connect' | 'own'; remote: string | null } | null>(null);
+  const [address, setAddress] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    void shell('mode')
+      ?.mode?.()
+      .then((r) => r.ok && setNow({ mode: r.mode, remote: r.remote }));
+  }, []);
+  if (!now) return null;
+  const run = async (f: () => Promise<{ ok: true } | { ok: false; message: string }>) => {
+    setBusy(true);
+    setError('');
+    const r = await f();
+    if (!r.ok) {
+      setError(r.message);
+      setBusy(false);
+    }
+  };
+  const other = now.mode === 'connect' ? 'own' : 'connect';
+  return (
+    <fieldset className="connection" disabled={busy}>
+      <legend>Which daemon</legend>
+      <p>
+        {now.mode === 'own'
+          ? 'This app runs its own daemon.'
+          : now.remote
+            ? `Connect mode, paired with ${now.remote}.`
+            : 'Connect mode: using the daemon already running here.'}
+      </p>
+      <button type="button" onClick={() => void run(() => shell('setMode')!.setMode!(other))}>
+        {other === 'own' ? 'Run its own daemon' : 'Connect to a daemon'}
+      </button>
+      {now.mode === 'connect' && (
+        <>
+          <p>
+            Or pair with another device: its address and the code from <code>hl device pair</code>.
+          </p>
+          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (name.ts.net)" aria-label="Address" />
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code" aria-label="Device code" />
+          <button
+            type="button"
+            disabled={!address.trim() || !code.trim()}
+            onClick={() => void run(() => shell('pairRemote')!.pairRemote!({ address, code }))}
+          >
+            Pair with this device
+          </button>
+        </>
+      )}
+      {error && <p role="alert">{error}</p>}
+    </fieldset>
   );
 }

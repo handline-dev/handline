@@ -92,4 +92,38 @@ describe('pairing with the network listener', () => {
     expect(box.querySelector('[role="status"]')?.textContent).toBe('This computer is no longer paired.');
     expect(storage.getItem(`token:${url}`)).toBe('');
   });
+
+  it('in the desktop app the pairing screen offers the other mode and pairing with another device by address and code', async () => {
+    const calls: unknown[] = [];
+    const reply = async (r: unknown) => (calls.push(r), { ok: true as const });
+    (window as { handline?: unknown }).handline = {
+      api: 1,
+      mode: async () => ({ ok: true, mode: 'connect', remote: null }),
+      setMode: (m: string) => reply(m),
+      pairRemote: (a: unknown) => reply(a),
+    };
+    try {
+      const box = document.createElement('div');
+      document.body.append(box);
+      root = createRoot(box);
+      await act(async () => root!.render(<Start url="ws://127.0.0.1:7443/rpc" insecure={false} storage={memory()} />));
+      await until(() => box.querySelector('.connection'), 'the connection section');
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      for (const [label, v] of [
+        ['Address', 'mac.tail1.ts.net'],
+        ['Device code', 'ABCD-1234'],
+      ] as const)
+        await act(async () => {
+          const el = box.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+          set.call(el, v);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      const button = (t: string) => [...box.querySelectorAll<HTMLButtonElement>('.connection button')].find((b) => b.textContent === t)!;
+      await act(async () => button('Pair with this device').click());
+      await act(async () => button('Run its own daemon').click());
+      expect(calls).toEqual([{ address: 'mac.tail1.ts.net', code: 'ABCD-1234' }, 'own']);
+    } finally {
+      delete (window as { handline?: unknown }).handline;
+    }
+  });
 });

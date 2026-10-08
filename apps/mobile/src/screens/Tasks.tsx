@@ -1,8 +1,10 @@
 // The Tasks tab: the open tasks the daemon lists (done and discarded are out of the way, as on the web), one task's detail, and the verbs
-// of TaskActions: new task, done, reopen, memo, withdraw, cancel.
+// of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
+// chips narrow the list as on the web.
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
-import { ago, defaultFilter, idleText, shown, sortTasks, timeoutText } from '@handline/app-core';
+import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText } from '@handline/app-core';
+import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { space } from '@handline/tokens';
@@ -10,6 +12,35 @@ import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
 import { MemoBox, NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
+
+type Scope = 'open' | 'mine' | 'closed';
+const SCOPES: [Scope, string][] = [
+  ['open', 'Open'],
+  ['mine', 'Mine'],
+  ['closed', 'Closed'],
+];
+
+function Pill(props: { on: boolean; label: string; testID: string; onPress: () => void }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="button"
+      accessibilityState={{ selected: props.on }}
+      onPress={props.onPress}
+      style={{
+        minHeight: 36,
+        justifyContent: 'center',
+        borderWidth: props.on ? 2 : 1,
+        borderColor: props.on ? c.ink : c.line,
+        borderRadius: 999,
+        paddingHorizontal: space.md,
+      }}
+    >
+      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+    </Pressable>
+  );
+}
 
 const PRIORITY = { 1: 'P1', 2: 'P2', 3: 'P3' } as const;
 
@@ -19,9 +50,19 @@ export function Tasks(props: { selected: number | null; onSelect: (id: number | 
 
 function List(props: { onSelect: (id: number) => void }) {
   const c = usePalette();
-  const query = useTasks();
   const { served } = useServes('tasks.list');
-  const rows = sortTasks(shown(query.data?.items ?? [], defaultFilter()), 'priority', false, Date.now());
+  const me = useStore().me;
+  const [scope, setScope] = useState<Scope>('open');
+  const [states, setStates] = useState<ReadonlySet<string>>(() => defaultFilter().states);
+  const query = useTasks(scope === 'closed' ? { all: true } : {});
+  const rows = sortTasks(
+    shown(query.data?.items ?? [], { ...defaultFilter(), states, closed: scope === 'closed' }).filter((t) =>
+      scope === 'mine' ? t.to === me : scope === 'closed' ? CLOSED.includes(t.state) : true,
+    ),
+    'priority',
+    false,
+    Date.now(),
+  );
   const [creating, setCreating] = useState(false);
   if (creating)
     return (
@@ -35,7 +76,36 @@ function List(props: { onSelect: (id: number) => void }) {
         <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>Tasks</Text>
         <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} style={{ marginRight: space.xl }} />
       </View>
-      <Loadable query={query} served={served} isEmpty={rows.length === 0} skeleton="tasks" label="tasks" empty="No open tasks.">
+      <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
+        {SCOPES.map(([id, label]) => (
+          <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
+        ))}
+      </View>
+      {scope !== 'closed' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
+          {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
+            <Pill
+              key={s}
+              testID={`state-${s}`}
+              on={states.has(s)}
+              label={s}
+              onPress={() => {
+                const next = new Set(states);
+                if (!next.delete(s)) next.add(s);
+                setStates(next);
+              }}
+            />
+          ))}
+        </View>
+      )}
+      <Loadable
+        query={query}
+        served={served}
+        isEmpty={rows.length === 0}
+        skeleton="tasks"
+        label="tasks"
+        empty={scope === 'closed' ? 'No closed tasks.' : 'No open tasks.'}
+      >
         <FlatList
           data={rows}
           keyExtractor={(t) => String(t.id)}

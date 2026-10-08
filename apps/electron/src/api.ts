@@ -29,6 +29,9 @@ export function makeApi(ipc: Ipc): ShellApi {
     openPath: (a) => call(CHANNELS.openPath, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
+    mode: () => call(CHANNELS.mode),
+    setMode: (m) => call(CHANNELS.setMode, m),
+    pairRemote: (a) => call(CHANNELS.pairRemote, a),
     onNavigate(cb) {
       listener = cb;
       if (waiting) {
