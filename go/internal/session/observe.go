@@ -277,6 +277,22 @@ func (o *Observer) envOrReason(tr *trail, pid int) (env string, ok, notOurs bool
 	return withEnv[len(prefix):], true, false
 }
 
+// Process is one row of the process table.
+type Process struct {
+	PID     int
+	Command string
+}
+
+// Table is the process table as exported rows; ok is false when it could not be read.
+func (o *Observer) Table() ([]Process, bool) {
+	rows, ok := o.processTable(&trail{})
+	out := make([]Process, len(rows))
+	for i, r := range rows {
+		out[i] = Process{r.pid, r.command}
+	}
+	return out, ok
+}
+
 // ProcessEnv is pid's own environment, past its argv: never argv itself, which a caller controls and can put an env-looking token
 // inside (a launch argument such as --append-system-prompt carrying literal text like OCP_AGENT=x). ps eww prints argv followed by
 // the environment; ps ww prints argv alone. The two share the exact same argv rendering, so eww's output with that shared prefix
