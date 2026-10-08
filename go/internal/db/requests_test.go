@@ -242,3 +242,37 @@ func TestBlocksOpenUpdateAndClear(t *testing.T) {
 		t.Fatal("not cleared")
 	}
 }
+
+func TestAHandoffStartsInFlightAdvancesAndLeavesTheOldestFirst(t *testing.T) {
+	q := open(t)
+	if h, err := InFlightFor(q, "a"); err != nil || h != nil {
+		t.Fatalf("%v %v", h, err)
+	}
+	if err := StartHandoff(q, "h1", "a", "s1", "idle", 500); err != nil {
+		t.Fatal(err)
+	}
+	h, err := InFlightFor(q, "a")
+	if err != nil || h == nil || h.ID != "h1" || h.Step != "requested" || h.State != "in_flight" || h.SessionID.String != "s1" || h.Deadline.Int64 != 500 {
+		t.Fatalf("%+v %v", h, err)
+	}
+	if err := AdvanceHandoff(q, "h1", "captured", "", "note"); err != nil {
+		t.Fatal(err)
+	}
+	h, _ = InFlightFor(q, "a")
+	if h.Step != "captured" || h.State != "in_flight" || h.Detail.String != "note" {
+		t.Fatalf("an empty state keeps the one there: %+v", h)
+	}
+	if err := AdvanceHandoff(q, "h1", "done", "finished", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := InFlightFor(q, "a"); h != nil {
+		t.Fatalf("a finished handoff is not in flight: %+v", h)
+	}
+	// Starting the same id again replaces it.
+	if err := StartHandoff(q, "h1", "a", "", "idle", 600); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := InFlightFor(q, "a"); h == nil || h.Deadline.Int64 != 600 || h.SessionID.Valid {
+		t.Fatalf("%+v", h)
+	}
+}
