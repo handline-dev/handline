@@ -33,3 +33,37 @@ func LastHandoffTrigger(q Q, agent string) (string, error) {
 	}
 	return k.String, err
 }
+
+// HandoffRow is one handoff row.
+type HandoffRow struct {
+	ID, Agent, Step, State string
+	SessionID, TriggerKind sql.NullString
+	Deadline               sql.NullInt64
+	Detail                 sql.NullString
+	Updated                int64
+}
+
+// InFlightHandoffs is db.in_flight_handoffs: the handoffs not yet finished, oldest update first.
+func InFlightHandoffs(q Q) ([]HandoffRow, error) {
+	rows, err := q.Query("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE state = 'in_flight' ORDER BY updated")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HandoffRow
+	for rows.Next() {
+		var h HandoffRow
+		if err := rows.Scan(&h.ID, &h.Agent, &h.SessionID, &h.TriggerKind, &h.Step, &h.Deadline, &h.State, &h.Detail, &h.Updated); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// AdvanceHandoff is db.advance_handoff: commit one step; an empty state or detail keeps the one there.
+func AdvanceHandoff(q Q, id, step, state, detail string) error {
+	_, err := q.Exec("UPDATE handoff SET step = ?, state = COALESCE(?, state), detail = COALESCE(?, detail), updated = ? WHERE id = ?",
+		step, nullStr(state), nullStr(detail), Now(), id)
+	return err
+}
