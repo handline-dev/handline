@@ -8,6 +8,7 @@ package supervisor
 
 import (
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -113,8 +114,21 @@ type Stuck interface {
 	DeliveryBlock(q db.Q, agent string) (why string, clears bool)
 }
 
+// Agents is the agents' structured sessions (go/internal/structured), as the one send path uses them. A nil port means every agent is a
+// terminal agent, and the typing code is what delivers.
+type Agents interface {
+	// Structured says whether agent runs as a structured session: its kind, not whether the process is up.
+	Structured(agent string) bool
+	// Live says whether the agent's session is open and answered initialize.
+	Live(agent string) bool
+	// Send delivers text under the operation id. The same op twice writes once and answers the first receipt. Now joins a running turn; Queue is
+	// held until the turn ends. An error means nothing was written.
+	Send(agent, op, text string, d structured.Delivery) (structured.Receipt, error)
+}
+
 // Ports is every port; a nil field is an owner that has not landed yet.
 type Ports struct {
+	Agents    Agents // optional: nil is all-terminal
 	Terminal  Terminal
 	Observer  Observer
 	Dialogs   Dialogs
