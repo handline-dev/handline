@@ -28,7 +28,6 @@ session.type
 session.wake
 settings.set
 settings.trust
-task.cancel
 task.edit
 task.new
 terminal.attach

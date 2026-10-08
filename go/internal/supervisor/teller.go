@@ -86,3 +86,24 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 	}
 	return said
 }
+
+// Cancelled is what the founder's cancel does after it commits, ahead of the discard's own telling: each request it closed is told like any
+// cancel (the target told to stop if it had it, the requester told, the queue moved up), and an owner holding the task without a delivery is
+// typed to stop.
+func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwrites.Retired) {
+	var out string
+	defer e.guard("telling after a cancel", &out)
+	for _, r := range closed {
+		row, err := db.GetRequest(e.DB, r.RID)
+		if err != nil || row == nil {
+			e.log("  telling after T%d was cancelled, #%d failed: %v", tid, r.RID, err)
+			continue
+		}
+		if _, _, _, err := e.closeTell(e.DB, r.RID, row, CancelVerdict, r.Notify); err != nil {
+			e.log("  telling after T%d was cancelled, #%d failed: %v", tid, r.RID, err)
+		}
+	}
+	if stop {
+		e.typeSay(e.DB, owner, fmt.Sprintf("T%d discarded by %s - stop work on it", tid, by), "task discarded")
+	}
+}

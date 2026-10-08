@@ -14,6 +14,9 @@ import (
 
 const human = "human"
 
+// CancelVerdict is what a request the founder cancels says it was closed under.
+const CancelVerdict = "withdrawn by the founder"
+
 // Register adds the task writes to the server's table.
 // Teller is what follows a write once it has committed: the typed says and the deliveries the Python write did after its commit
 // (the supervisor's telling layer). A nil Teller tells nothing.
@@ -28,6 +31,9 @@ type Teller interface {
 	// Released stops the owner on the held requests a release ended, tells the requesters of the queued ones it closed (why is the reason on
 	// them), moves the queues up, and answers a phrase for each ("#12 ended; w told to stop").
 	Released(tid int64, why string, retired []Retired) []string
+	// Cancelled is what the founder's cancel leaves before the discard's own telling: each request it closed told like any cancel, and the
+	// owner typed a stop when it held the task without a delivery to stop it (stop).
+	Cancelled(tid int64, by, owner string, stop bool, closed []Retired)
 }
 
 func Register(s *rpc.Server, home string, tell Teller) {
@@ -37,6 +43,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, false)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
+	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: merge})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})

@@ -18,6 +18,8 @@ type fakeTeller struct {
 	freed     []string
 	forget    []db.InboxFile
 	released  []Retired
+	cancelled []Retired
+	stopped   bool
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -32,6 +34,10 @@ func (f *fakeTeller) Discarded(owner string, told []db.Notice, freed []string, f
 	f.told, f.freed, f.forget = told, freed, forget
 }
 
+func (f *fakeTeller) Cancelled(tid int64, by, owner string, stop bool, closed []Retired) {
+	f.cancelled = closed
+	f.stopped = stop
+}
 func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
 	f.released = retired
 	return []string{fmt.Sprintf("%d stopped", len(retired))}

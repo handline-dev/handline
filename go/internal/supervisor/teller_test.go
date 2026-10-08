@@ -113,3 +113,15 @@ func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *
 		t.Fatalf("%q", said)
 	}
 }
+
+func TestTheTellerAfterACancelClosesTheTellsAndTypesTheStopToAnOwnerWithNoDelivery(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	rid := r.ask("alice", "bob", "x", "task")
+	db.CloseIfQueued(r.DB, rid, "rejected", CancelVerdict, db.CloseOpts{})
+	r.term.typed = nil
+	r.Cancelled(1, "human", "bob", true, []taskwrites.Retired{{RID: rid, Requester: "alice", Target: "bob", Delivered: true, Notify: true}})
+	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "T1 discarded by human - stop work on it") {
+		t.Fatalf("%q", typed)
+	}
+}

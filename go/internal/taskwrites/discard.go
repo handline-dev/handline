@@ -18,31 +18,50 @@ func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 		if err != nil {
 			return nil, err
 		}
-		return discard(c, p, home, tell, reason)
+		return discard(c, p, home, tell, reason, false)
+	}
+}
+
+// cancelMethod is task.cancel: the founder's discard, which stops the requests out on a doing task instead of refusing them.
+func cancelMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		reason := "cancelled by the founder"
+		if v := p["reason"]; v != nil {
+			s, ok := v.(string)
+			if !ok {
+				return nil, badParam("reason is text", "reason")
+			}
+			if strings.TrimSpace(s) != "" {
+				reason = s
+			}
+		}
+		return discard(c, p, home, tell, reason, true)
 	}
 }
 
 // withdrawMethod is task.withdraw: an opener throwing its own task away.
 func withdrawMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
-		return discard(c, p, home, tell, "withdrawn by whoever opened it")
+		return discard(c, p, home, tell, "withdrawn by whoever opened it", false)
 	}
 }
 
 // discard throws a task away before it is done (actions.discard_task, without the founder's stop of open requests, which is
 // task.cancel's): refused while a child is open, while it waits on an open blocker, or while a request is still out on it.
 // What follows the commit - the says typed, the owner's next task, the closed requests' inbox files - is the Teller's.
-func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string) (any, error) {
+func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string, stop bool) (any, error) {
 	tid, err := taskID(p)
 	if err != nil {
 		return nil, err
 	}
 	by := c.Caller.Actor()
 	var (
-		owner  string
-		notes  []told
-		freed  []string
-		forget []db.InboxFile
+		owner     string
+		notes     []told
+		freed     []string
+		forget    []db.InboxFile
+		cancelled []Retired
+		sayStop   bool
 	)
 	out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		t, err := getTask(tx, tid)
@@ -93,13 +112,47 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if err != nil {
 			return nil, err
 		}
-		var open []string
+		var live []linked
 		for _, r := range reqs {
 			if r.asks() {
-				open = append(open, fmt.Sprintf("#%d (with %s)", r.ID, r.Target))
+				live = append(live, r)
 			}
 		}
-		if len(open) > 0 {
+		cancelled, sayStop = nil, false
+		inHand := false
+		if stop && by == human && len(live) > 0 { // the founder's stop: the open requests are cancelled instead of refusing
+			cur, _, err := db.CurrentTask(tx, t.Owner)
+			if err != nil {
+				return nil, err
+			}
+			delivered := false
+			for _, r := range live {
+				delivered = delivered || r.DeliveredAt.Valid
+			}
+			inHand = cur == tid || delivered
+			sayStop = inHand && t.Owner != human && !delivered
+			for _, r := range live {
+				if r.State != "queued" {
+					continue // landed: held by its agent, told to stop below; nothing to cancel
+				}
+				plan, err := cancelRequest(tx, r)
+				if err != nil {
+					return nil, err
+				}
+				if plan == nil {
+					return nil, refusal(fmt.Sprintf("task T%d not discarded: #%d was closed while this ran - nothing to cancel", tid, r.ID))
+				}
+				if plan.RID != 0 {
+					cancelled = append(cancelled, *plan)
+				} else {
+					forget = append(forget, db.InboxFile{Target: r.Target, RID: r.ID})
+				}
+			}
+		} else if len(live) > 0 {
+			var open []string
+			for _, r := range live {
+				open = append(open, fmt.Sprintf("#%d (with %s)", r.ID, r.Target))
+			}
 			return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
 				"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
 		}
@@ -123,7 +176,10 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if by == human {
 			byWord = "the founder"
 		}
-		also := []string{t.Owner}
+		var also []string
+		if !inHand {
+			also = append(also, t.Owner)
+		}
 		if who != t.Owner {
 			also = append(also, who)
 		}
@@ -131,7 +187,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if err != nil {
 			return nil, err
 		}
-		notes, forget = ended, gone
+		notes, forget = ended, append(forget, gone...)
 		for _, b := range blockers { // only the founder gets here with any: the wait ends with the task
 			if err := removeBlock(tx, tid, b.ID); err != nil {
 				return nil, err
@@ -148,6 +204,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		return accepted(fmt.Sprintf("task T%d discarded by %s: %s", tid, by, said), nil), nil
 	})
 	if err == nil && owner != "" && tell != nil {
+		tell.Cancelled(tid, by, owner, sayStop, cancelled)
 		tell.Discarded(owner, notes, freed, forget)
 	}
 	return out, err
@@ -166,4 +223,31 @@ func taskList(ids []int64) string {
 		parts[i] = fmt.Sprintf("T%d", id)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// cancelRequest is the write of the founder's cancel (team/ask.py cancel) for one queued request: the founder's own undelivered one is
+// withdrawn (plan.RID 0), any other closes as rejected under the founder's words. nil when it was closed while this ran.
+func cancelRequest(tx *sql.Tx, r linked) (*Retired, error) {
+	if r.Requester == human && !r.DeliveredAt.Valid {
+		ok, err := db.RetireIfUndelivered(tx, r.ID, "withdrawn", "")
+		if err != nil || !ok {
+			return nil, err
+		}
+		if err := addEvent(tx, human, "withdraw", kv{"request_id", r.ID}, kv{"target", r.Target}, kv{"reason", nil}); err != nil {
+			return nil, err
+		}
+		return &Retired{}, nil
+	}
+	notify := r.Requester != human
+	ok, err := db.CloseIfQueued(tx, r.ID, "rejected", CancelVerdict, db.CloseOpts{Announced: !notify})
+	if err != nil || !ok {
+		return nil, err
+	}
+	if err := addEvent(tx, r.Requester, "closed_under", kv{"request_id", r.ID}, kv{"target", r.Target}); err != nil {
+		return nil, err
+	}
+	if err := addEvent(tx, human, "cancel", kv{"request_id", r.ID}, kv{"target", r.Target}, kv{"requester", r.Requester}, kv{"delivered", r.DeliveredAt.Valid}); err != nil {
+		return nil, err
+	}
+	return &Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid, Notify: notify}, nil
 }
