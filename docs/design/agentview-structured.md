@@ -36,14 +36,16 @@ The word is made in the order Python makes it, from the row, with the session as
 
 - the opencode screen witness (`_opencode_working`, pane read) -> the S1 session state: `running` and `requires_action` are busy.
 - a screen `modal` / `backgrounded` block as DIALOG -> an open prompt only. A structured session has no screen to be stuck behind.
-- `row.terminal` empty meaning `no_terminal` -> a structured row's terminal is always empty (it has none), so the word follows the
-  live session: no live session and not closed for work is `no_terminal`, a live session is `idle`.
-- the `would_wake`-style screen gating is kept as is; it reads the db, not the screen.
+- `row.terminal` empty meaning `no_terminal` -> a structured row's terminal is always empty, so the word follows the live session: an
+  idle row with no live session is `no_terminal`, with one it is `idle`.
+- the idle-row waits on a child or a blocker keep their text, now cut to the contract's 40 characters.
 
 ## Where it runs
 
-`RefreshOne` is the reconciler's `RefreshView` port (after a sweep records a gone session, after a wake). `Refresh` runs once per tick
-over every structured agent and deletes the row of an agent that is gone. Terminal agents are skipped by both.
+`Env.RefreshOne` is the reconciler's `RefreshView` port (after a sweep records a gone session, after a wake). `Env.Refresh` is one of
+the tick's guarded passes (`Tick.Passes`), placed where Python refreshes: after the blocked sweep and the spool, before auto-accept. It
+stores every structured agent's view and deletes the row of an agent that is gone. Terminal agents are skipped by `RefreshOne`. The
+composition root wires both.
 
 ## Tests
 
