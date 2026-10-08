@@ -180,3 +180,14 @@ func dirOf(path string) string {
 	}
 	return "."
 }
+
+// EditConfig reads config.yaml, lets edit change it (a nil value removes a key) and writes it in one step; a file that is not a mapping is
+// not overwritten.
+func EditConfig(home string, edit func(get func(string) any, set func(string, any))) error {
+	cfg, err := (&Env{Home: home}).readConfig()
+	if err != nil {
+		return err
+	}
+	edit(cfg.get, cfg.set)
+	return cfg.save()
+}

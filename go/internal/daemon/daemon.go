@@ -16,6 +16,7 @@ import (
 	"github.com/handline/handline/go/internal/chatwrites"
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
+	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prompts"
@@ -191,6 +192,16 @@ func (d *Daemon) env() *supervisor.Env {
 	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log}
 }
 
+// hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
+func (d *Daemon) hrEnv() *hrwrites.Env {
+	env := d.env()
+	h := &hrwrites.Env{DB: d.db, Home: d.cfg.Home, Say: env, Log: d.cfg.Log}
+	if env.Observer != nil {
+		h.Live = env.Observer.LiveSessions
+	}
+	return h
+}
+
 // newServer is a connection server on one transport, with the methods this daemon serves.
 func (d *Daemon) newServer(transport string) *rpc.Server {
 	s := rpc.NewServer(d.cfg.Auth, version.Sha, store.LatestVersion(), transport, d.cfg.Log)
@@ -201,6 +212,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
 		chatwrites.Register(s, d.env())
 		adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home})
+		hrwrites.Register(s, d.hrEnv())
 		prompts.Register(s, d.prompts)
 	}
 	if transport == "network" {

@@ -41,6 +41,11 @@ func has(items []reads.Schedule, s reads.Schedule) bool {
 
 // write keeps the agent's schedules in its agent.yaml, validated; none removes the key.
 func (e *Env) writeSchedules(agent string, items []reads.Schedule) error {
+	return WriteSchedules(e.Home, agent, items)
+}
+
+// WriteSchedules keeps the agent's schedules in its agent.yaml; none removes the key.
+func WriteSchedules(home, agent string, items []reads.Schedule) error {
 	var value any
 	if len(items) > 0 {
 		list := make([]any, len(items))
@@ -49,7 +54,7 @@ func (e *Env) writeSchedules(agent string, items []reads.Schedule) error {
 		}
 		value = rpc.PyJSON(list, true, true)
 	}
-	return team.NewRoster(e.Home).SetKeys(agent, []yamlcompat.Pair{{Key: "schedules", Val: value}})
+	return team.NewRoster(home).SetKeys(agent, []yamlcompat.Pair{{Key: "schedules", Val: value}})
 }
 
 func (e *Env) scheduleList(agent string, add *reads.Schedule) ([]reads.Schedule, error) {

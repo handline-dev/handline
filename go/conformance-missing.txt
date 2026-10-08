@@ -5,7 +5,6 @@ account.remove
 agent.create
 agent.unstall
 agent.strip
-hr.decide
 input.ask
 input.release
 input.take
