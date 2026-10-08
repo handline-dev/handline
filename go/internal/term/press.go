@@ -3,6 +3,7 @@ package term
 import (
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,9 @@ type Term struct {
 	Driver  func(handle string) Driver
 	Settle  time.Duration
 	Gap     time.Duration // between the keys of one question answer
+
+	cacheMu sync.Mutex
+	cache   map[string]cachedBlocker // ScreenBlockerCached's reads, by handle
 }
 
 const (
