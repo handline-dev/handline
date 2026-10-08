@@ -84,6 +84,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now)},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
+	t.Passes = p.passes(cfg, t)
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
 	return &Tick{Tick: t, Loop: loop}
 }
