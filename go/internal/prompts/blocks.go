@@ -35,6 +35,8 @@ type Env struct {
 	Rules *team.DialogRules
 	// Reads draws the Prompt a stale answer carries.
 	Reads *reads.Env
+	// Structured answers the prompts of agents that run as structured sessions; nil when there are none.
+	Structured Structured
 }
 
 func (e *Env) now() time.Time {
