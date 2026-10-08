@@ -80,18 +80,21 @@ const PRIORITIES = [
   [3, '3 low'],
 ] as const;
 
-/** A small panel under the verbs: names the thing, takes a reason (required or optional), Submit and Cancel. */
+const GROW = { flex: 1 };
+
+/** A small panel under the verbs: names the thing, takes a reason (required or optional), Submit and Cancel. Without onSubmit it is a read-only view with one Close. */
 export function Sheet(props: {
   label: string;
-  submit: string;
+  submit?: string;
   kind?: 'yes' | 'no';
   children?: ReactNode;
   onCancel: () => void;
-  onSubmit: () => void;
+  onSubmit?: () => void;
   error?: string;
   busy?: boolean;
 }) {
   const c = usePalette();
+  const { submit, kind, onSubmit, onCancel, busy } = props;
   return (
     <View
       testID="sheet"
@@ -105,15 +108,10 @@ export function Sheet(props: {
         </Text>
       ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button
-          testID="sheet-submit"
-          kind={props.kind ?? 'yes'}
-          label={props.submit}
-          disabled={props.busy}
-          onPress={props.onSubmit}
-          style={{ flex: 1 }}
-        />
-        <Button testID="sheet-cancel" label="Cancel" onPress={props.onCancel} />
+        {onSubmit && (
+          <Button testID="sheet-submit" kind={kind ?? 'yes'} label={submit ?? 'Submit'} disabled={busy} onPress={onSubmit} style={GROW} />
+        )}
+        <Button testID="sheet-cancel" label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
       </View>
     </View>
   );

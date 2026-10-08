@@ -1,10 +1,10 @@
-// The ⋯ menu of the agent page: the verbs beyond start and stop (wake, restart, park, fold, move account), as on the web. Each is a decided
+// The ⋯ menu of the agent page: the verbs beyond start and stop (wake, restart, park, fold, move account) and the way to the agent's settings and schedules. Each is a decided
 // write that shows its gerund until the daemon answers; the ones the bridge asks about ask first in a sheet that checks the row again on
 // Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4).
 import { useState } from 'react';
 import { Text, View } from 'react-native';
-import { VERBS, callOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
-import { useAccounts, useAgents, usePending, useWrite } from '@handline/app-data';
+import { needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
+import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -13,38 +13,7 @@ import { Button, Row } from './parts.tsx';
 
 const HIDDEN: VerbId[] = ['close', 'clear_stall'];
 
-/** Starts a verb's write. */
-function useVerbRun(agent: string) {
-  const wake = useWrite('session.wake', agent);
-  const restart = useWrite('session.restart', agent);
-  const park = useWrite('session.park', agent);
-  const fold = useWrite('agent.fold', agent);
-  const move = useWrite('agent.move', agent);
-  return (v: Verb, account?: string) => {
-    const p = callOf(v, agent, account).params as never;
-    if (v.method === 'session.wake') wake.mutate(p);
-    else if (v.method === 'session.restart') restart.mutate(p);
-    else if (v.method === 'session.park') park.mutate(p);
-    else if (v.method === 'agent.fold') fold.mutate(p);
-    else if (v.method === 'agent.move') move.mutate(p);
-  };
-}
-
-/** The gerund of the menu verb in flight on this agent ("parking…"); null when none. */
-export function useVerbMark(agent: string): string | null {
-  const mine = <T extends { agent: string }>(l: T[]) => l.some((v) => v.agent === agent);
-  const hits: [boolean, VerbId][] = [
-    [mine(usePending('session.wake')), 'wake'],
-    [mine(usePending('session.restart')), 'restart'],
-    [mine(usePending('session.park')), 'park'],
-    [mine(usePending('agent.fold')), 'fold'],
-    [mine(usePending('agent.move')), 'move'],
-  ];
-  const hit = hits.find(([on]) => on);
-  return hit ? VERBS[hit[1]].gerund : null;
-}
-
-export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefined }) {
+export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefined; onSettings: () => void }) {
   const { detail, row } = props;
   const [open, setOpen] = useState(false);
   const [verb, setVerb] = useState<Verb | null>(null);
@@ -58,12 +27,26 @@ export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefi
   };
   return (
     <View style={{ gap: space.sm }}>
-      <Button testID="verbs-open" label="⋯" onPress={() => setOpen(!open)} accessibilityLabel="More verbs" />
+      <Button
+        testID="verbs-open"
+        label="⋯"
+        onPress={() => setOpen(!open)}
+        style={{ alignSelf: 'flex-start' }}
+        accessibilityLabel="More verbs"
+      />
       {open && (
         <View testID="verbs" style={{ gap: space.xs }}>
           {verbs.map((v) => (
             <VerbButton key={v.id} v={v} onPress={() => pick(v)} />
           ))}
+          <Button
+            testID="verb-settings"
+            label="Settings and schedules"
+            onPress={() => {
+              setOpen(false);
+              props.onSettings();
+            }}
+          />
         </View>
       )}
       {verb && <VerbSheet row={row} detail={detail} verb={verb} run={run} onClose={() => setVerb(null)} />}

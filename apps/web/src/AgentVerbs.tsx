@@ -2,47 +2,10 @@
 // Each is a decided write: the row shows the verb's gerund until the agents topic changes it. The ones in the bridge's CONFIRM ask first,
 // in a sheet under the row, and the sheet checks the row again on Confirm: a row that changed sends nothing.
 import { useEffect, useRef, useState } from 'react';
-import { callOf, VERBS, verbsOf, type Verb, type VerbId } from '@handline/app-core';
+import { verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { useAccounts, useAgentDetail, useAgents, usePending, useWrite } from '@handline/app-data';
-
-/** Starts a verb's write. */
-export function useVerbRun(agent: string) {
-  const wake = useWrite('session.wake', agent);
-  const stop = useWrite('session.stop', agent);
-  const restart = useWrite('session.restart', agent);
-  const park = useWrite('session.park', agent);
-  const fold = useWrite('agent.fold', agent);
-  const move = useWrite('agent.move', agent);
-  const unstall = useWrite('agent.unstall', agent);
-  return (v: Verb, account?: string) => {
-    const p = callOf(v, agent, account).params as never;
-    if (v.method === 'session.wake') wake.mutate(p);
-    else if (v.method === 'session.stop') stop.mutate(p);
-    else if (v.method === 'session.restart') restart.mutate(p);
-    else if (v.method === 'session.park') park.mutate(p);
-    else if (v.method === 'agent.fold') fold.mutate(p);
-    else if (v.method === 'agent.move') move.mutate(p);
-    else if (v.method === 'agent.unstall') unstall.mutate(p);
-  };
-}
-
-/** The gerund of the verb in flight on this agent ("parking…"), for the state cell; null when none. */
-export function useVerbMark(agent: string): string | null {
-  const mine = <T extends { agent: string }>(l: T[]) => l.filter((v) => v.agent === agent);
-  const hits: [boolean, VerbId][] = [
-    [mine(usePending('session.wake')).length > 0, 'wake'],
-    [mine(usePending('session.stop')).some((v) => v.mode === 'close'), 'close'],
-    [mine(usePending('session.restart')).length > 0, 'restart'],
-    [mine(usePending('session.park')).length > 0, 'park'],
-    [mine(usePending('agent.fold')).length > 0, 'fold'],
-    [mine(usePending('agent.move')).length > 0, 'move'],
-    [mine(usePending('agent.unstall')).length > 0, 'clear_stall'],
-  ];
-  const hit = hits.find(([on]) => on);
-  return hit ? VERBS[hit[1]].gerund : null;
-}
+import { useAccounts, useAgentDetail, useAgents, useVerbRun } from '@handline/app-data';
 
 /** Whether the daemon lists the verb's method; one it does not list shows disabled with the reason. */
 export function useServed(): (v: Verb) => boolean {

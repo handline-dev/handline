@@ -52,16 +52,16 @@ appId: dev.handline.mobile
 - assertVisible: ".*push the branch.*"
 - extendedWaitUntil:
     visible:
-      id: permission-card
+      id: prompt-card
     timeout: 15000
-- takeScreenshot: shots/6-permission-card-terminal
+- takeScreenshot: shots/6-prompt-card-terminal
 - tapOn:
     id: tab-chat
 - assertVisible:
-    id: permission-card
-- takeScreenshot: shots/7-permission-card-chat
+    id: prompt-card
+- takeScreenshot: shots/7-prompt-card-chat
 - tapOn:
     id: answer-1
 - assertNotVisible:
-    id: permission-card
+    id: prompt-card
 - takeScreenshot: shots/8-card-answered

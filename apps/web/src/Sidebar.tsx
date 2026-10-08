@@ -19,8 +19,8 @@ import {
 } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { useAgentDetail, useAgents, useServes, useUnread, useWrite } from '@handline/app-data';
-import { unserved, useServed, useVerbMark, useVerbRun, VerbSheet } from './AgentVerbs.tsx';
+import { useAgentDetail, useAgents, useServes, useUnread, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
+import { unserved, useServed, VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
