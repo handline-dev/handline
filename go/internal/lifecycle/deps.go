@@ -116,8 +116,8 @@ type Launch interface {
 type Spawner interface {
 	// WorktreePath is the worktree if it still exists, "" otherwise.
 	WorktreePath(worktree string) string
-	StartIn(agent, worktree, cmd string) (bool, string)
-	Spawn(agent, repo string) (bool, string)
+	StartIn(agent, worktree, cmd string) (bool, string, error)
+	Spawn(agent, repo string) (bool, string, error)
 }
 
 // AgentsPort is team/agents.py, trust.py and measure as the lifecycle reads them.

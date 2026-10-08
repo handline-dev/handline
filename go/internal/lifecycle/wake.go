@@ -163,10 +163,12 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	// standing with nothing in it counts as the failed wake it is.
 	var ok bool
 	if wt != "" {
-		ok, said = m.Spawn.StartIn(agent, wt, "")
+		ok, said, err = m.Spawn.StartIn(agent, wt, "")
 	} else {
-		ok, said = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
+		ok, said, err = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
 	}
+	// A start that could not be tried (git cannot run, no descriptors) is no failed start of the agent's own: it is not counted.
+	check(err)
 	first := strings.SplitN(said, "\n", 2)[0]
 	if ok {
 		check(db.ResetCounter(m.Q, agent, "wake_failures"))
@@ -653,7 +655,8 @@ func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() boo
 	if handle != "" {
 		return m.Term.Relaunch(handle, cmd, started)
 	}
-	ok, why := m.Spawn.StartIn(agent, wt, cmd)
+	ok, why, err := m.Spawn.StartIn(agent, wt, cmd)
+	check(err)
 	if ok && !started() {
 		return false, "the launch command was run but no session took its prompt"
 	}

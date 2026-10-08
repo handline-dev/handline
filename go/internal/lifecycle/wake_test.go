@@ -1,8 +1,10 @@
 package lifecycle
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -94,5 +96,21 @@ func TestStartForWorkHandsSpawnTheRepoExpandedAndResolved(t *testing.T) {
 	want := realpath(filepath.Join(home, "code", "x"))
 	if len(sp.spawned) != 1 || sp.spawned[0] != "a@"+want {
 		t.Fatalf("%v, want %s", sp.spawned, want)
+	}
+}
+
+func TestStartForWorkThatCannotTryTheStartIsNotCountedAgainstTheAgent(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.Agents = fakeAgents{repo: "/repo"}
+	db.AddPending(m.Q, "a", "x", 1)
+	m.Spawn.(*fakeSpawn).err = syscall.EMFILE
+	for i := 0; i < states.MaxFailedAttempts+1; i++ {
+		if _, err := m.StartForWork("a"); !errors.Is(err, syscall.EMFILE) {
+			t.Fatalf("the shortage is returned: %v", err)
+		}
+	}
+	row, _ := db.GetAgentState(m.Q, "a")
+	if row != nil && (row.State == states.Stalled || row.WakeFailures != 0) {
+		t.Fatalf("a descriptor shortage must not count or stall: %+v", row)
 	}
 }

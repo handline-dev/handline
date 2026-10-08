@@ -103,7 +103,7 @@ func TestStartInOpensTheTerminalInTheKeptWorktreeAndChecksASessionCameUp(t *test
 	q := openDB(t)
 	h := &fakeHost{handle: "t9"}
 	s := &Spawns{Q: q, Host: h, Launch: fakeLaunch{}, Delivery: upDelivery{up: true}, Sleep: func(time.Duration) {}}
-	ok, said := s.StartIn("a", wt, "hl launch a --why 'wake'")
+	ok, said, _ := s.StartIn("a", wt, "hl launch a --why 'wake'")
 	if !ok || !strings.Contains(said, "a: started in "+wt+" (terminal t9)") {
 		t.Fatalf("%v %q", ok, said)
 	}
@@ -111,10 +111,10 @@ func TestStartInOpensTheTerminalInTheKeptWorktreeAndChecksASessionCameUp(t *test
 		t.Fatalf("%+v", row)
 	}
 	s.Delivery = upDelivery{up: false}
-	if ok, said := s.StartIn("a", wt, "x"); ok || !strings.Contains(said, "no session is running in it after 20s") {
+	if ok, said, _ := s.StartIn("a", wt, "x"); ok || !strings.Contains(said, "no session is running in it after 20s") {
 		t.Fatalf("%v %q", ok, said)
 	}
-	if ok, said := s.StartIn("a", filepath.Join(wt, "gone"), "x"); ok || !strings.Contains(said, "its worktree") {
+	if ok, said, _ := s.StartIn("a", filepath.Join(wt, "gone"), "x"); ok || !strings.Contains(said, "its worktree") {
 		t.Fatalf("%v %q", ok, said)
 	}
 }
@@ -174,7 +174,7 @@ func spawnRig(t *testing.T) (*Spawns, *runHost, string) {
 
 func TestSpawnBranchesAWorktreeFromTheLeadingSideAndOpensItsTerminal(t *testing.T) {
 	s, h, repo := spawnRig(t)
-	ok, said := s.Spawn("a", repo)
+	ok, said, _ := s.Spawn("a", repo)
 	if !ok || !strings.Contains(said, "a: worktree "+h.wtMade) || !strings.Contains(said, "branched from main (main and origin/main agree)") || !strings.Contains(said, "terminal t7") {
 		t.Fatalf("%v %q", ok, said)
 	}
@@ -187,7 +187,7 @@ func TestSpawnBranchesAWorktreeFromTheLeadingSideAndOpensItsTerminal(t *testing.
 	}
 	// Its own worktree is kept: no second one is made.
 	h.wtMade = ""
-	if ok, said := s.Spawn("a", repo); !ok || !strings.Contains(said, "kept (its own worktree, kept)") {
+	if ok, said, _ := s.Spawn("a", repo); !ok || !strings.Contains(said, "kept (its own worktree, kept)") {
 		t.Fatalf("%v %q", ok, said)
 	}
 }
@@ -199,11 +199,11 @@ func TestSpawnWithSaysWhyItCannotAndWhatItWouldDo(t *testing.T) {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	h.missing = ""
-	if ok, said := s.Spawn("a", t.TempDir()); ok || said == "" {
+	if ok, said, _ := s.Spawn("a", t.TempDir()); ok || said == "" {
 		t.Fatalf("a directory that is no repo has nothing to branch from: %v %q", ok, said)
 	}
 	h.wtMade = ""
-	if ok, said := s.Spawn("a", repo); ok || said != "worktree create failed" {
+	if ok, said, _ := s.Spawn("a", repo); ok || said != "worktree create failed" {
 		t.Fatalf("%v %q", ok, said)
 	}
 	ok, said, err := s.SpawnWith("a", repo, SpawnOpts{DryRun: true})
@@ -242,5 +242,14 @@ func TestGitThatCannotRunIsAnErrorNotAMissingBranch(t *testing.T) {
 	s, _, _ := spawnRig(t)
 	if ok, said, err := s.SpawnWith("a", gone, SpawnOpts{}); ok || err == nil {
 		t.Fatalf("%v %q %v", ok, said, err)
+	}
+}
+
+func TestGitThatTimesOutIsAnError(t *testing.T) {
+	saved := gitTimeout
+	gitTimeout = time.Nanosecond
+	defer func() { gitTimeout = saved }()
+	if _, _, _, err := git(t.TempDir(), "status"); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("a killed git is an error: %v", err)
 	}
 }

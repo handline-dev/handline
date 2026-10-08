@@ -24,9 +24,11 @@ const (
 	// execs claude, which takes a few seconds to be visible.
 	StartedTimeoutS = 20
 	// RunKey is the meta name of the orchestration Run this team's work hangs under: one per installation.
-	RunKey     = "orca:run"
-	gitTimeout = 120 * time.Second
+	RunKey = "orca:run"
 )
+
+// gitTimeout is how long a git command may run; a var so a test can shorten it.
+var gitTimeout = 120 * time.Second
 
 // Host is the terminal host's worktree, terminal and Run calls (session/term.py, the part the daemon's terminal channel has not
 // brought over yet).
@@ -102,6 +104,9 @@ func git(cwd string, args ...string) (int, string, string, error) {
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	code := 0
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return 0, "", "", fmt.Errorf("git %s: timed out after %s", strings.Join(args, " "), gitTimeout)
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		} else {
@@ -322,32 +327,32 @@ func (s *Spawns) EnsureExtras(agent, first, repo string) (have, told []string, e
 // anything happening to the work: the branch, the checkout and whatever is uncommitted in it are all still there. Making a second
 // worktree for that agent would be the wrong repair - it would strand the first. cmd is what the terminal runs; a wake passes its launch
 // with the resume id and prompt file, since a closed session's pane is closed with it.
-func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string) {
+func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 	if !s.Host.Available() {
-		return false, s.Host.Missing()
+		return false, s.Host.Missing(), nil
 	}
 	if _, err := os.Stat(worktree); err != nil {
-		return false, fmt.Sprintf("%s: its worktree %s is gone", agent, worktree)
+		return false, fmt.Sprintf("%s: its worktree %s is gone", agent, worktree), nil
 	}
 	_, extraTold, err := s.EnsureExtras(agent, worktree, "")
 	if err != nil {
-		return false, fmt.Sprintf("%s: %v", agent, err)
+		return false, "", err
 	}
 	if cmd == "" {
 		if cmd, err = s.Launch.CommandFor(agent, "", "", ""); err != nil {
-			return false, fmt.Sprintf("%s: %v", agent, err)
+			return false, "", err
 		}
 	}
 	handle, why := s.Host.OpenTerminal(cmd, worktree, agent)
 	if handle == "" && why != "" {
-		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why)
+		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
 	}
 	if handle != "" {
 		if err := db.SetTerminal(s.Q, agent, handle, worktree); err != nil {
-			return false, fmt.Sprintf("%s: %v", agent, err)
+			return false, "", err
 		}
 		if _, err := s.RegisterWorker(agent, handle); err != nil {
-			return false, fmt.Sprintf("%s: %v", agent, err)
+			return false, "", err
 		}
 	}
 	shown := handle
@@ -356,9 +361,9 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string) {
 	}
 	said := strings.Join(append(extraTold, fmt.Sprintf("%s: started in %s (terminal %s)", agent, worktree, shown)), "\n")
 	if problem := s.confirmSession(agent); problem != "" {
-		return false, said + "\n  but " + problem
+		return false, said + "\n  but " + problem, nil
 	}
-	return true, said
+	return true, said, nil
 }
 
 // SpawnOpts say how Spawn goes.
@@ -368,12 +373,8 @@ type SpawnOpts struct {
 }
 
 // Spawn starts the agent in its worktree: the one it has, else a new one named after it.
-func (s *Spawns) Spawn(agent, repo string) (bool, string) {
-	ok, said, err := s.SpawnWith(agent, repo, SpawnOpts{})
-	if err != nil {
-		return false, fmt.Sprintf("%s: %v", agent, err)
-	}
-	return ok, said
+func (s *Spawns) Spawn(agent, repo string) (bool, string, error) {
+	return s.SpawnWith(agent, repo, SpawnOpts{})
 }
 
 // SpawnWith is Spawn with its options.

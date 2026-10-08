@@ -97,16 +97,17 @@ type fakeSpawn struct {
 	Spawner
 	startedIn, spawned []string
 	ok                 bool
+	err                error
 }
 
 func (*fakeSpawn) WorktreePath(w string) string { return w }
-func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string) {
+func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
 	f.startedIn = append(f.startedIn, agent+"@"+wt)
-	return f.ok, "start-in said"
+	return f.ok, "start-in said", f.err
 }
-func (f *fakeSpawn) Spawn(agent, repo string) (bool, string) {
+func (f *fakeSpawn) Spawn(agent, repo string) (bool, string, error) {
 	f.spawned = append(f.spawned, agent+"@"+repo)
-	return f.ok, "spawn said\nmore"
+	return f.ok, "spawn said\nmore", f.err
 }
 
 type fakeAgents struct {
