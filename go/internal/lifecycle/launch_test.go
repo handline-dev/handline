@@ -505,3 +505,31 @@ func TestAColdWakeMovesToTheSlowestPacedAccountWithRoomNotItsOwnNorOneWithOlderW
 		t.Fatalf("an account an older waiter holds the slot of is not room, and the agent's own is left out: %q", got)
 	}
 }
+
+func TestAnOpenAgentsMoveDoesNotTakeTheSlotAnOlderClosedWaiterHolds(t *testing.T) {
+	r := newLaunchRig(t)
+	pct := 10
+	r.l.Ports.Accounts = fakeAccounts{true}
+	r.l.Ports.CurrentAccount = func(_ db.Q, agent string) string {
+		if agent == "waiting-on-b" {
+			return "b"
+		}
+		return "a"
+	}
+	r.l.Ports.WaitingFor = func(db.Q, string) bool { return true }
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 1, head: map[string]float64{"a": 0.9, "b": 0.9}}
+	for _, a := range []string{"a", "b"} {
+		os.MkdirAll(filepath.Join(paths.AccountsDir(r.l.Home), a), 0o755)
+	}
+	q := r.l.Q
+	db.SetAgentState(q, "ann", states.Idle, 0, "") // open: never closed
+	db.SetAgentState(q, "waiting-on-b", states.Idle, 0, "")
+	db.SetClosed(q, "waiting-on-b", "s-b")
+	row, _ := db.GetAgentState(q, "ann")
+	if got, why := r.l.RoomElsewhere(q, "ann", row, map[string]string{"a": "its own"}); got != "" {
+		t.Fatalf("took the slot a closed agent waits for: %q %s", got, why)
+	}
+	if why := r.l.RoomOn(q, "ann", row, "b"); why == "" {
+		t.Fatal("a forced move to b was allowed past the waiter")
+	}
+}

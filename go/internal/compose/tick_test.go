@@ -203,3 +203,13 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLastContextIsReadPastALineLongerThanAScannerAllows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	small := `{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1}}}` + "\n"
+	big := `{"type":"assistant","message":{"model":"m2","usage":{"input_tokens":7,"cache_read_input_tokens":3},"content":"` + strings.Repeat("x", 2<<20) + `"}}` + "\n"
+	os.WriteFile(path, []byte(small+big), 0o644)
+	if used, model, ok := lastContext(path); !ok || used != 10 || model != "m2" {
+		t.Fatalf("%d %q %v", used, model, ok)
+	}
+}

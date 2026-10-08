@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -278,9 +279,21 @@ func (l *Launcher) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip s
 	return best
 }
 
+// asWaiter is the row of an agent about to be placed: an open one is newer than every closed agent waiting for a slot, so none of them is
+// passed over for it.
+func asWaiter(row *db.AgentState) *db.AgentState {
+	if row == nil || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+		return row
+	}
+	c := *row
+	c.ClosedAt = sql.NullInt64{Int64: math.MaxInt64, Valid: true}
+	return &c
+}
+
 // RoomElsewhere is SlowestPaced with a reason for each account passed over: exclude names the accounts left out and why. The second result
 // is why no account has room, "" when one does. A move to an account is held to this same test, so a wake and a handoff cannot disagree.
 func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
+	row = asWaiter(row)
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
 	var passed []string
@@ -312,6 +325,7 @@ func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 
 // RoomOn is the same test for one account a person chose: why it cannot take the agent, "" when it can.
 func (l *Launcher) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
+	row = asWaiter(row)
 	for _, a := range l.mayStartAccounts() {
 		if a != acct {
 			continue

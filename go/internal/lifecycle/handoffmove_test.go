@@ -132,7 +132,7 @@ func TestAContextHandoffClosesFreshAndParksWithAnImmediateWake(t *testing.T) {
 	if len(g.r.opened) != 0 || len(g.r.sent) != 0 {
 		t.Fatalf("a context handoff starts nothing itself: %v %v", g.r.opened, g.r.sent)
 	}
-	if ok, said, _ := g.m.WakeAgent("a", WakeOpts{Force: true}); !ok || len(g.r.opened) != 1 || g.r.opened[0].Resume {
+	if ok, said, _ := g.m.WakeAgent("a", WakeOpts{}); !ok || len(g.r.opened) != 1 || g.r.opened[0].Resume {
 		t.Fatalf("%v %q", g.r.opened, said)
 	}
 }

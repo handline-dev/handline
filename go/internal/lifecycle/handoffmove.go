@@ -244,6 +244,7 @@ func (v *Mover) MoveToRoom(agent string, t HandoffTrigger) (moved bool, err erro
 func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok bool, err error) {
 	defer catch(&err)
 	m := v.M
+	defer m.lockAgent(agent)()
 	if existing := must(db.InFlightFor(m.Q, agent)); existing != nil {
 		check(db.AdvanceHandoff(m.Q, existing.ID, existing.Step, existing.State, strings.Trim(existing.Detail.String+"; also "+t.Kind, "; ")))
 		v.log("  %s: already handing off at step '%s', merged '%s' as an added reason", agent, existing.Step, t.Kind)
@@ -283,7 +284,6 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 		v.log("  %s: %s fired - waiting for its handoff note", agent, t.Kind)
 		return true, nil
 	}
-	defer m.lockAgent(agent)()
 	return v.perform(agent, t, dest), nil
 }
 
@@ -347,7 +347,7 @@ const ClearNotice = "ocp: your context is full (%s), so this session will be cle
 
 // reclaim returns the context: the session is closed with no resume id and the park's wake starts a fresh one from the record. Work the
 // session still runs is cut off by the close, so it is owed: the agent is told once and the close comes when the work ends or its time is
-// up (T415).
+// up.
 func (v *Mover) reclaim(agent string) (bool, string) {
 	m := v.M
 	if !m.Run.Alive(agent) {
@@ -402,7 +402,7 @@ func (v *Mover) closeNow(agent string) (bool, string) {
 	return ok, why
 }
 
-// SettleOwedClear is true while this agent's clear is owed (T415): the close comes once its background work has ended or its time is up,
+// SettleOwedClear is true while this agent's clear is owed: the close comes once its background work has ended or its time is up,
 // and the agent is parked as the handoff would have. False when nothing is owed or the session it was owed for is gone.
 func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 	defer catch(&err)
