@@ -24,19 +24,24 @@ try {
   seen.attachedLines = view.lines();
 
   await client.takeInput(agent);
-  // 60 numbered lines push the first of them into the scrollback; the last one is painted green.
-  const line = "i=0; while [ $i -lt 60 ]; do echo row$i; i=$((i+1)); done; printf 'last\\033[32mgreen\\033[0m\\n'";
+  // 60 numbered lines, ten a second, push the first of them into the scrollback; the last one is painted green. The
+  // daemon builds scrollback from the screens it polls, so a burst bigger than a screen would leave none (see the findings).
+  const line = "i=0; while [ $i -lt 60 ]; do echo row$i; i=$((i+1)); sleep 0.1; done; printf 'last\\033[32mgreen\\033[0m\\n'";
   await client.call('terminal.input', client.typedBytes(view.terminal, line, true));
-  await until(() => view.text().some((t) => t === 'lastgreen'), 'the painted row reaches the view as a frame');
+  await until(() => view.text().some((t) => t === 'lastgreen'), 'the painted row reaches the view as a frame', 30000);
   seen.afterTyping = view.lines().filter((l) => l.text === 'lastgreen');
   seen.cursorSeq = view.seq;
 
-  await client.loadOlder(view, 30);
-  seen.history = { count: view.history.length, first: view.historyFirst, more: view.historyMore, spans: view.historySpans.filter(Boolean).length };
+  // The snapshot of an attach carries the scrollback there is at that moment, so a view attached before the lines
+  // scrolled off has none to page back through: attach again, and page back from there.
+  const later = await client.attachTerminal(agent);
+  await client.loadOlder(later, 30);
+  seen.history = { count: later.history.length, first: later.historyFirst, more: later.historyMore, spans: later.historySpans.filter(Boolean).length };
 
   await client.call('terminal.resize', { terminal: view.terminal, cols: 100, rows: 30 });
   await until(() => view.cols === 100 && view.rows === 30, 'the resize reaches the view');
   seen.resized = [view.cols, view.rows, view.frame.length];
+  await until(() => view.text().some((t) => t === 'lastgreen'), 'the painted row is in the view after the resize');
   seen.afterResize = view.lines().filter((l) => l.text === 'lastgreen');
 
   await client.releaseInput(agent);
