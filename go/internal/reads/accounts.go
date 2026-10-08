@@ -83,6 +83,7 @@ func loginWord(in, known bool) string {
 // accountsList is accounts.list: every account with its login, usage windows, agents, recent moves, label, caps and cycle.
 func (e *Env) accountsList(_ *rpc.Conn, _ map[string]any) (any, error) {
 	cfg := usage.LoadConfig(e.Home)
+	ue := &usage.Env{Home: e.Home, Config: func() usage.Config { return cfg }}
 	names := paths.ListAgents(e.Home)
 	now := time.Now()
 	var accts []any
@@ -105,7 +106,7 @@ func (e *Env) accountsList(_ *rpc.Conn, _ map[string]any) (any, error) {
 		}
 		accts = append(accts, map[string]any{
 			"name": a, "login_state": loginWord(in, known), "five_hour": windowView(st.Short), "weekly": windowView(st.Long),
-			"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": cfg.CapOf(a),
+			"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": ue.CapNow(a),
 			"recover": cfg.RecoverEnabled(a),
 			"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}})
 	}

@@ -83,3 +83,31 @@ func TestOutlookRefusesARangeItDoesNotList(t *testing.T) {
 		t.Fatal("a missing range is refused")
 	}
 }
+
+func TestAccountsListShowsTheCapShrunkByTheWeeklyPace(t *testing.T) {
+	e := testEnv(t)
+	now := time.Now().Unix()
+	for acct, used := range map[string]int{"ahead": 95, "behind": 5} {
+		p := paths.StatusFile(e.Home, acct)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		body := fmt.Sprintf(`{"collected_at": %d, "windows": [{"minutes": 300, "used_percent": 1, "resets_at": %d, "observed_at": %d, "carried": false, "lost": false},`+
+			`{"minutes": 10080, "used_percent": %d, "resets_at": %d, "observed_at": %d, "carried": false, "lost": false}]}`,
+			now, now+3600, now, used, now+6*86400, now)
+		os.WriteFile(p, []byte(body), 0o644)
+	}
+	got, err := e.accountsList(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct {
+		Accounts []struct {
+			Name          string
+			Cap_effective int
+		}
+	}
+	json.Unmarshal(b, &out)
+	if len(out.Accounts) != 2 || out.Accounts[0].Name != "ahead" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 2 {
+		t.Fatalf("an account ahead of its week takes no new agent; one behind keeps the configured cap: %s", b)
+	}
+}
