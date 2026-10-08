@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/handline/handline/go/internal/adminwrites"
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/chatwrites"
 	"github.com/handline/handline/go/internal/devices"
@@ -199,6 +200,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		d.hooks.Register(s)
 		taskwrites.Register(s, d.cfg.Home, d.cfg.Teller)
 		chatwrites.Register(s, d.env())
+		adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home})
 		prompts.Register(s, d.prompts)
 	}
 	if transport == "network" {

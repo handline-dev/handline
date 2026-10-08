@@ -447,6 +447,22 @@ func (r *Roster) Write(name string, pairs []yamlcompat.Pair) error {
 	return r.Seals.Seal(sealed.AgentKey(name), text)
 }
 
+// SetKeys sets keys of the agent's agent.yaml (a nil value removes the key) in one write, and seals the file.
+func (r *Roster) SetKeys(name string, set []yamlcompat.Pair) error {
+	_, pairs, err := r.readOrdered(name)
+	if err != nil {
+		return err
+	}
+	for _, kv := range set {
+		if kv.Val == nil {
+			pairs = pairsPop(pairs, kv.Key)
+		} else {
+			pairs = pairsSet(pairs, kv.Key, kv.Val)
+		}
+	}
+	return r.Write(name, pairs)
+}
+
 // Read is the agent's agent.yaml, refused when it is not what was sealed, is not a map, or holds a control character.
 func (r *Roster) Read(name string) (Config, error) {
 	cfg, _, err := r.readOrdered(name)
