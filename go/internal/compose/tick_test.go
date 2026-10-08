@@ -134,10 +134,15 @@ func TestAStructuredAgentWhoseTranscriptShowsAFullContextIsHandedOffByTheTick(t 
 		t.Fatalf("%+v", st)
 	}
 	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if _, err := tk.Tick.Run(nil); err != nil {
-		t.Fatal(err)
+	// A tick that finds the session still busy defers the handoff to the next one, so tick until it is parked.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+		if row, _ = dbpkg.GetAgentState(d, "alice"); row.State == "PARKED" {
+			break
+		}
 	}
-	row, _ = dbpkg.GetAgentState(d, "alice")
 	if p.Run.Alive("alice") || row.State != "PARKED" || row.ThrottleCount != 0 {
 		t.Fatalf("alive %v %+v", p.Run.Alive("alice"), row)
 	}
