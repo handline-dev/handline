@@ -12,11 +12,14 @@ type Open = (url: string) => Promise<Transport>;
 export function Start({
   url,
   insecure,
+  failure = null,
   storage,
   open = webSocketTransport,
 }: {
   url: string;
   insecure: boolean;
+  /** Why the desktop shell's own daemon is not up, when it is not: shown in place of a connection that cannot work. */
+  failure?: string | null;
   storage: KV | null;
   open?: Open;
 }) {
@@ -38,11 +41,12 @@ export function Start({
   }, [url, token, open, storage]);
   const store = useMemo(() => {
     const s = new Store(new DaemonClient({ client: 'web-pc', token: token ?? undefined, connect: () => open(url) }));
-    if (insecure) s.fail(`Refusing ${url}: use wss:// for a daemon that is not on this machine.`);
+    if (failure) s.fail(failure);
+    else if (insecure) s.fail(`Refusing ${url}: use wss:// for a daemon that is not on this machine.`);
     return s;
-  }, [url, insecure, token, open]);
-  if (needsToken(url) && !token && !insecure) return <PairScreen url={url} storage={storage} open={open} lost={lost} onPaired={setToken} />;
-  return <App store={store} daemon={url} storage={storage} connect={!insecure} />;
+  }, [url, insecure, failure, token, open]);
+  if (needsToken(url) && !token && !insecure && !failure) return <PairScreen url={url} storage={storage} open={open} lost={lost} onPaired={setToken} />;
+  return <App store={store} daemon={url} storage={storage} connect={!insecure && !failure} />;
 }
 
 function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: boolean; onPaired: (token: string) => void }) {

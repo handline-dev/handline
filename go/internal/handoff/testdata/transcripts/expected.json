@@ -1,0 +1,31 @@
+{
+ "long": {
+  "at": 1791421800.5,
+  "ttl": 3600
+ },
+ "short_then_reads": {
+  "at": 1791424920.0,
+  "ttl": 300
+ },
+ "sidechain_ignored": {
+  "at": 1791428400.0,
+  "ttl": 3600
+ },
+ "no_ttl_within_lookback": {
+  "at": 1791432000.0,
+  "ttl": null
+ },
+ "too_few_to_say": {
+  "at": 1791435600.0,
+  "ttl": null
+ },
+ "bad_stamp": {
+  "at": 1791439200.0,
+  "ttl": 3600
+ },
+ "none": null,
+ "float_tokens": {
+  "at": 1791442800.0,
+  "ttl": null
+ }
+}

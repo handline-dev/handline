@@ -114,3 +114,67 @@ func TestStartForWorkThatCannotTryTheStartIsNotCountedAgainstTheAgent(t *testing
 		t.Fatalf("a descriptor shortage must not count or stall: %+v", row)
 	}
 }
+
+func TestAWakeHoldsItsSlotFromTheMomentItIsDecided(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !ok || p["account"] != "resume-acct" {
+		t.Fatalf("a resume reserves the account its session lives on: %v %v", ok, p)
+	}
+	db.SetTerminal(m.Q, "w", "t3", "/wt-w")
+	db.SetClosed(m.Q, "w", "sess-w")
+	db.AddEvent(m.Q, "w", "Stop")
+	if ok, said, err := m.WakeAgentLocked("w", WakeOpts{Force: true, Warm: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "w", "wake_reserved"); !ok || p["account"] != "resume-acct" {
+		t.Fatalf("a warm resume reserves the account its session lives on: %v %v", ok, p)
+	}
+	db.SetTerminal(m.Q, "f", "t4", "/wt-f")
+	db.SetClosed(m.Q, "f", "")
+	db.AddEvent(m.Q, "f", "Stop")
+	if ok, said, err := m.WakeAgentLocked("f", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "f", "wake_reserved"); !ok || p["account"] != "room-acct" {
+		t.Fatalf("a fresh start reserves where find_room points: %v %v", ok, p)
+	}
+	db.SetTerminal(m.Q, "b", "t2", "/wt-b")
+	db.SetClosed(m.Q, "b", "sess-b")
+	db.AddEvent(m.Q, "b", "Stop")
+	if ok, said, err := m.WakeAgentLocked("b", WakeOpts{Force: true, MovedTo: "other"}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, ok, _ := db.LastEvent(m.Q, "b", "wake_reserved"); !ok || p["account"] != "other" {
+		t.Fatalf("a move holds the slot it moves to: %v %v", ok, p)
+	}
+}
+
+type fullLaunch struct{ fakeLaunch }
+
+func (fullLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
+	return &WakeWait{Account: "a", Window: "slot", Full: 2, Busy: 2}
+}
+func (fullLaunch) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
+
+func TestAResumeOntoAFullAccountWaitsAndHoldsNothing(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = fullLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" || len(tm.relaunched) != 0 {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, _, ok, _ := db.LastEvent(m.Q, "a", "wake_reserved"); ok {
+		t.Fatal("a wait reserves nothing")
+	}
+}

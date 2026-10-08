@@ -62,7 +62,8 @@ export class Owner {
   }
 
   private async ensure(name: string, up: () => Promise<boolean>, cmd: Cmd): Promise<void> {
-    if (await up()) return;
+    // One that answers may be an earlier run still shutting down: it is trusted only if it still answers a moment later.
+    if ((await up()) && (await this.d.wait(500), await up())) return;
     const child = this.d.spawn(cmd);
     let exited: number | null | undefined;
     child.onExit((code) => {

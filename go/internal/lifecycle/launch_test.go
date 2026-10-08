@@ -10,6 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -37,9 +38,20 @@ func (v fakeVendors) AccountVendor(string) string   { return v.account }
 func (fakeVendors) ConfigDir(string) string         { return "" }
 
 type fakeUsage struct {
-	st   AccountStatus
-	by   map[string]AccountStatus
-	pick string
+	st      AccountStatus
+	by      map[string]AccountStatus
+	pick    string
+	cap     int
+	others  int
+	exclude *string // the agent ActiveOn was asked to leave out
+}
+
+func (u fakeUsage) CapOf(string) int { return u.cap }
+func (u fakeUsage) ActiveOn(_ db.Q, _, agent string) int {
+	if u.exclude != nil {
+		*u.exclude = agent
+	}
+	return u.others
 }
 
 func (u fakeUsage) Read(acct string) AccountStatus {
@@ -380,4 +392,64 @@ type hidingDriver struct {
 func (d hidingDriver) LaunchArgv(exe string, o LaunchArgs) []string {
 	*d.hide = strings.Join(o.Hide, "\n")
 	return d.fakeDriver.LaunchArgv(exe, o)
+}
+
+func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t *testing.T) {
+	r := newLaunchRig(t)
+	var left string
+	r.l.Ports.AccountReading = func(db.Q, string) (string, string, bool) { return "a", "recorded", true }
+	r.l.Ports.CurrentAccount = func(_ db.Q, agent string) string {
+		if agent == "elsewhere" {
+			return "b"
+		}
+		return "a"
+	}
+	r.l.Ports.WaitingFor = func(_ db.Q, agent string) bool { return agent != "quiet" }
+	q := r.l.Q
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	older := func(agent, state string, failures int) {
+		db.SetAgentState(q, agent, state, 0, "")
+		db.SetClosed(q, agent, "s-"+agent)
+		for i := 0; i < failures; i++ {
+			db.BumpCounter(q, agent, "wake_failures", 1)
+		}
+		q.Exec("UPDATE agent_state SET closed_at = 1 WHERE agent = ?", agent)
+	}
+	q.Exec("UPDATE agent_state SET closed_at = 10 WHERE agent = 'ann'")
+	row, _ := db.GetAgentState(q, "ann")
+	wait := func(cap, others int) *WakeWait {
+		r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: cap, others: others, exclude: &left}
+		return r.l.WakeWait(q, "ann", row)
+	}
+	if w := wait(2, 2); w == nil || w.Full != 2 || w.Busy != 2 || w.Older != 0 || w.Account != "a" {
+		t.Fatalf("a full account (busy fill the cap): %+v", w)
+	}
+	if left != "ann" {
+		t.Fatalf("the agent placed is left out of the count: %q", left)
+	}
+	if wait(2, 1) != nil {
+		t.Fatal("a free slot is no wait")
+	}
+	older("elsewhere", states.Idle, 0)
+	if wait(2, 1) != nil {
+		t.Fatal("an older waiter for another account takes no slot here")
+	}
+	older("bob", states.Idle, 0)
+	older("quiet", states.Idle, 0)
+	older("stuck", states.Stalled, 0)
+	older("failing", states.Idle, states.MaxFailedAttempts)
+	w := wait(2, 1)
+	if w == nil || w.Full != 2 || w.Busy != 1 || w.Older != 1 {
+		t.Fatalf("one older waiter takes the free slot (not stalled, not exhausted, not unwanted): %+v", w)
+	}
+	if got := DescribeWakeWait(w); got != "waiting for a slot on a (1 of 2 mid-turn, 1 older waiting go first)" {
+		t.Fatal(got)
+	}
+	if got := DescribeWakeWait(&WakeWait{Account: "a", Full: 2, Busy: 2}); got != "waiting for a slot on a (2 of 2 mid-turn)" {
+		t.Fatal(got)
+	}
+	if wait(3, 1) != nil {
+		t.Fatal("room for the agent and the older waiter")
+	}
 }
