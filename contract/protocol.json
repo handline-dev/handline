@@ -18,7 +18,7 @@
   "network": "The network listener is the only way in for a phone, a browser or another machine, and only a paired device may use it. A connection on it is unpaired until its hello carries a valid device `token`. An unpaired connection may call device.redeem and nothing else: every other call, hello and an unknown method name included, is refused before any handler runs with the one reply `{code: -32002, message: \"refused\", data: {code: \"refused\", gate: \"unpaired\", reason: \"not paired\"}}`, the same words every time: no method list, no state, no version, no hint, nothing that says why. A token that is revoked or was never issued is the same refusal, so a reply does not say which. The Unix socket is not the network: its roles are proven as below. Conformance: the network transport is the WebSocket over TLS the listener speaks, and a client pins the certificate fingerprint from the pairing uri; fixtures with `as: unpaired` or `as: member` over the network are run against it with `--as unpaired=...` and `--as member=...` sockets that are already past TLS and the pinned check (a socket the harness is given, or a connector function); contract/README.md says what that does and does not show.",
   "params": "By name only.",
   "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
-  "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again.",
+  "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again. One exception: chat.send to a structured agent returns the receipt as it is now (see x-delivery).",
   "unknown_method": "A method the daemon does not know is JSON-RPC error -32601 with data.code `bad_request` and data.method; a method it knows but the caller's role may not call is `refused`, gate `role`.",
   "idle": "A line begun but not finished within 30 s is dropped with bad_request, and so is a connection that has not said hello within 30 s. After hello, a connection with nothing in flight is closed after 3600 s without a byte. A subscribed or terminal-attached connection has no idle limit (the daemon notices a dead peer by a failed write); the subscribe and terminal tasks must build that. A call that waits (inbox wait_s) is in flight."
  },
@@ -2622,7 +2622,7 @@
   },
   {
    "name": "chat.send",
-   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message.",
+   "summary": "A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2666,6 +2666,18 @@
      }
     },
     {
+     "name": "delivery",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "now",
+       "queue"
+      ],
+      "description": "For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2685,6 +2697,9 @@
        "properties": {
         "request": {
          "type": "integer"
+        },
+        "receipt": {
+         "$ref": "#/components/schemas/Receipt"
         }
        },
        "required": [
@@ -2707,11 +2722,12 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back."
   },
   {
    "name": "chat.send_now",
-   "summary": "Type a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.",
+   "summary": "Write a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2733,7 +2749,19 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/Accepted"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "receipt": {
+         "$ref": "#/components/schemas/Receipt"
+        }
+       }
+      }
+     ]
     }
    },
    "x-role": "member",
@@ -2749,7 +2777,8 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
   },
   {
    "name": "chat.answer",
@@ -2888,7 +2917,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The person's own undo, which chat.withdraw (a requester's withdrawal before delivery, any role that sent the request, with a reason) is not. A message not yet delivered is taken back and nobody is told. A delivered one is closed as rejected, its agent is told to stop and whatever queued behind it moves up. A message the person did not send, or one already closed, is refused (gate state)."
+   "description": "The person's own undo. A message not yet delivered is taken back and nobody is told. To a structured agent a message whose receipt is queued is withdrawn the same way, with no confirm: it was never written to the CLI. A delivered one (receipt sent, confirmed or unknown, or a terminal agent's delivered message) is closed as rejected after confirm, its agent is told to stop and whatever queued behind it moves up. A withdrawn operation is dropped from chat.messages and a chat.send of its request_id is refused (gate state). A message the person did not send, or one already closed, is refused (gate state)."
   },
   {
    "name": "chat.seen",
@@ -10022,6 +10051,10 @@
        "all"
       ],
       "description": "Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate)."
+     },
+     "receipt": {
+      "$ref": "#/components/schemas/Receipt",
+      "description": "Only for a message to a structured agent, while it is drawn (a withdrawn one is not). Changes ride the chat event. See x-delivery."
      }
     },
     "required": [
@@ -11534,6 +11567,34 @@
      "gap",
      "working"
     ]
+   },
+   "Receipt": {
+    "type": "object",
+    "properties": {
+     "state": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "sent",
+       "confirmed",
+       "unknown"
+      ],
+      "description": "queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again. Open set: a client draws a word it does not know as sent and offers no action."
+     },
+     "uuid": {
+      "type": "string",
+      "description": "The message's uuid, derived by the daemon from the request_id; the id the transcript stream's turn_start carries. Read it, do not compute it."
+     },
+     "seq": {
+      "type": "integer",
+      "description": "The seq of the transcript event that carries this uuid, when there is one; absent otherwise (a message that joined a running turn has no turn_start of its own). Best effort; a client does not wait for it."
+     }
+    },
+    "required": [
+     "state",
+     "uuid"
+    ],
+    "description": "Where a message to a structured agent is on its way into the CLI. Only for an agent whose AgentView.structured is true; see x-delivery."
    }
   },
   "errors": {
@@ -11580,8 +11641,19 @@
   "permission": "A tool call that needs a person is a `permission` event whose `prompt` is an ordinary Prompt: kind permission, id = the tool call's id, options `allow` and `deny`, tool, command and reason as for any prompt. The card calls prompt.answer with choice allow or deny, and prompt.list holds it while it is open (it is also in the chat view as a prompt item and in the inbox, as today). The `permission_answer` event ends it, whoever answered: `by` person (prompt.answer), policy (a rule decided; no `permission` came before), cancel (the CLI withdrew it) or closed (the session closed or no handler answered: deny). A client that reconnects and sees a permission with no answer after it asks prompt.list before showing buttons.",
   "sequence": "`seq` is per agent, starts at 1, goes up by exactly 1 with each event, continues across sessions of the agent (the `session` field changes on a fresh start, not on a resume) and is never reused. Events are final: nothing is changed after it is sent.",
   "resume": "The connection's cursor works as for every topic: subscribe with `since` replays what was missed, up to the usual 5000 events, in full. A client that has no cursor, or gets `gap`, or sees a seq that is not last + 1, reads transcript.events: first load with no since_seq (the newest page), older pages with before_seq, the missed ones with since_seq = the last seq it applied. To start without a race: subscribe first, then read, then apply stream events above the read's last_seq and drop those at or below the last it holds. `gap: true` in the read means the daemon no longer keeps the events between; the client shows the break and goes on from first_seq.",
-  "send": "A message goes in by chat.send with the client's own request_id, as today; the daemon derives the message uuid from it, so the `turn_start` event for that message carries the uuid, and chat.messages has the message under the same operation.",
+  "send": "A message goes in by chat.send with the client's own request_id as its operation id (see x-delivery); the daemon derives the message uuid from it, so the `turn_start` event for a message that begins a turn carries the uuid. A message that joined a running turn has no turn_start. chat.messages has the message under the same operation, with its receipt.",
   "chat": "chat.transcript is unchanged and stays the chat view's feed: a `text` event is also a reply item and a `permission` also a prompt item (the event's `item` is that item's id, so a view showing both draws it once); tool_use, tool_result, turn_start, turn_end and error have no chat item, and chat.transcript has still no tool item. The task_event and session items exist only in chat.transcript. A view that renders the transcript uses this stream and ignores chat.transcript's reply and prompt items for the same agent.",
   "not_in_v1": "Partial text deltas, thinking blocks, images, and the edit diff of a tool. A tool's input is whatever the model sent."
+ },
+ "x-delivery": {
+  "what": "How a message reaches a structured agent, and what the composer shows. One path serves a person, an agent, the daemon's own notices and a task; the apps use it through chat.send.",
+  "operation": "The caller's request_id is the operation id. The daemon derives the message uuid from it, records the operation before writing, and answers a repeat with the recorded operation without writing again. A client makes a new request_id for each message it means to send and keeps it across retries of that one message.",
+  "receipt": "Receipt.state: queued (held behind a running turn), sent (written to the CLI), confirmed (the CLI echoed the uuid), unknown (see crash rule). The order is queued, sent, confirmed; unknown follows sent. `accepted` is never `delivered`: a caller that needs delivery waits for confirmed, with its own deadline. There is no `published` state: a message that joins a running turn has no turn_start, so `seq` on the receipt is optional and best effort.",
+  "repeat": "The same request_id and params returns {accepted, replayed: true, request, receipt} with the receipt as it is now, so a retry after a lost reply learns whether the message was echoed. The same request_id with other params is bad_request. This is the one write whose replay is not the first reply frozen.",
+  "delivery": "chat.send `delivery`: queue (default) or now. Queue while a turn runs is held by the daemon, which persists it, and is written when the CLI reports the turn over. Now is written at once and joins the running turn. With nothing running both are written at once and the receipt is sent.",
+  "crash": "If the daemon or the CLI ends with an operation sent and not confirmed, the daemon does not write it again: the operation is unknown, the sender is told (the chat event), and it stays unknown. A queued operation survives and is written after the restart. A person who sees unknown may chat.send the text again under a NEW request_id (their call: the CLI may have run it); chat.cancel keeps its meaning for a delivered message. Nothing else changes an unknown operation.",
+  "queued": "chat.send_now writes a queued operation now, with priority now (receipt sent). chat.cancel withdraws it without confirm. Both are refused (gate state) for any other receipt; there is no chat.withdraw.",
+  "view": "ChatMessage.receipt carries the receipt, and landing follows it: queued is queued, sent and unknown are typed (sending_reason says unknown), confirmed is delivered. Each change sends the usual chat.message event. A terminal agent's message has no receipt.",
+  "terminal": "An agent whose AgentView.structured is not true accepts `delivery` and ignores it, and its result and messages have no receipt."
  }
 }

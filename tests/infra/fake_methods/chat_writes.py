@@ -1,5 +1,5 @@
 """chat.send, chat.answer, chat.dismiss, chat.withdraw, chat.cancel and chat.seen: the refusals the fixtures pin; no agent and no message exists here."""
-from . import err, fake
+from . import delivery, err, fake
 
 
 def _is_int(v):
@@ -25,7 +25,9 @@ def chat_writes(role, method, params):
             return "fail", err(-32602, "bad_request", field="agent")
         if "parent" in params and (not _is_int(params["parent"]) or params.get("task") is not None):
             return "fail", err(-32602, "bad_request", field="parent")
-        return _nf("agent")
+        if "delivery" in params and params["delivery"] not in ("now", "queue"):
+            return "fail", err(-32602, "bad_request", field="delivery")
+        return delivery.send(params) or _nf("agent")
     if method == "chat.seen":
         if not _is_int(params.get("up_to")):
             return "fail", err(-32602, "bad_request", field="up_to")
@@ -36,6 +38,8 @@ def chat_writes(role, method, params):
         return "fail", err(-32602, "bad_request", field="request")
     if method == "chat.cancel" and not isinstance(params.get("confirm", False), bool):
         return "fail", err(-32602, "bad_request", field="confirm")
+    if method == "chat.cancel" and (done := delivery.cancel(params)):
+        return done
     if method == "chat.answer" and not _text(params.get("text")):
         return "fail", err(-32602, "bad_request", field="text")
     return _nf("message")

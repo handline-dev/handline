@@ -1,0 +1,832 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.send.an_idle_structured_agent_is_sent",
+   "spec": "chat.send",
+   "about": "A message to a structured agent with no turn running is written at once: receipt sent (or confirmed if the echo is already in), and chat.messages shows it with the same receipt.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "idle hello",
+       "request_id": "d-idle-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      },
+      "receipt": {
+       "state": {
+        "$oneOf": [
+         "sent",
+         "confirmed"
+        ]
+       },
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "idle hello",
+        "receipt": {
+         "state": {
+          "$oneOf": [
+           "sent",
+           "confirmed"
+          ]
+         },
+         "uuid": {
+          "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_repeat_returns_the_receipt_as_it_is_now",
+   "spec": "chat.send",
+   "about": "The same request_id and params writes nothing and returns replayed true with the receipt now: sent at first, confirmed once the CLI has echoed (the daemon under test echoes before the retry).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "repeat hello",
+       "request_id": "d-rep-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "state": {
+        "$oneOf": [
+         "sent",
+         "confirmed"
+        ]
+       },
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "sleep_s": 0.3,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "repeat hello",
+       "request_id": "d-rep-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "replayed": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "state": "confirmed",
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "repeat hello",
+        "receipt": {
+         "state": "confirmed",
+         "uuid": {
+          "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.the_same_id_with_other_params_is_bad_request",
+   "spec": "chat.send",
+   "about": "A request_id already used for another body is bad_request naming request_id, and nothing is written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "first body",
+       "request_id": "d-other-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "second body",
+       "request_id": "d-other-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_working_agent_queues_by_default",
+   "spec": "chat.send",
+   "about": "While a turn runs, delivery queue (the default) holds the message: receipt queued, not written to the CLI.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "queued by default",
+       "request_id": "d-queue-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "state": "queued",
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "queued by word",
+       "request_id": "d-queue-2",
+       "delivery": "queue"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "state": "queued",
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{working_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "queued by default",
+        "receipt": {
+         "state": "queued",
+         "uuid": {
+          "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.delivery_now_joins_the_running_turn",
+   "spec": "chat.send",
+   "about": "While a turn runs, delivery now is written at once: receipt sent (or confirmed), not queued.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "now, in the turn",
+       "request_id": "d-now-1",
+       "delivery": "now"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "receipt": {
+       "state": {
+        "$oneOf": [
+         "sent",
+         "confirmed"
+        ]
+       },
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_delivery_word_that_is_not_one_is_bad_request",
+   "spec": "chat.send",
+   "about": "delivery is now or queue; another word is bad_request naming delivery.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "hello",
+       "request_id": "d-bad-1",
+       "delivery": "later"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "delivery"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send_now.writes_a_queued_operation",
+   "spec": "chat.send_now",
+   "about": "A queued message is written now: the receipt goes from queued to sent, and a second send_now is refused (gate state).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "promote me",
+       "request_id": "d-promote-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      },
+      "receipt": {
+       "state": "queued"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send_now",
+      "params": {
+       "request": "{{req}}",
+       "request_id": "d-promote-now"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "receipt": {
+       "state": {
+        "$oneOf": [
+         "sent",
+         "confirmed"
+        ]
+       },
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{working_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "promote me",
+        "receipt": {
+         "state": {
+          "$oneOf": [
+           "sent",
+           "confirmed"
+          ]
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.send_now",
+      "params": {
+       "request": "{{req}}",
+       "request_id": "d-promote-again"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.withdraws_a_queued_operation_without_confirm",
+   "spec": "chat.cancel",
+   "about": "A queued message was never written, so chat.cancel takes it back with no confirm; a chat.send of its request_id after that is refused (gate state), so a retry does not bring it back.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "take me back",
+       "request_id": "d-cancel-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      },
+      "receipt": {
+       "state": "queued"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.cancel",
+      "params": {
+       "request": "{{req}}",
+       "request_id": "d-cancel-now"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{working_agent}}",
+       "body": "take me back",
+       "request_id": "d-cancel-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.cancel.a_written_operation_needs_confirm",
+   "spec": "chat.cancel",
+   "about": "A message already written to the CLI is not taken back silently: chat.cancel without confirm is refused, gate confirm.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "body": "too late",
+       "request_id": "d-late-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.cancel",
+      "params": {
+       "request": "{{req}}",
+       "request_id": "d-late-now"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "confirm"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.an_unknown_operation_stays_unknown",
+   "spec": "chat.send",
+   "about": "An operation the daemon or the CLI lost after writing is unknown, in chat.messages and in a repeat of its request_id (replayed true, nothing written). Under a new request_id the same text is a new operation, the person's call. The daemon under test holds the operation `crashed-op` for crashed_agent, body `in flight when it died`.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{crashed_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "in flight when it died",
+        "receipt": {
+         "state": "unknown",
+         "uuid": {
+          "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{crashed_agent}}",
+       "body": "in flight when it died",
+       "request_id": "crashed-op"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "replayed": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "state": "unknown",
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{crashed_agent}}",
+       "body": "in flight when it died",
+       "request_id": "crashed-op-again"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "receipt": {
+       "state": {
+        "$oneOf": [
+         "sent",
+         "confirmed",
+         "queued"
+        ]
+       },
+       "uuid": {
+        "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{crashed_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "in flight when it died",
+        "receipt": {
+         "state": "unknown",
+         "uuid": {
+          "$regex": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_terminal_agent_accepts_delivery_and_has_no_receipt",
+   "spec": "chat.send",
+   "about": "An agent run as a terminal accepts delivery and ignores it: the result and the message have no receipt.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{terminal_agent}}",
+       "body": "to a terminal",
+       "request_id": "d-term-1",
+       "delivery": "now"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer"
+      },
+      "receipt": {
+       "$absent": true
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
