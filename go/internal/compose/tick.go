@@ -80,11 +80,23 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Rollover:        func(string) (bool, string) { return false, "" }, // folding the day is a model call that stays Python's
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
+		Cost:    &tick.CostPilot{Ports: costPorts{}},
 		Observe: tickObserve{u: uenv, home: home},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
 	return &Tick{Tick: t, Loop: loop}
+}
+
+// Start runs the loop until Stop closes and returns a channel that closes when the tick in hand has finished. The daemon closes the
+// database only after that: a close or a wake cut off by the process ending leaves a half write.
+func (t *Tick) Start() (done <-chan struct{}) {
+	d := make(chan struct{})
+	go func() {
+		defer close(d)
+		t.Loop.Run(nil)
+	}()
+	return d
 }
 
 func (p *Parts) structuredAgents() []string {
@@ -403,6 +415,27 @@ func (o tickObserve) IngestTokens(q db.Q, acct string) error {
 func (o tickObserve) PruneTokens(q db.Q) error { _, err := o.u.PruneTokens(q); return err }
 func (o tickObserve) RefreshLongRatios(q db.Q) error {
 	return o.u.RefreshLongRatios(q, time.Now().Unix(), false)
+}
+
+// costPorts is tick.CostPorts: the prompt-cache clock of a session, read from the transcript the status names.
+type costPorts struct{}
+
+func (costPorts) ReadCache(transcriptPath string) *tick.CacheClock {
+	c := handoff.ReadClock(transcriptPath)
+	if c == nil {
+		return nil
+	}
+	out := &tick.CacheClock{Left: func(now int64) *float64 {
+		if left, ok := c.Left(float64(now)); ok {
+			return &left
+		}
+		return nil
+	}}
+	if c.TTL != 0 {
+		ttl := int64(c.TTL)
+		out.TTL = &ttl
+	}
+	return out
 }
 
 // tickConfig is tick.Config over agent.yaml and config.yaml.
