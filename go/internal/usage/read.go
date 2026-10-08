@@ -81,9 +81,7 @@ func (e *Env) agentConfig(agent string) (team.Config, error) {
 	return team.NewRoster(e.Home).Read(agent)
 }
 
-// asPct and asInt64 are status._as_pct and _as_int: a usage percentage rounds up, a bool or a string is nothing.
-func asPctInt(v any) *int { return asPct(v) }
-
+// asInt64 is status._as_int (and asPct, in usage.go, _as_pct: a usage percentage rounds up, a bool or a string is nothing).
 func asInt64(v any) *int64 {
 	n, ok := v.(json.Number)
 	if !ok {
@@ -102,7 +100,7 @@ func asInt64(v any) *int64 {
 }
 
 func acctWindowOf(e map[string]any) AcctWindow {
-	pct := asPctInt(e["used_percent"])
+	pct := asPct(e["used_percent"])
 	readable := e["readable"] != false && (e["used_percent"] == nil || pct != nil)
 	minutes, _ := isInt(e["minutes"])
 	var reset int64
@@ -166,7 +164,7 @@ func (e *Env) ReadFile(acct, path string) *AccountStatus {
 	}
 	st.Raw = raw
 	st.Short, st.Long = WindowsOf(raw)
-	st.CtxPct = asPctInt(raw["ctx_pct"])
+	st.CtxPct = asPct(raw["ctx_pct"])
 	// The snapshot's own field is the raw usage breakdown, not a total: summed as collect.tokens does, nil when nothing was written,
 	// never 0. A bare number is read as it is.
 	if m, isMap := raw["ctx_used"].(map[string]any); isMap {
