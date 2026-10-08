@@ -4,6 +4,7 @@ import { badRequest, Failure, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
+import type { FakeTranscript } from './transcript.ts';
 import { HR_HANDLERS, teamOf } from './hr.ts';
 import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from './session.ts';
 
@@ -16,6 +17,7 @@ export interface Call {
   p: Record<string, unknown>;
   actor: Actor;
   script: Script;
+  transcript: FakeTranscript;
   agent(): Session;
   byTerminal(id: unknown): Session;
   iso(): Timestamp;
@@ -31,6 +33,7 @@ function formatOf(p: Record<string, unknown>): 'text' | 'bytes' | 'styled' {
 export const HANDLERS: Record<string, (h: Call) => unknown> = {
   ...SETTINGS_HANDLERS,
   ...HR_HANDLERS,
+  'transcript.events': ({ p, transcript }) => transcript.read(p),
   'team.get': ({ script, iso }) => teamOf([...script.sessions.values()], iso()),
   'session.start': (h) => {
     const { actor, script, agent } = h;
@@ -94,7 +97,7 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     return script.accepted('Interrupted.');
   },
   'prompt.answer': (h) => {
-    const { c, p, actor, script, agent } = h;
+    const { c, p, actor, script, transcript, agent } = h;
     const s = agent();
     script.gate(s, c);
     const open = s.prompt;
@@ -115,6 +118,7 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
       if (open.kind !== 'question') throw badRequest('typed text answers only a question', 'choice');
       given = [text]; // typed text answers a question or dialog that asks for it
     } else throw badRequest('this prompt takes one of its option keys', 'choice');
+    if (transcript.owns(s.fx.name)) return (transcript.answered(s.fx.name, open.id, given[0]!, actor), script.accepted('Answered.'));
     for (const k of given) script.record(s, 'key', k, actor.name);
     script.control(s, actor, 'prompt.answer', `${actor.name} answered ${given.join(', ')}`);
     script.answer(s, given[0]!, actor);
