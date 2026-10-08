@@ -154,6 +154,11 @@ func (r *Reconciler) stallAgent(agent string, actions *[]string, cause error, wh
 	return nil
 }
 
+// StallAgent is stallAgent for a caller outside the package: the tick counts one agent's failing turn against it the same way.
+func (r *Reconciler) StallAgent(agent string, actions *[]string, cause error, where string) error {
+	return r.stallAgent(agent, actions, cause, where)
+}
+
 // Reconcile is the one unconditional pass at startup: crossings missed while the daemon was down, handoffs left in flight by a kill,
 // and wake_at deadlines that elapsed with nobody listening.
 func (r *Reconciler) Reconcile() ([]string, error) {

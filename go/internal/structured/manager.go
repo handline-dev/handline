@@ -235,6 +235,13 @@ func (m *Manager) Kill(agent string) error {
 	if s == nil {
 		return errors.New(agent + " has no structured session")
 	}
+	// A requested end: the exit it causes is no failure to report (Stop marks it the same way).
+	m.mu.Lock()
+	if m.stopping == nil {
+		m.stopping = map[string]bool{}
+	}
+	m.stopping[agent] = true
+	m.mu.Unlock()
 	if err := s.Kill(); err != nil {
 		return err
 	}

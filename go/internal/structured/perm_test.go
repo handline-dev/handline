@@ -91,6 +91,9 @@ func TestAPromptIsAnsweredByPromptAnswer(t *testing.T) {
 	got := make(chan Decision, 1)
 	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); got <- d }()
 	fp := waitOpen(t, p)
+	for i := 0; i < 200 && !b.Has("a"); i++ { // the row is written just before the broker lists the prompt
+		time.Sleep(10 * time.Millisecond)
+	}
 	if !b.Has("a") {
 		t.Fatal("the broker does not know the prompt")
 	}

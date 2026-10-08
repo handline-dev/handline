@@ -22,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -77,6 +78,9 @@ type Config struct {
 	Transcript *transcript.Sink
 	// Structured says whether an agent runs as a structured session.
 	Structured func(agent string) bool
+	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
+	// serves none of them.
+	Session func() *sessionrpc.Env
 	// OnOpen is given the database once it is open, for the parts built before it was (the structured manager's ledger and prompt rows).
 	OnOpen func(db *sql.DB, env *supervisor.Env)
 	// Agents is the structured sessions as the supervisor's telling layer sees them (supervisor.Ports.Agents): it types a structured agent
@@ -254,6 +258,11 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
+		func(s *rpc.Server) {
+			if d.cfg.Session != nil {
+				sessionrpc.Register(s, d.cfg.Session())
+			}
+		},
 		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.cfg.Teller) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
