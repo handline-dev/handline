@@ -73,120 +73,143 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		if sha != "" && repo == "" {
 			return nil, badParam("a sha is checked against a repo: name one", "repo")
 		}
-		var (
-			owner  string
-			notes  []told
-			forget []db.InboxFile
-			ended  bool
-		)
+		var done *DoneResult
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			notes, forget, ended = nil, nil, false
-			t, err := getTask(tx, tid)
+			res, err := MarkDone(tx, home, by, DoneIn{Task: tid, Sha: sha, Words: words, Request: request, Repo: repo})
 			if err != nil {
 				return nil, err
 			}
-			if t == nil {
-				return nil, refusal(fmt.Sprintf("no task T%d", tid))
-			}
-			if t.DiscardedBy.Valid && t.DiscardedBy.String != "" {
-				return nil, refusal(fmt.Sprintf("task T%d is already discarded (%s)", tid, t.DiscardedBy.String))
-			}
-			if t.done() {
-				// a delivery left queued when the task ended some other way is settled here
-				reqs, err := taskRequests(tx, tid)
-				if err != nil {
-					return nil, err
-				}
-				for _, r := range reqs {
-					if r.State == "queued" && (by == t.Owner || by == human) {
-						notes, forget, err = endTask(tx, home, tid, by, t, doneText(tid, by, t.DoneEvidence.String), urgent(t.DoneEvidence.String), nil)
-						if err != nil {
-							return nil, err
-						}
-						owner = t.Owner
-						return accepted(fmt.Sprintf("task T%d is already done (%s); its leftover request is settled", tid, t.DoneEvidence.String), nil), nil
-					}
-				}
-				return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
-			}
-			// a sha-expecting task's opener may close it another way when the sha is never going to land
-			shaOverride := by == t.OpenedBy && t.Expects.String == "sha"
-			if by != t.Owner && by != human && !shaOverride {
-				return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
-			}
-			var mark, via string
-			switch {
-			case sha != "":
-				full, why := shaOnMain(repo, sha)
-				if full == "" {
-					if why != "" {
-						why = " (" + why + ")"
-					}
-					return nil, refusal(fmt.Sprintf("%s is not an ancestor of main%s", sha, why))
-				}
-				mark, via = full, "sha"
-			case request != nil:
-				var state string
-				switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
-				case err == sql.ErrNoRows:
-					return nil, refusal(fmt.Sprintf("no request #%d", *request))
-				case err != nil:
-					return nil, err
-				}
-				if state == "queued" {
-					return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
-				}
-				mark, via = fmt.Sprintf("request #%d", *request), "request"
-			default:
-				mark, via = words, "reason"
-			}
-			if t.Expects.String == "sha" && via != "sha" && by != t.OpenedBy && by != human {
-				return nil, refusal(fmt.Sprintf("task T%d expects a sha - `hl task done T%d <sha>`, or its opener (%s) or the founder may close it another way", tid, tid, t.OpenedBy))
-			}
-			kids, err := openChildren(tx, tid)
-			if err != nil {
-				return nil, err
-			}
-			if len(kids) > 0 {
-				return nil, refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - it is done once they are", tid, taskList(kids)))
-			}
-			blockers, err := taskBlockers(tx, tid)
-			if err != nil {
-				return nil, err
-			}
-			if len(blockers) > 0 && by != human {
-				var waits []int64
-				for _, b := range blockers {
-					waits = append(waits, b.ID)
-				}
-				return nil, refusal(fmt.Sprintf("task T%d is waiting on %s - it is done only once they are", tid, taskList(waits)))
-			}
-			from, err := state(tx, t)
-			if err != nil {
-				return nil, err
-			}
-			won, err := db.MarkTaskDone(tx, tid, mark, via)
-			if err != nil {
-				return nil, err
-			}
-			if !won {
-				return nil, refusal(fmt.Sprintf("task T%d was marked done by someone else just now", tid))
-			}
-			if err := addEvent(tx, by, "mark_task_done", kv{"task_id", tid}, kv{"done", mark}, kv{"from", from}); err != nil {
-				return nil, err
-			}
-			notes, forget, err = endTask(tx, home, tid, by, t, doneText(tid, by, mark), urgent(mark), nil)
-			if err != nil {
-				return nil, err
-			}
-			owner, ended = t.Owner, true
-			return accepted(fmt.Sprintf("task T%d done (%s)", tid, mark), nil), nil
+			done = res
+			return accepted(res.Said, nil), nil
 		})
-		if err == nil && owner != "" && tell != nil {
-			tell.Done(tid, by, owner, notes, forget, ended)
+		if err == nil && done != nil && tell != nil {
+			tell.Done(tid, by, done.Owner, done.Told, done.Forget, done.Finished)
 		}
 		return out, err
 	}
+}
+
+// DoneIn is what MarkDone is given: exactly one of Sha (checked against Repo's main), Request (already answered) or Words.
+type DoneIn struct {
+	Task       int64
+	Sha, Words string
+	Request    *int64
+	Repo       string
+}
+
+// DoneResult is what a MarkDone leaves for the telling that follows the commit. Finished is false when only a leftover request of an
+// already done task was settled.
+type DoneResult struct {
+	Said     string
+	Owner    string
+	Told     []db.Notice
+	Forget   []db.InboxFile
+	Finished bool
+}
+
+// MarkDone is actions.mark_task_done in the caller's transaction: a refusal is the error, nothing is written then. The caller hands the
+// result to Teller.Done once it has committed.
+func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
+	tid, sha, words, request, repo := in.Task, in.Sha, in.Words, in.Request, in.Repo
+	t, err := getTask(tx, tid)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, refusal(fmt.Sprintf("no task T%d", tid))
+	}
+	if t.DiscardedBy.Valid && t.DiscardedBy.String != "" {
+		return nil, refusal(fmt.Sprintf("task T%d is already discarded (%s)", tid, t.DiscardedBy.String))
+	}
+	if t.done() {
+		// a delivery left queued when the task ended some other way is settled here
+		reqs, err := taskRequests(tx, tid)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range reqs {
+			if r.State == "queued" && (by == t.Owner || by == human) {
+				notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, t.DoneEvidence.String), urgent(t.DoneEvidence.String), nil)
+				if err != nil {
+					return nil, err
+				}
+				return &DoneResult{Said: fmt.Sprintf("task T%d is already done (%s); its leftover request is settled", tid, t.DoneEvidence.String),
+					Owner: t.Owner, Told: notes, Forget: forget}, nil
+			}
+		}
+		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
+	}
+	// a sha-expecting task's opener may close it another way when the sha is never going to land
+	shaOverride := by == t.OpenedBy && t.Expects.String == "sha"
+	if by != t.Owner && by != human && !shaOverride {
+		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
+	}
+	var mark, via string
+	switch {
+	case sha != "":
+		full, why := shaOnMain(repo, sha)
+		if full == "" {
+			if why != "" {
+				why = " (" + why + ")"
+			}
+			return nil, refusal(fmt.Sprintf("%s is not an ancestor of main%s", sha, why))
+		}
+		mark, via = full, "sha"
+	case request != nil:
+		var state string
+		switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
+		case err == sql.ErrNoRows:
+			return nil, refusal(fmt.Sprintf("no request #%d", *request))
+		case err != nil:
+			return nil, err
+		}
+		if state == "queued" {
+			return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
+		}
+		mark, via = fmt.Sprintf("request #%d", *request), "request"
+	default:
+		mark, via = words, "reason"
+	}
+	if t.Expects.String == "sha" && via != "sha" && by != t.OpenedBy && by != human {
+		return nil, refusal(fmt.Sprintf("task T%d expects a sha - `hl task done T%d <sha>`, or its opener (%s) or the founder may close it another way", tid, tid, t.OpenedBy))
+	}
+	kids, err := openChildren(tx, tid)
+	if err != nil {
+		return nil, err
+	}
+	if len(kids) > 0 {
+		return nil, refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - it is done once they are", tid, taskList(kids)))
+	}
+	blockers, err := taskBlockers(tx, tid)
+	if err != nil {
+		return nil, err
+	}
+	if len(blockers) > 0 && by != human {
+		var waits []int64
+		for _, b := range blockers {
+			waits = append(waits, b.ID)
+		}
+		return nil, refusal(fmt.Sprintf("task T%d is waiting on %s - it is done only once they are", tid, taskList(waits)))
+	}
+	from, err := state(tx, t)
+	if err != nil {
+		return nil, err
+	}
+	won, err := db.MarkTaskDone(tx, tid, mark, via)
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		return nil, refusal(fmt.Sprintf("task T%d was marked done by someone else just now", tid))
+	}
+	if err := addEvent(tx, by, "mark_task_done", kv{"task_id", tid}, kv{"done", mark}, kv{"from", from}); err != nil {
+		return nil, err
+	}
+	notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, mark), urgent(mark), nil)
+	if err != nil {
+		return nil, err
+	}
+	return &DoneResult{Said: fmt.Sprintf("task T%d done (%s)", tid, mark), Owner: t.Owner, Told: notes, Forget: forget, Finished: true}, nil
 }
 
 // doneText is what a task's end says to whoever it tells: "T<n> done by <by>: <evidence on one line>".
