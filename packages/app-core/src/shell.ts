@@ -43,6 +43,12 @@ export interface ShellApi {
       >
   >;
   cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
+  mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null } | Fail<'bad_request'>>;
+  /** Switches the mode; the app relaunches. */
+  setMode?(mode: 'connect' | 'own'): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */
+  pairRemote?(a: { link?: string; address?: string; code?: string }): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** A notice was clicked. Returns the way to stop listening. */
   onNavigate(cb: (to: NavigateTo) => void): () => void;
 }

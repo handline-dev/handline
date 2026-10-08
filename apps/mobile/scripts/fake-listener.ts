@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -41,6 +41,21 @@ execFileSync(
 const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
+if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
+daemon.raiseProposal({
+  id: 1,
+  title: 'settings handline.architect',
+  agent: 'handline.architect',
+  diff: '- effort  high\n+ effort  max',
+  reason: 'it needs more thought',
+});
+daemon.raiseProposal({
+  id: 2,
+  title: 'rename handline.auditor',
+  agent: 'handline.auditor',
+  diff: '- handline.auditor\n+ handline.reviewer',
+  reason: 'the role changed',
+});
 daemon.autoplay(Number(arg('autoplay', '1500')));
 // For watching the loading and refusal states on a device: `--latency 800` and `--refuse agents.list:state:the daemon is resting`
 // (method:gate:reason; repeat the flag for more). Both apply to calls after the pairing hello.

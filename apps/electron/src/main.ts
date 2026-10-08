@@ -9,9 +9,10 @@ import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
+import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
 import { ownDaemon, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
-import { Page, CHANNELS } from './bridge.ts';
+import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -64,6 +65,37 @@ async function advertised(gateway: string): Promise<string | null> {
   return null;
 }
 
+/** A paired remote gateway has a self-signed certificate: the page trusts it by the fingerprint pairing handed over, and no other. */
+function trustFingerprint(remote: Remote): void {
+  app.on('certificate-error', (e, _wc, url, _err, cert, trust) => {
+    e.preventDefault();
+    const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
+    trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
+  });
+}
+
+function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
+  const c = new Connection(origin, {
+    mode: () => ({ mode, remote: remote?.host ?? null }),
+    setMode: (m) => own.switchMode(m),
+    pair: (i) => own.pair(i),
+  });
+  ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
+  ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
+}
+
+/** Runs `f` until it stops throwing, two seconds apart. */
+async function untilUp(f: () => Promise<unknown>): Promise<void> {
+  for (;;) {
+    try {
+      return void (await f());
+    } catch {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
@@ -100,12 +132,20 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
     // The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides.
-    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*'] }, (d, done) =>
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*', 'wss://*/*'] }, (d, done) =>
       done({
         requestHeaders:
           gateway && new URL(d.url).host === gateway ? { ...d.requestHeaders, Origin: `http://${gateway}` } : d.requestHeaders,
       }),
     );
+    const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
+    const current = settings.read(parseMode(env('MODE')));
+    const remote = current.mode === 'connect' ? current.remote : null;
+    if (remote) {
+      gateway = remote.host;
+      ws = remoteUrl(remote);
+      trustFingerprint(remote);
+    }
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
     const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
     const origin = new URL(web.url).origin;
@@ -123,6 +163,8 @@ if (!app.requestSingleInstanceLock()) {
       gateway,
       advertise: gateway && onTailnet(gateway) ? await advertised(gateway) : null,
       origin,
+      settings,
+      current,
       openWindow: () => void openWindow(),
       follow:
         f &&
@@ -135,6 +177,7 @@ if (!app.requestSingleInstanceLock()) {
           restart: () => void f.restartNow(),
         })),
     });
+    handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
@@ -184,7 +227,7 @@ if (!app.requestSingleInstanceLock()) {
     void own
       .ready()
       .then((at) => {
-        if (at && at !== gateway && !env('WS')) ws = `ws://${(gateway = at)}/rpc`;
+        if (!remote && at && at !== gateway && !env('WS')) ws = `ws://${(gateway = at)}/rpc`;
       })
       .then(openWindow)
       .then(() => following?.start());
@@ -209,22 +252,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     // The client reconnects once it has been up; a daemon that is down at launch is retried here.
     void (async () => {
-      for (;;) {
-        try {
-          await client.start();
-          break;
-        } catch {
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      }
-      for (;;) {
-        try {
-          await desk.start();
-          return;
-        } catch {
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      }
+      await untilUp(() => client.start());
+      if (!remote) own.link.setVersion(client.hello?.daemon);
+      await untilUp(() => desk.start());
     })();
   });
 }

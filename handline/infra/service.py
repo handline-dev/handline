@@ -38,6 +38,10 @@ LOG_BACKUPS = 5
 
 
 # ---------------------------------------------------------------- paths
+# The daemon raises its own soft limit to the same (daemon.socket_server.FD_SOFT_LIMIT; a test holds them equal).
+FD_SOFT_LIMIT = 4096
+
+
 def plist_path() -> Path:
     return paths.user_home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
@@ -78,6 +82,8 @@ def build_plist(home: Path | None = None) -> dict:
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": THROTTLE_INTERVAL_S,
+        # launchd's soft limit is 256 descriptors, as many as the daemon's connection cap alone.
+        "SoftResourceLimits": {"NumberOfFiles": FD_SOFT_LIMIT},
         "StandardOutPath": str(out_log(home)),
         "StandardErrorPath": str(err_log(home)),
         "WorkingDirectory": str(paths.repo_root()),
