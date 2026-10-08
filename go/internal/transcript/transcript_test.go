@@ -196,3 +196,50 @@ func TestTurnStartNamesWhoSentIt(t *testing.T) {
 		t.Fatal(f)
 	}
 }
+
+func TestATurnCutOffByACrashEndsAndTheNextSessionStartsItsOwn(t *testing.T) {
+	s, got := newSink(t)
+	emit(s, "bob", "message", map[string]any{"uuid": "u1", "text": "one"})
+	emit(s, "bob", "assistant_text", map[string]any{"text": "a"})
+	emit(s, "bob", "error", map[string]any{"code": "exit", "text": "claude exited"})
+	emit(s, "bob", "session_end", nil)
+	emit(s, "bob", "message", map[string]any{"uuid": "u2", "text": "two"})
+	emit(s, "bob", "assistant_text", map[string]any{"text": "b"})
+	var kinds, turns []string
+	for _, e := range *got {
+		kinds, turns = append(kinds, e.Kind), append(turns, e.Turn)
+	}
+	want := "turn_start text error turn_end turn_start text"
+	if strings.Join(kinds, " ") != want || strings.Join(turns, " ") != "u1 u1 u1 u1 u2 u2" {
+		t.Fatalf("%v %v", kinds, turns)
+	}
+	if r := (*got)[3].Body["turn_end"].(map[string]any)["reason"]; r != "error" {
+		t.Fatalf("a turn ended by a crash says %v", r)
+	}
+}
+
+func TestAStoppedSessionEndsItsTurnAsInterrupted(t *testing.T) {
+	s, got := newSink(t)
+	emit(s, "bob", "message", map[string]any{"uuid": "u1", "text": "one"})
+	emit(s, "bob", "session_end", nil)
+	emit(s, "bob", "session_end", nil) // no turn open: nothing to end
+	if len(*got) != 2 || (*got)[1].Body["turn_end"].(map[string]any)["reason"] != "interrupted" {
+		t.Fatalf("%+v", *got)
+	}
+}
+
+func TestANewSessionIdEndsTheTurnOfTheOldOne(t *testing.T) {
+	s, got := newSink(t)
+	sess := "s1"
+	s.Session = func(string) string { return sess }
+	emit(s, "bob", "message", map[string]any{"uuid": "u1", "text": "one"})
+	sess = "s2" // the daemon restarted the agent and no end event came
+	emit(s, "bob", "message", map[string]any{"uuid": "u2", "text": "two"})
+	var kinds []string
+	for _, e := range *got {
+		kinds = append(kinds, e.Kind)
+	}
+	if strings.Join(kinds, " ") != "turn_start turn_end turn_start" || (*got)[2].Turn != "u2" || (*got)[1].Session != "s1" {
+		t.Fatalf("%v %+v", kinds, *got)
+	}
+}

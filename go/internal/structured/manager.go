@@ -84,9 +84,13 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 		m.mu.Lock()
 		stopped := m.stopping[agent]
 		m.mu.Unlock()
-		if err != nil && !stopped && m.Events != nil {
+		if m.Events == nil {
+			return
+		}
+		if err != nil && !stopped {
 			m.Events.Emit(agent, Event{"error", map[string]any{"code": "exit", "text": err.Error()}})
 		}
+		m.Events.Emit(agent, Event{"session_end", nil}) // however it ended: the turn it left open is over
 	}
 	if m.Broker != nil {
 		h.CanUseTool = m.Broker.CanUseTool(agent)

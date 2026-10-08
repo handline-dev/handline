@@ -13,6 +13,9 @@ import (
 	"github.com/handline/handline/go/internal/structured"
 )
 
+// runningTurn is a running turn: the message that began it, and the session it runs in.
+type runningTurn struct{ uuid, session string }
+
 // Sink is the structured.EventSink of the daemon: it turns the session's events into the contract's kinds, numbers them per agent (from 1,
 // by 1, across sessions, never reused) and writes each in one transaction with the number it took. Publish gets the event after it is
 // committed, in order.
@@ -29,7 +32,7 @@ type Sink struct {
 	Err func(agent string, err error)
 
 	mu    sync.Mutex
-	turns map[string]string // agent -> the uuid of the message whose turn is running
+	turns map[string]runningTurn // agent -> the turn that is running
 }
 
 func (s *Sink) now() int64 {
@@ -44,16 +47,24 @@ func (s *Sink) Emit(agent string, ev structured.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.turns == nil {
-		s.turns = map[string]string{}
+		s.turns = map[string]runningTurn{}
 	}
-	e, ok := s.convert(agent, ev)
-	if !ok {
-		return
-	}
-	e.Agent, e.At = agent, s.now()
+	session := ""
 	if s.Session != nil {
-		e.Session = s.Session(agent)
+		session = s.Session(agent)
 	}
+	// A turn belongs to its session: a new session id means the old one ended without saying so, and its turn is over.
+	if t, ok := s.turns[agent]; ok && t.session != session {
+		s.put(agent, t.session, s.endTurn(agent, "interrupted"))
+	}
+	for _, e := range s.convert(agent, session, ev) {
+		s.put(agent, session, e)
+	}
+}
+
+// put numbers, stores and publishes one event.
+func (s *Sink) put(agent, session string, e Event) {
+	e.Agent, e.At, e.Session = agent, s.now(), session
 	if err := s.write(&e); err != nil {
 		if s.Err != nil {
 			s.Err(agent, err)
@@ -65,44 +76,54 @@ func (s *Sink) Emit(agent string, ev structured.Event) {
 	}
 }
 
+// endTurn closes agent's running turn with a turn_end of this reason; the zero Event when none runs.
+func (s *Sink) endTurn(agent, reason string) Event {
+	t, ok := s.turns[agent]
+	if !ok {
+		return Event{}
+	}
+	delete(s.turns, agent)
+	return Event{Turn: t.uuid, Kind: "turn_end", Body: map[string]any{"turn_end": map[string]any{"reason": reason, "cost_usd": 0.0, "duration_ms": int64(0), "usage": usageOf(nil)}}}
+}
+
 // convert maps the session's event to the contract's. A frame with nothing for a view is dropped.
-func (s *Sink) convert(agent string, ev structured.Event) (Event, bool) {
+func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 	d := ev.Data
-	turn := s.turns[agent]
+	turn := s.turns[agent].uuid
 	switch ev.Type {
 	case "message":
 		if turn != "" { // joined the running turn: not a new one
-			return Event{}, false
+			return nil
 		}
 		uuid, _ := d["uuid"].(string)
 		text, _ := d["text"].(string)
-		s.turns[agent] = uuid
-		return Event{Turn: uuid, Kind: "turn_start", Body: map[string]any{"turn_start": map[string]any{"message": uuid, "from": s.sender(agent, uuid), "text": text}}}, true
+		s.turns[agent] = runningTurn{uuid, session}
+		return []Event{{Turn: uuid, Kind: "turn_start", Body: map[string]any{"turn_start": map[string]any{"message": uuid, "from": s.sender(agent, uuid), "text": text}}}}
 	case "assistant_text":
 		text, _ := d["text"].(string)
-		return Event{Turn: turn, Kind: "text", Body: map[string]any{"text": text}}, true
+		return []Event{{Turn: turn, Kind: "text", Body: map[string]any{"text": text}}}
 	case "tool_use":
 		input, _ := d["input"].(map[string]any)
 		if input == nil {
 			input = map[string]any{}
 		}
-		return Event{Turn: turn, Kind: "tool_use", Body: map[string]any{"tool_use": map[string]any{"id": d["id"], "tool": d["name"], "input": input}}}, true
+		return []Event{{Turn: turn, Kind: "tool_use", Body: map[string]any{"tool_use": map[string]any{"id": d["id"], "tool": d["name"], "input": input}}}}
 	case "tool_result":
 		text, cut := cutText(flatten(d["content"]), ToolResultMax)
 		ok, _ := d["is_error"].(bool)
-		return Event{Turn: turn, Kind: "tool_result", Body: map[string]any{"tool_result": map[string]any{
-			"tool_use_id": d["tool_use_id"], "ok": !ok, "text": text, "truncated": cut}}}, true
+		return []Event{{Turn: turn, Kind: "tool_result", Body: map[string]any{"tool_result": map[string]any{
+			"tool_use_id": d["tool_use_id"], "ok": !ok, "text": text, "truncated": cut}}}}
 	case "permission_request":
 		block, _ := d["block"].(int64)
 		if s.Prompt == nil {
-			return Event{}, false
+			return nil
 		}
 		prompt, firstSeen, ok := s.Prompt(agent, block)
 		if !ok {
-			return Event{}, false
+			return nil
 		}
 		item := ItemID(firstSeen, ItemPrompt, block)
-		return Event{Turn: turn, Kind: "permission", Item: &item, Body: map[string]any{"permission": map[string]any{"tool_use_id": d["tool_use"], "prompt": prompt}}}, true
+		return []Event{{Turn: turn, Kind: "permission", Item: &item, Body: map[string]any{"permission": map[string]any{"tool_use_id": d["tool_use"], "prompt": prompt}}}}
 	case "permission_answer":
 		behavior, by := "deny", str(d["by"])
 		if allow, _ := d["allow"].(bool); allow {
@@ -120,8 +141,8 @@ func (s *Sink) convert(agent string, ev structured.Event) (Event, bool) {
 		if m := str(d["said"]); m != "" {
 			msg = m
 		}
-		return Event{Turn: turn, Kind: "permission_answer", Body: map[string]any{"permission_answer": map[string]any{
-			"tool_use_id": d["tool_use"], "behavior": behavior, "by": by, "rule": rule, "message": msg}}}, true
+		return []Event{{Turn: turn, Kind: "permission_answer", Body: map[string]any{"permission_answer": map[string]any{
+			"tool_use_id": d["tool_use"], "behavior": behavior, "by": by, "rule": rule, "message": msg}}}}
 	case "turn_end":
 		delete(s.turns, agent)
 		reason := "done"
@@ -131,12 +152,21 @@ func (s *Sink) convert(agent string, ev structured.Event) (Event, bool) {
 				reason = "interrupted"
 			}
 		}
-		return Event{Turn: turn, Kind: "turn_end", Body: map[string]any{"turn_end": map[string]any{
-			"reason": reason, "cost_usd": number(d["cost_usd"]), "duration_ms": int64(number(d["duration_ms"])), "usage": usageOf(d["usage"])}}}, true
+		return []Event{{Turn: turn, Kind: "turn_end", Body: map[string]any{"turn_end": map[string]any{
+			"reason": reason, "cost_usd": number(d["cost_usd"]), "duration_ms": int64(number(d["duration_ms"])), "usage": usageOf(d["usage"])}}}}
 	case "error":
-		return Event{Turn: turn, Kind: "error", Body: map[string]any{"error": map[string]any{"code": str(d["code"]), "text": str(d["text"])}}}, true
+		out := []Event{{Turn: turn, Kind: "error", Body: map[string]any{"error": map[string]any{"code": str(d["code"]), "text": str(d["text"])}}}}
+		if end := s.endTurn(agent, "error"); end.Kind != "" { // the turn the failure cut off ends with it
+			out = append(out, end)
+		}
+		return out
+	case "session_end": // the session is over, however: a turn it left open is interrupted
+		if end := s.endTurn(agent, "interrupted"); end.Kind != "" {
+			return []Event{end}
+		}
+		return nil
 	}
-	return Event{}, false // state: the working state is read from the agent's view, not carried here
+	return nil // state: the working state is read from the agent's view, not carried here
 }
 
 // write numbers e and stores it, with the item id it carries, in one transaction.
