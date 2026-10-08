@@ -55,3 +55,16 @@ func (s *Session) SetPermissionMode(ctx context.Context, mode string) error {
 	}
 	return nil
 }
+
+// GetUsage asks the CLI for the account's plan rate limits (control request get_usage): the CLI makes the request with its own login,
+// so the daemon reads no credential. It returns the response as the CLI gave it; no model turn is taken.
+func (s *Session) GetUsage(ctx context.Context) (map[string]any, error) {
+	r, err := s.control(ctx, map[string]any{"subtype": "get_usage"})
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, fmt.Errorf("claude answered get_usage with nothing")
+	}
+	return r, nil
+}
