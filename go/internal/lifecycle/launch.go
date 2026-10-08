@@ -17,6 +17,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -144,6 +145,8 @@ type Launcher struct {
 	Roster *team.Roster
 	Ports  LaunchPorts
 	Now    func() time.Time
+	// Tokens is the session proof and key store; nil in a launch that keeps neither.
+	Tokens *sessiontoken.Tokens
 }
 
 func (l *Launcher) warn(format string, a ...any) {
