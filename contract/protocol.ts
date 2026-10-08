@@ -705,6 +705,8 @@ export type ChatMessage = {
   agent?: string;
   /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
   scope?: "mine" | "all";
+  /** Only for a message to a structured agent, while it is drawn (a withdrawn one is not). Changes ride the chat event. See x-delivery. */
+  receipt?: Receipt;
 };
 
 export type TranscriptItem = {
@@ -1090,6 +1092,16 @@ export type TranscriptEvents = {
   working: Working;
 };
 
+/** Where a message to a structured agent is on its way into the CLI. Only for an agent whose AgentView.structured is true; see x-delivery. */
+export type Receipt = {
+  /** queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again. Open set: a client draws a word it does not know as sent and offers no action. */
+  state: "queued" | "sent" | "confirmed" | "unknown";
+  /** The message's uuid, derived by the daemon from the request_id; the id the transcript stream's turn_start carries. Read it, do not compute it. */
+  uuid: string;
+  /** The seq of the transcript event that carries this uuid, when there is one; absent otherwise (a message that joined a running turn has no turn_start of its own). Best effort; a client does not wait for it. */
+  seq?: number;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1377,15 +1389,20 @@ export interface Methods {
   };
   /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
   parent?: number;
+  /** For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request. */
+  delivery?: "now" | "queue";
   request_id: RequestId;
 }; result: Accepted & {
     request: number;
+    receipt?: Receipt;
   } };
   "chat.send_now": { params: {
   /** A ChatMessage.id still in state queued. */
   request: number;
   request_id: RequestId;
-}; result: Accepted };
+}; result: Accepted & {
+    receipt?: Receipt;
+  } };
   "chat.answer": { params: {
   request: number;
   text: string;

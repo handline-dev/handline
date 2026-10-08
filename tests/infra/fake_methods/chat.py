@@ -1,5 +1,5 @@
 """chat.messages, chat.requests, chat.transcript, chat.locate and chat.search: the refusals the fixtures pin; no agent and no message exists here."""
-from . import err, fake
+from . import delivery, err, fake
 
 
 def _is_int(v):
@@ -29,4 +29,6 @@ def chat(role, method, params):
         return "fail", err(-32602, "bad_request", field="limit")
     if not isinstance(params.get("agent"), str):
         return "fail", err(-32602, "bad_request", field="agent")
+    if method == "chat.messages" and (listed := delivery.messages(params)):
+        return listed
     return _nf("agent")

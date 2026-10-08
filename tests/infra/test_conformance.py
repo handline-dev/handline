@@ -324,10 +324,10 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
 
 
 KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "styled_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle", "transcript_agent": "a.transcript"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle", "transcript_agent": "a.transcript", "working_agent": "a.working", "crashed_agent": "a.crashed"}
 KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "styled_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript"]
+          "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript", "--var", "working_agent=a.working", "--var", "crashed_agent=a.crashed"]
 
 def _ready() -> list[Path]:
     """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed. One the fake runs and fails stays in,

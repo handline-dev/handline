@@ -122,8 +122,7 @@ export class FakeDaemon {
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
-      (n) => this.sessions.has(n),
-      (a) => this.sessions.get(a)?.state !== 'parked',
+      this.sessions,
     );
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
     this.transcript = new FakeTranscript(this, () => this.iso(), opts.transcript ?? true);
@@ -304,7 +303,7 @@ export class FakeDaemon {
   private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
     if (!spec?.write || typeof p.request_id !== 'string' || UNKEPT.has(method)) return this.dispatch(c, method, p);
-    return this.replies.once(p, () => this.dispatch(c, method, p) as Record<string, unknown>);
+    return this.replies.once(p, () => this.dispatch(c, method, p) as Record<string, unknown>, (r) => this.chat.refreshed(r));
   }
 
   // Replayed events follow the subscribe reply, never precede it.
