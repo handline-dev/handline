@@ -49,7 +49,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 			keep[n] = true
 		}
 		relay, lock := d.cfg.RelaySocket, filepath.Join(d.cfg.Home, "locks", "daemon.lock")
-		dial := func() (net.Conn, error) {
+		s.Relay = &rpc.Relay{Dial: func() (net.Conn, error) {
 			c, err := net.DialTimeout("unix", relay, 2*time.Second)
 			if err != nil {
 				return nil, err
@@ -59,8 +59,7 @@ func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 				return nil, err
 			}
 			return c, nil
-		}
-		s.Relay = &rpc.Relay{Dial: dial}
+		}}
 		s.Relay.Capabilities = s.Relay.TerminalCapabilities
 	}
 	s.Restrict(func(name string) bool { return keep[name] })
