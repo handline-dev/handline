@@ -68,11 +68,11 @@ func TestWeeklyOutlookWithNoReadingIsEmptyAndAWeekThatResetsStartsAgain(t *testi
 
 func TestDailyCostAttributesCallsToTheWorktreeThatHoldsTheCwd(t *testing.T) {
 	_, q, _ := burnEnv(t)
-	for agent, tree := range map[string]string{"orcapipe.ui": "id1::/w/ui/", "orcapipe": "/w"} {
+	for agent, tree := range map[string]string{"team.ui": "id1::/w/ui/", "team": "/w"} {
 		db.SetAgentState(q, agent, "IDLE", 0, "")
 		db.SetTerminal(q, agent, "", tree)
 	}
-	db.SetExtraWorktrees(q, "orcapipe", []string{"/x/extra/"})
+	db.SetExtraWorktrees(q, "team", []string{"/x/extra/"})
 	day := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local).Unix()
 	ins := func(req string, ts int64, cwd string) {
 		if _, err := q.Exec("INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking) "+
@@ -90,7 +90,7 @@ func TestDailyCostAttributesCallsToTheWorktreeThatHoldsTheCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	// a million sonnet-5 input tokens is $2.
-	want := map[string]map[string]float64{"2026-10-08": {"orcapipe.ui": 2, "orcapipe": 2, Unattributed: 2}, "2026-10-09": {"orcapipe": 2}}
+	want := map[string]map[string]float64{"2026-10-08": {"team.ui": 2, "team": 2, Unattributed: 2}, "2026-10-09": {"team": 2}}
 	if len(got) != 2 {
 		t.Fatalf("%v", got)
 	}
