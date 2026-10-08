@@ -65,7 +65,9 @@ type Env struct {
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
 	Now       func() int64
 	Log       func(string)
-	// DropGone has Refresh delete the row of any agent not in Agents. Off while the Python daemon still keeps the rows of terminal
+	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
+	Registered func() []string
+	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
 	// agents: then the rows this Env does not write are none of its business, gone or not.
 	DropGone bool
 }
@@ -350,6 +352,11 @@ func (e *Env) Refresh() error {
 	}
 	if !e.DropGone {
 		return nil
+	}
+	if e.Registered != nil {
+		for _, n := range e.Registered() {
+			known[n] = true // a terminal agent's row is not written here, and it is not gone
+		}
 	}
 	rows, err := e.Q.Query("SELECT agent FROM agent_view")
 	if err != nil {
