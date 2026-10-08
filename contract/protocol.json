@@ -11579,7 +11579,7 @@
        "confirmed",
        "unknown"
       ],
-      "description": "queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again. Open set: a client draws a word it does not know as sent and offers no action."
+      "description": "queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again."
      },
      "uuid": {
       "type": "string",

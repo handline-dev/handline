@@ -226,7 +226,12 @@
       }
      },
      "error": {
-      "code": -32602,
+      "code": {
+       "$oneOf": [
+        -32600,
+        -32602
+       ]
+      },
       "data": {
        "code": "bad_request",
        "field": "request_id"
@@ -409,7 +414,12 @@
       }
      },
      "error": {
-      "code": -32602,
+      "code": {
+       "$oneOf": [
+        -32600,
+        -32602
+       ]
+      },
       "data": {
        "code": "bad_request",
        "field": "delivery"

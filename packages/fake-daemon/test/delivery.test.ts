@@ -106,3 +106,16 @@ test('a terminal agent accepts delivery and has no receipt', async () => {
   assert.equal((await client.call('chat.messages', { agent: TERM, scope: 'mine' })).messages[0]!.receipt, undefined);
   client.close();
 });
+
+test('a turn that ends through the session writes the held message, and a session that closes loses what was not echoed', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  daemon.sessions.get(AUD)!.state = 'running';
+  await client.call('chat.send', { agent: AUD, body: 'held', request_id: 'op-12' });
+  assert.deepEqual(await states(client), ['held:queued']);
+  await client.call('session.interrupt', { agent: AUD, request_id: 'op-12i' });
+  assert.deepEqual(await states(client), ['held:sent']);
+  await client.call('session.stop', { agent: AUD, mode: 'close', request_id: 'op-12s' });
+  assert.deepEqual(await states(client), ['held:unknown']);
+  client.close();
+});

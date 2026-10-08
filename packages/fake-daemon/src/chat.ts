@@ -297,6 +297,13 @@ export class FakeChat {
     const m = this.live(id);
     if (m?.receipt?.state === 'sent') this.change(m, receiptPatch(m as Msg, state, this.now()));
   }
+  /** A structured session's state moved: a turn that ended writes the next held message, a session that ended loses what was not echoed. */
+  stateMoved(agent: string, from: string, to: string): void {
+    if (!this.sessions.get(agent)?.structured) return;
+    const turn = (w: string) => w === 'running' || w === 'waiting';
+    if (to === 'parked' || to === 'no_terminal') this.lose(agent);
+    else if (turn(from) && to === 'idle') this.turnEnded(agent);
+  }
   /** A turn of `agent` ended: the oldest message held behind it is written. */
   turnEnded(agent: string): void {
     const next = this.messages.find((m) => m.agent === agent && m.receipt?.state === 'queued' && m.landing !== 'withdrawn');
