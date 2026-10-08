@@ -89,6 +89,12 @@ type fakeLaunch struct{ Launch }
 func (fakeLaunch) Drifted(string, *db.AgentState) bool             { return false }
 func (fakeLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait { return nil }
 func (fakeLaunch) ChooseAccount(db.Q, string) bool                 { return true }
+func (fakeLaunch) AccountFor(_ db.Q, _ string, resuming bool) string {
+	if resuming {
+		return "resume-acct"
+	}
+	return "room-acct"
+}
 func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 	return "hl launch " + agent + " --why '" + why + "'", nil
 }

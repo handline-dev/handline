@@ -27,9 +27,11 @@ STALE_PROMPT = -32003
 BUSY = -32004
 MAX_INFLIGHT = 32           # calls being served at once on one connection; the next is answered `daemon_busy`
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
-# A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
-# calls up to IDLE_TIMEOUT_S. Before hello it gets the short limit, as a legacy request always did.
+# A line that has started must finish within RECV_TIMEOUT_S; a connection may wait between calls up to IDLE_TIMEOUT_S once it
+# has made one - a hello and then nothing is closed after FIRST_CALL_S. A client gone leaves its calls GONE_GRACE_S to finish.
 RECV_TIMEOUT_S = 30
+FIRST_CALL_S = 45
+GONE_GRACE_S = 300
 IDLE_TIMEOUT_S = 3600
 REPLY_KEEP_S = 24 * 3600
 REQUEST_ID_MAX = 128
@@ -216,6 +218,7 @@ class Connection:
         self.peer = sessiontoken.peer_pid(conn)
         self.caller = Caller(self.peer)
         self.said_hello = False
+        self.called = False                     # a call past hello has arrived
         self._buf = b""
         self._send_lock = threading.Lock()      # replies and event notices are written by different threads
         self.subs: list = []
@@ -246,7 +249,10 @@ class Connection:
                 return line
             if len(self._buf) > MAX_LINE_BYTES:
                 raise bad_request(f"a line is at most {MAX_LINE_BYTES} bytes")
-            self.conn.settimeout(self.idle_s if self.said_hello and not self._buf else RECV_TIMEOUT_S)
+            if self.said_hello and not self._buf:
+                self.conn.settimeout(None if self.idle_s is None else self.idle_s if self.called else min(FIRST_CALL_S, self.idle_s))
+            else:
+                self.conn.settimeout(RECV_TIMEOUT_S)
             chunk = self.conn.recv(65536)
             if not chunk:       # a client that shuts its write side after one object needs no newline
                 line, self._buf = self._buf, b""
@@ -280,8 +286,13 @@ class Connection:
             self._serve()
         finally:
             self.eof.set()
-            for _ in range(MAX_INFLIGHT):       # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight
-                self._slots.acquire()
+            # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight - but not for good, or a
+            # handler that never returns holds this connection and its thread forever.
+            end = time.monotonic() + GONE_GRACE_S
+            for _ in range(MAX_INFLIGHT):
+                if not self._slots.acquire(timeout=max(0.0, end - time.monotonic())):
+                    self.log(f"rpc: calls still running {GONE_GRACE_S}s after their client left - the connection is closed on them")
+                    break
             self.closed.set()
             for fn in self.on_close:
                 fn()
@@ -362,6 +373,7 @@ class Connection:
             raise bad_request("params go by name, as an object", "params", INVALID_PARAMS)
         if method != "hello" and not self.said_hello:
             raise bad_request("the first call is hello", "method")
+        self.called = self.called or method != "hello"
         entry = METHODS.get(method)
         if entry is None:
             raise bad_request(f"no such method: {method}", "method", NO_SUCH_METHOD)
