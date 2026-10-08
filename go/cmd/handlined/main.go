@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/version"
 )
@@ -108,6 +109,7 @@ func main() {
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
 		}
+		cfg.Session = func() *sessionrpc.Env { return parts.SessionRPC(ccfg) }
 	}
 	if *gateway {
 		for _, n := range strings.Split(*native, ",") {
