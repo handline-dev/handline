@@ -1,6 +1,7 @@
 // Chat tab of the agent page: the conversation with the agent on `useChat`, like the web's Chat. The person's messages show how far they
 // got (a glyph and a word), a tap picks one to reply to, an unanswered one can be taken back, a question from the agent can be answered,
-// and a refused send stays as a failed row with Retry. A daemon that does not serve chat gets an empty state.
+// and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
+// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
@@ -24,6 +25,14 @@ const GLYPH: Record<string, string> = {
   withdrawn: '✕',
 };
 const glyph = (l: Landing) => GLYPH[l] ?? '✓';
+
+/** The receipt of a message to a structured agent, in words; unknown says what is not known. */
+const RECEIPT: Record<string, string> = {
+  queued: '… Queued',
+  sent: '→ Sent',
+  confirmed: '✓ Confirmed',
+  unknown: '? May or may not have run',
+};
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -92,12 +101,12 @@ export function Chat(props: { detail: AgentDetail }) {
 
   if (chat.status === 'off') return <ChatEmpty />;
 
-  const send = () => {
+  const send = (delivery?: 'now' | 'queue') => {
     if (!text.trim()) return;
     // Replying to a question that waits answers it; to anything else sends a linked message to whoever said it.
     if (picked && isOpenAsk(picked, agent)) act.answer(picked.id, text);
-    else if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to });
-    else act.send(text);
+    else if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
+    else act.send(text, { delivery });
     setPicked(null);
     setText('');
     pinned.current = true;
@@ -210,7 +219,14 @@ export function Chat(props: { detail: AgentDetail }) {
             padding: space.md,
           }}
         />
-        <Button testID="chat-send" label="Send" disabled={!canSend || !text.trim()} onPress={send} />
+        {working && props.detail.structured ? (
+          <View style={{ gap: space.xs }}>
+            <Button testID="chat-send-now" label="Send now" disabled={!canSend || !text.trim()} onPress={() => send('now')} />
+            <Button testID="chat-send" label="Queue" disabled={!canSend || !text.trim()} onPress={() => send('queue')} />
+          </View>
+        ) : (
+          <Button testID="chat-send" label="Send" disabled={!canSend || !text.trim()} onPress={() => send()} />
+        )}
       </Row>
     </View>
   );
@@ -236,7 +252,8 @@ function Bubble(props: {
   const open = isOpenAsk(m, agent) && can.answer;
   const mine = side === 'person' && !unnumbered && !failed;
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
-  const got = m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+  // A sent, confirmed or unknown message is the agent's: taking it back asks first, as for a delivered one.
+  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
   const takeBack = (confirm = false) =>
     act
@@ -281,7 +298,7 @@ function Bubble(props: {
         {side === 'person' && !failed && (
           <Text testID={`landing-${m.id}`}>
             {'  '}
-            {glyph(m.landing)} {landingLabel(m.landing)}
+            {m.receipt ? (RECEIPT[m.receipt.state] ?? RECEIPT.sent) : `${glyph(m.landing)} ${landingLabel(m.landing)}`}
           </Text>
         )}
         {open && '  ? Waiting for you'}
@@ -296,9 +313,14 @@ function Bubble(props: {
           </Row>
         </View>
       )}
+      {mine && m.receipt?.state === 'unknown' && (
+        <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: 12 }}>
+          Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it repeated.
+        </Text>
+      )}
       {undoable && (
         <Row>
-          {m.landing === 'queued' && props.working && <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />}
+          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />}
           <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (got ? ask() : void takeBack())} />
         </Row>
       )}
