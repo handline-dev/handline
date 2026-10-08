@@ -36,3 +36,9 @@ Run from the sandbox with `LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v 
 - The send path (S4) can read `Receipt.State` from the session and drop a second ledger under the same key.
 
 Follow-up (lost echo): when a message is given up as unknown (no acknowledgement by `EchoDeadline`, or cancelled) and no turn is running, the held queue goes on. **straight:** a repair of S1's own state handling; nothing legacy is carried.
+
+## Withdraw and Promote (held messages)
+
+`Withdraw(op)` takes back a message still held behind a turn; `Promote(op)` writes a held message now with priority `now`. Both are under the same lock as the queue release, so a message is withdrawn or written, never both, and a started write is never withdrawn. A message not held (written, settled, withdrawn) gets its recorded receipt back and nothing is written; `Withdraw` then says not-withdrawn, except on a repeat of a withdrawn op, which says ok. `Withdrawn` is a recorded state: after a restart it stays withdrawn and a `Send` retried with that op id gets it back. `Manager.Withdraw` and `Manager.Promote` delegate by agent.
+
+**drops:** nothing. **straight:** new queue operations on S1's own state; no legacy path is carried.
