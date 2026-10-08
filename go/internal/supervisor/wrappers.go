@@ -297,3 +297,9 @@ func BatchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Re
 	r0 = batchText(q, batch, folded, aheadOf)
 	return r0, nil
 }
+
+// PastDialog is pastDialog (delivery._past_dialog) with a failed statement returned as the error.
+func (e *Env) PastDialog(q db.Q, agent string) (why string, err error) {
+	defer Catch(&err)
+	return e.pastDialog(q, agent, false), nil
+}
