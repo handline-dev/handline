@@ -117,3 +117,40 @@ func jsonList(ns []int) string {
 	}
 	return s + "]"
 }
+
+func TestMergeRefreshesSentFromTheRequestsThatMoved(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'keep', 'w', 'boss', 1), (2, 'queued', 'w', 'boss', 1), (3, 'answered', 'w', 'boss', 1), (4, 'keep2', 'w', 'boss', 1)",
+		"UPDATE tasks SET sent_at = 5 WHERE id IN (1, 2, 3, 4)",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x'), (11, 'boss', 'w', 'task', 'done', 1, 'x')",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(2, 10), (3, 11)",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = db
+	Register(s, t.TempDir(), nil)
+	for i, into := range [][2]int{{1, 2}, {4, 3}} {
+		r := call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.merge","params":{"into":%d,"tasks":[%d],"request_id":"m%d"}}`, into[0], into[1], i))[0]
+		if r["error"] != nil {
+			t.Fatalf("merge into T%d: %v", into[0], r)
+		}
+	}
+	sent := func(id int) (n int) {
+		db.QueryRow("SELECT sent_at IS NOT NULL FROM tasks WHERE id = ?", id).Scan(&n)
+		return
+	}
+	if sent(1) != 1 {
+		t.Fatal("a still-queued request moved to the kept task: it reads as sent")
+	}
+	if sent(4) != 0 {
+		t.Fatal("an answered request moved to the kept task: it no longer reads as sent")
+	}
+}
