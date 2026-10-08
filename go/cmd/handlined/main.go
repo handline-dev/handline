@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -98,9 +100,14 @@ func main() {
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
 	if *structuredCLI != "" && !*gateway {
-		parts := compose.New(compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI,
-			ConfigDir: func(string) string { return "" }, Args: []string{"--setting-sources", "project"}})
-		cfg.Transcript, cfg.Structured, cfg.Agents, cfg.OnOpen = parts.Sink, parts.Kind, parts.Agents, parts.Bind
+		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
+		parts := compose.New(ccfg)
+		cfg.Transcript, cfg.Structured, cfg.Agents = parts.Sink, parts.Kind, parts.Agents
+		cfg.OnOpen = func(db *sql.DB, env *supervisor.Env) {
+			parts.Bind(db, env)
+			ccfg.DB = db
+			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
+		}
 	}
 	if *gateway {
 		for _, n := range strings.Split(*native, ",") {

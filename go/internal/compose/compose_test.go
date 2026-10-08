@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -64,6 +69,8 @@ func rig(t *testing.T) (*Parts, string) {
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755)
 	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nmode: structured # the real CLI\n"), 0o644)
+	os.MkdirAll(filepath.Join(home, "shared", ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte(sharedSettings), 0o644)
 	os.MkdirAll(filepath.Join(home, "agents", "bob"), 0o755)
 	os.WriteFile(filepath.Join(home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
 	d, err := store.Open(filepath.Join(home, "db.sqlite"))
@@ -132,6 +139,53 @@ func TestAStructuredSessionStartsTakesAMessageAndStopsThroughTheRealWiring(t *te
 	}
 }
 
+type tells struct {
+	mu   sync.Mutex
+	logs []string
+}
+
+func (t *tells) SessionConfirmed(_ db.Q, agent, op string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, "confirmed "+agent+" "+op)
+	return nil
+}
+
+func (t *tells) SessionLost(_ db.Q, agent string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, "lost "+agent)
+	return nil
+}
+
+func TestTheSupervisorIsToldOfAnEchoAndOfTheEndOfTheSession(t *testing.T) {
+	p, _ := rig(t)
+	tl := &tells{}
+	p.Bind(p.Sink.DB, tl)
+	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run.Send("alice", "op7", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run.Close("alice"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		tl.mu.Lock()
+		got := fmt.Sprint(tl.logs)
+		tl.mu.Unlock()
+		if got == "[confirmed alice op7 lost alice]" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
 	p, _ := rig(t)
 	if p.Locks == nil {
@@ -147,4 +201,161 @@ func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
 	}
 	rel()
 	<-got
+}
+
+// wired builds the lifecycle manager over the real parts, with a closed structured agent that has a worktree.
+func wired(t *testing.T) (*Parts, *Lifecycle, *supervisor.Env, string) {
+	t.Helper()
+	p, home := rig(t)
+	dir, err := team.AccountConfigDir(home, "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600) // only its presence is read
+	wt := t.TempDir()
+	d := p.Sink.DB
+	if err := dbpkg.SetTerminal(d, "alice", "", wt); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.SetClosed(d, "alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+		t.Fatal(err) // what a closed agent is woken for
+	}
+	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
+	cfg := Config{DB: d, Home: home, CLI: p.Run.cfg.CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}}
+	p.Run.cfg = cfg
+	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})
+	env.Ports = p.SupervisorPorts(lc)
+	p.Bind(d, env)
+	return p, lc, env, wt
+}
+
+func TestTheLifecycleWakesAClosedStructuredAgentAndClosesItAgain(t *testing.T) {
+	p, lc, env, _ := wired(t)
+	if !env.Wired() {
+		t.Fatal("every supervisor port has its owner")
+	}
+	ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{})
+	if err != nil || !ok {
+		t.Fatalf("wake: %v %q %v", ok, said, err)
+	}
+	if !p.Run.Alive("alice") {
+		t.Fatal("the wake started a session")
+	}
+	row, _ := dbpkg.GetAgentState(p.Sink.DB, "alice")
+	if row == nil || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 || row.ResumeSession.String == "" {
+		t.Fatalf("it is open again under a stored session: %+v", row)
+	}
+	ok, said, err = lc.Manager.CloseAgent("alice", lifecycle.SessionStatus{SessionID: row.ResumeSession.String}, lifecycle.CloseOpts{Force: true})
+	if err != nil || !ok {
+		t.Fatalf("close: %v %q %v", ok, said, err)
+	}
+	if p.Run.Alive("alice") {
+		t.Fatal("the close ended the session")
+	}
+}
+
+const sharedSettings = `{
+  "autoContinueAtUsageLimit": false,
+  "permissions": {"allow": ["Bash(ls:*)"]},
+  "env": {"SECRET": "x"},
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": 10}]}],
+    "PreToolUse": [
+      {"matcher": "Write|Edit|Bash", "hooks": [{"type": "command", "command": "ocp hook PreToolUse", "timeout": 10}, {"type": "command", "command": "other-tool guard"}]},
+      {"hooks": [{"type": "command", "command": "somebody-elses hook PreToolUse"}]}
+    ],
+    "Notification": [{"hooks": [{"type": "command", "command": "notify-me"}]}]
+  }
+}`
+
+func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) {
+	p, home := rig(t)
+	os.MkdirAll(filepath.Join(home, "structured", "alice"), 0o755) // a directory that was there with the wrong mode
+	path, err := WriteHooksSettings(home, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", st.Mode())
+	}
+	if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
+		t.Fatalf("dir mode %v", st.Mode())
+	}
+	b, _ := os.ReadFile(path)
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"hooks": map[string]any{
+		"Stop":       []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": float64(10)}}}},
+		"PreToolUse": []any{map[string]any{"matcher": "Write|Edit|Bash", "hooks": []any{map[string]any{"type": "command", "command": "ocp hook PreToolUse", "timeout": float64(10)}}}},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s", b)
+	}
+	_ = p
+}
+
+func TestASessionIsNotStartedWithoutTheShellGuardOrWithUnreadableSettings(t *testing.T) {
+	for _, shared := range []string{`{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "hl hook Stop"}]}]}}`, `{}`, `not json`} {
+		if _, err := HooksSettings([]byte(shared)); err == nil {
+			t.Errorf("%s: a session without the guard", shared)
+		}
+	}
+	p, home := rig(t)
+	os.Remove(filepath.Join(home, "shared", ".claude", "settings.json"))
+	err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "33333333-3333-4333-8333-333333333333"})
+	if err == nil || p.Run.Alive("alice") {
+		t.Fatal("no shared settings, no session")
+	}
+}
+
+func TestAStartTheDaemonCannotDoIsNotCountedAgainstTheAgent(t *testing.T) {
+	p, lc, _, _ := wired(t)
+	d := p.Sink.DB
+	// bob is a terminal agent and carol a structured one with no worktree: neither can be started here, and neither may be stalled for it.
+	os.MkdirAll(filepath.Join(p.home, "agents", "carol"), 0o755)
+	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nmode: structured\nrepo: "+t.TempDir()+"\n"), 0o644)
+	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+t.TempDir()+"\n"), 0o644)
+	for _, agent := range []string{"bob", "carol"} {
+		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: agent, Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 3; i++ {
+			lc.Manager.StartForWork(agent) // an error is the answer: it is not a failed start
+		}
+		row, _ := dbpkg.GetAgentState(d, agent)
+		if row != nil && (row.WakeFailures != 0 || row.State == "STALLED") {
+			t.Fatalf("%s was counted or stalled: %+v", agent, row)
+		}
+	}
+}
+
+func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
+	p, lc, env, _ := wired(t)
+	d := p.Sink.DB
+	ports := lc.Manager.Agents
+	if err := ports.RaiseDecision(d, "alice", "[trust] add /x - asked by alice\n\nwhy", "trust"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ports.RaiseDecision(d, "alice", "[trust] add /x - asked by alice\n\nwhy", "trust"); err != nil {
+		t.Fatal(err) // the same text still waiting is that decision, not a second
+	}
+	var cards, tasks int
+	d.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'alice' AND target = 'human' AND body LIKE '[trust]%'").Scan(&cards)
+	d.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = 'human' AND expects = 'decision'").Scan(&tasks)
+	if cards != 1 || tasks != 1 {
+		t.Fatalf("cards %d, tasks %d", cards, tasks)
+	}
+	// An account with no trusted reading is not measured, as measure.begin does: the call is made, and leaves no open start.
+	dbpkg.SetMeta(d, "coldstart:alice", "stale")
+	ports.MeasureBegin(d, "alice", "a1")
+	if v, _, _ := dbpkg.Meta(d, "coldstart:alice"); v != "" {
+		t.Fatalf("an unread account left an open start: %q", v)
+	}
+	_ = env
 }

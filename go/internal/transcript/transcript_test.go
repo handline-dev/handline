@@ -243,3 +243,30 @@ func TestANewSessionIdEndsTheTurnOfTheOldOne(t *testing.T) {
 		t.Fatalf("%v %+v", kinds, *got)
 	}
 }
+
+func TestOneAgentsSlowWriteDoesNotHoldUpAnothersEvents(t *testing.T) {
+	s, got := newSink(t)
+	hold, entered := make(chan struct{}), make(chan struct{})
+	prev := s.Publish
+	s.Publish = func(e Event) {
+		if e.Agent == "slow" {
+			close(entered)
+			<-hold // the first agent's publish takes as long as it likes
+			return
+		}
+		prev(e)
+	}
+	go emit(s, "slow", "message", map[string]any{"uuid": "u1", "text": "x"})
+	<-entered
+	done := make(chan struct{})
+	go func() { emit(s, "quick", "message", map[string]any{"uuid": "u2", "text": "y"}); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("another agent's event waited for the slow one")
+	}
+	close(hold)
+	if len(*got) == 0 {
+		t.Fatal("the quick agent's event was published")
+	}
+}

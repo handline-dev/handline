@@ -326,3 +326,22 @@ func TestAWrittenAnswersBatchIsAnnouncedOnceNotAgainByItsEcho(t *testing.T) {
 		t.Fatalf("%d answered events", n)
 	}
 }
+
+func TestPushHereTellsALiveStructuredAgentThroughItsSessionAndStartsNothing(t *testing.T) {
+	r, fa := structuredRig(t)
+	rid := r.ask("alice", "bob", "psst", "say")
+	if got := r.PushHere(r.DB, "bob", rid); !strings.Contains(got, "delivered to bob") || len(fa.sent) != 1 {
+		t.Fatalf("%q %+v", got, fa.sent)
+	}
+	// A request that is not marked to go now is delivered from the queue, not by starting the agent that has a live session.
+	r.ask("alice", "bob", "do the thing", "ask")
+	r.PushHere(r.DB, "bob", 0)
+	if len(r.life.started) != 0 {
+		t.Fatalf("started a live structured agent: %v", r.life.started)
+	}
+	fa.live["bob"] = false
+	r.PushHere(r.DB, "bob", 0)
+	if len(r.life.started) != 1 {
+		t.Fatalf("a structured agent with no session is started for the work: %v", r.life.started)
+	}
+}

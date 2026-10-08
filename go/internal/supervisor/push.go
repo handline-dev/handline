@@ -32,14 +32,15 @@ func (e *Env) PushHere(q db.Q, target string, rid int64) (out string) {
 	}
 	if sent != nil && (sent.Kind.String != "task" || sent.SendNow.Valid) { // a marked task is a handoff
 		told := must(e.TellNow(q, rid))
-		if told == "typed" {
+		if told == "typed" || told == "sent" { // sent: written to a structured agent's session
 			return "  delivered to " + target
 		}
 		return fmt.Sprintf("  %s: %s", target, told)
 	}
 	var said []string
 	row := stateOf(q, target)
-	if !(row != nil && row.Terminal.String != "") {
+	// A structured agent has no terminal; its session is the place it is told.
+	if !(e.structuredAgent(target) && e.Agents.Live(target) || row != nil && row.Terminal.String != "") {
 		// No row at all is the same case as a row with no terminal: an agent that has never been started has nowhere to be told anything.
 		said = append(said, e.Lifecycle.StartForWork(q, target))
 		row = stateOf(q, target)

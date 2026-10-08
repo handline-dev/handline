@@ -21,14 +21,35 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
-	stopping map[string]bool // Stop is closing it: its exit is no failure
-	starting map[string]bool // agents whose session is being started
+	stopping map[string]bool   // Stop is closing it: its exit is no failure
+	starting map[string]bool   // agents whose session is being started
+	ids      map[string]string // agent -> the id of its session, from the Start that took the slot
 }
 
 // Has says whether agent has a live structured session.
 func (m *Manager) Has(agent string) bool {
 	s := m.Get(agent)
 	return s != nil && s.ExitErr() == nil
+}
+
+// Live is the agents with a live session and the pid of each.
+func (m *Manager) Live() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]int{}
+	for agent, s := range m.sessions {
+		if s.ExitErr() == nil {
+			out[agent] = s.Pid()
+		}
+	}
+	return out
+}
+
+// SessionID is the id of agent's session: the one being started or running, or the last that ran; "" for none.
+func (m *Manager) SessionID(agent string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ids[agent]
 }
 
 // Get is agent's session, or nil.
@@ -51,8 +72,27 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 		m.starting = map[string]bool{}
 	}
 	m.starting[agent] = true
+	// The id is the new session's from here, so its first events carry it; a Start that is refused above never gets here, and one that fails
+	// below gives the old id back.
+	if m.ids == nil {
+		m.ids = map[string]string{}
+	}
+	prevID, hadID := m.ids[agent]
+	m.ids[agent] = l.SessionID
 	m.mu.Unlock()
-	release := func() { m.mu.Lock(); delete(m.starting, agent); m.mu.Unlock() }
+	started := false
+	release := func() {
+		m.mu.Lock()
+		delete(m.starting, agent)
+		if !started {
+			if hadID {
+				m.ids[agent] = prevID
+			} else {
+				delete(m.ids, agent)
+			}
+		}
+		m.mu.Unlock()
+	}
 	defer release()
 	if old != nil { // the process exited; prove its group is gone before another takes the session id
 		if err := old.Close(); err != nil {
@@ -109,6 +149,7 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 	}
 	delete(m.stopping, agent)
 	m.sessions[agent] = s
+	started = true
 	m.mu.Unlock()
 	return s, nil
 }

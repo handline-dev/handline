@@ -909,6 +909,12 @@ func (p LaunchPort) AccountFor(q db.Q, agent string, resuming bool) string {
 	return p.L.ChooseAccount(agent, resuming, "")
 }
 
+func (p LaunchPort) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string {
+	return p.L.SlowestPaced(q, agent, row, skip)
+}
+
+var _ Launch = LaunchPort{}
+
 func (LaunchPort) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
 
 func (LaunchPort) CommandFor(agent, account, why, by string) (string, error) {

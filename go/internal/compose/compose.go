@@ -10,13 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -28,12 +29,14 @@ type Config struct {
 	Now  func() time.Time
 	// CLI is the claude binary.
 	CLI string
-	// ConfigDir is an account's CLAUDE_CONFIG_DIR; "" for the one the launch lands on.
+	// ConfigDir is an account's CLAUDE_CONFIG_DIR; nil is the account's own directory under Home, "" the one the launch lands on.
 	ConfigDir func(account string) string
 	// Args are the extra CLI arguments of every structured launch (--setting-sources project and the hooks' --settings).
 	Args []string
 	// Env are NAME=value pairs set on every launch, besides the agent's name.
 	Env []string
+	// NoHooks starts a session without the hooks-only settings file (tests with no shared settings).
+	NoHooks bool
 	// Policy is the permission policy of an agent; nil allows nothing and guards nothing.
 	Policy func(agent string) structured.Policy
 	// Kind says whether an agent runs structured; nil reads agent.yaml's mode (KindFromYAML).
@@ -51,6 +54,52 @@ type Parts struct {
 	Agents  *AgentsPort
 	Locks   *lifecycle.AgentLocks
 	Kind    func(agent string) bool
+	// LC is the lifecycle, once Lifecycle has built it.
+	LC *Lifecycle
+
+	db   *sql.DB
+	home string
+	tell Telling
+	log  func(format string, args ...any)
+}
+
+// Telling is what the supervisor's Env does with a session's end of a send: the operation is delivered once the CLI echoed it, and what was
+// written and not echoed when the session ended is unknown (supervisor.Env).
+type Telling interface {
+	SessionConfirmed(q db.Q, agent, op string) error
+	SessionLost(q db.Q, agent string) error
+}
+
+// events is the manager's event sink: the transcript sink, and the telling that a session ended.
+type events struct {
+	p *Parts
+}
+
+func (e events) Emit(agent string, ev structured.Event) {
+	e.p.Sink.Emit(agent, ev)
+	if ev.Type == "session_end" && e.p.tell != nil && e.p.db != nil {
+		if err := e.p.tell.SessionLost(e.p.db, agent); err != nil && e.p.log != nil {
+			e.p.log("  %s: telling the session's end failed: %v", agent, err)
+		}
+	}
+}
+
+// confirming tells the supervisor when the ledger records an echo.
+type confirming struct {
+	*structured.DBLedger
+	p *Parts
+}
+
+func (c confirming) Put(o structured.Op) error {
+	if err := c.DBLedger.Put(o); err != nil {
+		return err
+	}
+	if o.State == structured.Confirmed && c.p.tell != nil {
+		if err := c.p.tell.SessionConfirmed(c.p.db, c.DBLedger.Agent, o.ID); err != nil && c.p.log != nil {
+			c.p.log("  %s: telling the echo of %s failed: %v", c.DBLedger.Agent, o.ID, err)
+		}
+	}
+	return nil
 }
 
 // New builds the parts. The daemon fills in what only it knows when it starts (the sink's database, publisher and prompt reader).
@@ -59,20 +108,24 @@ func New(cfg Config) *Parts {
 	if kind == nil {
 		kind = KindFromYAML(cfg.Home)
 	}
-	run := &Runner{cfg: cfg, kind: kind, sessions: map[string]string{}}
-	sink := &transcript.Sink{Now: cfg.Now, Session: run.sessionOf}
+	run := &Runner{cfg: cfg, kind: kind}
+	sink := &transcript.Sink{Now: cfg.Now}
+	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log, home: cfg.Home}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
-	mgr := &structured.Manager{Broker: broker, Events: sink, Now: cfg.Now}
-	run.mgr = mgr
-	p := &Parts{Manager: mgr, Sink: sink, Run: run, Agents: &AgentsPort{mgr: mgr, kind: kind}, Locks: &lifecycle.AgentLocks{}, Kind: kind}
+	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now}
+	run.mgr, run.parts = mgr, p
+	sink.Session = mgr.SessionID
+	p.Manager, p.Agents = mgr, &AgentsPort{mgr: mgr, kind: kind}
 	if cfg.DB != nil {
-		p.Bind(cfg.DB)
+		p.Bind(cfg.DB, nil)
 	}
 	return p
 }
 
-// Bind gives the parts the database when it is open: the sends' ledger, the permission prompt rows and the transcript's events.
-func (p *Parts) Bind(db *sql.DB) {
+// Bind gives the parts the database when it is open (the sends' ledger, the permission prompt rows, the transcript's events) and the
+// telling that follows a session's echoes and its end; a nil tell tells nothing.
+func (p *Parts) Bind(db *sql.DB, tell Telling) {
+	p.db, p.tell = db, tell
 	p.Manager.DB, p.Sink.DB = db, db
 	if p.Manager.Broker != nil {
 		p.Manager.Broker.Store = &structured.DBPrompts{DB: db, Now: p.Manager.Now}
@@ -98,48 +151,39 @@ func KindFromYAML(home string) func(agent string) bool {
 
 // Runner is lifecycle.Runner over the structured manager. It turns a StartSpec into the CLI's launch.
 type Runner struct {
-	cfg  Config
-	kind func(agent string) bool
-	mgr  *structured.Manager
-
-	mu       sync.Mutex
-	sessions map[string]string // agent -> the id of the session last opened
+	cfg   Config
+	kind  func(agent string) bool
+	mgr   *structured.Manager
+	parts *Parts
 }
 
 var _ lifecycle.Runner = (*Runner)(nil)
 
 func (r *Runner) Structured(agent string) bool { return r.kind(agent) }
 
-func (r *Runner) sessionOf(agent string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.sessions[agent]
-}
-
 // Open starts agent's CLI in the spec's worktree and returns once it has answered initialize.
 func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	cfgDir := ""
 	if r.cfg.ConfigDir != nil {
 		cfgDir = r.cfg.ConfigDir(spec.Account)
+	} else if spec.Account != "" {
+		cfgDir, _ = team.AccountConfigDir(r.cfg.Home, spec.Account)
 	}
-	l := structured.Launch{Path: r.cfg.CLI, Args: r.cfg.Args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
-		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}
-	// The id is known before the CLI answers, so the first events of the session already carry it.
-	r.mu.Lock()
-	prev, had := r.sessions[spec.Agent]
-	r.sessions[spec.Agent] = spec.SessionID
-	r.mu.Unlock()
-	if _, err := r.mgr.Start(context.Background(), spec.Agent, l); err != nil {
-		r.mu.Lock() // a start that did not happen leaves the running session's id as it was
-		if had {
-			r.sessions[spec.Agent] = prev
-		} else {
-			delete(r.sessions, spec.Agent)
+	args := r.cfg.Args
+	if !r.cfg.NoHooks {
+		path, err := WriteHooksSettings(r.cfg.Home, spec.Agent)
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.Agent, err)
 		}
-		r.mu.Unlock()
-		return err
+		args = append(append([]string{}, args...), "--settings", path)
 	}
-	return nil
+	l := structured.Launch{Path: r.cfg.CLI, Args: args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
+		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}
+	if r.parts.db != nil {
+		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
+	}
+	_, err := r.mgr.Start(context.Background(), spec.Agent, l)
+	return err
 }
 
 func (r *Runner) Alive(agent string) bool { return r.mgr.Has(agent) }
