@@ -240,7 +240,9 @@ class SocketServer:
         self._relay = relay.RelayServer(log)
 
     def start(self) -> None:
+        before = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
         limit = raise_fd_limit()
+        self._log(f"socket: descriptor limit {before} -> {limit}")
         if limit != resource.RLIM_INFINITY and limit <= MAX_CONNECTIONS + 64:
             self._log(f"socket: only {limit} file descriptors - connections can run out of them before the cap")
         path = paths.socket_file()
