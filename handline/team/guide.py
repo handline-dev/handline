@@ -23,9 +23,10 @@ single use, so two copies of one credential invalidate each other.""",
 From @host@:
   @launch@
 
-direnv is not used. Orca leaves CLAUDE_CONFIG_DIR empty and --command takes an
-arbitrary shell string, so one wrapper is enough - and Orca preserves the launch
-command across hibernation and restore.""",
+direnv is not used: hl launch sets CLAUDE_CONFIG_DIR itself (dropping one it
+inherited), and @host@ runs the launch command in the terminal's shell, so one
+wrapper is enough (Orca also keeps the launch command across hibernation and
+restore).""",
     "status": """usage and fail-closed
   hl status                       why the pick chose the account it did
   hl account list --json          machine-readable
@@ -146,7 +147,7 @@ no screen.""",
 A session that is not being used holds 250-500MB and spends no tokens at all.
 Closing it ends the agent process, and is recorded only once the process has
 left the process table - a session that will not end is reported, not marked
-closed. The terminal, its worktree and its account stay, because Orca runs our
+closed. The terminal, its worktree and its account stay, because @host@ runs our
 launch command inside a shell and claude is that shell's child. Waking types
 the launch command back into the same shell with `--resume <session>` and the wake prompt as the session's first prompt, so the
 account comes back with it and the conversation is the one it had. If the agent's
