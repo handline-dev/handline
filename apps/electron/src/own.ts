@@ -9,8 +9,8 @@ import { app, clipboard, ipcMain, Menu, nativeImage, Tray } from 'electron';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
-import { Link, pairRemote, plainRemoteHost, remoteUrl, type Mode, type Remote, type Settings, type SettingsFile } from './mode.ts';
-import { commands, Owner } from './owner.ts';
+import { Link, pairRemote, plainRemoteHost, type Remote, type Settings, type SettingsFile } from './mode.ts';
+import { commands, Owner, type Child, type Cmd } from './owner.ts';
 import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
 import { onTailnet } from './tailnet.ts';
 import { trayMenu, type TrayFollow } from './tray.ts';
@@ -49,6 +49,34 @@ const TRAY_ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="black" stroke-width="2.5"/></svg>',
   );
 
+/** Its own process group: bin/ocp starts the daemon as a child of itself, and quit must stop that one too. */
+function spawnChild(cmd: Cmd, log: number): Child {
+  const p = spawn(cmd.file, cmd.args, { stdio: ['ignore', log, log], env: process.env, detached: true });
+  const stop = () => {
+    try {
+      process.kill(-p.pid!, 'SIGTERM');
+    } catch {
+      p.kill();
+    }
+  };
+  return { kill: stop, onExit: (f) => void p.on('exit', f).on('error', () => f(null)) };
+}
+
+/** The founder key from the protected store, or null while the daemon has not made it. */
+function readFounderKey(home: string): string | null {
+  try {
+    return fs.readFileSync(founderKeyFile(os.homedir(), home), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+const pairFromClipboard = (): Promise<Remote> =>
+  pairRemote(
+    { link: clipboard.readText() },
+    { open: (url, fp) => (fp ? pinnedWebSocketTransport(url, fp) : webSocketTransport(url)), name: 'Handline desktop' },
+  );
+
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
   redraw(): void;
@@ -82,18 +110,7 @@ export function ownDaemon(o: {
   const owner = new Owner({
     socketUp: () => answers(o.socket),
     gatewayUp: () => answers(o.gatewaySocket),
-    spawn: (cmd) => {
-      // Its own process group: bin/ocp starts the daemon as a child of itself, and quit must stop that one too.
-      const p = spawn(cmd.file, cmd.args, { stdio: ['ignore', log, log], env: process.env, detached: true });
-      const stop = () => {
-        try {
-          process.kill(-p.pid!, 'SIGTERM');
-        } catch {
-          p.kill();
-        }
-      };
-      return { kill: stop, onExit: (f) => void p.on('exit', f).on('error', () => f(null)) };
-    },
+    spawn: (cmd) => spawnChild(cmd, log),
     ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
     wait: sleep,
   });
@@ -101,21 +118,18 @@ export function ownDaemon(o: {
   const tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON));
   tray.setToolTip('Handline');
   const link = new Link();
-  link.set('connecting', { address: o.gateway ?? null });
   const mode = o.current.mode;
+  link.set('connecting', { address: o.gateway ?? null });
   const relaunchAs = (next: Settings) => {
     o.settings.write(next);
     app.relaunch();
     app.quit();
   };
-  const pairClipboard = async () => {
-    try {
-      const remote = await pairRemote({ link: clipboard.readText() }, { open: openRemote, name: 'Handline desktop' });
-      relaunchAs({ mode: 'connect', remote });
-    } catch (e) {
-      link.set('cannot-pair', { reason: e instanceof Error ? e.message : String(e) });
-    }
-  };
+  const pairClipboard = () =>
+    pairFromClipboard().then(
+      (remote) => relaunchAs({ mode: 'connect', remote }),
+      (e: Error) => link.set('cannot-pair', { reason: e.message }),
+    );
   link.onChange(() => draw());
   const draw = () =>
     tray.setContextMenu(
@@ -143,16 +157,8 @@ export function ownDaemon(o: {
   ipcMain.on(CHANNELS.token, (e) => {
     e.returnValue = fromWindow(e, o.origin) ? { token, ownHost } : null;
   });
-  const openRemote = (url: string, fingerprint: string | null) =>
-    fingerprint ? pinnedWebSocketTransport(url, fingerprint) : webSocketTransport(url);
   const pairing = {
-    readKey: () => {
-      try {
-        return fs.readFileSync(founderKeyFile(os.homedir(), o.home), 'utf8').trim() || null;
-      } catch {
-        return null;
-      }
-    },
+    readKey: () => readFounderKey(o.home),
     open: () => unixSocketTransport(o.gatewaySocket),
     name: 'Handline desktop',
   };
@@ -162,7 +168,10 @@ export function ownDaemon(o: {
     if (remote) {
       ownHost = plainRemoteHost(remote);
       token = remote.token;
-      link.set((await tcpUp(remote.host)) ? 'connected' : 'cannot-pair', { address: remote.host, reason: `nothing answers at ${remote.host}` });
+      link.set((await tcpUp(remote.host)) ? 'connected' : 'cannot-pair', {
+        address: remote.host,
+        reason: `nothing answers at ${remote.host}`,
+      });
       return remote.host;
     }
     if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {

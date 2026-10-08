@@ -78,7 +78,10 @@ function connectItems(l: TrayMode['link']): TrayItem[] {
         : l.status === 'no-daemon'
           ? 'No daemon is running here: connect to another device'
           : `Cannot pair: ${l.reason || 'the gateway did not answer'}`;
-  return [{ label: daemonWords(l), enabled: false }, { label: status, enabled: false }];
+  return [
+    { label: daemonWords(l), enabled: false },
+    { label: status, enabled: false },
+  ];
 }
 
 export function trayMenu(state: DaemonState, reason: string, a: TrayActions, follow?: TrayFollow, m?: TrayMode): TrayItem[] {

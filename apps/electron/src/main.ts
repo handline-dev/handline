@@ -9,7 +9,7 @@ import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
-import { parseMode, remoteUrl, SettingsFile } from './mode.ts';
+import { parseMode, remoteUrl, SettingsFile, type Remote } from './mode.ts';
 import { ownDaemon, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
 import { Page, CHANNELS } from './bridge.ts';
@@ -65,6 +65,26 @@ async function advertised(gateway: string): Promise<string | null> {
   return null;
 }
 
+/** A paired remote gateway has a self-signed certificate: the page trusts it by the fingerprint pairing handed over, and no other. */
+function trustFingerprint(remote: Remote): void {
+  app.on('certificate-error', (e, _wc, url, _err, cert, trust) => {
+    e.preventDefault();
+    const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
+    trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
+  });
+}
+
+/** Runs `f` until it stops throwing, two seconds apart. */
+async function untilUp(f: () => Promise<unknown>): Promise<void> {
+  for (;;) {
+    try {
+      return void (await f());
+    } catch {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
@@ -109,16 +129,11 @@ if (!app.requestSingleInstanceLock()) {
     );
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));
-    // A paired remote gateway has a self-signed certificate: the page trusts it by the fingerprint pairing handed over, and no other.
     const remote = current.mode === 'connect' ? current.remote : null;
     if (remote) {
       gateway = remote.host;
       ws = remoteUrl(remote);
-      app.on('certificate-error', (e, _wc, url, _err, cert, trust) => {
-        e.preventDefault();
-        const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
-        trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
-      });
+      trustFingerprint(remote);
     }
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
     const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
@@ -225,23 +240,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     // The client reconnects once it has been up; a daemon that is down at launch is retried here.
     void (async () => {
-      for (;;) {
-        try {
-          await client.start();
-          if (!remote) own.link.setVersion(client.hello?.daemon);
-          break;
-        } catch {
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      }
-      for (;;) {
-        try {
-          await desk.start();
-          return;
-        } catch {
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-      }
+      await untilUp(() => client.start());
+      if (!remote) own.link.setVersion(client.hello?.daemon);
+      await untilUp(() => desk.start());
     })();
   });
 }

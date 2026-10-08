@@ -24,7 +24,13 @@ export const parseMode = (v: unknown): Mode | undefined => (v === 'connect' || v
 
 const isRemote = (v: unknown): v is Remote => {
   const r = v as Partial<Remote> | null;
-  return !!r && typeof r.host === 'string' && typeof r.token === 'string' && typeof r.device === 'string' && (r.fingerprint === null || typeof r.fingerprint === 'string');
+  return (
+    !!r &&
+    typeof r.host === 'string' &&
+    typeof r.token === 'string' &&
+    typeof r.device === 'string' &&
+    (r.fingerprint === null || typeof r.fingerprint === 'string')
+  );
 };
 
 export class SettingsFile {
@@ -58,7 +64,10 @@ export interface OfferInput {
 export function offerFrom(i: OfferInput): PairingOffer {
   const link = i.link?.trim();
   if (link) return parsePairingUri(link);
-  const address = i.address?.trim().replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '');
+  const address = i.address
+    ?.trim()
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/\/.*$/, '');
   const code = i.code?.trim();
   if (!address || !code) throw new Error('give the pairing link, or the address and the code');
   const host = /:\d+$/.test(address) ? address : `${address}:7443`;
@@ -81,21 +90,24 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
   });
 
 /** Pairs with another device's gateway the way the phone does and returns what to keep. A gateway that cannot be paired with says why and never hangs. */
-export async function pairRemote(
-  input: OfferInput,
-  d: { open: Open; name: string; timeoutMs?: number },
-): Promise<Remote> {
+export async function pairRemote(input: OfferInput, d: { open: Open; name: string; timeoutMs?: number }): Promise<Remote> {
   const offer = offerFrom(input); // a bad link or an untrusted address throws its own sentence
   const ms = d.timeoutMs ?? 10_000;
   const connect = () =>
-    withTimeout(d.open(listenerUrl(offer.host, offer.fingerprint !== null), offer.fingerprint), ms, `nothing answered in ${Math.round(ms / 1000)} s`);
+    withTimeout(
+      d.open(listenerUrl(offer.host, offer.fingerprint !== null), offer.fingerprint),
+      ms,
+      `nothing answered in ${Math.round(ms / 1000)} s`,
+    );
   try {
     const { token, device } = await redeemPairing(connect, offer.code, d.name, ms);
     return { host: offer.host, fingerprint: offer.fingerprint, token, device };
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
     // The upgrade refusal means something answered that is not a Handline gateway.
-    throw new Error(cannotPair(offer.host, /did not accept the WebSocket upgrade/.test(why) ? 'it is not a Handline gateway' : why));
+    throw new Error(cannotPair(offer.host, /did not accept the WebSocket upgrade/.test(why) ? 'it is not a Handline gateway' : why), {
+      cause: e,
+    });
   }
 }
 
@@ -103,7 +115,8 @@ export async function pairRemote(
 export const remoteUrl = (r: Remote): string => listenerUrl(r.host, r.fingerprint !== null);
 
 /** Plain ws to a remote Tailscale name is the one case the page needs told it is allowed. */
-export const plainRemoteHost = (r: Remote): string | null => (r.fingerprint === null && isTailscaleHost(r.host) ? r.host.replace(/:\d+$/, '') : null);
+export const plainRemoteHost = (r: Remote): string | null =>
+  r.fingerprint === null && isTailscaleHost(r.host) ? r.host.replace(/:\d+$/, '') : null;
 
 export type LinkStatus = 'connecting' | 'connected' | 'no-daemon' | 'cannot-pair';
 

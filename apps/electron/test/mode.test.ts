@@ -32,7 +32,11 @@ test('a broken settings file gives the defaults', () => {
 });
 
 test('an address and a code make an offer; a plain address that is not Tailscale is refused', () => {
-  assert.deepEqual(offerFrom({ address: 'mac.tail1.ts.net', code: 'abc' }), { host: 'mac.tail1.ts.net:7443', fingerprint: null, code: 'abc' });
+  assert.deepEqual(offerFrom({ address: 'mac.tail1.ts.net', code: 'abc' }), {
+    host: 'mac.tail1.ts.net:7443',
+    fingerprint: null,
+    code: 'abc',
+  });
   assert.throws(() => offerFrom({ address: '192.168.1.5:7443', code: 'abc' }), /Tailscale/);
   assert.throws(() => offerFrom({}), /pairing link/);
 });
@@ -87,7 +91,9 @@ test('connect mode with nothing running says so and offers pairing and the switc
 });
 
 test('a pairing failure shows its reason', () => {
-  assert.ok(tray('connect', { status: 'cannot-pair', reason: 'not a Handline gateway' }).labels.includes('Cannot pair: not a Handline gateway'));
+  assert.ok(
+    tray('connect', { status: 'cannot-pair', reason: 'not a Handline gateway' }).labels.includes('Cannot pair: not a Handline gateway'),
+  );
 });
 
 test('own mode keeps the daemon status and Start, and switches back to connect', () => {
