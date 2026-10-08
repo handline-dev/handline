@@ -30,6 +30,8 @@ type Env struct {
 	Started time.Time
 	Sha     string
 	Schema  int
+	// Structured says whether the daemon runs the agent as a structured session; nil is none. transcript.events is served for those only.
+	Structured func(agent string) bool
 }
 
 // Register adds the read methods to the server's table.
@@ -48,6 +50,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("chat.messages", rpc.Method{Role: "member", Handler: e.chatMessages})
 	s.Register("chat.requests", rpc.Method{Role: "member", Handler: e.chatRequests})
 	s.Register("chat.transcript", rpc.Method{Role: "member", Handler: e.chatTranscript})
+	s.Register("transcript.events", rpc.Method{Role: "member", Handler: e.transcriptEvents})
 	s.Register("chat.locate", rpc.Method{Role: "member", Handler: e.chatLocate})
 	s.Register("chat.refs", rpc.Method{Role: "member", Handler: e.chatRefs})
 	s.Register("chat.search", rpc.Method{Role: "member", Handler: e.chatSearch})

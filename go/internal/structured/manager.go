@@ -21,6 +21,7 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[string]*Session
+	stopping map[string]bool // Stop is closing it: its exit is no failure
 }
 
 // Has says whether agent has a live structured session.
@@ -65,6 +66,14 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 			m.Events.Emit(agent, ev)
 		}
 	}}
+	h.OnExit = func(err error) {
+		m.mu.Lock()
+		stopped := m.stopping[agent]
+		m.mu.Unlock()
+		if err != nil && !stopped && m.Events != nil {
+			m.Events.Emit(agent, Event{"error", map[string]any{"code": "exit", "text": err.Error()}})
+		}
+	}
 	if m.Broker != nil {
 		h.CanUseTool = m.Broker.CanUseTool(agent)
 	}
@@ -80,6 +89,7 @@ func (m *Manager) Start(ctx context.Context, agent string, l Launch) (*Session, 
 	if m.sessions == nil {
 		m.sessions = map[string]*Session{}
 	}
+	delete(m.stopping, agent)
 	m.sessions[agent] = s
 	m.mu.Unlock()
 	return s, nil
@@ -91,7 +101,13 @@ func (m *Manager) Stop(agent string) error {
 	if s == nil {
 		return errors.New(agent + " has no structured session")
 	}
-	if err := s.Close(); err != nil {
+	m.mu.Lock()
+	if m.stopping == nil {
+		m.stopping = map[string]bool{}
+	}
+	m.stopping[agent] = true
+	m.mu.Unlock()
+	if err := s.Close(); err != nil { // stopping stays set: OnExit may run after Close returns, and Start clears it
 		return err
 	}
 	m.mu.Lock()

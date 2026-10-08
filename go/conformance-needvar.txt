@@ -32,3 +32,8 @@ terminal.bytes.slow_client_gets_a_snapshot_not_a_gap
 terminal.bytes.a_second_attach_replaces_the_first
 terminal.bytes.text_and_bytes_attaches_coexist
 terminal.bytes.detach_names_a_format
+transcript.events.a_terminal_agent_is_unsupported
+transcript.events.newest_page_has_every_kind
+transcript.events.seq_goes_up_by_one
+transcript.events.since_the_newest_is_empty
+transcript.events.before_reads_the_older_page

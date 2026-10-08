@@ -39,9 +39,3 @@ push.cancelled
 worktree.set_status
 chat.withdraw
 account.set_cap
-settings.get
-task.ask
-chat.cancel
-chat.seen
-progress.get
-transcript.events

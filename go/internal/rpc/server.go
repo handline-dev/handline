@@ -546,7 +546,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
-	caps, methods := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}}, c.methodList()
+	caps, methods := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}, "transcript": false}, c.methodList()
 	// A server that serves terminal.* itself has Capabilities and no Relay; a gateway has a Relay and serves none of them, so the daemon
 	// behind it is the one that knows its formats and its report replaces these.
 	if c.srv.Capabilities != nil {

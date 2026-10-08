@@ -180,6 +180,11 @@ func optionsOf(kind string, answerable bool, detail map[string]any) []any {
 		if !answerable {
 			return []any{}
 		}
+		if detail["structured"] == true { // a structured session's: allow or deny, nothing on a screen to escape from
+			return []any{
+				map[string]any{"key": "allow", "label": "Allow", "answer": "yes", "highlighted": false},
+				map[string]any{"key": "deny", "label": "Deny", "answer": "no", "highlighted": false}}
+		}
 		return []any{
 			map[string]any{"key": "yes", "label": "Yes", "answer": "yes", "highlighted": false},
 			map[string]any{"key": "no", "label": "No", "answer": "no", "highlighted": false}, cancelOption()}

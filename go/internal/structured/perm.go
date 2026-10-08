@@ -78,6 +78,8 @@ type Broker struct {
 
 type pending struct {
 	fingerprint string
+	toolUse     string
+	answered    bool // an answer is taken; guarded by Broker.mu
 	answer      chan Decision
 }
 
@@ -118,10 +120,10 @@ func (b *Broker) decide(ctx context.Context, agent string, r ToolRequest) (Decis
 	v, rule, why := pol.Decide(r)
 	switch v {
 	case Allow:
-		b.emit(agent, "permission_answer", map[string]any{"tool": r.ToolName, "allow": true, "by": "policy", "rule": rule})
+		b.emit(agent, "permission_answer", map[string]any{"tool_use": r.ToolUse, "tool": r.ToolName, "allow": true, "by": "policy", "rule": rule})
 		return Decision{Allow: true}, nil
 	case Deny:
-		b.emit(agent, "permission_answer", map[string]any{"tool": r.ToolName, "allow": false, "by": "policy", "rule": rule, "said": why})
+		b.emit(agent, "permission_answer", map[string]any{"tool_use": r.ToolUse, "tool": r.ToolName, "allow": false, "by": "policy", "rule": rule, "said": why})
 		return Decision{Message: why}, nil
 	}
 	if b.Store == nil {
@@ -135,21 +137,25 @@ func (b *Broker) decide(ctx context.Context, agent string, r ToolRequest) (Decis
 	case <-ctx.Done():
 		return Decision{}, ctx.Err()
 	}
-	fp := Fingerprint(agent, r.ToolUse, r.ToolName)
+	// The prompt's id is the tool call's id (contract: Transcript stream, Permission); the hash only stands in for a call that has none.
+	fp := r.ToolUse
+	if fp == "" {
+		fp = Fingerprint(agent, r.ToolUse, r.ToolName)
+	}
 	row := PromptRow{Fingerprint: fp, Title: "Allow " + r.ToolName + "?", Lines: lines(r), Detail: map[string]any{
-		"agent": agent, "vendor": "claude", "tool": r.ToolName, "input": r.Input, "reason": r.Reason, "command": command(r)}}
+		"agent": agent, "vendor": "claude", "structured": true, "tool": r.ToolName, "input": r.Input, "reason": r.Reason, "command": command(r)}}
 	id, err := b.Store.Open(agent, row)
 	if err != nil {
 		return Decision{}, fmt.Errorf("record the prompt: %w", err)
 	}
-	p := &pending{fingerprint: fp, answer: make(chan Decision, 1)}
+	p := &pending{fingerprint: fp, toolUse: r.ToolUse, answer: make(chan Decision, 1)}
 	b.mu.Lock()
 	if b.waiting == nil {
 		b.waiting = map[string]*pending{}
 	}
 	b.waiting[agent] = p
 	b.mu.Unlock()
-	b.emit(agent, "permission_request", map[string]any{"prompt": fp, "tool": r.ToolName, "input": r.Input, "reason": r.Reason})
+	b.emit(agent, "permission_request", map[string]any{"prompt": fp, "block": id, "tool_use": r.ToolUse, "tool": r.ToolName, "input": r.Input, "reason": r.Reason})
 
 	timeout, beat := b.Timeout, b.Beat
 	if timeout == 0 {
@@ -164,6 +170,7 @@ func (b *Broker) decide(ctx context.Context, agent string, r ToolRequest) (Decis
 	defer tick.Stop()
 	var d Decision
 	answered := false
+	by := "closed" // nobody answered: the time ran out
 wait:
 	for {
 		select {
@@ -177,6 +184,7 @@ wait:
 			break wait
 		case <-ctx.Done():
 			d = Decision{Message: "the permission prompt was cancelled"}
+			by = "cancel"
 			break wait
 		}
 	}
@@ -185,7 +193,7 @@ wait:
 	b.mu.Unlock()
 	b.Store.Close(id, answered, answered && d.Allow, d.Message)
 	if !answered {
-		b.emit(agent, "permission_answer", map[string]any{"prompt": fp, "allow": false, "by": "none", "said": d.Message})
+		b.emit(agent, "permission_answer", map[string]any{"prompt": fp, "tool_use": r.ToolUse, "tool": r.ToolName, "allow": false, "by": by, "said": d.Message})
 		return d, ctx.Err()
 	}
 	return d, nil
@@ -203,23 +211,23 @@ func (b *Broker) Has(agent string) bool {
 func (b *Broker) Answer(agent, prompt string, allow bool, message, by string) error {
 	b.mu.Lock()
 	p := b.waiting[agent]
-	b.mu.Unlock()
-	if p == nil {
+	if p == nil || p.answered {
+		b.mu.Unlock()
 		return ErrNoPrompt
 	}
 	if p.fingerprint != prompt {
+		b.mu.Unlock()
 		return ErrStale
 	}
+	p.answered = true
+	b.mu.Unlock()
 	d := Decision{Allow: allow, Message: message}
 	if !allow && d.Message == "" {
 		d.Message = "the user denied the tool call"
 	}
-	select {
-	case p.answer <- d:
-	default:
-		return ErrNoPrompt // answered already
-	}
-	b.emit(agent, "permission_answer", map[string]any{"prompt": prompt, "allow": allow, "by": by, "said": d.Message})
+	// The event goes before the decision, so it comes before whatever the CLI does with it.
+	b.emit(agent, "permission_answer", map[string]any{"prompt": prompt, "tool_use": p.toolUse, "allow": allow, "by": by, "said": d.Message})
+	p.answer <- d // buffered, and taken once
 	return nil
 }
 
