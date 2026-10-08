@@ -1,9 +1,6 @@
 package term
 
-import (
-	"sync"
-	"time"
-)
+import "time"
 
 // ExitOverWorkTitle is the title of the exit dialog over background work, lower-cased.
 const ExitOverWorkTitle = exitOverWorkTitle
@@ -16,28 +13,23 @@ type cachedBlocker struct {
 	b  *Blocker
 }
 
-var (
-	screenCacheMu sync.Mutex
-	screenCache   = map[*Term]map[string]cachedBlocker{}
-)
-
 // ScreenBlockerCached is a cached read of handle's screen, at most ScreenCacheTTL old. notBefore refuses a cached read older than
 // that instant: a read taken before a fact existed cannot answer a question about it. The zero time accepts any read in the TTL.
 func (t *Term) ScreenBlockerCached(handle string, notBefore time.Time) *Blocker {
 	now := time.Now()
-	screenCacheMu.Lock()
-	seen, ok := screenCache[t][handle]
-	screenCacheMu.Unlock()
+	t.cacheMu.Lock()
+	seen, ok := t.cache[handle]
+	t.cacheMu.Unlock()
 	if ok && seen.at.After(notBefore) && now.Sub(seen.at) < ScreenCacheTTL {
 		return seen.b
 	}
 	b := t.ScreenBlocker(handle)
-	screenCacheMu.Lock()
-	if screenCache[t] == nil {
-		screenCache[t] = map[string]cachedBlocker{}
+	t.cacheMu.Lock()
+	if t.cache == nil {
+		t.cache = map[string]cachedBlocker{}
 	}
-	screenCache[t][handle] = cachedBlocker{now, b}
-	screenCacheMu.Unlock()
+	t.cache[handle] = cachedBlocker{now, b}
+	t.cacheMu.Unlock()
 	return b
 }
 
@@ -55,3 +47,6 @@ func (t *Term) AcceptDialog(handle, tool string) (outcome, title, why string) {
 
 // VendorOf is the name of the vendor whose wording reads handle's screen.
 func (t *Term) VendorOf(handle string) string { return t.driver(handle).Name() }
+
+// Available is whether the host's own tool can be run.
+func (t *Term) Available() bool { return t.Backend.Available() }

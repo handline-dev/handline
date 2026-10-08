@@ -222,3 +222,38 @@ func (b *blockedFixture) at(secs int64) { b.now = b.t0 + secs }
 func exitDialogBlocker() *term.Blocker {
 	return &term.Blocker{Kind: term.Modal, Title: "Background work is running", Detail: "Background work is running - Exit and stop tasks / Stay"}
 }
+
+type fakeConfig struct{ flags map[string]bool }
+
+func (c *fakeConfig) Flag(k string, def bool) bool {
+	if v, ok := c.flags[k]; ok {
+		return v
+	}
+	return def
+}
+func (c *fakeConfig) SetFlag(k string, v bool) error { c.flags[k] = v; return nil }
+
+// fakeRules maps (vendor, title) to the label it answers with.
+type fakeRules map[[2]string]string
+
+func (r fakeRules) Titles() map[[2]string]bool {
+	out := map[[2]string]bool{}
+	for k := range r {
+		out[k] = true
+	}
+	return out
+}
+
+func (r fakeRules) Match(vendor, title string, numbers []int, labels []string) int {
+	want, ok := r[[2]string{vendor, title}]
+	for i, l := range labels {
+		if ok && l == want {
+			return numbers[i]
+		}
+	}
+	return 0
+}
+
+type fakeHeld map[string]string
+
+func (h fakeHeld) HeldByOther(a string) string { return h[a] }

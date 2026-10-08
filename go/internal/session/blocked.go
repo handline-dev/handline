@@ -528,23 +528,29 @@ func (e *Env) lastChecked(agent string) int64 {
 	return e.checked[agent]
 }
 
-func (e *Env) setChecked(m *map[string]int64, agent string, now int64) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if *m == nil {
-		*m = map[string]int64{}
-	}
-	(*m)[agent] = now
-}
-
 func (e *Env) lastProbed(agent string) int64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.probed[agent]
 }
 
-func (e *Env) markChecked(agent string, now int64) { e.setChecked(&e.checked, agent, now) }
-func (e *Env) markProbed(agent string, now int64)  { e.setChecked(&e.probed, agent, now) }
+func (e *Env) markChecked(agent string, now int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.checked == nil {
+		e.checked = map[string]int64{}
+	}
+	e.checked[agent] = now
+}
+
+func (e *Env) markProbed(agent string, now int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.probed == nil {
+		e.probed = map[string]int64{}
+	}
+	e.probed[agent] = now
+}
 
 // Sweep runs once per tick, after the agents: open, keep and end each agent's block, and raise the request for those that have
 // outlasted DecisionAfterS: one request for all that come due in the same pass.
