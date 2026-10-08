@@ -16,15 +16,6 @@ session.stop
 session.type
 session.wake
 stats.outlook
-task.ask
-task.begin
-task.cancel
-task.done
-task.edit
-task.handoff
-task.new
-task.progress
-task.release
 terminal.close
 terminal.input
 terminal.resize

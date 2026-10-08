@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // OpenSQL is a task that is neither done nor discarded.
@@ -320,4 +321,90 @@ func SettleDecisionTasks(q Q, rid int64, state, verdict, dismissedBy string) err
 	}
 	_, err = AddEvent(q, Human, "settle_decision_task", KV{"task_id", tid}, KV{"request_id", rid}, KV{"state", state})
 	return err
+}
+
+// TaskEdit is what EditTask writes; a nil field is left as it is. TimeoutS, given, always writes, and starts timeout_at from now only when
+// the task is doing (IsDoing, the caller's read of that at the time), else leaves it paused.
+type TaskEdit struct {
+	Owner, Title       *string
+	Priority, TimeoutS *int64
+	IsDoing            bool
+}
+
+// EditTask is db.edit_task: a changed owner, title, priority or timeout, stamped with who and when. The caller has checked permission and
+// that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear.
+func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
+	now := Now()
+	sets := []string{"edited_by = ?", "edited_at = ?"}
+	args := []any{by, now}
+	if ed.Owner != nil {
+		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL")
+		args = append(args, *ed.Owner)
+	}
+	if ed.Title != nil {
+		sets = append(sets, "title = ?")
+		args = append(args, *ed.Title)
+	}
+	if ed.Priority != nil {
+		sets = append(sets, "priority = ?")
+		args = append(args, *ed.Priority)
+	}
+	if ed.TimeoutS != nil {
+		var at any
+		if ed.IsDoing {
+			at = now + *ed.TimeoutS
+		}
+		sets = append(sets, "timeout_s = ?", "timeout_at = ?")
+		args = append(args, *ed.TimeoutS, at)
+	}
+	args = append(args, tid)
+	_, err := q.Exec("UPDATE tasks SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
+	return err
+}
+
+// SyncSelfBlocks is db.sync_self_blocks, after tid changed owner from oldOwner: a wait that one agent now holds both ends of goes dormant
+// (nobody else could finish it), and a dormant one whose ends differ again counts again. A same-owner wait added on purpose is left as it was.
+// It answers the (blocked, blocker) pairs that went dormant.
+func SyncSelfBlocks(q Q, tid int64, oldOwner string) ([][2]int64, error) {
+	rows, err := q.Query("SELECT b.task_id, b.blocks_on, b.dormant, a.owner, c.owner FROM task_blocks b JOIN tasks a ON a.id = b.task_id "+
+		"JOIN tasks c ON c.id = b.blocks_on WHERE b.task_id = ?1 OR b.blocks_on = ?1", tid)
+	if err != nil {
+		return nil, err
+	}
+	type wait struct {
+		blocked, blocker int64
+		dormant          bool
+		ao, co           string
+	}
+	var waits []wait
+	for rows.Next() {
+		var w wait
+		var d int64
+		if err := rows.Scan(&w.blocked, &w.blocker, &d, &w.ao, &w.co); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		w.dormant = d != 0
+		waits = append(waits, w)
+	}
+	rows.Close()
+	var went [][2]int64
+	for _, w := range waits {
+		other := w.ao
+		if w.blocked == tid {
+			other = w.co
+		}
+		switch {
+		case w.ao == w.co && other != oldOwner:
+			if _, err := q.Exec("UPDATE task_blocks SET dormant = 1 WHERE task_id = ? AND blocks_on = ?", w.blocked, w.blocker); err != nil {
+				return nil, err
+			}
+			went = append(went, [2]int64{w.blocked, w.blocker})
+		case w.ao != w.co && w.dormant:
+			if _, err := q.Exec("UPDATE task_blocks SET dormant = 0 WHERE task_id = ? AND blocks_on = ?", w.blocked, w.blocker); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return went, nil
 }
