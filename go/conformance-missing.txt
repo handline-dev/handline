@@ -7,14 +7,8 @@ agent.unstall
 input.release
 input.take
 session.input
-session.interrupt
 session.keys
-session.park
-session.restart
-session.start
-session.stop
 session.type
-session.wake
 terminal.close
 terminal.input
 terminal.resize

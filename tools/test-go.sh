@@ -37,6 +37,11 @@ done
 # their fixtures are reported SKIP and --allow-skip says that is meant. A method the Go daemon does not serve yet is
 # named in go/conformance-missing.txt: delete a line as its method lands. A fixture that needs a --var this run cannot
 # seed yet is named in go/conformance-needvar.txt the same way.
-python3 "$here/conformance_fds.py" "$work/handlined" --allow-missing-file "$here/../go/conformance-missing.txt" \
+# The session.* methods are served over structured sessions, so the daemon starts with -structured-cli and a fake CLI that answers
+# --version with the version the Go source pins. The flag stays off by default; only this run turns it on.
+FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/internal/structured/session.go")"
+[ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/structured/session.go" >&2; exit 1; }
+export FAKE_CLAUDE_VERSION
+python3 "$here/conformance_fds.py" "$work/handlined" --structured-cli "$here/fake_claude.py" --allow-missing-file "$here/../go/conformance-missing.txt" \
     --allow-needvar-file "$here/../go/conformance-needvar.txt" \
     "$here"/../contract/fixtures/*.json
