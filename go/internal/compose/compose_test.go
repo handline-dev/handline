@@ -144,6 +144,13 @@ type tells struct {
 	logs []string
 }
 
+func (t *tells) SessionWritten(_ db.Q, agent, op string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, "written "+agent+" "+op)
+	return nil
+}
+
 func (t *tells) SessionConfirmed(_ db.Q, agent, op string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -358,4 +365,30 @@ func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
 		t.Fatalf("an unread account left an open start: %q", v)
 	}
 	_ = env
+}
+
+func TestAHeldMessageThatIsWrittenIsToldAsWrittenOnceAndAnImmediateSendIsNot(t *testing.T) {
+	p, _ := rig(t)
+	tl := &tells{}
+	p.Bind(p.Sink.DB, tl)
+	led := confirming{&structured.DBLedger{DB: p.Sink.DB, Agent: "alice"}, p}
+	// An immediate send goes straight to Sent: the send path marks it itself.
+	if err := led.Put(structured.Op{ID: "now1", UUID: "u1", Text: "x", Delivery: structured.Now, State: structured.Sent}); err != nil {
+		t.Fatal(err)
+	}
+	// A held one is Queued, and written later.
+	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Queued}); err != nil {
+		t.Fatal(err)
+	}
+	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Sent}); err != nil {
+		t.Fatal(err)
+	}
+	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Confirmed}); err != nil {
+		t.Fatal(err)
+	}
+	tl.mu.Lock()
+	defer tl.mu.Unlock()
+	if fmt.Sprint(tl.logs) != "[written alice held1 confirmed alice held1]" {
+		t.Fatalf("%v", tl.logs)
+	}
 }
