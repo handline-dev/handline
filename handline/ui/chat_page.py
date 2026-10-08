@@ -341,16 +341,16 @@ def safe_block(value) -> str:
 _REF = re.compile(r"(?<![\w#])#(\d+)\b")
 
 
-def wait_reason(con, agent: str, msgs: list[dict], running: bool) -> str:
+def wait_reason(msgs: list[dict], running: bool) -> str:
     """Why the first unread message waits: the human's own that is not typed yet
     (unless the spinner already says it), else one to `agent` from another agent, which waits
     on its recipient. What the agent sent is not waiting."""
     waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
     held = [m for m in msgs if m["held"] and m["unread"]]
     if waiting and not running:
-        return actions.queue_reason(con, agent, waiting[0]["rid"])
+        return waiting[0]["sending_reason"]
     if not waiting and held:
-        return f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
+        return f"{held[0]['to']}: {held[0]['sending_reason']}"
     return ""
 
 
@@ -1817,15 +1817,11 @@ class ChatPage(JobsAware, Screen):
         asks = [i["message"] for i in items if i["type"] == "request"]
         self.oldest = min((m["id"] for m in asks), default=None)
         msgs = messages_of(items, self.agent)
-        con = db.connect()
-        try:
-            # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
-            seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
-            if seen > self._seen:      # a write only when something new is drawn
-                self._mark_seen(seen)
-            why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
-        finally:
-            con.close()
+        # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
+        seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
+        if seen > self._seen:      # a write only when something new is drawn
+            self._mark_seen(seen)
+        why = wait_reason(msgs, self.agent_state[0] == "RUNNING")
         changes = changes_of(items, self.agent, msgs) + hr_cards(self.agent, msgs)
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
@@ -2365,11 +2361,7 @@ class ChatPage(JobsAware, Screen):
 
     def run_shell(self, body: str, command: str) -> None:
         """A `!` line is not sent: zsh runs it in the agent's worktree and a card shows the result."""
-        con = db.connect()
-        try:
-            cwd = actions.cwd_for(con, self.agent)
-        finally:
-            con.close()
+        cwd = api.call("agent.get", {"agent": self.agent})["cwd"]
         try:
             run = actions.ShellRun(command, cwd)
         except PermissionError as e:

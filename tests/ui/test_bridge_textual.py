@@ -723,8 +723,8 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
               texts.index("reviewer's own, not delivered") < texts.index("to reviewer, not read"),
               str(texts))
         check("why: the reason is for the message to the agent, not the one sent",
-              cp.wait_reason(con, "reviewer", msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
-              cp.wait_reason(con, "reviewer", msgs, False))
+              cp.wait_reason(msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
+              cp.wait_reason(msgs, False))
     finally:
         con.close()
 
