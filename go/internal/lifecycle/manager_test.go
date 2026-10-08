@@ -55,11 +55,18 @@ func (fakeHandoff) MemoryLine(string) string                              { retu
 
 type fakeTerm struct {
 	Terminal
-	relaunched []string
-	launchOK   bool
-	closedPane bool
+	relaunched  []string
+	busy        bool
+	resumedWith []string
+	launchOK    bool
+	closedPane  bool
 }
 
+func (f *fakeTerm) TypeableNow(string) bool { return !f.busy }
+func (f *fakeTerm) ResumeWith(_, p string) (bool, string) {
+	f.resumedWith = append(f.resumedWith, p)
+	return true, "typed the pointer"
+}
 func (*fakeTerm) Available() bool                       { return true }
 func (*fakeTerm) WaitIdle(string) bool                  { return true }
 func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
@@ -86,12 +93,28 @@ func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 	return "hl launch " + agent + " --why '" + why + "'", nil
 }
 
-type fakeSpawn struct{ Spawner }
+type fakeSpawn struct {
+	Spawner
+	startedIn, spawned []string
+	ok                 bool
+}
 
-func (fakeSpawn) WorktreePath(w string) string { return w }
+func (*fakeSpawn) WorktreePath(w string) string { return w }
+func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string) {
+	f.startedIn = append(f.startedIn, agent+"@"+wt)
+	return f.ok, "start-in said"
+}
+func (f *fakeSpawn) Spawn(agent, repo string) (bool, string) {
+	f.spawned = append(f.spawned, agent+"@"+repo)
+	return f.ok, "spawn said\nmore"
+}
 
-type fakeAgents struct{ AgentsPort }
+type fakeAgents struct {
+	AgentsPort
+	repo string
+}
 
+func (a fakeAgents) RepoOf(string) string             { return a.repo }
 func (fakeAgents) ReadConfig(string) error            { return nil }
 func (fakeAgents) CurrentAccount(db.Q, string) string { return "acct" }
 
@@ -118,7 +141,7 @@ func newManager(t *testing.T) (*Manager, *fakeDelivery, *fakeTerm) {
 	tm := &fakeTerm{}
 	m := &Manager{
 		Q: openDB(t), Home: home, Log: func(string, ...any) {}, Settings: &Settings{Home: home},
-		Delivery: d, Handoff: fakeHandoff{}, Term: tm, Launch: fakeLaunch{}, Spawn: fakeSpawn{}, Agents: fakeAgents{},
+		Delivery: d, Handoff: fakeHandoff{}, Term: tm, Launch: fakeLaunch{}, Spawn: &fakeSpawn{}, Agents: fakeAgents{},
 		Status: fakeStatus{}, Observe: fakeObserve{sessions: map[string]int{}}, Typing: fakeTyping{},
 		Now: func() int64 { return int64(time.Now().Unix()) }, Sleep: func(time.Duration) {},
 	}
