@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/term"
 )
 
 func openDB(t *testing.T) db.Q {
@@ -98,5 +100,126 @@ func TestAnUnreadTableChangesNothing(t *testing.T) {
 	var acts []string
 	if err := r.Sweep(&acts); err != nil || len(acts) != 0 {
 		t.Fatalf("%v %v", acts, err)
+	}
+}
+
+type reconTerm struct {
+	promptGone, idle bool
+	blocker          *term.Blocker
+}
+
+func (reconTerm) Available() bool                      { return true }
+func (t reconTerm) TrustPromptGone(string) bool        { return t.promptGone }
+func (t reconTerm) ScreenBlocker(string) *term.Blocker { return t.blocker }
+func (t reconTerm) IdleNow(string) bool                { return t.idle }
+
+func TestReconcileWakesDueClosedAgentsAndKeepsAFailedWakeDue(t *testing.T) {
+	r, _ := newRec(t, nil)
+	var enforced []string
+	woke, wakeOK := 0, false
+	r.Ports.Agents = func() []string { return []string{"a", "b", "new"} }
+	r.Ports.EnforceEdges = func(_ db.Q, a string) { enforced = append(enforced, a) }
+	r.Ports.WaitingFor = func(db.Q, string) bool { return true }
+	r.Ports.WakeAgent = func(db.Q, string) (bool, string) { woke++; return wakeOK, "no room" }
+	r.Ports.QueuedOrIdle = func(q db.Q, a, why string) (string, error) {
+		return states.Idle, db.SetAgentState(q, a, states.Idle, 0, why)
+	}
+	for _, a := range []string{"a", "b"} {
+		db.SetAgentState(r.Q, a, states.Parked, 4000, "")
+		db.SetTerminal(r.Q, a, "t-"+a, "/wt")
+		db.SetClosed(r.Q, a, "s1")
+	}
+	acts, err := r.Reconcile()
+	if err != nil || woke != 2 || len(enforced) != 2 {
+		t.Fatalf("%v %v %d", acts, err, woke)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Parked || row.WakeAt.Int64 != 4000 {
+		t.Fatalf("a failed wake stays due: %+v", row)
+	}
+	if !strings.Contains(strings.Join(acts, "|"), "a: could not wake at reconciliation, still due - no room") || !strings.Contains(strings.Join(acts, "|"), "new: IDLE (first seen)") {
+		t.Fatalf("%v", acts)
+	}
+	wakeOK = true
+	acts, _ = r.Reconcile()
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle {
+		t.Fatalf("%+v %v", row, acts)
+	}
+	if !strings.Contains(strings.Join(acts, "|"), "a: woken at reconciliation") || !strings.Contains(strings.Join(acts, "|"), "a: PARKED -> IDLE (wake_at was 4000)") {
+		t.Fatalf("%v", acts)
+	}
+}
+
+func TestAHandoffThatCannotBeResumedCountsAgainstItsAgentUntilItStalls(t *testing.T) {
+	r, _ := newRec(t, nil)
+	r.Ports.ResumeHandoff = func(db.Q, db.HandoffRow) error { return errors.New("agent.yaml unreadable") }
+	db.StartHandoff(r.Q, "h1", "a", "", "idle", 0)
+	var acts []string
+	for i := 0; i < states.MaxFailedAttempts; i++ {
+		var err error
+		if acts, err = r.Reconcile(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row, _ := db.GetAgentState(r.Q, "a")
+	if row.State != states.Stalled || row.FailedAttempts != states.MaxFailedAttempts || !strings.Contains(row.Detail.String, "could not resume handoff from step 'requested'") {
+		t.Fatalf("%+v %v", row, acts)
+	}
+}
+
+func TestASweepLiftsAStallWhoseScreenIsAnswered(t *testing.T) {
+	alive := map[string]session.Observed{"a": {TerminalAlive: ptr(true), SessionSeen: true, SessionPID: ptr(7)}}
+	r, _ := newRec(t, alive)
+	r.Ports.Term = reconTerm{promptGone: true}
+	r.Ports.LiftLogin = func(db.Q, string, *db.AgentState, *[]string) {}
+	db.SetTerminal(r.Q, "a", "t1", "/wt")
+	db.SetAgentState(r.Q, "a", states.Stalled, 0, "a's terminal is showing claude's "+TrustStall)
+	var acts []string
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle || len(acts) != 1 || !strings.Contains(acts[0], "STALLED -> IDLE") {
+		t.Fatalf("%+v %v", row, acts)
+	}
+	// A dialog stall waits for the dialog to go.
+	db.SetAgentState(r.Q, "a", states.Stalled, 0, "a's terminal is showing a "+DialogStall)
+	r.Ports.Term = reconTerm{blocker: &term.Blocker{Kind: term.Modal}}
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Stalled {
+		t.Fatalf("lifted while the dialog stands: %+v", row)
+	}
+	r.Ports.Term = reconTerm{}
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle {
+		t.Fatalf("%+v", row)
+	}
+}
+
+func TestARunningAgentIsUnstuckOnlyWithTwoWitnesses(t *testing.T) {
+	alive := map[string]session.Observed{"a": {TerminalAlive: ptr(true), SessionSeen: true, SessionPID: ptr(7)}}
+	r, _ := newRec(t, alive) // now is 5000
+	db.SetTerminal(r.Q, "a", "t1", "/wt")
+	db.SetAgentState(r.Q, "a", states.Running, 0, "")
+	db.AddEventAt(r.Q, 1, "a", "Stop")
+	r.Ports.Term = reconTerm{idle: false}
+	var acts []string
+	r.Sweep(&acts)
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Running {
+		t.Fatal("Orca says it is mid-turn")
+	}
+	r.Ports.Term = reconTerm{idle: true, blocker: &term.Blocker{Kind: term.Modal}}
+	r.Sweep(&acts)
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Running {
+		t.Fatal("an unanswered prompt is not idle")
+	}
+	r.Ports.Term = reconTerm{idle: true}
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle || len(acts) != 1 || !strings.Contains(acts[0], "back to IDLE") {
+		t.Fatalf("%+v %v", row, acts)
 	}
 }
