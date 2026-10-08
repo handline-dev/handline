@@ -34,3 +34,5 @@ Run from the sandbox with `LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v 
 - A written message the CLI never acknowledges within `EchoDeadline`, or that it queued and then cancelled, is `unknown`: not written again, and `WaitConfirmed` returns an error. A failed write is `unknown` too (it may have been partial); the error means the caller must not assume it was sent.
 - `Manager.Start` reserves the agent's slot first, so two Starts for one agent run one CLI; an exited session is closed (group proven gone) before it is replaced.
 - The send path (S4) can read `Receipt.State` from the session and drop a second ledger under the same key.
+
+Follow-up (lost echo): when a message is given up as unknown (no acknowledgement by `EchoDeadline`, or cancelled) and no turn is running, the held queue goes on. **straight:** a repair of S1's own state handling; nothing legacy is carried.
