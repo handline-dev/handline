@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 
 from .. import db
+from ..team import agents
 from ..infra import lock, paths
 from ..session import term
 from ..team import ask as askmod
@@ -94,6 +95,8 @@ def send_message(con, agent: str, text: str, log) -> tuple[bool, str]:
     typed already, or left in `pending_messages` for `deliver_pending` (the
     next tick) or a wake started here to pick up; only a connection the
     socket itself refuses means nothing was accepted at all."""
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon tells it")  # the Go daemon drives it
     row_id = db.add_pending(con, agent, text, int(time.time()))
     ok, why = _deliver_row(con, agent, row_id, text)
     if ok:
@@ -128,6 +131,8 @@ def tell_now(con, rid: int, log) -> str:
     agent = row["target"]
     if agent == db.HUMAN or agent not in paths.list_agents():
         return "not an agent"
+    if agents.is_structured(agent):
+        return "queued - a structured session: the Go daemon tells it"
     if not delivery.enforce_edges(con, agent, log):
         return "held: team.yaml is not trusted"
     row = db.get_request(con, rid)
@@ -189,6 +194,8 @@ def tell_undelivered(con, agent: str, log) -> None:
     while it had no session, or whose edge was still to be checked - the way
     they are told when they arrive. Tasks are not these, unless marked send-now (a handoff,
     T596): they keep their own turn."""
+    if agents.is_structured(agent):
+        return None  # the Go daemon drives it
     state = db.get_agent_state(con, agent)
     if not (state and state["terminal"]) or state["closed_at"]:
         return          # starting or waking it is `supervise`'s own step, with its own gates
@@ -203,6 +210,8 @@ def deliver_pending(con, agent: str, log) -> bool:
     tick, the same rule `deliver_queued` holds to - a session that just
     cleared a dialog hears the oldest thing waiting first, not everything
     piled up behind it pasted as one block."""
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     rows = db.list_pending(con, agent)
     if not rows:
         return False

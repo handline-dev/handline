@@ -43,7 +43,7 @@ func TestOneTickWakesAClosedStructuredAgentWithWorkWaitingAndLeavesATerminalAgen
 func TestAnAgentWithTheRenewalSwitchOnIsNotStalledForWantingACacheClock(t *testing.T) {
 	p, _, _, wt := wired(t)
 	d := p.Sink.DB
-	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nmode: structured\ncache_renewal: true\nidle_fold: true\n"), 0o644)
+	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true\ncache_renewal: true\nidle_fold: true\n"), 0o644)
 	// A session that is open and idle, with a status naming a transcript that is not there: the clock is unreadable, so no renewal is due.
 	if err := dbpkg.SetResumeSession(d, "alice", "s1"); err != nil {
 		t.Fatal(err)

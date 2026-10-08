@@ -134,6 +134,8 @@ def sweep(con, agent: str, log) -> None:
     """Confirm or owe again every request typed at `agent` and not yet shown in its
     transcript: shown, it is landed; not shown and not typed within `LANDING_WAIT_S` by
     this daemon (or its session gone), it is typed again - without end."""
+    if agents.is_structured(agent):
+        return None  # the Go daemon drives it
     rows = db.awaiting_landing(con, agent)
     if not rows:
         return
