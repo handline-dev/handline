@@ -41,6 +41,24 @@ func LoadConfig(home string) Config {
 	return m
 }
 
+// LoadConfigOrNil is config.yaml, or ok false when it exists and cannot be read as a mapping (a parse error, a write caught half
+// done): a caller that would act on what the file does not say must tell that from a file that says nothing. A missing file is empty.
+func LoadConfigOrNil(home string) (Config, bool) {
+	b, err := os.ReadFile(paths.ConfigFile(home))
+	if os.IsNotExist(err) {
+		return Config{}, true
+	}
+	if err != nil {
+		return nil, false
+	}
+	v, err := yamlcompat.Parse(string(b))
+	m, isMap := v.(map[string]any)
+	if err != nil || !isMap {
+		return nil, false
+	}
+	return m, true
+}
+
 func posInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
