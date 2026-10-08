@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/handline/handline/go/internal/ansi"
 )
@@ -23,6 +24,11 @@ type Cursor struct {
 // StyledReader reads rows with their SGR codes kept.
 type StyledReader interface {
 	ReadScreenANSI(handle string, limit int) []string
+}
+
+// HistoryReader reads the scrollback the host keeps itself; ok is false when it is unreadable. Row 0 is the oldest row held.
+type HistoryReader interface {
+	ReadHistory(handle string, before *int, limit int, styled bool) (first int, rows []string, ok bool)
 }
 
 // Sizer reads and changes a terminal's size.
@@ -98,6 +104,55 @@ func (t Tmux) ReadScreenANSI(handle string, limit int) []string {
 		rows = rows[len(rows)-limit:]
 	}
 	return rows
+}
+
+// ReadHistory is tmux's own scrollback, read with the alternate-screen flag in one command line so a line that scrolls meanwhile
+// cannot move the page. On the alternate screen there is none.
+func (t Tmux) ReadHistory(handle string, before *int, limit int, styled bool) (int, []string, bool) {
+	if !paneRE.MatchString(handle) {
+		return 0, nil, false
+	}
+	args := []string{"display-message", "-p", "-t", handle, "#{alternate_on} #{history_size}", ";", "capture-pane", "-p"}
+	if styled {
+		args = append(args, "-e")
+	}
+	code, out, _ := t.tmux(30*time.Second, "", append(args, "-t", handle, "-S", "-", "-E", "-1")...)
+	head, body, _ := strings.Cut(out, "\n")
+	mode := strings.Fields(head)
+	size := -1
+	if len(mode) == 2 {
+		if n, err := strconv.Atoi(mode[1]); err == nil && n >= 0 {
+			size = n
+		}
+	}
+	if code != 0 || size < 0 || (mode[0] != "0" && mode[0] != "1") {
+		return 0, nil, false
+	}
+	if mode[0] == "1" {
+		return 0, []string{}, true
+	}
+	rows := strings.Split(body, "\n")
+	if rows[len(rows)-1] == "" {
+		rows = rows[:len(rows)-1]
+	}
+	// With no history tmux clamps -E to the screen's top row and returns it: only the last size rows are history.
+	if size == 0 {
+		rows = nil
+	} else if len(rows) > size {
+		rows = rows[len(rows)-size:]
+	}
+	end := len(rows)
+	if before != nil {
+		end = max(min(*before, len(rows)), 0)
+	}
+	start := max(end-max(limit, 0), 0)
+	page := append([]string{}, rows[start:end]...)
+	if !styled {
+		for i, r := range page {
+			page[i] = strings.TrimRightFunc(r, unicode.IsSpace)
+		}
+	}
+	return start, page, true
 }
 
 // Cursor: one tmux call for the cursor and the visible rows, so the rows ReadScreen drops at the bottom are counted from the same moment.

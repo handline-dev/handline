@@ -501,3 +501,47 @@ func mkdir(p string) error { return os.MkdirAll(p, 0o755) }
 
 // inputholdChanged is a no-op: Register wires inputhold.Changed, and these tests call the methods directly.
 func inputholdChanged(e *Env) { inputhold.Changed = e.holdersChanged }
+
+func TestWidthFollowsPythonsRuleForEmojiAndCombiningMarks(t *testing.T) {
+	for r, want := range map[rune]int{'a': 1, '日': 2, '✅': 2, '❌': 2, '⚡': 2, '☕': 2, '⌚': 2, '🚀': 2, '🟢': 2, '́': 0, '‍': 1, '✓': 1} {
+		if got := width(r); got != want {
+			t.Errorf("width(%q) = %d, want %d", r, got, want)
+		}
+	}
+	if got := codePoints("✅x", 3); got != 2 {
+		t.Fatalf("three cells over a wide emoji and x are two code points: %d", got)
+	}
+	if got := codePoints("éx", 2); got != 3 {
+		t.Fatalf("a combining mark rides on its letter: %d", got)
+	}
+}
+
+// historyHost keeps its own scrollback, as tmux does.
+type historyHost struct {
+	*fakeHost
+	hist []string
+}
+
+func (h historyHost) ReadHistory(_ string, before *int, limit int, _ bool) (int, []string, bool) {
+	end := len(h.hist)
+	if before != nil {
+		end = min(*before, end)
+	}
+	start := max(end-limit, 0)
+	return start, h.hist[start:end], true
+}
+
+func TestAHostThatKeepsScrollbackIsReadForItAndPolledScreensAddNothing(t *testing.T) {
+	h := historyHost{&fakeHost{}, []string{"a", "b", "c"}}
+	ch := newChannel("%1", "text", newHub(h.fakeHost), func() Host { return Host{h} })
+	ch.offer([]Row{{Text: "one"}, {Text: "two"}}, nil)
+	ch.offer([]Row{{Text: "two"}, {Text: "three"}}, nil) // a scroll the host already counts
+	snap := ch.Snapshot(2, []map[string]any{{}})["history"].(map[string]any)
+	if snap["first"] != 1 || snap["more"] != true || strings.Join(texts(snap["lines"]), ",") != "b,c" {
+		t.Fatalf("snapshot history %v", snap)
+	}
+	p := ch.HistoryPage(2, 5)
+	if p["first"] != 0 || p["more"] != false || strings.Join(texts(p["lines"]), ",") != "a,b" {
+		t.Fatalf("page %v", p)
+	}
+}

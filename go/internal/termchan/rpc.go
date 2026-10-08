@@ -107,9 +107,6 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.input", rpc.Method{Role: "member", Write: true, Handler: e.input})
 	s.Register("input.take", rpc.Method{Role: "member", Write: true, Handler: e.take})
 	s.Register("input.release", rpc.Method{Role: "member", Write: true, Handler: e.release})
-	s.Register("input.ask", rpc.Method{Role: "member", Write: true, Handler: func(*rpc.Conn, map[string]any) (any, error) {
-		return nil, rpc.Refused("asking the holder for input is not implemented", "unsupported", "")
-	}})
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,

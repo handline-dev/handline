@@ -5,18 +5,18 @@
 // however many clients watch, and ends when the last one leaves; detaching never touches the agent. Each client has a writer of its
 // own and a bounded queue of the notices that must not be lost (markers, holders, resizes) beside one flag for the frame: a client
 // that falls behind on frames is sent the newest frame whole, never a backlog, and one that falls ClientQueue notices behind is hung
-// up to attach again, since no frame can make those good. Rows that scroll off the top are kept (HistoryMax) under absolute line
-// indexes, found by matching the old frame's tail against the new one's head; a redraw that scrolls nothing adds nothing.
+// up to attach again, since no frame can make those good. Scrollback is the host's own where it keeps one (tmux), so fast output loses and doubles
+// nothing; for a host without it, rows that scroll off the top are kept (HistoryMax) under absolute line indexes, found by matching the old frame's tail against the new one's head; a redraw that scrolls nothing adds nothing.
 //
 // seq counts every notice of the terminal (frame, resize, marker, holder), so a client can tell what it missed.
 package termchan
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/ansi"
@@ -103,6 +103,28 @@ func (h Host) ReadStyled(handle string, rows int) ([]Row, bool) {
 	return out, true
 }
 
+// ReadHistory is the host's own scrollback as ReadRows / ReadStyled give rows; ok is false when the host keeps none for the channel to
+// read.
+func (h Host) ReadHistory(handle, fmt string, before *int, limit int) (int, []Row, bool) {
+	r, ok := h.Backend.(term.HistoryReader)
+	if !ok {
+		return 0, nil, false
+	}
+	first, raw, ok := r.ReadHistory(handle, before, limit, fmt == "styled")
+	if !ok {
+		return 0, nil, false
+	}
+	out := make([]Row, len(raw))
+	for i, line := range raw {
+		if fmt == "styled" {
+			out[i].Text, out[i].Spans = ansi.Parse(line)
+		} else {
+			out[i].Text = line
+		}
+	}
+	return first, out, true
+}
+
 func (h Host) Cursor(handle string) *term.Cursor {
 	if r, ok := h.Backend.(term.CursorReader); ok {
 		return r.Cursor(handle)
@@ -155,17 +177,16 @@ func codePoints(text string, cells int) int {
 	return i + max(cells-used, 0)
 }
 
-var wide = []unicode.Range16{{0x1100, 0x115F, 1}, {0x2E80, 0x303E, 1}, {0x3041, 0x33FF, 1}, {0x3400, 0x4DBF, 1}, {0x4E00, 0xA4CF, 1},
-	{0xA960, 0xA97F, 1}, {0xAC00, 0xD7A3, 1}, {0xF900, 0xFAFF, 1}, {0xFE10, 0xFE19, 1}, {0xFE30, 0xFE6F, 1}, {0xFF00, 0xFF60, 1},
-	{0xFFE0, 0xFFE6, 1}}
-var wide32 = []unicode.Range32{{0x1F300, 0x1F64F, 1}, {0x1F900, 0x1F9FF, 1}, {0x20000, 0x3FFFD, 1}}
-var wideTable = &unicode.RangeTable{R16: wide, R32: wide32}
+func inRanges(r rune, t []rune) bool {
+	i := sort.Search(len(t)/2, func(i int) bool { return t[2*i+1] >= r })
+	return i < len(t)/2 && t[2*i] <= r
+}
 
 func width(r rune) int {
 	switch {
-	case unicode.In(r, unicode.Mn, unicode.Me):
+	case inRanges(r, combining):
 		return 0
-	case unicode.Is(wideTable, r):
+	case inRanges(r, wideRanges):
 		return 2
 	}
 	return 1
@@ -281,12 +302,15 @@ type Channel struct {
 	changed     []int
 	cols, rows  int
 	history     []Row
-	historyFrst int // the absolute index of history[0]
+	historyFrst int  // the absolute index of history[0]
+	hostHistory bool // the host keeps the scrollback, so history above is unused
 	polling     bool
 }
 
 func newChannel(handle, fmt string, hub *Hub, host func() Host) *Channel {
-	return &Channel{Handle: handle, Fmt: fmt, hub: hub, host: host, cols: 80, rows: DefaultRows}
+	ch := &Channel{Handle: handle, Fmt: fmt, hub: hub, host: host, cols: 80, rows: DefaultRows}
+	_, _, ch.hostHistory = host().ReadHistory(handle, fmt, nil, 0)
+	return ch
 }
 
 // Size is the terminal's size as the channel last knew it.
@@ -378,7 +402,9 @@ func (ch *Channel) offer(rows []Row, cur *term.Cursor) {
 		return
 	}
 	ch.cur = cur
-	ch.scrolled(ch.lines, rows)
+	if !ch.hostHistory {
+		ch.scrolled(ch.lines, rows)
+	}
 	prev := ch.lines
 	ch.lines = rows
 	n := max(len(rows), len(prev))
@@ -455,21 +481,34 @@ func (ch *Channel) frameFor(c *Client) map[string]any {
 
 // Snapshot is the reply to terminal.attach: the frame and one page of history.
 func (ch *Channel) Snapshot(history int, holders []map[string]any) map[string]any {
+	var hostLines []Row
+	hostFirst, got := 0, false
+	if ch.hostHistory {
+		hostFirst, hostLines, got = ch.host().ReadHistory(ch.Handle, ch.Fmt, nil, max(history, 0))
+	}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	var lines []Row
-	if history > 0 {
-		lines = ch.history[max(len(ch.history)-history, 0):]
+	lines, first, floor := hostLines, hostFirst, 0
+	if !got {
+		lines = nil
+		if history > 0 {
+			lines = ch.history[max(len(ch.history)-history, 0):]
+		}
+		first, floor = ch.historyFrst+len(ch.history)-len(lines), ch.historyFrst
 	}
-	first := ch.historyFrst + len(ch.history) - len(lines)
 	return map[string]any{"terminal": ch.Handle, "format": ch.Fmt, "seq": ch.seq, "cols": ch.cols, "rows": ch.rows,
 		"lines": rowMaps(ch.lines), "cursor": ch.cursor(),
-		"history": map[string]any{"first": first, "lines": rowMaps(lines), "more": first > ch.historyFrst},
+		"history": map[string]any{"first": first, "lines": rowMaps(lines), "more": first > floor},
 		"holder":  holders[0], "holders": holders}
 }
 
 // HistoryPage is the scrollback lines [before-limit, before) by absolute index.
 func (ch *Channel) HistoryPage(before, limit int) map[string]any {
+	if ch.hostHistory {
+		if first, lines, ok := ch.host().ReadHistory(ch.Handle, ch.Fmt, &before, limit); ok {
+			return map[string]any{"first": first, "lines": rowMaps(lines), "more": first > 0}
+		}
+	}
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
 	end := max(min(before, ch.historyFrst+len(ch.history)), ch.historyFrst)
@@ -478,7 +517,6 @@ func (ch *Channel) HistoryPage(before, limit int) map[string]any {
 	return map[string]any{"first": start, "lines": rowMaps(lines), "more": start > ch.historyFrst}
 }
 
-// attach reads the first frame when client is the only one; client is on the channel already (Hub.Attach).
 func (ch *Channel) attach(c *Client) {
 	ch.mu.Lock()
 	first := len(ch.clients) == 1

@@ -9,6 +9,7 @@ agent.unstall
 agent.strip
 hr.decide
 inbox.answer
+input.ask
 inbox.mark_read
 inbox.reply
 schedule.add
