@@ -9,7 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// account.set_cap and account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml. Both write what a retry writes
+// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml. It writes what a retry writes
 // again. account.login, account.remove and settings.trust touch the account's credentials and stay with the Python daemon.
 
 const labelMax = 40
@@ -34,29 +34,6 @@ func flagParam(p map[string]any, key string) (v, given bool, err error) {
 		return false, false, badParam(key+" is true or false", key)
 	}
 	return b, true, nil
-}
-
-func (e *Env) accountSetCap(c *rpc.Conn, p map[string]any) (any, error) {
-	acct, err := e.accountNamed(p)
-	if err != nil {
-		return nil, err
-	}
-	n, given, err := capParam(p)
-	if err != nil {
-		return nil, err
-	}
-	if !given {
-		return nil, badParam("cap is a whole number, at least 1", "cap")
-	}
-	cfg, err := e.readConfig()
-	if err != nil {
-		return nil, refused(err.Error(), "")
-	}
-	cfg.set("active_cap_"+acct, n)
-	if err := cfg.save(); err != nil {
-		return nil, refused(err.Error(), "")
-	}
-	return wrote(c, fmt.Sprintf("%s: at most %d agents mid-turn", acct, n), nil)
 }
 
 func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {

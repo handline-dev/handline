@@ -35,3 +35,10 @@ task.handoff
 task.progress
 settings.get
 task.ask
+ask
+push
+push.answer
+push.cancelled
+worktree.set_status
+chat.withdraw
+account.set_cap

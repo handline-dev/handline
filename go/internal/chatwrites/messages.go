@@ -3,7 +3,6 @@ package chatwrites
 import (
 	"database/sql"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
@@ -17,10 +16,6 @@ import (
 
 func (w *writes) registerMessages(s *rpc.Server) {
 	s.Register("say", rpc.Method{Role: "agent", Write: true, Handler: w.say})
-	s.Register("ask", rpc.Method{Role: "agent", Write: true, Handler: w.ask})
-	s.Register("push", rpc.Method{Role: "agent", Write: true, Handler: w.push})
-	s.Register("push.answer", rpc.Method{Role: "agent", Write: true, Handler: w.pushAnswer})
-	s.Register("push.cancelled", rpc.Method{Role: "agent", Write: true, Handler: w.pushCancelled})
 	s.Register("progress.get", rpc.Method{Role: "agent", Handler: w.progressGet})
 }
 
@@ -94,132 +89,6 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 		return nil, err
 	}
 	return res, nil
-}
-
-func (w *writes) ask(c *rpc.Conn, p map[string]any) (any, error) {
-	target, err := text(p, "target")
-	if err != nil {
-		return nil, err
-	}
-	title, err := text(p, "title")
-	if err != nil {
-		return nil, err
-	}
-	body, err := text(p, "body")
-	if err != nil {
-		return nil, err
-	}
-	if p["options"] != nil {
-		return nil, badParam("options are not served yet: no card stores them", "options")
-	}
-	me, speaker := sender(c)
-	var out *supervisor.AskOut
-	res, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		var err error
-		out, err = w.e.Ask(tx, supervisor.AskIn{Target: target, Requester: me, Speaker: speaker,
-			Body: strings.TrimSpace(textsafe.Oneline(title)) + "\n\n" + strings.TrimSpace(textsafe.Text(body))})
-		if err != nil {
-			return nil, err
-		}
-		if !out.OK {
-			return nil, kept(out.Message)
-		}
-		return map[string]any{"accepted": true, "said": out.Message, "request": out.RID}, nil
-	})
-	if out != nil {
-		out.After.Run()
-		if err == nil && w.e.Wired() {
-			w.e.PushAct(target, out.RID)
-		}
-	}
-	return res, err
-}
-
-// nudge records the answer and leaves the typing to act, after the commit: a crash between loses one nudge, which the tick sends anyway, and
-// a retry answers without nudging twice.
-func (w *writes) nudge(c *rpc.Conn, check func(tx *sql.Tx) error, act func() string) (any, error) {
-	if _, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		if err := check(tx); err != nil {
-			return nil, err
-		}
-		return map[string]any{"accepted": true, "said": supervisor.Handed}, nil
-	}); err != nil {
-		return nil, err
-	}
-	said := supervisor.Handed
-	if w.e.Wired() {
-		said = act()
-	}
-	return map[string]any{"accepted": true, "said": said}, nil
-}
-
-func (w *writes) push(c *rpc.Conn, p map[string]any) (any, error) {
-	target, err := text(p, "target")
-	if err != nil {
-		return nil, err
-	}
-	rid, err := numberParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	if why := w.e.PushCheck(target); why != "" {
-		return nil, rpc.Refused(why, "", "")
-	}
-	me := c.Caller.Actor()
-	return w.nudge(c, func(tx *sql.Tx) error {
-		if rid == 0 && p["request"] == nil {
-			return nil
-		}
-		row, err := db.GetRequest(tx, rid)
-		if err != nil {
-			return err
-		}
-		if row == nil {
-			return notFound("request", strconv.FormatInt(rid, 10), fmt.Sprintf("no request #%d", rid))
-		}
-		if row.Requester != me {
-			return rpc.Refused(fmt.Sprintf("#%d is not yours to push", rid), "state", "")
-		}
-		return nil
-	}, func() string { return w.e.PushAct(target, rid) })
-}
-
-func (w *writes) pushAnswer(c *rpc.Conn, p map[string]any) (any, error) {
-	requester, err := text(p, "requester")
-	if err != nil {
-		return nil, err
-	}
-	if why := w.e.PushAnswerCheck(requester); why != "" {
-		return nil, rpc.Refused(why, "", "")
-	}
-	return w.nudge(c, func(*sql.Tx) error { return nil }, func() string { return w.e.PushAnswerAct(requester) })
-}
-
-func (w *writes) pushCancelled(c *rpc.Conn, p map[string]any) (any, error) {
-	if p["request"] == nil {
-		return nil, badParam("request is a request number", "request")
-	}
-	rid, err := numberParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	var row *db.Request
-	return w.nudge(c, func(tx *sql.Tx) error {
-		got, err := db.GetRequest(tx, rid)
-		if err != nil {
-			return err
-		}
-		if got == nil {
-			return notFound("request", strconv.FormatInt(rid, 10), fmt.Sprintf("no request #%d", rid))
-		}
-		var why string
-		if row, why, err = w.e.NotifyCancelledCheck(tx, rid); err != nil {
-			return err
-		} else if why != "" {
-			return rpc.Refused(why, "", "")
-		}
-		return nil
-	}, func() string { return w.e.NotifyCancelledAct(row) })
 }
 
 // progressGet is the note kept on the agent's effective head, or on its current task, else on the agent, when it has no request in progress.

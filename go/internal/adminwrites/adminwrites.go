@@ -1,5 +1,5 @@
 // Package adminwrites serves the founder's configuration writes (handline/daemon/rpc_schedules.py, rpc_settings.py, rpc_accounts.py,
-// rpc_team.py): schedules, settings, an account's cap and alias, a worktree's status. They write files, so an effect and its write_effects
+// rpc_team.py): schedules, settings, an account's cap and alias. They write files, so an effect and its write_effects
 // record cannot be one transaction: each writes what a retry writes again and records its result once the write is done.
 package adminwrites
 
@@ -25,9 +25,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("schedule.edit", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleEdit})
 	s.Register("schedule.remove", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleRemove})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
-	s.Register("account.set_cap", rpc.Method{Role: "founder", Write: true, Handler: e.accountSetCap})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
-	s.Register("worktree.set_status", rpc.Method{Role: "member", Write: true, Handler: e.worktreeSetStatus})
 }
 
 func badParam(message, field string) *rpc.Error {

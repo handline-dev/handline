@@ -151,13 +151,10 @@ func TestSettingsSetWritesEveryKeyOrNoneAndClearsOnNull(t *testing.T) {
 	}
 }
 
-func TestAccountSetCapAndSetWriteConfigAndRefuseWhatNeedsTheProfile(t *testing.T) {
+func TestAccountSetWritesConfigAndRefusesWhatNeedsTheProfile(t *testing.T) {
 	r := newRig(t)
-	if r.code(r.one("account.set_cap", `{"account":"nobody","cap":2,"request_id":"a1"}`)) != "not_found" {
+	if r.code(r.one("account.set", `{"account":"nobody","cap":2,"request_id":"a1"}`)) != "not_found" {
 		t.Fatal("no such account")
-	}
-	if res := r.result(r.one("account.set_cap", `{"account":"main","cap":3,"request_id":"a2"}`)); res["said"] != "main: at most 3 agents mid-turn" {
-		t.Fatal(res)
 	}
 	res := r.result(r.one("account.set", `{"account":"main","label":"Work","cap":4,"recover":false,"cycle_end":"2030-01-31","request_id":"a3"}`))
 	if res["said"] != "alias Work; main: at most 4 agents mid-turn; usage recovery off; main: last day 2030-01-31" {
@@ -175,22 +172,5 @@ func TestAccountSetCapAndSetWriteConfigAndRefuseWhatNeedsTheProfile(t *testing.T
 	os.Remove(filepath.Join(r.home, "config.yaml"))
 	if r.code(r.one("account.set", `{"account":"main","cycle":true,"request_id":"a5"}`)) != "refused" || r.file("config.yaml") != "" {
 		t.Fatal("the cycle on with no end needs the profile: refused, nothing written")
-	}
-}
-
-func TestWorktreeSetStatusChecksThenRefusesWithNoHost(t *testing.T) {
-	r := newRig(t)
-	if r.code(r.one("worktree.set_status", `{"path":"/nowhere","status":"busy","request_id":"w1"}`)) != "not_found" {
-		t.Fatal("not a worktree of any agent")
-	}
-	if r.code(r.one("worktree.set_status", `{"path":"/x","status":"","request_id":"w2"}`)) != "bad_request" {
-		t.Fatal("status is a line")
-	}
-	wt := t.TempDir()
-	if _, err := r.e.DB.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 1, ?)", wt); err != nil {
-		t.Fatal(err)
-	}
-	if r.code(r.one("worktree.set_status", fmt.Sprintf(`{"path":%q,"status":"busy","request_id":"w3"}`, wt))) != "refused" {
-		t.Fatal("no host keeps one")
 	}
 }

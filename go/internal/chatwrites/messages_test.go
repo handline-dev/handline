@@ -32,41 +32,6 @@ func TestSayWritesOnceAndRefusesWhatIsNotASay(t *testing.T) {
 	}
 }
 
-func TestAskQueuesTheQuestionAndAnswersItsNumber(t *testing.T) {
-	r := newRig(t)
-	s := r.server("alice")
-	res := r.result(r.one(s, "ask", `{"target":"bob","title":"which?","body":"a or b","request_id":"q1"}`))
-	var body string
-	r.db.QueryRow("SELECT body FROM requests WHERE id = ?", res["request"]).Scan(&body)
-	if body != "which?\n\na or b" {
-		t.Fatalf("title and body: %q", body)
-	}
-	if d := r.errData(r.one(s, "ask", `{"target":"bob","title":"t","body":"b","options":[],"request_id":"q2"}`)); d["field"] != "options" {
-		t.Fatal(d)
-	}
-}
-
-func TestPushRecordsItsAnswerAndRefusesWhatIsNotYoursOrNotAnAgent(t *testing.T) {
-	r := newRig(t)
-	s := r.server("alice")
-	mine, theirs := r.request("alice", "bob", "x"), r.request("bob", "alice", "y")
-	if res := r.result(r.one(s, "push", fmt.Sprintf(`{"target":"bob","request":%d,"request_id":"p1"}`, mine))); res["accepted"] != true {
-		t.Fatal(res)
-	}
-	if d := r.errData(r.one(s, "push", fmt.Sprintf(`{"target":"bob","request":%d,"request_id":"p2"}`, theirs))); d["gate"] != "state" {
-		t.Fatal(d)
-	}
-	if d := r.errData(r.one(s, "push", `{"target":"human","request_id":"p3"}`)); d["code"] != "refused" {
-		t.Fatal(d)
-	}
-	if d := r.errData(r.one(s, "push.cancelled", fmt.Sprintf(`{"request":%d,"request_id":"p4"}`, mine))); d["code"] != "refused" {
-		t.Fatalf("only a delivered request closed under it: %v", d)
-	}
-	if d := r.errData(r.one(s, "push.answer", `{"requester":"nobody","request_id":"p5"}`)); d["code"] != "refused" {
-		t.Fatal(d)
-	}
-}
-
 func TestInboxMarkReadReadsAReportButNeverADecision(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")

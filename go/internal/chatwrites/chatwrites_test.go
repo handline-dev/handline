@@ -252,26 +252,6 @@ func TestDismissTakesARowOffWithoutAnAnswer(t *testing.T) {
 	r.refusedWith(r.one(s, "chat.dismiss", fmt.Sprintf(`{"request":%d,"request_id":"x2"}`, r.request("alice", "bob", "x"))), "state")
 }
 
-func TestWithdrawIsTheRequestersOwnBeforeDelivery(t *testing.T) {
-	r := newRig(t)
-	mine := r.request("alice", "bob", "hold on")
-	theirs := r.request("bob", "alice", "other")
-	s := r.server("alice")
-	r.refusedWith(r.one(s, "chat.withdraw", fmt.Sprintf(`{"request":%d,"request_id":"w1"}`, theirs)), "")
-	w := fmt.Sprintf(`{"request":%d,"reason":"changed my mind","request_id":"w2"}`, mine)
-	if res := r.result(r.one(s, "chat.withdraw", w)); res["said"] != fmt.Sprintf("request #%d to bob withdrawn", mine) {
-		t.Fatal(res)
-	}
-	var state, verdict string
-	r.db.QueryRow("SELECT state, COALESCE((SELECT json_extract(payload, '$.reason') FROM events WHERE kind = 'request_reason' LIMIT 1), '') FROM requests WHERE id = ?", mine).Scan(&state, &verdict)
-	if state != "withdrawn" {
-		t.Fatalf("withdrawn: %s", state)
-	}
-	if res := r.result(r.one(s, "chat.withdraw", w)); res["replayed"] != true {
-		t.Fatalf("a retry repeats nothing: %v", res)
-	}
-}
-
 func TestCancelNeedsAConfirmOnceDeliveredAndClosesAsRejected(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")

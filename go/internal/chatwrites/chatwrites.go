@@ -27,7 +27,6 @@ func Register(s *rpc.Server, e *supervisor.Env) {
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
 	s.Register("chat.answer", rpc.Method{Role: "member", Write: true, Handler: w.answer})
 	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
-	s.Register("chat.withdraw", rpc.Method{Role: "agent", Write: true, Handler: w.withdraw})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
 	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
@@ -274,38 +273,6 @@ func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
 		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
 		return res, nil, err
 	})
-}
-
-func (w *writes) withdraw(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	reason := ""
-	if v := p["reason"]; v != nil {
-		if reason, err = text(p, "reason"); err != nil {
-			return nil, badParam("reason is text and not empty, or left out", "reason")
-		}
-	}
-	after := &supervisor.After{}
-	res, err := w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		if _, err := message(tx, rid); err != nil {
-			return nil, nil, err
-		}
-		var note string
-		ok, msg, err := w.e.WithdrawWrite(tx, after, rid, c.Caller.Actor(), reason, func(_ db.Q, m string) error { note = m; return nil })
-		if err != nil {
-			return nil, nil, err
-		}
-		if !ok {
-			return refusal(msg), nil, nil
-		}
-		return &Result{OK: true, Note: note, Tell: func() string { return note }}, nil, nil
-	})
-	if err == nil {
-		after.Run()
-	}
-	return res, err
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
