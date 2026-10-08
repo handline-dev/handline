@@ -77,6 +77,11 @@ type Config struct {
 	Transcript *transcript.Sink
 	// Structured says whether an agent runs as a structured session.
 	Structured func(agent string) bool
+	// OnOpen is given the database once it is open, for the parts built before it was (the structured manager's ledger and prompt rows).
+	OnOpen func(db *sql.DB)
+	// Agents is the structured sessions as the supervisor's telling layer sees them (supervisor.Ports.Agents): it types a structured agent
+	// through its session. Nil leaves every agent a terminal agent.
+	Agents supervisor.Agents
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -127,6 +132,9 @@ func Start(cfg Config) (*Daemon, error) {
 	db, err := open(cfg.DBFile)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.OnOpen != nil {
+		cfg.OnOpen(db)
 	}
 	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
@@ -210,9 +218,12 @@ func Start(cfg Config) (*Daemon, error) {
 // env is the telling layer the writes run on.
 func (d *Daemon) env() *supervisor.Env {
 	if d.cfg.Env != nil {
+		if d.cfg.Env.Agents == nil {
+			d.cfg.Env.Agents = d.cfg.Agents
+		}
 		return d.cfg.Env
 	}
-	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log}
+	return &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log, Ports: supervisor.Ports{Agents: d.cfg.Agents}}
 }
 
 // hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
