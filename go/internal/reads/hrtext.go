@@ -208,7 +208,7 @@ func (f flat) sets() ([]string, map[string]string) {
 	return keys, vals
 }
 
-var stepOrder = []string{"team", "add", "rename", "settings", "link", "unlink", "retire", "context"}
+var stepOrder = []string{"team", "add", "rename", "settings", "schedule", "link", "unlink", "retire", "context", "global"}
 
 func stepIndex(kind string) int {
 	for i, k := range stepOrder {
@@ -314,6 +314,23 @@ func (e *Env) body(p flat) []string {
 			lines = append(lines, d...)
 		}
 		return append(lines, "Written from the next launch; a running session is not restarted.")
+	case "schedule":
+		_, st := p.sets()
+		when := ""
+		if st["cron"] != "" {
+			when = scheduleWords(st["cron"])
+		}
+		shown := ""
+		if st["sid"] != "" {
+			shown = fmt.Sprintf("%s's schedule %s (%s: %s)", agent, st["index"], scheduleWords(st["cron_was"]), st["message_was"])
+		}
+		line := map[string]string{"add": fmt.Sprintf("%s would be typed, %s: %s", agent, when, st["message"]),
+			"edit":   fmt.Sprintf("%s would become, %s: %s", shown, when, st["message"]),
+			"remove": shown + " would be removed"}[st["action"]]
+		return []string{line, "Written to its agent.yaml; the daemon reads it on its next tick."}
+	case "global":
+		_, st := p.sets()
+		return []string{fmt.Sprintf("The global switch %s (%s) would be set to %s, for every agent without its own override.", agent, globalSwitchWords[agent], st["value"])}
 	case "rename":
 		in := ""
 		if p.truthy("team") {
@@ -498,4 +515,50 @@ func unifiedDiff(a, b []string, from, to string, n int) []string {
 		}
 	}
 	return out
+}
+
+var globalSwitchWords = map[string]string{
+	"idle-timeout":        "how long an idle agent may sit before it is closed (seconds, or never)",
+	"notice-digest":       "how long after its first waiting result an agent is told them in one digest",
+	"ignore-cache-expiry": "whether a resume may reuse a session whose prompt cache has expired",
+	"auto-accept":         "whether ocp answers the dialogs a working agent's standing rules cover",
+	"dev-mode":            "whether the daemon reloads its own code when it changes",
+}
+
+var weekdays = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+
+// scheduleWords is a cron expression in words when it is one the schedule form makes ("weekdays 09:00"), else the expression itself.
+func scheduleWords(expr string) string {
+	f := strings.Fields(expr)
+	if len(f) != 5 || f[2] != "*" || f[3] != "*" {
+		return expr
+	}
+	m, h, dow := f[0], f[1], f[4]
+	if strings.HasPrefix(m, "*/") && h == "*" && dow == "*" && isDigits(m[2:]) {
+		n, _ := strconv.Atoi(m[2:])
+		return fmt.Sprintf("every %d minutes", n)
+	}
+	if !isDigits(m) {
+		return expr
+	}
+	mi, _ := strconv.Atoi(m)
+	if h == "*" && dow == "*" {
+		return fmt.Sprintf("every hour at :%02d", mi)
+	}
+	if !isDigits(h) {
+		return expr
+	}
+	hi, _ := strconv.Atoi(h)
+	at := fmt.Sprintf("%02d:%02d", hi, mi)
+	switch {
+	case dow == "*":
+		return "every day " + at
+	case dow == "1-5":
+		return "weekdays " + at
+	case isDigits(dow):
+		if d, _ := strconv.Atoi(dow); d >= 0 && d <= 6 {
+			return weekdays[d] + " " + at
+		}
+	}
+	return expr
 }

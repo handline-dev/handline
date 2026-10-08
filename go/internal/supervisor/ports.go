@@ -127,3 +127,10 @@ type Ports struct {
 	Proposals Proposals
 	Stuck     Stuck
 }
+
+// Wired says every port has its owner: only then can a write's telling run, since a missing port is a nil call. A daemon that serves the
+// writes before the ports land makes them and leaves the telling to the tick.
+func (p Ports) Wired() bool {
+	return p.Terminal != nil && p.Observer != nil && p.Dialogs != nil && p.Waits != nil && p.Idle != nil && p.Sessions != nil &&
+		p.Lifecycle != nil && p.Evaluate != nil && p.Channel != nil && p.Proposals != nil && p.Stuck != nil
+}
