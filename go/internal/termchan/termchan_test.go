@@ -545,3 +545,26 @@ func TestAHostThatKeepsScrollbackIsReadForItAndPolledScreensAddNothing(t *testin
 		t.Fatalf("page %v", p)
 	}
 }
+
+func TestAFailedBatchDoesNotSkipTheCommandsOfTheNextOne(t *testing.T) {
+	p := newPipeProc()
+	l := linkOn(p)
+	l.Start()
+	res := make(chan string, 3)
+	cb := func(name string) func([]string) {
+		return func(lines []string) { res <- name + map[bool]string{true: ":nil", false: ":ok"}[lines == nil] }
+	}
+	l.BatchAsync([]string{"a", "b"}, []func([]string){cb("a"), cb("b")})
+	l.BatchAsync([]string{"c"}, []func([]string){cb("c")})
+	p.line(t)
+	p.line(t)
+	p.fail()
+	p.reply("y")
+	var got []string
+	for i := 0; i < 3; i++ {
+		got = append(got, <-res)
+	}
+	if strings.Join(got, ",") != "a:nil,b:nil,c:ok" {
+		t.Fatalf("%v", got)
+	}
+}

@@ -125,9 +125,12 @@ func SpawnCommand(argv []string) func() (Proc, error) {
 	}
 }
 
+// batch identifies the commands sent on one line; it has a byte so each is a distinct address (a zero-size value shares one).
+type batch struct{ _ byte }
+
 type pendingCmd struct {
 	cb    func([]string) // nil lines: an error or a dead link
-	group *struct{}
+	group *batch
 }
 
 // Handler takes the bytes of one %output of a pane; nil when the link ended.
@@ -191,9 +194,9 @@ func (l *ControlLink) CommandAsync(command string, cb func([]string)) {
 // pane at one place in the stream. Each has its own reply, in order; when one fails tmux runs none of the rest, and each of those is
 // answered nil.
 func (l *ControlLink) BatchAsync(commands []string, cbs []func([]string)) {
-	var group *struct{}
+	var group *batch
 	if len(commands) > 1 {
-		group = &struct{}{}
+		group = new(batch)
 	}
 	l.mu.Lock()
 	var dead []func([]string)
