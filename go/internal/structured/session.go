@@ -367,7 +367,19 @@ func (s *Session) markWritten(e *entry) {
 var EchoDeadline = 2 * time.Minute
 
 // lose settles a message that was written and never acknowledged.
-func (s *Session) lose(e *entry) { s.unknown(e) }
+func (s *Session) lose(e *entry) { s.dropped(e) }
+
+// dropped is unknown for a message the CLI never acknowledged or cancelled: nothing of it is running that the CLI's state frames
+// would report, so when no turn is running and no other message waits for its echo, the queue is free to go on.
+func (s *Session) dropped(e *entry) {
+	s.unknown(e)
+	s.mu.Lock()
+	if s.echoing == 0 && s.state != "running" && s.state != "requires_action" {
+		s.busy = false
+	}
+	s.mu.Unlock()
+	s.releaseNext()
+}
 
 // unknown turns a Sent or Confirmed message into Unknown, once. Caller does not hold s.mu.
 func (s *Session) unknown(e *entry) {
@@ -543,7 +555,7 @@ func (s *Session) handle(m map[string]any) {
 			e := s.byUUID[uid]
 			s.mu.Unlock()
 			if e != nil {
-				s.unknown(e)
+				s.dropped(e)
 			}
 		}
 	case "user":
