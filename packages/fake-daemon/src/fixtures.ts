@@ -1,3 +1,5 @@
+import type { Prompt } from '@handline/contract';
+import type { FakeTranscript } from './transcript.ts';
 import type { FakeChat } from './chat.ts';
 import type { FakeInbox } from './inbox.ts';
 import type { FakeTasks } from './tasks.ts';
@@ -218,4 +220,23 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
     evidence: 'abc1234',
     priority: 2,
   });
+}
+
+/** The auditor as a structured session: one finished turn with every kind of event. A test opens a permission with `transcript.ask`. */
+export function seedTranscript(tr: FakeTranscript): void {
+  const A = 'handline.auditor',
+    t1 = '6f1c0a52-0000-4000-8000-000000000001';
+  const prompt: Prompt = {
+    id: 'toolu_a', agent: A, kind: 'permission', tool: 'Bash', command: 'python3 tests/infra/test_contract.py', reason: null, lines: [],
+    options: [{ key: 'allow', label: 'Allow', answer: 'yes', highlighted: true }, { key: 'deny', label: 'Deny', answer: 'no' }], since: '2026-10-08T21:00:00Z',
+  };
+  tr.structure(A);
+  tr.push(A, { kind: 'turn_start', turn: t1, turn_start: { message: t1, from: 'founder', text: 'Run the contract tests.' } });
+  tr.push(A, { kind: 'text', turn: t1, item: 41, text: 'Running them now.' });
+  tr.push(A, { kind: 'tool_use', turn: t1, tool_use: { id: 'toolu_a', tool: 'Bash', input: { command: prompt.command } } });
+  tr.push(A, { kind: 'permission', turn: t1, item: 42, permission: { tool_use_id: 'toolu_a', prompt } });
+  tr.push(A, { kind: 'permission_answer', turn: t1, permission_answer: { tool_use_id: 'toolu_a', behavior: 'allow', by: 'person', rule: null, message: null } });
+  tr.push(A, { kind: 'tool_result', turn: t1, tool_result: { tool_use_id: 'toolu_a', ok: true, text: '26 passed, 0 failed', truncated: false } });
+  tr.push(A, { kind: 'error', turn: t1, error: { code: 'rate_limited', text: 'The API asked to retry; retrying.' } });
+  tr.push(A, { kind: 'turn_end', turn: t1, turn_end: { reason: 'done', cost_usd: 0.04, duration_ms: 8200, usage: { input: 1200, output: 210, cache_read: 9000, cache_write: 300 } } });
 }

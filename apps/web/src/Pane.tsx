@@ -24,6 +24,7 @@ import { TasksTab } from './TasksTab.tsx';
 import { Badges } from './Badges.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
+import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -196,11 +197,17 @@ export function Pane({ group }: { group: Group }) {
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} />
         ) : tab.kind === 'terminal' ? (
-          wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
-            <BytesTab agent={agent} detail={detail} />
-          ) : (
-            <TerminalTab agent={agent} detail={detail} />
-          )
+          <Watch
+            agent={agent}
+            structured={detail.structured === true}
+            terminal={
+              wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
+                <BytesTab agent={agent} detail={detail} />
+              ) : (
+                <TerminalTab agent={agent} detail={detail} />
+              )
+            }
+          />
         ) : (
           <div className="empty big">
             <strong>{label(tab)}</strong>
