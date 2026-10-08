@@ -19,7 +19,7 @@ type Reading interface{}
 
 // RecoverPorts is what one recovery attempt reaches in the other groups (usage, vendors, accounts, fold).
 type RecoverPorts interface {
-	// UsageRecoverEnabled is load.usage_recover_enabled: whether #1885 is turned on for the account.
+	// UsageRecoverEnabled is load.usage_recover_enabled: whether the recover switch is turned on for the account.
 	UsageRecoverEnabled(acct string) bool
 	// RenewsByTurn is whether the account's vendor reads usage and a real turn renews its credential; err is an unknown vendor, and
 	// name is the vendor's name for the refusal.
@@ -68,7 +68,7 @@ func (r *Recoverer) ClearRelogin(acct string) {
 	_ = os.Remove(r.reloginFile(acct))
 }
 
-// Recover spends one real turn on acct and re-reads it. It refuses before spending anything: an account already marked, one #1885
+// Recover spends one real turn on acct and re-reads it. It refuses before spending anything: an account already marked, one the recover switch
 // is off for, one no vendor here reads usage for, one not logged in, and one at its longest window's wall.
 func (r *Recoverer) Recover(acct string) (bool, string) {
 	p := r.Ports
@@ -89,7 +89,7 @@ func (r *Recoverer) Recover(acct string) (bool, string) {
 		return false, acct + " is not logged in"
 	}
 	// The longest-window figure is carried as a floor until its reset passes, so this still catches an account genuinely at the wall
-	// even though the module exists for a stale reading. When the figure is truly unknown a turn is spent: that is the account #1885
+	// even though the module exists for a stale reading. When the figure is truly unknown a turn is spent: that is the account the recover switch
 	// exists to unstick.
 	if week, label, ok := p.LongTrusted(acct); ok && week >= p.LongBlock() {
 		return false, fmt.Sprintf("%s: %s %d%% is at the wall - not spending a turn on it", acct, label, week)
