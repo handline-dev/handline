@@ -16,9 +16,8 @@ import (
 )
 
 // This file builds the policy tick over the structured sessions. The tick supervises the structured agents only: a terminal agent is the
-// Python daemon's, and a Go tick over it would find no terminal and count that against it. What the Go side has no implementation of
-// yet (performing a handoff, moving an agent to another account, folding the day) answers that it is not served, and the tick then
-// leaves the agent as it is.
+// Python daemon's, and a Go tick over it would find no terminal and count that against it. Folding the day is a model call
+// that stays the Python daemon's.
 
 // Tick is the policy tick and what it needs beside the lifecycle.
 type Tick struct {
@@ -79,9 +78,10 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
 		Cost:    &tick.CostPilot{Ports: costPorts{}},
-		Observe: tickObserve{u: uenv, home: home},
+		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now)},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
+	t.Passes = p.passes(cfg, t)
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
 	return &Tick{Tick: t, Loop: loop}
 }
@@ -106,12 +106,6 @@ func (p *Parts) structuredAgents() []string {
 	}
 	return out
 }
-
-type notServedError string
-
-func (e notServedError) Error() string { return string(e) + " is not served by this daemon yet" }
-
-func errNotServed(what string) error { return notServedError(what) }
 
 // queuedOrIdle is daemon/evaluate.queued_or_idle: QUEUED when something has not reached the agent yet, IDLE otherwise.
 func queuedOrIdle(q db.Q, agent, when string) (string, error) {
@@ -434,6 +428,7 @@ func (t tickReconciler) StallAgent(_ db.Q, agent string, actions *[]string, err 
 type tickObserve struct {
 	u    *usage.Env
 	home string
+	now  func() time.Time
 }
 
 func (o tickObserve) ActiveByAccount(q db.Q) map[string][]string {
@@ -449,7 +444,7 @@ func (o tickObserve) ObserveBurn(q db.Q, acct string, working []string, _ tick.S
 	return o.u.Observe(q, acct, working, o.u.Read(acct), firsts)
 }
 func (o tickObserve) RecordUsageSample(q db.Q, acct string, _ tick.Status) error {
-	return o.u.RecordSample(q, acct, o.u.Read(acct), int64(time.Now().Unix()))
+	return o.u.RecordSample(q, acct, o.u.Read(acct), o.now().Unix())
 }
 func (o tickObserve) PruneUsageSamples(q db.Q) error { _, err := o.u.PruneSamples(q); return err }
 func (o tickObserve) IngestTokens(q db.Q, acct string) error {
@@ -458,7 +453,7 @@ func (o tickObserve) IngestTokens(q db.Q, acct string) error {
 }
 func (o tickObserve) PruneTokens(q db.Q) error { _, err := o.u.PruneTokens(q); return err }
 func (o tickObserve) RefreshLongRatios(q db.Q) error {
-	return o.u.RefreshLongRatios(q, time.Now().Unix(), false)
+	return o.u.RefreshLongRatios(q, o.now().Unix(), false)
 }
 
 // costPorts is tick.CostPorts: the prompt-cache clock of a session, read from the transcript the status names.

@@ -1,9 +1,11 @@
 package compose
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -138,5 +140,66 @@ func TestAStructuredAgentWhoseTranscriptShowsAFullContextIsHandedOffByTheTick(t 
 	row, _ = dbpkg.GetAgentState(d, "alice")
 	if p.Run.Alive("alice") || row.State != "PARKED" || row.ThrottleCount != 0 {
 		t.Fatalf("alive %v %+v", p.Run.Alive("alice"), row)
+	}
+}
+
+func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	tp := timeboxPorts{p: p, home: p.home}
+	if tp.StopWaitReason(d, "alice") != "" {
+		t.Fatal("an agent with no current task has no reason to stay")
+	}
+	tid, err := dbpkg.NewTask(d, "the work", "alice", "boss", 0, dbpkg.DefaultPriority, "report", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbpkg.SetCurrentTask(d, "alice", tid, true)
+	if got := tp.StopWaitReason(d, "alice"); got != fmt.Sprintf("T%d is current with no recorded wait", tid) {
+		t.Fatalf("%q", got)
+	}
+	// An open child task is a recorded wait.
+	child, _ := dbpkg.NewTask(d, "part", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0)
+	if got := tp.StopWaitReason(d, "alice"); got != "" {
+		t.Fatalf("an open child is a wait: %q", got)
+	}
+	d.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", child)
+	if got := tp.StopWaitReason(d, "alice"); got == "" {
+		t.Fatal("a finished child is no wait")
+	}
+	// A decision the agent opened and the founder has not answered is one; so is a roster proposal waiting on the founder.
+	card, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "which?", Response: "async", Kind: "task"})
+	dec, _ := dbpkg.NewTask(d, "which?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	dbpkg.LinkRequest(d, dec, card)
+	if got := tp.StopWaitReason(d, "alice"); got != "" {
+		t.Fatalf("an unanswered decision is a wait: %q", got)
+	}
+	d.Exec("UPDATE requests SET state = 'done' WHERE id = ?", card)
+	os.MkdirAll(filepath.Join(p.home, "hr"), 0o755)
+	os.WriteFile(filepath.Join(p.home, "hr", "ab12.yaml"), []byte("id: ab12\nrequested_by: alice\nstate: proposed\n"), 0o644)
+	if got := tp.StopWaitReason(d, "alice"); got != "" {
+		t.Fatalf("a roster proposal waiting on the founder is a wait: %q", got)
+	}
+}
+
+func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
+	p, _, _, _ := wired(t)
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	if len(tk.Tick.Passes) != 3 {
+		t.Fatalf("passes: %d", len(tk.Tick.Passes))
+	}
+	var logs []string
+	cfg := p.Run.cfg
+	cfg.Log = func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
+	tk = p.Tick(cfg, TickConfig{})
+	for i := 0; i < 3; i++ {
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, l := range logs {
+		if strings.Contains(l, "timebox:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
+			t.Fatalf("a pass failed: %s", l)
+		}
 	}
 }
