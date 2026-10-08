@@ -61,7 +61,7 @@ func TestWhilePythonTicksTheGoTickWritesOnlyTheViewsOfStructuredAgentsAndLeavesT
 }
 
 func TestAtTheCutoverTheGoTickOwnsTheUsagePollAndDropsTheRowOfAGoneAgent(t *testing.T) {
-	p, _, count := ownersRig(t)
+	p, bobRow, count := ownersRig(t)
 	d := p.Sink.DB
 	samples := count("usage_samples")
 	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: true})
@@ -70,6 +70,9 @@ func TestAtTheCutoverTheGoTickOwnsTheUsagePollAndDropsTheRowOfAGoneAgent(t *test
 	}
 	if _, ok := storedView(t, d, "ghost"); ok {
 		t.Fatal("the row of a gone agent stays")
+	}
+	if v, ok := storedView(t, d, "bob"); !ok || v != bobRow {
+		t.Fatalf("a registered terminal agent's row is not the Go side's to drop or rewrite: %q %v", v, ok)
 	}
 	if got := count("usage_samples"); got <= samples {
 		t.Fatalf("after the cutover this tick polls usage: %d samples, was %d", got, samples)

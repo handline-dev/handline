@@ -4,6 +4,7 @@ import (
 	"github.com/handline/handline/go/internal/agentview"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
@@ -20,6 +21,7 @@ func (p *Parts) agentView(cfg Config, cutover bool, tu tickUsage) *agentview.Env
 		Wakes:      lc.Manager,
 		Prompts:    &prompts.Env{DB: p.db, Home: home, Now: nowOf(cfg.Now)},
 		Agents:     p.structuredAgents,
+		Registered: func() []string { return paths.ListAgents(home) },
 		Config: func(agent string) (string, string, bool) {
 			c, err := lc.roster.Read(agent)
 			if err != nil {
