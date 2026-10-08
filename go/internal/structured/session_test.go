@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -33,10 +34,21 @@ func fakeClaude() {
 	state := func(s string) {
 		emit(map[string]any{"type": "system", "subtype": "session_state_changed", "state": s, "uuid": "s", "session_id": "x"})
 	}
+	model, mode := "fake-model", "default"
+	if os.Getenv("FAKE_DEAF") == "1" { // a CLI that ignores the end of stdin and leaves a child behind
+		exec.Command("sleep", "60").Start()
+	}
 	perm := make(chan map[string]any, 1)
 	hold := make(chan struct{}, 1)
 	turn := func(uid, text string) {
-		emit(map[string]any{"type": "user", "uuid": uid, "isReplay": true, "message": map[string]any{"role": "user", "content": text}})
+		if os.Getenv("FAKE_SILENT") == "1" { // reads the message and says nothing
+			return
+		}
+		if os.Getenv("FAKE_LIFECYCLE_ONLY") == "1" { // what the real CLI did when the model call failed: no echo, only lifecycle
+			emit(map[string]any{"type": "command_lifecycle", "command_uuid": uid, "state": "queued"})
+		} else {
+			emit(map[string]any{"type": "user", "uuid": uid, "isReplay": true, "message": map[string]any{"role": "user", "content": text}})
+		}
 		state("running")
 		switch {
 		case text == "HOLD":
@@ -45,7 +57,7 @@ func fakeClaude() {
 			emit(map[string]any{"type": "control_request", "request_id": "perm1", "request": map[string]any{
 				"subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "tu1", "input": map[string]any{"command": "ls"}}})
 			resp := <-perm
-			emit(map[string]any{"type": "assistant", "text": "tool " + fmt.Sprint(resp["behavior"])})
+			emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": "tool " + fmt.Sprint(resp["behavior"])}}}})
 		}
 		emit(map[string]any{"type": "result", "subtype": "success"})
 		state("idle")
@@ -58,7 +70,18 @@ func fakeClaude() {
 		switch m["type"] {
 		case "control_request":
 			req := m["request"].(map[string]any)
-			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": map[string]any{}}})
+			body := map[string]any{}
+			switch req["subtype"] {
+			case "set_model":
+				if req["model"] != "ignored" { // the CLI says success and keeps the old one
+					model = req["model"].(string)
+				}
+			case "set_permission_mode":
+				mode = req["mode"].(string)
+			case "get_settings":
+				body = map[string]any{"effective": map[string]any{"model": model, "permissions": map[string]any{"defaultMode": mode}}}
+			}
+			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": body}})
 			if req["subtype"] == "interrupt" {
 				select {
 				case hold <- struct{}{}:
@@ -71,6 +94,9 @@ func fakeClaude() {
 			msg := m["message"].(map[string]any)
 			go turn(m["uuid"].(string), msg["content"].(string))
 		}
+	}
+	if os.Getenv("FAKE_DEAF") == "1" {
+		select {}
 	}
 }
 
@@ -189,7 +215,9 @@ func assistantText(ev *events) func() string {
 		defer ev.mu.Unlock()
 		for _, m := range ev.all {
 			if m["type"] == "assistant" {
-				return m["text"].(string)
+				if t := Translate(m); len(t) > 0 {
+					return t[0].Data["text"].(string)
+				}
 			}
 		}
 		return ""
