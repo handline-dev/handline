@@ -5,13 +5,14 @@ import { useSelector } from '@handline/app-react';
 import { useUnread } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Accounts } from './Accounts.tsx';
 import { AgentList } from './AgentList.tsx';
 import { AgentPage } from './AgentPage.tsx';
 import { Inbox } from './Inbox.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Banner } from './parts.tsx';
 
-const TABS = ['agents', 'inbox', 'tasks'] as const;
+const TABS = ['agents', 'inbox', 'tasks', 'accounts'] as const;
 type Tab = (typeof TABS)[number];
 
 export function Home(props: { store: Store; onUnpair: () => void }) {
@@ -22,6 +23,7 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
   const unread = useUnread().length;
   const [tab, setTab] = useState<Tab>('agents');
   const [task, setTask] = useState<number | null>(null);
+  const [account, setAccount] = useState<string | null>(null);
   return (
     <View style={{ flex: 1 }}>
       {conn !== 'open' && <Banner text={conn === 'closed' ? 'Disconnected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'} />}
@@ -33,6 +35,8 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
           <Inbox />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
+        ) : tab === 'accounts' ? (
+          <Accounts selected={account} onSelect={setAccount} />
         ) : (
           <AgentList onUnpair={props.onUnpair} />
         )}
@@ -58,7 +62,7 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
               }}
             >
               <Text style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
-                {t === 'agents' ? 'Agents' : t === 'inbox' ? `Inbox${unread ? ` (${unread})` : ''}` : 'Tasks'}
+                {t === 'agents' ? 'Agents' : t === 'inbox' ? `Inbox${unread ? ` (${unread})` : ''}` : t === 'tasks' ? 'Tasks' : 'Accounts'}
               </Text>
             </Pressable>
           ))}
