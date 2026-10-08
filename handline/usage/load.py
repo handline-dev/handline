@@ -246,11 +246,6 @@ def active_agents(con, exclude: str | None = None) -> dict[str, int]:
              for a, names in active_by_account(con).items()) if n}
 
 
-def full_without(con, acct: str, agent: str) -> bool:
-    """Whether `acct` has no slot for `agent`: the others on it, the agent itself left out, fill its cap."""
-    return active_agents(con, exclude=agent).get(acct, 0) >= cap_of(acct)
-
-
 def costs(con=None) -> "burnrate.Costs":
     """What one more agent costs, the same estimate for every account, and the
     plan's week-per-5h ratios; `read_all` puts one object on each `Load`."""
@@ -263,11 +258,12 @@ def costs(con=None) -> "burnrate.Costs":
             con.close()
 
 
-def read_all(con=None) -> dict[str, Load]:
+def read_all(con=None, exclude: str | None = None) -> dict[str, Load]:
+    """Every account's load; `exclude` leaves one agent out of the counts, the one being placed."""
     own = con is None
     con = db.connect() if own else con
     try:
-        active = active_agents(con)
+        active = active_agents(con, exclude)
         shared_costs = costs(con)
     finally:
         if own:

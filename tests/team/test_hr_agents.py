@@ -3652,6 +3652,64 @@ def test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(ho
         con.close()
 
 
+def test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(home: Path) -> None:
+    """Two fresh starts onto one free slot place one: the first, through wake_agent, is not refused by its
+    own reservation (it is left out of the count its launch tests), and the second is told there is no room.
+    And an older closed agent that is stalled, or out of wake attempts, is not waited for."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha")
+    now = int(time.time())
+    write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    loadmod.set_cap("alpha", 2)
+    con = db.connect()
+    try:
+        _running_on(con, "alpha", "r1")
+        for n in ("f1", "f2"):
+            agents.register(n)
+            db.set_agent_state(con, n, dmn_states.IDLE)
+            db.set_closed(con, n, None)
+            db.set_terminal(con, n, "%7", None)
+            support.something_waiting(con, n)
+        seen = []
+
+        def launch_stub(*a, **k):
+            seen.append((launch.find_room("f1"), launch.choose_account("f2", con=con)))
+            return False, "stub"
+        real = (dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available)
+        dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = launch_stub, lambda: {}
+        termmod.available = lambda: True
+        try:
+            dmn_lifecycle.wake_agent(con, "f1", lambda _m: None)
+        finally:
+            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available = real
+        check("fresh start: the one waking is placed on the last slot, the next one has no room",
+              seen == [("alpha", None)], str(seen))
+
+        for n in ("w1", "w2"):
+            agents.register(n)
+            db.set_account(con, n, "alpha")
+            db.set_agent_state(con, n, dmn_states.IDLE)
+            db.set_closed(con, n, f"sess-{n}")
+            support.something_waiting(con, n)
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
+        db.add_event(con, "f1", "Stop", {})
+        row = lambda n: db.get_agent_state(con, n)
+        check("older waiter: a live one holds the slot for itself", launch.wake_wait("w2", row("w2"), con) is not None)
+        db.set_agent_state(con, "w1", dmn_states.STALLED)
+        check("older waiter: a stalled one is not waited for", launch.wake_wait("w2", row("w2"), con) is None)
+        db.set_agent_state(con, "w1", dmn_states.IDLE)
+        con.execute("UPDATE agent_state SET wake_failures = ? WHERE agent = 'w1'", (dmn_lifecycle.MAX_FAILED_ATTEMPTS,))
+        check("older waiter: nor one out of wake attempts", launch.wake_wait("w2", row("w2"), con) is None)
+        con.execute("UPDATE agent_state SET wake_failures = 0 WHERE agent = 'w1'")
+        w = launch.wake_wait("w2", row("w2"), con)
+        check("older waiter: the sentence counts who is mid-turn and says an older one goes first",
+              w is not None and launch.describe_wake_wait(w) == "waiting for a slot on alpha (1 of 2 mid-turn, 1 older waiting go first)",
+              launch.describe_wake_wait(w) if w else "")
+    finally:
+        con.close()
+
+
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
     """Logging in is the one thing ocp may not do for a human: a refresh token
     rotates on single use, so a second copy of one credential invalidates the
@@ -4452,6 +4510,7 @@ def main() -> int:
             Path(td) / 'registervendor'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
         run(lambda: test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(Path(td) / 'wakecap'))
+        run(lambda: test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(Path(td) / 'freshcap'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))

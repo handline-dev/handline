@@ -57,7 +57,7 @@ def find_room(agent: str) -> str | None:
     only thing that writes a fresh one.
     """
     from ..usage import load as loadmod
-    load = loadmod.read_all()
+    load = loadmod.read_all(exclude=agent)
     # Logged-in accounts only: `assignable` says nothing about credentials.
     # bootstrap: a never-run account is a real place to go.
     # live_refresh=True: this is the one caller actually about to place an
@@ -108,7 +108,9 @@ class WakeWait:
     assumed: bool = False
     window: str = ""            # the walled window's length as a person says it
     is_long: bool = False       # the longest window, not the shortest
-    full: int = 0               # >0: no wall, the account holds this many agents, its cap
+    full: int = 0               # >0: no wall, no slot: the account's cap
+    busy: int = 0               # mid-turn on it besides this agent
+    older: int = 0              # older closed agents the daemon would wake first
 
 
 def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
@@ -136,12 +138,13 @@ def _full(agent: str, row, reading, con) -> WakeWait | None:
     cap, others = load.cap_of(acct), load.active_agents(con, exclude=agent).get(acct, 0)
     older = sum(1 for r in db.all_agent_states(con)
                 if r["agent"] != agent and r["closed_at"] and r["resume_session"]
+                and r["state"] != lifecycle.STALLED and r["wake_failures"] < lifecycle.MAX_FAILED_ATTEMPTS
                 and (r["closed_at"], r["agent"]) < (row["closed_at"], agent)
                 and agents.current_account(r["agent"], con) == acct
                 and lifecycle.waiting_for(con, r["agent"]))
     if others + older < cap:
         return None
-    return WakeWait(acct, 0, None, reading.source == "assumed", window="slot", full=cap)
+    return WakeWait(acct, 0, None, reading.source == "assumed", window="slot", full=cap, busy=others, older=older)
 
 
 def frees_first(agent: str) -> WakeWait | None:
@@ -226,7 +229,8 @@ def describe_wake_wait(w: WakeWait) -> str:
     """The wording for a wait already computed, so a caller that holds one
     does not recompute it (the window may have rolled over in between)."""
     if w.full:
-        return f"waiting for a slot on {w.account} ({w.full} of {w.full} taken)"
+        first = f", {w.older} older waiting go first" if w.older else ""
+        return f"waiting for a slot on {w.account} ({w.busy} of {w.full} mid-turn{first})"
     when = wait_clock(w, "unknown")
     who = f"assumed account {w.account}" if w.assumed else w.account
     return f"waiting for {who}'s {w.window} window ({w.pct}%, rolls over {when})"
