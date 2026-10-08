@@ -818,3 +818,12 @@ func (s *Session) RetryingSince() int64 {
 	defer s.mu.Unlock()
 	return s.retrying
 }
+
+// Kill ends the CLI's process group at once, without the grace Close gives, and returns once the group is gone.
+func (s *Session) Kill() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	<-s.done
+	return proveGone(s.cmd.Process.Pid)
+}

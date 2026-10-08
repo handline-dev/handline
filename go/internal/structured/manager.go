@@ -176,3 +176,31 @@ func (m *Manager) RetryingSince(agent string) int64 {
 	}
 	return 0
 }
+
+// Interrupt stops the running turn of agent's session.
+func (m *Manager) Interrupt(agent string) error {
+	s := m.Get(agent)
+	if s == nil {
+		return errors.New(agent + " has no structured session")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return s.Interrupt(ctx)
+}
+
+// Kill ends agent's process group at once and forgets the session when the group is gone.
+func (m *Manager) Kill(agent string) error {
+	s := m.Get(agent)
+	if s == nil {
+		return errors.New(agent + " has no structured session")
+	}
+	if err := s.Kill(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if m.sessions[agent] == s {
+		delete(m.sessions, agent)
+	}
+	m.mu.Unlock()
+	return nil
+}
