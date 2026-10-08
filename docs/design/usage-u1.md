@@ -1,0 +1,10 @@
+# Usage U1: the meter, the record and the poll
+
+`go/internal/usage/record.go` (`Record`), `go/internal/usagepoll` (`Meter`, `Poller`). Nothing calls the poll yet: the daemon's tick and the `lifecycle.Recoverer` ports are wired by the composition root.
+
+- **Meter.** A short-lived CLI process per question (`structured.Open`, an empty temp cwd, `--setting-sources project` so the account's hooks do not report to the daemon as an agent), one `get_usage` control request, then closed. The daemon reads no credential. No limits, no figure in either window, or an unreadable `resets_at` is no reading, never a quiet account. `authFailed` is only true when the CLI's error text names 401, 403, unauthorized or forbidden; a logged-out config dir answers `rate_limits_available:false` with no error (seen), so it is no reading with `authFailed` false.
+- **Record.** `usage_api.record` as it was: merged into the status file, a figure never lowered inside its own window (60 s skew), `collected_at` and `rl_source:"api"` set.
+- **Poll.** The due rules, per-account cursors, exponential backoff capped at 30 min, one success per tick, oldest reading first. A reading the CLI cannot give goes straight to the recovery turn (`Meter.RunModel`, one real turn on the account); there is no separate renewal step because the CLI renews on its own start.
+- **Not checked.** A dead (expired) token: the live runs had a live token and a test cannot make one expire without reading or editing the credential. What `get_usage` does then is unseen; the poll's fallback (recovery turn, then backoff) covers either answer. Exact match with the endpoint: needs the token to call it, so not made; the only comparison is the sigma run (five_hour 35, seven_day 39) against the `rate_limit_event` of the turn before (29, 38).
+
+**drops:** the keychain read, the HTTPS GET, `claude auth status` renewal and the `refresh` cooldown -> the `get_usage` request; `collect_snapshots` -> the `result` and `rate_limit_event` frames of structured sessions; opencode. **straight:** `record`, `usage_due`, `_ended_window`, the backoff and the one-success-per-tick rule.

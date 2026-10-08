@@ -44,9 +44,14 @@ type fakeUsage struct {
 	cap     int
 	others  int
 	exclude *string // the agent ActiveOn was asked to leave out
+	head    map[string]float64
 }
 
 func (u fakeUsage) CapOf(string) int { return u.cap }
+func (u fakeUsage) Headroom(acct string) (float64, bool) {
+	h, ok := u.head[acct]
+	return h, ok
+}
 func (u fakeUsage) ActiveOn(_ db.Q, _, agent string) int {
 	if u.exclude != nil {
 		*u.exclude = agent
@@ -446,10 +451,57 @@ func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t
 	if got := DescribeWakeWait(w); got != "waiting for a slot on a (1 of 2 mid-turn, 1 older waiting go first)" {
 		t.Fatal(got)
 	}
-	if got := DescribeWakeWait(&WakeWait{Account: "a", Full: 2, Busy: 2}); got != "waiting for a slot on a (2 of 2 mid-turn)" {
+	if got := DescribeWakeWait(&WakeWait{Account: "a", Slot: true, Full: 2, Busy: 2}); got != "waiting for a slot on a (2 of 2 mid-turn)" {
 		t.Fatal(got)
 	}
 	if wait(3, 1) != nil {
 		t.Fatal("room for the agent and the older waiter")
+	}
+	// An account ahead of its week has a cap of none: nothing is free however quiet it is, and the wait says why.
+	w = wait(0, 0)
+	if w == nil || !w.Slot || w.Full != 0 {
+		t.Fatalf("a cap of none is a full account: %+v", w)
+	}
+	if got := DescribeWakeWait(w); got != "waiting for a: it is ahead of its week and takes no new agent" {
+		t.Fatal(got)
+	}
+}
+
+func TestAColdWakeMovesToTheSlowestPacedAccountWithRoomNotItsOwnNorOneWithOlderWaiters(t *testing.T) {
+	r := newLaunchRig(t)
+	pct := 10
+	ok := AccountStatus{Exists: true, ShortTrusted: &pct}
+	hot := AccountStatus{Exists: true, ShortTrusted: func() *int { n := 99; return &n }()}
+	r.l.Ports.Accounts = fakeAccounts{true}
+	r.l.Ports.CurrentAccount = func(_ db.Q, agent string) string {
+		if agent == "waiting-on-b" {
+			return "b"
+		}
+		return "a"
+	}
+	r.l.Ports.WaitingFor = func(db.Q, string) bool { return true }
+	r.l.Ports.Usage = fakeUsage{st: ok, cap: 1, by: map[string]AccountStatus{"walled": hot},
+		head: map[string]float64{"a": 0.99, "b": 0.9, "c": 0.5, "ahead": 0.02, "walled": 0.95}}
+	home, q := r.l.Home, r.l.Q
+	for _, a := range []string{"a", "b", "c", "ahead", "walled"} {
+		os.MkdirAll(filepath.Join(paths.AccountsDir(home), a), 0o755)
+	}
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	db.SetAgentState(q, "waiting-on-b", states.Idle, 0, "")
+	db.SetClosed(q, "waiting-on-b", "s-b")
+	q.Exec("UPDATE agent_state SET closed_at = 10 WHERE agent = 'ann'")
+	q.Exec("UPDATE agent_state SET closed_at = 1 WHERE agent = 'waiting-on-b'")
+	row, _ := db.GetAgentState(q, "ann")
+	// "a" has the most headroom but is ann's own, "b" the next but an older closed agent is waiting for its one slot, "walled" does not fit.
+	if got := r.l.SlowestPaced(q, "ann", row, "a"); got != "c" {
+		t.Fatalf("the furthest behind among the other accounts with a free slot: %q", got)
+	}
+	r.l.Ports.Usage = fakeUsage{st: ok, cap: 1, by: map[string]AccountStatus{"walled": hot}, head: map[string]float64{"a": 0.99, "b": 0.9}}
+	for _, a := range []string{"c", "ahead", "walled"} {
+		os.RemoveAll(filepath.Join(paths.AccountsDir(home), a))
+	}
+	if got := r.l.SlowestPaced(q, "ann", row, "a"); got != "" {
+		t.Fatalf("an account an older waiter holds the slot of is not room, and the agent's own is left out: %q", got)
 	}
 }
