@@ -31,6 +31,19 @@ func (m *Manager) Has(agent string) bool {
 	return s != nil && s.ExitErr() == nil
 }
 
+// Live is the agents with a live session and the pid of each.
+func (m *Manager) Live() map[string]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]int{}
+	for agent, s := range m.sessions {
+		if s.ExitErr() == nil {
+			out[agent] = s.Pid()
+		}
+	}
+	return out
+}
+
 // Get is agent's session, or nil.
 func (m *Manager) Get(agent string) *Session {
 	m.mu.Lock()

@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -29,7 +30,7 @@ type Config struct {
 	Now  func() time.Time
 	// CLI is the claude binary.
 	CLI string
-	// ConfigDir is an account's CLAUDE_CONFIG_DIR; "" for the one the launch lands on.
+	// ConfigDir is an account's CLAUDE_CONFIG_DIR; nil is the account's own directory under Home, "" the one the launch lands on.
 	ConfigDir func(account string) string
 	// Args are the extra CLI arguments of every structured launch (--setting-sources project and the hooks' --settings).
 	Args []string
@@ -52,8 +53,11 @@ type Parts struct {
 	Agents  *AgentsPort
 	Locks   *lifecycle.AgentLocks
 	Kind    func(agent string) bool
+	// LC is the lifecycle, once Lifecycle has built it.
+	LC *Lifecycle
 
 	db   *sql.DB
+	home string
 	tell Telling
 	log  func(format string, args ...any)
 }
@@ -105,7 +109,7 @@ func New(cfg Config) *Parts {
 	}
 	run := &Runner{cfg: cfg, kind: kind, sessions: map[string]string{}}
 	sink := &transcript.Sink{Now: cfg.Now, Session: run.sessionOf}
-	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log}
+	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log, home: cfg.Home}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
 	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now}
 	run.mgr, run.parts = mgr, p
@@ -169,6 +173,8 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	cfgDir := ""
 	if r.cfg.ConfigDir != nil {
 		cfgDir = r.cfg.ConfigDir(spec.Account)
+	} else if spec.Account != "" {
+		cfgDir, _ = team.AccountConfigDir(r.cfg.Home, spec.Account)
 	}
 	l := structured.Launch{Path: r.cfg.CLI, Args: r.cfg.Args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
 		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}

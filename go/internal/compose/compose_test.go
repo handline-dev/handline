@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -195,4 +198,59 @@ func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
 	}
 	rel()
 	<-got
+}
+
+// wired builds the lifecycle manager over the real parts, with a closed structured agent that has a worktree.
+func wired(t *testing.T) (*Parts, *Lifecycle, *supervisor.Env, string) {
+	t.Helper()
+	p, home := rig(t)
+	dir, err := team.AccountConfigDir(home, "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600) // only its presence is read
+	wt := t.TempDir()
+	d := p.Sink.DB
+	if err := dbpkg.SetTerminal(d, "alice", "", wt); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.SetClosed(d, "alice", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+		t.Fatal(err) // what a closed agent is woken for
+	}
+	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
+	cfg := Config{DB: d, Home: home, CLI: p.Run.cfg.CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}}
+	p.Run.cfg = cfg
+	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})
+	env.Ports = p.SupervisorPorts(lc)
+	p.Bind(d, env)
+	return p, lc, env, wt
+}
+
+func TestTheLifecycleWakesAClosedStructuredAgentAndClosesItAgain(t *testing.T) {
+	p, lc, env, _ := wired(t)
+	if !env.Wired() {
+		t.Fatal("every supervisor port has its owner")
+	}
+	ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{})
+	if err != nil || !ok {
+		t.Fatalf("wake: %v %q %v", ok, said, err)
+	}
+	if !p.Run.Alive("alice") {
+		t.Fatal("the wake started a session")
+	}
+	row, _ := dbpkg.GetAgentState(p.Sink.DB, "alice")
+	if row == nil || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 || row.ResumeSession.String == "" {
+		t.Fatalf("it is open again under a stored session: %+v", row)
+	}
+	ok, said, err = lc.Manager.CloseAgent("alice", lifecycle.SessionStatus{SessionID: row.ResumeSession.String}, lifecycle.CloseOpts{Force: true})
+	if err != nil || !ok {
+		t.Fatalf("close: %v %q %v", ok, said, err)
+	}
+	if p.Run.Alive("alice") {
+		t.Fatal("the close ended the session")
+	}
 }
