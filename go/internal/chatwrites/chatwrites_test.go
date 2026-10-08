@@ -78,7 +78,7 @@ func newRig(t *testing.T) *rig {
 func (r *rig) server(agent string) *rpc.Server {
 	s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = r.db
-	Register(s, r.env)
+	Register(s, r.env, r.env)
 	return s
 }
 
@@ -176,9 +176,39 @@ func TestSendWritesTheMessageOnceAndRefusesWhatIsNotASend(t *testing.T) {
 			t.Fatalf("%s: %v", c.params, e)
 		}
 	}
-	r.refusedWith(r.one(s, "chat.send", `{"agent":"alice","body":"x","task":{"title":"t"},"request_id":"s5"}`), "")
 	if r.count("SELECT COUNT(*) FROM requests") != 1 {
 		t.Fatal("a refused send writes no message")
+	}
+}
+
+func TestSendWithATaskOpensItWithItsBriefOnceAndALostAnswerIsReplayed(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	send := `{"agent":"alice","body":"  do the thing\nin full ","task":{"title":"the thing","time_box":"2h"},"request_id":"k1"}`
+	first := r.result(r.one(s, "chat.send", send))
+	if first["accepted"] != true || first["request"] == nil {
+		t.Fatal(first)
+	}
+	var tid int64
+	var title, owner, opener string
+	var timeout int64
+	if err := r.db.QueryRow("SELECT id, title, owner, opened_by, COALESCE(timeout_s, 0) FROM tasks").Scan(&tid, &title, &owner, &opener, &timeout); err != nil {
+		t.Fatal(err)
+	}
+	if title != "the thing" || owner != "alice" || opener != "human" || timeout != 7200 {
+		t.Fatalf("the task: %q %s %s %d", title, owner, opener, timeout)
+	}
+	if r.count("SELECT COUNT(*) FROM task_requests WHERE task_id = ? AND request_id = ?", tid, int64(first["request"].(float64))) != 1 {
+		t.Fatal("the brief is the task's first request")
+	}
+	again := r.result(r.one(s, "chat.send", send))
+	if again["replayed"] != true || r.count("SELECT COUNT(*) FROM tasks") != 1 {
+		t.Fatalf("a retry opens no second task: %v", again)
+	}
+	// A refusal opens nothing: no body once trimmed leaves no brief, and a time box over the longest is a bad request.
+	e, _ := r.one(s, "chat.send", `{"agent":"alice","body":"x","task":{"title":"t","time_box":"9h"},"request_id":"k2"}`)["error"].(map[string]any)
+	if e["data"].(map[string]any)["field"] != "time_box" || r.count("SELECT COUNT(*) FROM tasks") != 1 {
+		t.Fatalf("a time box over the longest: %v", e)
 	}
 }
 
@@ -233,6 +263,49 @@ func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
 	}
 	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the first'", tid) != 1 {
 		t.Fatal("the answer is the task's evidence")
+	}
+}
+
+func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
+	r := newRig(t)
+	gone := r.request("alice", "human", "which one?")
+	dbpkg.MarkDelivered(r.db, gone)
+	r.db.Exec("UPDATE requests SET state = 'landed' WHERE id = ?", gone)
+	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbpkg.LinkRequest(r.db, tid, gone)
+	tx, err := r.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var note string
+	res, err := decide(r.env, r.env, tx, tid, "the second", func(_ dbpkg.Q, n string) error { note = n; return nil })
+	if err != nil || !res.OK {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d done (the second)", tid) {
+		t.Fatalf("%q %q", res.Tell(), note)
+	}
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the second'", tid) != 1 {
+		t.Fatal("the decision is the task's evidence, though no open card settled it")
+	}
+}
+
+func TestAnswerOnADecisionCardRefusesWhileTheTaskHasAnOpenChild(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	card := r.request("alice", "human", "which one?")
+	tid, _ := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	dbpkg.LinkRequest(r.db, tid, card)
+	dbpkg.NewTask(r.db, "first this", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0)
+	r.refusedWith(r.one(s, "chat.answer", fmt.Sprintf(`{"request":%d,"text":"x","request_id":"d3"}`, card)), "")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence IS NOT NULL", tid) != 0 || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'queued'", card) != 1 {
+		t.Fatal("a refused decision writes nothing")
 	}
 }
 
