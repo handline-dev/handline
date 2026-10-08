@@ -14,6 +14,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   ] as const) {
     daemon.sessions.set(name, newSession({ ...base, name, state }, new Date().toISOString()));
     daemon.transcript.structure(name);
+    if (state === 'running') daemon.chat.setTurn(name, true);
   }
   const client = new DaemonClient({
     client: 'conformance-seed',

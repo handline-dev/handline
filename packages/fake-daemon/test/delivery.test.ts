@@ -42,7 +42,7 @@ test('a repeat returns the receipt as it is now, writes nothing, and other param
 test('while a turn runs a message is queued by default and written with delivery now; delivery is now or queue', async () => {
   const { client, daemon } = setup();
   await client.start();
-  daemon.sessions.get(AUD)!.state = 'running';
+  daemon.chat.setTurn(AUD, true);
   const q = await client.call('chat.send', { agent: AUD, body: 'later', request_id: 'op-3' });
   const n = await client.call('chat.send', { agent: AUD, body: 'now', request_id: 'op-4', delivery: 'now' });
   assert.equal(q.receipt?.state, 'queued');
@@ -61,12 +61,12 @@ test('while a turn runs a message is queued by default and written with delivery
 test('chat.send_now writes a queued message, and the turn ending writes the next one; a second send_now is refused', async () => {
   const { client, daemon } = setup();
   await client.start();
-  daemon.sessions.get(AUD)!.state = 'running';
+  daemon.chat.setTurn(AUD, true);
   const a = await client.call('chat.send', { agent: AUD, body: 'a', request_id: 'op-6' });
   await client.call('chat.send', { agent: AUD, body: 'b', request_id: 'op-7' });
   assert.equal((await client.call('chat.send_now', { request: a.request, request_id: 'op-6n' })).receipt?.state, 'sent');
   await assert.rejects(client.call('chat.send_now', { request: a.request, request_id: 'op-6m' }), (e: RpcError) => e.gate === 'state');
-  daemon.chat.turnEnded(AUD);
+  daemon.chat.setTurn(AUD, false);
   assert.deepEqual((await states(client)).sort(), ['a:sent', 'b:sent']);
   client.close();
 });
@@ -74,7 +74,7 @@ test('chat.send_now writes a queued message, and the turn ending writes the next
 test('chat.cancel withdraws a queued message without confirm and drops it; its request_id is not brought back; a written one needs confirm', async () => {
   const { client, daemon } = setup();
   await client.start();
-  daemon.sessions.get(AUD)!.state = 'running';
+  daemon.chat.setTurn(AUD, true);
   const q = await client.call('chat.send', { agent: AUD, body: 'oops', request_id: 'op-8' });
   const w = await client.call('chat.send', { agent: AUD, body: 'written', request_id: 'op-9', delivery: 'now' });
   await client.call('chat.cancel', { request: q.request, request_id: 'op-8c' });
@@ -111,11 +111,27 @@ test('a turn that ends through the session writes the held message, and a sessio
   const { client, daemon } = setup();
   await client.start();
   daemon.sessions.get(AUD)!.state = 'running';
+  daemon.chat.setTurn(AUD, true);
   await client.call('chat.send', { agent: AUD, body: 'held', request_id: 'op-12' });
   assert.deepEqual(await states(client), ['held:queued']);
+  assert.equal((await client.call('chat.transcript', { agent: AUD })).working.turn_running, true);
   await client.call('session.interrupt', { agent: AUD, request_id: 'op-12i' });
   assert.deepEqual(await states(client), ['held:sent']);
+  assert.equal((await client.call('chat.transcript', { agent: AUD })).working.turn_running, false);
   await client.call('session.stop', { agent: AUD, mode: 'close', request_id: 'op-12s' });
   assert.deepEqual(await states(client), ['held:unknown']);
+  client.close();
+});
+
+test('a session call that starts a turn shows turn_running in the working line, and a send then queues', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  const A = 'handline.architect';
+  daemon.transcript.structure(A);
+  assert.equal((await client.call('chat.transcript', { agent: A })).working.turn_running, false);
+  await client.call('session.input', { agent: A, text: 'go', request_id: 'op-13i' });
+  assert.equal((await client.call('chat.transcript', { agent: A })).working.turn_running, true);
+  const r = await client.call('chat.send', { agent: A, body: 'behind it', request_id: 'op-13' });
+  assert.equal(r.receipt?.state, 'queued');
   client.close();
 });

@@ -188,7 +188,7 @@ export class FakeChat {
     const s = this.sessions.get(agent);
     const receipt = s?.structured
       ? {
-          state: s.state === 'running' && delivery === 'queue' ? ('queued' as const) : ('sent' as const),
+          state: this.thread(agent).working.turn_running && delivery === 'queue' ? ('queued' as const) : ('sent' as const),
           uuid: uuidFor(String(p.request_id)),
         }
       : undefined;
@@ -297,12 +297,20 @@ export class FakeChat {
     const m = this.live(id);
     if (m?.receipt?.state === 'sent') this.change(m, receiptPatch(m as Msg, state, this.now()));
   }
-  /** A structured session's state moved: a turn that ended writes the next held message, a session that ended loses what was not echoed. */
+  /** A structured session's state moved: its turn starts or ends (one signal for the working line and for what queues), and a session that closed loses what was not echoed. */
   stateMoved(agent: string, from: string, to: string): void {
     if (!this.sessions.get(agent)?.structured) return;
     const turn = (w: string) => w === 'running' || w === 'waiting';
+    if (!turn(from) && turn(to)) this.setTurn(agent, true);
+    else if (turn(from) && !turn(to)) this.setTurn(agent, false, to === 'idle');
     if (to === 'parked' || to === 'no_terminal') this.lose(agent);
-    else if (turn(from) && to === 'idle') this.turnEnded(agent);
+  }
+  /** The turn of `agent` starts or ends: chat.working shows it, and a message sent now queues behind it. An end that is a finished turn (`done`) writes the next held message. */
+  setTurn(agent: string, running: boolean, done = true): void {
+    const t = this.thread(agent);
+    t.working = running ? { turn_running: true, line: 'Working', since: this.now() } : { ...IDLE };
+    this.emit('chat.working', agent, t.working);
+    if (!running && done) this.turnEnded(agent);
   }
   /** A turn of `agent` ended: the oldest message held behind it is written. */
   turnEnded(agent: string): void {
