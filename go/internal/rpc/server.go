@@ -65,9 +65,11 @@ type Server struct {
 	Relay *Relay
 	// NoEvents keeps a write from leaving the generic event: a gateway writes nothing but its devices.
 	NoEvents bool
-	methods  map[string]Method
-	order    []string
-	founder  string
+	// Capabilities adds to what hello reports under capabilities (the terminal formats).
+	Capabilities func() map[string]any
+	methods      map[string]Method
+	order        []string
+	founder      string
 }
 
 func NewServer(auth authority.Authority, sha string, schema int, transport string, log func(string, ...any)) *Server {
@@ -545,6 +547,13 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
 	caps, methods := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}}, c.methodList()
+	// A server that serves terminal.* itself has Capabilities and no Relay; a gateway has a Relay and serves none of them, so the daemon
+	// behind it is the one that knows its formats and its report replaces these.
+	if c.srv.Capabilities != nil {
+		for k, v := range c.srv.Capabilities() {
+			caps[k] = v
+		}
+	}
 	if c.srv.Relay != nil && c.device != "" {
 		client, _ := params["client"].(string)
 		if theirs := c.relayHello(client, protocol); theirs != nil {

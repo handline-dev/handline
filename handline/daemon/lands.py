@@ -14,6 +14,7 @@ at most once.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -64,11 +65,13 @@ def _message_refusal(message: str) -> str | None:
 
 
 def is_auditor(agent: str | None) -> bool:
-    """Whether `agent` holds the auditor role: a name's last part is its role (`<team>.auditor`), and the
-    roster the founder approves is the only place such a name comes from. Who is calling is not this name's
-    claim: the daemon has already matched it to the session `hl launch` recorded. Any team's auditor may pass any
-    team's sha, so registering a `<team>.auditor` grants PASS for every branch."""
-    return bool(agent) and team.parent_name(agent) is not None and agent.rpartition(".")[2] == AUDITOR_ROLE
+    """Whether `agent` holds the auditor role: a name's last part is its role, numbered when a team has more than
+    one (`<team>.auditor`, `<team>.auditor2`), and the roster the founder approves is the only place such a name
+    comes from. Who is calling is not this name's claim: the daemon has already matched it to the session `hl launch`
+    recorded. Any team's auditor may pass any team's sha, so registering a `<team>.auditor` grants PASS for every
+    branch."""
+    return (bool(agent) and team.parent_name(agent) is not None
+            and re.fullmatch(rf"{AUDITOR_ROLE}\d*", agent.rpartition(".")[2]) is not None)
 
 
 def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
