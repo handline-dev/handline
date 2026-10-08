@@ -123,6 +123,24 @@ func (m *Manager) Send(agent, op, text string, d Delivery) (Receipt, error) {
 	return s.Send(op, text, d)
 }
 
+// Withdraw takes back a held message of agent's session (chat.cancel of a queued message).
+func (m *Manager) Withdraw(agent, op string) (Receipt, bool, error) {
+	s := m.Get(agent)
+	if s == nil {
+		return Receipt{}, false, errors.New(agent + " has no structured session")
+	}
+	return s.Withdraw(op)
+}
+
+// Promote writes a held message of agent's session now (chat.send_now of a queued message).
+func (m *Manager) Promote(agent, op string) (Receipt, error) {
+	s := m.Get(agent)
+	if s == nil {
+		return Receipt{}, errors.New(agent + " has no structured session")
+	}
+	return s.Promote(op)
+}
+
 // Answer answers agent's waiting permission prompt (prompt.answer for a structured agent).
 func (m *Manager) Answer(agent, prompt string, allow bool, message, by string) error {
 	if m.Broker == nil {
