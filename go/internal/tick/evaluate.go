@@ -30,7 +30,7 @@ type Tick struct {
 	Handoff   Handoff
 	Reconcile Reconciler
 	Sweeps    Sweeps
-	Passes    []NamedSweep // the guarded passes after the per-agent turns, in order (see StandardPasses)
+	Passes    []NamedSweep // the guarded passes after the per-agent turns, in order
 	Observe   Observe
 	Config    Config
 	Cost      *CostPilot
@@ -72,9 +72,11 @@ func guard(f func()) (err error) {
 		if r := recover(); r != nil {
 			if fl, ok := r.(failure); ok {
 				err = fl.err
-				return
+			} else if e, ok := r.(error); ok {
+				err = e // a port that fails by panicking is this agent's failure, as any exception was in Python
+			} else {
+				err = fmt.Errorf("panic: %v", r)
 			}
-			panic(r)
 		}
 	}()
 	f()

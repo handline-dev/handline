@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"syscall"
@@ -10,6 +11,9 @@ import (
 // QuietS is how long the executable must stand unchanged before the daemon restarts onto it: a build or install writes the file over a
 // moment, and a restart in the middle would exec half a binary.
 const QuietS = 30 * time.Second
+
+// CheckTimeout bounds the start check: a new binary that hangs must not stop the tick loop.
+const CheckTimeout = 30 * time.Second
 
 // ExeStamp is what a watch compares: the executable's mtime and size, one stat and no read.
 type ExeStamp struct {
@@ -24,7 +28,7 @@ type DevMode struct {
 	Exe     string
 	Log     func(string)
 	Now     func() time.Time
-	// Check proves the new executable starts. Nil runs `Exe --version` with a 30s limit.
+	// Check proves the new executable starts. Nil runs `Exe --version` within CheckTimeout.
 	Check func(exe string) error
 
 	base, warned, seen, pending *ExeStamp
@@ -50,7 +54,9 @@ func (d *DevMode) check() error {
 	if d.Check != nil {
 		return d.Check(d.Exe)
 	}
-	return exec.Command(d.Exe, "--version").Run()
+	ctx, cancel := context.WithTimeout(context.Background(), CheckTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, d.Exe, "--version").Run()
 }
 
 // ShouldRestart is called once a tick and says whether to restart onto a changed, started-clean executable.
