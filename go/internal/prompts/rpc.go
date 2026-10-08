@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -165,6 +167,9 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if e.Structured != nil && e.Structured.Has(name) {
+		return e.answerStructured(c, name, prompt, choice)
+	}
 	if lock.TerminalBusy(e.Home, name) { // refuse at once, before anything is done
 		return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
 	}
@@ -196,5 +201,34 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, rpc.Refused(said, "", "")
 	}
 	inputhold.Touch(e.DB, name, me, e.now())
+	return map[string]any{"accepted": true, "said": said}, nil
+}
+
+// Structured is the daemon's structured sessions: an agent that has one is answered by callback, not by keys on a screen.
+type Structured interface {
+	Has(agent string) bool
+	Answer(agent, prompt string, allow bool, message, by string) error
+}
+
+// answerStructured answers a permission prompt of a structured agent. There is no terminal, so no terminal lock and no input holder
+// apply; the prompt is named by its id as always, and a different open prompt is stale.
+func (e *Env) answerStructured(c *rpc.Conn, name, prompt string, choice any) (any, error) {
+	key, _ := choice.(string)
+	if key != "yes" && key != "no" && key != "esc" {
+		return nil, bad("this prompt offers esc, no, yes", "choice")
+	}
+	me, _ := c.Caller.ActorInfo()["name"].(string)
+	err := e.Structured.Answer(name, prompt, key == "yes", "", me)
+	if errors.Is(err, structured.ErrStale) || errors.Is(err, structured.ErrNoPrompt) {
+		current, qerr := e.Reads.OpenPrompt(name)
+		if qerr != nil {
+			return nil, qerr
+		}
+		return nil, StaleError(current)
+	}
+	if err != nil {
+		return nil, err
+	}
+	said := name + ": answered " + map[string]string{"yes": "Yes", "no": "No", "esc": "No"}[key]
 	return map[string]any{"accepted": true, "said": said}, nil
 }

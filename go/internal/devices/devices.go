@@ -59,13 +59,19 @@ type Manager struct {
 	codes      map[string]*code // by the hash of the code
 	wrongs     map[string][]time.Time
 	lockedTill map[string]time.Time
-	conns      map[string]map[int]func() // by device id: what closes each open connection
+	conns      map[string]map[int]func() // by device id: what closes each open connection, by the order they logged in
 	next       int
+	maxConns   int
 }
+
+// MaxConnsPerDevice is how many connections one paired device may hold open at once. A client that leaks sockets fills the daemon's
+// descriptors for everyone, so past this the oldest are closed to make room: the leaked ones are the old ones, and a client that is
+// alive reconnects. Refusing the new one instead would lock the live app out until it was quit.
+const MaxConnsPerDevice = 16
 
 func New(store Store) *Manager {
 	return &Manager{store: store, now: time.Now, codes: map[string]*code{}, wrongs: map[string][]time.Time{},
-		lockedTill: map[string]time.Time{}, conns: map[string]map[int]func(){}}
+		lockedTill: map[string]time.Time{}, conns: map[string]map[int]func(){}, maxConns: MaxConnsPerDevice}
 }
 
 // Listening records where the listener is and the fingerprint of its certificate, which a pairing uri carries.
@@ -237,10 +243,26 @@ func (m *Manager) Know(token string) bool {
 
 func (m *Manager) Login(token string, closeConn func()) (id, name string, release func(), ok bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	var evict []func()
+	defer func() {
+		m.mu.Unlock()
+		for _, f := range evict {
+			f()
+		}
+	}()
 	d, found, err := m.store.ByTokenHash(hashOf(token))
 	if !found || err != nil {
 		return "", "", nil, false
+	}
+	for len(m.conns[d.ID]) >= m.maxConns {
+		oldest := -1
+		for n := range m.conns[d.ID] {
+			if oldest < 0 || n < oldest {
+				oldest = n
+			}
+		}
+		evict = append(evict, m.conns[d.ID][oldest])
+		delete(m.conns[d.ID], oldest)
 	}
 	m.next++
 	n := m.next
