@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/structured"
@@ -129,6 +130,53 @@ func TestAStructuredSessionStartsTakesAMessageAndStopsThroughTheRealWiring(t *te
 	defer mu.Unlock()
 	if len(kinds) == 0 || kinds[len(kinds)-1] != "session_end" && kinds[len(kinds)-1] != "turn_end" {
 		t.Logf("kinds %v", kinds)
+	}
+}
+
+type tells struct {
+	mu   sync.Mutex
+	logs []string
+}
+
+func (t *tells) SessionConfirmed(_ db.Q, agent, op string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, "confirmed "+agent+" "+op)
+	return nil
+}
+
+func (t *tells) SessionLost(_ db.Q, agent string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.logs = append(t.logs, "lost "+agent)
+	return nil
+}
+
+func TestTheSupervisorIsToldOfAnEchoAndOfTheEndOfTheSession(t *testing.T) {
+	p, _ := rig(t)
+	tl := &tells{}
+	p.Bind(p.Sink.DB, tl)
+	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run.Send("alice", "op7", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run.Close("alice"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		tl.mu.Lock()
+		got := fmt.Sprint(tl.logs)
+		tl.mu.Unlock()
+		if got == "[confirmed alice op7 lost alice]" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(got)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

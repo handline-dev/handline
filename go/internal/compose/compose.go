@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/structured"
@@ -51,6 +52,49 @@ type Parts struct {
 	Agents  *AgentsPort
 	Locks   *lifecycle.AgentLocks
 	Kind    func(agent string) bool
+
+	db   *sql.DB
+	tell Telling
+	log  func(format string, args ...any)
+}
+
+// Telling is what the supervisor's Env does with a session's end of a send: the operation is delivered once the CLI echoed it, and what was
+// written and not echoed when the session ended is unknown (supervisor.Env).
+type Telling interface {
+	SessionConfirmed(q db.Q, agent, op string) error
+	SessionLost(q db.Q, agent string) error
+}
+
+// events is the manager's event sink: the transcript sink, and the telling that a session ended.
+type events struct {
+	p *Parts
+}
+
+func (e events) Emit(agent string, ev structured.Event) {
+	e.p.Sink.Emit(agent, ev)
+	if ev.Type == "session_end" && e.p.tell != nil && e.p.db != nil {
+		if err := e.p.tell.SessionLost(e.p.db, agent); err != nil && e.p.log != nil {
+			e.p.log("  %s: telling the session's end failed: %v", agent, err)
+		}
+	}
+}
+
+// confirming tells the supervisor when the ledger records an echo.
+type confirming struct {
+	*structured.DBLedger
+	p *Parts
+}
+
+func (c confirming) Put(o structured.Op) error {
+	if err := c.DBLedger.Put(o); err != nil {
+		return err
+	}
+	if o.State == structured.Confirmed && c.p.tell != nil {
+		if err := c.p.tell.SessionConfirmed(c.p.db, c.DBLedger.Agent, o.ID); err != nil && c.p.log != nil {
+			c.p.log("  %s: telling the echo of %s failed: %v", c.DBLedger.Agent, o.ID, err)
+		}
+	}
+	return nil
 }
 
 // New builds the parts. The daemon fills in what only it knows when it starts (the sink's database, publisher and prompt reader).
@@ -61,18 +105,21 @@ func New(cfg Config) *Parts {
 	}
 	run := &Runner{cfg: cfg, kind: kind, sessions: map[string]string{}}
 	sink := &transcript.Sink{Now: cfg.Now, Session: run.sessionOf}
+	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
-	mgr := &structured.Manager{Broker: broker, Events: sink, Now: cfg.Now}
-	run.mgr = mgr
-	p := &Parts{Manager: mgr, Sink: sink, Run: run, Agents: &AgentsPort{mgr: mgr, kind: kind}, Locks: &lifecycle.AgentLocks{}, Kind: kind}
+	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now}
+	run.mgr, run.parts = mgr, p
+	p.Manager, p.Agents = mgr, &AgentsPort{mgr: mgr, kind: kind}
 	if cfg.DB != nil {
-		p.Bind(cfg.DB)
+		p.Bind(cfg.DB, nil)
 	}
 	return p
 }
 
-// Bind gives the parts the database when it is open: the sends' ledger, the permission prompt rows and the transcript's events.
-func (p *Parts) Bind(db *sql.DB) {
+// Bind gives the parts the database when it is open (the sends' ledger, the permission prompt rows, the transcript's events) and the
+// telling that follows a session's echoes and its end; a nil tell tells nothing.
+func (p *Parts) Bind(db *sql.DB, tell Telling) {
+	p.db, p.tell = db, tell
 	p.Manager.DB, p.Sink.DB = db, db
 	if p.Manager.Broker != nil {
 		p.Manager.Broker.Store = &structured.DBPrompts{DB: db, Now: p.Manager.Now}
@@ -98,9 +145,10 @@ func KindFromYAML(home string) func(agent string) bool {
 
 // Runner is lifecycle.Runner over the structured manager. It turns a StartSpec into the CLI's launch.
 type Runner struct {
-	cfg  Config
-	kind func(agent string) bool
-	mgr  *structured.Manager
+	cfg   Config
+	kind  func(agent string) bool
+	mgr   *structured.Manager
+	parts *Parts
 
 	mu       sync.Mutex
 	sessions map[string]string // agent -> the id of the session last opened
@@ -125,6 +173,9 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	l := structured.Launch{Path: r.cfg.CLI, Args: r.cfg.Args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
 		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}
 	// The id is known before the CLI answers, so the first events of the session already carry it.
+	if r.parts.db != nil {
+		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
+	}
 	r.mu.Lock()
 	prev, had := r.sessions[spec.Agent]
 	r.sessions[spec.Agent] = spec.SessionID
