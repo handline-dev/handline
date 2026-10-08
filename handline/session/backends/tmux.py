@@ -160,6 +160,31 @@ class TmuxBackend(Backend):
             rows.pop()
         return rows[-limit:]
 
+    serves_history = True
+
+    def read_history(self, handle: str, before: int | None, limit: int, styled: bool) -> tuple[int, list[str]] | None:
+        """tmux's own scrollback: the whole of it in one command line, so the mode and the rows are read at one place in the stream and a line
+        that scrolls meanwhile cannot move the page. On the alternate screen (vim, less) there is none."""
+        if not isinstance(handle, str) or not _PANE.match(handle):
+            return None
+        code, out, _err = _tmux(["display-message", "-p", "-t", handle, "#{alternate_on} #{history_size}", ";",
+                                 "capture-pane", "-p", *(["-e"] if styled else []), "-t", handle, "-S", "-", "-E", "-1"], timeout=30)
+        head, _, body = out.partition("\n")
+        mode = head.split()
+        if code != 0 or len(mode) != 2 or mode[0] not in ("0", "1") or not mode[1].isdigit():
+            return None
+        if mode[0] == "1":
+            return 0, []
+        rows = body.split("\n")
+        if rows and rows[-1] == "":
+            rows.pop()          # the newline that ends the last row
+        # With no history tmux clamps -E to the screen's top row and returns it: only the last history_size rows are history.
+        rows = rows[-int(mode[1]):] if int(mode[1]) else []
+        end = len(rows) if before is None else max(min(before, len(rows)), 0)
+        start = max(end - max(limit, 0), 0)
+        page = rows[start:end]
+        return start, page if styled else [r.rstrip() for r in page]
+
     def cursor(self, handle: str) -> dict | None:
         """One tmux call for the cursor and the visible rows, so the rows read_screen drops at the bottom are counted from the same moment."""
         if not isinstance(handle, str) or not _PANE.match(handle):

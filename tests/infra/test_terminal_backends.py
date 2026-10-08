@@ -918,6 +918,96 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         os.environ.pop("OCP_TMUX_SOCKET", None)
 
 
+def test_a_real_tmux_keeps_every_scrolled_line_once_in_the_channels_history(home: Path) -> None:
+    """Output that scrolls far more than a screen at once is in the channel's history whole, in order, once each and styled as the live rows
+    are, because the history is tmux's own and not inferred from polled screens. Skipped where tmux cannot start."""
+    from handline.daemon import termchannel
+    use_home(home)
+    if shutil.which("tmux") is None:
+        print("SKIPPED  real tmux history: tmux is not installed")
+        return
+    sock = f"handline-test-hist-{os.getpid()}"
+    os.environ["OCP_TMUX_SOCKET"] = sock
+    os.environ["HANDLINE_TEST_REAL_TMUX"] = "1"
+    tm = tmuxbackend.TmuxBackend()
+    sock_file = Path(os.environ.get("TMUX_TMPDIR") or "/tmp").resolve() / f"tmux-{os.getuid()}" / sock
+    try:
+        pane, why = tm.create_terminal("clear", cwd=str(home), title="h1")
+        if pane is None and "not permitted" in str(why).lower():
+            print(f"SKIPPED  real tmux history: it cannot start a terminal here ({str(why).strip()[:100]})")
+            return
+        check("real tmux history: a terminal starts", pane is not None, why)
+        if pane is None:
+            return
+        check("real tmux history: a fresh pane has none, not its top row", tm.read_history(pane, None, 10, False) == (0, []), str(tm.read_history(pane, None, 10, False)))
+        tm.send(pane, "for i in $(seq 1 300); do printf '\\033[31mline-%d\\033[0m\\n' $i; done; echo burst-$((1+1))")
+        deadline = time.time() + 20
+        while time.time() < deadline and "burst-2" not in "\n".join((tm.read_screen(pane) or {}).get("tail", [])):
+            time.sleep(0.2)
+        for fmt in ("text", "styled"):
+            ch = termchannel.Channel(pane, None, fmt)
+            ch._offer(ch._read())           # the first frame, as an attach reads it
+            snap = ch.snapshot(1000, [{}])
+            rows = snap["history"]["lines"]
+            names = [r["text"] if isinstance(r, dict) else r for r in rows]
+            live = [(r["text"] if isinstance(r, dict) else r) for r in snap["lines"]]
+            ours = [n for n in names + live if n.startswith("line-")]       # the history, then the rows still on the screen
+            check(f"real tmux history ({fmt}): the channel reads the host's scrollback", ch.host_history)
+            check(f"real tmux history ({fmt}): every line that scrolled past is there once, in order",
+                  ours == [f"line-{i}" for i in range(1, 301)], f"{len(ours)}: {ours[:3]}...{ours[-3:]}")
+            page = ch.history_page(snap["history"]["first"] + 10, 5)
+            check(f"real tmux history ({fmt}): an older page ends where the snapshot's rows begin plus the offset",
+                  [r.get("text") for r in page["lines"]] == names[:10][-5:] and page["first"] == snap["history"]["first"] + 5, str(page))
+            if fmt == "styled":
+                first = next(r for r in rows if r["text"].startswith("line-"))
+                check("real tmux history (styled): the scrolled rows carry their spans", first.get("spans") and first["spans"][0]["style"] == {"fg": 1}, str(first))
+    finally:
+        subprocess.run(["tmux", "-L", sock, "kill-server"], capture_output=True, timeout=20)
+        try:
+            sock_file.unlink()
+        except OSError:
+            pass
+        os.environ.pop("OCP_TMUX_SOCKET", None)
+
+
+def test_tmux_history_is_read_in_one_call_so_a_scrolling_pane_cannot_shift_a_page(home: Path) -> None:
+    """A stand-in tmux server that scrolls five lines at every call it gets: a page read in two calls (the size, then the rows) came back
+    labelled with rows newer than it held. The pane on the alternate screen has no history."""
+    use_home(home)
+    state = {"history": [f"h{i}" for i in range(100)], "alt": "0", "calls": 0, "scroll": 5}
+
+    def fake(args, **_kw):
+        state["calls"] += 1
+        n = len(state["history"])
+        state["history"] += [f"h{i}" for i in range(n, n + state["scroll"])]      # the pane scrolls before this call is served
+        out = []
+        for cmd in " ".join(args).split(" ; "):
+            if cmd.startswith("display-message"):
+                out.append(f"{state['alt']} {len(state['history'])}\n")
+            elif cmd.startswith("capture-pane") and "-S -" in cmd:
+                out.append("".join(r + "\n" for r in state["history"]) or "screen-top-row\n")      # tmux clamps -E to the screen when there is no history
+        return 0, "".join(out), ""
+
+    tm = tmuxbackend.TmuxBackend()
+    real, tmuxbackend._tmux = tmuxbackend._tmux, fake
+    try:
+        first, rows = tm.read_history("%1", None, 40, False)
+        check("tmux history: the page holds consecutive lines whatever scrolled meanwhile",
+              rows == [f"h{i}" for i in range(first, first + len(rows))] and len(rows) == 40, f"{first}: {rows[:2]}")
+        first, rows = tm.read_history("%1", 60, 20, False)
+        check("tmux history: an older page is labelled with the rows it holds",
+              first == 40 and rows == [f"h{i}" for i in range(40, 60)], f"{first}: {rows[:2]}")
+        before = state["calls"]
+        tm.read_history("%1", None, 10, True)
+        check("tmux history: one tmux call per read", state["calls"] == before + 1)
+        state.update(history=[], scroll=0)
+        check("tmux history: a pane that has not scrolled has no history, not its top row", tm.read_history("%1", None, 10, False) == (0, []))
+        state["alt"] = "1"
+        check("tmux history: none on the alternate screen", tm.read_history("%1", None, 10, False) == (0, []))
+    finally:
+        tmuxbackend._tmux = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_config_key_picks_the_backend_and_a_typo_stops_instead_of_falling_back(Path(td) / "b1"))
@@ -941,6 +1031,8 @@ def main() -> int:
         run(lambda: test_tmux_own_terminal_is_a_pane_on_our_server_only(Path(td) / "b8"))
         run(lambda: test_tmux_makes_a_git_worktree_and_knows_a_repo_by_its_dot_git(Path(td) / "b9"))
         run(lambda: test_a_real_tmux_runs_the_same_calls(Path(td) / "b10"))
+        run(lambda: test_tmux_history_is_read_in_one_call_so_a_scrolling_pane_cannot_shift_a_page(Path(td) / "b10g"))
+        run(lambda: test_a_real_tmux_keeps_every_scrolled_line_once_in_the_channels_history(Path(td) / "b10h"))
     return run_area(tests)
 
 
