@@ -105,3 +105,12 @@ func Oneline(value string) string {
 		return ' '
 	}, strings.Join(Drawable(value, 4), " "))
 }
+
+// Space is the characters inside a regexp class that Python's \s matches: Unicode white space, wider than RE2's ASCII \s.
+const Space = `\s\x{1c}-\x{1f}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}`
+
+// IsSpace is Python's str.isspace for one character.
+func IsSpace(r rune) bool { return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f) }
+
+// Strip is Python's str.strip(): white space off both ends.
+func Strip(s string) string { return strings.TrimFunc(s, IsSpace) }

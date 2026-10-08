@@ -1,0 +1,2 @@
+{"type": "assistant", "isSidechain": false, "timestamp": "2026-10-08T06:00:00Z", "message": {"usage": {"cache_creation": {"ephemeral_1h_input_tokens": 100, "ephemeral_5m_input_tokens": 0}}}}
+{"type": "assistant", "isSidechain": false, "timestamp": "garbage", "message": {"usage": {"cache_read_input_tokens": 5}}}
