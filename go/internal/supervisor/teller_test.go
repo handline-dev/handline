@@ -56,6 +56,29 @@ func TestTheTellerAfterADiscardAdvancesTheOwnerTypesTheSaysAndForgetsInboxFiles(
 	}
 }
 
+func TestTheTellerTypesTheNextTaskAtTheOwnerAfterADiscard(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	first := r.newTask("bob", "alice", "current")
+	second := r.newTask("bob", "alice", "the next one")
+	r.AdvanceCurrentTask(r.DB, "bob")
+	// the next task already has its request out, so the advance only promotes it and the Teller's push is what types it
+	rid, err := db.AddRequest(r.DB, db.NewRequest{Requester: "alice", Target: "bob", Body: "the next one", Kind: "task"})
+	r.must(err)
+	r.must(db.LinkRequest(r.DB, second, rid))
+	db.DiscardTask(r.DB, first, "alice", "not needed")
+	reqs, _ := db.TaskRequests(r.DB, first)
+	for _, q := range reqs {
+		db.CloseIfQueued(r.DB, q.ID, "dismissed", "", db.CloseOpts{})
+	}
+	r.clock += BatchEveryS
+	r.term.typed = nil
+	r.Discarded("bob", nil, nil, nil)
+	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "the next one") {
+		t.Fatalf("the next task was not typed at the owner: %q", typed)
+	}
+}
+
 func TestAFailedStatementAfterTheCommitIsLoggedByTheTeller(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
