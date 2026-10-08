@@ -397,16 +397,6 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		trig = Trigger{true, kind, fmt.Sprintf("turn ended on its usage limit: %s (read from %s)", atWall.Text, src)}
 	}
 	if trig.Fired {
-		// A daemon that cannot perform a handoff says so once, not as a degraded handoff on every tick: nothing was tried.
-		if ns, ok := t.Handoff.(interface{ NotServed() string }); ok {
-			if why := ns.NotServed(); why != "" {
-				if t.saidClose[agent+"/handoff"] != why {
-					t.saidClose[agent+"/handoff"] = why
-					t.logf("  %s: a handoff is due (%s) but %s", agent, trig.Kind, why)
-				}
-				return
-			}
-		}
 		ok := t.Handoff.PerformHandoff(q, agent, trig, "")
 		suffix := ""
 		if !ok {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -61,6 +62,20 @@ type Parts struct {
 	home string
 	tell Telling
 	log  func(format string, args ...any)
+
+	openedMu sync.Mutex
+	opened   map[string]string // the account each agent's last session was opened under
+}
+
+// OpenedOn is the account the agent's running session was opened under: the daemon chose its config directory, so it knows. "" when no
+// session of the agent runs or none was opened since the daemon began.
+func (p *Parts) OpenedOn(agent string) string {
+	if !p.Run.Alive(agent) {
+		return ""
+	}
+	p.openedMu.Lock()
+	defer p.openedMu.Unlock()
+	return p.opened[agent]
 }
 
 // Telling is what the supervisor's Env does with a session's end of a send: the operation is delivered once the CLI echoed it, and what was
@@ -183,6 +198,14 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
 	}
 	_, err := r.mgr.Start(context.Background(), spec.Agent, l)
+	if err == nil {
+		r.parts.openedMu.Lock()
+		if r.parts.opened == nil {
+			r.parts.opened = map[string]string{}
+		}
+		r.parts.opened[spec.Agent] = spec.Account
+		r.parts.openedMu.Unlock()
+	}
 	return err
 }
 

@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -274,13 +275,38 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 // start, take this vendor, fit, and have a free slot the way a resume's wait judges it (the others mid-turn plus the older closed agents
 // waiting there, so a move does not jump their queue), the one furthest behind its week. "" when none has room.
 func (l *Launcher) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string {
+	best, _ := l.RoomElsewhere(q, agent, row, map[string]string{skip: ""})
+	return best
+}
+
+// asWaiter is the row of an agent about to be placed: an open one is newer than every closed agent waiting for a slot, so none of them is
+// passed over for it.
+func asWaiter(row *db.AgentState) *db.AgentState {
+	if row == nil || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+		return row
+	}
+	c := *row
+	c.ClosedAt = sql.NullInt64{Int64: math.MaxInt64, Valid: true}
+	return &c
+}
+
+// RoomElsewhere is SlowestPaced with a reason for each account passed over: exclude names the accounts left out and why. The second result
+// is why no account has room, "" when one does. A move to an account is held to this same test, so a wake and a handoff cannot disagree.
+func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
+	row = asWaiter(row)
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
+	var passed []string
 	for _, a := range l.mayStartAccounts() {
-		if a == skip || l.Ports.Usage.NotFor(a, vendor) || !l.Ports.Usage.Fit(a, agent) {
+		if _, skip := exclude[a]; skip {
+			continue
+		}
+		if l.Ports.Usage.NotFor(a, vendor) || !l.Ports.Usage.Fit(a, agent) {
+			passed = append(passed, a+": not a place for it")
 			continue
 		}
 		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+			passed = append(passed, a+": no free slot")
 			continue
 		}
 		h, ok := l.Ports.Usage.Headroom(a)
@@ -291,7 +317,28 @@ func (l *Launcher) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip s
 			best, most = a, h
 		}
 	}
-	return best
+	if best == "" {
+		return "", "no account can take one more agent (" + strings.Join(passed, "; ") + ")"
+	}
+	return best, ""
+}
+
+// RoomOn is the same test for one account a person chose: why it cannot take the agent, "" when it can.
+func (l *Launcher) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
+	row = asWaiter(row)
+	for _, a := range l.mayStartAccounts() {
+		if a != acct {
+			continue
+		}
+		if l.Ports.Usage.NotFor(a, l.Ports.Vendors.AgentVendor(agent)) || !l.Ports.Usage.Fit(a, agent) {
+			return "is not a place for it"
+		}
+		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+			return "has no free slot"
+		}
+		return ""
+	}
+	return "is not logged in or may not start"
 }
 
 // FreesFirst is, for an agent no account has room for, the walled account whose wall lifts first; nil when none is walled.
@@ -911,6 +958,14 @@ func (p LaunchPort) AccountFor(q db.Q, agent string, resuming bool) string {
 
 func (p LaunchPort) SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string {
 	return p.L.SlowestPaced(q, agent, row, skip)
+}
+
+func (p LaunchPort) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
+	return p.L.RoomElsewhere(q, agent, row, exclude)
+}
+
+func (p LaunchPort) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
+	return p.L.RoomOn(q, agent, row, acct)
 }
 
 var _ Launch = LaunchPort{}

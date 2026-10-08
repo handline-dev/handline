@@ -375,7 +375,8 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	must(m.Delivery.EnforceEdges(m.Q, agent))
 	// A closed agent is brought back for a message. With none, there is nothing to tell it and no reason to spend a session on it; the
 	// message that arrives is what wakes it. A move is the exception: the agent was mid-work and its handoff is what it is started with.
-	if movedTo == "" && !force && !m.waitingFor(agent) {
+	// A parked agent is woken to be handed its record, whatever waits: the handoff that parked it closed the session it carried the work in.
+	if movedTo == "" && !force && row.State != states.Parked && !m.waitingFor(agent) {
 		return false, NothingWaiting
 	}
 	// `hl launch` refuses at the 5h wall, and the daemon can read that before it types anything. Trying anyway would spend the wake

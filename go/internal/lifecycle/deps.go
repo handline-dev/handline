@@ -115,6 +115,10 @@ type Launch interface {
 	NoRoom(agent string) string
 	// SlowestPaced is the account other than skip with a free slot that is furthest behind its week, "" when none has room.
 	SlowestPaced(q db.Q, agent string, row *db.AgentState, skip string) string
+	// RoomElsewhere is the same pick with every account in exclude left out (name -> why); the second result says why none has room.
+	RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (account, why string)
+	// RoomOn is why acct cannot take the agent, "" when it can.
+	RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string
 }
 
 // Spawner is team/spawn.py.
