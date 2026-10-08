@@ -243,6 +243,10 @@ func (m *Manager) Kill(agent string) error {
 	m.stopping[agent] = true
 	m.mu.Unlock()
 	if err := s.Kill(); err != nil {
+		// The group is still there, so the session is still running: its later real exit is a failure to report again.
+		m.mu.Lock()
+		delete(m.stopping, agent)
+		m.mu.Unlock()
 		return err
 	}
 	m.mu.Lock()
