@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +173,28 @@ func TestChatRefsAreTheAgentsNewestRequestsAndLeaveOutWhatNeverReached(t *testin
 	}
 	if _, err := e.chatRefs(nil, map[string]any{"agent": "nobody"}); err == nil {
 		t.Fatal("an agent that is not registered is not found")
+	}
+}
+
+func TestAStructuredAgentSaysSoInItsViewAndATerminalAgentDoesNot(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "alice", "")
+	addAgent(t, e, "bob", "")
+	if _, err := e.DB.Exec(`INSERT INTO agent_view(agent, view, updated) VALUES('alice', '{"name":"alice","state":"idle","n":12345678901234567}', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	e.Structured = func(agent string) bool { return agent == "alice" }
+	got, err := e.agentsList(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Agents []map[string]any }
+	json.Unmarshal(b, &out)
+	if out.Agents[0]["structured"] != true || out.Agents[1]["structured"] != nil {
+		t.Fatalf("%s", b)
+	}
+	if !strings.Contains(string(b), "12345678901234567") {
+		t.Fatalf("the stored view's numbers are kept exactly: %s", b)
 	}
 }

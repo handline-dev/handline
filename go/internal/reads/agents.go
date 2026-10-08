@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,22 @@ const noView = "no_terminal"
 // stored view yet gets what can be read without the tick's judgement of its screen: no terminal is known for it, so its
 // state is the spec's word for that.
 func (e *Env) viewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
+	v, err := e.baseViewOf(name, stored)
+	if err != nil || e.Structured == nil || !e.Structured(name) {
+		return v, err
+	}
+	// A structured agent says so: a client shows its transcript where a terminal agent's terminal would be. Absent means a terminal agent.
+	dec := json.NewDecoder(bytes.NewReader(v))
+	dec.UseNumber()
+	var view map[string]any
+	if err := dec.Decode(&view); err != nil {
+		return nil, err
+	}
+	view["structured"] = true
+	return json.Marshal(view)
+}
+
+func (e *Env) baseViewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
 	if v, ok := stored[name]; ok {
 		return v, nil
 	}
