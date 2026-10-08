@@ -92,6 +92,30 @@ func answerIDs(op string) ([]int64, bool) {
 	return out, true
 }
 
+// notHeld is the answers not already in a held batch: those are told when their batch goes out, not in a second one.
+func (e *Env) notHeld(q db.Q, agent string, answered []*db.Request) []*db.Request {
+	prefix := ledgerKey(agent, "answers:")
+	rows := must(q.Query("SELECT name FROM cursors WHERE name LIKE ? ESCAPE '\\' AND row_id = ?", likeEscape(prefix)+"%", sendHeld))
+	held := map[int64]bool{}
+	for rows.Next() {
+		var name string
+		check(rows.Scan(&name))
+		ids, _ := answerIDs(strings.TrimPrefix(name, ledgerKey(agent, "")))
+		for _, id := range ids {
+			held[id] = true
+		}
+	}
+	check(rows.Err())
+	rows.Close()
+	var out []*db.Request
+	for _, r := range answered {
+		if !held[r.ID] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // announced records that these answers were told: the requests they settle are not announced again.
 func (e *Env) announced(q db.Q, agent string, ids []int64) {
 	check(db.MarkAnnounced(q, ids))
@@ -160,9 +184,10 @@ func (e *Env) sendLock(agent string) *sync.Mutex {
 func (e *Env) SessionConfirmed(q db.Q, agent, op string) (err error) {
 	defer Catch(&err)
 	key := ledgerKey(agent, op)
+	was := must(db.Cursor(q, key))
 	check(moveLedger(q, key, sendWritten, sendConfirmed))
 	check(moveLedger(q, key, sendHeld, sendConfirmed))
-	if must(db.Cursor(q, key)) != sendConfirmed {
+	if (was != sendWritten && was != sendHeld) || must(db.Cursor(q, key)) != sendConfirmed {
 		return nil
 	}
 	for _, rid := range ridsOfOp(op) {
@@ -173,7 +198,7 @@ func (e *Env) SessionConfirmed(q db.Q, agent, op string) (err error) {
 		check(db.MarkLanded(q, rid))
 		must(db.AddEvent(q, agent, "landed", db.KV{K: "request_id", V: rid}))
 	}
-	if ids, ok := answerIDs(op); ok {
+	if ids, ok := answerIDs(op); ok && was == sendHeld { // a written batch was announced when it went out
 		e.announced(q, agent, ids)
 	}
 	return nil
