@@ -361,10 +361,18 @@ def test_an_agent_may_follow_the_stream_and_hl_events_still_works_from_its_sessi
         w.call("hello", {"client": "t", "protocol": 1})
         sub = w.call("subscribe", {"topics": ["agents"]})
         feed = w.call("events.feed", {})
+        member_only = [w.call(m, {"topics": [t]}) for m in ("subscribe", "events.feed") for t in ("chat", "operations")]
         w.close()
     finally:
         sessiontoken.agent_of = real
     check("roles: an agent may subscribe and read the feed", "result" in sub and "result" in feed, str((sub, feed)))
+    check("roles: an agent is refused the chat and operations topics, whose reads are a member's",
+          all(_code(r) == "refused" for r in member_only), str(member_only))
+    w = Wire()
+    w.call("hello", _hp())
+    member = [w.call(m, {"topics": [t]}) for m in ("subscribe", "events.feed") for t in ("chat", "operations")]
+    w.close()
+    check("roles: a member still follows them", all("result" in r for r in member), str(member))
     con = db.connect()
     db.add_event(con, "backend", "Stop", {})
     con.close()
