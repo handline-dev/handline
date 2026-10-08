@@ -800,3 +800,25 @@ func CommandFor(account, why, by, agent string) string {
 	}
 	return cmd
 }
+
+// LaunchPort is a Launcher as the Launch the manager and spawn read it through.
+type LaunchPort struct{ L *Launcher }
+
+func (p LaunchPort) Drifted(agent string, row *db.AgentState) bool { return p.L.Drifted(agent, row) }
+
+func (p LaunchPort) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait {
+	return p.L.WakeWait(q, agent, row)
+}
+
+func (LaunchPort) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
+
+func (LaunchPort) CommandFor(agent, account, why, by string) (string, error) {
+	return CommandFor(account, why, by, agent), nil
+}
+
+// ChooseAccount is whether this agent's next fresh launch has an account to run on.
+func (p LaunchPort) ChooseAccount(_ db.Q, agent string) bool {
+	return p.L.ChooseAccount(agent, false, "") != ""
+}
+
+func (p LaunchPort) NoRoom(agent string) string { return p.L.NoRoom(agent) }

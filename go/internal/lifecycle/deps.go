@@ -104,19 +104,12 @@ type Blocked interface {
 type Launch interface {
 	Drifted(agent string, row *db.AgentState) bool
 	// WakeWait is why the account a wake would land on is full, nil when it has room.
-	WakeWait(q db.Q, agent string, row *db.AgentState) *Wait
-	DescribeWakeWait(w *Wait) string
+	WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait
+	DescribeWakeWait(w *WakeWait) string
 	// CommandFor is the launch command for a wake; account "" for the agent's own.
 	CommandFor(agent, account, why, by string) (string, error)
 	ChooseAccount(q db.Q, agent string) bool
 	NoRoom(agent string) string
-}
-
-// Wait is a full account a wake would land on.
-type Wait struct {
-	Account, Window string
-	Pct             int
-	IsLong, Assumed bool
 }
 
 // Spawner is team/spawn.py.

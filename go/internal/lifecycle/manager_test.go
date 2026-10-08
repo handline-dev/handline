@@ -79,9 +79,9 @@ func (f *fakeTerm) Relaunch(_, cmd string, started func() bool) (bool, string) {
 
 type fakeLaunch struct{ Launch }
 
-func (fakeLaunch) Drifted(string, *db.AgentState) bool         { return false }
-func (fakeLaunch) WakeWait(db.Q, string, *db.AgentState) *Wait { return nil }
-func (fakeLaunch) ChooseAccount(db.Q, string) bool             { return true }
+func (fakeLaunch) Drifted(string, *db.AgentState) bool             { return false }
+func (fakeLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait { return nil }
+func (fakeLaunch) ChooseAccount(db.Q, string) bool                 { return true }
 func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 	return "hl launch " + agent + " --why '" + why + "'", nil
 }
