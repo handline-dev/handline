@@ -7,7 +7,7 @@ import { until } from '../src/helpers.ts';
 // A daemon that hangs up on every hello while `down`, as one out of descriptors does, then serves again.
 function flaky(daemon: FakeDaemon) {
   const made: Transport[] = [];
-  const net = { down: false, connects: 0, open: () => made.filter((t) => !(t as Transport & { closed: boolean }).closed).length };
+  const net = { down: false, reject: false, connects: 0, open: () => made.filter((t) => !(t as Transport & { closed: boolean }).closed).length };
   const connect = async (): Promise<Transport> => {
     // Loops that double on each failure would run the process out of memory: past this, a connect never finishes.
     if (++net.connects > 100) return new Promise<Transport>(() => {});
@@ -15,6 +15,9 @@ function flaky(daemon: FakeDaemon) {
     made.push(client);
     if (net.down) {
       server.onmessage = () => server.close();
+    } else if (net.reject) {
+      // An error reply to every call, and the connection kept: only the client can close it.
+      server.onmessage = (m) => server.send(JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(m).id, error: { code: -32000, message: 'daemon_busy', data: { code: 'busy' } } }));
     } else {
       daemon.accept(server);
     }
@@ -49,5 +52,17 @@ test('a start that fails part way closes its connection and starts no loop of it
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(net.connects, 1, 'only the caller retries a failed start');
   assert.equal(net.open(), 0);
+  client.close();
+});
+
+test('a handshake the daemon answers with an error closes the connection the daemon kept', async () => {
+  const daemon = new FakeDaemon();
+  const { net, connect } = flaky(daemon);
+  net.reject = true;
+  const client = new DaemonClient({ client: 'electron', connect, reconnect: { minMs: 1, maxMs: 2 } });
+  await assert.rejects(client.start());
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(net.connects, 1, 'only the caller retries a failed start');
+  assert.equal(net.open(), 0, 'the connection the daemon kept open is closed by the client');
   client.close();
 });

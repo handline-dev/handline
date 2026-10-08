@@ -221,7 +221,9 @@ def test_running_out_of_descriptors_in_a_tick_is_not_counted_against_the_agent(h
 
 def test_every_tick_logs_the_open_descriptor_count(home: Path) -> None:
     """A daemon that ran out of descriptors said nothing; each tick now says how many it holds."""
+    from handline.daemon import fds as dmn_fds
     _daemon_home(home, 20)
+    dmn_fds._state["last"] = None
     out = _capture(lambda: dmn_loop.run(once=True, verbose=True))
     check("daemon: a tick logs its open descriptor count", re.search(r"fds: \d+/\d+", out) is not None, out[-300:])
 
