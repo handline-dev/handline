@@ -134,64 +134,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			asked *Asked
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			tid, asked = 0, nil
-			if hasBlocker { // refused before anything is opened, as the command does
-				if why, err := blockerRefusal(tx, blocker); err != nil {
-					return nil, err
-				} else if why != "" {
-					return nil, refusal(why)
-				}
-			}
-			if body == "" {
-				return nil, refusal("a task needs a body: the work itself, what done looks like - the title alone is not a brief")
-			}
-			if hasParent {
-				if ok, err := hasTask(tx, parent); err != nil {
-					return nil, err
-				} else if !ok {
-					return nil, refusal(fmt.Sprintf("no task T%d", parent))
-				}
-			}
-			kind := "task"
-			if owner == human {
-				kind = ""
-			}
-			if tell == nil {
-				return nil, fmt.Errorf("task.new needs the supervisor to route its ask")
-			}
-			asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
-				var err error
-				if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs); err != nil {
-					return err
-				}
-				if err := db.LinkRequest(tx, tid, rid); err != nil {
-					return err
-				}
-				if _, held, err := db.CurrentTask(tx, owner); err != nil {
-					return err
-				} else if owner != human && !held {
-					if err := db.SetCurrentTask(tx, owner, tid, true); err != nil {
-						return err
-					}
-				}
-				if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
-					return err
-				}
-				if hasParent { // a child task always blocks its parent
-					if err := db.AddBlock(tx, parent, tid); err != nil {
-						return err
-					}
-					if err := addEvent(tx, me, "block_task", kv{"task_id", parent}, kv{"blocks_on", tid}); err != nil {
-						return err
-					}
-				}
-				if hasBlocker { // a wait the new task cannot keep (a loop through its parent) is dropped, as the command drops it
-					if _, err := recordBlock(tx, tid, blocker, me); err != nil {
-						return err
-					}
-				}
-				return nil
-			}})
+			var err error
+			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker})
 			if err != nil {
 				return nil, err
 			}
@@ -220,4 +165,84 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, msg)
 		return out, nil
 	}
+}
+
+// NewIn is what OpenTask opens: the fields task.new has checked. Owner is an agent or the founder; Expects and Prio are set.
+type NewIn struct {
+	Owner, Title, Body string
+	Secs, Prio         int64
+	Expects            string
+	Parent, Blocker    int64
+	HasParent          bool
+	HasBlocker         bool
+}
+
+// OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and
+// the event land with the delivery. A refusal before anything is opened is the error; an owner the routing refuses is asked.OK false, with
+// the writes of the refusal standing, and the caller decides how to commit them. The caller calls tell.Opened once it has committed.
+func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *Asked, err error) {
+	owner, body, prio, expects, secs := in.Owner, in.Body, in.Prio, in.Expects, in.Secs
+	parent, hasParent, blocker, hasBlocker := in.Parent, in.HasParent, in.Blocker, in.HasBlocker
+	clean := in.Title
+	if hasBlocker { // refused before anything is opened, as the command does
+		if why, err := blockerRefusal(tx, blocker); err != nil {
+			return 0, nil, err
+		} else if why != "" {
+			return 0, nil, refusal(why)
+		}
+	}
+	if body == "" {
+		return 0, nil, refusal("a task needs a body: the work itself, what done looks like - the title alone is not a brief")
+	}
+	if hasParent {
+		if ok, err := hasTask(tx, parent); err != nil {
+			return 0, nil, err
+		} else if !ok {
+			return 0, nil, refusal(fmt.Sprintf("no task T%d", parent))
+		}
+	}
+	kind := "task"
+	if owner == human {
+		kind = ""
+	}
+	if tell == nil {
+		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
+	}
+	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
+		var err error
+		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs); err != nil {
+			return err
+		}
+		if err := db.LinkRequest(tx, tid, rid); err != nil {
+			return err
+		}
+		if _, held, err := db.CurrentTask(tx, owner); err != nil {
+			return err
+		} else if owner != human && !held {
+			if err := db.SetCurrentTask(tx, owner, tid, true); err != nil {
+				return err
+			}
+		}
+		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
+			return err
+		}
+		if hasParent { // a child task always blocks its parent
+			if err := db.AddBlock(tx, parent, tid); err != nil {
+				return err
+			}
+			if err := addEvent(tx, me, "block_task", kv{"task_id", parent}, kv{"blocks_on", tid}); err != nil {
+				return err
+			}
+		}
+		if hasBlocker { // a wait the new task cannot keep (a loop through its parent) is dropped, as the command drops it
+			if _, err := recordBlock(tx, tid, blocker, me); err != nil {
+				return err
+			}
+		}
+		return nil
+	}})
+	if err != nil {
+		return 0, nil, err
+	}
+	return tid, asked, nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
 )
@@ -21,8 +22,9 @@ import (
 const maxTaskTimeoutS = 4 * 3600
 
 // Register adds the chat writes to the server's table.
-func Register(s *rpc.Server, e *supervisor.Env) {
-	w := &writes{e}
+// tell is what follows a task the writes open or settle once it has committed.
+func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
+	w := &writes{e, tell}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
 	s.Register("chat.answer", rpc.Method{Role: "member", Write: true, Handler: w.answer})
@@ -36,7 +38,10 @@ func Register(s *rpc.Server, e *supervisor.Env) {
 	w.registerAnswers(s)
 }
 
-type writes struct{ e *supervisor.Env }
+type writes struct {
+	e    *supervisor.Env
+	tell taskwrites.Teller
+}
 
 func badParam(message, field string) *rpc.Error {
 	return rpc.BadRequestError(message, field, rpc.InvalidParams)
@@ -167,8 +172,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		return nil, err
 	}
 	if task != nil {
-		// Opening the task needs task_new (the ask and the task row in one write), which task.new is porting: until it is here this fails closed.
-		return nil, rpc.Refused("a message that opens a task is not served by this daemon yet: use task.new", "", "")
+		return w.sendTask(c, agent, body, task)
 	}
 	body = strings.TrimSpace(textsafe.Text(body))
 	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
@@ -224,7 +228,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string) 
 	if !WaitsOnPerson(row) {
 		return SayWrite(w.e, tx, db.Human, agent, body, parent, nil)
 	}
-	res, err := AnswerWrite(w.e, tx, parent, body, nil)
+	res, err := AnswerWrite(w.e, w.tell, tx, parent, body, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +256,7 @@ func (w *writes) answer(c *rpc.Conn, p map[string]any) (any, error) {
 		if !WaitsOnPerson(row) {
 			return nil, nil, rpc.Refused(fmt.Sprintf("#%d asked nothing of the person: there is nothing to answer", rid), "state", "")
 		}
-		res, err := AnswerWrite(w.e, tx, rid, body, nil)
+		res, err := AnswerWrite(w.e, w.tell, tx, rid, body, nil)
 		return res, nil, err
 	})
 }
@@ -391,5 +395,52 @@ func (w *writes) sendNow(c *rpc.Conn, p map[string]any) (any, error) {
 	if w.e.Wired() {
 		w.e.PushVerb(target, 0)
 	}
+	return out, nil
+}
+
+// sendTask is chat.send with a task: the message is the task's brief, and the agent is asked and the task row written in one transaction
+// (actions.task_new), with the call's record, so a retry opens no second task.
+func (w *writes) sendTask(c *rpc.Conn, agent, body string, task any) (any, error) {
+	t := task.(map[string]any)
+	title, _ := t["title"].(string)
+	var secs int64
+	if s, ok := t["time_box"].(string); ok {
+		secs, _ = timefmt.ParseSpan(s)
+	}
+	if w.tell == nil {
+		return nil, fmt.Errorf("a message that opens a task needs the task teller")
+	}
+	me := c.Caller.Actor()
+	var (
+		tid   int64
+		asked *taskwrites.Asked
+	)
+	out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+		var err error
+		tid, asked, err = taskwrites.OpenTask(tx, w.tell, me, taskwrites.NewIn{Owner: agent, Title: strings.TrimSpace(textsafe.Oneline(title)),
+			Body: strings.TrimSpace(textsafe.Text(body)), Secs: secs, Prio: db.DefaultPriority, Expects: "report"})
+		if err != nil {
+			return nil, err
+		}
+		if !asked.OK {
+			return nil, &rpc.CommitThen{Err: rpc.Refused(asked.Msg, "", "")}
+		}
+		return map[string]any{"accepted": true, "said": fmt.Sprintf("task T%d opened for %s", tid, agent), "request": asked.RID}, nil
+	})
+	if asked != nil && !asked.OK && asked.After != nil {
+		guarded(w.e, "telling after a refused task", func() (string, error) { return asked.After(), nil }) // the refusal's writes stood
+	}
+	if err != nil {
+		return nil, err
+	}
+	clean := strings.TrimSpace(textsafe.Oneline(title))
+	msg := asked.Msg
+	if asked.After != nil {
+		if extra := guarded(w.e, fmt.Sprintf("telling after T%d opened", tid), func() (string, error) { return asked.After(), nil }); extra != "" {
+			msg += "\n" + extra
+		}
+	}
+	guarded(w.e, fmt.Sprintf("telling the manager after T%d opened", tid), func() (string, error) { w.tell.Opened(tid, me, agent, clean); return "", nil })
+	out["said"] = msg
 	return out, nil
 }
