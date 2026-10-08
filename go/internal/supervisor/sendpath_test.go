@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
@@ -12,12 +13,13 @@ import (
 
 // fakeAgents is the structured sessions: what is sent is kept, and an op sent twice is answered from the first, as the real session does.
 type fakeAgents struct {
-	mu    sync.Mutex
-	live  map[string]bool
-	state structured.State // what a new send answers
-	fail  error
-	sent  []sentMsg
-	seen  map[string]structured.Receipt
+	mu     sync.Mutex
+	live   map[string]bool
+	state  structured.State // what a new send answers
+	fail   error
+	sent   []sentMsg
+	seen   map[string]structured.Receipt
+	onSend func() // runs inside Send, before it answers: where the session's echo can come
 }
 
 type sentMsg struct {
@@ -32,6 +34,11 @@ func (f *fakeAgents) Send(a, op, text string, d structured.Delivery) (structured
 	defer f.mu.Unlock()
 	if f.fail != nil {
 		return structured.Receipt{}, f.fail
+	}
+	if f.onSend != nil {
+		f.mu.Unlock()
+		f.onSend()
+		f.mu.Lock()
 	}
 	if r, ok := f.seen[a+op]; ok {
 		return r, nil
@@ -171,5 +178,111 @@ func TestNoticesAndCancelsGoThroughTheSendPath(t *testing.T) {
 	fa.live["bob"] = false
 	if ok, _ := r.TypeNotice(r.DB, "bob", "later"); ok {
 		t.Fatal("sent with no session")
+	}
+}
+
+func TestAnEchoDuringTheWriteIsNotOverwrittenToHeld(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.state = structured.Queued
+	fa.onSend = func() { r.must(r.SessionConfirmed(r.DB, "bob", "request:7")) }
+	state, _ := r.sendOnce(r.DB, "bob", "request:7", "hi", structured.Queue)
+	if state != Confirmed {
+		t.Fatalf("answered %v", state)
+	}
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", "request:7")); v != sendConfirmed {
+		t.Fatalf("ledger %d", v)
+	}
+	r.must(r.SessionLost(r.DB, "bob"))
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", "request:7")); v != sendConfirmed {
+		t.Fatalf("a lost session unsettled a confirmed message: %d", v)
+	}
+}
+
+func TestHeldAnswersAreAnnouncedOnlyOnceTheyAreOut(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.live["bob"] = false
+	r.answered("bob") // while it has no session, so nothing tells it yet
+	fa.live["bob"] = true
+	fa.state = structured.Queued
+	if sent, _ := r.DeliverAnswers(r.DB, "bob"); sent {
+		t.Fatal("held answers were announced")
+	}
+	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 1 {
+		t.Fatalf("%d unannounced while held", len(got))
+	}
+	r.must(r.SessionLost(r.DB, "bob")) // the session ended before the turn did: owed again
+	fa.state, fa.seen = structured.Sent, nil
+	if sent, _ := r.DeliverAnswers(r.DB, "bob"); !sent || len(fa.sent) != 2 {
+		t.Fatalf("not told again: %v %+v", sent, fa.sent)
+	}
+	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 0 {
+		t.Fatal("still unannounced after the write")
+	}
+}
+
+func TestHeldAnswersAreAnnouncedWhenTheEchoComes(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.live["bob"] = false
+	r.answered("bob") // while it has no session, so nothing tells it yet
+	fa.live["bob"] = true
+	fa.state = structured.Queued
+	r.DeliverAnswers(r.DB, "bob")
+	var op string
+	r.must(r.DB.QueryRow("SELECT substr(name, length('send:bob:')+1) FROM cursors WHERE name LIKE 'send:bob:answers:%'").Scan(&op))
+	r.must(r.SessionConfirmed(r.DB, "bob", op))
+	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 0 {
+		t.Fatal("not announced on the echo")
+	}
+}
+
+func TestOneStuckSessionDoesNotBlockAnotherAgentsSend(t *testing.T) {
+	r, fa := structuredRig(t)
+	fa.live["alice"] = true
+	release, entered := make(chan struct{}), make(chan struct{})
+	fa.onSend = func() {
+		select {
+		case entered <- struct{}{}:
+			<-release
+		default:
+		}
+	}
+	stuck := make(chan struct{})
+	go func() { r.sendOnce(r.DB, "bob", "op1", "stuck", structured.Now); close(stuck) }()
+	<-entered
+	done := make(chan struct{})
+	go func() { r.sendOnce(r.DB, "alice", "op2", "free", structured.Now); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("alice waited behind bob's write")
+	}
+	close(release)
+	<-stuck
+}
+
+func TestAnUnknownPendingOrAnswersOpIsRecordedAndNotWrittenAgain(t *testing.T) {
+	r, fa := structuredRig(t)
+	for _, op := range []string{"pending:3", "answers:4"} {
+		r.sendOnce(r.DB, "bob", op, "x", structured.Now)
+	}
+	r.must(r.SessionLost(r.DB, "bob"))
+	for _, op := range []string{"pending:3", "answers:4"} {
+		if state, _ := r.sendOnce(r.DB, "bob", op, "x", structured.Now); state != Unknown {
+			t.Fatalf("%s: %v", op, state)
+		}
+	}
+	if len(fa.sent) != 2 {
+		t.Fatalf("%+v", fa.sent)
+	}
+}
+
+// answered gives bob an answer that came back from alice, not yet announced.
+func (r *rig) answered(asker string) {
+	r.t.Helper()
+	rid := r.ask(asker, "alice", "q?", "ask")
+	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "the answer", Notify: true})
+	r.must(err)
+	if got, _ := db.UnannouncedAnswers(r.DB, asker); len(got) != 1 {
+		r.t.Fatalf("%d answers to announce", len(got))
 	}
 }

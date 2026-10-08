@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
@@ -11,9 +12,11 @@ import (
 
 // The one send path to a structured session (docs/design/structured-sessions.md, "Delivery"): the same for a person's message, another agent's,
 // the daemon's own notices and a task. A message goes out once under an operation id; a retry that finds it already out writes nothing; one
-// that was written and not confirmed when its session ended is marked unknown and told to the sender, never written again.
+// that was written and not confirmed when its session ended is marked unknown, never written again, and the sender of each request in it is told. A pending message and a batch of answers have no sender to tell: the delivery_unknown event records them.
 //
 // The ledger is the cursors table, one row per operation, so nothing here needs a schema of its own: `send:<agent>:<op>` holds the state.
+// The Agents port's contract: an error from Send means nothing was written. A message written and never echoed stays Written; ending it needs
+// a deadline from the session layer (S1).
 
 // The states of a send, as the ledger holds them.
 const (
@@ -72,6 +75,30 @@ func ridsOfOp(op string) []int64 {
 	return out
 }
 
+// answersOp is the operation id of a message that tells the agent the answers to these requests of its own.
+func answersOp(rids []int64) string { return "answers:" + idList(rids) }
+
+func answerIDs(op string) ([]int64, bool) {
+	list, ok := strings.CutPrefix(op, "answers:")
+	if !ok {
+		return nil, false
+	}
+	var out []int64
+	for _, p := range strings.Split(list, ",") {
+		if n, err := strconv.ParseInt(p, 10, 64); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out, true
+}
+
+// announced records that these answers were told: the requests they settle are not announced again.
+func (e *Env) announced(q db.Q, agent string, ids []int64) {
+	check(db.MarkAnnounced(q, ids))
+	must(db.AddEvent(q, agent, "answered", db.KV{K: "count", V: len(ids)}))
+	e.log("  %s: told about %d answer(s)", agent, len(ids))
+}
+
 // nextOp is a fresh operation id for a message nothing else names (a notice, a nudge).
 func (e *Env) nextOp(q db.Q, prefix string) string {
 	n := must(db.Cursor(q, "send_seq")) + 1
@@ -83,8 +110,9 @@ func (e *Env) nextOp(q db.Q, prefix string) string {
 // was written (no live session, or the session refused the write) and the caller may try again; any other state means the daemon owns the
 // message from here and must not send it again.
 func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (SendState, string) {
-	e.sendMu.Lock()
-	defer e.sendMu.Unlock()
+	lock := e.sendLock(agent)
+	lock.Lock()
+	defer lock.Unlock()
 	key := ledgerKey(agent, op)
 	if v := must(db.Cursor(q, key)); v != 0 {
 		return stateOfLedger(v), ""
@@ -98,15 +126,33 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 		check(db.ClearCursor(q, key))
 		return NotSent, err.Error()
 	}
+	// The echo can come before Send answers: only a row still Written moves on, so a Confirmed one is never taken back to Held.
 	switch rcpt.State {
 	case structured.Queued:
-		check(db.SetCursor(q, key, sendHeld))
-		return Held, ""
+		check(moveLedger(q, key, sendWritten, sendHeld))
 	case structured.Confirmed:
-		check(db.SetCursor(q, key, sendConfirmed))
-		return Confirmed, ""
+		check(moveLedger(q, key, sendWritten, sendConfirmed))
 	}
-	return Written, ""
+	return stateOfLedger(must(db.Cursor(q, key))), ""
+}
+
+// moveLedger sets a ledger row to to if it is still from, in one statement.
+func moveLedger(q db.Q, key string, from, to int64) error {
+	_, err := q.Exec("UPDATE cursors SET row_id = ?, updated = ? WHERE name = ? AND row_id = ?", to, db.Now(), key, from)
+	return err
+}
+
+// sendLock is agent's send lock: a write to one stuck CLI holds up that agent's sends and no one else's.
+func (e *Env) sendLock(agent string) *sync.Mutex {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.sendLocks == nil {
+		e.sendLocks = map[string]*sync.Mutex{}
+	}
+	if e.sendLocks[agent] == nil {
+		e.sendLocks[agent] = &sync.Mutex{}
+	}
+	return e.sendLocks[agent]
 }
 
 // SessionConfirmed is what the session layer calls when the CLI echoes a message: the operation is delivered, and the requests it told the
@@ -114,10 +160,11 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 func (e *Env) SessionConfirmed(q db.Q, agent, op string) (err error) {
 	defer Catch(&err)
 	key := ledgerKey(agent, op)
-	if v := must(db.Cursor(q, key)); v != sendWritten && v != sendHeld {
+	check(moveLedger(q, key, sendWritten, sendConfirmed))
+	check(moveLedger(q, key, sendHeld, sendConfirmed))
+	if must(db.Cursor(q, key)) != sendConfirmed {
 		return nil
 	}
-	check(db.SetCursor(q, key, sendConfirmed))
 	for _, rid := range ridsOfOp(op) {
 		row := must(db.GetRequest(q, rid))
 		if row == nil || row.LandedAt.Valid {
@@ -125,6 +172,9 @@ func (e *Env) SessionConfirmed(q db.Q, agent, op string) (err error) {
 		}
 		check(db.MarkLanded(q, rid))
 		must(db.AddEvent(q, agent, "landed", db.KV{K: "request_id", V: rid}))
+	}
+	if ids, ok := answerIDs(op); ok {
+		e.announced(q, agent, ids)
 	}
 	return nil
 }
@@ -169,7 +219,7 @@ func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-// deliveryUnknown records that a write may or may not have run, and tells the sender of each request in it.
+// deliveryUnknown records that a write may or may not have run, and tells the sender of each request in it (ops with no request name no one).
 func (e *Env) deliveryUnknown(q db.Q, agent, op string) {
 	must(db.AddEvent(q, agent, "delivery_unknown", db.KV{K: "op", V: op}))
 	told := map[string]bool{}
