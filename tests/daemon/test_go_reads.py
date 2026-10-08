@@ -54,7 +54,12 @@ def _seed_accounts(home: Path, con, now: int) -> None:
         (acc / name / ".claude").mkdir(parents=True, exist_ok=True)
         (acc / name / ".claude" / ".claude.json").write_text(json.dumps({"oauthAccount": {"subscriptionCreatedAt": started}}))
     (home / "config.yaml").write_text("active_cap: 3\nactive_cap_alpha: 1\nlabel_alpha: Main\nmonth_cycle_alpha: true\n"
-                                      "sub_end_alpha: \"2099-01-31\"\nusage_recover_beta: false\nmonth_cycle_gamma: true\nmonth_cycle_delta: true\nmonth_cycle_epsilon: true\n")
+                                      "sub_end_alpha: \"2099-01-31\"\npark_timeout_s: 1200\nbg_notice_s: 77\nhandoff_note: false\ndev_mode: 1\n"
+                                      "ignore_cache_expiry: true\ninput_hold_idle_s: 45\ntoken_prices: {opus: 7}\nusage_recover_beta: false\nmonth_cycle_gamma: true\nmonth_cycle_delta: true\nmonth_cycle_epsilon: true\n")
+    (home / "shared" / ".claude").mkdir(parents=True, exist_ok=True)       # hooks of ours for some events only: not installed
+    (home / "shared" / ".claude" / "settings.json").write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/hl hook Stop"}]}],
+        "SessionStart": [{"hooks": [{"type": "command", "command": "echo hook SessionStart"}]}]}}))
     con.execute("UPDATE agent_state SET account = 'alpha' WHERE agent = 'worker'")
     db.add_event(con, "manager", "moved_account", {"from": "beta", "to": "alpha", "trigger": "wall"})
     db.add_event(con, "worker", "moved_account", {"from": "alpha", "to": None})
@@ -67,6 +72,8 @@ def _seed(home: Path) -> dict:
     """A board with every state, a child, a wait, a memo, a handoff, and a founder's mailbox of each kind."""
     support._board_world(home)
     agents.register("backend")
+    support.hand_edit_agent("worker", (home / "agents" / "worker" / "agent.yaml").read_text()
+                            + "park_timeout_s: 90\nignore_cache_expiry: false\nbg_check_s: 33\n")
     (home / "agents" / "manager" / "ROLE.md").write_text("# manager\n\nLeads the team.\nSecond line.\n")
     a, b, c = _task("first"), _task("second"), _task("third")
     done = _task("finished")
@@ -213,6 +220,8 @@ def _normal(method: str, reply: dict) -> dict:
     if method == "schedules.list" and res:
         for e in res.get("errors", []):
             e["error"] = e["error"].split(": ")[0] + ":" if e["error"].startswith("schedules is not JSON: ") else e["error"]    # the decoder's own words are not compared
+    if method == "settings.get" and res:
+        res.pop("terminal_host", None)      # the machine's: Python probes the host, standalone Go drives none
     if method == "stats.get" and res:
         res["since"], res["until"] = None, None     # the clock: now less the window, read a second apart
     r.pop("id", None)
@@ -283,6 +292,11 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         ("manager", "stats.get", {"window": "7d"}),
         (None, "stats.get", {"window": "1h"}),
         (None, "stats.get", {}),
+        (None, "settings.get", {}),
+        (None, "settings.get", {"agent": "worker"}),
+        (None, "settings.get", {"agent": "nobody.here"}),
+        (None, "settings.get", {"agent": ""}),
+        ("manager", "settings.get", {}),
         (None, "answers.list", {}),
         ("manager", "answers.list", {}),
         (None, "inbox.get", {"id": ids["ask"]}),

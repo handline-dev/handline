@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/structured"
 )
 
 // A message typed into an agent's terminal at once: the socket's `message` verb and TellNow for a request, and the pending row that survives
@@ -40,6 +41,14 @@ func (e *Env) FinishSay(q db.Q, row *db.Request) {
 // deliverRow tries to type text (pending row rowID) at the agent right now; true only once it is sent, with the row deleted in the same lock
 // hold that sent it, so a message typed here and a concurrent DeliverPending never type the row twice.
 func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, string) {
+	if e.structuredAgent(agent) {
+		// Joins the running turn; the ledger holds the operation, so two callers never write the row twice.
+		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, structured.Now); state == NotSent {
+			return false, why
+		}
+		check(db.DeletePending(q, rowID))
+		return true, "sent"
+	}
 	handle := must(db.Terminal(q, agent))
 	if handle == "" {
 		return false, agent + " has no terminal"
@@ -93,7 +102,7 @@ func (e *Env) SendMessage(q db.Q, agent, text string) (ok bool, msg string, err 
 	if sent {
 		return true, agent + ": typed", nil
 	}
-	if !e.sessionPresent(agent) {
+	if !e.hasSession(agent) {
 		woke, wakeWhy := e.Lifecycle.WakeAgent(q, agent)
 		if woke {
 			if sent, why = e.deliverRow(q, agent, rowID, text); sent {
@@ -129,13 +138,19 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 	if row.State != "queued" {
 		return "refused at delivery", nil
 	}
-	state := stateOf(q, agent)
-	if !(state != nil && state.Terminal.String != "") {
-		e.Lifecycle.StartForWork(q, agent)
-		state = stateOf(q, agent)
-	}
-	if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
-		e.Lifecycle.WakeAgent(q, agent)
+	if e.structuredAgent(agent) {
+		if !e.Agents.Live(agent) {
+			e.Lifecycle.StartForWork(q, agent) // a structured agent has no terminal to look for: starting it opens its session
+		}
+	} else {
+		state := stateOf(q, agent)
+		if !(state != nil && state.Terminal.String != "") {
+			e.Lifecycle.StartForWork(q, agent)
+			state = stateOf(q, agent)
+		}
+		if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
+			e.Lifecycle.WakeAgent(q, agent)
+		}
 	}
 	// A resume's first prompt may already have told it (WaitingPrompt); a fresh start does not.
 	row = must(db.GetRequest(q, rid))
@@ -144,6 +159,9 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 	}
 	if row.DeliveredAt.Valid {
 		return "already told", nil
+	}
+	if e.structuredAgent(agent) {
+		return e.tellNowStructured(q, row)
 	}
 	handle := must(db.Terminal(q, agent))
 	if handle == "" || !e.sessionPresent(agent) {
