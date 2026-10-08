@@ -24,6 +24,7 @@ type fakeTeller struct {
 	stopped   bool
 	deny      string
 	handed    []Handover
+	opened    []string
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -135,8 +136,9 @@ func TestQueueRepliesWithWhatDeliveryDidForEachTask(t *testing.T) {
 	}
 }
 
-// HandoffAsk writes the request row the real ask would (or a denial when f.deny is set) and runs within.
-func (f *fakeTeller) HandoffAsk(tx *sql.Tx, from, to, body string, within func(rid int64) error) (*Asked, error) {
+// TaskAsk writes the request row the real ask would (or a denial when f.deny is set) and runs within.
+func (f *fakeTeller) TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error) {
+	from, to, body, within := in.From, in.To, in.Body, in.Within
 	if f.deny != "" {
 		rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task", State: "denied", Verdict: f.deny})
 		return &Asked{Msg: f.deny, RID: rid}, err
@@ -160,4 +162,7 @@ func (f *fakeTeller) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(
 func (f *fakeTeller) HandedOver(h Handover) string {
 	f.handed = append(f.handed, h)
 	return "pushed"
+}
+func (f *fakeTeller) Opened(tid int64, by, owner, title string) {
+	f.opened = append(f.opened, fmt.Sprintf("T%d %s %s %s", tid, by, owner, title))
 }

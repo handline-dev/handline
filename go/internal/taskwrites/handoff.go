@@ -21,6 +21,14 @@ type Asked struct {
 	After func() string
 }
 
+// AskReq is a task's delivery to be routed. Kind "" is the routing edge's own; NoCard keeps a request to the founder from raising a decision
+// card (task.new opens its own task); Notify types the target after the commit, which a handoff leaves to HandedOver.
+type AskReq struct {
+	From, To, Body, Kind string
+	NoCard, Notify       bool
+	Within               func(rid int64) error
+}
+
 // Handover is a handoff that committed.
 type Handover struct {
 	Task         int64
@@ -103,10 +111,11 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 				return nil, refusal(why)
 			}
 			h = Handover{Task: tid, By: me, From: t.Owner, To: to, Title: t.Title}
-			asked, err = tell.HandoffAsk(tx, me, to, fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, me, t.Title, said), func(rid int64) error {
-				h.RID = rid
-				return moveTask(tx, tell, &h, said)
-			})
+			asked, err = tell.TaskAsk(tx, AskReq{From: me, To: to, Kind: "task", Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, me, t.Title, said),
+				Within: func(rid int64) error {
+					h.RID = rid
+					return moveTask(tx, tell, &h, said)
+				}})
 			if err != nil {
 				return nil, err
 			}

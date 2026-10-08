@@ -151,11 +151,11 @@ func TestTheTellerRoutesAHandoffInTheTransactionOfTheMoveAndTypesItAfterTheCommi
 	tx, err := r.DB.Begin()
 	r.must(err)
 	var moved int64
-	asked, err := r.HandoffAsk(tx, "bob", "alice", "T1 handed to you by bob: job\n\ncheck it", func(rid int64) error {
+	asked, err := r.TaskAsk(tx, taskwrites.AskReq{From: "bob", To: "alice", Kind: "task", Body: "T1 handed to you by bob: job\n\ncheck it", Within: func(rid int64) error {
 		moved = rid
 		to := "alice"
 		return db.EditTask(tx, tid, "bob", db.TaskEdit{Owner: &to})
-	})
+	}})
 	r.must(err)
 	if !asked.OK || asked.RID == 0 || moved != asked.RID {
 		t.Fatalf("%+v", asked)
@@ -177,7 +177,7 @@ func TestTheTellerRoutesAHandoffInTheTransactionOfTheMoveAndTypesItAfterTheCommi
 
 	tx, err = r.DB.Begin()
 	r.must(err)
-	denied, err := r.HandoffAsk(tx, "bob", "nobody.such", "x", func(int64) error { return fmt.Errorf("not reached") })
+	denied, err := r.TaskAsk(tx, taskwrites.AskReq{From: "bob", To: "nobody.such", Kind: "task", Body: "x", Within: func(int64) error { return fmt.Errorf("not reached") }})
 	r.must(err)
 	r.must(tx.Commit())
 	if denied.OK || denied.Msg == "" {

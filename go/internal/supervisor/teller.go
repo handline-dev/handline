@@ -134,15 +134,20 @@ func (e *Env) Done(tid int64, by, owner string, told []db.Notice, forget []db.In
 	e.deliverUnblocked(e.DB, told, freed)
 }
 
-// HandoffAsk routes the request a handoff sends to the new owner (kind task), in the transaction of the move; within is the move, run once the
-// ask is allowed. Nothing is typed here: the push waits for the commit, after the move, in HandedOver.
-func (e *Env) HandoffAsk(tx *sql.Tx, from, to, body string, within func(rid int64) error) (*taskwrites.Asked, error) {
-	out, err := e.Ask(tx, AskIn{Target: to, Body: body, Requester: from, Kind: "task",
-		Within: func(_ db.Q, rid int64, _ string) error { return within(rid) }})
+// TaskAsk routes the request that delivers a task, in the transaction of the write that opens or moves it; in.Within is that write, run once
+// the ask is allowed. A handoff types nothing here (its push waits for the commit, after the move, in HandedOver); task.new asks for it.
+func (e *Env) TaskAsk(tx *sql.Tx, in taskwrites.AskReq) (*taskwrites.Asked, error) {
+	out, err := e.Ask(tx, AskIn{Target: in.To, Body: in.Body, Requester: in.From, Kind: in.Kind, NoCard: in.NoCard, Notify: in.Notify,
+		Within: func(_ db.Q, rid int64, _ string) error { return in.Within(rid) }})
 	if err != nil {
 		return nil, err
 	}
-	return &taskwrites.Asked{OK: out.OK, Msg: out.Message, RID: out.RID, After: out.After.Run}, nil
+	return &taskwrites.Asked{OK: out.OK, Msg: out.Message, RID: out.RID, After: func() string {
+		if extra := out.After.Run(); extra != "" && out.OK && in.Notify { // what the push said joins the reply, as Finish does
+			return extra
+		}
+		return ""
+	}}, nil
 }
 
 // HandoffRetire closes a request of the old owner's as resolve does for a handoff: done, the requester not told, the decision task it is the
@@ -212,4 +217,11 @@ func (e *Env) tellParentOfSiblingMove(me, to, text string) {
 	if err := e.deliver(rid, db.NoticeRequester, mgr, text, "", d); err != nil {
 		e.log("  #%d: the inbox file for %s was not written: %v", rid, mgr, err)
 	}
+}
+
+// Opened is what task.new does after it commits: a manager is told when siblings pass work.
+func (e *Env) Opened(tid int64, by, owner, title string) {
+	var out string
+	defer e.guard("telling after a task was opened", &out)
+	e.tellParentOfSiblingMove(by, owner, fmt.Sprintf("T%d opened by %s for %s: %s", tid, by, owner, title))
 }
