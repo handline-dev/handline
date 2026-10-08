@@ -107,3 +107,26 @@ func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwri
 		e.typeSay(e.DB, owner, fmt.Sprintf("T%d discarded by %s - stop work on it", tid, by), "task discarded")
 	}
 }
+
+// Done is what a done task does after it commits (actions.mark_task_done): the inbox files of the requests it closed go, the owner is moved on
+// and pushed its next task, the tasks it was the last blocker of are released, and the says it wrote are typed. A leftover request settled on
+// an already done task only types its says.
+func (e *Env) Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool) {
+	var out string
+	defer e.guard("telling after a done", &out)
+	for _, f := range forget {
+		e.ForgetInbox(f.Target, f.RID)
+	}
+	var freed []string
+	if finished {
+		if changed, _, err := e.AdvanceCurrentTask(e.DB, owner); err != nil {
+			e.log("  moving %s on after T%d was done failed: %v", owner, tid, err)
+		} else if changed {
+			e.Push(e.DB, owner, 0)
+		}
+		var notices []db.Notice
+		notices, freed = e.freeBlockedBy(e.DB, tid, by)
+		told = append(told, notices...)
+	}
+	e.deliverUnblocked(e.DB, told, freed)
+}

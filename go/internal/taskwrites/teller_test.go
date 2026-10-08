@@ -19,6 +19,7 @@ type fakeTeller struct {
 	forget    []db.InboxFile
 	released  []Retired
 	cancelled []Retired
+	done      []string
 	stopped   bool
 }
 
@@ -37,6 +38,9 @@ func (f *fakeTeller) Discarded(owner string, told []db.Notice, freed []string, f
 func (f *fakeTeller) Cancelled(tid int64, by, owner string, stop bool, closed []Retired) {
 	f.cancelled = closed
 	f.stopped = stop
+}
+func (f *fakeTeller) Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool) {
+	f.done = append(f.done, fmt.Sprintf("T%d %s %s %d %v", tid, by, owner, len(told), finished))
 }
 func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
 	f.released = retired

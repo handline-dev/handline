@@ -183,7 +183,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if who != t.Owner {
 			also = append(also, who)
 		}
-		ended, gone, err := endTaskDiscarded(tx, home, tid, by, t, fmt.Sprintf("discarded by %s: %s", byWord, said), also)
+		ended, gone, err := endTask(tx, home, tid, by, t, strings.TrimRight(fmt.Sprintf("T%d discarded by %s: %s", tid, byWord, said), ": "), false, also)
 		if err != nil {
 			return nil, err
 		}

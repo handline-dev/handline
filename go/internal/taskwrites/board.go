@@ -15,6 +15,7 @@ type task struct {
 	ID                                  int64
 	Owner, OpenedBy                     string
 	DoneEvidence, DiscardedBy, QueuedBy sql.NullString
+	Expects                             sql.NullString
 	SentAt                              sql.NullInt64
 	TimeoutS                            sql.NullInt64
 	Parent                              sql.NullInt64
@@ -22,8 +23,8 @@ type task struct {
 
 func getTask(tx *sql.Tx, tid int64) (*task, error) {
 	t := &task{ID: tid}
-	err := tx.QueryRow("SELECT owner, opened_by, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task FROM tasks WHERE id = ?", tid).
-		Scan(&t.Owner, &t.OpenedBy, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent)
+	err := tx.QueryRow("SELECT owner, opened_by, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, expects FROM tasks WHERE id = ?", tid).
+		Scan(&t.Owner, &t.OpenedBy, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Expects)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -125,3 +125,20 @@ func TestTheTellerAfterACancelClosesTheTellsAndTypesTheStopToAnOwnerWithNoDelive
 		t.Fatalf("%q", typed)
 	}
 }
+
+func TestTheTellerAfterADoneMovesTheOwnerOnAndReleasesWhatWaitedOnTheTask(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	first := r.newTask("bob", "alice", "current")
+	waiting := r.newTask("alice", "alice", "waits on the first")
+	r.must(db.AddBlock(r.DB, waiting, first))
+	db.MarkTaskDone(r.DB, first, "done", "reason")
+	r.term.typed = nil
+	r.Done(first, "bob", "bob", nil, nil, true)
+	var n int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE 'task T2 is unblocked%'").Scan(&n)
+	if n != 1 {
+		t.Fatalf("the owner of the task that waited is told once: %d", n)
+	}
+}

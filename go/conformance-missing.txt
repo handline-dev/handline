@@ -42,7 +42,6 @@ chat.send
 chat.answer
 chat.dismiss
 chat.withdraw
-task.done
 chat.send_now
 stats.outlook
 answer.add

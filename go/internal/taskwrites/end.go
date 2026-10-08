@@ -227,9 +227,10 @@ func urgent(result string) bool {
 	return len(rest) == 0 || !(unicode.IsLetter(rest[0]) || unicode.IsDigit(rest[0]) || rest[0] == '_')
 }
 
-// endTaskDiscarded is _end_task for a discard: the task's queued deliveries close quietly, and whoever opened it, whoever asked
-// through a linked delivery, and `also` are told in one say each, written in this transaction.
-func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, text string, also []string) ([]told, []db.InboxFile, error) {
+// endTask is _end_task: the task's queued deliveries close quietly, and whoever opened it, whoever asked through a linked delivery, and
+// `also` are told `text` in one say each, written in this transaction. The opener's say is typed at once; the others' are notices for the
+// digest unless the result is urgent (a done task that says it failed).
+func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string, urgentResult bool, also []string) ([]told, []db.InboxFile, error) {
 	reqs, err := taskRequests(tx, tid)
 	if err != nil {
 		return nil, nil, err
@@ -246,7 +247,6 @@ func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, te
 			}
 		}
 	}
-	text = strings.TrimRight(fmt.Sprintf("T%d %s", tid, text), ": ")
 	skip := map[string]bool{by: true, noticeFrom: true}
 	if t.Parent.Valid {
 		var owner string
@@ -278,7 +278,7 @@ func endTaskDiscarded(tx *sql.Tx, home string, tid int64, by string, t *task, te
 		if skip[to] || !known[to] {
 			continue
 		}
-		rid, err := addSay(tx, noticeFrom, to, text, to != t.OpenedBy)
+		rid, err := addSay(tx, noticeFrom, to, text, to != t.OpenedBy && !urgentResult)
 		if err != nil {
 			return nil, nil, err
 		}

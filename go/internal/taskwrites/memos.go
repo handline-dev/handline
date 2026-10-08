@@ -34,6 +34,10 @@ type Teller interface {
 	// Cancelled is what the founder's cancel leaves before the discard's own telling: each request it closed told like any cancel, and the
 	// owner typed a stop when it held the task without a delivery to stop it (stop).
 	Cancelled(tid int64, by, owner string, stop bool, closed []Retired)
+	// Done is what a done task leaves after the commit: the inbox files of the requests it closed go, the owner moves on to its next task, and
+	// (finished) the tasks it was the last blocker of are released; the says it wrote are typed. finished is false when only a leftover request
+	// of an already done task was settled.
+	Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool)
 }
 
 func Register(s *rpc.Server, home string, tell Teller) {
@@ -43,6 +47,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, false)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
+	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: merge})
