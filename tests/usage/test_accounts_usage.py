@@ -1343,6 +1343,14 @@ def test_a_reading_is_asked_of_the_accounts_own_drivers_meter(home: Path) -> Non
         oc.usage_reading = lambda cdir: None
         check("meter: could not look is (None, False)",
               usage_api.read_detailed("zai", refresh=False) == (None, False))
+        # Temporary, by the founder's word: a claude account holding a coding-plan key is read by opencode's meter.
+        accounts.register("glm")
+        (vendors.config_dir("glm") / "opencode").mkdir()
+        (vendors.config_dir("glm") / "opencode" / "auth.json").write_text('{"zai-coding-plan": {"key": "fake-key"}}')
+        oc.usage_reading = lambda cdir: (30, 333, 40, 444)
+        r, failed = usage_api.read_detailed("glm", refresh=False)
+        check("meter: a claude account with a coding-plan key is read from z.ai",
+              r is not None and (r.account, r.short.pct, r.long.pct) == ("glm", 30, 40) and failed is False, repr(r))
     finally:
         oc.usage_reading = real
     with second_vendor():
