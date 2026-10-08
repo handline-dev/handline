@@ -32,7 +32,7 @@ The word is made in the order Python makes it, from the row, with the session as
 6. `PARKED` / `DEGRADED` / `THROTTLED` -> `parked` + clock (`due` once passed), or `queued` / `idle` as Python
 7. otherwise `idle`, with the background note when the session reports background work; `no_terminal` when there is no live session
 
-**Drops (founder #21854):**
+**Dropped, and what replaces each:**
 
 - the opencode screen witness (`_opencode_working`, pane read) -> the S1 session state: `running` and `requires_action` are busy.
 - a screen `modal` / `backgrounded` block as DIALOG -> an open prompt only. A structured session has no screen to be stuck behind.
