@@ -1,8 +1,8 @@
-"""account.set_cap, account.set, account.login and account.remove: an account's settings and its login, written through the daemon, each
-the founder's. They serve `hl account cap` (set_cap), the account page's Settings form with `hl account cycle` and
-`recover` (set: the fields it is given, all checked before any is written) and `hl login` (login).
+"""account.set, account.login and account.remove: an account's settings and its login, written through the daemon, each
+the founder's. They serve the account page's Settings form with `hl account cycle` and `recover` (set: the fields it is
+given, all checked before any is written) and `hl login` (login).
 
-set_cap and set write what a retry writes again, so a retry after a lost reply is harmless. login opens a terminal, so its
+set writes what a retry writes again, so a retry after a lost reply is harmless. login opens a terminal, so its
 handle is recorded in `write_effects` the moment it exists and a retry answers with it instead of opening a second.
 `claude /login` runs in that terminal and its credentials stay with claude: the daemon reads and stores none. The terminal
 belongs to no agent: `terminal.attach` watches it (see rpc_terminal)."""
@@ -57,16 +57,6 @@ def _accepted(ctx, params, name: str, said: str, **more) -> dict:
     finally:
         con.close()
     return result
-
-
-def _set_cap(ctx, params) -> dict:
-    acct, cap = _account(params), _cap(params)
-    if cap is None:
-        raise rpc.bad_request("cap is a whole number, at least 1", "cap", rpc.INVALID_PARAMS)
-    ok, said = details.set_account_cap(acct, str(cap))
-    if not ok:
-        raise rpc.refused(said)
-    return _accepted(ctx, params, "account.set_cap", said)
 
 
 def _set(ctx, params) -> dict:
@@ -145,7 +135,6 @@ def _remove(ctx, params) -> dict:
     return _accepted(ctx, params, "account.remove", said)
 
 
-rpc.METHODS["account.set_cap"] = rpc.Method(_set_cap, "founder", write=True)
 rpc.METHODS["account.set"] = rpc.Method(_set, "founder", write=True)
 rpc.METHODS["account.login"] = rpc.Method(_login, "founder", write=True)
 rpc.METHODS["account.remove"] = rpc.Method(_remove, "founder", write=True)

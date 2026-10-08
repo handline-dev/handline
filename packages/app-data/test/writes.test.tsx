@@ -89,7 +89,6 @@ const answersSeed: [Key, unknown][] = [[['d', D, 'answers'], { answers: [{ kind:
 /** [method, params, the cache it starts from, whether the cache must differ at once]. A verb the daemon decides leaves it as it was. */
 const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['chat.send', { agent: 'a', body: 'hello' }, chatSeed, true],
-  ['chat.withdraw', { request: 5 }, chatSeed, true],
   ['chat.dismiss', { request: 5 }, chatSeed, true],
   ['chat.answer', { request: 5, text: 'yes' }, chatSeed, true],
   ['task.new', { owner: 'a', title: 'new', body: '', time_box: '1h' }, taskSeed, true],
@@ -110,10 +109,8 @@ const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['inbox.reply', { id: 1, text: 'ok' }, inboxSeed, true],
   ['agent.set', { agent: 'a', values: { model: 'opus' } }, [[qk.agent(D, 'a'), { name: 'a', settings: { model: 'sonnet' } }]], true],
   ['settings.set', { changes: { idle_close: '9' } }, settingsSeed, true],
-  ['settings.trust', { account: 'x', worktrees: [{ path: '/w2' }] }, settingsSeed, true],
   ['trust.remove', { root: '/w' }, [[['d', D, 'trust'], { roots: ['/w'], proposals: [] }]], true],
   ['account.set', { account: 'x', label: 'Main', cap: 2 }, [[qk.accounts(D), { accounts: [account] }]], true],
-  ['account.set_cap', { account: 'x', cap: 5 }, [[qk.accounts(D), { accounts: [account] }]], true],
   ['schedule.add', { target: 'a', cron: '0 * * * *', message: 'ping' }, schedSeed, true],
   ['schedule.edit', { schedule: 3, message: 'changed' }, schedSeed, true],
   ['schedule.remove', { schedule: 3 }, schedSeed, true],

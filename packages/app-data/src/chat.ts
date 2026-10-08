@@ -77,7 +77,6 @@ export function useChatActions(agent: string) {
   const qc = useQueryClient();
   const { daemon } = useData();
   const send = useWrite('chat.send', agent);
-  const withdraw = useWrite('chat.withdraw', agent);
   const dismiss = useWrite('chat.dismiss', agent);
   const answer = useWrite('chat.answer', agent);
   const sendNow = useWrite('chat.send_now', agent);
@@ -103,7 +102,6 @@ export function useChatActions(agent: string) {
       send.mutate({ agent: m.to, body: m.body, ...(m.parent != null ? { parent: m.parent } : {}) });
     },
     discard: (id: number) => rows((x) => x.id !== id),
-    withdraw: (request: number) => withdraw.mutate({ request }),
     /** Types a queued message at the agent now. */
     sendNow: (request: number) => sendNow.mutate({ request }),
     /** Takes the message back, delivered or not; one the agent already has needs `confirm`. Resolves when the daemon has done it, rejects when it refuses. */

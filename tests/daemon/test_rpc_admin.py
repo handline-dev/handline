@@ -1,8 +1,8 @@
-"""Tests: account.set_cap, account.set, account.login, hr.decide, schedule.add, schedule.edit, schedule.remove, settings.set,
-settings.trust and worktree.set_status (contract/protocol.md): what each writes, who may call it, what a refusal leaves
-unwritten, a retry after a lost reply, and the legacy `trust` verb these re-expose still working from an agent session.
+"""Tests: account.set, account.login, account.remove, hr.decide, schedule.add, schedule.edit, schedule.remove and settings.set
+(contract/protocol.md): what each writes, who may call it, what a refusal leaves unwritten, a retry after a lost reply, and the
+legacy `trust` verb and `hl account cap`, which no method serves, still working.
 
-The terminal host (a login terminal, a worktree status, the trust sessions) is replaced by a recorder: it has its own tests.
+The terminal host (a login terminal) is replaced by a recorder: it has its own tests.
 
 Run on its own: python3 tests/daemon/test_rpc_admin.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -49,27 +49,15 @@ def _world(home: Path) -> None:
 class Host:
     """The terminal host replaced: records what it was asked and answers what it is told."""
     def __enter__(self):
-        self.calls, self.took, self.handle = [], (True, "ok"), "t-login"
-        self.saved = [(termmod, n, getattr(termmod, n)) for n in ("available", "create_terminal", "set_worktree")]
+        self.calls, self.handle = [], "t-login"
+        self.saved = [(termmod, n, getattr(termmod, n)) for n in ("available", "create_terminal")]
         termmod.available = lambda: True
         termmod.create_terminal = lambda command, cwd=None, title=None: (self.calls.append(("create", command, title)), self.handle)[1]
-        termmod.set_worktree = lambda path, **kw: (self.calls.append(("set", str(path), kw)), self.took)[1]
         return self
 
     def __exit__(self, *exc):
         for m, n, v in self.saved:
             setattr(m, n, v)
-
-
-def test_account_set_cap_writes_the_cap_and_refuses_what_is_not_one(home: Path) -> None:
-    _world(home)
-    r = _call("account.set_cap", {"account": "acct.one", "cap": 3, "request_id": "c1"})
-    check("account.set_cap: the cap is written and the reply says so", r["result"]["accepted"] and loadmod.own_cap("acct.one") == 3, str(r))
-    for bad in (0, -1, True, "3", None):
-        r = _call("account.set_cap", {"account": "acct.one", "cap": bad, "request_id": f"c-{bad}"})
-        check(f"account.set_cap: cap {bad!r} is bad_request and the cap stays", _code(r) == "bad_request" and loadmod.own_cap("acct.one") == 3, str(r))
-    r = _call("account.set_cap", {"account": "acct.nope", "cap": 2, "request_id": "c2"})
-    check("account.set_cap: an unknown account is not_found", _code(r) == "not_found", str(r))
 
 
 def test_account_remove_plans_without_changing_and_removes_only_when_confirmed(home: Path) -> None:
@@ -207,31 +195,6 @@ def test_settings_set_writes_every_key_in_one_step_or_none(home: Path) -> None:
     check("settings.set: an agent the team does not have is not_found", _code(r) == "not_found", str(r))
 
 
-def test_settings_trust_trusts_only_an_agents_own_worktree_under_a_declared_root(home: Path) -> None:
-    _world(home)
-    asked = []
-    real = details.trust_worktrees, details.eligible_worktrees
-    details.eligible_worktrees = lambda: ([("worker", "/wt/worker")], [("manager", "/elsewhere")])
-    details.trust_worktrees = lambda acct, wts: (asked.append((acct, wts)) or (True, "worker (/wt/worker): trusted"))
-    try:
-        r = _call("settings.trust", {"account": "acct.one", "worktrees": [{"agent": "worker", "path": "/wt/worker"}], "request_id": "x1"})
-        check("settings.trust: a declared worktree is trusted for the account", r["result"]["accepted"] and asked == [("acct.one", [("worker", "/wt/worker")])], str((r, asked)))
-        for wts in ([{"agent": "manager", "path": "/elsewhere"}], [{"agent": "worker", "path": "/wt/other"}],
-                    [{"agent": "worker", "path": "/wt/worker"}, {"agent": "manager", "path": "/wt/worker"}]):
-            r = _call("settings.trust", {"account": "acct.one", "worktrees": wts, "request_id": f"x-{len(asked)}-{wts[0]['path']}-{len(wts)}"})
-            check(f"settings.trust: {wts} is refused before any session starts", _code(r) == "refused" and len(asked) == 1, str(r))
-        for wts in ([], "x", [{"agent": "worker"}]):
-            r = _call("settings.trust", {"account": "acct.one", "worktrees": wts, "request_id": f"y-{wts}"})
-            check(f"settings.trust: worktrees {wts!r} is bad_request", _code(r) == "bad_request", str(r))
-        r = _call("settings.trust", {"account": "acct.nope", "worktrees": [{"agent": "worker", "path": "/wt/worker"}], "request_id": "x2"})
-        check("settings.trust: an unknown account is not_found", _code(r) == "not_found", str(r))
-        details.trust_worktrees = lambda acct, wts: (False, "worker: could not start a session")
-        r = _call("settings.trust", {"account": "acct.one", "worktrees": [{"agent": "worker", "path": "/wt/worker"}], "request_id": "x3"})
-        check("settings.trust: a worktree that would not be trusted is refused with the lines", _code(r) == "refused" and "could not start" in r["error"]["message"], str(r))
-    finally:
-        details.trust_worktrees, details.eligible_worktrees = real
-
-
 def _proposal() -> dict:
     ok, said = hr.propose("settings", "worker", requester="manager", why="w", sets={"effort": "high"})
     assert ok, said
@@ -266,35 +229,12 @@ def test_hr_decide_rejects_and_approves_the_proposal_it_names(home: Path) -> Non
         check(f"hr.decide: {params} is {code}", _code(r) == code, str(r))
 
 
-def test_worktree_set_status_sets_the_hosts_status_of_a_worktree_an_agent_records(home: Path) -> None:
-    _world(home)
-    wt = home / "wt-worker"
-    wt.mkdir()
-    con = db.connect()
-    db.set_terminal(con, "worker", "t1", str(wt))
-    con.close()
-    with Host() as h:
-        r = _call("worktree.set_status", {"path": str(wt), "status": "in-review", "request_id": "w1"})
-        check("worktree.set_status: the host is told the worktree's status", r["result"]["accepted"] and h.calls == [("set", str(wt), {"status": "in-review"})], str((r, h.calls)))
-        h.took = (False, "no such status")
-        r = _call("worktree.set_status", {"path": str(wt), "status": "bogus", "request_id": "w2"})
-        check("worktree.set_status: a host that refuses it is refused, gate state", _code(r) == "refused" and r["error"]["data"]["gate"] == "state", str(r))
-        for params, code in (({"path": "/nowhere", "status": "x"}, "not_found"), ({"path": str(wt), "status": ""}, "bad_request"),
-                             ({"path": str(wt), "status": "a\nb"}, "bad_request"), ({"path": str(wt), "status": "x" * 41}, "bad_request")):
-            r = _call("worktree.set_status", {**params, "request_id": f"w-{params['status']}"})
-            check(f"worktree.set_status: {params['status'][:6]!r} on {params['path'][-8:]} is {code}", _code(r) == code, str(r))
-        h.took = (True, "ok")
-        r = _call("worktree.set_status", {"path": str(wt), "status": "ok", "request_id": "w3"}, as_agent="manager")
-        check("worktree.set_status: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
-
-
 def test_every_method_is_refused_to_an_agent_session_and_writes_nothing(home: Path) -> None:
     _world(home)
-    calls = {"account.set_cap": {"account": "acct.one", "cap": 7}, "account.set": {"account": "acct.one", "cap": 7},
+    calls = {"account.set": {"account": "acct.one", "cap": 7},
              "account.login": {"account": "acct.one"}, "hr.decide": {"proposal": 1, "decision": "reject"},
              "schedule.add": {"target": "worker", "cron": "0 9 * * *", "message": "m"}, "schedule.edit": {"schedule": 1, "cron": "0 9 * * *"},
-             "schedule.remove": {"schedule": 1}, "settings.set": {"changes": {"active_cap": 7}},
-             "settings.trust": {"account": "acct.one", "worktrees": [{"agent": "worker", "path": "/x"}]}}
+             "schedule.remove": {"schedule": 1}, "settings.set": {"changes": {"active_cap": 7}}}
     with Host() as h:
         for method, params in calls.items():
             r = _call(method, {**params, "request_id": f"deny-{method}"}, as_agent="manager")
@@ -307,8 +247,7 @@ def test_a_retry_after_a_lost_reply_answers_the_first_run_and_repeats_none(home:
     _world(home)
     with Host() as h:
         runs = {"schedule.add": {"target": "worker", "cron": "0 9 * * *", "message": "once"},
-                "account.login": {"account": "acct.one"}, "settings.set": {"changes": {"input_hold_idle_s": 700}},
-                "account.set_cap": {"account": "acct.one", "cap": 4}}
+                "account.login": {"account": "acct.one"}, "settings.set": {"changes": {"input_hold_idle_s": 700}}}
         for method, params in runs.items():
             first = _call(method, {**params, "request_id": f"lost-{method}"})
             con = db.connect()
@@ -328,7 +267,7 @@ def test_a_retry_after_a_lost_reply_answers_the_first_run_and_repeats_none(home:
         check("hr.decide: a retry after a lost reply answers the first run's result instead of finding it decided", retry["result"].get("replayed") is True, str((first, retry)))
 
 
-def test_the_legacy_trust_verb_this_re_exposes_still_works_from_an_agent_session(home: Path) -> None:
+def test_the_legacy_trust_verb_and_hl_account_cap_still_work(home: Path) -> None:
     _world(home)
     real = details.trust_worktrees
     details.trust_worktrees = lambda acct, wts: (True, f"{acct}: {len(wts)} trusted")
@@ -338,7 +277,7 @@ def test_the_legacy_trust_verb_this_re_exposes_still_works_from_an_agent_session
     finally:
         details.trust_worktrees = real
     rc, out = support._cli(["account", "cap", "acct.one", "2"], as_agent=None)
-    check("hl account cap: still writes the cap itself, as the method does", rc == 0 and loadmod.own_cap("acct.one") == 2, out)
+    check("hl account cap: still writes the cap itself", rc == 0 and loadmod.own_cap("acct.one") == 2, out)
 
 
 def test_the_admin_fixtures_pass_against_this_daemon(home: Path) -> None:
@@ -370,18 +309,15 @@ def test_the_admin_fixtures_pass_against_this_daemon(home: Path) -> None:
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_account_set_cap_writes_the_cap_and_refuses_what_is_not_one(Path(td) / "d0"))
         run(lambda: test_account_remove_plans_without_changing_and_removes_only_when_confirmed(Path(td) / "d12"))
         run(lambda: test_account_set_writes_what_it_is_given_and_nothing_if_any_is_refused(Path(td) / "d1"))
         run(lambda: test_account_login_opens_a_terminal_that_can_be_watched_and_refuses_what_it_cannot_start(Path(td) / "d2"))
         run(lambda: test_schedules_are_added_edited_moved_and_removed_by_id(Path(td) / "d3"))
         run(lambda: test_settings_set_writes_every_key_in_one_step_or_none(Path(td) / "d4"))
-        run(lambda: test_settings_trust_trusts_only_an_agents_own_worktree_under_a_declared_root(Path(td) / "d5"))
         run(lambda: test_hr_decide_rejects_and_approves_the_proposal_it_names(Path(td) / "d6"))
-        run(lambda: test_worktree_set_status_sets_the_hosts_status_of_a_worktree_an_agent_records(Path(td) / "d7"))
         run(lambda: test_every_method_is_refused_to_an_agent_session_and_writes_nothing(Path(td) / "d8"))
         run(lambda: test_a_retry_after_a_lost_reply_answers_the_first_run_and_repeats_none(Path(td) / "d9"))
-        run(lambda: test_the_legacy_trust_verb_this_re_exposes_still_works_from_an_agent_session(Path(td) / "d10"))
+        run(lambda: test_the_legacy_trust_verb_and_hl_account_cap_still_work(Path(td) / "d10"))
         run(lambda: test_the_admin_fixtures_pass_against_this_daemon(Path(td) / "d11"))
     return run_area(tests)
 
