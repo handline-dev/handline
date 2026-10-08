@@ -183,10 +183,14 @@ func (s *Settings) BgNoticeS(agent string) int64 {
 }
 
 // BgGraceS is how long after that notice its work is stopped if it still shows nothing.
-func (s *Settings) BgGraceS(agent string) int64 { return s.SecondsSetting(agent, "bg_grace_s", BgGraceS) }
+func (s *Settings) BgGraceS(agent string) int64 {
+	return s.SecondsSetting(agent, "bg_grace_s", BgGraceS)
+}
 
 // BgCheckS is how often, while it has background work, an agent is asked which of it to stop.
-func (s *Settings) BgCheckS(agent string) int64 { return s.SecondsSetting(agent, "bg_check_s", BgCheckS) }
+func (s *Settings) BgCheckS(agent string) int64 {
+	return s.SecondsSetting(agent, "bg_check_s", BgCheckS)
+}
 
 // NoticeDigestS is how long after its first waiting result notice the agent is woken once with a digest.
 func (s *Settings) NoticeDigestS(agent string) int64 {
