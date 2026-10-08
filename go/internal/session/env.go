@@ -111,6 +111,8 @@ type Env struct {
 	Config    Config
 	Rules     Rules
 	Held      Held
+	// Observer says how the process table read each session-looking process.
+	Observer interface{ Diagnose() []string }
 	// Agents is the registered agents (paths.ListAgents).
 	Agents func() []string
 	Now    func() time.Time

@@ -13,8 +13,8 @@ import (
 var ocpRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:\S*/)?(?:` + strings.Join(paths.Commands, "|") + `)\s`)
 var heredocRE = regexp.MustCompile(`^<<(-?)[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)`)
 
-// Reason is why a Bash call is refused when a double-quoted ocp argument would run part of the message.
-const Reason = "Refused: nothing in this command ran, including any heredoc or file write in it. " +
+// GuardReason is why a Bash call is refused when a double-quoted ocp argument would run part of the message.
+const GuardReason = "Refused: nothing in this command ran, including any heredoc or file write in it. " +
 	"A backtick or $( inside double quotes is shell substitution. Resend the body in " +
 	"single quotes, or written to a file first in a separate step and passed with " +
 	"--file PATH (hl say, hl task new, hl task handoff, hl task memo add), or on " +
@@ -137,7 +137,7 @@ func Guard(tool string, toolInput any) string {
 		return ""
 	}
 	if Substitutes(command) {
-		return Reason
+		return GuardReason
 	}
 	return ""
 }

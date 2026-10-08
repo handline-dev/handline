@@ -124,3 +124,101 @@ func (f *fixture) event(agent, kind string) int64 {
 }
 
 func timeAt(unix int64) time.Time { return time.Unix(unix, 0) }
+
+type fakeDelivery struct {
+	head       map[string]*Request
+	changed    map[string]bool
+	depth      map[string]int
+	answers    map[string][]int64
+	forgotten  map[string]*Forgotten
+	nudgeAfter int64
+	taskBlock  bool
+	wall       map[string]string
+	present    map[string]bool
+	listed     map[string]*bool
+	drawn      map[string]bool
+}
+
+func newFakeDelivery() *fakeDelivery {
+	return &fakeDelivery{head: map[string]*Request{}, changed: map[string]bool{}, depth: map[string]int{}, answers: map[string][]int64{},
+		forgotten: map[string]*Forgotten{}, nudgeAfter: 600, wall: map[string]string{}, present: map[string]bool{},
+		listed: map[string]*bool{}, drawn: map[string]bool{}}
+}
+
+func (d *fakeDelivery) EffectiveHead(a string) *Request     { return d.head[a] }
+func (d *fakeDelivery) SessionChanged(a string) bool        { return d.changed[a] }
+func (d *fakeDelivery) QueueDepth(a string) int             { return d.depth[a] }
+func (d *fakeDelivery) UnannouncedAnswers(a string) []int64 { return d.answers[a] }
+func (d *fakeDelivery) ForgottenResolve(a string, _ *AgentRow, _ int64) *Forgotten {
+	return d.forgotten[a]
+}
+func (d *fakeDelivery) NudgeAfterS() int64                         { return d.nudgeAfter }
+func (d *fakeDelivery) HeadTaskBlocked(string, *Request) bool      { return d.taskBlock }
+func (d *fakeDelivery) WallReason(a string, _ *AgentRow) string    { return d.wall[a] }
+func (d *fakeDelivery) SessionPresent(a string) bool               { return d.present[a] }
+func (d *fakeDelivery) TableListsSession(a string) *bool           { return d.listed[a] }
+func (d *fakeDelivery) SessionStillDrawn(h string, wait bool) bool { return d.drawn[h] }
+
+type reported struct{ agent, text, subject string }
+
+type fakeAsker struct {
+	reports   []reported
+	decisions []reported
+	nextID    int64
+	states    map[int64]string
+	resolved  map[int64]string
+	open      map[string]int
+}
+
+func newFakeAsker() *fakeAsker {
+	return &fakeAsker{nextID: 100, states: map[int64]string{}, resolved: map[int64]string{}, open: map[string]int{}}
+}
+
+func (a *fakeAsker) Report(agent, text, subject string) {
+	a.reports = append(a.reports, reported{agent, text, subject})
+}
+func (a *fakeAsker) RaiseDecision(agent, text, subject string) int64 {
+	a.nextID++
+	a.decisions = append(a.decisions, reported{agent, text, subject})
+	a.states[a.nextID] = "queued"
+	return a.nextID
+}
+func (a *fakeAsker) ResolveDone(rid int64, text string) {
+	a.resolved[rid] = text
+	a.states[rid] = "landed"
+}
+func (a *fakeAsker) RequestState(rid int64) string    { return a.states[rid] }
+func (a *fakeAsker) OpenDecisionsOf(agent string) int { return a.open[agent] }
+
+type fakeLifecycle struct{ trust, bypass map[string]bool }
+
+func (l *fakeLifecycle) AutoTrust(a string) bool  { return l.trust[a] }
+func (l *fakeLifecycle) AutoBypass(a string) bool { return l.bypass[a] }
+
+// blockedFixture is a world for the delivery blocks: one registered agent, "backend", running in terminal h1 with a request queued.
+type blockedFixture struct {
+	*fixture
+	del  *fakeDelivery
+	ask  *fakeAsker
+	life *fakeLifecycle
+	t0   int64
+}
+
+func newBlockedFixture(t *testing.T) *blockedFixture {
+	f := newFixture(t)
+	b := &blockedFixture{fixture: f, del: newFakeDelivery(), ask: newFakeAsker(), life: &fakeLifecycle{map[string]bool{}, map[string]bool{}}}
+	f.Delivery, f.Asker, f.Lifecycle = b.del, b.ask, b.life
+	f.Agents = func() []string { return []string{"backend", "frontend"} }
+	f.agent("backend", Idle, "h1")
+	f.term.live["h1"] = true
+	b.del.head["backend"] = &Request{ID: 1}
+	b.del.present["backend"] = true
+	b.t0 = f.now
+	return b
+}
+
+func (b *blockedFixture) at(secs int64) { b.now = b.t0 + secs }
+
+func exitDialogBlocker() *term.Blocker {
+	return &term.Blocker{Kind: term.Modal, Title: "Background work is running", Detail: "Background work is running - Exit and stop tasks / Stay"}
+}
