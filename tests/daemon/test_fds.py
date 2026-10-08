@@ -84,7 +84,7 @@ def test_the_plist_carries_the_limit_the_daemon_raises_itself_to() -> None:
           plist.get("SoftResourceLimits", {}).get("NumberOfFiles") == socket_server.FD_SOFT_LIMIT, str(plist.get("SoftResourceLimits")))
 
 
-def test_the_inventory_names_a_database_handle_and_a_pty() -> None:
+def test_the_inventory_names_a_database_handle() -> None:
     with tempfile.TemporaryDirectory() as d:
         con = sqlite3.connect(str(Path(d) / "db.sqlite"))
         con.execute("PRAGMA journal_mode=WAL")
@@ -92,15 +92,25 @@ def test_the_inventory_names_a_database_handle_and_a_pty() -> None:
         con.execute("INSERT INTO t VALUES (1)")
         con.commit()
         plain = open(Path(d) / "notes.txt", "w")
-        master, slave = os.openpty()
         try:
             inv = fds.inventory()
-            kinds = {fds.kind(master), fds.kind(slave)}
             check("fds: a sqlite connection's files (db, wal, shm) are named db", inv.get("db", 0) >= 3, str(inv))
             check("fds: an ordinary file is a file, not a db", fds.kind(plain.fileno()) == "file", fds.kind(plain.fileno()))
-            check("fds: a pty is a pty", kinds == {"pty"}, str(kinds))
         finally:
-            os.close(master); os.close(slave); plain.close(); con.close()
+            plain.close(); con.close()
+
+
+def test_the_inventory_names_a_pty() -> None:
+    try:
+        master, slave = os.openpty()
+    except OSError as e:  # a sandbox may refuse a pty
+        support.skip(test_the_inventory_names_a_pty, f"cannot open a pty here: {e}")
+        return
+    try:
+        kinds = {fds.kind(master), fds.kind(slave)}
+        check("fds: a pty is a pty", kinds == {"pty"}, str(kinds))
+    finally:
+        os.close(master); os.close(slave)
 
 
 def test_check_survives_a_failing_inventory_and_tries_it_again() -> None:
