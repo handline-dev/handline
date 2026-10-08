@@ -2902,7 +2902,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
                     "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_end_told", "bypass_accepted", "notice_told", "notices_digested", "task_deliver_refused", "closed_under", "dismissed", "request_reason",
-                    "demoted_doing", "queue_task", "draft_task",
+                    "demoted_doing", "queue_task", "draft_task", "wake_reserved",
                     "input_holder", "type", "unsent_input_blocked",
                     "fold", "fold_failed", "cache_renewal", "idle_fold",
                     "forced_move", "fresh_close", "handoff", "moved_account", "nudged",

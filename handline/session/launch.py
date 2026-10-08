@@ -108,6 +108,7 @@ class WakeWait:
     assumed: bool = False
     window: str = ""            # the walled window's length as a person says it
     is_long: bool = False       # the longest window, not the shortest
+    full: int = 0               # >0: no wall, the account holds this many agents, its cap
 
 
 def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
@@ -123,6 +124,24 @@ def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
         return WakeWait(acct, week, st.long.reset, assumed, window=st.long.label,
                         is_long=True)
     return None
+
+
+def _full(agent: str, row, reading, con) -> WakeWait | None:
+    """A resume goes back to its own account and is not moved, so it waits for a slot there: none
+    left once the others on it (the agent itself left out) fill its cap, or older closed agents
+    waiting for the same account would take what is free. Oldest waiter first."""
+    from ..daemon import lifecycle
+    from ..usage import load
+    acct = reading.account
+    cap, others = load.cap_of(acct), load.active_agents(con, exclude=agent).get(acct, 0)
+    older = sum(1 for r in db.all_agent_states(con)
+                if r["agent"] != agent and r["closed_at"] and r["resume_session"]
+                and (r["closed_at"], r["agent"]) < (row["closed_at"], agent)
+                and agents.current_account(r["agent"], con) == acct
+                and lifecycle.waiting_for(con, r["agent"]))
+    if others + older < cap:
+        return None
+    return WakeWait(acct, 0, None, reading.source == "assumed", window="slot", full=cap)
 
 
 def frees_first(agent: str) -> WakeWait | None:
@@ -176,7 +195,9 @@ def wake_wait(agent: str, row, con) -> WakeWait | None:
         return None
     if row["resume_session"]:
         reading = agents.account_reading(agent, con)
-        return reading and _wall(reading.account, reading.source == "assumed")
+        if not reading:
+            return None
+        return _wall(reading.account, reading.source == "assumed") or _full(agent, row, reading, con)
     return None if choose_account(agent, resuming=False, con=con) else frees_first(agent)
 
 
@@ -204,6 +225,8 @@ def wait_clock(w: WakeWait, unknown: str = "?") -> str:
 def describe_wake_wait(w: WakeWait) -> str:
     """The wording for a wait already computed, so a caller that holds one
     does not recompute it (the window may have rolled over in between)."""
+    if w.full:
+        return f"waiting for a slot on {w.account} ({w.full} of {w.full} taken)"
     when = wait_clock(w, "unknown")
     who = f"assumed account {w.account}" if w.assumed else w.account
     return f"waiting for {who}'s {w.window} window ({w.pct}%, rolls over {when})"

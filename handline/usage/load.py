@@ -14,6 +14,7 @@ one may start.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from ..team import agents
@@ -155,19 +156,37 @@ def set_usage_recover(acct: str, on: bool) -> None:
     write_config(cfg)
 
 
-def active_by_account(con) -> dict[str, list[str]]:
+WAKE_RESERVE_S = 300     # a reservation no launch answered in this long is let go
+
+
+def reserve_wake(con, agent: str, acct: str) -> None:
+    """Hold a slot on `acct` for an agent whose wake is decided, from now until it is seen
+    running (its Stop), a `wake_failed` or `WAKE_RESERVE_S`: a second wake in the same tick
+    then counts it. An event, so a restart of the daemon still sees it."""
+    db.add_event(con, agent, "wake_reserved", account=acct)
+
+
+def active_by_account(con, now: int | None = None) -> dict[str, list[str]]:
     """Agents mid-turn, by the account each is running on. An agent that has
     just moved is mid-turn on its handback before the daemon has seen it run,
     so it counts from the move until its next Stop; without that, agents that
-    wall together all see the same empty destination."""
+    wall together all see the same empty destination. A woken one counts the
+    same from `reserve_wake`, on the account reserved, unless it is seen running."""
     found: dict[str, list[str]] = {}
+    since = (int(time.time()) if now is None else now) - WAKE_RESERVE_S
     rows = con.execute(
-        "SELECT agent FROM agent_state WHERE closed_at IS NULL AND (state = 'RUNNING' OR "
+        "SELECT agent, state, closed_at, (SELECT w.account FROM events w WHERE w.agent = agent_state.agent "
+        "AND w.kind = 'wake_reserved' AND w.ts > ? AND w.id > COALESCE((SELECT MAX(s.id) FROM events s "
+        "WHERE s.agent = agent_state.agent AND s.kind IN ('Stop', 'wake_failed')), 0) "
+        "ORDER BY w.id DESC LIMIT 1) AS reserved FROM agent_state WHERE reserved IS NOT NULL OR "
+        "(closed_at IS NULL AND (state = 'RUNNING' OR "
         "EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent "
         "AND m.kind = 'moved_account' AND m.id > COALESCE((SELECT MAX(s.id) FROM events s "
-        "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0)))").fetchall()
+        "WHERE s.agent = agent_state.agent AND s.kind = 'Stop'), 0))))", (since,)).fetchall()
     for row in rows:
-        acct = agents.current_account(row["agent"], con)
+        running = row["state"] == "RUNNING" and not row["closed_at"]
+        acct = (agents.current_account(row["agent"], con) if running or not row["reserved"]
+                else row["reserved"])
         if acct:
             found.setdefault(acct, []).append(row["agent"])
     return found
@@ -225,6 +244,11 @@ def active_agents(con, exclude: str | None = None) -> dict[str, int]:
     return {a: n for a, n in
             ((a, len([x for x in names if x != exclude]))
              for a, names in active_by_account(con).items()) if n}
+
+
+def full_without(con, acct: str, agent: str) -> bool:
+    """Whether `acct` has no slot for `agent`: the others on it, the agent itself left out, fill its cap."""
+    return active_agents(con, exclude=agent).get(acct, 0) >= cap_of(acct)
 
 
 def costs(con=None) -> "burnrate.Costs":

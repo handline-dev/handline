@@ -3574,6 +3574,84 @@ def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_ri
         con.close()
 
 
+def test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(home: Path) -> None:
+    """The cap holds on a wake: a decided wake counts on its account from then until its Stop, a failed
+    wake or five minutes, so two wakes in one tick cannot both take the last slot; and a resume, which
+    is pinned to its own account, waits there for a slot, the oldest waiter first, instead of exceeding it."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    now = int(time.time())
+    for a in ("alpha", "beta"):
+        write_status(home, a, pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
+    loadmod.set_cap("alpha", 2)
+    con = db.connect()
+    try:
+        _running_on(con, "alpha", "r1")
+        for n in ("w1", "w2", "w3"):
+            agents.register(n)
+            db.set_account(con, n, "alpha")
+            db.set_agent_state(con, n, dmn_states.IDLE)
+            db.set_closed(con, n, f"sess-{n}")
+            support.something_waiting(con, n)
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
+        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w3'", (now - 10,))
+        row = lambda n: db.get_agent_state(con, n)
+        check("wake cap: with one free slot the oldest waiter goes",
+              launch.wake_wait("w1", row("w1"), con) is None)
+        check("wake cap: the younger ones wait behind it, whatever is free: the older takes it",
+              launch.wake_wait("w2", row("w2"), con) is not None)
+        loadmod.reserve_wake(con, "w1", "alpha")
+        check("wake cap: a decided wake counts on its account at once",
+              loadmod.active_agents(con).get("alpha") == 2)
+        w = launch.wake_wait("w2", row("w2"), con)
+        check("wake cap: the second wake of the tick sees the slot taken and waits, saying so",
+              w is not None and w.full == 2 and "slot" in launch.describe_wake_wait(w)
+              and "alpha" in launch.describe_wake_wait(w), str(w))
+        check("wake cap: the reserving agent itself is not blocked by its own slot",
+              launch.wake_wait("w1", row("w1"), con) is None)
+        real_available, termmod.available = termmod.available, lambda: True
+        db.set_terminal(con, "w2", "%9", None)
+        try:
+            ok, why = dmn_lifecycle.wake_agent(con, "w2", lambda _m: None)
+        finally:
+            termmod.available = real_available
+        check("wake cap: the daemon refuses with the same sentence and does not move it",
+              not ok and why == launch.describe_wake_wait(w), why)
+        check("wake cap: not moved to beta", not any(
+            e["kind"] == "moved_account" for e in con.execute("SELECT kind FROM events WHERE agent = 'w2'")))
+        db.add_event(con, "w1", "wake_failed", {"why": "x"})
+        db.set_terminal(con, "w1", "%8", None)
+        seen = []
+        real_launch, real_live = dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled
+        dmn_lifecycle._launch_in_pane = lambda *a, **k: (seen.append(loadmod.active_agents(con).get("alpha")), (False, "stub"))[1]
+        dmn_lifecycle._live_sessions_settled = lambda: {}
+        real_available, termmod.available = termmod.available, lambda: True
+        try:
+            dmn_lifecycle.wake_agent(con, "w1", lambda _m: None)
+        finally:
+            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = real_launch, real_live
+            termmod.available = real_available
+        check("wake cap: the daemon holds the slot while it launches, and a failed launch gives it back",
+              seen and set(seen) == {2} and loadmod.active_agents(con).get("alpha") == 1, str(seen))
+        check("wake cap: a failed wake gives its slot back",
+              loadmod.active_agents(con).get("alpha") == 1)
+        loadmod.reserve_wake(con, "w1", "alpha")
+        db.add_event(con, "w1", "Stop", {})
+        check("wake cap: its Stop ends the reservation",
+              loadmod.active_agents(con).get("alpha") == 1)
+        loadmod.reserve_wake(con, "w1", "alpha")
+        check("wake cap: a reservation no launch answered lapses",
+              loadmod.active_agents(con, ).get("alpha") == 2
+              and loadmod.active_by_account(con, now=int(time.time()) + loadmod.WAKE_RESERVE_S + 5).get("alpha") == ["r1"])
+        check("wake cap: a slot freeing lets the waiter go",
+              (db.add_event(con, "r1", "Stop", {}), db.set_agent_state(con, "r1", dmn_states.IDLE),
+               db.add_event(con, "w1", "Stop", {}),
+               launch.wake_wait("w2", row("w2"), con))[-1] is None)
+    finally:
+        con.close()
+
+
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
     """Logging in is the one thing ocp may not do for a human: a refresh token
     rotates on single use, so a second copy of one credential invalidates the
@@ -4373,6 +4451,7 @@ def main() -> int:
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
         run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
+        run(lambda: test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(Path(td) / 'wakecap'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))

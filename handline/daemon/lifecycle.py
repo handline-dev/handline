@@ -19,7 +19,7 @@ from ..session import observe as obs
 from ..session import term
 from ..infra import paths
 from ..team import spawn as spawnmod
-from ..usage import status
+from ..usage import load, status
 from ..team import trust
 from .. import vendors
 
@@ -868,6 +868,9 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # the move's wake.
         session = row["resume_session"]
         wait = launch.wake_wait(agent, row, con)
+        if wait and wait.full:
+            # No wall, no slot: a resume is not moved to another account for that, it waits for one here.
+            return False, launch.describe_wake_wait(wait)
         if wait:
             # The resume account is at the wall. If another account has room,
             # start fresh there: a resume id cannot follow an account change.
@@ -960,6 +963,10 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         if moved_to is None and (cold or not session) \
                 and not launch.choose_account(agent, con=con):
             return False, launch.no_room(agent)
+        # The slot is held from here, so a second wake in this tick sees it taken.
+        slot = moved_to or (launch.choose_account(agent, resuming=bool(session and not cold), con=con))
+        if slot:
+            load.reserve_wake(con, agent, slot)
         took = False
         if cold and not db.get_handoff(con, agent):
             # The close that would have taken it failed, and the snapshot no
