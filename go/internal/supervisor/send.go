@@ -300,7 +300,12 @@ func (e *Env) wallReason(q db.Q, agent string, row *db.AgentState) string {
 	return ""
 }
 
-func (e *Env) liveSession(q db.Q, agent string) string { return e.Sessions.LiveSession(q, agent) }
+func (e *Env) liveSession(q db.Q, agent string) string {
+	if e.Sessions == nil {
+		return ""
+	}
+	return e.Sessions.LiveSession(q, agent)
+}
 
 // SessionChanged is whether the session on screen is a different one from the one the head was typed into. An id that cannot be read
 // is not a difference.

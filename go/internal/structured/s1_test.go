@@ -58,8 +58,8 @@ func TestARetryAfterARestartIsNotSentAgain(t *testing.T) {
 
 func TestASentButUnconfirmedMessageIsUnknownAfterARestartAndAQueuedOneGoesOut(t *testing.T) {
 	led := &DBLedger{DB: testDB(t), Agent: "backend"}
-	led.Put(Op{ID: "sent", UUID: uuidFor("sent"), Text: "one", Delivery: Now, State: Sent})
-	led.Put(Op{ID: "queued", UUID: uuidFor("queued"), Text: "two", Delivery: Queue, State: Queued})
+	led.Put(Op{ID: "sent", UUID: UUIDFor("sent"), Text: "one", Delivery: Now, State: Sent})
+	led.Put(Op{ID: "queued", UUID: UUIDFor("queued"), Text: "two", Delivery: Queue, State: Queued})
 	l := launch(t)
 	l.Ledger = led
 	s, ev := openWith(t, l, Handlers{})
@@ -70,7 +70,7 @@ func TestASentButUnconfirmedMessageIsUnknownAfterARestartAndAQueuedOneGoesOut(t 
 	if r.State != Unknown {
 		t.Fatalf("a sent message nobody echoed is %v, not unknown", r.State)
 	}
-	if ev.count(isEcho(uuidFor("sent"))) != 0 || ev.count(isEcho(uuidFor("queued"))) != 1 {
+	if ev.count(isEcho(UUIDFor("sent"))) != 0 || ev.count(isEcho(UUIDFor("queued"))) != 1 {
 		t.Fatal("the unknown message was written again, or the queued one was not")
 	}
 	if got, _ := led.Get("queued"); got.State != Confirmed {

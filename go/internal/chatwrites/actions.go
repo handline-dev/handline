@@ -219,6 +219,11 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 // SayWrite is askmod.say as requester: the message is routed and written (a denied one is kept as a row), and settles the request it
 // replies to when parent names one. within is more to write in the same transaction, given the message and the new request's id.
 func SayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error) (*Result, error) {
+	return sayWrite(e, q, requester, target, body, parent, within, nil)
+}
+
+// sayWrite is SayWrite with act, if set, doing what follows the commit in place of the usual push to the target.
+func sayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error, act func(rid int64)) (*Result, error) {
 	var note string
 	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent,
 		Within: func(c db.Q, n string, rid int64) error {
@@ -237,7 +242,9 @@ func SayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent 
 	return &Result{OK: true, Note: note, Request: res.RID, Tell: func() string {
 		extra := res.After.Run()
 		guarded(e, "telling the asker of a settled request", func() (string, error) { return e.SettledTell(e.DB, settled) })
-		if e.Wired() {
+		if act != nil {
+			act(res.RID)
+		} else if e.Wired() {
 			e.PushAct(target, res.RID)
 		}
 		if extra != "" {

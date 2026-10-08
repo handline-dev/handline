@@ -136,7 +136,7 @@ func TestAWithdrawnMessageStaysWithdrawnAfterARestart(t *testing.T) {
 		t.Errorf("promote after a restart: %v", r.State)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if ev.count(isEcho(uuidFor("op-2"))) != 0 {
+	if ev.count(isEcho(UUIDFor("op-2"))) != 0 {
 		t.Error("written after the restart")
 	}
 }

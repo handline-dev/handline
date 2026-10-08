@@ -150,6 +150,10 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 		check(db.ClearCursor(q, key))
 		return NotSent, err.Error()
 	}
+	if rcpt.State == structured.Withdrawn { // its sender took it back: nothing was or will be written
+		check(db.ClearCursor(q, key))
+		return NotSent, "withdrawn"
+	}
 	// The echo can come before Send answers: only a row still Written moves on, so a Confirmed one is never taken back to Held.
 	switch rcpt.State {
 	case structured.Queued:
@@ -272,22 +276,33 @@ func (e *Env) hasSession(agent string) bool {
 	return e.sessionPresent(agent)
 }
 
-// tellNowStructured tells a structured agent about request row at once, joining the running turn. The row is marked delivered before the
-// write (it closes withdraw and replace's race) and owed again only when nothing was written; a message that was written is never written again.
+// tellNowStructured tells a structured agent about request row at once, joining the running turn.
 func (e *Env) tellNowStructured(q db.Q, row *db.Request) (what string, err error) {
+	what, _, err = e.tellStructured(q, row, structured.Now)
+	return what, err
+}
+
+// tellStructured tells a structured agent about request row. The row is marked delivered before the write (it closes withdraw and replace's
+// race) and owed again only when nothing was written; a message that was written is never written again. A Queue message held behind a
+// running turn is not delivered: the row is left as it was, and SessionWritten marks it when the session writes it.
+func (e *Env) tellStructured(q db.Q, row *db.Request, d structured.Delivery) (what string, state SendState, err error) {
 	defer Catch(&err)
 	agent, rid := row.Target, row.ID
 	if !e.Agents.Live(agent) {
-		return "queued - no live session; told when it is up", nil
+		return "queued - no live session; told when it is up", NotSent, nil
 	}
 	if !must(db.MarkDelivered(q, rid)) {
-		return "withdrawn first", nil
+		return "withdrawn first", NotSent, nil
 	}
 	folded := foldedNotices(q, agent)
-	state, why := e.sendOnce(q, agent, requestOp(rid), tellText(q, row, 1, nil, false, folded), structured.Now)
-	if state == NotSent {
+	state, why := e.sendOnce(q, agent, requestOp(rid), tellText(q, row, 1, nil, false, folded), d)
+	switch state {
+	case NotSent:
 		check(db.ClearDelivered(q, rid))
-		return "queued - " + why, nil
+		return "queued - " + why, state, nil
+	case Held:
+		check(db.ClearDelivered(q, rid))
+		return "held behind the running turn", state, nil
 	}
 	session := e.liveSession(q, agent)
 	check(db.MarkNoticesShown(q, requestIDs(folded), session))
@@ -297,8 +312,8 @@ func (e *Env) tellNowStructured(q db.Q, row *db.Request) (what string, err error
 	must(db.AddEvent(q, agent, "notified", db.KV{K: "request_id", V: rid}, db.KV{K: "more_waiting", V: 0}))
 	if state == Confirmed {
 		check(db.MarkLanded(q, rid))
+		e.FinishSay(q, row) // a say that was only written can still be taken back, with its confirm
 	}
 	e.log("  %s: told about #%d at once", agent, rid)
-	e.FinishSay(q, row)
-	return "sent", nil
+	return "sent", state, nil
 }

@@ -49,6 +49,9 @@ type Method struct {
 	// Unkept marks a write whose reply is never kept for a retry because it holds a secret that is given once
 	// (a pairing code, a device token): the retry runs again and is judged on its own.
 	Unkept bool
+	// Refresh, if set, rewrites a kept reply before a retry gets it: the reply for what the write is now, not frozen at its first answer.
+	// An error is the retry's answer instead.
+	Refresh func(c *Conn, reply map[string]any) error
 }
 
 // Server holds what every connection shares.

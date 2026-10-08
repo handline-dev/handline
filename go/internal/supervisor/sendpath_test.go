@@ -52,6 +52,11 @@ func (f *fakeAgents) Send(a, op, text string, d structured.Delivery) (structured
 	return r, nil
 }
 
+func (f *fakeAgents) Withdraw(string, string) (structured.Receipt, bool, error) {
+	return structured.Receipt{}, false, nil
+}
+func (f *fakeAgents) Promote(string, string) (structured.Receipt, error) { return structured.Receipt{}, nil }
+
 func structuredRig(t *testing.T) (*rig, *fakeAgents) {
 	r := newRig(t)
 	fa := &fakeAgents{live: map[string]bool{"bob": true}, state: structured.Sent}

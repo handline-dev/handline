@@ -25,7 +25,7 @@ const maxTaskTimeoutS = 4 * 3600
 // tell is what follows a task the writes open or settle once it has committed.
 func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell}
-	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send})
+	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
 	s.Register("chat.answer", rpc.Method{Role: "member", Write: true, Handler: w.answer})
 	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
@@ -153,6 +153,10 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 	if agent == "" {
 		return nil, badParam("agent is an agent's name", "agent")
 	}
+	d, err := deliveryParam(p)
+	if err != nil {
+		return nil, err
+	}
 	task := p["task"]
 	var parent int64
 	if v := p["parent"]; v != nil {
@@ -175,19 +179,28 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		return w.sendTask(c, agent, body, task)
 	}
 	body = strings.TrimSpace(textsafe.Text(body))
-	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
+	var act func(rid int64)
+	var receipt map[string]any
+	if w.e.StructuredAgent(agent) {
+		act = w.sendAct(agent, d, &receipt)
+	}
+	out, err := w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
 		var res *Result
 		var err error
 		if parent != 0 {
-			res, err = w.sendUnder(tx, agent, parent, body)
+			res, err = w.sendUnder(tx, agent, parent, body, act)
 		} else {
-			res, err = SayWrite(w.e, tx, db.Human, agent, body, 0, nil)
+			res, err = sayWrite(w.e, tx, db.Human, agent, body, 0, nil, act)
 		}
 		if res != nil {
 			return res, map[string]any{"request": res.Request}, err
 		}
 		return nil, nil, err
 	})
+	if m, ok := out.(map[string]any); ok && receipt != nil {
+		m["receipt"] = receipt
+	}
+	return out, err
 }
 
 // checkTask is the shape of send's task: {title, time_box}.
@@ -217,7 +230,7 @@ func checkTask(task any) error {
 }
 
 // sendUnder is a message that replies to parent: its answer when it waits on the person, else a say to the agent under it.
-func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string) (*Result, error) {
+func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
 	row, err := message(tx, parent)
 	if err != nil {
 		return nil, err
@@ -226,7 +239,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string) 
 		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
 	if !WaitsOnPerson(row) {
-		return SayWrite(w.e, tx, db.Human, agent, body, parent, nil)
+		return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
 	}
 	res, err := AnswerWrite(w.e, w.tell, tx, parent, body, nil)
 	if err != nil {
@@ -296,6 +309,9 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 		return e
 	}
 	after := &supervisor.After{}
+	if err := w.withdrawHeld(rid); err != nil {
+		return nil, err
+	}
 	res, err := w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
 		row, err := message(tx, rid)
 		if err != nil {
@@ -369,6 +385,9 @@ func (w *writes) sendNow(c *rpc.Conn, p map[string]any) (any, error) {
 	rid, ok := rpc.AsInt(p["request"])
 	if !ok {
 		return nil, badParam("request is the integer id of a queued message", "request")
+	}
+	if out, handled, err := w.promoteHeld(c, rid); handled {
+		return out, err
 	}
 	var target string
 	out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {

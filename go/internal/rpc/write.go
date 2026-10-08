@@ -68,7 +68,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 		if method != name || kept != pkey {
 			return nil, differentCall(rid)
 		}
-		return replayed(reply)
+		return replayed(c, m, reply)
 	case err != sql.ErrNoRows:
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (c *Conn) runWrite(name string, m Method, params map[string]any) (any, erro
 		if method != name {
 			return nil, differentCall(rid)
 		}
-		return replayed(result)
+		return replayed(c, m, result)
 	case err != sql.ErrNoRows:
 		return nil, err
 	}
@@ -150,13 +150,18 @@ func (c *Conn) Effect(fn func(tx *sql.Tx) (map[string]any, error)) (map[string]a
 	return out, tx.Commit()
 }
 
-// replayed is a kept reply with replayed set.
-func replayed(kept string) (any, error) {
+// replayed is a kept reply with replayed set, refreshed by the method when it has a Refresh.
+func replayed(c *Conn, method Method, kept string) (any, error) {
 	m := map[string]any{}
 	if err := json.Unmarshal([]byte(kept), &m); err != nil {
 		return nil, err
 	}
 	m["replayed"] = true
+	if method.Refresh != nil {
+		if err := method.Refresh(c, m); err != nil {
+			return nil, err
+		}
+	}
 	return m, nil
 }
 
