@@ -366,6 +366,9 @@
  "terminal.resize": {
   "role": "member"
  },
+ "transcript.events": {
+  "role": "member"
+ },
  "trust.list": {
   "role": "agent"
  },

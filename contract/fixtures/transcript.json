@@ -1,0 +1,1007 @@
+{
+ "fixtures": [
+  {
+   "name": "transcript.events.no_such_agent",
+   "spec": "transcript.events",
+   "about": "An agent that is not registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.agent_is_required",
+   "spec": "transcript.events",
+   "about": "No agent is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {}
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.since_and_before_exclude_each_other",
+   "spec": "transcript.events",
+   "about": "since_seq with before_seq is bad_request naming since_seq.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "x",
+       "since_seq": 1,
+       "before_seq": 5
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "since_seq"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.limit_is_one_to_500",
+   "spec": "transcript.events",
+   "about": "A limit of 0 or 501 is bad_request naming limit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "x",
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "transcript.events",
+      "params": {
+       "agent": "x",
+       "limit": 501
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.an_agent_session_is_refused",
+   "spec": "transcript.events",
+   "about": "An agent session may not read a transcript: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "x"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.a_terminal_agent_is_unsupported",
+   "spec": "transcript.events",
+   "about": "An agent run as a terminal has no stream: refused, gate unsupported.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{terminal_agent}}"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "unsupported",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.topic_is_a_topic",
+   "spec": "transcript.events",
+   "about": "The transcript topic is a known topic (the snapshot is transcript.events); the reply carries the cursor.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "transcript"
+       ]
+      }
+     },
+     "result": {
+      "$exact": true,
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.newest_page_has_every_kind",
+   "spec": "transcript.events",
+   "about": "The seeded agent's newest page holds one event of each kind, each with the field named like its kind, and the bounds of the agent's seqs.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$type": "array",
+       "$each": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       }
+      },
+      "more": false,
+      "first_seq": {
+       "$type": "integer"
+      },
+      "last_seq": {
+       "$save": "last",
+       "$type": "integer"
+      },
+      "gap": false,
+      "working": {
+       "turn_running": {
+        "$type": "boolean"
+       },
+       "line": {
+        "$any": true
+       },
+       "since": {
+        "$any": true
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "turn_start",
+        "turn_start": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "text",
+        "text": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "tool_use",
+        "tool_use": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "tool_result",
+        "tool_result": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "permission",
+        "permission": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "permission_answer",
+        "permission_answer": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "turn_end",
+        "turn_end": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "events": {
+       "$contains": {
+        "agent": "{{transcript_agent}}",
+        "session": {
+         "$type": "string"
+        },
+        "seq": {
+         "$type": "integer"
+        },
+        "turn": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "at": {
+         "$type": "timestamp"
+        },
+        "item": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "kind": "error",
+        "error": {
+         "$type": "object"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.seq_goes_up_by_one",
+   "spec": "transcript.events",
+   "about": "The page is in order: seq goes up by exactly 1 from one event to the next, and more says there are others.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "since_seq": 0,
+       "limit": 2
+      }
+     },
+     "result": {
+      "events": [
+       {
+        "seq": {
+         "$save": "s1",
+         "$type": "integer"
+        }
+       },
+       {
+        "seq": {
+         "$next": "s1"
+        }
+       }
+      ],
+      "more": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.since_the_newest_is_empty",
+   "spec": "transcript.events",
+   "about": "Reading after the newest seq gives no events, no gap and the same last_seq: a client that is up to date.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "last_seq": {
+       "$save": "last",
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "since_seq": "{{last}}"
+      }
+     },
+     "result": {
+      "events": [],
+      "more": false,
+      "gap": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.events.before_reads_the_older_page",
+   "spec": "transcript.events",
+   "about": "before_seq reads the page just older than a seq, oldest first: with limit 1 before the newest it is the event one below the newest.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}"
+      }
+     },
+     "result": {
+      "last_seq": {
+       "$save": "last",
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "before_seq": "{{last}}",
+       "limit": 1
+      }
+     },
+     "result": {
+      "events": [
+       {
+        "seq": {
+         "$save": "older",
+         "$type": "integer"
+        }
+       }
+      ],
+      "more": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "transcript.events",
+      "params": {
+       "agent": "{{transcript_agent}}",
+       "since_seq": "{{older}}",
+       "limit": 1
+      }
+     },
+     "result": {
+      "events": [
+       {
+        "seq": {
+         "$next": "older"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "transcript.topic_is_refused_to_an_agent_session",
+   "spec": "transcript.events",
+   "about": "An agent session may not subscribe to the transcript topic: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "transcript"
+       ]
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
