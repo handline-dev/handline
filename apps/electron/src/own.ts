@@ -5,9 +5,11 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { app, ipcMain, Menu, nativeImage, Tray } from 'electron';
-import { unixSocketTransport } from '@handline/client-node';
+import { app, clipboard, ipcMain, Menu, nativeImage, Tray } from 'electron';
+import { webSocketTransport } from '@handline/client';
+import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
+import { Link, pairRemote, plainRemoteHost, remoteUrl, type Mode, type Remote, type Settings, type SettingsFile } from './mode.ts';
 import { commands, Owner } from './owner.ts';
 import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
 import { onTailnet } from './tailnet.ts';
@@ -28,6 +30,16 @@ const reachable = (hostPort: string): Promise<boolean> =>
     () => false,
   );
 
+/** Whether something accepts a TCP connection at host:port within three seconds. */
+const tcpUp = (hostPort: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const [host, port] = hostPort.split(/:(?=\d+$)/);
+    const c = net.createConnection({ host: host!, port: Number(port), timeout: 3000 });
+    c.once('connect', () => (c.destroy(), resolve(true)));
+    c.once('timeout', () => (c.destroy(), resolve(false)));
+    c.once('error', () => resolve(false));
+  });
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** A 16×16 ring for the tray. */
@@ -42,6 +54,10 @@ export interface Own {
   redraw(): void;
   /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
   ready(): Promise<string | undefined>;
+  /** What the tray says in connect mode; the daemon's version is set once the shell's own connection says hello. */
+  link: Link;
+  /** Connect mode with a paired remote: where the window reaches it. */
+  remote: Remote | null;
 }
 
 export function ownDaemon(o: {
@@ -56,6 +72,9 @@ export function ownDaemon(o: {
   advertise: string | null;
   origin: string;
   openWindow: () => void;
+  settings: SettingsFile;
+  /** The mode and pairing in force; connect mode never starts or stops a daemon. */
+  current: Settings;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
 }): Own {
@@ -81,6 +100,23 @@ export function ownDaemon(o: {
   app.on('quit', () => owner.stop());
   const tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON));
   tray.setToolTip('Handline');
+  const link = new Link();
+  link.set('connecting', { address: o.gateway ?? null });
+  const mode = o.current.mode;
+  const relaunchAs = (next: Settings) => {
+    o.settings.write(next);
+    app.relaunch();
+    app.quit();
+  };
+  const pairClipboard = async () => {
+    try {
+      const remote = await pairRemote({ link: clipboard.readText() }, { open: openRemote, name: 'Handline desktop' });
+      relaunchAs({ mode: 'connect', remote });
+    } catch (e) {
+      link.set('cannot-pair', { reason: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  link.onChange(() => draw());
   const draw = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate(
@@ -89,6 +125,12 @@ export function ownDaemon(o: {
           owner.reason,
           { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() },
           o.follow?.(),
+          {
+            mode,
+            link,
+            switchTo: () => relaunchAs({ ...o.current, mode: mode === 'connect' ? 'own' : 'connect' }),
+            pair: () => void pairClipboard(),
+          },
         ),
       ),
     );
@@ -101,6 +143,8 @@ export function ownDaemon(o: {
   ipcMain.on(CHANNELS.token, (e) => {
     e.returnValue = fromWindow(e, o.origin) ? { token, ownHost } : null;
   });
+  const openRemote = (url: string, fingerprint: string | null) =>
+    fingerprint ? pinnedWebSocketTransport(url, fingerprint) : webSocketTransport(url);
   const pairing = {
     readKey: () => {
       try {
@@ -112,9 +156,34 @@ export function ownDaemon(o: {
     open: () => unixSocketTransport(o.gatewaySocket),
     name: 'Handline desktop',
   };
+  /** Connect mode: attach to what is there and never start it. */
+  async function connect(): Promise<string | undefined> {
+    const remote = o.current.remote;
+    if (remote) {
+      ownHost = plainRemoteHost(remote);
+      token = remote.token;
+      link.set((await tcpUp(remote.host)) ? 'connected' : 'cannot-pair', { address: remote.host, reason: `nothing answers at ${remote.host}` });
+      return remote.host;
+    }
+    if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {
+      link.set('no-daemon', { address: null });
+      return undefined;
+    }
+    ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null;
+    try {
+      token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep, 3);
+      link.set('connected', { address: o.gateway });
+    } catch (e) {
+      link.set('cannot-pair', { address: o.gateway, reason: e instanceof Error ? e.message : String(e) });
+    }
+    return o.gateway;
+  }
   return {
     redraw: draw,
+    link,
+    remote: o.current.remote,
     async ready() {
+      if (mode === 'connect') return connect();
       if (!o.gateway) return undefined;
       await owner.start();
       if (owner.state !== 'running') return o.gateway;
@@ -133,6 +202,7 @@ export function ownDaemon(o: {
       }
       ownHost = onTailnet(address) ? address.split(':')[0]! : null;
       token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep).catch(() => null);
+      link.set('connected', { address });
       return address;
     },
   };

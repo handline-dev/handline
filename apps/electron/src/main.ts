@@ -9,6 +9,7 @@ import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
+import { parseMode, remoteUrl, SettingsFile } from './mode.ts';
 import { ownDaemon, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
 import { Page, CHANNELS } from './bridge.ts';
@@ -100,12 +101,25 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
     // The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides.
-    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*'] }, (d, done) =>
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*', 'wss://*/*'] }, (d, done) =>
       done({
         requestHeaders:
           gateway && new URL(d.url).host === gateway ? { ...d.requestHeaders, Origin: `http://${gateway}` } : d.requestHeaders,
       }),
     );
+    const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
+    const current = settings.read(parseMode(env('MODE')));
+    // A paired remote gateway has a self-signed certificate: the page trusts it by the fingerprint pairing handed over, and no other.
+    const remote = current.mode === 'connect' ? current.remote : null;
+    if (remote) {
+      gateway = remote.host;
+      ws = remoteUrl(remote);
+      app.on('certificate-error', (e, _wc, url, _err, cert, trust) => {
+        e.preventDefault();
+        const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
+        trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
+      });
+    }
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
     const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
     const origin = new URL(web.url).origin;
@@ -123,6 +137,8 @@ if (!app.requestSingleInstanceLock()) {
       gateway,
       advertise: gateway && onTailnet(gateway) ? await advertised(gateway) : null,
       origin,
+      settings,
+      current,
       openWindow: () => void openWindow(),
       follow:
         f &&
@@ -184,7 +200,7 @@ if (!app.requestSingleInstanceLock()) {
     void own
       .ready()
       .then((at) => {
-        if (at && at !== gateway && !env('WS')) ws = `ws://${(gateway = at)}/rpc`;
+        if (!remote && at && at !== gateway && !env('WS')) ws = `ws://${(gateway = at)}/rpc`;
       })
       .then(openWindow)
       .then(() => following?.start());
@@ -212,6 +228,7 @@ if (!app.requestSingleInstanceLock()) {
       for (;;) {
         try {
           await client.start();
+          if (!remote) own.link.setVersion(client.hello?.daemon);
           break;
         } catch {
           await new Promise((r) => setTimeout(r, 2000));
