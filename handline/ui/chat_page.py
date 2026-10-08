@@ -1573,12 +1573,17 @@ class ChatPage(JobsAware, Screen):
         self.app.push_screen(TaskDetail(int(event.row_key.value)))
 
     def refresh_block(self) -> None:
+        self._off_loop("prompts", self._read_prompts, self._show_block)
+
+    def _read_prompts(self) -> list[dict] | None:
+        try:
+            return api.call("prompt.list", {"agent": self.agent})["prompts"]
+        except (client.RpcError, client.DaemonDown, OSError):
+            return None
+
+    def _show_block(self, found: list[dict]) -> None:
         """Show this agent's open prompt - the one `prompt.list` finds on its screen - as exactly one
         modal, by its kind. A prompt is offered once: closed by hand or answered, it is not offered again."""
-        try:
-            found = api.call("prompt.list", {"agent": self.agent})["prompts"]
-        except (client.RpcError, client.DaemonDown, OSError):
-            return
         block = found[0] if found else None
         shown = self._block_modal
         if shown is not None:
@@ -2397,7 +2402,16 @@ class ChatPage(JobsAware, Screen):
 
     def run_shell(self, body: str, command: str) -> None:
         """A `!` line is not sent: zsh runs it in the agent's worktree and a card shows the result."""
-        cwd = api.call("agent.get", {"agent": self.agent})["cwd"]
+        def work() -> None:
+            try:
+                cwd = api.call("agent.get", {"agent": self.agent})["cwd"]
+            except (client.RpcError, client.DaemonDown, OSError) as e:
+                self.app.call_from_thread(self.notify, f"the shell cannot start: {safe(str(e))}", severity="error", markup=False)
+                return
+            self.app.call_from_thread(self._start_shell, body, command, cwd)
+        self.run_worker(work, thread=True, group="shell_cwd", exit_on_error=False)
+
+    def _start_shell(self, body: str, command: str, cwd: str) -> None:
         try:
             run = actions.ShellRun(command, cwd)
         except PermissionError as e:

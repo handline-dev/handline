@@ -5050,7 +5050,34 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
     check("off the loop: a refresh asks the daemon only from a worker thread", not left, str(left))
 
 
-OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen"}        # the methods moved off the loop so far
+OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen", "prompt.list"}        # the methods moved off the loop so far
+
+
+async def test_a_shell_line_with_the_daemon_down_says_so_and_the_page_lives() -> None:
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
+    _home("shelldown")
+    agents.register("reviewer")
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        real, told = cp.api.call, []
+
+        def down(method, *a, **k):
+            if method == "agent.get":
+                raise cp.client.DaemonDown("the daemon is not running")
+            return real(method, *a, **k)
+        cp.api.call = down
+        page.notify = lambda said, **k: told.append(said)
+        try:
+            page.run_shell("!ls", "ls")
+            await pilot.pause(0.5)
+        finally:
+            cp.api.call = real
+        check("shell: the daemon down is said, no card is made and the page stays",
+              len(told) == 1 and not page.shells and app.screen is page, str(told))
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
@@ -5896,6 +5923,7 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_chat_page_never_asks_the_daemon_on_the_ui_loop()
+    await test_a_shell_line_with_the_daemon_down_says_so_and_the_page_lives()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it()
