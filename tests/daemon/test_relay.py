@@ -133,8 +133,8 @@ def test_the_gateway_opens_a_connection_for_one_device_and_nothing_else(home: Pa
     got = r.call("hello", {"client": "gateway/1", "protocol": 1, "key": sessiontoken.founder_key_held()})
     check("hello: relayed, it answers for the device and the founder key it carries gives it nothing",
           got["result"]["role"] == "member" and r.call("settings.set", {"request_id": "k", "values": {}})["error"]["data"]["gate"] == "role", str(got))
-    got = r.call("agent.create", {"request_id": "c", "name": "a.b", "role": "x", "repo": "."})
-    check("agent.create: a relayed call to a founder's method is refused, gate role", _code(got) == "refused" and got["error"]["data"]["gate"] == "role", str(got))
+    got = r.call("account.remove", {"request_id": "c", "account": "acct.one"})
+    check("account.remove: a relayed call to a founder's method is refused, gate role", _code(got) == "refused" and got["error"]["data"]["gate"] == "role", str(got))
     r.close()
 
 

@@ -81,6 +81,9 @@ type pending struct {
 	answer      chan Decision
 }
 
+// beforeLeave is a test seam: it runs between the end of the wait and the step that leaves the table.
+var beforeLeave func()
+
 // Fingerprint is the id of one tool call's prompt.
 func Fingerprint(agent, toolUse, tool string) string {
 	sum := sha1.Sum([]byte("permission\n" + agent + "\n" + toolUse + "\n" + tool))
@@ -179,6 +182,9 @@ wait:
 			d = Decision{Message: "the permission prompt was cancelled"}
 			break wait
 		}
+	}
+	if beforeLeave != nil {
+		beforeLeave()
 	}
 	// Leave the table and take any answer sent meanwhile in one step with Answer, so a reported answer is the one that was used.
 	b.mu.Lock()

@@ -83,12 +83,9 @@ test('chat: a send lands one step at a time on the chat topic, and ends answered
   client.close();
 });
 
-test('chat: withdraw works only before the message lands; answer and dismiss only once', async () => {
+test('chat: answer and dismiss only once', async () => {
   const { client, daemon } = setup();
   await client.start();
-  const { request } = await client.call('chat.send', { agent: ARCH, body: 'x' });
-  await client.call('chat.withdraw', { request });
-  await assert.rejects(client.call('chat.withdraw', { request }), (e: RpcError) => e.code === 'refused');
   daemon.chat.ask(ARCH, 'which?', 'web-test');
   const ask = (await client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find(
     (x) => x.kind === 'question' && !x.answer,

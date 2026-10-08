@@ -39,7 +39,7 @@
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
-  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. input.ask is the other, reserved and not implemented. transcript.events for an agent the daemon runs as a terminal.",
+  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. transcript.events for an agent the daemon runs as a terminal.",
   "not_self": "The agent named is not the caller's own session.",
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
@@ -57,9 +57,9 @@
   "agent_set": "agent.set",
   "message": null,
   "say": "say",
-  "push": "push",
-  "push_answer": "push.answer",
-  "notify_cancelled": "push.cancelled",
+  "push": null,
+  "push_answer": null,
+  "notify_cancelled": null,
   "wake": "session.wake",
   "close": "session.stop{mode:close}",
   "restart": "session.restart",
@@ -68,11 +68,11 @@
   "move": "agent.move",
   "start": "session.start",
   "answer_block": "prompt.answer",
-  "trust": "settings.trust"
+  "trust": null
  },
  "x-identity": {
   "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
-  "sender": "say, ask and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
+  "sender": "say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
   "ownership": "Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason."
  },
  "x-agent-commands": {
@@ -99,8 +99,6 @@
   "hl inbox": "inbox.list",
   "hl read": "inbox.get",
   "hl say": "say",
-  "hl ask": "ask",
-  "hl withdraw": "chat.withdraw",
   "hl land": "land",
   "hl land --pass": "land.pass",
   "hl hook": "hook.record",
@@ -143,7 +141,7 @@
    "hl service ..."
   ],
   "needs_a_decision": [
-   "hl spawn (maps to agent.create, which is founder: should a manager spawn a report?)",
+   "hl spawn (a founder's act; no method serves it)",
    "hl agent register (a roster change, founder)"
   ],
   "not_daemon_methods": [
@@ -160,6 +158,7 @@
    "hl top",
    "hl watch",
    "hl guide",
+   "hl withdraw",
    "hl memory migrate",
    "hl task note (suppressed)"
   ]
@@ -1068,112 +1067,6 @@
    "x-since": 1
   },
   {
-   "name": "agent.create",
-   "summary": "Register, make the worktree, start. Long-running: progress arrives on `operations`.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "name",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "role",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "repo",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "base",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "model",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "effort",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "account",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "parent",
-     "required": false,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "allOf": [
-      {
-       "$ref": "#/components/schemas/Accepted"
-      },
-      {
-       "type": "object",
-       "properties": {
-        "operation": {
-         "type": "string",
-         "description": "Operation id."
-        }
-       },
-       "required": [
-        "operation"
-       ]
-      }
-     ]
-    }
-   },
-   "x-role": "founder",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
    "name": "agent.set",
    "summary": "Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).",
    "paramStructure": "by-name",
@@ -2021,44 +1914,6 @@
    "x-gates": [
     "role",
     "input_holder"
-   ]
-  },
-  {
-   "name": "input.ask",
-   "summary": "Reserved: ask the holder for input. Refused (gate `unsupported`) until implemented; see capabilities.input_ask.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "agent",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "unsupported"
    ]
   },
   {
@@ -2971,55 +2826,6 @@
     }
    },
    "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
-   "name": "chat.withdraw",
-   "summary": "Withdraw a message not yet landed.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "reason",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "description": "Why; stored as typed. Empty is bad_request."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
    "x-write": true,
    "x-since": 1,
    "errors": [
@@ -5252,210 +5058,6 @@
    ]
   },
   {
-   "name": "ask",
-   "summary": "A question that needs an answer.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "target",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "title",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "body",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "options",
-     "required": false,
-     "schema": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/DecisionOption"
-      }
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "allOf": [
-      {
-       "$ref": "#/components/schemas/Accepted"
-      },
-      {
-       "type": "object",
-       "properties": {
-        "request": {
-         "type": "integer"
-        }
-       },
-       "required": [
-        "request"
-       ]
-      }
-     ]
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
-   "name": "push",
-   "summary": "Tell a target about what was queued for it (legacy push).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "target",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "request",
-     "required": false,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    }
-   ]
-  },
-  {
-   "name": "push.answer",
-   "summary": "Put an answer in front of the agent that asked (legacy push_answer).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "requester",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
-   "name": "push.cancelled",
-   "summary": "Tell an agent a delivered request was closed under it (legacy notify_cancelled).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
    "name": "land",
    "summary": "Request a land; accepted only from the session's own hl land (session token and peer pid, as today).",
    "paramStructure": "by-name",
@@ -6260,56 +5862,6 @@
    ]
   },
   {
-   "name": "account.set_cap",
-   "summary": "Set an account's cap, the most agents mid-turn at once (hl account cap).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "account",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "cap",
-     "required": true,
-     "schema": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Most agents mid-turn at once (a count, not a percentage)."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "founder",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
    "name": "account.set",
    "summary": "The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused.",
    "paramStructure": "by-name",
@@ -6661,51 +6213,6 @@
    ]
   },
   {
-   "name": "worktree.set_status",
-   "summary": "Set a worktree's status.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "path",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "status",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    }
-   ]
-  },
-  {
    "name": "schedules.list",
    "summary": "Schedules.",
    "paramStructure": "by-name",
@@ -7050,69 +6557,6 @@
    "errors": [
     {
      "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
-   "name": "settings.trust",
-   "summary": "Trust worktree folders for an account (legacy trust).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "account",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "worktrees",
-     "required": true,
-     "schema": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "properties": {
-        "agent": {
-         "$ref": "#/components/schemas/AgentName"
-        },
-        "path": {
-         "type": "string"
-        }
-       },
-       "required": [
-        "agent",
-        "path"
-       ]
-      }
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "founder",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
     },
     {
      "$ref": "#/components/errors/bad_request"
@@ -10757,10 +10201,6 @@
       "type": "boolean",
       "description": "Worktree review beyond worktree.diff; false in v1, the UI hides the Review tab."
      },
-     "input_ask": {
-      "type": "boolean",
-      "description": "input.ask is implemented; reserved."
-     },
      "terminal_format": {
       "type": "array",
       "items": {
@@ -10791,7 +10231,6 @@
     "required": [
      "chat",
      "review",
-     "input_ask",
      "terminal_format"
     ]
    },

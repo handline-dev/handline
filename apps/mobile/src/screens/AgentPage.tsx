@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, type StopMode } from '@handline/app-core';
-import { useAgents, usePending, useRead, useServes, useVerbMark, useWrite } from '@handline/app-data';
+import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -13,6 +13,7 @@ import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptSlot } from './PromptCard.tsx';
+import { Transcript } from './Transcript.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
 /** What a start, resume, stop or interrupt in flight on this agent says while the daemon decides. */
@@ -120,6 +121,9 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     </Pressable>
   );
   const busy = mark !== null;
+  // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
+  // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
+  const structured = detail.structured === true;
   return (
     <View style={{ flex: 1 }}>
       <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
@@ -141,11 +145,27 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       </View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {tab('chat', 'Chat')}
-        {tab('terminal', 'Terminal')}
+        {tab('terminal', structured ? 'Transcript' : 'Terminal')}
       </Row>
-      <PromptSlot agent={name} prompt={detail.prompt ?? null} />
-      {current === 'chat' ? <Chat detail={detail} /> : <Terminal detail={detail} />}
+      {!(structured && current === 'terminal') && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
+      {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
     </View>
+  );
+}
+
+/** The transcript of a structured agent; a daemon that refuses it (no transcript at all) leaves the agent its terminal. */
+function TranscriptTab(props: { detail: AgentDetail }) {
+  const transcript = useTranscript(props.detail.name);
+  return (
+    <>
+      {/* a card the transcript cannot show (not ready) is still answerable */}
+      {transcript.status !== 'ready' && <PromptSlot agent={props.detail.name} prompt={props.detail.prompt ?? null} />}
+      {transcript.status === 'terminal' ? (
+        <Terminal detail={props.detail} />
+      ) : (
+        <Transcript agent={props.detail.name} transcript={transcript} />
+      )}
+    </>
   );
 }
 

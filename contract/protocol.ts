@@ -741,8 +741,6 @@ export type Capabilities = {
   chat: boolean;
   /** Worktree review beyond worktree.diff; false in v1, the UI hides the Review tab. */
   review: boolean;
-  /** input.ask is implemented; reserved. */
-  input_ask: boolean;
   /** Formats the daemon serves on at least one host. */
   terminal_format: ("text" | "bytes" | "styled")[];
   /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has. */
@@ -1170,20 +1168,6 @@ export interface Methods {
     more: boolean;
   } };
   "agent.options": { params: { [key: string]: unknown }; result: AgentOptions };
-  "agent.create": { params: {
-  name: AgentName;
-  role: string;
-  repo: string;
-  base?: string;
-  model?: string;
-  effort?: string;
-  account?: string;
-  parent?: AgentName;
-  request_id: RequestId;
-}; result: Accepted & {
-    /** Operation id. */
-    operation: string;
-  } };
   "agent.set": { params: {
   agent: AgentName;
   values: AgentSettingValues;
@@ -1274,10 +1258,6 @@ export interface Methods {
 }; result: Accepted & {
     holder: InputHolder;
   } };
-  "input.ask": { params: {
-  agent: AgentName;
-  request_id: RequestId;
-}; result: Accepted };
   "input.release": { params: {
   agent: AgentName;
   request_id: RequestId;
@@ -1413,12 +1393,6 @@ export interface Methods {
 }; result: Accepted };
   "chat.dismiss": { params: {
   request: number;
-  request_id: RequestId;
-}; result: Accepted };
-  "chat.withdraw": { params: {
-  request: number;
-  /** Why; stored as typed. Empty is bad_request. */
-  reason?: string;
   request_id: RequestId;
 }; result: Accepted };
   "chat.cancel": { params: {
@@ -1705,28 +1679,6 @@ export interface Methods {
   parent?: number;
   request_id: RequestId;
 }; result: Accepted };
-  "ask": { params: {
-  target: string;
-  title: string;
-  body: string;
-  options?: DecisionOption[];
-  request_id: RequestId;
-}; result: Accepted & {
-    request: number;
-  } };
-  "push": { params: {
-  target: AgentName;
-  request?: number;
-  request_id: RequestId;
-}; result: Accepted };
-  "push.answer": { params: {
-  requester: AgentName;
-  request_id: RequestId;
-}; result: Accepted };
-  "push.cancelled": { params: {
-  request: number;
-  request_id: RequestId;
-}; result: Accepted };
   "land": { params: {
   sha: string;
   message: string;
@@ -1830,12 +1782,6 @@ export interface Methods {
 }; result: {
     accounts: Account[];
   } };
-  "account.set_cap": { params: {
-  account: string;
-  /** Most agents mid-turn at once (a count, not a percentage). */
-  cap: number;
-  request_id: RequestId;
-}; result: Accepted };
   "account.set": { params: {
   account: string;
   /** Alias, one plain line; empty clears. */
@@ -1886,11 +1832,6 @@ export interface Methods {
     diff: string;
     truncated: boolean;
   } };
-  "worktree.set_status": { params: {
-  path: string;
-  status: string;
-  request_id: RequestId;
-}; result: Accepted };
   "schedules.list": { params: { [key: string]: unknown }; result: {
     schedules: Schedule[];
     /** Present only when an agent's `schedules` value cannot be read: that agent, and why. */
@@ -1930,14 +1871,6 @@ export interface Methods {
   changes: SettingsChanges;
   /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request. */
   agent?: AgentName;
-  request_id: RequestId;
-}; result: Accepted };
-  "settings.trust": { params: {
-  account: string;
-  worktrees: {
-    agent: AgentName;
-    path: string;
-  }[];
   request_id: RequestId;
 }; result: Accepted };
   "answers.list": { params: { [key: string]: unknown }; result: {
@@ -2002,7 +1935,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.get": { role: "agent", callers: null, write: false, since: 1 },
   "agent.timeline": { role: "member", callers: null, write: false, since: 1 },
   "agent.options": { role: "member", callers: null, write: false, since: 1 },
-  "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "agent.set": { role: "agent", callers: ["agent", "founder"], write: true, since: 1 },
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
@@ -2019,7 +1951,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "prompt.list": { role: "member", callers: null, write: false, since: 1 },
   "prompt.answer": { role: "member", callers: null, write: true, since: 1 },
   "input.take": { role: "member", callers: null, write: true, since: 1 },
-  "input.ask": { role: "member", callers: null, write: true, since: 1 },
   "input.release": { role: "member", callers: null, write: true, since: 1 },
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
   "chat.requests": { role: "member", callers: null, write: false, since: 1 },
@@ -2033,7 +1964,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
   "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
-  "chat.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
   "terminal.attach": { role: "member", callers: null, write: false, since: 1 },
@@ -2072,10 +2002,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.ask": { role: "member", callers: null, write: true, since: 1 },
   "say": { role: "agent", callers: null, write: true, since: 1 },
-  "ask": { role: "agent", callers: null, write: true, since: 1 },
-  "push": { role: "agent", callers: null, write: true, since: 1 },
-  "push.answer": { role: "agent", callers: null, write: true, since: 1 },
-  "push.cancelled": { role: "agent", callers: null, write: true, since: 1 },
   "land": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "land.pass": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "land.authorize": { role: "agent", callers: ["agent"], write: true, since: 1 },
@@ -2091,14 +2017,12 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "hr.list": { role: "agent", callers: null, write: false, since: 1 },
   "hr.decide": { role: "founder", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
-  "account.set_cap": { role: "founder", callers: null, write: true, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
-  "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
   "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
   "schedule.add": { role: "founder", callers: null, write: true, since: 1 },
   "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
@@ -2107,7 +2031,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
-  "settings.trust": { role: "founder", callers: null, write: true, since: 1 },
   "answers.list": { role: "founder", callers: null, write: false, since: 1 },
   "answer.add": { role: "founder", callers: null, write: true, since: 1 },
   "answer.remove": { role: "founder", callers: null, write: true, since: 1 },

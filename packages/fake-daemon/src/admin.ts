@@ -35,8 +35,8 @@ export class FakeAdmin {
   /** Whether the daemon lists this method. */
   lists = (name: string): boolean => this.on || !ADMIN.test(name);
 
-  /** Whether this class answers the method (`settings.trust` is the trust list's, not the home settings'). */
-  owns = (name: string): boolean => ADMIN.test(name) && name !== 'settings.trust';
+  /** Whether this class answers the method. */
+  owns = (name: string): boolean => ADMIN.test(name);
 
   call(method: string, p: Record<string, unknown>, accepted: Accepted): unknown {
     switch (method) {

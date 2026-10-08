@@ -14,7 +14,7 @@ def _nf(what):
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": what}}
 
 
-@fake("chat.send", "chat.answer", "chat.dismiss", "chat.withdraw", "chat.cancel", "chat.seen")
+@fake("chat.send", "chat.answer", "chat.dismiss", "chat.cancel", "chat.seen")
 def chat_writes(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
@@ -38,6 +38,4 @@ def chat_writes(role, method, params):
         return "fail", err(-32602, "bad_request", field="confirm")
     if method == "chat.answer" and not _text(params.get("text")):
         return "fail", err(-32602, "bad_request", field="text")
-    if method == "chat.withdraw" and params.get("reason") is not None and not _text(params["reason"]):
-        return "fail", err(-32602, "bad_request", field="reason")
     return _nf("message")

@@ -176,8 +176,9 @@ def test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(home: Path) ->
 
 
 def test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_and_the_apps(home: Path) -> None:
-    """The merged tree's tools/check.sh picks the tests from what the merge changes: an apps/ or a go/ change runs
-    the Go suite and the Python files that test only Go, and no Python logic tests; anything else runs the whole suite."""
+    """The merged tree's tools/check.sh picks the tests from what the merge changes: an apps/ or a go/ change, or one to a
+    tool only the Go checks use, runs the Go suite and the Python files that test only Go, and no Python logic tests;
+    anything else runs the whole suite."""
     main = _repo(home)
     runs, go_runs = home / "runs", home / "go-runs"
 
@@ -190,11 +191,12 @@ def test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_
         path.unlink(missing_ok=True)
         return out
     gos = ["go", "test.sh tests/daemon/test_go_reads.py", "test.sh tests/daemon/test_go_hooks.py",
-           "test.sh tests/infra/test_go_schema.py"]
+           "test.sh tests/infra/test_go_schema.py", "test.sh tests/infra/test_go_tidy.py"]
     for name, files, python, go in (
             ("apps/mobile", [("apps/mobile/app.tsx", "x\n")], [], gos),
             ("go/", [("go/x.go", "package x\n")], [], gos),
             ("go/ and the apps' docs", [("go/y.go", "package y\n"), ("apps/README.md", "# r\n")], [], gos),
+            ("go/ and a tool only the Go checks use", [("go/w.go", "package w\n"), ("tools/conformance_fds.py", "x = 1\n")], [], gos),
             ("Python and Go", [("handline/m.py", "m = 1\n"), ("go/z.go", "package z\n")], ["run"], []),
             ("tests/", [("tests/t.py", "t = 1\n")], ["run"], []),
             ("tools/", [("tools/land2.sh", "true\n")], ["run"], [])):
