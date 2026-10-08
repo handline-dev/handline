@@ -255,6 +255,30 @@ BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
 ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
 
 
+def is_structured(name: str) -> bool:
+    """Is this agent a structured session, driven by the Go daemon (agent.yaml `structured: true`)?
+
+    The Python daemon does not act on such an agent: no tick, delivery, wake, close or handoff. Everything that only reads or lists
+    agents still sees it. The key is not `mode`, which is the permission mode (auto, plan, ...) a person sets and changes: a structured
+    switch under that name would be overwritten by choosing a mode. Read the same way go/internal/compose KindFromYAML reads it, so the
+    two daemons agree on whose the agent is: the first top-level `structured:` line, a trailing comment and quotes dropped, true or not.
+    An agent.yaml that cannot be read is not structured."""
+    try:
+        text = (paths.agents_dir() / name / "agent.yaml").read_text()
+    except (OSError, UnicodeDecodeError):
+        return False
+    for line in text.split("\n"):
+        if line.startswith("structured:"):
+            value = line[len("structured:"):].split("#", 1)[0].strip().strip("\"'")
+            return value.lower() == "true"
+    return False
+
+
+def driven() -> list[str]:
+    """The registered agents this daemon acts on: every one but the structured ones, which the Go daemon drives."""
+    return [a for a in paths.list_agents() if not is_structured(a)]
+
+
 def agent_file(name: str) -> Path:
     return paths.agent_dir(name) / "agent.yaml"
 

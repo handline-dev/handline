@@ -114,6 +114,8 @@ def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
     destination fixed. Nothing is ended unless `dest` takes one more agent.
     `by` is recorded on the event.
     """
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon moves it")  # the Go daemon drives it
     if agent not in paths.list_agents():
         return False, f"no agent '{agent}'"
     if dest not in paths.list_accounts() or not accounts.logged_in(dest):
@@ -145,6 +147,8 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
 
     Returns True when the agent ended parked cleanly, False when it degraded.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     existing = db.in_flight_for(con, agent)
     if existing:
         db.advance_handoff(con, existing["id"], existing["step"],
@@ -567,6 +571,8 @@ def settle_owed_clear(con, agent: str, log) -> bool:
     """True while this agent's clear is owed (T415): types it once the agent's background work
     has ended or its time is up, then parks it as the handoff would have. False when nothing is
     owed, or the session it was owed for is gone."""
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     if not delivery.clear_owed(con, agent):
         _OWED_SAID.pop(agent, None)
         return False

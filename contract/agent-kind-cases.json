@@ -1,0 +1,53 @@
+{
+ "about": "agent.yaml text -> whether the agent is a structured session; the Python daemon (handline/team/agents.is_structured) and the Go daemon (compose.KindFromYAML) read it the same way",
+ "cases": [
+  {
+   "yaml": "structured: true\n",
+   "structured": true
+  },
+  {
+   "yaml": "vendor: claude\nstructured: true\nmodel: x\n",
+   "structured": true
+  },
+  {
+   "yaml": "structured: 'true' # the Go daemon drives it\n",
+   "structured": true
+  },
+  {
+   "yaml": "structured: \"True\"\n",
+   "structured": true
+  },
+  {
+   "yaml": "structured: false\n",
+   "structured": false
+  },
+  {
+   "yaml": "structured: yes\n",
+   "structured": false
+  },
+  {
+   "yaml": "  structured: true\n",
+   "structured": false
+  },
+  {
+   "yaml": "mode: structured\n",
+   "structured": false
+  },
+  {
+   "yaml": "mode: auto\nstructured: true\n",
+   "structured": true
+  },
+  {
+   "yaml": "structured: false\nstructured: true\n",
+   "structured": false
+  },
+  {
+   "yaml": "# structured: true\n",
+   "structured": false
+  },
+  {
+   "yaml": "",
+   "structured": false
+  }
+ ]
+}

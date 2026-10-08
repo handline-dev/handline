@@ -420,6 +420,8 @@ def recover_unsent(con, agent: str, log) -> bool:
     holds the text UNSENT_ENTER_WAIT_S after it, the box is cleared and the text typed once more;
     if that is not submitted either the agent is reported blocked and nothing more is pressed.
     A box with anything but our text in it - a person's draft - is never sent."""
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     rec = _unsent_record(con, agent)
     handle = db.get_terminal(con, agent)
     if not rec or not handle or not term.available():
@@ -489,6 +491,8 @@ def enforce_edges(con, agent: str, log) -> bool:
     when the table cannot be trusted - changed, unsealed or unreadable: nothing
     is delivered until the founder has looked (T202). A request from a name that
     is not a registered agent (the system's own) is not an agent's edge."""
+    if agents.is_structured(agent):
+        return True  # the Go daemon drives it
     hold = f"edgehold:{agent}"
     try:
         t = teammod.Team.load()
@@ -674,6 +678,8 @@ def deliver_queued(con, agent: str, log) -> bool:
     Told once per task: the cursor holds the id last announced. Whatever holds the batch back is
     logged, once per reason.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     if not enforce_edges(con, agent, log):
         return False
     head = effective_task_head(con, agent)
@@ -777,6 +783,8 @@ def track_background_work(con, agent: str, row) -> None:
     the idle clock starts there (`idle_since`), not at its last hook event;
     the end is not a model turn, so it stays out of `db.last_activity`, which
     the prompt cache is judged by."""
+    if agents.is_structured(agent):
+        return None  # the Go daemon drives it
     key = f"bgwork:{agent}"
     if row and (row["closed_at"] or not row["terminal"]):
         db.clear_cursor(con, key)      # the session is gone, and so is what ran behind its prompt
@@ -1004,6 +1012,8 @@ def type_notice(con, agent: str, text: str) -> bool:
     them, or a send that failed; the caller decides when to try again. Nothing
     here touches an attempt counter, so a notice cannot stall an agent.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     handle = db.get_terminal(con, agent)
     if typing_hold(con, agent) or not handle or not term.available() \
             or not term.alive(handle) or not session_present(agent) \
@@ -1057,6 +1067,8 @@ def nudge_forgotten_resolve(con, agent: str, row, now: int, log) -> bool:
     delivery (not at the wall, nothing typed at a modal or a working agent),
     and nothing here touches an attempt counter, so it cannot stall an agent.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     found = forgotten_resolve(con, agent, row, now)
     if not found:
         return False
@@ -1471,6 +1483,8 @@ def deliver_answers(con, agent: str, log) -> bool:
     do something else - while a `denied` ask was refused by routing before
     anything was sent, and the agent read that reason on its own terminal.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     answered = db.unannounced_answers(con, agent)
     if not answered:
         return False

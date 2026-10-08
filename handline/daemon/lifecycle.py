@@ -48,6 +48,8 @@ def should_close(con, agent: str, state: str, row, now: int, st) -> bool:
     without a session id would buy back the small reversible thing by spending
     the large irreversible one.
     """
+    if agents.is_structured(agent):
+        return False  # the Go daemon drives it
     if state in (RUNNING, HANDOFF, STALLED):
         return False
     if not row or row["closed_at"] or not row["terminal"]:
@@ -234,6 +236,8 @@ def close_agent(con, agent: str, log, st, keep_pane: bool = False,
     a fresh start's: the conversation is given up on purpose, so a session with no id on record is
     still closed.
     """
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon closes it")  # the Go daemon drives it
     with lock.terminal(agent) as mine:
         if not mine:
             return False, f"{TYPING_ELSEWHERE}; not closing"
@@ -258,6 +262,8 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
     new conversation that starts from the handoff record. For an agent that came back as the same
     conversation after a human closed it (the daemon records a closed session and resumes it when
     work arrives). A session already closed keeps its closed mark; only the id is dropped."""
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon closes it")  # the Go daemon drives it
     row = db.get_agent_state(con, agent)
     if not row:
         return False, f"{agent} has never been started"
@@ -336,6 +342,8 @@ def restart_agent(con, agent: str, log, st, fresh: bool = False,
     it as any close does (the handoff record first, `/exit` once its turn has ended) and so waits for
     that turn. Work queued for it is the resume's first prompt, as in any wake, after the line that
     says it was restarted, by `by`."""
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon restarts it")  # the Go daemon drives it
     row = db.get_agent_state(con, agent)
     if not row:
         return False, "it has never been started"
@@ -697,6 +705,8 @@ def _start_for_work(con, agent: str, log) -> str:
     retried every tick forever. After MAX_FAILED_ATTEMPTS it stalls and says
     so, which is a human's problem by definition.
     """
+    if agents.is_structured(agent):
+        return f"{agent}: a structured session: the Go daemon starts it"  # the Go daemon drives it
     row = db.get_agent_state(con, agent)
     if resumable_without_terminal(row):
         # The caller wakes it, opening the terminal and resuming the session;
@@ -772,6 +782,8 @@ def wake_agent(con, agent: str, log, force: bool = False, warm: bool = False,
     as (`db.session_starts`); a wake says "wake", "fresh close" or "move" itself. `restarted_by`
     names who asked for a restart: the session's first prompt says so.
     """
+    if agents.is_structured(agent):
+        return (False, f"{agent} is a structured session: the Go daemon wakes it")  # the Go daemon drives it
     held = inputhold.held_by_other(con, agent)
     if held:        # nothing is typed into a pane someone holds, a launch line included; the work stays queued
         return False, inputhold.held_why(agent, held)

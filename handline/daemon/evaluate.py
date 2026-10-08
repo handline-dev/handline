@@ -91,6 +91,8 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     them - sits inside the single try in `tick` that treats a failure as this
     agent's failure.
     """
+    if agents.is_structured(agent):
+        return  # the Go daemon drives it: nothing is recorded, typed or handed off for it here
     row = db.get_agent_state(con, agent)
     state = row["state"] if row else IDLE
 
@@ -443,7 +445,7 @@ def start_waiting(con, log) -> list[str]:
     its worktree rather than woken into a handle that is gone."""
     actions: list[str] = []
     reconciler.sweep(con, log, actions)
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         try:
             row = db.get_agent_state(con, agent)
             need = lifecycle.start_or_wake_needed(con, agent, row)
@@ -506,7 +508,7 @@ def tick(con, log, samples: dict | None = None) -> Tick:
     except Exception as e:  # noqa: BLE001 - a bad table here is not the tick's failure
         log(f"  {HUMAN}: edge check failed: {type(e).__name__}: {e}")
 
-    for agent in paths.list_agents():
+    for agent in agents.driven():
         try:
             supervise(con, agent, log, now, samples, actions)
         except Exception as e:  # noqa: BLE001
