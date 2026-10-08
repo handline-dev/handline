@@ -20,7 +20,7 @@ const (
 )
 
 var proposalKinds = map[string]bool{"add": true, "retire": true, "rename": true, "link": true, "unlink": true,
-	"team": true, "settings": true, "context": true, "bundle": true}
+	"team": true, "settings": true, "context": true, "schedule": true, "global": true, "bundle": true}
 
 // hrState is the wire word for a proposal file's state, as handline/team/hr.py card() draws them: "proposed" waits for the
 // founder, "approved" is decided but did not go through, "applied" is done. "enacting" and "failed" are a human's own change, and are not served.
@@ -167,4 +167,15 @@ func cut(s string, n int) string {
 		return string(r[:n])
 	}
 	return s
+}
+
+// HRView is the Proposal hr.list shows for the stored proposal with this id, nil for one it never lists (a human's own change, a state the
+// wire has no word for).
+func (e *Env) HRView(pid string) map[string]any {
+	for _, p := range e.proposals() {
+		if p.text("id") == pid {
+			return e.proposalView(p)
+		}
+	}
+	return nil
 }
