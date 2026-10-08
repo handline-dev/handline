@@ -56,6 +56,8 @@ func memberMay(name string) (known, allowed bool) {
 type Relay struct {
 	// Dial connects to it; a call fails at once when it cannot.
 	Dial func() (net.Conn, error)
+	// Capabilities, when set, is what hello asks for the terminal formats the daemon behind serves.
+	Capabilities func(device, name string) map[string]any
 }
 
 const (
@@ -63,6 +65,53 @@ const (
 	relayWriteWait = 5 * time.Second
 	relayRetryMS   = 2000
 )
+
+// TerminalCapabilities asks the Python daemon, over a relay connection of its own for the device, which terminal formats
+// it serves (hello.capabilities.terminal_format and terminal_hosts): what the gateway says in its hello for the calls it
+// relays. Nil when the relay does not answer.
+func (r *Relay) TerminalCapabilities(device, name string) map[string]any {
+	up, err := r.Dial()
+	if err != nil {
+		return nil
+	}
+	defer up.Close()
+	up.SetDeadline(time.Now().Add(relayOpenWait))
+	open, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "relay.open",
+		"params": map[string]any{"device_id": device, "name": name, "role": "member"}})
+	hello, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "hello",
+		"params": map[string]any{"client": "gateway", "protocol": MinClient}})
+	br := bufio.NewReader(up)
+	if _, err := up.Write(append(open, '\n')); err != nil {
+		return nil
+	}
+	if _, err := br.ReadBytes('\n'); err != nil { // the open's reply
+		return nil
+	}
+	if _, err := up.Write(append(hello, '\n')); err != nil {
+		return nil
+	}
+	for {
+		line, err := br.ReadBytes('\n')
+		if err != nil {
+			return nil
+		}
+		var m struct {
+			ID     any `json:"id"`
+			Result struct {
+				Capabilities map[string]any `json:"capabilities"`
+			} `json:"result"`
+		}
+		if json.Unmarshal(line, &m) == nil && m.ID == float64(1) {
+			caps := map[string]any{}
+			for _, k := range []string{"terminal_format", "terminal_hosts"} {
+				if v, ok := m.Result.Capabilities[k]; ok {
+					caps[k] = v
+				}
+			}
+			return caps
+		}
+	}
+}
 
 func relayDown() *Error {
 	return &Error{RPCCode: -32004, Code: "daemon_busy", Message: "the daemon behind this one is not answering",

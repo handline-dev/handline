@@ -42,6 +42,7 @@ func startStream(t *testing.T) (*Daemon, *fakePython) {
 	t.Cleanup(d.Close)
 	f := &fakePython{t: t, script: echo, closed: make(chan struct{}, 16)}
 	d.net.rs.Relay.Dial = f.dial
+	d.net.rs.Relay.Capabilities = nil // tests count the dials: no capabilities probe unless one asks
 	return d, f
 }
 
