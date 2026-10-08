@@ -7,7 +7,7 @@ import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, usePending, useWrite } from '@handline/app-data';
 
-/** Starts a verb's write. Clear stall has no method in the contract yet, so it never runs. */
+/** Starts a verb's write. */
 export function useVerbRun(agent: string) {
   const wake = useWrite('session.wake', agent);
   const stop = useWrite('session.stop', agent);
@@ -15,6 +15,7 @@ export function useVerbRun(agent: string) {
   const park = useWrite('session.park', agent);
   const fold = useWrite('agent.fold', agent);
   const move = useWrite('agent.move', agent);
+  const unstall = useWrite('agent.unstall', agent);
   return (v: Verb, account?: string) => {
     const p = callOf(v, agent, account).params as never;
     if (v.method === 'session.wake') wake.mutate(p);
@@ -23,6 +24,7 @@ export function useVerbRun(agent: string) {
     else if (v.method === 'session.park') park.mutate(p);
     else if (v.method === 'agent.fold') fold.mutate(p);
     else if (v.method === 'agent.move') move.mutate(p);
+    else if (v.method === 'agent.unstall') unstall.mutate(p);
   };
 }
 
@@ -36,6 +38,7 @@ export function useVerbMark(agent: string): string | null {
     [mine(usePending('session.park')).length > 0, 'park'],
     [mine(usePending('agent.fold')).length > 0, 'fold'],
     [mine(usePending('agent.move')).length > 0, 'move'],
+    [mine(usePending('agent.unstall')).length > 0, 'clear_stall'],
   ];
   const hit = hits.find(([on]) => on);
   return hit ? VERBS[hit[1]].gerund : null;
