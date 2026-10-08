@@ -60,7 +60,7 @@ def send(params):
             return "fail", err(-32600, "bad_request", field="request_id")
         if op["gone"]:
             return _refused("state", "that message was withdrawn")
-        if op["state"] == "sent":       # the CLI's echo arrives between the send and its retry
+        if op["state"] == "sent":       # a script, not a clock: the CLI's echo is taken to arrive between the send and its retry, so the retry is what confirms
             op["state"] = "confirmed"
         return _ok("Sent.", replayed=True, request=op["id"], receipt=_receipt(op))
     queued = agent == WORKING and params.get("delivery", "queue") == "queue"

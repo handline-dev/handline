@@ -95,6 +95,7 @@ export class FakeDaemon {
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
     sessions: () => this.sessions,
+    moved: (s, from) => this.chat.stateMoved(s.fx.name, from, s.state),
     broadcast: (s, method, params) => {
       for (const c of this.conns) {
         const a = c.attached.get(tid(s));

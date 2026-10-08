@@ -1,9 +1,10 @@
 // Runs the fake daemon on a Unix socket (lines) and a WebSocket port (for the browser), LAN/localhost only.
-//   node serve.ts [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS]
+//   node serve.ts [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS] [--conformance]
 import type https from 'node:https';
 import net from 'node:net';
 import type { Transport } from '@handline/client';
 import { wrapSocket } from '@handline/client-node';
+import { seedConformance } from './conformance.ts';
 import { FakeDaemon } from './daemon.ts';
 import { wsServer } from './ws-server.ts';
 
@@ -25,6 +26,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     return i > 0 ? process.argv[i + 1] : d;
   };
   const daemon = new FakeDaemon();
+  if (process.argv.includes('--conformance')) await seedConformance(daemon);
   const ms = Number(arg('autoplay', '1000'));
   if (ms > 0) daemon.autoplay(ms);
   serveSocket(daemon, arg('socket', '/tmp/handline-fake-daemon.sock'));

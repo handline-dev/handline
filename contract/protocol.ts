@@ -1094,7 +1094,7 @@ export type TranscriptEvents = {
 
 /** Where a message to a structured agent is on its way into the CLI. Only for an agent whose AgentView.structured is true; see x-delivery. */
 export type Receipt = {
-  /** queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again. Open set: a client draws a word it does not know as sent and offers no action. */
+  /** queued: held by the daemon behind a running turn, not written to the CLI. sent: written to the CLI, not yet echoed. confirmed: the CLI echoed the message's uuid. unknown: written, and the daemon or the CLI ended before the echo; never written again. */
   state: "queued" | "sent" | "confirmed" | "unknown";
   /** The message's uuid, derived by the daemon from the request_id; the id the transcript stream's turn_start carries. Read it, do not compute it. */
   uuid: string;
