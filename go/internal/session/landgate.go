@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -127,7 +128,7 @@ func ParseLand(toolName string, toolInput any) (verb, sha string, ok bool) {
 	}
 	rest := words[2:]
 	var positional []string
-	tree, pass := false, false
+	tree := false
 	for i := 0; i < len(rest); {
 		w := rest[i]
 		switch {
@@ -137,15 +138,14 @@ func ParseLand(toolName string, toolInput any) (verb, sha string, ok bool) {
 		case strings.HasPrefix(w, "-") && w != "--pass":
 			return // --check, --list and anything unknown send no verb
 		default:
-			if w == "--pass" {
-				pass = true
-			} else {
+			if w != "--pass" {
 				positional = append(positional, w)
 			}
 			i++
 		}
 	}
-	if pass {
+	// Whether this is a pass is read off the whole list, as the spec does: a --pass in the place of --tree's value is one too.
+	if slices.Contains(rest, "--pass") {
 		if len(positional) == 1 {
 			return "land_pass", positional[0], true
 		}

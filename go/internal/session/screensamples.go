@@ -24,7 +24,8 @@ func SamplesDir(home string) string { return filepath.Join(home, "diag", "screen
 // RecordScreenSample writes one sample if it is due. True when written; a failure to write is not the tick's.
 func (e *Env) RecordScreenSample(agent string, row *AgentRow, running string, tail []string) bool {
 	now := e.now()
-	if len(tail) == 0 || now-e.GetCursor("screen_sample:"+agent) < SampleIntervalS {
+	last, err := e.GetCursor("screen_sample:" + agent)
+	if len(tail) == 0 || err != nil || now-last < SampleIntervalS {
 		return false
 	}
 	d := SamplesDir(e.Home)

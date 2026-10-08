@@ -126,34 +126,34 @@ func TestWorkWaitingNamesTheRequestTheAnswersAndTheReminder(t *testing.T) {
 	b.del.forgotten["backend"] = &Forgotten{IdleS: 700, Head: &Request{ID: 9}}
 	row, _ := b.GetAgentState("backend")
 	want := "request #1 (+2 behind); answer #4, #5, #6 (+2); reminder to resolve #9"
-	if got := b.WorkWaiting("backend", row, b.now); got != want {
+	if got := b.workWaiting("backend", row, b.now); got != want {
 		t.Errorf("got %q", got)
 	}
 	b.SetCursor("notify:backend", 1)
 	b.SetCursor("nudge:backend", 9)
 	b.del.answers["backend"] = []int64{4}
-	if got := b.WorkWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
 		t.Errorf("a told head and a nudged reminder: %q", got)
 	}
 	b.del.changed["backend"] = true
-	if got := b.WorkWaiting("backend", row, b.now); got != "request #1 (+2 behind); answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "request #1 (+2 behind); answer #4" {
 		t.Errorf("a new session is told again: %q", got)
 	}
 	b.del.changed["backend"] = false
 	b.SetCursor("nudge:backend", 0)
 	b.del.forgotten["backend"].IdleS = 599
-	if got := b.WorkWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
 		t.Errorf("a reminder before NudgeAfterS: %q", got)
 	}
 	b.del.forgotten["backend"].IdleS = 600
 	b.del.taskBlock = true
-	if got := b.WorkWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
 		t.Errorf("a reminder for a blocked head task: %q", got)
 	}
 	b.del.head["backend"] = nil
 	b.del.answers["backend"] = nil
 	b.del.forgotten["backend"] = nil
-	if got := b.WorkWaiting("backend", row, b.now); got != "" {
+	if got := b.workWaiting("backend", row, b.now); got != "" {
 		t.Errorf("nothing waiting: %q", got)
 	}
 }
@@ -298,7 +298,7 @@ func TestADialogOcpCannotPressIsHeldAndTheFounderToldWithTheDialog(t *testing.T)
 	if rec == nil {
 		t.Fatal("the held block went")
 	}
-	if got := b.PressNote("backend", rec, b.now); got != "ocp did not press it: its Esc is not measured" {
+	if got := b.pressNote("backend", rec, b.now); got != "ocp did not press it: its Esc is not measured" {
 		t.Errorf("press note %q", got)
 	}
 
@@ -328,7 +328,7 @@ func TestEscThatLeavesTheDialogStandingIsNotPressedAgainAndAScreenIsShownWithout
 	if len(b.term.pressed) != MaxIgnored {
 		t.Errorf("pressed %d times, want %d", len(b.term.pressed), MaxIgnored)
 	}
-	if got := b.PressNote("backend", b.block(), b.now); got != "Esc did not close it, so ocp has stopped pressing" {
+	if got := b.pressNote("backend", b.block(), b.now); got != "Esc did not close it, so ocp has stopped pressing" {
 		t.Errorf("note %q", got)
 	}
 
@@ -348,7 +348,7 @@ func TestManyDifferentTitlesStillHitTheAbsoluteStop(t *testing.T) {
 	for i := 0; i < MaxPressesAgent; i++ {
 		b.PressAdd("backend", b.now-10, string(rune('A'+i)), "cleared", "")
 	}
-	got := b.StoppedPressing("backend", &Block{Title: "never seen"}, b.now)
+	got := b.stoppedPressing("backend", &Block{Title: "never seen"}, b.now)
 	if got != "ocp cleared 10 dialogs on this agent in 6h (10 different titles), so it has stopped pressing" {
 		t.Errorf("got %q", got)
 	}
@@ -356,7 +356,7 @@ func TestManyDifferentTitlesStillHitTheAbsoluteStop(t *testing.T) {
 	for i := 0; i < MaxPressesAgent; i++ {
 		b.PressAdd("backend", b.now-10, "same", "cleared", "")
 	}
-	if got := b.StoppedPressing("backend", &Block{Title: "same"}, b.now); !strings.HasPrefix(got, "ocp cleared it 10 times in 6h") {
+	if got := b.stoppedPressing("backend", &Block{Title: "same"}, b.now); !strings.HasPrefix(got, "ocp cleared it 10 times in 6h") {
 		t.Errorf("one title looping: %q", got)
 	}
 	// Presses outside the window do not count.
@@ -364,7 +364,7 @@ func TestManyDifferentTitlesStillHitTheAbsoluteStop(t *testing.T) {
 	for i := 0; i < MaxPressesAgent; i++ {
 		b.PressAdd("backend", b.now-PressWindowS-1, "same", "cleared", "")
 	}
-	if got := b.StoppedPressing("backend", &Block{Title: "same"}, b.now); got != "" {
+	if got := b.stoppedPressing("backend", &Block{Title: "same"}, b.now); got != "" {
 		t.Errorf("old presses counted: %q", got)
 	}
 }
@@ -551,32 +551,32 @@ func TestAutoTrustAndBypassEndABlockOnAnIdleAgent(t *testing.T) {
 
 func TestPastDialogDeclinesOnlyWhatMayBeAndSaysWhy(t *testing.T) {
 	b := newBlockedFixture(t)
-	if why, title := b.PastDialog("backend", false); why != "" || title != "" {
+	if why, title := b.pastDialog("backend", false); why != "" || title != "" {
 		t.Fatalf("nothing in the way: %q %q", why, title)
 	}
 	b.term.blockers["h1"] = exitDialogBlocker()
 	b.term.press["h1"] = [3]string{term.Cleared, "Background work is running", ""}
-	if why, _ := b.PastDialog("backend", true); why != "" || len(b.term.pressed) != 0 {
+	if why, _ := b.pastDialog("backend", true); why != "" || len(b.term.pressed) != 0 {
 		t.Fatalf("onlyLimit pressed a dialog that is not the limit: %q %v", why, b.term.pressed)
 	}
-	if why, title := b.PastDialog("backend", false); why != "" || title != "" || len(b.term.pressed) != 1 {
+	if why, title := b.pastDialog("backend", false); why != "" || title != "" || len(b.term.pressed) != 1 {
 		t.Fatalf("declined: %q %q %v", why, title, b.term.pressed)
 	}
 	b.term.usage["h1"] = true
-	if why, _ := b.PastDialog("backend", true); why != "" || len(b.term.pressed) != 2 {
+	if why, _ := b.pastDialog("backend", true); why != "" || len(b.term.pressed) != 2 {
 		t.Fatalf("the limit dialog with onlyLimit: %q", why)
 	}
 	b.term.press["h1"] = [3]string{term.NotPressed, "Background work is running", "its Esc is not measured"}
-	why, title := b.PastDialog("backend", false)
+	why, title := b.pastDialog("backend", false)
 	if title != "Background work is running" || !strings.HasSuffix(why, "; ocp did not press it: its Esc is not measured") || !strings.HasPrefix(why, "a dialog is open on its screen") {
 		t.Errorf("not pressed: %q %q", why, title)
 	}
 	b.term.press["h1"] = [3]string{term.StillOpen, "Background work is running", "x"}
-	if why, _ := b.PastDialog("backend", false); !strings.HasSuffix(why, "; Esc did not close it") {
+	if why, _ := b.pastDialog("backend", false); !strings.HasSuffix(why, "; Esc did not close it") {
 		t.Errorf("still open: %q", why)
 	}
-	b.PastDialog("backend", false)
-	if why, _ := b.PastDialog("backend", false); !strings.HasSuffix(why, "Esc did not close it, so ocp has stopped pressing") {
+	b.pastDialog("backend", false)
+	if why, _ := b.pastDialog("backend", false); !strings.HasSuffix(why, "Esc did not close it, so ocp has stopped pressing") {
 		t.Errorf("stopped: %q", why)
 	}
 }
@@ -669,5 +669,79 @@ func TestSplitLinesIsPythons(t *testing.T) {
 		if got := strings.Join(splitLines(in), "|"); got != want {
 			t.Errorf("splitLines(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func (b *blockedFixture) workWaiting(agent string, row *AgentRow, now int64) string {
+	b.t.Helper()
+	w, err := b.WorkWaiting(agent, row, now)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return w
+}
+
+func (b *blockedFixture) stoppedPressing(agent string, rec *Block, now int64) string {
+	b.t.Helper()
+	w, err := b.StoppedPressing(agent, rec, now)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return w
+}
+
+func (b *blockedFixture) pressNote(agent string, rec *Block, now int64) string {
+	b.t.Helper()
+	w, err := b.PressNote(agent, rec, now)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return w
+}
+
+func (b *blockedFixture) pastDialog(agent string, onlyLimit bool) (string, string) {
+	b.t.Helper()
+	why, title, err := b.PastDialog(agent, onlyLimit)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return why, title
+}
+
+func TestAnUnreadablePressHistoryPressesNothing(t *testing.T) {
+	b := newBlockedFixture(t)
+	b.term.blockers["h1"] = exitDialogBlocker()
+	b.term.press["h1"] = [3]string{term.Cleared, "Background work is running", ""}
+	b.sweep()
+	b.exec("DROP TABLE dialog_presses")
+	b.at(PressAfterS)
+	b.checked = nil
+	if err := b.Sweep(); err != nil {
+		t.Fatalf("the sweep failed as a whole: %v", err)
+	}
+	if len(b.term.pressed) != 0 {
+		t.Fatalf("pressed with no history to read: %v", b.term.pressed)
+	}
+	found := false
+	for _, l := range b.logs {
+		found = found || strings.Contains(l, "block check failed")
+	}
+	if !found {
+		t.Errorf("the skipped agent was not logged: %q", b.logs)
+	}
+	if _, _, err := b.PastDialog("backend", false); err == nil || len(b.term.pressed) != 0 {
+		t.Errorf("PastDialog pressed or hid the error: %v %v", err, b.term.pressed)
+	}
+}
+
+func TestAnUnreadableCursorLeavesTheStuckBackoffInForce(t *testing.T) {
+	a := newAcceptFixture(t)
+	a.waitFor("Browser")
+	a.term.accepts["Browser"] = true
+	a.term.press["h1"] = [3]string{term.Cleared, "Run it?", ""}
+	a.exec("DROP TABLE cursors")
+	a.sweep()
+	if len(a.term.pressed) != 0 {
+		t.Fatalf("pressed with the back-off unreadable: %v", a.term.pressed)
 	}
 }

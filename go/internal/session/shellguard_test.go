@@ -13,6 +13,9 @@ func TestGuardLetsASafeCommandThrough(t *testing.T) {
 			t.Errorf("%q refused: %s", c, g)
 		}
 	}
+	if g := Guard("Bash", bash("hl\u00a0say \"$(x)\"")); g == "" {
+		t.Error("a no-break space is white space to the spec's \\s")
+	}
 	if g := Guard("Write", bash("hl say worker \"`whoami`\"")); g != "" {
 		t.Errorf("a tool other than Bash was looked at: %s", g)
 	}

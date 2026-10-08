@@ -177,11 +177,15 @@ func (e *Env) TableMissOf(row *AgentRow) *Found {
 
 // WorkWaiting is what ocp wants to type at this agent and has not: the head of its queue while it is untold, answers it asked for,
 // and the reminder to resolve a request it has sat idle on. Empty when there is nothing.
-func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) string {
+func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error) {
 	d := e.Delivery
 	var parts []string
 	head := d.EffectiveHead(agent)
-	if head != nil && (e.GetCursor(fmt.Sprintf("notify:%s", agent)) != head.ID || d.SessionChanged(agent)) {
+	notified, err := e.GetCursor(fmt.Sprintf("notify:%s", agent))
+	if err != nil {
+		return "", err
+	}
+	if head != nil && (notified != head.ID || d.SessionChanged(agent)) {
 		s := fmt.Sprintf("request #%d", head.ID)
 		if behind := d.QueueDepth(agent) - 1; behind > 0 {
 			s += fmt.Sprintf(" (+%d behind)", behind)
@@ -200,11 +204,14 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) string {
 		parts = append(parts, s)
 	}
 	idle := d.ForgottenResolve(agent, row, now)
-	if idle != nil && idle.IdleS >= d.NudgeAfterS() && e.GetCursor(fmt.Sprintf("nudge:%s", agent)) != idle.Head.ID &&
-		!d.HeadTaskBlocked(agent, idle.Head) {
+	nudged, err := e.GetCursor(fmt.Sprintf("nudge:%s", agent))
+	if err != nil {
+		return "", err
+	}
+	if idle != nil && idle.IdleS >= d.NudgeAfterS() && nudged != idle.Head.ID && !d.HeadTaskBlocked(agent, idle.Head) {
 		parts = append(parts, fmt.Sprintf("reminder to resolve #%d", idle.Head.ID))
 	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, "; "), nil
 }
 
 // Classify is what is in the way of giving this agent its work, nil when nothing is. One screen read of its own at most: WaitOf
@@ -276,7 +283,11 @@ func (e *Env) NoteCloseFailure(agent string) error {
 		return err
 	}
 	row, _ := e.GetAgentState(agent)
-	if err := e.BlockOpen(agent, seen.Kind, seen.Detail, e.WorkWaiting(agent, row, now), now, now, "close", seen.Title); err != nil {
+	work, err := e.WorkWaiting(agent, row, now)
+	if err != nil {
+		return err
+	}
+	if err := e.BlockOpen(agent, seen.Kind, seen.Detail, work, now, now, "close", seen.Title); err != nil {
 		return err
 	}
 	e.log("  %s: %s - ocp's own /exit raised it", agent, Reason(seen.Kind, seen.Detail))
@@ -295,33 +306,39 @@ func (e *Env) NoteCloseFailure(agent string) error {
 // session's running work. A caller that is only deciding whether to begin passes onlyLimit: then nothing is pressed for a dialog
 // that waiting may clear because a person is answering it (a permission prompt on a working agent), and it reads as no obstacle at
 // all.
-func (e *Env) PastDialog(agent string, onlyLimit bool) (why, title string) {
+func (e *Env) PastDialog(agent string, onlyLimit bool) (why, title string, err error) {
 	handle := e.getTerminal(agent)
 	var seen *term.Blocker
 	if handle != "" {
 		seen = e.Term.ScreenBlocker(handle)
 	}
 	if seen == nil || seen.Kind != term.Modal {
-		return "", ""
+		return "", "", nil
 	}
 	if onlyLimit && !e.Term.UsageLimitOpen(handle) {
-		return "", ""
+		return "", "", nil
 	}
 	now := e.now()
-	if stopped := e.StoppedPressing(agent, &Block{Title: seen.Title}, now); stopped != "" {
-		return Reason(seen.Kind, seen.Detail) + "; " + stopped, seen.Title
+	stopped, err := e.StoppedPressing(agent, &Block{Title: seen.Title}, now)
+	if err != nil {
+		return "", "", err
+	}
+	if stopped != "" {
+		return Reason(seen.Kind, seen.Detail) + "; " + stopped, seen.Title, nil
 	}
 	outcome, title, why := e.Term.DeclineDialog(handle)
 	if outcome == term.NotPressed {
-		return Reason(seen.Kind, seen.Detail) + "; ocp did not press it: " + why, seen.Title
+		return Reason(seen.Kind, seen.Detail) + "; ocp did not press it: " + why, seen.Title, nil
 	}
-	_ = e.PressAdd(agent, now, title, outcome, why)
+	if err := e.PressAdd(agent, now, title, outcome, why); err != nil {
+		return "", "", err
+	}
 	if outcome == term.StillOpen {
-		return Reason(seen.Kind, seen.Detail) + "; Esc did not close it", seen.Title
+		return Reason(seen.Kind, seen.Detail) + "; Esc did not close it", seen.Title, nil
 	}
 	_ = e.AddEvent(agent, "dialog_declined", map[string]any{"title": title, "key": "Esc", "work": "exit"})
 	e.log("  %s: pressed Esc on \"%s\" to get to its exit", agent, title)
-	return "", ""
+	return "", "", nil
 }
 
 // StopWorkAndExit chooses "Exit and stop tasks" on the exit dialog over stale background work, if it is exactly that dialog. True
@@ -354,9 +371,12 @@ func (e *Env) DialogNote(agent string) string {
 // StoppedPressing is why ocp will not press this agent's dialog again, or "" when it may. rec is the block it is asked about; the
 // history is this one dialog's, by its own raw title (rec.Title, from ParseDialog; never reconstructed from Detail, a rendering
 // that a title with a quote in it or over DetailChars long does not round-trip through), not the agent's whole 6-hour past.
-func (e *Env) StoppedPressing(agent string, rec *Block, now int64) string {
+func (e *Env) StoppedPressing(agent string, rec *Block, now int64) (string, error) {
 	title := rec.Title
-	all, _ := e.PressesSince(agent, now-PressWindowS)
+	all, err := e.PressesSince(agent, now-PressWindowS)
+	if err != nil {
+		return "", err
+	}
 	// The absolute stop, checked first and independent of any title matching: a title an agent varies would otherwise never trip
 	// the per-dialog count below, since it never repeats. Checking this first must not hand a single looping dialog the per-agent
 	// wording: the count alone does not say whether it was one dialog or several, so the titles actually seen decide what is said.
@@ -370,9 +390,9 @@ func (e *Env) StoppedPressing(agent string, rec *Block, now int64) string {
 	}
 	if allCleared >= MaxPressesAgent {
 		if len(titles) == 1 {
-			return fmt.Sprintf("ocp cleared it %d times in %s and it came back each time, so it has stopped pressing", allCleared, timefmt.Ago(PressWindowS))
+			return fmt.Sprintf("ocp cleared it %d times in %s and it came back each time, so it has stopped pressing", allCleared, timefmt.Ago(PressWindowS)), nil
 		}
-		return fmt.Sprintf("ocp cleared %d dialogs on this agent in %s (%d different titles), so it has stopped pressing", allCleared, timefmt.Ago(PressWindowS), len(titles))
+		return fmt.Sprintf("ocp cleared %d dialogs on this agent in %s (%d different titles), so it has stopped pressing", allCleared, timefmt.Ago(PressWindowS), len(titles)), nil
 	}
 	var history, pressed []Press
 	cleared := 0
@@ -389,7 +409,7 @@ func (e *Env) StoppedPressing(agent string, rec *Block, now int64) string {
 		}
 	}
 	if cleared >= MaxPresses {
-		return fmt.Sprintf("ocp cleared it %d times in %s and it came back each time, so it has stopped pressing", cleared, timefmt.Ago(PressWindowS))
+		return fmt.Sprintf("ocp cleared it %d times in %s and it came back each time, so it has stopped pressing", cleared, timefmt.Ago(PressWindowS)), nil
 	}
 	if len(pressed) >= MaxIgnored {
 		allStill := true
@@ -397,36 +417,41 @@ func (e *Env) StoppedPressing(agent string, rec *Block, now int64) string {
 			allStill = allStill && p.Outcome == "still-open"
 		}
 		if allStill {
-			return "Esc did not close it, so ocp has stopped pressing"
+			return "Esc did not close it, so ocp has stopped pressing", nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // notPressed is the presses at this block's dialog that were not made, since the block began.
-func (e *Env) notPressed(agent string, since int64) []Press {
-	all, _ := e.PressesSince(agent, since)
+func (e *Env) notPressed(agent string, since int64) ([]Press, error) {
+	all, err := e.PressesSince(agent, since)
+	if err != nil {
+		return nil, err
+	}
 	var out []Press
 	for _, p := range all {
 		if p.Outcome == "not-pressed" {
 			out = append(out, p)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // PressNote is what ocp says about not having cleared this block's dialog, or "".
-func (e *Env) PressNote(agent string, rec *Block, now int64) string {
+func (e *Env) PressNote(agent string, rec *Block, now int64) (string, error) {
 	if rec.Kind != term.Modal {
-		return ""
+		return "", nil
 	}
-	if stopped := e.StoppedPressing(agent, rec, now); stopped != "" {
-		return stopped
+	stopped, err := e.StoppedPressing(agent, rec, now)
+	if err != nil || stopped != "" {
+		return stopped, err
 	}
-	if said := e.notPressed(agent, rec.Since); len(said) > 0 {
-		return "ocp did not press it: " + said[len(said)-1].Note
+	said, err := e.notPressed(agent, rec.Since)
+	if err != nil || len(said) == 0 {
+		return "", err
 	}
-	return ""
+	return "ocp did not press it: " + said[len(said)-1].Note, nil
 }
 
 // splitLines is Python's str.splitlines.
@@ -478,29 +503,39 @@ func (e *Env) tellUnpressed(agent, handle, why string) {
 
 // decline presses Esc at this block's dialog when the rules allow, and says what came of it. The block, or nil when the dialog is
 // gone.
-func (e *Env) decline(agent string, rec *Block, now int64) *Block {
+func (e *Env) decline(agent string, rec *Block, now int64) (*Block, error) {
 	pressAt := rec.Since + PressAfterS
 	if rec.Origin == "close" {
 		pressAt = rec.Since
 	}
 	handle := e.getTerminal(agent)
-	if now < pressAt || handle == "" || e.StoppedPressing(agent, rec, now) != "" {
-		return rec
+	if now < pressAt || handle == "" {
+		return rec, nil
+	}
+	if stopped, err := e.StoppedPressing(agent, rec, now); err != nil || stopped != "" {
+		return rec, err
 	}
 	outcome, title, why := e.Term.DeclineDialog(handle)
 	if outcome == term.NotPressed {
-		last := e.notPressed(agent, rec.Since)
+		last, err := e.notPressed(agent, rec.Since)
+		if err != nil {
+			return rec, err
+		}
 		if len(last) == 0 || last[len(last)-1].Note != why || last[len(last)-1].Title != title {
-			_ = e.PressAdd(agent, now, title, outcome, why)
+			if err := e.PressAdd(agent, now, title, outcome, why); err != nil {
+				return rec, err
+			}
 			e.log("  %s: ocp did not press its dialog - %s", agent, why)
 			e.tellUnpressed(agent, handle, why)
 		}
-		return rec
+		return rec, nil
 	}
-	_ = e.PressAdd(agent, now, title, outcome, why)
+	if err := e.PressAdd(agent, now, title, outcome, why); err != nil {
+		return rec, err
+	}
 	if outcome == term.StillOpen {
 		e.log("  %s: pressed Esc on \"%s\" and it is still open", agent, title)
-		return rec
+		return rec, nil
 	}
 	how := fmt.Sprintf("cleared by ocp: pressed Esc on \"%s\"", title)
 	_ = e.AddEvent(agent, "dialog_declined", map[string]any{"title": title, "key": "Esc", "work": rec.Work})
@@ -511,8 +546,7 @@ func (e *Env) decline(agent string, rec *Block, now int64) *Block {
 	e.Asker.Report(agent, fmt.Sprintf("%s.\n%s %s: %s.\nThe dialog's own footer says Esc cancels it, and Esc is a key that only declines it, so that was the "+
 		"only key ocp pressed; nothing was chosen. If it comes back %d times in %s ocp stops pressing and tells you.",
 		how, agent, openFor, Reason(rec.Kind, rec.Detail), MaxPresses, timefmt.Ago(PressWindowS)), "dialog declined")
-	e.end(agent, rec, how)
-	return nil
+	return nil, e.end(agent, rec, how)
 }
 
 func orNothingYet(work string) string {
@@ -577,8 +611,18 @@ func (e *Env) Sweep() error {
 			e.log("  %s: block check failed: %s", agent, err)
 			continue
 		}
-		if rec != nil && rec.RequestID == 0 && (now-rec.Since >= DecisionAfterS ||
-			(rec.Kind == term.Modal && e.StoppedPressing(agent, rec, now) != "")) {
+		if rec == nil || rec.RequestID != 0 {
+			continue
+		}
+		ripe := now-rec.Since >= DecisionAfterS
+		if !ripe && rec.Kind == term.Modal {
+			stopped, err := e.StoppedPressing(agent, rec, now)
+			if err != nil {
+				return err
+			}
+			ripe = stopped != ""
+		}
+		if ripe {
 			// A stall the daemon raised itself (a trust screen) is already in front of the founder; the block stays for the bridge.
 			if rec.Kind == StalledOb && e.Asker.OpenDecisionsOf(agent) > 0 {
 				continue
@@ -597,7 +641,10 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 	if err != nil {
 		return nil, err
 	}
-	work := e.WorkWaiting(agent, row, now)
+	work, err := e.WorkWaiting(agent, row, now)
+	if err != nil {
+		return nil, err
+	}
 	if rec != nil && rec.Origin == TableOrigin {
 		// The table's miss stands while it does: re-read, and let a real obstacle to giving the work take the agent's one block.
 		if now-e.lastChecked(agent) < RecheckS {
@@ -608,8 +655,7 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 			_ = e.BlockClear(agent)
 			rec = nil
 		} else if e.TableMissOf(row) == nil {
-			e.end(agent, rec, "the table lists it again, or its screen no longer draws one")
-			return nil, nil
+			return nil, e.end(agent, rec, "the table lists it again, or its screen no longer draws one")
 		} else {
 			return rec, nil
 		}
@@ -617,7 +663,9 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 	own := rec != nil && (rec.Origin == "close" || rec.Origin == ExitOrigin)
 	if work == "" && !own {
 		if rec != nil {
-			e.end(agent, rec, "nothing is waiting for it now")
+			if err := e.end(agent, rec, "nothing is waiting for it now"); err != nil {
+				return nil, err
+			}
 		}
 		if now-e.lastProbed(agent) < ProbeS {
 			return nil, nil
@@ -658,7 +706,7 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 			if exitOnly {
 				why = "the exit dialog is gone"
 			}
-			e.end(agent, rec, why)
+			return nil, e.end(agent, rec, why)
 		}
 		return nil, nil
 	}
@@ -687,34 +735,38 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 	if rec.Kind == term.Modal && (row.State != Running && row.State != Handoff ||
 		strings.ToLower(strings.TrimSpace(rec.Title)) == term.ExitOverWorkTitle) {
 		if e.Lifecycle.AutoTrust(agent) {
-			e.end(agent, rec, "its folder-trust prompt was accepted")
-			return nil, nil
+			return nil, e.end(agent, rec, "its folder-trust prompt was accepted")
 		}
 		if e.Lifecycle.AutoBypass(agent) {
-			e.end(agent, rec, "its bypass-permissions warning was accepted")
-			return nil, nil
+			return nil, e.end(agent, rec, "its bypass-permissions warning was accepted")
 		}
-		return e.decline(agent, rec, now), nil
+		return e.decline(agent, rec, now)
 	}
 	return rec, nil
 }
 
-func (e *Env) end(agent string, rec *Block, why string) {
-	_ = e.BlockClear(agent)
+func (e *Env) end(agent string, rec *Block, why string) error {
+	if err := e.BlockClear(agent); err != nil {
+		return err
+	}
 	e.log("  %s: no longer blocked (%s) - %s", agent, label(rec.Kind), why)
 	rid := rec.RequestID
 	if rid == 0 {
-		return
+		return nil
 	}
-	others, _ := e.Blocks()
+	others, err := e.Blocks()
+	if err != nil {
+		return err
+	}
 	for _, b := range others {
 		if b.RequestID == rid {
-			return
+			return nil
 		}
 	}
 	if e.Asker.RequestState(rid) == "queued" {
 		e.Asker.ResolveDone(rid, "cleared - "+why)
 	}
+	return nil
 }
 
 func upperFirst(s string) string {
@@ -729,7 +781,10 @@ func (e *Env) raise(recs []*Block, now int64) error {
 	var lines []string
 	for _, r := range recs {
 		held := now - r.Since
-		note := e.PressNote(r.Agent, r, now)
+		note, err := e.PressNote(r.Agent, r, now)
+		if err != nil {
+			return err
+		}
 		lead := fmt.Sprintf("%s cannot be given its work (%s).", r.Agent, timefmt.Ago(held))
 		if r.Origin == ExitOrigin && r.Work == "" {
 			lead = fmt.Sprintf("%s has sat on a dialog nobody is answering (%s).", r.Agent, timefmt.Ago(held))
@@ -777,7 +832,11 @@ func (e *Env) FounderRows(now int64) ([]FounderRow, error) {
 			continue
 		}
 		what := fmt.Sprintf("%s · waiting: %s", Headline(r.Kind, r.Detail), orNothingYet(r.Work))
-		if note := e.PressNote(r.Agent, r, now); note != "" {
+		note, err := e.PressNote(r.Agent, r, now)
+		if err != nil {
+			return nil, err
+		}
+		if note != "" {
 			what += " · " + note
 		}
 		rows = append(rows, FounderRow{"blocked", r.Agent, true, r.Since, what})

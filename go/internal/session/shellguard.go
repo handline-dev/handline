@@ -10,7 +10,10 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 )
 
-var ocpRE = regexp.MustCompile(`(?:^|[\s;&|(])(?:\S*/)?(?:` + strings.Join(paths.Commands, "|") + `)\s`)
+// space is Python's \s: Unicode white space, wider than RE2's ASCII one.
+const space = `\s\x{1c}-\x{1f}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}`
+
+var ocpRE = regexp.MustCompile(`(?:^|[` + space + `;&|(])(?:[^` + space + `]*/)?(?:` + strings.Join(paths.Commands, "|") + `)[` + space + `]`)
 var heredocRE = regexp.MustCompile(`^<<(-?)[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)`)
 
 // GuardReason is why a Bash call is refused when a double-quoted ocp argument would run part of the message.

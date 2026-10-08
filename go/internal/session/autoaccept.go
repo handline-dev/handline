@@ -60,8 +60,9 @@ func (e *Env) SweepAutoAccept() error {
 	return nil
 }
 
-func (e *Env) acceptStuck(agent string, now int64) bool {
-	return now-e.GetCursor("autoaccept_stuck:"+agent) < AcceptStuckBackoffS
+func (e *Env) acceptStuck(agent string, now int64) (bool, error) {
+	last, err := e.GetCursor("autoaccept_stuck:" + agent)
+	return err == nil && now-last < AcceptStuckBackoffS, err
 }
 
 // accept is whether a key was pressed on a waiting tool's prompt.
@@ -76,8 +77,9 @@ func (e *Env) accept(agent string, row *AgentRow, now int64) (bool, error) {
 	if tool == "" || row.ClosedAt != 0 || row.State != Running {
 		return false, nil
 	}
-	if e.acceptStuck(agent, now) || e.Held.HeldByOther(agent) != "" { // nothing is pressed at a held terminal
-		return false, nil
+	stuck, err := e.acceptStuck(agent, now)
+	if err != nil || stuck || e.Held.HeldByOther(agent) != "" { // nothing is pressed at a held terminal
+		return false, err
 	}
 	if !e.Term.AcceptsTool(row.Terminal, tool) {
 		return false, nil
@@ -113,8 +115,11 @@ func (e *Env) AnswerByRule(agent, handle string) (bool, error) {
 // answerByRule presses the option a standing rule names on the dialog this agent shows, then reads the screen again to see it
 // close; whether it closed. The cheap read first: only a dialog whose title some rule names is worth the press path's own read.
 func (e *Env) answerByRule(agent string, row *AgentRow, now int64, rules map[[2]string]bool) (bool, error) {
-	if row.ClosedAt != 0 || e.acceptStuck(agent, now) {
+	if row.ClosedAt != 0 {
 		return false, nil
+	}
+	if stuck, err := e.acceptStuck(agent, now); err != nil || stuck {
+		return false, err
 	}
 	handle := row.Terminal
 	vendor := e.Term.VendorOf(handle)

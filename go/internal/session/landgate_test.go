@@ -35,6 +35,9 @@ func TestParseLand(t *testing.T) {
 		{"hl land a --tree", "", ""},
 		{"hl land --tree t a b", "land", "a"},
 		{"hl  land   --pass   x", "land_pass", "x"},
+		// --pass is read off the whole list, even where --tree's value goes.
+		{"hl land abc msg --tree --pass", "", ""},
+		{"hl land --tree --pass abc", "land_pass", "abc"},
 	}
 	for _, c := range cases {
 		verb, sha, ok := ParseLand("Bash", map[string]any{"command": c.cmd})

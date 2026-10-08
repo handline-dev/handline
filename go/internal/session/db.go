@@ -98,10 +98,13 @@ func (e *Env) LastActivityID(agent string, kinds []string) (id int64, ok bool) {
 }
 
 // GetCursor is the named cursor, 0 when unset.
-func (e *Env) GetCursor(name string) int64 {
+func (e *Env) GetCursor(name string) (int64, error) {
 	var v int64
-	_ = e.DB.QueryRow("SELECT row_id FROM cursors WHERE name = ?", name).Scan(&v)
-	return v
+	err := e.DB.QueryRow("SELECT row_id FROM cursors WHERE name = ?", name).Scan(&v)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return v, err
 }
 
 // SetCursor writes the named cursor.
