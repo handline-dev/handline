@@ -229,7 +229,7 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 func (e *Env) TellUndelivered(q db.Q, agent string) (err error) {
 	defer Catch(&err)
 	state := stateOf(q, agent)
-	if !(state != nil && state.Terminal.String != "") || state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
+	if !e.openSession(agent, state) || state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
 		return nil // starting or waking it is the supervisor's own step, with its own gates
 	}
 	for _, row := range must(db.UndeliveredFor(q, agent)) {

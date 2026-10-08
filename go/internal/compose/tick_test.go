@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,5 +95,55 @@ func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the loop did not return after the tick finished")
+	}
+}
+
+// overContext reads every agent as over its context limit, so the handoff trigger fires.
+type overContext struct{ tick.Usage }
+
+func (overContext) ReadForAgent(string, string) tick.Status {
+	over := 250_000
+	return tick.Status{SessionID: "s1", TrustedCtxUsed: &over}
+}
+
+func TestAHandoffThisDaemonCannotPerformIsSaidOnceAndNeverCountedAgainstTheAgent(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	var logs []string
+	cfg := p.Run.cfg
+	cfg.Log = func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+		t.Fatal(err)
+	}
+	tk := p.Tick(cfg, TickConfig{})
+	if _, err := tk.Tick.Run(nil); err != nil { // wakes alice
+		t.Fatal(err)
+	}
+	p.Run.WaitIdle("alice", 10*time.Second)
+	tk.Tick.Usage = overContext{tk.Tick.Usage}
+	logs = nil
+	for i := 0; i < 3; i++ {
+		res, err := tk.Tick.Run(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range res.Actions {
+			if strings.Contains(a, "handoff") {
+				t.Fatalf("a handoff nothing tried was reported: %v", res.Actions)
+			}
+		}
+	}
+	n := 0
+	for _, l := range logs {
+		if strings.Contains(l, "a handoff is due (context) but performing a handoff is not served by this daemon yet") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("said %d times: %v", n, logs)
+	}
+	row, _ := dbpkg.GetAgentState(d, "alice")
+	if row.ThrottleCount != 0 || row.State == "STALLED" {
+		t.Fatalf("an untried handoff counted against the agent: %+v", row)
 	}
 }

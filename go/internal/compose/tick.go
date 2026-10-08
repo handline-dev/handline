@@ -81,7 +81,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
 		Cost:    &tick.CostPilot{Ports: costPorts{}},
-		Observe: tickObserve{u: uenv, home: home},
+		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now)},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
@@ -346,6 +346,11 @@ func (h tickHandoff) Movable(kind string) bool        { return sessions{}.Movabl
 func (h tickHandoff) MovePlan(q db.Q, agent, kind string) (string, string) {
 	return h.port.MovePlan(q, agent, kind)
 }
+
+// NotServed is why the tick does not try a handoff: performing one (record, close, park) is not ported for structured agents yet.
+func (tickHandoff) NotServed() string {
+	return "performing a handoff is not served by this daemon yet"
+}
 func (tickHandoff) MoveToRoom(db.Q, string, tick.Trigger) bool             { return false }
 func (tickHandoff) PerformHandoff(db.Q, string, tick.Trigger, string) bool { return false }
 func (h tickHandoff) NoteHold(_ db.Q, agent string, now int64) bool {
@@ -390,6 +395,7 @@ func (t tickReconciler) StallAgent(_ db.Q, agent string, actions *[]string, err 
 type tickObserve struct {
 	u    *usage.Env
 	home string
+	now  func() time.Time
 }
 
 func (o tickObserve) ActiveByAccount(q db.Q) map[string][]string {
@@ -405,7 +411,7 @@ func (o tickObserve) ObserveBurn(q db.Q, acct string, working []string, _ tick.S
 	return o.u.Observe(q, acct, working, o.u.Read(acct), firsts)
 }
 func (o tickObserve) RecordUsageSample(q db.Q, acct string, _ tick.Status) error {
-	return o.u.RecordSample(q, acct, o.u.Read(acct), int64(time.Now().Unix()))
+	return o.u.RecordSample(q, acct, o.u.Read(acct), o.now().Unix())
 }
 func (o tickObserve) PruneUsageSamples(q db.Q) error { _, err := o.u.PruneSamples(q); return err }
 func (o tickObserve) IngestTokens(q db.Q, acct string) error {
@@ -414,7 +420,7 @@ func (o tickObserve) IngestTokens(q db.Q, acct string) error {
 }
 func (o tickObserve) PruneTokens(q db.Q) error { _, err := o.u.PruneTokens(q); return err }
 func (o tickObserve) RefreshLongRatios(q db.Q) error {
-	return o.u.RefreshLongRatios(q, time.Now().Unix(), false)
+	return o.u.RefreshLongRatios(q, o.now().Unix(), false)
 }
 
 // costPorts is tick.CostPorts: the prompt-cache clock of a session, read from the transcript the status names.

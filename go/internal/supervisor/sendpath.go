@@ -58,6 +58,15 @@ func (e *Env) structuredAgent(agent string) bool {
 	return e.Agents != nil && e.Agents.Structured(agent)
 }
 
+// openSession says whether the agent has a session a message can be told to: a structured agent's is its live process (it has no terminal
+// to look for), a terminal agent's is its terminal. state is the agent's row.
+func (e *Env) openSession(agent string, state *db.AgentState) bool {
+	if e.structuredAgent(agent) {
+		return e.Agents.Live(agent)
+	}
+	return state != nil && state.Terminal.String != ""
+}
+
 // requestOp is the operation id of a message that tells the agent about these requests: the same requests are the same operation.
 func requestOp(rids ...int64) string { return "request:" + idList(rids) }
 
