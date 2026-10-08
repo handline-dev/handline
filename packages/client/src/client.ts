@@ -101,6 +101,10 @@ export class DaemonClient {
   /** Connects and shakes hands. A connection that fails part way is closed here, and its retry is the caller's. */
   private async open(): Promise<void> {
     const t = await this.opts.connect();
+    if (this.closing) {
+      t.close(); // closed while the connect was on its way
+      throw new RpcError('transport', 'client closed');
+    }
     this.transport = t;
     t.onmessage = (m) => this.receive(t, m);
     t.onclose = () => this.lost(t);

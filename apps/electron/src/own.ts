@@ -29,8 +29,9 @@ import { trayMenu, type TrayFollow } from './tray.ts';
 const answers = (file: string): Promise<boolean> =>
   new Promise((resolve) => {
     const c = net.createConnection(file);
+    c.setTimeout(3000, () => (c.destroy(), resolve(false))); // a full backlog never answers; the probe must not stay open
     c.once('connect', () => (c.destroy(), resolve(true)));
-    c.once('error', () => resolve(false));
+    c.once('error', () => (c.destroy(), resolve(false)));
   });
 
 /** Whether the gateway answers an HTTP request at all within three seconds. */
