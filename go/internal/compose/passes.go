@@ -1,17 +1,16 @@
 package compose
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 // passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the notices, the stuck waits and
@@ -128,23 +127,19 @@ func (t timeboxPorts) StopWaitReason(q db.Q, agent string) string {
 func (t timeboxPorts) proposalWaiting(agent string) bool {
 	files, _ := filepath.Glob(filepath.Join(t.home, "hr", "*.yaml"))
 	for _, f := range files {
-		fh, err := os.Open(f)
+		raw, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
-		by, state := "", ""
-		sc := bufio.NewScanner(fh)
-		for sc.Scan() {
-			line := sc.Text()
-			if v, ok := strings.CutPrefix(line, "requested_by:"); ok {
-				by = strings.Trim(strings.TrimSpace(v), `"'`)
-			} else if v, ok := strings.CutPrefix(line, "state:"); ok {
-				state = strings.Trim(strings.TrimSpace(v), `"'`)
-			}
+		doc, err := yamlcompat.Parse(string(raw))
+		m, ok := doc.(map[string]any)
+		if err != nil || !ok {
+			continue
 		}
-		fh.Close()
-		if by == agent && state == "proposed" {
-			return true
+		if by, _ := m["requested_by"].(string); by == agent {
+			if state, _ := m["state"].(string); state == "proposed" {
+				return true
+			}
 		}
 	}
 	return false
