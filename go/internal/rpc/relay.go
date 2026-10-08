@@ -61,9 +61,10 @@ type Relay struct {
 }
 
 const (
-	relayOpenWait  = 5 * time.Second
-	relayWriteWait = 5 * time.Second
-	relayRetryMS   = 2000
+	relayOpenWait    = 5 * time.Second
+	relayWriteWait   = 5 * time.Second
+	relayRetryMS     = 2000
+	capabilitiesWait = time.Second // a hello does not wait longer than this for the daemon's formats
 )
 
 // TerminalCapabilities asks the Python daemon, over a relay connection of its own for the device, which terminal formats
@@ -75,7 +76,7 @@ func (r *Relay) TerminalCapabilities(device, name string) map[string]any {
 		return nil
 	}
 	defer up.Close()
-	up.SetDeadline(time.Now().Add(relayOpenWait))
+	up.SetDeadline(time.Now().Add(capabilitiesWait))
 	open, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 0, "method": "relay.open",
 		"params": map[string]any{"device_id": device, "name": name, "role": "member"}})
 	hello, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "hello",
@@ -84,7 +85,11 @@ func (r *Relay) TerminalCapabilities(device, name string) map[string]any {
 	if _, err := up.Write(append(open, '\n')); err != nil {
 		return nil
 	}
-	if _, err := br.ReadBytes('\n'); err != nil { // the open's reply
+	var opened struct {
+		Error any `json:"error"`
+	}
+	line, err := br.ReadBytes('\n') // the open's reply
+	if err != nil || json.Unmarshal(line, &opened) != nil || opened.Error != nil {
 		return nil
 	}
 	if _, err := up.Write(append(hello, '\n')); err != nil {

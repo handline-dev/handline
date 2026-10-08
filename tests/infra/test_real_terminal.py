@@ -13,7 +13,9 @@ import json
 import os
 import secrets
 import shutil
+import socket
 import subprocess
+import tempfile
 import sys
 import time
 from pathlib import Path
@@ -39,25 +41,36 @@ def _have_tools() -> str | None:
     for tool in ("tmux", "git", "go"):
         if not shutil.which(tool):
             return f"{tool} is not installed"
+    # The scratch world's daemons bind socket files in a temp directory; a sandboxed process may not.
+    try:
+        with tempfile.TemporaryDirectory() as d, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.bind(os.path.join(d, "s"))
+    except OSError as e:
+        return f"this process cannot bind a unix socket ({e})"
     return None
 
 
 class Real:
     """The scratch world up, a paired connection, and the worker's pane at a shell prompt."""
 
-    def __init__(self) -> None:
+    def __init__(self, make_world=lambda: gs.World(False, None)) -> None:
+        self.ws = None
         os.environ["HANDLINE_TEST_REAL_TMUX"] = "1"      # the suite's stand-in tmux would refuse every call
-        self.world = gs.World(False, None)
-        self.world.setup()
-        self.world.start_daemon()
-        self.world.start_gateway()
-        self.token, _device = gs.pair(self.world, self.world.founder_key())
-        self.ws = gs.connect("127.0.0.1", self.world.port, self.token)
-        # The daemon starts the worker by itself (it has a task waiting) in the fake claude. Ending that leaves a shell
-        # at its prompt, which takes whatever a test types, as the contract's terminal_bytes fixtures do.
-        self.wait_screen(lambda rows: any("ready" in t for t in rows))
-        self.type(b"\x04")
-        self.wait_screen(lambda rows: bool(rows) and rows[-1].rstrip().endswith("$"))
+        self.world = make_world()
+        try:
+            self.world.setup()
+            self.world.start_daemon()
+            self.world.start_gateway()
+            self.token, _device = gs.pair(self.world, self.world.founder_key())
+            self.ws = gs.connect("127.0.0.1", self.world.port, self.token)
+            # The daemon starts the worker by itself (it has a task waiting) in the fake claude. Ending that leaves a shell
+            # at its prompt, which takes whatever a test types, as the contract's terminal_bytes fixtures do.
+            self.wait_screen(lambda rows: any("ready" in t for t in rows))
+            self.type(b"\x04")
+            self.wait_screen(lambda rows: bool(rows) and rows[-1].rstrip().endswith("$"))
+        except BaseException:      # SystemExit included: the world's daemons, tmux server and scratch home must not outlive a failed start
+            self.close()
+            raise
 
     def call(self, method: str, params: dict | None = None) -> dict:
         p = dict(params or {})
@@ -97,9 +110,11 @@ class Real:
 
     def close(self) -> None:
         try:
-            self.ws.close()
+            if self.ws:
+                self.ws.close()
         finally:
             self.world.stop()
+            os.environ.pop("HANDLINE_TEST_REAL_TMUX", None)
 
 
 def test_styled_attach_shows_the_colour_the_program_painted() -> None:
@@ -172,8 +187,8 @@ def test_the_shared_client_drives_the_terminal_end_to_end() -> None:
     """The client the web app and the phone share (DaemonClient, TerminalView): attach, frames, scrollback, resize."""
     r = THE
     node = shutil.which("node")
-    if not node:
-        skip(test_the_shared_client_drives_the_terminal_end_to_end, "node is not installed")
+    if not node or not (Path(__file__).resolve().parents[2] / "packages" / "client-node" / "node_modules" / "@handline" / "client").exists():
+        skip(test_the_shared_client_drives_the_terminal_end_to_end, "node or the workspace packages (pnpm install) are missing")
         return
     env = {**r.world.env, "HANDLINE_URL": f"ws://127.0.0.1:{r.world.port}/rpc", "HANDLINE_TOKEN": r.token, "HANDLINE_AGENT": AGENT}
     ran = subprocess.run([node, str(Path(__file__).resolve().parents[2] / "packages" / "client-node" / "test" / "drive-real-terminal.ts")],
@@ -193,8 +208,24 @@ def test_the_shared_client_drives_the_terminal_end_to_end() -> None:
     check("the painted row keeps its colour after the resize", bool(again) and bool(again[-1].get("spans")), str(again))
 
 
+def test_a_failed_start_stops_the_world() -> None:
+    class Doomed:
+        stopped = False
+        def setup(self): pass
+        def start_daemon(self): raise SystemExit("the daemon did not come up")
+        def stop(self): Doomed.stopped = True
+    try:
+        Real(Doomed)
+        raised = False
+    except SystemExit:
+        raised = True
+    check("the failed start still raises", raised, "")
+    check("the world was stopped", Doomed.stopped, "")
+
+
 def main() -> int:
     def tests(td):
+        run(lambda: test_a_failed_start_stops_the_world())
         missing = _have_tools()
         if missing:
             for t in (test_styled_attach_shows_the_colour_the_program_painted, test_keys_in_come_back_as_a_styled_frame,
@@ -205,11 +236,11 @@ def main() -> int:
         global THE
         THE = Real()
         try:
-            run(test_styled_attach_shows_the_colour_the_program_painted)
-            run(test_keys_in_come_back_as_a_styled_frame)
-            run(test_bytes_attach_snapshot_and_output)
-            run(test_resize_by_the_holder_changes_the_pane_and_repaints)
-            run(test_the_shared_client_drives_the_terminal_end_to_end)
+            run(lambda: test_styled_attach_shows_the_colour_the_program_painted())
+            run(lambda: test_keys_in_come_back_as_a_styled_frame())
+            run(lambda: test_bytes_attach_snapshot_and_output())
+            run(lambda: test_resize_by_the_holder_changes_the_pane_and_repaints())
+            run(lambda: test_the_shared_client_drives_the_terminal_end_to_end())
         finally:
             THE.close()
     return run_area(tests)
