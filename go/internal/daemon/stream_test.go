@@ -42,7 +42,6 @@ func startStream(t *testing.T) (*Daemon, *fakePython) {
 	t.Cleanup(d.Close)
 	f := &fakePython{t: t, script: echo, closed: make(chan struct{}, 16)}
 	d.net.rs.Relay.Dial = f.dial
-	d.net.rs.Relay.Capabilities = nil // tests count the dials: no capabilities probe unless one asks
 	return d, f
 }
 
@@ -163,9 +162,7 @@ func TestDevicesIsSubscribedAloneAndOnlyByTheFounder(t *testing.T) {
 	if r := m.ask(`{"jsonrpc":"2.0","id":4,"method":"unsubscribe","params":{"topics":["devices"]}}`); r["result"] == nil {
 		t.Fatalf("a stop is not refused: %v", r)
 	}
-	if f.dials.Load() != 0 {
-		t.Fatal("a devices call reached the relay")
-	}
+	f.onlyHelloReached(t)
 }
 
 func TestEveryOtherSubscribeOfADeviceIsRelayed(t *testing.T) {
