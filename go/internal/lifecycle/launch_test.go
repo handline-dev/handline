@@ -1,12 +1,14 @@
 package lifecycle
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -33,14 +35,26 @@ func (fakeVendors) AgentVendor(string) string       { return "claude" }
 func (v fakeVendors) AccountVendor(string) string   { return v.account }
 func (fakeVendors) ConfigDir(string) string         { return "" }
 
-type fakeUsage struct{ st AccountStatus }
+type fakeUsage struct {
+	st   AccountStatus
+	by   map[string]AccountStatus
+	pick string
+}
 
-func (u fakeUsage) Read(string) AccountStatus         { return u.st }
-func (fakeUsage) ShortBlock() int                     { return 95 }
-func (fakeUsage) LongBlock() int                      { return 98 }
-func (fakeUsage) PickAccount([]string, string) string { return "" }
-func (fakeUsage) NotFor(string, string) bool          { return false }
-func (fakeUsage) Fit(string, string) bool             { return true }
+func (u fakeUsage) Read(acct string) AccountStatus {
+	if st, ok := u.by[acct]; ok {
+		return st
+	}
+	return u.st
+}
+func (fakeUsage) ShortBlock() int                       { return 95 }
+func (fakeUsage) LongBlock() int                        { return 98 }
+func (u fakeUsage) PickAccount([]string, string) string { return u.pick }
+func (fakeUsage) NotFor(string, string) bool            { return false }
+func (u fakeUsage) Fit(acct, _ string) bool {
+	st := u.Read(acct)
+	return st.ShortTrusted == nil || *st.ShortTrusted < u.ShortBlock()
+}
 
 type fakeAccounts struct{ loggedIn bool }
 
@@ -70,7 +84,7 @@ func newLaunchRig(t *testing.T) *launchRig {
 		t.Fatal(err)
 	}
 	r.l = &Launcher{Q: openDB(t), Home: home, Roster: roster, Ports: LaunchPorts{
-		Usage:          fakeUsage{AccountStatus{Exists: true}},
+		Usage:          fakeUsage{st: AccountStatus{Exists: true}},
 		Accounts:       fakeAccounts{true},
 		Vendors:        fakeVendors{"claude"},
 		CurrentAccount: func(db.Q, string) string { return "" },
@@ -99,12 +113,12 @@ func TestBuildRefusesWhatMustNotGoAhead(t *testing.T) {
 		{"account not logged in", func() { r.l.Ports.Accounts = fakeAccounts{false} }, "is not logged in.\nA human has to do this once"},
 		{"short window at the wall", func() {
 			pct := 96
-			r.l.Ports.Usage = fakeUsage{AccountStatus{Exists: true, ShortTrusted: &pct, ShortLabel: "5h", ShortReset: 1700000000}}
+			r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct, ShortLabel: "5h", ShortReset: 1700000000}}
 		}, "is at 96% of the 5h limit (>= 95%) - refusing to start.\nresets at 1700000000; use --force to override"},
 	}
 	for _, c := range cases {
 		r.l.Ports.Vendors, r.l.Ports.Accounts = fakeVendors{"claude"}, fakeAccounts{true}
-		r.l.Ports.Usage = fakeUsage{AccountStatus{Exists: true}}
+		r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}}
 		c.set()
 		_, _, err := r.l.Build("ann", nil, false, "main")
 		ref, ok := err.(*Refusal)
@@ -114,7 +128,7 @@ func TestBuildRefusesWhatMustNotGoAhead(t *testing.T) {
 	}
 	// --force passes the wall.
 	pct := 96
-	r.l.Ports.Usage = fakeUsage{AccountStatus{Exists: true, ShortTrusted: &pct}}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}}
 	if _, _, err := r.l.Build("ann", nil, true, "main"); err != nil {
 		t.Fatalf("force: %v", err)
 	}
@@ -186,5 +200,138 @@ func TestARefusedLaunchLeavesThePromptFileAndExecsNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(pf); err != nil || r.execd != nil {
 		t.Fatalf("%v %v", err, r.execd)
+	}
+}
+
+func addAccounts(t *testing.T, r *launchRig, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if err := os.MkdirAll(filepath.Join(paths.AccountsDir(r.l.Home), n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRoomIsTheLoggedInAccountNothingSaysIsBad(t *testing.T) {
+	r := newLaunchRig(t)
+	if got := r.l.NoRoom("ann"); got != "no account is registered - `hl account add <name>` first" {
+		t.Fatal(got)
+	}
+	addAccounts(t, r, "a", "b")
+	r.l.Ports.Accounts = fakeAccounts{false}
+	if got := r.l.NoRoom("ann"); !strings.Contains(got, "no account is logged in") || !strings.Contains(got, "login a") {
+		t.Fatal(got)
+	}
+	r.l.Ports.Accounts = fakeAccounts{true}
+	if got := r.l.FindRoom("ann"); got != "a" {
+		t.Fatalf("first fit: %q", got)
+	}
+	r.l.Ports.Usage = fakeUsage{pick: "b"}
+	if got := r.l.ChooseAccount("ann", false, ""); got != "b" {
+		t.Fatalf("picked: %q", got)
+	}
+	if got := r.l.ChooseAccount("ann", false, "a"); got != "a" {
+		t.Fatalf("a move's destination stands: %q", got)
+	}
+	r.l.Ports.CurrentAccount = func(db.Q, string) string { return "b" }
+	if got := r.l.ChooseAccount("ann", true, "a"); got != "b" {
+		t.Fatalf("a resume goes back: %q", got)
+	}
+}
+
+func TestAWalledWakeNamesTheAccountThatFreesFirst(t *testing.T) {
+	r := newLaunchRig(t)
+	addAccounts(t, r, "a", "b")
+	walled := func(pct int, reset int64) AccountStatus {
+		return AccountStatus{Exists: true, ShortTrusted: &pct, ShortLabel: "5h", ShortReset: reset}
+	}
+	r.l.Ports.Usage = fakeUsage{by: map[string]AccountStatus{"a": walled(97, 2000), "b": walled(99, 1000)}}
+	if r.l.FindRoom("ann") != "" {
+		t.Fatal("a full account has no room")
+	}
+	row := &db.AgentState{Agent: "ann", ClosedAt: sql.NullInt64{Int64: 5, Valid: true}}
+	w := r.l.WakeWait(r.l.Q, "ann", row)
+	if w == nil || w.Account != "b" || w.Pct != 99 || w.Assumed {
+		t.Fatalf("%+v", w)
+	}
+	if got := DescribeWakeWait(w); !strings.HasPrefix(got, "waiting for b's 5h window (99%, rolls over ") {
+		t.Fatal(got)
+	}
+	if got := r.l.NoRoom("ann"); !strings.HasPrefix(got, "no account can take one more agent - waiting for b's") {
+		t.Fatal(got)
+	}
+	if got := r.l.WakeWaitReason(r.l.Q, "ann", row); got != DescribeWakeWait(w) {
+		t.Fatal(got)
+	}
+	// A resume is pinned to the account it is tied to, and a guess says so.
+	row.ResumeSession = sql.NullString{String: "s1", Valid: true}
+	r.l.Ports.AccountReading = func(db.Q, string) (string, string, bool) { return "a", "assumed", true }
+	if w := r.l.WakeWait(r.l.Q, "ann", row); w == nil || w.Account != "a" || !w.Assumed ||
+		!strings.Contains(DescribeWakeWait(w), "assumed account a") {
+		t.Fatalf("%+v", w)
+	}
+	// Open and live agents are never walled; a longest-window wall reads as a date.
+	if r.l.WakeWait(r.l.Q, "ann", &db.AgentState{}) != nil {
+		t.Fatal("an open agent was walled")
+	}
+	if got := WaitClock(&WakeWait{}, "?"); got != "?" {
+		t.Fatal(got)
+	}
+	if got := WaitClock(&WakeWait{Reset: 86400 * 3, IsLong: true}, "?"); len(got) != len("01-02 15:04") {
+		t.Fatal(got)
+	}
+}
+
+func TestCommandForNamesTheLaunchAndQuotesWhatIsGiven(t *testing.T) {
+	t.Setenv("OCP_BIN", "/x/hl")
+	if got := CommandFor("", "", "", "ann"); got != "/x/hl launch ann" {
+		t.Fatal(got)
+	}
+	if got := CommandFor("acct 2", "wake up", "boss", "ann"); got != "/x/hl launch ann --account 'acct 2' --why 'wake up' --by boss" {
+		t.Fatal(got)
+	}
+}
+
+func TestDriftedIsAFingerprintThatDiffersFromTheRecordedOne(t *testing.T) {
+	r := newLaunchRig(t)
+	fp, err := r.l.Fingerprint("ann")
+	if err != nil || fp == "" {
+		t.Fatal(fp, err)
+	}
+	rec, _ := r.l.LaunchRecord("ann")
+	row := &db.AgentState{LaunchFingerprint: sql.NullString{String: fp, Valid: true}, LaunchParts: sql.NullString{String: rec, Valid: true}}
+	if r.l.Drifted("ann", row) {
+		t.Fatal("drifted from itself")
+	}
+	row.LaunchFingerprint.String = "other"
+	if !r.l.Drifted("ann", row) || !(LaunchPort{r.l}).Drifted("ann", row) {
+		t.Fatal("a different recipe did not drift")
+	}
+	if LaunchedAtOf(row) == "" {
+		t.Fatal("the launch stamp was not read back")
+	}
+	if r.l.Drifted("nobody", row) {
+		t.Fatal("an unreadable recipe is not drift")
+	}
+}
+
+func TestLaunchPortAnswersForTheLauncher(t *testing.T) {
+	r := newLaunchRig(t)
+	p := LaunchPort{r.l}
+	if p.ChooseAccount(r.l.Q, "ann") {
+		t.Fatal("no account registered")
+	}
+	addAccounts(t, r, "a")
+	if !p.ChooseAccount(r.l.Q, "ann") || p.NoRoom("ann") == "" {
+		t.Fatal("room expected")
+	}
+	if cmd, err := p.CommandFor("ann", "a", "why", ""); err != nil || !strings.Contains(cmd, "launch ann --account a --why why") {
+		t.Fatal(cmd, err)
+	}
+	if p.WakeWait(r.l.Q, "ann", &db.AgentState{}) != nil {
+		t.Fatal("walled")
+	}
+	if p.DescribeWakeWait(&WakeWait{Account: "a", Window: "5h", Pct: 99}) == "" {
+		t.Fatal("empty")
 	}
 }
