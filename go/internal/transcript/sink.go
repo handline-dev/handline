@@ -31,8 +31,47 @@ type Sink struct {
 	// Err gets what could not be written; nil drops it.
 	Err func(agent string, err error)
 
-	mu    sync.Mutex
+	mu    sync.Mutex             // guards the two maps; an agent's events are serialised by its own lock, so one agent's write never waits for another's
 	turns map[string]runningTurn // agent -> the turn that is running
+	locks map[string]*sync.Mutex
+}
+
+// lockAgent takes agent's lock and returns the func that releases it.
+func (s *Sink) lockAgent(agent string) func() {
+	s.mu.Lock()
+	if s.locks == nil {
+		s.locks = map[string]*sync.Mutex{}
+	}
+	l := s.locks[agent]
+	if l == nil {
+		l = &sync.Mutex{}
+		s.locks[agent] = l
+	}
+	s.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
+func (s *Sink) turnOf(agent string) (runningTurn, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.turns[agent]
+	return t, ok
+}
+
+func (s *Sink) setTurn(agent string, t runningTurn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.turns == nil {
+		s.turns = map[string]runningTurn{}
+	}
+	s.turns[agent] = t
+}
+
+func (s *Sink) dropTurn(agent string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.turns, agent)
 }
 
 func (s *Sink) now() int64 {
@@ -44,17 +83,13 @@ func (s *Sink) now() int64 {
 
 // Emit takes one of the session's events.
 func (s *Sink) Emit(agent string, ev structured.Event) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.turns == nil {
-		s.turns = map[string]runningTurn{}
-	}
+	defer s.lockAgent(agent)()
 	session := ""
 	if s.Session != nil {
 		session = s.Session(agent)
 	}
 	// A turn belongs to its session: a new session id means the old one ended without saying so, and its turn is over.
-	if t, ok := s.turns[agent]; ok && t.session != session {
+	if t, ok := s.turnOf(agent); ok && t.session != session {
 		s.put(agent, t.session, s.endTurn(agent, "interrupted"))
 	}
 	for _, e := range s.convert(agent, session, ev) {
@@ -78,18 +113,19 @@ func (s *Sink) put(agent, session string, e Event) {
 
 // endTurn closes agent's running turn with a turn_end of this reason; the zero Event when none runs.
 func (s *Sink) endTurn(agent, reason string) Event {
-	t, ok := s.turns[agent]
+	t, ok := s.turnOf(agent)
 	if !ok {
 		return Event{}
 	}
-	delete(s.turns, agent)
+	s.dropTurn(agent)
 	return Event{Turn: t.uuid, Kind: "turn_end", Body: map[string]any{"turn_end": map[string]any{"reason": reason, "cost_usd": 0.0, "duration_ms": int64(0), "usage": usageOf(nil)}}}
 }
 
 // convert maps the session's event to the contract's. A frame with nothing for a view is dropped.
 func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 	d := ev.Data
-	turn := s.turns[agent].uuid
+	cur, _ := s.turnOf(agent)
+	turn := cur.uuid
 	switch ev.Type {
 	case "message":
 		if turn != "" { // joined the running turn: not a new one
@@ -97,7 +133,7 @@ func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 		}
 		uuid, _ := d["uuid"].(string)
 		text, _ := d["text"].(string)
-		s.turns[agent] = runningTurn{uuid, session}
+		s.setTurn(agent, runningTurn{uuid, session})
 		return []Event{{Turn: uuid, Kind: "turn_start", Body: map[string]any{"turn_start": map[string]any{"message": uuid, "from": s.sender(agent, uuid), "text": text}}}}
 	case "assistant_text":
 		text, _ := d["text"].(string)
@@ -144,7 +180,7 @@ func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 		return []Event{{Turn: turn, Kind: "permission_answer", Body: map[string]any{"permission_answer": map[string]any{
 			"tool_use_id": d["tool_use"], "behavior": behavior, "by": by, "rule": rule, "message": msg}}}}
 	case "turn_end":
-		delete(s.turns, agent)
+		s.dropTurn(agent)
 		reason := "done"
 		if sub := str(d["subtype"]); d["is_error"] == true || (sub != "" && sub != "success") {
 			reason = "error"
