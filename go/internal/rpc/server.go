@@ -64,12 +64,27 @@ type Server struct {
 	// the contract lets a member call, is sent to the daemon behind it.
 	Relay *Relay
 	// NoEvents keeps a write from leaving the generic event: a gateway writes nothing but its devices.
-	NoEvents bool
-	// Capabilities adds to what hello reports under capabilities (the terminal formats).
-	Capabilities func() map[string]any
+	NoEvents     bool
+	capabilities []func() map[string]any
 	methods      map[string]Method
 	order        []string
 	founder      string
+}
+
+// baseCapabilities is what hello reports under capabilities before any feature adds its own: one entry per line, in alphabetical order,
+// so a port that adds one merges with the others instead of conflicting on a shared line.
+func baseCapabilities() map[string]any {
+	return map[string]any{
+		"chat":            false,
+		"review":          false,
+		"terminal_format": []any{},
+	}
+}
+
+// DeclareCapabilities adds to what hello reports under capabilities: the feature that owns a capability declares it from its own Register
+// (the terminal formats). A later declaration of the same name replaces the earlier one.
+func (s *Server) DeclareCapabilities(fn func() map[string]any) {
+	s.capabilities = append(s.capabilities, fn)
 }
 
 func NewServer(auth authority.Authority, sha string, schema int, transport string, log func(string, ...any)) *Server {
@@ -464,7 +479,9 @@ func (c *Conn) RequireSelf(agent string) error {
 
 func (c *Conn) methodList() []map[string]any {
 	out := make([]map[string]any, 0, len(c.srv.order))
-	for _, n := range c.srv.order {
+	own := append([]string(nil), c.srv.order...)
+	sort.Strings(own) // by name, so the list does not depend on the order the features registered in
+	for _, n := range own {
 		m := c.srv.methods[n]
 		out = append(out, map[string]any{"name": n, "since": 1, "role": m.Role, "allowed": c.Caller.Allows(m.Role)})
 	}
@@ -549,11 +566,11 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
-	caps, methods := map[string]any{"chat": false, "review": false, "terminal_format": []any{}}, c.methodList()
-	// A server that serves terminal.* itself has Capabilities and no Relay; a gateway has a Relay and serves none of them, so the daemon
-	// behind it is the one that knows its formats and its report replaces these.
-	if c.srv.Capabilities != nil {
-		for k, v := range c.srv.Capabilities() {
+	caps, methods := baseCapabilities(), c.methodList()
+	// A server that serves terminal.* itself declares its formats and has no Relay; a gateway has a Relay and serves none of them, so the
+	// daemon behind it is the one that knows its formats and its report replaces these.
+	for _, declared := range c.srv.capabilities {
+		for k, v := range declared() {
 			caps[k] = v
 		}
 	}
