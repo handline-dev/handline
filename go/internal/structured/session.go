@@ -80,6 +80,7 @@ type Launch struct {
 	ConfigDir string
 	SessionID string
 	Model     string
+	Env       []string // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
 }
 
 // Args are the protocol's arguments: stream-json both ways, the user messages replayed for confirmation, permission prompts on stdio.
@@ -105,7 +106,7 @@ func (l Launch) env() []string {
 	if l.ConfigDir != "" {
 		env = append(env, "CLAUDE_CONFIG_DIR="+l.ConfigDir)
 	}
-	return env
+	return append(env, l.Env...)
 }
 
 // CheckVersion refuses a CLI that is not the pinned one.
