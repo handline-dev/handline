@@ -483,6 +483,30 @@ func (c *Conn) methodList() []map[string]any {
 	return out
 }
 
+// withDaemonMethods replaces the entries of the methods the gateway relays with the daemon's own, which say whether it
+// lets a paired device call them.
+func (c *Conn) withDaemonMethods(own []map[string]any, theirs any) []map[string]any {
+	list, _ := theirs.([]any)
+	byName := map[string]map[string]any{}
+	for _, e := range list {
+		if m, ok := e.(map[string]any); ok {
+			if n, ok := m["name"].(string); ok {
+				byName[n] = m
+			}
+		}
+	}
+	for i, m := range own {
+		n, _ := m["name"].(string)
+		if _, native := c.srv.methods[n]; native {
+			continue
+		}
+		if d, ok := byName[n]; ok {
+			own[i] = d
+		}
+	}
+	return own
+}
+
 // AsInt is a JSON number that is a whole one.
 func AsInt(v any) (int64, bool) {
 	n, ok := v.(json.Number)
@@ -520,10 +544,14 @@ func hello(c *Conn, params map[string]any) (any, error) {
 	} else {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
-	caps := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}}
-	if c.srv.Relay != nil && c.srv.Relay.Capabilities != nil && c.device != "" {
-		for k, v := range c.srv.Relay.Capabilities(c.device, c.deviceName) {
-			caps[k] = v
+	caps, methods := map[string]any{"chat": false, "review": false, "input_ask": false, "terminal_format": []any{}}, c.methodList()
+	if c.srv.Relay != nil && c.device != "" {
+		client, _ := params["client"].(string)
+		if theirs := c.relayHello(client, protocol); theirs != nil {
+			if k, ok := theirs["capabilities"].(map[string]any); ok {
+				caps = k
+			}
+			methods = c.withDaemonMethods(methods, theirs["methods"])
 		}
 	}
 	return map[string]any{
@@ -531,7 +559,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		"role": c.Caller.Role, "caller": c.Caller.Info,
 		"capabilities": caps,
 		"transport":    c.srv.Transport,
-		"methods":      c.methodList(),
+		"methods":      methods,
 	}, nil
 }
 
