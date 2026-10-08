@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
+import { helloOf, Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
 import { trayMenu } from '../src/tray.ts';
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mode-')), 'settings.json');
@@ -109,4 +109,26 @@ test('the link remembers the version as the short sha', () => {
   const l = new Link();
   l.setVersion('0123456789abcdef');
   assert.equal(l.version, '0123456');
+});
+
+const answering =
+  (reply: unknown): Open =>
+  async () => {
+    const t = {
+      onmessage: null as ((m: string) => void) | null,
+      onclose: null as (() => void) | null,
+      send() {
+        setTimeout(() => t.onmessage?.(JSON.stringify(reply)), 0);
+      },
+      close() {},
+    };
+    return t as never;
+  };
+
+test('connected means a hello with our token was accepted, and the version comes from it', async () => {
+  assert.equal(await helloOf(remote, answering({ jsonrpc: '2.0', id: 1, result: { daemon: 'abc1234def' } })), 'abc1234def');
+  await assert.rejects(
+    helloOf(remote, answering({ jsonrpc: '2.0', id: 1, error: { message: 'refused', data: { reason: 'this device is not paired' } } })),
+    /this device is not paired/,
+  );
 });

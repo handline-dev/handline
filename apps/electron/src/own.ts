@@ -9,7 +9,17 @@ import { app, clipboard, ipcMain, Menu, nativeImage, Tray } from 'electron';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
-import { Link, pairRemote, plainRemoteHost, type Remote, type Settings, type SettingsFile } from './mode.ts';
+import {
+  Link,
+  pairRemote,
+  plainRemoteHost,
+  helloOf,
+  type Mode,
+  type OfferInput,
+  type Remote,
+  type Settings,
+  type SettingsFile,
+} from './mode.ts';
 import { commands, Owner, type Child, type Cmd } from './owner.ts';
 import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
 import { onTailnet } from './tailnet.ts';
@@ -29,16 +39,6 @@ const reachable = (hostPort: string): Promise<boolean> =>
     () => true,
     () => false,
   );
-
-/** Whether something accepts a TCP connection at host:port within three seconds. */
-const tcpUp = (hostPort: string): Promise<boolean> =>
-  new Promise((resolve) => {
-    const [host, port] = hostPort.split(/:(?=\d+$)/);
-    const c = net.createConnection({ host: host!, port: Number(port), timeout: 3000 });
-    c.once('connect', () => (c.destroy(), resolve(true)));
-    c.once('timeout', () => (c.destroy(), resolve(false)));
-    c.once('error', () => resolve(false));
-  });
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -71,11 +71,15 @@ function readFounderKey(home: string): string | null {
   }
 }
 
-const pairFromClipboard = (): Promise<Remote> =>
-  pairRemote(
-    { link: clipboard.readText() },
-    { open: (url, fp) => (fp ? pinnedWebSocketTransport(url, fp) : webSocketTransport(url)), name: 'Handline desktop' },
-  );
+const openRemote = (url: string, fp: string | null) => (fp ? pinnedWebSocketTransport(url, fp) : webSocketTransport(url));
+
+const pairFrom = (i: OfferInput): Promise<Remote> => pairRemote(i, { open: openRemote, name: 'Handline desktop' });
+
+function relaunchWith(file: SettingsFile, next: Settings): void {
+  file.write(next);
+  app.relaunch();
+  app.quit();
+}
 
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
@@ -86,6 +90,9 @@ export interface Own {
   link: Link;
   /** Connect mode with a paired remote: where the window reaches it. */
   remote: Remote | null;
+  /** The page's calls: switch the mode, or pair with another device; both relaunch the app. */
+  switchMode(m: Mode): void;
+  pair(i: OfferInput): Promise<void>;
 }
 
 export function ownDaemon(o: {
@@ -120,16 +127,9 @@ export function ownDaemon(o: {
   const link = new Link();
   const mode = o.current.mode;
   link.set('connecting', { address: o.gateway ?? null });
-  const relaunchAs = (next: Settings) => {
-    o.settings.write(next);
-    app.relaunch();
-    app.quit();
-  };
-  const pairClipboard = () =>
-    pairFromClipboard().then(
-      (remote) => relaunchAs({ mode: 'connect', remote }),
-      (e: Error) => link.set('cannot-pair', { reason: e.message }),
-    );
+  const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);
+  const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
+  const pairClipboard = () => pair({ link: clipboard.readText() }).catch((e: Error) => link.set('cannot-pair', { reason: e.message }));
   link.onChange(() => draw());
   const draw = () =>
     tray.setContextMenu(
@@ -168,10 +168,13 @@ export function ownDaemon(o: {
     if (remote) {
       ownHost = plainRemoteHost(remote);
       token = remote.token;
-      link.set((await tcpUp(remote.host)) ? 'connected' : 'cannot-pair', {
-        address: remote.host,
-        reason: `nothing answers at ${remote.host}`,
-      });
+      try {
+        const version = await helloOf(remote, openRemote);
+        link.set('connected', { address: remote.host });
+        link.setVersion(version);
+      } catch (e) {
+        link.set('cannot-pair', { address: remote.host, reason: e instanceof Error ? e.message : String(e) });
+      }
       return remote.host;
     }
     if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {
@@ -191,6 +194,8 @@ export function ownDaemon(o: {
     redraw: draw,
     link,
     remote: o.current.remote,
+    switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
+    pair,
     async ready() {
       if (mode === 'connect') return connect();
       if (!o.gateway) return undefined;

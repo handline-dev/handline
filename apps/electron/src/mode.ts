@@ -3,7 +3,16 @@
 // remote pairing live in one small file in the app's data folder, readable by this user only (it holds a device token).
 import fs from 'node:fs';
 import path from 'node:path';
-import { isTailscaleHost, listenerUrl, parsePairingUri, redeemPairing, type PairingOffer, type Transport } from '@handline/client';
+import { once } from './pair.ts';
+import {
+  isTailscaleHost,
+  listenerUrl,
+  parsePairingUri,
+  PROTOCOL,
+  redeemPairing,
+  type PairingOffer,
+  type Transport,
+} from '@handline/client';
 
 export type Mode = 'connect' | 'own';
 
@@ -117,6 +126,15 @@ export const remoteUrl = (r: Remote): string => listenerUrl(r.host, r.fingerprin
 /** Plain ws to a remote Tailscale name is the one case the page needs told it is allowed. */
 export const plainRemoteHost = (r: Remote): string | null =>
   r.fingerprint === null && isTailscaleHost(r.host) ? r.host.replace(/:\d+$/, '') : null;
+
+/** The daemon's version, from a hello with our token: what answers is a Handline daemon that still knows this device. Throws its reason otherwise. */
+export async function helloOf(r: Remote, open: Open): Promise<string> {
+  const reply = await once(
+    () => open(remoteUrl(r), r.fingerprint),
+    [['hello', { client: 'electron', protocol: PROTOCOL, token: r.token }]],
+  );
+  return String(reply.result?.daemon ?? '');
+}
 
 export type LinkStatus = 'connecting' | 'connected' | 'no-daemon' | 'cannot-pair';
 

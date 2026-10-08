@@ -9,10 +9,10 @@ import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
-import { parseMode, remoteUrl, SettingsFile, type Remote } from './mode.ts';
+import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
 import { ownDaemon, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
-import { Page, CHANNELS } from './bridge.ts';
+import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -72,6 +72,17 @@ function trustFingerprint(remote: Remote): void {
     const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
     trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
   });
+}
+
+function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
+  const c = new Connection(origin, {
+    mode: () => ({ mode, remote: remote?.host ?? null }),
+    setMode: (m) => own.switchMode(m),
+    pair: (i) => own.pair(i),
+  });
+  ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
+  ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
 }
 
 /** Runs `f` until it stops throwing, two seconds apart. */
@@ -166,6 +177,7 @@ if (!app.requestSingleInstanceLock()) {
           restart: () => void f.restartNow(),
         })),
     });
+    handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
