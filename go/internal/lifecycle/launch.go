@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -50,6 +51,12 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
+	// CapOf is how many agents the account may have mid-turn at once.
+	CapOf(acct string) int
+	// ActiveOn is how many agents are mid-turn on the account, agent itself left out (load.active_agents with exclude): one counted
+	// from its wake_reserved event until its Stop counts too. PickAccount and Fit leave agent out of the load the same way
+	// (load.read_all(exclude=agent)), so a placement is not refused for the slot the agent being placed holds.
+	ActiveOn(q db.Q, acct, agent string) int
 }
 
 // AccountsPort is team/accounts.py as launch uses it.
@@ -116,6 +123,8 @@ type LaunchPorts struct {
 	AccountReading func(q db.Q, agent string) (account, source string, ok bool)
 	// CurrentAccount is the account recorded for the agent.
 	CurrentAccount func(q db.Q, agent string) string
+	// WaitingFor is lifecycle.waiting_for: whether anything is waiting to be told to the agent.
+	WaitingFor func(q db.Q, agent string) bool
 	// TeamRules is the shared/team/<team>.md of each team the agent is in, as "# Rules for team X\n<text>".
 	TeamRules func(agent string) []string
 	// Routing is team.yaml; nil when there is none.
@@ -212,6 +221,8 @@ type WakeWait struct {
 	Assumed bool
 	Window  string // the walled window's length as a person says it
 	IsLong  bool   // the longest window, not the shortest
+	// Full > 0: no wall, no slot - the account's cap. Busy is the others mid-turn on it, Older the closed agents the daemon wakes first.
+	Full, Busy, Older int
 }
 
 // wall is the window this account is walled behind, the shortest first: an account walled on both reports the shortest one's rollover,
@@ -219,12 +230,38 @@ type WakeWait struct {
 func (l *Launcher) wall(acct string, assumed bool) *WakeWait {
 	st := l.Ports.Usage.Read(acct)
 	if st.ShortTrusted != nil && *st.ShortTrusted >= l.Ports.Usage.ShortBlock() {
-		return &WakeWait{acct, *st.ShortTrusted, st.ShortReset, assumed, st.ShortLabel, false}
+		return &WakeWait{Account: acct, Pct: *st.ShortTrusted, Reset: st.ShortReset, Assumed: assumed, Window: st.ShortLabel}
 	}
 	if st.LongTrusted != nil && *st.LongTrusted >= l.Ports.Usage.LongBlock() {
-		return &WakeWait{acct, *st.LongTrusted, st.LongReset, assumed, st.LongLabel, true}
+		return &WakeWait{Account: acct, Pct: *st.LongTrusted, Reset: st.LongReset, Assumed: assumed, Window: st.LongLabel, IsLong: true}
 	}
 	return nil
+}
+
+// full is a resume's wait for a slot on its own account, where it is not moved: none is left once the others on it (agent itself left out)
+// fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first.
+func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed bool) (*WakeWait, error) {
+	cap, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
+	rows, err := db.AllAgentStates(q)
+	if err != nil {
+		return nil, err
+	}
+	older := 0
+	for _, r := range rows {
+		if r.Agent == agent || r.ClosedAt.Int64 == 0 || r.ResumeSession.String == "" || r.State == states.Stalled || r.WakeFailures >= states.MaxFailedAttempts {
+			continue
+		}
+		if r.ClosedAt.Int64 > row.ClosedAt.Int64 || (r.ClosedAt.Int64 == row.ClosedAt.Int64 && r.Agent >= agent) {
+			continue
+		}
+		if l.Ports.CurrentAccount(q, r.Agent) == acct && l.Ports.WaitingFor(q, r.Agent) {
+			older++
+		}
+	}
+	if others+older < cap {
+		return nil, nil
+	}
+	return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Full: cap, Busy: others, Older: older}, nil
 }
 
 // FreesFirst is, for an agent no account has room for, the walled account whose wall lifts first; nil when none is walled.
@@ -279,7 +316,10 @@ func (l *Launcher) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait 
 		if !ok {
 			return nil
 		}
-		return l.wall(acct, source == "assumed")
+		if w := l.wall(acct, source == "assumed"); w != nil {
+			return w
+		}
+		return must(l.full(q, agent, row, acct, source == "assumed"))
 	}
 	if l.ChooseAccount(agent, false, "") != "" {
 		return nil
@@ -310,6 +350,13 @@ func WaitClock(w *WakeWait, unknown string) string {
 
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
+	if w.Full > 0 {
+		first := ""
+		if w.Older > 0 {
+			first = fmt.Sprintf(", %d older waiting go first", w.Older)
+		}
+		return fmt.Sprintf("waiting for a slot on %s (%d of %d mid-turn%s)", w.Account, w.Busy, w.Full, first)
+	}
 	who := w.Account
 	if w.Assumed {
 		who = "assumed account " + w.Account
@@ -823,6 +870,10 @@ func (p LaunchPort) Drifted(agent string, row *db.AgentState) bool { return p.L.
 
 func (p LaunchPort) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait {
 	return p.L.WakeWait(q, agent, row)
+}
+
+func (p LaunchPort) AccountFor(q db.Q, agent string, resuming bool) string {
+	return p.L.ChooseAccount(agent, resuming, "")
 }
 
 func (LaunchPort) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }

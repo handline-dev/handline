@@ -371,7 +371,12 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// this launch lands on is the one a session to resume lives under, so an agent whose own account is at the wall waits for its window
 	// rather than losing its conversation - a fresh start elsewhere comes back with only the handoff.
 	session := row.ResumeSession.String
-	if wait := m.Launch.WakeWait(m.Q, agent, row); wait != nil {
+	wait := m.Launch.WakeWait(m.Q, agent, row)
+	if wait != nil && wait.Full > 0 {
+		// No wall, no slot: a resume is not moved to another account for that, it waits for one here.
+		return false, m.Launch.DescribeWakeWait(wait)
+	}
+	if wait != nil {
 		// The resume account is at the wall. If another account has room, start fresh there: a resume id cannot follow an account change.
 		// The handoff is the record the close took while the session was live; a snapshot read now is stale by construction. One that is
 		// missing a fact keeps the id, since the session is the only complete copy of the context.
@@ -485,6 +490,14 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	// attempts, though it is the accounts that are full.
 	if c.movedTo == "" && (cold || session == "") && !m.Launch.ChooseAccount(m.Q, agent) {
 		return false, m.Launch.NoRoom(agent)
+	}
+	// The slot is held from here, so a second wake in this tick sees it taken.
+	slot := c.movedTo
+	if slot == "" {
+		slot = m.Launch.AccountFor(m.Q, agent, session != "" && !cold)
+	}
+	if slot != "" {
+		must(db.AddEvent(m.Q, agent, "wake_reserved", db.KV{K: "account", V: slot}))
 	}
 	took := false
 	if cold && must(db.GetHandoff(m.Q, agent)) == "" {

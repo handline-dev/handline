@@ -109,6 +109,8 @@ type Launch interface {
 	// CommandFor is the launch command for a wake; account "" for the agent's own.
 	CommandFor(agent, account, why, by string) (string, error)
 	ChooseAccount(q db.Q, agent string) bool
+	// AccountFor is the account this launch would run on (launch.choose_account), "" for none; resuming goes back to the recorded one.
+	AccountFor(q db.Q, agent string, resuming bool) string
 	NoRoom(agent string) string
 }
 
