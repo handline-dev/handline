@@ -245,3 +245,18 @@ func TestAccountVerdictSaysWhyAnAccountCannotTakeWork(t *testing.T) {
 		t.Fatalf("a vendor with no driver takes nothing: %v %q", ok, why)
 	}
 }
+
+func TestAClosedRunningAgentHoldingAReservationCountsOnTheReservedAccountOnly(t *testing.T) {
+	q := openDB(t)
+	e := testEnv(t.TempDir(), clock)
+	setAgent(t, q, "gone", "RUNNING", "a")
+	db.SetClosed(q, "gone", "s")
+	event(t, q, clock-100, "gone", "wake_reserved", "c")
+	by, err := e.ActiveByAccount(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(by["a"]) != 0 || len(by["c"]) != 1 {
+		t.Fatalf("a closed session is not running on the account it last had: %v", by)
+	}
+}

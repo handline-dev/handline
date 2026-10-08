@@ -98,3 +98,22 @@ func TestAStructuredAgentsSessionIsTheOneStoredWithIt(t *testing.T) {
 		t.Fatalf("a structured agent on no recorded account still has its session: %+v", got)
 	}
 }
+
+func TestAnAccountIsNotFitWhenItsLoadCannotBeRead(t *testing.T) {
+	env := usageHome(t, map[string]map[string]any{"a": liveAccount(5, 5, 90000)})
+	q := openDB(t)
+	u := &UsageAdapter{Env: env, Q: q}
+	if !u.Fit("a", "") {
+		t.Fatal("an account with room is fit")
+	}
+	q.(interface{ Close() error }).Close()
+	if u.Fit("a", "") {
+		t.Fatal("fit with a load nobody could read")
+	}
+	if got := u.PickAccount([]string{"a"}, ""); got != "" {
+		t.Fatalf("a pick on an unreadable load: %q", got)
+	}
+	if n := u.ActiveOn(q, "a", ""); n != u.CapOf("a") {
+		t.Fatalf("an unreadable count is the cap: %d", n)
+	}
+}
