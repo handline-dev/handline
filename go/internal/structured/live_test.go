@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -123,5 +124,81 @@ func TestLiveGetUsage(t *testing.T) {
 	// A second ask must not take a turn or fail: the poll asks once per account per cycle.
 	if _, err := s.GetUsage(c); err != nil {
 		t.Errorf("second get_usage: %v", err)
+	}
+}
+
+// TestLiveHooks checks two facts the composition root relies on: hooks in a --settings file load under --setting-sources project,
+// and under stream-json the Stop hook fires at the end of a turn and a PreToolUse hook fires and can refuse. The hooks are tiny
+// scripts that append a line to a temp file. LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveHooks -v ./internal/structured
+func TestLiveHooks(t *testing.T) {
+	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
+	if cfg == "" {
+		t.Skip("LIVE_CLAUDE_CONFIG is not set")
+	}
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "hooks.log")
+	stop := filepath.Join(dir, "stop.sh")
+	guard := filepath.Join(dir, "guard.sh")
+	const deny = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"live-hooks guard"}}`
+	if err := os.WriteFile(stop, []byte("#!/bin/sh\ncat >/dev/null\necho stop >> '"+log+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The guard refuses any call whose input names the fixed file, and lets the rest through.
+	if err := os.WriteFile(guard, []byte("#!/bin/sh\nin=$(cat)\ncase \"$in\" in\n*live-hooks-refused*) echo refused >> '"+log+"'\nprintf '%s' '"+deny+"';;\n*) echo pretool >> '"+log+"';;\nesac\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(dir, "hooks-settings.json")
+	cfgJSON := map[string]any{"hooks": map[string]any{
+		"Stop":       []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": stop}}}},
+		"PreToolUse": []any{map[string]any{"matcher": "Bash", "hooks": []any{map[string]any{"type": "command", "command": guard}}}},
+	}}
+	b, _ := json.Marshal(cfgJSON)
+	if err := os.WriteFile(settings, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := Handlers{
+		OnEvent: func(m map[string]any) {
+			b, _ := json.Marshal(m)
+			if len(b) > 300 {
+				b = b[:300]
+			}
+			t.Logf("frame %s", b)
+		},
+		CanUseTool: func(_ context.Context, r ToolRequest) (Decision, error) { return Decision{Allow: true}, nil },
+		OnExit:     func(err error) { t.Logf("exit: %v", err) },
+	}
+	cwd := t.TempDir()
+	l := Launch{Path: path, Cwd: cwd, ConfigDir: cfg, SessionID: uuidFor(time.Now().String()),
+		Args: []string{"--setting-sources", "project", "--settings", settings}}
+	s, err := Open(context.Background(), l, h, 60*time.Second)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	c, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	waitIdle := func() {
+		for s.Busy() && c.Err() == nil {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	s.Send("hook-1", "Run the shell command `touch "+filepath.Join(cwd, "live-hooks-refused")+"` with the Bash tool and tell me what happened.", Now)
+	waitIdle()
+	time.Sleep(2 * time.Second) // a Stop hook may land just after the turn's result frame
+	got, _ := os.ReadFile(log)
+	t.Logf("hooks.log:\n%s", got)
+	if _, err := os.Stat(filepath.Join(cwd, "live-hooks-refused")); err == nil {
+		t.Error("the guarded file was created: PreToolUse did not refuse")
+	}
+	lines := string(got)
+	if !strings.Contains(lines, "refused") {
+		t.Error("no refusal line: the PreToolUse hook from --settings did not fire under --setting-sources project")
+	}
+	if !strings.Contains(lines, "stop") {
+		t.Error("no stop line: the Stop hook did not fire at the end of the turn")
 	}
 }
