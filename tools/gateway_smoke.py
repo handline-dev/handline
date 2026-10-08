@@ -233,6 +233,9 @@ class WS(Conn):
 class World:
     """The scratch home and the processes on it."""
 
+    # Seeding the world starts the worker, so the fake must be written before it: a subclass changes this, not the file after setup.
+    FAKE_CLAUDE = '#!/bin/sh\necho "fake claude ready"\nwhile IFS= read -r line; do echo "got: $line"; done\n'
+
     def __init__(self, keep: bool, port: int | None) -> None:
         self.keep = keep
         self.root = Path(tempfile.mkdtemp(prefix="gwsmoke.")).resolve()
@@ -244,7 +247,8 @@ class World:
         self.env = {**os.environ, "HANDLINE_HOME": str(self.home), "OCP_HOME": str(self.home),
                     "HANDLINE_TEST_ROOT": str(self.user), "OCP_TEST_ROOT": str(self.user), "OCP_TERMINAL": "tmux",
                     "HANDLINE_TERMINAL": "tmux", "OCP_TMUX_SOCKET": f"gwsmoke{os.getpid()}", "HANDLINE_TMUX_SOCKET": f"gwsmoke{os.getpid()}",
-                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh"}
+                    "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}", "SHELL": "/bin/sh",
+                    "OCP_BIN": str(ROOT / "bin" / "hl")}      # the pane runs this checkout's hl, not whichever `hl` the PATH finds
         for k in ("OCP_AGENT", "HANDLINE_AGENT", "OCP_ACCOUNT", "HANDLINE_ACCOUNT", "CLAUDE_CONFIG_DIR", "SANDBOX_RUNTIME"):
             self.env.pop(k, None)
 
@@ -256,7 +260,7 @@ class World:
             d.mkdir(parents=True, exist_ok=True)
         # A fake claude: it prints a banner and answers every line it is typed, so a terminal has bytes to show and to take.
         fake = self.root / "bin" / "claude"
-        fake.write_text('#!/bin/sh\necho "fake claude ready"\nwhile IFS= read -r line; do echo "got: $line"; done\n')
+        fake.write_text(self.FAKE_CLAUDE)
         fake.chmod(0o755)
         repo = self.root / "repo"
         repo.mkdir()

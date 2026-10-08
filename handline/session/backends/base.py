@@ -161,6 +161,14 @@ class Backend:
         """The bottom `limit` rows as read_screen has them, each with its SGR codes. None: unreadable, or this host has no codes."""
         return None
 
+    # Scrollback kept by the host itself, so the terminal channel does not infer it from polled screens.
+    serves_history = False
+
+    def read_history(self, handle: str, before: int | None, limit: int, styled: bool) -> tuple[int, list[str]] | None:
+        """Up to `limit` scrollback rows above the visible screen, ending before absolute row `before` (None: at the screen), as
+        (index of the first row, rows); row 0 is the oldest the host still holds. None: unreadable, or this host keeps none."""
+        return None
+
     def send_bytes(self, handle: str, data: bytes) -> tuple[bool, str]:
         """Send raw bytes as keystrokes (what a terminal emulator sends for the keys). A host that cannot says so."""
         return False, f"{self.name} cannot send raw bytes"
