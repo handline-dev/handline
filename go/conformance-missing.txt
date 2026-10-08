@@ -30,7 +30,6 @@ stats.outlook
 task.begin
 task.handoff
 task.progress
-settings.get
 task.ask
 ask
 push
