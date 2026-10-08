@@ -6,7 +6,7 @@ Compared on 2026-10-06: the bridge is `handline/ui/` on main @3cd99e69 (the scre
 
 ## 1. What apps/web has and lacks
 
-Status on 2026-10-08: see §4.1. The web app has every unit in §4 but two gaps (account remove, HR proposal edit). The phone app has the agent list and page with the terminal, the Inbox and most task verbs; it has no Chat, accounts, stats, settings, HR or team.
+Status on 2026-10-08: see §4.1. The web app has every unit in §4. The phone app has the agent list and page with the terminal, Chat, the Inbox, the agent verbs, agent settings and schedules, Accounts, the task verbs, HR and Team; it has no stats or Home settings.
 
 ## 2. How the ranking was made
 
@@ -84,37 +84,32 @@ E1 can start once unit 4a lands; E2 needs U9 and U10; E3 needs U8 and U10; E4 an
 
 ### 4.1 Status on 2026-10-08
 
-Read on the UI integration branch: `9fc25d31` + `c7bb1533` (the cursor contract, with `fce90c39`) + `f032a67b` (the phone's task verbs), merged with main `3ed07114` (scratch-land `6d20351a`). "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches.
+Read on main `033959e3`. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
 
 | Unit | Web | Phone |
 |---|---|---|
-| Q1 `app-data` | built: `packages/app-data/src` (reads.ts, writes.ts, chat.ts, skeletons.ts), guard tests in `test/guards.test.ts` | same package |
-| Q2 / Q3 apps onto it | Q2 built: 38 files in `apps/web/src` import it, `test/q2.test.tsx` | Q3 built: `apps/mobile/src` uses `useWrite`, `Loadable`, `skeleton.tsx` |
-| Q4 store drops what the cache owns | built: no `s.agents` or `s.details` read is left in either app | n/a |
-| U8 Chat, session marks | built: `ChatTab.tsx` (mine / all, paging), `ChatCompose.tsx` (draft per agent, ↑, Ctrl+R), `ChatMessages.tsx:159` send now, `:266` session mark with its handoff | **not started**: `AgentPage.tsx:133` shows `ChatEmpty` |
-| U9 Prompt cards | built: `PromptCard.tsx` (kinds, "always", multi at `:55`), `test/u9.test.tsx` | partial: `AgentPage.tsx` answers `prompt.answer`; no "always", no multi-select |
-| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx`, bell in `ChatTab.tsx` (`inbox.mark_read`) | built: `screens/Inbox.tsx` (answer, reply, mark read, mark all), e2e `inbox-tasks.yaml` |
-| U11 Tasks | built: `Tasks.tsx` (table, tree, filters, sort, bulk), `TaskDetail.tsx`, `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | partial: `Tasks.tsx`, `TaskActions.tsx` (new, done, reopen, memo, withdraw, cancel); no queue, draft, discard, edit, merge, filters, tree |
-| U12 Agent verbs | built: `AgentVerbs.tsx` has wake, restart, close, park, fold, move and clear stall (asks first; off with its reason where the daemon does not list `agent.unstall`; `test/u12.test.tsx`) | partial: `AgentPage.tsx` has start, restart, stop, interrupt; no park, fold, move |
-| U13 Settings, schedules | built: `SettingsView.tsx` (`agent.set`), `Schedules.tsx`, `test/u13.test.tsx` | not started |
-| U14 Accounts, usage popup | partial: `Accounts.tsx`, `AccountSettings.tsx`, `UsagePopup.tsx`, `Gauge.tsx`; **remove** not built, the comment at `Accounts.tsx:58` is stale (`account.remove` is served, N3) | not started |
-| U15 HR, Team | partial: `HrTab.tsx` (diff, approve, approve all, reject), `TeamPage.tsx`, `test/u15.test.tsx`; **edit the proposal's settings** not built | not started |
-| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx` (12 h to 30 d), `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | not started |
-| E1 Shell | built: `main.ts:97` one instance, `desk.ts:61` dock badge from `inbox.unread` | n/a |
-| E2 Notifications | built: `notices.ts` (prompt_asked, task_done, stall, account_out, HR), `desk.ts:72` click opens | n/a |
-| E3 Open path, editor | built: `open.ts`, `editor.ts`, `EditorButton.tsx` in the web's compose box | n/a |
-| E4 Updates | built: `update.ts:58` asks, holds while a draft or box is open | n/a |
+| Q1 `app-data` | built: `packages/app-data/src` (reads.ts, writes.ts, chat.ts, skeletons.ts), `test/guards.test.ts` | same package |
+| Q2 / Q3 / Q4 apps onto it | built: `test/q2.test.tsx`; the store keeps nothing the cache owns (`64c0ee3b`) | built: `useWrite`, `Loadable.tsx`, `skeleton.tsx` |
+| U8 Chat, session marks | built: `ChatTab.tsx`, `ChatCompose.tsx`, `ChatMessages.tsx` (send now, session mark with its handoff) | built: `Chat.tsx` (landing state, mine / all, send, reply, take back, answer, paging, session line), `e2e/chat.yaml` (`e745dd41`, merged `56214a66`) |
+| U9 Prompt cards | built: `PromptCard.tsx`, `test/u9.test.tsx` | partial: `AgentPage.tsx:147` answers `prompt.answer`; no "always", no multi-select |
+| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx` | built: `Inbox.tsx` (answer, reply, mark read), `e2e/inbox-tasks.yaml` (`e74c29a6`) |
+| U11 Tasks | built: `Tasks.tsx`, `TaskDetail.tsx`, `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | built: `Tasks.tsx` (state filters, open / closed), `TaskActions.tsx` (new, done, reopen, memo, withdraw, cancel, queue, draft, discard, edit), `test/screens.test.tsx`, `e2e/task-verbs.yaml` (`fce7a51e`, merged `033959e3`); no start, tree, merge or bulk marks, left off a phone on purpose |
+| U12 Agent verbs | built: `AgentVerbs.tsx` (wake, restart, close, park, fold, move, clear stall; `test/u12.test.tsx`). Clear stall is served by the fake daemon only (N4); elsewhere it is off with its reason (`97a95a39`) | built: `AgentVerbs.tsx` (wake, restart, park, fold, move; close and clear stall hidden on purpose), `e2e/agent-verbs.yaml` (`3020f582`) |
+| U13 Settings, schedules | built: `SettingsView.tsx`, `Schedules.tsx`, `test/u13.test.tsx` | built: `AgentSettings.tsx`, `Schedules.tsx`, `test/agent-settings.test.tsx` (`42a9c187`, merged `dfb76709`); no entry from `AgentPage.tsx` yet |
+| U14 Accounts, usage popup | built: `Accounts.tsx`, `AccountSettings.tsx`, `AccountRemove.tsx` (dry run, typed confirmation, founder only; `63fa17c7`), `UsagePopup.tsx`, `Gauge.tsx` | built: `Accounts.tsx` (gauges, alias, cap, remove), `test/accounts.test.tsx`, `e2e/accounts.yaml` (`a9fb87e6`, merged `1318cd55`); no login (a phone never holds credentials) |
+| U15 HR, Team | built: `HrTab.tsx` (diff, approve, approve all, reject, Edit settings for an agent on the roster; `3f57d373`), `TeamPage.tsx`, `test/u15.test.tsx` | built: `Hr.tsx` (approve, reject, withdraw, Edit settings; founder only), `Team.tsx`, `TeamEntry.tsx` (the way in from `App.tsx`), `test/hr.test.tsx` (`fce7a51e`, merged `033959e3`) |
+| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx`, `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | **not started** |
+| E1 Shell, E2 notices, E3 open / editor, E4 updates | built: `main.ts:129` one instance, `main.ts:238` dock badge, `notices.ts`, `desk.ts`, `open.ts`, `editor.ts`, `update.ts` (asks only when idle) | n/a |
+| Connect / own modes | built: `mode.ts`, `own.ts`, `bridge.ts`, `tray.ts`; the pairing screen takes an address and code (`Start.tsx`); `README.md` (`f645a286`, merged `9b778035`) | n/a |
 
-**Next units, in order, each in its own files:**
+**What is left**
 
-Web (two buildable gaps):
-1. **Account remove (U14).** `Accounts.tsx`, `AccountSettings.tsx`, `test/accounts.test.tsx`. Founder-only control with the dry-run listing the agents on it, a decided write with a confirmation; drop the stale comment at `:58`. `account.remove` is in the contract and served (`rpc_accounts.py:151`).
-2. **HR proposal edit (U15).** `HrTab.tsx`, `test/u15.test.tsx`. Edit the proposal's settings before approving, as the bridge does (`hr_card.py`).
-
-Phone (numbered P1–P3 here; the order is §2's):
-1. **P1 Chat tab (matches U8, G1).** New `screens/Chat*.tsx`; replaces `ChatEmpty` in `AgentPage.tsx`. Messages with landing state, mine / all, send, withdraw, reply, paging; reads `useChat` from `app-data`. Leave "always" and multi-select for P2.
-2. **P2 Task verbs, the rest (U11).** `screens/Tasks.tsx`, `screens/TaskActions.tsx`, `test/screens.test.tsx`, `e2e/task-verbs.yaml`. Queue, draft, discard (with its confirmation), edit, filters; no tree, no merge or bulk marks on a phone.
-3. **P3 Accounts and usage (U14).** New `screens/Accounts.tsx`, plus one entry in `Home.tsx` / `App.tsx`. Gauges, per-account page, cap and alias; login opens a terminal (never holds credentials), no remove. After P1, park / fold / move in `AgentPage.tsx` follow (U12), then prompt "always" and multi-select (U9).
+- Web: nothing buildable. Clear stall stays off on dev and real daemons by the founder's decision (N4).
+- Phone, in order of use:
+  1. **Prompt "always" and multi-select (U9).** `AgentPage.tsx` or a new card file.
+  2. **Stats and Home settings (U16).** New screens and one entry in `Home.tsx` or `TeamEntry.tsx`.
+  3. **Entry to agent settings and schedules** from `AgentPage.tsx`: the screens and their routes are on main, nothing opens them.
+- PC app: nothing in §4.
 
 ## 5. Requests to the daemon team: missing from the contract and their list, or pending a decision
 
@@ -122,10 +117,10 @@ Phone (numbered P1–P3 here; the order is §2's):
 |---|---|---|---|
 | N1 | `chat.send_now { request }`: type a queued message now | the ⚡ button (`chat_page.py:826`); the contract has no such field, the table has `send_now` | in the contract and served (`rpc_chat_now.py:38`); web uses it (`ChatMessages.tsx:159`) |
 | N2 | `Task.priority` (1 high … 3 low) on the row, and `priority` on `task.edit` (`task.new` and `task.begin` already take it) | the `p` key and the sort column in `tasks_view.py` | in the contract (`Task.priority`, `task.edit`); web edits and sorts it (`TaskDetail.tsx:330`, `TaskBar.tsx:21`) |
-| N3 | `account.remove { account }`, founder only, with a dry-run that says which agents sit on it; the spec lists `hl account remove` as founder-only, pending the founder's decision | `x` on an account row | in the contract and served (`rpc_accounts.py:151`); no UI yet (§4.1, U14) |
+| N3 | `account.remove { account }`, founder only, with a dry-run that says which agents sit on it; the spec lists `hl account remove` as founder-only, pending the founder's decision | `x` on an account row | in the contract and served (`rpc_accounts.py`); web `AccountRemove.tsx` and phone `Accounts.tsx` use it |
 | N4 | `agent.unstall { agent }`, founder only; the spec listed `hl unstall` as founder-only; the founder allowed it in the test environment, not in dev or real | wake on a STALLED row, with its confirm (`tui.py:87`) | in the contract and the fake daemon only; the Python and Go daemons do not list it, so the web shows Clear stall off there (`AgentVerbs.tsx`) |
 | N5 | `stats.outlook { range }`: week left, runway, cost per day | `outlook_view.py`; `Stats` has only 24 h / 7 d counts and two percentages | in the contract and served (`rpc_outlook.py:63`); web shows it (`Outlook.tsx`) |
-| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`, `protocol.json:7628`); web uses it (`PromptCard.tsx:55`); phone does not |
+| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`, `protocol.json:7670`); web uses it (`PromptCard.tsx`); phone does not (§4.1, U9) |
 | N7 | a `session` transcript item: session id, started, and the handoff text it began with | `SessionMark` and `HandoffModal` | in the contract (a `session` transcript item); web shows it (`ChatMessages.tsx:266`) |
 
 ## 6. Not gaps
