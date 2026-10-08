@@ -57,6 +57,9 @@ func (e *Env) eventsFeed(c *rpc.Conn, params map[string]any) (any, error) {
 			}
 		}
 	}
+	if err := stream.Allowed(c, topics...); err != nil {
+		return nil, err
+	}
 	var since *int64
 	if v, has := params["since"]; has && v != nil {
 		n, ok := rpc.AsInt(v)

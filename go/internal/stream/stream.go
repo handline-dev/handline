@@ -152,6 +152,11 @@ func Register(srv *rpc.Server, h *Hub) {
 		if err != nil {
 			return nil, err
 		}
+		for n := range names {
+			if err := Allowed(c, n); err != nil {
+				return nil, err
+			}
+		}
 		if !names[devicesTopic] {
 			return map[string]any{"cursor": 0}, nil
 		}
@@ -215,6 +220,19 @@ func check(p map[string]any) (map[string]bool, error) {
 		return nil, rpc.BadRequestError("devices is subscribed on its own: it is this gateway's, every other topic is the daemon's", "topics", rpc.InvalidParams)
 	}
 	return names, nil
+}
+
+// memberTopics are the topics an agent may not follow: the reads behind them (chat.*, operation.get) are a member's.
+var memberTopics = map[string]bool{"chat": true, "operations": true}
+
+// Allowed refuses a caller below a member any of the named topics that are a member's.
+func Allowed(c *rpc.Conn, names ...string) error {
+	for _, n := range names {
+		if memberTopics[n] && !c.Caller.Allows("member") {
+			return rpc.Refused("the "+n+" topic is for a member or above; this caller is "+c.Caller.Role, "role", "")
+		}
+	}
+	return nil
 }
 
 // Daemon reports whether name is a topic the Python daemon's stream_log holds (every topic but devices, which is this
