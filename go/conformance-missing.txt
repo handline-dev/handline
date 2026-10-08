@@ -57,7 +57,6 @@ ask
 push
 push.answer
 push.cancelled
-settings.get
 task.ask
 chat.cancel
 chat.seen
