@@ -338,6 +338,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'session.interrupt': 'interrupt',
     'agent.fold': 'fold',
     'agent.move': 'move',
+    'agent.unstall': 'clear stall',
     'agent.create': 'create',
     'input.take': 'take control',
     'input.release': 'release',

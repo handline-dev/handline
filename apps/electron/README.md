@@ -12,7 +12,18 @@ The main process serves `apps/web/dist` on a loopback port and holds its own dae
 | `WS`                        | the fake daemon (`ws://127.0.0.1:7777`)                        |
 | `WEB_DIST`                  | `apps/web/dist`                                                |
 
+## Two modes
+
+The app has two modes, shown in the tray (_Mode_, _Daemon: address · version_) and switched there (the app relaunches).
+
+- **Connect** (the default) never starts or stops a daemon. It attaches to the daemon already running on this computer (it pairs itself through the gateway's local socket), or to another device's gateway paired with _Pair with the link on the clipboard_ (copy the `handline://` link `hl device pair` prints; a Tailscale `*.ts.net` gateway needs no certificate, any other is trusted by the fingerprint in the link). With nothing running the tray says so; start a daemon and relaunch, or switch to Own.
+- **Own daemon** is what the next section describes: the app starts the daemon and gateway and stops them on quit.
+
+The choice and the remote pairing (it holds a device token) are kept in `settings.json` in the app's data folder, mode 0600. `HANDLINE_MODE=connect|own` overrides the kept mode for one run without saving it.
+
 ## On the real daemon
+
+This section is Own-daemon mode (`HANDLINE_MODE=own`, or switch in the tray).
 
 With the Go gateway running (`127.0.0.1:7443`), from the repo root:
 

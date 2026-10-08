@@ -6,7 +6,7 @@ Compared on 2026-10-06: the bridge is `handline/ui/` on main @3cd99e69 (the scre
 
 ## 1. What apps/web has and lacks
 
-Status on 2026-10-08: see §4.1. The web app has every unit in §4 but two gaps (account remove, HR proposal edit) and one blocked verb (clear stall). The phone app has the agent list and page with the terminal, the Inbox and most task verbs; it has no Chat, accounts, stats, settings, HR or team.
+Status on 2026-10-08: see §4.1. The web app has every unit in §4 but two gaps (account remove, HR proposal edit). The phone app has the agent list and page with the terminal, the Inbox and most task verbs; it has no Chat, accounts, stats, settings, HR or team.
 
 ## 2. How the ranking was made
 
@@ -26,7 +26,7 @@ From the founder's own record on this machine (counts, not content), 2026-09-24 
 | G2 | **Inbox ("FOR YOU")**: results, questions to the founder, blocks; answer, answer in an editor, dismiss, mark read, mark all read, open the task or chat it came from | `tui.py:80` (keys), `home.py:155` (panel), `question_modal.py` | `inbox.list` S; `inbox.mark_read` `inbox.answer` `inbox.reply`: D4; `inbox.get`: D6; topic `inbox` | yes | U10 | E3 |
 | G3 | **Prompts the agent is stuck on**: permission (Yes / No, never "always"), AskUserQuestion with numbered options, multi-select and "type something", dialogs with "always" (saves a standing rule); an answer to a prompt that has gone is refused ("the dialog is gone or changed") | `permission_modal.py`, `question_modal.py`, `chat_page.py` log kinds permission / question / dialog / confirm | `prompt.list` `prompt.answer` S; `answer.add` `answers.list` `answer.remove`: D6 | yes; multi-select flag no (N6) | U9 | E2 |
 | G4 | **Tasks**: list and tree of what waits on what, filters (state, agent, closed), sort, detail with body, delivery history, evidence, progress and memos; new, assign a note, done, reopen, queue / draft, discard with a reason, change owner, priority, merge, bulk marks | `tasks_view.py:175-186` (12 keys), `chat_page.py:1623-1628` (task detail keys), `:1172` (`TaskActions`) | `tasks.list` `task.get` `task.new` `task.withdraw` `task.cancel` `task.edit` S; `task.board` `task.done` `task.reopen` `task.queue` `task.draft` `task.discard` `task.merge` `task.release`: D3; `task.memo.*`: D4; `task.progress` `task.handoff` `task.begin` `task.start`: D5 | yes; **priority** no (N2) | U11 | none |
-| G5 | **Agent verbs on a row**: wake, close, restart (fresh or resuming), park, fold into its handoff, move to another account, clear a stall (asks first) | `tui.py:74` (`AGENT_KEYS`), `:87` (`CONFIRM`), `chat_page.py:872` (`/` commands) | `session.wake` `session.stop` `session.restart` `session.park` S; `agent.fold` `agent.move`: D5 | yes; **unstall** no (N4) | U12 | none |
+| G5 | **Agent verbs on a row**: wake, close, restart (fresh or resuming), park, fold into its handoff, move to another account, clear a stall (asks first) | `tui.py:74` (`AGENT_KEYS`), `:87` (`CONFIRM`), `chat_page.py:872` (`/` commands) | `session.wake` `session.stop` `session.restart` `session.park` S; `agent.fold` `agent.move`: D5 | yes (`agent.unstall`: N4, fake only) | U12 | none |
 | G6 | **Agent settings and its schedules**: model, effort, weight, hand off at, handoff note, repo, mode, sandbox, browser and sites, idle close, session account; add / edit / remove schedules | `agent_settings.py:70-121`, `schedules_section.py` | `agent.set`: D5; `schedules.list`, `settings.get`: D7; `schedule.add` `schedule.edit` `schedule.remove` `settings.set` S | yes | U13 | none |
 | G7 | **Accounts**: gauges (5 h, week, reset, runway), who is on which, a page per account with its agents and settings (alias, cap, usage recovery, month cycle), login, add, remove | `home.py:148` (panel), `account.py:34,39,60-100`, `tui.py:79` | `accounts.list`: D7; `account.set` `account.set_cap` `account.login` S | yes; **remove** no (N3) | U14 | none |
 | G8 | **HR proposals**: see the diff, approve, approve all, reject, edit the proposal's settings; a dot on the tab when one waits | `proposals.py:65`, `hr_card.py`, `home.py:562` | `hr.list`: D7; `hr.decide` S | yes | U15 | E2 |
@@ -50,7 +50,7 @@ Numbered on from `docs/turborepo-layout.md` §6 (units 1–7). Each needs unit 4
 | U9 | Prompt cards (G3) in Chat and Inbox: permission, dialog, question with options and free text, "always" rules, stale-prompt refusal shown | every kind in a fixture answers through `prompt.answer`; a prompt that changed under the click sends nothing and the card refreshes; "always" appears only for dialogs | `prompt.answer` S; D6 for "always"; N6 | now, minus "always" |
 | U10 | Inbox page (G2), bell count from `inbox` topic, deep links | list, filter by kind and agent, mark read, answer a decision, reply; a notice opens the card | `inbox.list` S; D4, D6 | list now; actions with D4 |
 | U11 | Tasks page and detail (G4): table and tree, filters, bulk marks, new task, and every action of the bridge's two key tables | each key of `tasks_view.py` and each of the task detail's has a control and a test; confirmations match the bridge's | D3, D4, D5; N2 | list, detail, new, withdraw, cancel, edit now |
-| U12 | The ⋯ menu gains park, fold, move, restart fresh, clear stall (G5) | one control per `AGENT_KEYS` verb; the confirm set equals `CONFIRM` | D5; N4 | park, wake, restart now |
+| U12 | The ⋯ menu gains park, fold, move, restart fresh, clear stall (G5) | one control per `AGENT_KEYS` verb; the confirm set equals `CONFIRM` | D5; N4 | park, wake, restart now; clear stall on the fake daemon only |
 | U13 | Agent settings and schedules (G6) as a sidebar detail block's "Settings" view | each field of `agent_settings.py` edits and saves; the founder-only ones are greyed for other roles | D5, D7 | with D5 |
 | U14 | Accounts page (G7) and the status bar's usage popup | gauges, per-account page, cap, alias, login opens a terminal tab (the web never holds credentials), remove | D7; N3 | with D7 |
 | U15 | HR and Team (G8, G9) | approve / reject round trip; the tab dot matches the pending count | D7 | with D7 |
@@ -95,7 +95,7 @@ Read on the UI integration branch: `9fc25d31` + `c7bb1533` (the cursor contract,
 | U9 Prompt cards | built: `PromptCard.tsx` (kinds, "always", multi at `:55`), `test/u9.test.tsx` | partial: `AgentPage.tsx` answers `prompt.answer`; no "always", no multi-select |
 | U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx`, bell in `ChatTab.tsx` (`inbox.mark_read`) | built: `screens/Inbox.tsx` (answer, reply, mark read, mark all), e2e `inbox-tasks.yaml` |
 | U11 Tasks | built: `Tasks.tsx` (table, tree, filters, sort, bulk), `TaskDetail.tsx`, `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | partial: `Tasks.tsx`, `TaskActions.tsx` (new, done, reopen, memo, withdraw, cancel); no queue, draft, discard, edit, merge, filters, tree |
-| U12 Agent verbs | partial: `AgentVerbs.tsx` has wake, restart, close, park, fold, move; **clear stall** never runs (`:10`, no method, N4) | partial: `AgentPage.tsx` has start, restart, stop, interrupt; no park, fold, move |
+| U12 Agent verbs | built: `AgentVerbs.tsx` has wake, restart, close, park, fold, move and clear stall (asks first; off with its reason where the daemon does not list `agent.unstall`; `test/u12.test.tsx`) | partial: `AgentPage.tsx` has start, restart, stop, interrupt; no park, fold, move |
 | U13 Settings, schedules | built: `SettingsView.tsx` (`agent.set`), `Schedules.tsx`, `test/u13.test.tsx` | not started |
 | U14 Accounts, usage popup | partial: `Accounts.tsx`, `AccountSettings.tsx`, `UsagePopup.tsx`, `Gauge.tsx`; **remove** not built, the comment at `Accounts.tsx:58` is stale (`account.remove` is served, N3) | not started |
 | U15 HR, Team | partial: `HrTab.tsx` (diff, approve, approve all, reject), `TeamPage.tsx`, `test/u15.test.tsx`; **edit the proposal's settings** not built | not started |
@@ -107,10 +107,9 @@ Read on the UI integration branch: `9fc25d31` + `c7bb1533` (the cursor contract,
 
 **Next units, in order, each in its own files:**
 
-Web (two buildable gaps; the third waits on a decision):
+Web (two buildable gaps):
 1. **Account remove (U14).** `Accounts.tsx`, `AccountSettings.tsx`, `test/accounts.test.tsx`. Founder-only control with the dry-run listing the agents on it, a decided write with a confirmation; drop the stale comment at `:58`. `account.remove` is in the contract and served (`rpc_accounts.py:151`).
 2. **HR proposal edit (U15).** `HrTab.tsx`, `test/u15.test.tsx`. Edit the proposal's settings before approving, as the bridge does (`hr_card.py`).
-3. **Clear stall (U12).** `AgentVerbs.tsx`, `test/u12.test.tsx`. Cannot start: N4 has no method in the contract and the spec makes `hl unstall` founder-only, pending the founder's decision.
 
 Phone (numbered P1–P3 here; the order is §2's):
 1. **P1 Chat tab (matches U8, G1).** New `screens/Chat*.tsx`; replaces `ChatEmpty` in `AgentPage.tsx`. Messages with landing state, mine / all, send, withdraw, reply, paging; reads `useChat` from `app-data`. Leave "always" and multi-select for P2.
@@ -124,7 +123,7 @@ Phone (numbered P1–P3 here; the order is §2's):
 | N1 | `chat.send_now { request }`: type a queued message now | the ⚡ button (`chat_page.py:826`); the contract has no such field, the table has `send_now` | in the contract and served (`rpc_chat_now.py:38`); web uses it (`ChatMessages.tsx:159`) |
 | N2 | `Task.priority` (1 high … 3 low) on the row, and `priority` on `task.edit` (`task.new` and `task.begin` already take it) | the `p` key and the sort column in `tasks_view.py` | in the contract (`Task.priority`, `task.edit`); web edits and sorts it (`TaskDetail.tsx:330`, `TaskBar.tsx:21`) |
 | N3 | `account.remove { account }`, founder only, with a dry-run that says which agents sit on it; the spec lists `hl account remove` as founder-only, pending the founder's decision | `x` on an account row | in the contract and served (`rpc_accounts.py:151`); no UI yet (§4.1, U14) |
-| N4 | `agent.unstall { agent }`, founder only; the spec lists `hl unstall` as founder-only, pending the founder's decision | wake on a STALLED row, with its confirm (`tui.py:87`) | **open**: no `agent.unstall` in the contract; waits on the founder |
+| N4 | `agent.unstall { agent }`, founder only; the spec listed `hl unstall` as founder-only; the founder allowed it in the test environment, not in dev or real | wake on a STALLED row, with its confirm (`tui.py:87`) | in the contract and the fake daemon only; the Python and Go daemons do not list it, so the web shows Clear stall off there (`AgentVerbs.tsx`) |
 | N5 | `stats.outlook { range }`: week left, runway, cost per day | `outlook_view.py`; `Stats` has only 24 h / 7 d counts and two percentages | in the contract and served (`rpc_outlook.py:63`); web shows it (`Outlook.tsx`) |
 | N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`, `protocol.json:7628`); web uses it (`PromptCard.tsx:55`); phone does not |
 | N7 | a `session` transcript item: session id, started, and the handoff text it began with | `SessionMark` and `HandoffModal` | in the contract (a `session` transcript item); web shows it (`ChatMessages.tsx:266`) |

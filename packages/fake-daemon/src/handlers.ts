@@ -65,6 +65,13 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     script.setState(s, s.state, actor);
     return script.accepted('Moved.');
   },
+  'agent.unstall': (h) => {
+    const { actor, script, agent } = h;
+    const s = agent();
+    if (s.state !== 'stalled') throw refused('state', `${s.fx.name} is ${s.state}, not stalled`);
+    script.setState(s, 'queued', actor);
+    return script.accepted(`${s.fx.name}: stalled -> queued`);
+  },
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;
     return script.stopSession(agent(), p.mode, actor);

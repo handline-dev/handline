@@ -8,22 +8,35 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
 const human = "human"
 
 // Register adds the task writes to the server's table.
-func Register(s *rpc.Server, home string) {
-	s.Register("task.discard", rpc.Method{Role: "agent", Write: true, Handler: discardMethod(home)})
-	s.Register("task.withdraw", rpc.Method{Role: "agent", Write: true, Handler: withdrawMethod(home)})
-	s.Register("task.queue", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, true)})
-	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, false)})
+// Teller is what follows a write once it has committed: the typed says and the deliveries the Python write did after its commit
+// (the supervisor's telling layer). A nil Teller tells nothing.
+type Teller interface {
+	// MemoChanged tells the holder of a doing task that a memo was added, edited or deleted (what), with the memo's text.
+	MemoChanged(tid int64, by, what, text string)
+	// QueueDelivered sends a queued task to its free owner, or raises the founder's card, and answers what happened.
+	QueueDelivered(tid int64, by string, queued bool) string
+	// Discarded types the says a discard wrote, moves the owner on to its next task, advances the owners it freed, and removes the inbox
+	// files of the requests it closed.
+	Discarded(owner string, told []db.Notice, freed []string, forget []db.InboxFile)
+}
+
+func Register(s *rpc.Server, home string, tell Teller) {
+	s.Register("task.discard", rpc.Method{Role: "agent", Write: true, Handler: discardMethod(home, tell)})
+	s.Register("task.withdraw", rpc.Method{Role: "agent", Write: true, Handler: withdrawMethod(home, tell)})
+	s.Register("task.queue", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, true)})
+	s.Register("task.draft", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, false)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
-	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd})
-	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit})
-	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete})
+	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})
+	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(tell)})
+	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 }
 
 func badParam(message, field string) *rpc.Error {
@@ -100,95 +113,113 @@ func guard(by, author string, mid int64) error {
 
 // The holder of a doing task is not told of a memo change here: the telling is a typed say, the delivery layer's.
 
-func memoAdd(c *rpc.Conn, p map[string]any) (any, error) {
-	tid, err := taskID(p)
-	if err != nil {
-		return nil, err
-	}
-	body, err := text(p, "text")
-	if err != nil {
-		return nil, err
-	}
-	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		if ok, err := hasTask(tx, tid); err != nil || !ok {
-			if err != nil {
-				return nil, err
-			}
-			return nil, refusal(fmt.Sprintf("no task T%d", tid))
-		}
-		res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, c.Caller.Actor(), body,
-			float64(time.Now().UnixNano())/1e9)
+func memoAdd(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		tid, err := taskID(p)
 		if err != nil {
 			return nil, err
 		}
-		mid, _ := res.LastInsertId()
-		return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
-	})
+		body, err := text(p, "text")
+		if err != nil {
+			return nil, err
+		}
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if ok, err := hasTask(tx, tid); err != nil || !ok {
+				if err != nil {
+					return nil, err
+				}
+				return nil, refusal(fmt.Sprintf("no task T%d", tid))
+			}
+			res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, c.Caller.Actor(), body,
+				float64(time.Now().UnixNano())/1e9)
+			if err != nil {
+				return nil, err
+			}
+			mid, _ := res.LastInsertId()
+			return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
+		})
+		if err == nil && tell != nil {
+			tell.MemoChanged(tid, c.Caller.Actor(), "added", body)
+		}
+		return out, err
+	}
 }
 
-func memoEdit(c *rpc.Conn, p map[string]any) (any, error) {
-	tid, err := taskID(p)
-	if err != nil {
-		return nil, err
-	}
-	body, err := text(p, "text")
-	if err != nil {
-		return nil, err
-	}
-	mid, err := memoID(p)
-	if err != nil {
-		return nil, err
-	}
-	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		if ok, err := hasTask(tx, tid); err != nil || !ok {
-			if err != nil {
-				return nil, err
-			}
-			return nil, refusal(fmt.Sprintf("no task T%d", tid))
-		}
-		author, was, err := memoOf(tx, tid, mid)
+func memoEdit(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		tid, err := taskID(p)
 		if err != nil {
 			return nil, err
 		}
-		if err := guard(c.Caller.Actor(), author, mid); err != nil {
+		body, err := text(p, "text")
+		if err != nil {
 			return nil, err
 		}
-		if body == was {
-			return nil, refusal(fmt.Sprintf("memo %d already reads that way - nothing to edit", mid))
-		}
-		if _, err := tx.Exec("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?", body, time.Now().Unix(), mid); err != nil {
+		mid, err := memoID(p)
+		if err != nil {
 			return nil, err
 		}
-		return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
-	})
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if ok, err := hasTask(tx, tid); err != nil || !ok {
+				if err != nil {
+					return nil, err
+				}
+				return nil, refusal(fmt.Sprintf("no task T%d", tid))
+			}
+			author, was, err := memoOf(tx, tid, mid)
+			if err != nil {
+				return nil, err
+			}
+			if err := guard(c.Caller.Actor(), author, mid); err != nil {
+				return nil, err
+			}
+			if body == was {
+				return nil, refusal(fmt.Sprintf("memo %d already reads that way - nothing to edit", mid))
+			}
+			if _, err := tx.Exec("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?", body, time.Now().Unix(), mid); err != nil {
+				return nil, err
+			}
+			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
+		})
+		if err == nil && tell != nil {
+			tell.MemoChanged(tid, c.Caller.Actor(), "edited", body)
+		}
+		return out, err
+	}
 }
 
-func memoDelete(c *rpc.Conn, p map[string]any) (any, error) {
-	tid, err := taskID(p)
-	if err != nil {
-		return nil, err
-	}
-	mid, err := memoID(p)
-	if err != nil {
-		return nil, err
-	}
-	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		if ok, err := hasTask(tx, tid); err != nil || !ok {
-			if err != nil {
-				return nil, err
-			}
-			return nil, refusal(fmt.Sprintf("no task T%d", tid))
-		}
-		author, _, err := memoOf(tx, tid, mid)
+func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		tid, err := taskID(p)
 		if err != nil {
 			return nil, err
 		}
-		if err := guard(c.Caller.Actor(), author, mid); err != nil {
+		mid, err := memoID(p)
+		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.Exec("DELETE FROM task_memos WHERE id = ?", mid); err != nil {
-			return nil, err
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if ok, err := hasTask(tx, tid); err != nil || !ok {
+				if err != nil {
+					return nil, err
+				}
+				return nil, refusal(fmt.Sprintf("no task T%d", tid))
+			}
+			author, _, err := memoOf(tx, tid, mid)
+			if err != nil {
+				return nil, err
+			}
+			if err := guard(c.Caller.Actor(), author, mid); err != nil {
+				return nil, err
+			}
+			if _, err := tx.Exec("DELETE FROM task_memos WHERE id = ?", mid); err != nil {
+				return nil, err
+			}
+			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
+		})
+		if err == nil && tell != nil {
+			tell.MemoChanged(tid, c.Caller.Actor(), "deleted", "")
 		}
-		return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
-	})
+		return out, err
+	}
 }

@@ -11,19 +11,19 @@
 #   tools/land.sh --check [--passed | --refs] <sha> [<sha>...]
 #
 # --check is the merger's own test, run in its sandbox: it merges each <sha> in turn into main in a
-# throwaway clone (reads main's repo, writes only $TMPDIR), runs the suite once on the result, and prints
+# throwaway clone (reads main's repo, writes only $TMPDIR), runs the tests once on the result, and prints
 # the tree after each merge, one line per sha. Exit 1 on a conflict, personal data or a local id in a
-# merge (tools/localrefs.py), or a red suite. The daemon lands only a merge with that tree, and checks
+# merge (tools/localrefs.py), or red tests. The daemon lands only a merge with that tree, and checks
 # the message it was given itself. A merge's tree does not depend on its message, so the daemon landing
-# the shas in this order reaches the same trees. When every path the merges change is documentation
-# (docs-only below), the suite is not run.
+# the shas in this order reaches the same trees. Which tests is the merged tree's tools/check.sh, from
+# what the merges change: none for documentation, the Go suite for Go and the apps, else the whole suite.
 # --passed says the auditor recorded a PASS for a single <sha>: when the merge's tree is then <sha>'s own
 # tree (main has not moved past it), the suite the auditor ran is the suite of this merge and is not
 # rerun. A train's last merge is never one sha's tree, so --passed changes nothing there.
 # --refs stops after the merges and their localrefs check, with no suite and nothing printed: what
 # `hl land --pass` asks before it records a PASS, so a PASS is never given to a sha this check refuses.
 #
-# --test runs tools/suite.sh on the merge result first; red lands nothing.
+# --test runs tools/check.sh on the merge result first; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one
 # included) with personal data or a local task/chat id lands nothing. The ids a merger
 # wants to keep go in --note, which is appended to $OCP_HOME/landings.log, never to git.
@@ -31,20 +31,6 @@
 # checkout - a conflict (the files are named), a red suite, or main moved
 # meanwhile (run it again).
 set -euo pipefail
-
-# Documentation no code or test reads: contract/ is read by the conformance tests, skill/ ships.
-docs_only() {
-    local path any=0
-    while IFS= read -r path; do
-        any=1
-        case "$path" in
-            contract/*|skill/*) return 1 ;;
-            docs/*|design/*|*.md) ;;
-            *) return 1 ;;
-        esac
-    done
-    [ "$any" = 1 ]
-}
 
 if [ "${1:-}" = "--check" ]; then
     shift
@@ -79,10 +65,8 @@ if [ "${1:-}" = "--check" ]; then
     [ "$refs" = 0 ] || exit 0
     if [ "$passed" = 1 ] && [ ${#shas[@]} -eq 1 ] && [ "${trees[0]}" = "$(git -C "$work" rev-parse "${shas[0]}^{tree}")" ]; then
         echo "land.sh: the merge is the tree the auditor passed; the suite is not rerun" >&2
-    elif git -C "$work" diff --name-only "$base" HEAD | docs_only; then
-        echo "documentation only: the suite is not run" >&2
     else
-        "$work/tools/suite.sh" >&2 || { echo "the suite is red on the merge result" >&2; exit 1; }
+        "$work/tools/check.sh" "$base" >&2 || { echo "the tests are red on the merge result" >&2; exit 1; }
     fi
     printf '%s\n' "${trees[@]}"
     exit 0
@@ -121,8 +105,8 @@ if [ -f "$work/tools/localrefs.py" ]; then
         exit 1
     fi
 fi
-if [ "$run_tests" = 1 ] && ! "$work/tools/suite.sh" >&2; then
-    echo "the suite is red on the merge result; nothing landed" >&2
+if [ "$run_tests" = 1 ] && ! "$work/tools/check.sh" main >&2; then
+    echo "the tests are red on the merge result; nothing landed" >&2
     exit 1
 fi
 merged="$(git -C "$work" rev-parse HEAD)"

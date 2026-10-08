@@ -173,13 +173,33 @@ describe('U12 agent verbs', () => {
     expect(text($('.verb-sheet'))).toContain('It changed while you looked');
   });
 
-  it('a stalled row offers Clear stall, disabled because the daemon does not serve agent.unstall', async () => {
+  it('a stalled row offers Clear stall, which asks first and then queues the agent', async () => {
     const s = setup();
     open(s);
     session(s).state = 'stalled';
     await mount(ARCH, s);
+    await click(item('Clear stall'));
+    expect(text($('.verb-sheet'))).toContain('Clear stall handline.architect?');
+    await click(sheetBtn('Cancel'));
+    expect(session(s).state).toBe('stalled');
+    await click(item('Clear stall'));
+    const clear = s.daemon.knobs.hold('agent.unstall');
+    await click(sheetBtn('Confirm'));
+    await until(() => text($(`[data-agent="${ARCH}"] summary`)).includes('waking…'), 'the gerund in the menu button');
+    expect(session(s).state).toBe('stalled');
+    clear();
+    await until(() => session(s).state === 'queued', 'cleared');
+    await until(() => !text($(`[data-agent="${ARCH}"] summary`)).includes('waking…'), 'the mark gone');
+  });
+
+  it('Clear stall is disabled, with the reason, on a daemon that does not serve agent.unstall', async () => {
+    const s = setup();
+    open(s);
+    session(s).state = 'stalled';
+    s.daemon.knobs.unserve('agent.unstall');
+    await mount(ARCH, s);
     const clear = item('Clear stall');
     expect(clear.hasAttribute('disabled')).toBe(true);
-    expect(clear.getAttribute('title')).toContain('agent.unstall');
+    expect(clear.getAttribute('title')).toBe('This daemon does not serve agent.unstall.');
   });
 });

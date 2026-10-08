@@ -1,13 +1,12 @@
 # Tellings the Go task writes leave out
 
-The Go write methods change the tables only: what Python does after the commit to tell an agent (a typed say, a delivery,
-a push) is the delivery layer's, which Go does not have yet. Each family branch adds a line for every telling it skips, so
-that when the layer exists nothing is missed. A write that tells nothing in Python has no line.
+The tellings are ported: what Python does after the commit of a task write to tell an agent (a typed say, a delivery, a push) is the
+supervisor's telling layer (go/internal/supervisor), which the write methods call through taskwrites.Teller. They are not yet called:
+no daemon builds a supervisor Env until the owners of its ports (observe, blocked, lifecycle, evaluate, the terminal channel) have
+landed, so daemon.Config.Teller is nil and every write below still tells nothing. The cutover waits until the table is empty.
 
 | Method | Python | What Go leaves out |
 |---|---|---|
-| task.memo.add | actions.memo_add, tell_memo_holder("added") | the typed say "T<n> memo added by <who>: <text>" to the holder of a doing task |
-| task.memo.edit | actions.memo_edit, tell_memo_holder("edited") | the same say, "edited" |
-| task.memo.delete | actions.memo_delete, tell_memo_holder("deleted") | the same say, "deleted", with no text |
-| task.discard, task.withdraw | actions.discard_task, after the commit | typing the says it wrote (_deliver_unblocked), the stop-work say to an owner with the task in hand, advance_current_task (a table write, the owner's current task: until it is ported a discarded task stays their current one) and ask.push for the owner, and removing the inbox files of the requests it closed (ask.forget_inbox) |
-| task.queue, task.draft | actions.set_queued_all, _queue_deliver, after the commit | for a queue: advance_current_task (a table write, the owner's current task) and ask.push so a free owner is sent the task now, and for a founder-owned task the card raised on the founder's board (askmod.ask); the reply says the task is queued and does not say it went out |
+| task.memo.add, task.memo.edit, task.memo.delete | actions.memo_*, tell_memo_holder | the typed say to the holder of a doing task, until a daemon passes a Teller |
+| task.discard, task.withdraw | actions.discard_task, after the commit | the follow-up after the commit (says typed, the owner's next task, freed owners, inbox files), until a daemon passes a Teller |
+| task.queue, task.draft | actions.set_queued_all, _queue_deliver | the delivery after the commit and the sentence saying whether the task went out, until a daemon passes a Teller |

@@ -34,7 +34,7 @@ func TestDiscardIsTheAskersAndTellsTheOwnerAndFreesWhatWaitedOnIt(t *testing.T) 
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home)
+		Register(s, home, nil)
 		return s
 	}
 	line := func(id int, task int, reason, rid string) string {
@@ -74,7 +74,7 @@ func TestDiscardIsTheAskersAndTellsTheOwnerAndFreesWhatWaitedOnIt(t *testing.T) 
 	}
 }
 
-func discardEnv(t *testing.T) (*sql.DB, func(agent string) *rpc.Server) {
+func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.Server) {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
@@ -86,10 +86,14 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string) *rpc.Server) {
 		os.MkdirAll(filepath.Join(home, "agents", a), 0o755)
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
-	return db, func(agent string) *rpc.Server {
+	return db, func(agent string, tell ...Teller) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home)
+		var teller Teller
+		if len(tell) > 0 {
+			teller = tell[0]
+		}
+		Register(s, home, teller)
 		return s
 	}
 }
@@ -194,7 +198,7 @@ func TestClosingQueuedDeliveriesQuietly(t *testing.T) {
 	}
 	reqs, _ := taskRequests(tx, 50)
 	for _, r := range reqs {
-		if err := closeQueuedQuietly(tx, r); err != nil {
+		if _, err := closeQueuedQuietly(tx, r); err != nil {
 			t.Fatal(err)
 		}
 	}

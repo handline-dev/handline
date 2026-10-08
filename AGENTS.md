@@ -99,9 +99,11 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
   tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
-  whole suite before you hand the task to the auditor. The auditor runs it once at the
-  exact sha (`tools/suite.sh`, in the foreground with a 600000 ms Bash timeout, never in the
-  background); a count you quote is not a verdict.
+  whole suite before you hand the task to the auditor. The auditor runs the tests once at the
+  exact sha (`tools/check.sh main`, in the foreground with a 600000 ms Bash timeout, never in the
+  background); a count you quote is not a verdict. `tools/check.sh` is also what `hl land --check` runs:
+  the Go suite and the Python files that test only Go (its GO_FILES) for a change to go/ or the apps only, the whole suite
+  (`tools/suite.sh`) for anything else, nothing for documentation.
 - Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
   venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
   print nothing without them, and a hang looks like a stall).

@@ -1111,6 +1111,10 @@ export interface Methods {
   account: string;
   request_id: RequestId;
 }; result: Accepted };
+  "agent.unstall": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
   "session.start": { params: {
   agent: AgentName;
   account?: string;
@@ -1905,6 +1909,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.set": { role: "agent", callers: ["agent", "founder"], write: true, since: 1 },
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
+  "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
   "session.wake": { role: "agent", callers: null, write: true, since: 1 },
   "session.stop": { role: "agent", callers: null, write: true, since: 1 },

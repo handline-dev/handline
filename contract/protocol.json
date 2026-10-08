@@ -1307,6 +1307,48 @@
    ]
   },
   {
+   "name": "agent.unstall",
+   "summary": "Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled. Only a test daemon serves it; the real daemon does not list it, and an app then shows Clear stall off.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
    "name": "session.start",
    "summary": "Launch a session in the agent's terminal, optionally on a named account.",
    "paramStructure": "by-name",

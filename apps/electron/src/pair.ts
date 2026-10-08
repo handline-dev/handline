@@ -38,13 +38,13 @@ export class NoFounderKey extends Error {
   }
 }
 
-interface Reply {
+export interface Reply {
   result?: Record<string, unknown>;
   error?: { message: string; data?: { reason?: string } };
 }
 
 /** One call on a fresh connection, then it closes. */
-async function once(open: () => Promise<Transport>, calls: [string, Record<string, unknown>][]): Promise<Reply> {
+export async function once(open: () => Promise<Transport>, calls: [string, Record<string, unknown>][]): Promise<Reply> {
   const t = await open();
   try {
     let last: Reply = {};

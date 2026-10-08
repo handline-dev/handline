@@ -756,9 +756,14 @@ func (r *Roster) RepoOf(name string) string {
 	return ""
 }
 
+// Querier is what a read needs: a database or a transaction.
+type Querier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // CurrentAccount is the account this agent's session is on; "" when none is recorded. A session id belongs to one account's
 // config directory, so a resume has no other answer to give than this.
-func CurrentAccount(db *sql.DB, name string) (string, error) {
+func CurrentAccount(db Querier, name string) (string, error) {
 	var acct sql.NullString
 	err := db.QueryRow("SELECT account FROM agent_state WHERE agent = ?", name).Scan(&acct)
 	if errors.Is(err, sql.ErrNoRows) {
