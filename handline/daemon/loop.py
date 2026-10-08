@@ -1,7 +1,9 @@
 """The loop that runs ticks until stopped."""
 from __future__ import annotations
 
+import faulthandler
 import signal
+import sys
 import time
 
 from .. import db
@@ -85,6 +87,11 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                 signal.signal(sig, stop)
             except ValueError:
                 pass  # not on the main thread
+
+        try:
+            faulthandler.register(signal.SIGUSR1, file=sys.stderr, all_threads=True)    # kill -USR1 <pid>: every thread's stack, in the err log
+        except (ValueError, OSError, AttributeError):
+            pass  # not on the main thread, or no such signal
 
         con = db.connect(migrating=True)
         samples: dict = {}

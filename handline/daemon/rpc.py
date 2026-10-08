@@ -27,11 +27,11 @@ STALE_PROMPT = -32003
 BUSY = -32004
 MAX_INFLIGHT = 32           # calls being served at once on one connection; the next is answered `daemon_busy`
 PARSE_ERROR, INVALID_PARAMS, NO_SUCH_METHOD = -32700, -32602, -32601
-# A line that has started must finish within RECV_TIMEOUT_S; a connection past its hello may wait between
-# calls up to IDLE_TIMEOUT_S - once it has made one: a hello and then nothing is closed after FIRST_CALL_S, so
-# connections that never ask for anything do not hold the daemon's connection slots. Before hello it gets the short limit.
+# A line that has started must finish within RECV_TIMEOUT_S; a connection may wait between calls up to IDLE_TIMEOUT_S once it
+# has made one - a hello and then nothing is closed after FIRST_CALL_S. A client gone leaves its calls GONE_GRACE_S to finish.
 RECV_TIMEOUT_S = 30
 FIRST_CALL_S = 45
+GONE_GRACE_S = 300
 IDLE_TIMEOUT_S = 3600
 REPLY_KEEP_S = 24 * 3600
 REQUEST_ID_MAX = 128
@@ -250,7 +250,7 @@ class Connection:
             if len(self._buf) > MAX_LINE_BYTES:
                 raise bad_request(f"a line is at most {MAX_LINE_BYTES} bytes")
             if self.said_hello and not self._buf:
-                self.conn.settimeout(self.idle_s if self.called else min(FIRST_CALL_S, self.idle_s or FIRST_CALL_S))
+                self.conn.settimeout(None if self.idle_s is None else self.idle_s if self.called else min(FIRST_CALL_S, self.idle_s))
             else:
                 self.conn.settimeout(RECV_TIMEOUT_S)
             chunk = self.conn.recv(65536)
@@ -286,8 +286,13 @@ class Connection:
             self._serve()
         finally:
             self.eof.set()
-            for _ in range(MAX_INFLIGHT):       # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight
-                self._slots.acquire()
+            # EOF means no more calls, not that the answers are unwanted: wait for the calls in flight - but not for good, or a
+            # handler that never returns holds this connection and its thread forever.
+            end = time.monotonic() + GONE_GRACE_S
+            for _ in range(MAX_INFLIGHT):
+                if not self._slots.acquire(timeout=max(0.0, end - time.monotonic())):
+                    self.log(f"rpc: calls still running {GONE_GRACE_S}s after their client left - the connection is closed on them")
+                    break
             self.closed.set()
             for fn in self.on_close:
                 fn()

@@ -290,6 +290,45 @@ def test_a_legacy_verb_gets_one_reply_and_a_hangup(home: Path) -> None:
     w.close()
 
 
+def test_a_connection_is_kept_after_its_first_call_and_closed_if_it_never_makes_one(home: Path) -> None:
+    use_home(home)
+    saved = rpc.FIRST_CALL_S
+    rpc.FIRST_CALL_S = 0.5
+    try:
+        w = Wire()
+        w.call("hello", _hp())
+        check("idle: a hello and nothing after it is closed", w.read() is None)
+        w.close()
+        w = Wire()
+        w.call("hello", _hp())
+        r = w.call("hr.list", {}, id=2)
+        time.sleep(1.5)
+        check("idle: past FIRST_CALL_S a connection that has made a call is still served", "result" in w.call("hr.list", {}, id=3), str(r))
+        w.close()
+    finally:
+        rpc.FIRST_CALL_S = saved
+
+
+def test_calls_still_running_when_their_client_is_gone_do_not_hold_the_connection(home: Path) -> None:
+    use_home(home)
+    saved, saved_methods = rpc.GONE_GRACE_S, dict(rpc.METHODS)
+    rpc.GONE_GRACE_S = 0.5
+    release = threading.Event()
+    rpc.METHODS["t.hang"] = rpc.METHODS["hr.list"]._replace(handler=lambda conn, params: release.wait(30))
+    try:
+        w = Wire()
+        w.call("hello", _hp())
+        w.send({"jsonrpc": "2.0", "id": 2, "method": "t.hang", "params": {}})
+        time.sleep(0.2)
+        w.a.close()
+        w.thread.join(timeout=5)
+        check("gone: a handler that never returns does not hold the connection past the grace", not w.thread.is_alive())
+    finally:
+        release.set()
+        rpc.GONE_GRACE_S = saved
+        rpc.METHODS.clear(); rpc.METHODS.update(saved_methods)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_hello_names_the_protocol_the_caller_and_what_it_may_call(Path(td) / "r1"))
@@ -304,6 +343,8 @@ def main() -> int:
         run(lambda: test_the_founder_is_known_only_by_the_founder_key(Path(td) / "r10"))
         run(lambda: test_the_founder_key_is_made_private_in_a_folder_sessions_cannot_read(Path(td) / "r11"))
         run(lambda: test_a_connection_may_wait_between_calls_but_not_over_half_a_line(Path(td) / "r12"))
+        run(lambda: test_a_connection_is_kept_after_its_first_call_and_closed_if_it_never_makes_one(Path(td) / "r13"))
+        run(lambda: test_calls_still_running_when_their_client_is_gone_do_not_hold_the_connection(Path(td) / "r14"))
     return run_area(tests)
 
 
