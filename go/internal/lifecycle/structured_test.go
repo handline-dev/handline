@@ -18,6 +18,7 @@ type fakeRunner struct {
 	sent         []string // agent|op|text
 	closed       []string
 	interrupted  []string
+	retrying     map[string]int64
 	openErr      []error // one per Open, consumed in order; nil entries and an empty list succeed
 	sendErr      error
 	closeErr     error
@@ -45,7 +46,8 @@ func (f *fakeRunner) Send(a, op, text string) error {
 	f.sent = append(f.sent, a+"|"+op+"|"+text)
 	return f.sendErr
 }
-func (f *fakeRunner) Interrupt(a string) error { f.interrupted = append(f.interrupted, a); return nil }
+func (f *fakeRunner) Interrupt(a string) error     { f.interrupted = append(f.interrupted, a); return nil }
+func (f *fakeRunner) RetryingSince(a string) int64 { return f.retrying[a] }
 func (f *fakeRunner) Close(a string) error {
 	f.closed = append(f.closed, a)
 	if f.closeErr != nil {
@@ -461,5 +463,29 @@ func TestReconcileWakesADueClosedStructuredAgentThatHasNoTerminal(t *testing.T) 
 	}
 	if len(woke) != 1 {
 		t.Fatalf("%v", woke)
+	}
+}
+
+func TestATurnThatOnlyRetriesTheModelApiIsInterruptedPastTheLimit(t *testing.T) {
+	r, f, _ := structuredRec(t) // now is 5000
+	db.SetTerminal(r.Q, "a", "", "/wt")
+	db.SetAgentState(r.Q, "a", states.Running, 0, "")
+	f.alive["a"], f.busy["a"] = true, true
+	f.retrying = map[string]int64{"a": 5000 - APIRetryLimitS + 1}
+	var acts []string
+	r.Sweep(&acts)
+	if len(f.interrupted) != 0 {
+		t.Fatal("interrupted inside the limit")
+	}
+	f.retrying["a"] = 5000 - APIRetryLimitS
+	r.Sweep(&acts)
+	if len(f.interrupted) != 1 || len(acts) != 1 || !strings.Contains(acts[0], "model API") {
+		t.Fatalf("%v %v", f.interrupted, acts)
+	}
+	if _, ok, _ := db.LastEventTS(r.Q, "a", "api_unreachable"); !ok {
+		t.Fatal("no event")
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.FailedAttempts != 0 || row.State == states.Stalled {
+		t.Fatalf("counted against the agent: %+v", row)
 	}
 }

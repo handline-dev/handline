@@ -31,6 +31,8 @@ type Runner interface {
 	// Send writes text as a message to the running turn or a new one and returns once the CLI has echoed it; an error is not delivered.
 	Send(agent, op, text string) error
 	Interrupt(agent string) error
+	// RetryingSince is when the CLI's current run of api_retry frames began (unix seconds), 0 when it is not retrying.
+	RetryingSince(agent string) int64
 	// Close ends the session; it errors while a process of the session is still alive.
 	Close(agent string) error
 	// WaitIdle reports whether the running turn ended within the timeout.

@@ -572,9 +572,34 @@ func (r *Reconciler) sweepStructured(agent string, row *db.AgentState, actions *
 		r.logf("  %s: session gone; recorded as closed (resume %s)", agent, orUnknown(sid))
 		r.Ports.RefreshView(r.Q, agent)
 	case alive && row.State == states.Running:
+		if stopped, err := r.stopRetrying(agent, actions); err != nil || stopped {
+			return err
+		}
 		return r.unstickStructured(agent, row, actions)
 	}
 	return nil
+}
+
+// APIRetryLimitS is how long the CLI may retry an unreachable model API (it gives up itself after about 3 minutes) before the turn is
+// interrupted. Not the agent's failure, so nothing is counted against it.
+const APIRetryLimitS = 300
+
+// stopRetrying interrupts a turn that has done nothing but retry the model call past APIRetryLimitS.
+func (r *Reconciler) stopRetrying(agent string, actions *[]string) (bool, error) {
+	since := r.Ports.Run.RetryingSince(agent)
+	if since == 0 || r.now()-since < APIRetryLimitS {
+		return false, nil
+	}
+	if err := r.Ports.Run.Interrupt(agent); err != nil {
+		*actions = append(*actions, fmt.Sprintf("%s: the model API has been unreachable since %d; the interrupt failed: %v", agent, since, err))
+		return true, nil
+	}
+	if _, err := db.AddEvent(r.Q, agent, "api_unreachable", db.KV{K: "since", V: since}); err != nil {
+		return true, err
+	}
+	*actions = append(*actions, agent+": the model API has been unreachable for "+fmt.Sprint((r.now()-since)/60)+"m; turn interrupted")
+	r.logf("  %s: model API unreachable since %d - interrupted its turn", agent, since)
+	return true, nil
 }
 
 // unstickStructured: RUNNING with nothing heard for StuckRunningS. The CLI says whether a turn runs: if it does not, the label is
