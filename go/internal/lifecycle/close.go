@@ -228,8 +228,21 @@ func (m *Manager) WaitingFor(agent string) (yes bool, err error) {
 	return m.waitingFor(agent), nil
 }
 
+// RecordOwedKey is the cursor a handoff's close sets: the agent's work went into the record, and the session that carried it is gone.
+func RecordOwedKey(agent string) string { return "record_owed:" + agent }
+
+// recordDue: a handoff closed this agent's session and its park has run out, so the wake is owed whatever else waits - the fresh session
+// is handed the record, as the in-place wake of a cleared terminal session was.
+func (m *Manager) recordDue(agent string) bool {
+	if must(db.Cursor(m.Q, RecordOwedKey(agent))) == 0 {
+		return false
+	}
+	row := must(db.GetAgentState(m.Q, agent))
+	return row != nil && row.WakeAt.Valid && row.WakeAt.Int64 != 0 && row.WakeAt.Int64 <= m.now()
+}
+
 func (m *Manager) waitingFor(agent string) bool {
-	return must(m.Delivery.EffectiveHead(m.Q, agent)) != nil || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 ||
+	return m.recordDue(agent) || must(m.Delivery.EffectiveHead(m.Q, agent)) != nil || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 ||
 		len(must(db.SendNowPending(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0
 }
 
