@@ -37,11 +37,18 @@ done
 # their fixtures are reported SKIP and --allow-skip says that is meant. A method the Go daemon does not serve yet is
 # named in go/conformance-missing.txt: delete a line as its method lands. A fixture that needs a --var this run cannot
 # seed yet is named in go/conformance-needvar.txt the same way.
-# The session.* methods are served over structured sessions, so the daemon starts with -structured-cli and a fake CLI that answers
-# --version with the version the Go source pins. The flag stays off by default; only this run turns it on.
+# The session.* methods are served over structured sessions, so one run starts the daemon with -structured-cli and a fake CLI that answers
+# --version with the version the Go source pins. Production runs without the flag until cutover, so the fixtures are played that way too.
 FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/internal/structured/session.go")"
 [ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/structured/session.go" >&2; exit 1; }
 export FAKE_CLAUDE_VERSION
-python3 "$here/conformance_fds.py" "$work/handlined" --structured-cli "$here/fake_claude.py" --allow-missing-file "$here/../go/conformance-missing.txt" \
-    --allow-needvar-file "$here/../go/conformance-needvar.txt" \
-    "$here"/../contract/fixtures/*.json
+conformance() {
+    python3 "$here/conformance_fds.py" "$work/handlined" "$@" --allow-missing-file "$here/../go/conformance-missing.txt" \
+        --allow-needvar-file "$here/../go/conformance-needvar.txt" "$here"/../contract/fixtures/*.json
+}
+echo "tools/test-go.sh: conformance fixtures, flags off" >&2
+# Flags off: remove this run at cutover, when -structured-cli becomes the default.
+conformance --allow-missing session.interrupt --allow-missing session.park --allow-missing session.restart \
+    --allow-missing session.start --allow-missing session.stop --allow-missing session.wake || exit 1
+echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
+conformance --structured-cli "$here/fake_claude.py"
