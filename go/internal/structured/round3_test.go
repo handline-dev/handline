@@ -2,6 +2,7 @@ package structured
 
 import (
 	"context"
+	"errors"
 	"syscall"
 	"testing"
 	"time"
@@ -112,5 +113,27 @@ func TestARefusedOrFailedStartLeavesTheRunningSessionsIdAlone(t *testing.T) {
 	}
 	if m.SessionID("b") != "" {
 		t.Fatalf("a failed start left an id: %q", m.SessionID("b"))
+	}
+}
+
+func TestAKillThatFailsLeavesTheSessionsLaterExitReportable(t *testing.T) {
+	m := &Manager{}
+	l := launch(t)
+	if _, err := m.Start(context.Background(), "k", l); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Stop("k") })
+	old := proveGone
+	proveGone = func(int) error { return errors.New("still running") }
+	err := m.Kill("k")
+	proveGone = old
+	if err == nil {
+		t.Fatal("a kill that could not prove the group gone succeeded")
+	}
+	m.mu.Lock()
+	marked := m.stopping["k"]
+	m.mu.Unlock()
+	if marked {
+		t.Fatal("a failed kill left the end marked as requested")
 	}
 }

@@ -352,3 +352,32 @@ func TestPushHereTellsALiveStructuredAgentThroughItsSessionAndStartsNothing(t *t
 		t.Fatalf("a structured agent with no session is started for the work: %v", r.life.started)
 	}
 }
+
+func TestTheTickTellsAStructuredAgentWhatNobodyToldItAndFindsItsForgottenHead(t *testing.T) {
+	r, fa := structuredRig(t)
+	// bob is structured, live, and has no terminal: the gates that looked for one found nothing and told it nothing.
+	r.must(db.SetAgentState(r.DB, "bob", "IDLE", 0, ""))
+	rid := r.ask("alice", "bob", "psst", "say")
+	if n := len(fa.sent); n != 0 {
+		t.Fatalf("sent at once: %d", n)
+	}
+	r.must(r.TellUndelivered(r.DB, "bob"))
+	if len(fa.sent) != 1 || !strings.Contains(fa.sent[0].text, "psst") {
+		t.Fatalf("a message nobody told a live structured agent was not told: %+v (request %d)", fa.sent, rid)
+	}
+	// With no live session it is the supervisor's own step to start it, not this one's.
+	fa.live["bob"] = false
+	r.ask("alice", "bob", "again", "say")
+	r.must(r.TellUndelivered(r.DB, "bob"))
+	if len(fa.sent) != 1 {
+		t.Fatalf("told a structured agent that has no session: %+v", fa.sent)
+	}
+	// A told task nobody answered is a forgotten head for a structured agent too.
+	fa.live["bob"] = true
+	head := r.task("bob", "alice", "the job")
+	r.DeliverQueued(r.DB, "bob")
+	row, _ := db.GetAgentState(r.DB, "bob")
+	if f := r.forgottenResolve(r.DB, "bob", row, r.clock); f == nil || f.Head.ID != head {
+		t.Fatalf("%+v", f)
+	}
+}

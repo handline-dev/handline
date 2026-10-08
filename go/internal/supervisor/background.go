@@ -235,7 +235,7 @@ type Forgotten struct {
 // delivered and told and still open, and nothing the agent asked that is still unanswered. Idle time counts from the later of its last
 // activity and the delivery. nil when it is not that.
 func (e *Env) forgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) *Forgotten {
-	if row == nil || (row.State != states.Idle && row.State != states.Queued) || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) || row.Terminal.String == "" {
+	if row == nil || (row.State != states.Idle && row.State != states.Queued) || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) || !e.openSession(agent, row) {
 		return nil
 	}
 	if e.hasBackgroundWork(q, agent) && !e.bgStale(q, agent, now) {
