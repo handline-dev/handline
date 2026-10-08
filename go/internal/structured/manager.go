@@ -178,7 +178,9 @@ func (m *Manager) Kill(agent string) error {
 		return err
 	}
 	m.mu.Lock()
-	delete(m.sessions, agent)
+	if m.sessions[agent] == s {
+		delete(m.sessions, agent)
+	}
 	m.mu.Unlock()
 	return nil
 }
