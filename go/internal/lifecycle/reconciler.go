@@ -590,6 +590,9 @@ func (r *Reconciler) stopRetrying(agent string, actions *[]string) (bool, error)
 	if since == 0 || r.now()-since < APIRetryLimitS {
 		return false, nil
 	}
+	if held, err := r.recentlyInterrupted(agent); held || err != nil {
+		return true, err
+	}
 	if err := r.Ports.Run.Interrupt(agent); err != nil {
 		*actions = append(*actions, fmt.Sprintf("%s: the model API has been unreachable since %d; the interrupt failed: %v", agent, since, err))
 		return true, nil
@@ -610,6 +613,9 @@ func (r *Reconciler) unstickStructured(agent string, row *db.AgentState, actions
 		return err
 	}
 	if r.Ports.Run.Busy(agent) {
+		if held, err := r.recentlyInterrupted(agent); held || err != nil {
+			return err
+		}
 		if err := r.Ports.Run.Interrupt(agent); err != nil {
 			*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; the interrupt failed: %v", agent, mins, err))
 			return nil
@@ -630,4 +636,21 @@ func (r *Reconciler) unstickStructured(agent string, row *db.AgentState, actions
 	*actions = append(*actions, fmt.Sprintf("%s: RUNNING for %dm with nothing heard; back to IDLE", agent, mins))
 	r.logf("  %s: stuck in RUNNING for %dm and idle - back to IDLE", agent, mins)
 	return nil
+}
+
+// InterruptHoldS is how long after interrupting a turn the sweep leaves it alone: the CLI takes a moment to end the turn, and an
+// interrupt every sweep would be one more control request each time.
+const InterruptHoldS = 300
+
+func (r *Reconciler) recentlyInterrupted(agent string) (bool, error) {
+	for _, kind := range []string{"interrupted", "api_unreachable"} {
+		at, ok, err := db.LastEventTS(r.Q, agent, kind)
+		if err != nil {
+			return false, err
+		}
+		if ok && r.now()-at < InterruptHoldS {
+			return true, nil
+		}
+	}
+	return false, nil
 }

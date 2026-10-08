@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,8 @@ type fakeRunner struct {
 	closed       []string
 	interrupted  []string
 	retrying     map[string]int64
-	openErr      []error // one per Open, consumed in order; nil entries and an empty list succeed
+	ledger       map[string]bool // ops answered from the record, as S1's per-agent ledger does
+	openErr      []error         // one per Open, consumed in order; nil entries and an empty list succeed
 	sendErr      error
 	closeErr     error
 	idleAfterAll bool
@@ -43,8 +45,18 @@ func (f *fakeRunner) Open(s StartSpec) error {
 func (f *fakeRunner) Alive(a string) bool { return f.alive[a] }
 func (f *fakeRunner) Busy(a string) bool  { return f.busy[a] }
 func (f *fakeRunner) Send(a, op, text string) error {
+	if f.ledger == nil {
+		f.ledger = map[string]bool{}
+	}
+	if f.ledger[a+"|"+op] {
+		return nil // a repeat is answered with the recorded receipt and written no more
+	}
+	if f.sendErr != nil {
+		return f.sendErr
+	}
+	f.ledger[a+"|"+op] = true
 	f.sent = append(f.sent, a+"|"+op+"|"+text)
-	return f.sendErr
+	return nil
 }
 func (f *fakeRunner) Interrupt(a string) error     { f.interrupted = append(f.interrupted, a); return nil }
 func (f *fakeRunner) RetryingSince(a string) int64 { return f.retrying[a] }
@@ -62,7 +74,8 @@ func structuredManager(t *testing.T) (*Manager, *fakeRunner, *fakeDelivery, *fak
 	m, d, tm := newManager(t)
 	r := newRunner()
 	m.Run = r
-	m.NewID = func() string { return "new-id" }
+	n := 0
+	m.NewID = func() string { n++; return fmt.Sprintf("new-id-%d", n) }
 	return m, r, d, tm
 }
 
@@ -77,7 +90,7 @@ func TestAStructuredStartRecordsTheSessionAndSendsTheFirstMessage(t *testing.T) 
 	if len(r.opened) != 1 || r.opened[0] != (StartSpec{Agent: "a", Worktree: "/wt", Account: "room-acct", SessionID: "new-id"}) {
 		t.Fatalf("%+v", r.opened)
 	}
-	if len(r.sent) != 1 || r.sent[0] != "a|start:new-id|do it" {
+	if len(r.sent) != 1 || r.sent[0] != "a|start:new-id|do it" { // NewID is fixed here, so the op is too
 		t.Fatalf("%v", r.sent)
 	}
 	row, _ := db.GetAgentState(q, "a")
@@ -131,6 +144,13 @@ func TestAClosedStructuredAgentIsWokenByResumingItsSession(t *testing.T) {
 	if len(r.sent) != 1 || !strings.HasSuffix(r.sent[0], "Here is your request.") {
 		t.Fatalf("%v", r.sent)
 	}
+	// the same session resumed again is told again: the ledger outlives the session
+	r.alive["a"] = false
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, _, _ := m.WakeAgent("a", WakeOpts{Force: true}); !ok || len(r.sent) != 2 || !strings.HasSuffix(r.sent[1], "Here is your request.") {
+		t.Fatalf("%v %v", ok, r.sent)
+	}
 	row, _ := db.GetAgentState(m.Q, "a")
 	if isClosed(row) || row.WakeFailures != 0 || row.ResumeSession.String != "sess-1" {
 		t.Fatalf("%+v", row)
@@ -153,7 +173,7 @@ func TestAResumeThatFailsFallsBackToAFreshSessionAndThreeFailuresStall(t *testin
 	if ok, _, err := m.WakeAgent("a", WakeOpts{Force: true}); !ok || err != nil {
 		t.Fatalf("%v %v", ok, err)
 	}
-	if len(r.opened) != 2 || !r.opened[0].Resume || r.opened[1].Resume || r.opened[1].SessionID != "new-id" {
+	if len(r.opened) != 2 || !r.opened[0].Resume || r.opened[1].Resume || !strings.HasPrefix(r.opened[1].SessionID, "new-id") {
 		t.Fatalf("%+v", r.opened)
 	}
 	// every start fails now
@@ -296,7 +316,7 @@ func TestRestartingAStructuredAgentClosesAndOpensItsSessionAgain(t *testing.T) {
 	// fresh: a new session id and the old one forgotten
 	r.openErr = nil
 	ok, said, _ = m.RestartAgent("a", SessionStatus{SessionID: "sess-1"}, RestartOpts{By: "human", Fresh: true})
-	if !ok || !strings.Contains(said, "as a new conversation") || r.opened[1].Resume || r.opened[1].SessionID != "new-id" {
+	if !ok || !strings.Contains(said, "as a new conversation") || r.opened[1].Resume || !strings.HasPrefix(r.opened[1].SessionID, "new-id") {
 		t.Fatalf("%v %q %+v", ok, said, r.opened)
 	}
 }
@@ -487,5 +507,64 @@ func TestATurnThatOnlyRetriesTheModelApiIsInterruptedPastTheLimit(t *testing.T) 
 	}
 	if row, _ := db.GetAgentState(r.Q, "a"); row.FailedAttempts != 0 || row.State == states.Stalled {
 		t.Fatalf("counted against the agent: %+v", row)
+	}
+}
+
+func TestAFirstMessageThatFailsAndACloseThatFailsKeepsBothErrors(t *testing.T) {
+	r := newRunner()
+	r.sendErr = errors.New("never echoed")
+	r.closeErr = errors.New("pid 7 still alive")
+	s := &Sessions{Q: openDB(t), Run: r, Launch: fakeLaunch{}}
+	_, err := s.Start("a", "/wt", StartOpts{Prompt: "x"})
+	if err == nil || !strings.Contains(err.Error(), "never echoed") || !strings.Contains(err.Error(), "pid 7 still alive") {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestASpawnWaitsForTheLockAWakeHolds(t *testing.T) {
+	wt := t.TempDir()
+	r := newRunner()
+	locks := &AgentLocks{}
+	s := &Spawns{Q: openDB(t), Host: &fakeHost{}, Launch: fakeLaunch{}, Delivery: upDelivery{}, Run: r, Locks: locks}
+	release := locks.Lock("a")
+	done := make(chan struct{})
+	go func() { s.StartIn("a", wt, ""); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("the spawn did not wait for the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+	if len(r.opened) != 0 {
+		t.Fatal("opened under the lock")
+	}
+	release()
+	<-done
+	if len(r.opened) != 1 {
+		t.Fatalf("%+v", r.opened)
+	}
+}
+
+func TestATurnInterruptedJustNowIsNotInterruptedAgain(t *testing.T) {
+	r, f, _ := structuredRec(t) // now is 5000
+	db.SetTerminal(r.Q, "a", "", "/wt")
+	db.SetAgentState(r.Q, "a", states.Running, 0, "")
+	f.alive["a"], f.busy["a"] = true, true
+	db.AddEventAt(r.Q, 1, "a", "Stop")
+	db.AddEventAt(r.Q, 5000-InterruptHoldS+1, "a", "interrupted")
+	var acts []string
+	r.Sweep(&acts)
+	if len(f.interrupted) != 0 || len(acts) != 0 {
+		t.Fatalf("%v %v", f.interrupted, acts)
+	}
+	f.retrying = map[string]int64{"a": 1}
+	r.Sweep(&acts)
+	if len(f.interrupted) != 0 {
+		t.Fatal("the retry stall interrupted inside the hold")
+	}
+	r.Q.Exec("DELETE FROM events WHERE kind = 'interrupted'")
+	db.AddEventAt(r.Q, 5000-InterruptHoldS, "a", "interrupted")
+	r.Sweep(&acts)
+	if len(f.interrupted) != 1 {
+		t.Fatalf("%v", f.interrupted)
 	}
 }

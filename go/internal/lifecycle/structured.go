@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,13 +20,40 @@ type StartSpec struct {
 	Resume                   bool
 }
 
+// AgentLocks serialises lifecycle acts on one structured agent in place of the terminal lock: a tick and a person asking for the same
+// wake, or a spawn, must not open two processes. The zero value is ready; a nil *AgentLocks locks nothing.
+type AgentLocks struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+// Lock takes agent's lock; the returned func releases it.
+func (a *AgentLocks) Lock(agent string) func() {
+	if a == nil {
+		return func() {}
+	}
+	a.mu.Lock()
+	if a.locks == nil {
+		a.locks = map[string]*sync.Mutex{}
+	}
+	l := a.locks[agent]
+	if l == nil {
+		l = &sync.Mutex{}
+		a.locks[agent] = l
+	}
+	a.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
 // Runner is the structured sessions the daemon owns, one per running agent (go/internal/structured through its manager). An agent is
 // structured or a terminal agent; terminal agents keep the paths in the other files, frozen.
 type Runner interface {
 	Structured(agent string) bool
 	// Open starts the CLI and returns once it has answered initialize; an early exit is an error.
 	Open(spec StartSpec) error
-	// Alive: the agent's process is running. Daemon-owned, so after a daemon restart nothing is alive until it is opened again.
+	// Alive: any process of the agent's session group is running, not only the leader: a leader that died with children left is not gone.
+	// Daemon-owned, so after a daemon restart nothing is alive until it is opened again.
 	Alive(agent string) bool
 	Busy(agent string) bool
 	// Send writes text as a message to the running turn or a new one and returns once the CLI has echoed it; an error is not delivered.
@@ -89,10 +117,12 @@ func (s *Sessions) Start(agent, wt string, o StartOpts) (string, error) {
 		return "", err
 	}
 	if o.Prompt != "" {
-		if err := s.Run.Send(agent, "start:"+id, o.Prompt); err != nil {
-			// A session that cannot take its first message is not a started agent; ending it keeps the retry from meeting a live one.
-			_ = s.Run.Close(agent)
-			return "", fmt.Errorf("started, but the first message was not delivered: %w", err)
+		// One op per start: the ledger outlives sessions, and a resume under the session id would be answered with the receipt of an
+		// earlier start and never written.
+		if err := s.Run.Send(agent, "start:"+s.newID(), o.Prompt); err != nil {
+			// A session that cannot take its first message is not a started agent; ending it keeps the retry from meeting a live one. A
+			// close that fails too is kept: the process is still there.
+			return "", errors.Join(fmt.Errorf("started, but the first message was not delivered: %w", err), s.Run.Close(agent))
 		}
 	}
 	if err := db.SetTerminal(s.Q, agent, "", wt); err != nil {
@@ -127,21 +157,13 @@ func (m *Manager) hasSession(agent string, row *db.AgentState) bool {
 	return row != nil && row.Terminal.String != ""
 }
 
-// lockAgent serialises lifecycle acts on one structured agent in place of the terminal lock: a tick and a person asking for the same
-// wake must not open two processes. The returned func releases it.
 func (m *Manager) lockAgent(agent string) func() {
-	m.mu.Lock()
-	if m.locks == nil {
-		m.locks = map[string]*sync.Mutex{}
-	}
-	l := m.locks[agent]
-	if l == nil {
-		l = &sync.Mutex{}
-		m.locks[agent] = l
-	}
-	m.mu.Unlock()
-	l.Lock()
-	return l.Unlock
+	m.once.Do(func() {
+		if m.Locks == nil {
+			m.Locks = &AgentLocks{}
+		}
+	})
+	return m.Locks.Lock(agent)
 }
 
 // InterruptAgent stops the turn a structured agent is running, by control request.

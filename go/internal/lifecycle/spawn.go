@@ -67,6 +67,7 @@ type Spawns struct {
 	// Run is the structured sessions; nil keeps every agent a terminal agent.
 	Run   Runner
 	NewID func() string
+	Locks *AgentLocks
 }
 
 var _ Spawner = (*Spawns)(nil)
@@ -331,6 +332,7 @@ func (s *Spawns) structured(agent string) bool { return s.Run != nil && s.Run.St
 // startStructured opens a structured agent's session in wt. It stands for OpenTerminal, the worker registration and the wait for the
 // process table: the session is up when Open returns, and has no terminal to register.
 func (s *Spawns) startStructured(agent, wt, prompt string) (bool, error) {
+	defer s.Locks.Lock(agent)()
 	_, err := (&Sessions{Q: s.Q, Run: s.Run, Launch: s.Launch, NewID: s.NewID}).Start(agent, wt, StartOpts{Cause: "start", Prompt: prompt})
 	return err == nil, err
 }

@@ -181,8 +181,8 @@ type Manager struct {
 	Run   Runner
 	NewID func() string // a new session id; random when nil
 
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
+	once  sync.Once
 
 	Now   func() int64
 	Sleep func(time.Duration)
