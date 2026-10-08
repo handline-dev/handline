@@ -22,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/taskwrites"
+	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/version"
 )
 
@@ -55,6 +56,7 @@ type Config struct {
 	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. It takes the daemon singleton the
 	// Python daemon holds, so it does not start beside one; without it the rows are the other daemon's and are only read.
 	OwnPrompts bool
+	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
 
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
 	// layer. Nil tells nothing.
@@ -113,6 +115,9 @@ func Start(cfg Config) (*Daemon, error) {
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+		if cfg.Terminal != nil {
+			d.prompts.Term = term.New(cfg.Terminal, nil)
+		}
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	}
 	if cfg.Gateway {

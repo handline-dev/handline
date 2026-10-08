@@ -26,6 +26,8 @@ func checkGateway(cfg Config) error {
 		return errors.New("a gateway needs an address to listen on (-listen)")
 	case (cfg.CertFile == "") != (cfg.KeyFile == ""):
 		return errors.New("a gateway takes -cert and -key together, or neither (Tailscale mode, plain HTTP)")
+	case cfg.OwnPrompts:
+		return errors.New("a gateway writes no prompt_blocks: -own-prompts is for a daemon that owns the home")
 	case cfg.RelaySocket == "" || cfg.PidFile == "":
 		return errors.New("a gateway needs the relay socket and its own pid file")
 	case cfg.SocketFile != "" && filepath.Clean(cfg.SocketFile) == filepath.Join(cfg.Home, "daemon.sock"):

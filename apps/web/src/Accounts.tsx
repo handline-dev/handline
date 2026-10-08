@@ -55,7 +55,7 @@ function Row({ a, now }: { a: Account; now: number }) {
   );
 }
 
-/** The daemon has no add or remove call for an account (only login, alias, cap and the month), so adding one is a host command. */
+/** The daemon has no add call for an account, so adding one is a host command. */
 function AddAccount() {
   const [open, setOpen] = useState(false);
   return (
