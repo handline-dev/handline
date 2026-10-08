@@ -98,7 +98,7 @@ type sessions struct {
 }
 
 func (s sessions) LiveSession(q db.Q, agent string) string {
-	if id := s.p.Run.sessionOf(agent); id != "" {
+	if id := s.p.Manager.SessionID(agent); id != "" {
 		return id
 	}
 	row, err := db.GetAgentState(q, agent)

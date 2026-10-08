@@ -84,3 +84,33 @@ func openRowFP(p *DBPrompts) (string, error) {
 	err := p.DB.QueryRow("SELECT fingerprint FROM prompt_blocks WHERE agent = 'a' AND gone_at IS NULL").Scan(&fp)
 	return fp, err
 }
+
+func TestARefusedOrFailedStartLeavesTheRunningSessionsIdAlone(t *testing.T) {
+	m := &Manager{}
+	l := launch(t)
+	l.SessionID = "11111111-1111-4111-8111-111111111111"
+	if _, err := m.Start(context.Background(), "a", l); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Stop("a") })
+	if m.SessionID("a") != l.SessionID {
+		t.Fatalf("the running session's id: %q", m.SessionID("a"))
+	}
+	second := l
+	second.SessionID = "22222222-2222-4222-8222-222222222222"
+	if _, err := m.Start(context.Background(), "a", second); err == nil {
+		t.Fatal("a second session for one agent is refused")
+	}
+	if m.SessionID("a") != l.SessionID {
+		t.Fatalf("a refused start moved the id: %q", m.SessionID("a"))
+	}
+	// A start that fails after taking the slot gives the id back too: an agent that never ran has none.
+	bad := second
+	bad.Path = "/nonexistent/claude"
+	if _, err := m.Start(context.Background(), "b", bad); err == nil {
+		t.Fatal("a missing CLI is an error")
+	}
+	if m.SessionID("b") != "" {
+		t.Fatalf("a failed start left an id: %q", m.SessionID("b"))
+	}
+}

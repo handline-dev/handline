@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -36,6 +35,8 @@ type Config struct {
 	Args []string
 	// Env are NAME=value pairs set on every launch, besides the agent's name.
 	Env []string
+	// NoHooks starts a session without the hooks-only settings file (tests with no shared settings).
+	NoHooks bool
 	// Policy is the permission policy of an agent; nil allows nothing and guards nothing.
 	Policy func(agent string) structured.Policy
 	// Kind says whether an agent runs structured; nil reads agent.yaml's mode (KindFromYAML).
@@ -107,12 +108,13 @@ func New(cfg Config) *Parts {
 	if kind == nil {
 		kind = KindFromYAML(cfg.Home)
 	}
-	run := &Runner{cfg: cfg, kind: kind, sessions: map[string]string{}}
-	sink := &transcript.Sink{Now: cfg.Now, Session: run.sessionOf}
+	run := &Runner{cfg: cfg, kind: kind}
+	sink := &transcript.Sink{Now: cfg.Now}
 	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log, home: cfg.Home}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
 	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now}
 	run.mgr, run.parts = mgr, p
+	sink.Session = mgr.SessionID
 	p.Manager, p.Agents = mgr, &AgentsPort{mgr: mgr, kind: kind}
 	if cfg.DB != nil {
 		p.Bind(cfg.DB, nil)
@@ -153,20 +155,11 @@ type Runner struct {
 	kind  func(agent string) bool
 	mgr   *structured.Manager
 	parts *Parts
-
-	mu       sync.Mutex
-	sessions map[string]string // agent -> the id of the session last opened
 }
 
 var _ lifecycle.Runner = (*Runner)(nil)
 
 func (r *Runner) Structured(agent string) bool { return r.kind(agent) }
-
-func (r *Runner) sessionOf(agent string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.sessions[agent]
-}
 
 // Open starts agent's CLI in the spec's worktree and returns once it has answered initialize.
 func (r *Runner) Open(spec lifecycle.StartSpec) error {
@@ -176,27 +169,21 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	} else if spec.Account != "" {
 		cfgDir, _ = team.AccountConfigDir(r.cfg.Home, spec.Account)
 	}
-	l := structured.Launch{Path: r.cfg.CLI, Args: r.cfg.Args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
+	args := r.cfg.Args
+	if !r.cfg.NoHooks {
+		path, err := WriteHooksSettings(r.cfg.Home, spec.Agent)
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.Agent, err)
+		}
+		args = append(append([]string{}, args...), "--settings", path)
+	}
+	l := structured.Launch{Path: r.cfg.CLI, Args: args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
 		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}
-	// The id is known before the CLI answers, so the first events of the session already carry it.
 	if r.parts.db != nil {
 		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
 	}
-	r.mu.Lock()
-	prev, had := r.sessions[spec.Agent]
-	r.sessions[spec.Agent] = spec.SessionID
-	r.mu.Unlock()
-	if _, err := r.mgr.Start(context.Background(), spec.Agent, l); err != nil {
-		r.mu.Lock() // a start that did not happen leaves the running session's id as it was
-		if had {
-			r.sessions[spec.Agent] = prev
-		} else {
-			delete(r.sessions, spec.Agent)
-		}
-		r.mu.Unlock()
-		return err
-	}
-	return nil
+	_, err := r.mgr.Start(context.Background(), spec.Agent, l)
+	return err
 }
 
 func (r *Runner) Alive(agent string) bool { return r.mgr.Has(agent) }

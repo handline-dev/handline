@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,8 @@ func rig(t *testing.T) (*Parts, string) {
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755)
 	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nmode: structured # the real CLI\n"), 0o644)
+	os.MkdirAll(filepath.Join(home, "shared", ".claude"), 0o755)
+	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte(sharedSettings), 0o644)
 	os.MkdirAll(filepath.Join(home, "agents", "bob"), 0o755)
 	os.WriteFile(filepath.Join(home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
 	d, err := store.Open(filepath.Join(home, "db.sqlite"))
@@ -252,5 +255,60 @@ func TestTheLifecycleWakesAClosedStructuredAgentAndClosesItAgain(t *testing.T) {
 	}
 	if p.Run.Alive("alice") {
 		t.Fatal("the close ended the session")
+	}
+}
+
+const sharedSettings = `{
+  "autoContinueAtUsageLimit": false,
+  "permissions": {"allow": ["Bash(ls:*)"]},
+  "env": {"SECRET": "x"},
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": 10}]}],
+    "PreToolUse": [
+      {"matcher": "Write|Edit|Bash", "hooks": [{"type": "command", "command": "ocp hook PreToolUse", "timeout": 10}, {"type": "command", "command": "other-tool guard"}]},
+      {"hooks": [{"type": "command", "command": "somebody-elses hook PreToolUse"}]}
+    ],
+    "Notification": [{"hooks": [{"type": "command", "command": "notify-me"}]}]
+  }
+}`
+
+func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) {
+	p, home := rig(t)
+	path, err := WriteHooksSettings(home, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", st.Mode())
+	}
+	if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
+		t.Fatalf("dir mode %v", st.Mode())
+	}
+	b, _ := os.ReadFile(path)
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"hooks": map[string]any{
+		"Stop":       []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": float64(10)}}}},
+		"PreToolUse": []any{map[string]any{"matcher": "Write|Edit|Bash", "hooks": []any{map[string]any{"type": "command", "command": "ocp hook PreToolUse", "timeout": float64(10)}}}},
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s", b)
+	}
+	_ = p
+}
+
+func TestASessionIsNotStartedWithoutTheShellGuardOrWithUnreadableSettings(t *testing.T) {
+	for _, shared := range []string{`{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "hl hook Stop"}]}]}}`, `{}`, `not json`} {
+		if _, err := HooksSettings([]byte(shared)); err == nil {
+			t.Errorf("%s: a session without the guard", shared)
+		}
+	}
+	p, home := rig(t)
+	os.Remove(filepath.Join(home, "shared", ".claude", "settings.json"))
+	err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "33333333-3333-4333-8333-333333333333"})
+	if err == nil || p.Run.Alive("alice") {
+		t.Fatal("no shared settings, no session")
 	}
 }
