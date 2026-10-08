@@ -134,3 +134,102 @@ func TestPromptLandedWaitsForTheAgentsOwnHook(t *testing.T) {
 }
 
 func ns(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
+
+type runHost struct {
+	fakeHost
+	wtMade     string
+	missing    string
+	current    string
+	exists     bool
+	created    string
+	used, runs []string
+}
+
+func (h *runHost) Available() bool { return h.missing == "" }
+func (h *runHost) Missing() string { return h.missing }
+func (h *runHost) HasRuns() bool   { return true }
+func (h *runHost) CreateWorktree(_, name, base string) (string, string) {
+	if h.wtMade == "" {
+		return "", "worktree create failed"
+	}
+	return h.wtMade, ""
+}
+func (h *runHost) Manual(wt, repo, name, base, cmd string) string { return "manual: " + cmd }
+func (h *runHost) RunCurrent() string                             { return h.current }
+func (h *runHost) RunExists(string) bool                          { return h.exists }
+func (h *runHost) RunUse(run string)                              { h.used = append(h.used, run) }
+func (h *runHost) RunCreate(string) string                        { h.runs = append(h.runs, h.created); return h.created }
+func (h *runHost) TaskCreate(_, title, _, run, parent string) string {
+	return "task-" + title
+}
+func (h *runHost) Dispatch(task, handle, run string) string { return task + "@" + handle }
+
+func spawnRig(t *testing.T) (*Spawns, *runHost, string) {
+	t.Helper()
+	repo, _ := repoWithOrigin(t)
+	h := &runHost{fakeHost: fakeHost{handle: "t7"}, wtMade: t.TempDir(), created: "run-1"}
+	s := &Spawns{Q: openDB(t), Host: h, Launch: fakeLaunch{}, Delivery: upDelivery{up: true}, Sleep: func(time.Duration) {}}
+	return s, h, repo
+}
+
+func TestSpawnBranchesAWorktreeFromTheLeadingSideAndOpensItsTerminal(t *testing.T) {
+	s, h, repo := spawnRig(t)
+	ok, said := s.Spawn("a", repo)
+	if !ok || !strings.Contains(said, "a: worktree "+h.wtMade) || !strings.Contains(said, "branched from main (main and origin/main agree)") || !strings.Contains(said, "terminal t7") {
+		t.Fatalf("%v %q", ok, said)
+	}
+	row, _ := db.GetAgentState(s.Q, "a")
+	if row.Terminal.String != "t7" || row.Worktree.String != h.wtMade {
+		t.Fatalf("%+v", row)
+	}
+	if len(h.opened) != 1 || !strings.HasPrefix(h.opened[0], "hl launch a") {
+		t.Fatalf("%v", h.opened)
+	}
+	// Its own worktree is kept: no second one is made.
+	h.wtMade = ""
+	if ok, said := s.Spawn("a", repo); !ok || !strings.Contains(said, "kept (its own worktree, kept)") {
+		t.Fatalf("%v %q", ok, said)
+	}
+}
+
+func TestSpawnWithSaysWhyItCannotAndWhatItWouldDo(t *testing.T) {
+	s, h, repo := spawnRig(t)
+	h.missing = "orca is not running"
+	if ok, said, err := s.SpawnWith("a", repo, SpawnOpts{}); ok || err != nil || said != "orca is not running" {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	h.missing = ""
+	if ok, said := s.Spawn("a", t.TempDir()); ok || said == "" {
+		t.Fatalf("a directory that is no repo has nothing to branch from: %v %q", ok, said)
+	}
+	h.wtMade = ""
+	if ok, said := s.Spawn("a", repo); ok || said != "worktree create failed" {
+		t.Fatalf("%v %q", ok, said)
+	}
+	ok, said, err := s.SpawnWith("a", repo, SpawnOpts{DryRun: true})
+	if err != nil || !ok || !strings.HasPrefix(said, "would branch from main (main and origin/main agree)") || len(h.opened) != 0 {
+		t.Fatalf("%v %q %v %v", ok, said, err, h.opened)
+	}
+}
+
+func TestEnsureRunRemembersTheRunAndPrefersTheOneTheTerminalIsBoundTo(t *testing.T) {
+	s, h, _ := spawnRig(t)
+	run, err := s.EnsureRun()
+	if err != nil || run != "run-1" || len(h.runs) != 1 {
+		t.Fatalf("%q %v", run, err)
+	}
+	h.exists = true
+	if run, _ := s.EnsureRun(); run != "run-1" || len(h.runs) != 1 || len(h.used) != 1 {
+		t.Fatalf("a remembered run is reused, not recreated: %q %v %v", run, h.runs, h.used)
+	}
+	h.current = "bound"
+	if run, _ := s.EnsureRun(); run != "bound" {
+		t.Fatalf("%q", run)
+	}
+	if v, _, _ := db.Meta(s.Q, RunKey); v != "bound" {
+		t.Fatalf("%q", v)
+	}
+	if task, err := s.RegisterWorker("a", "t1"); err != nil || task != "task-a@t1" {
+		t.Fatalf("%q %v", task, err)
+	}
+}
