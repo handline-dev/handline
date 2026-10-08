@@ -62,6 +62,15 @@ export function RefText({ text, agent, onRef }: { text: string; agent?: string; 
   );
 }
 
+// A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
+const RECEIPT: Record<string, { icon: IconName; label: string }> = {
+  queued: { icon: 'queued', label: 'Queued: sent when the running turn ends' },
+  sent: { icon: 'typed', label: 'Sent to the agent, not confirmed yet' },
+  confirmed: { icon: 'delivered', label: 'Confirmed by the agent' },
+  unknown: { icon: 'maybeRan', label: 'May or may not have run' },
+};
+const receiptOf = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+
 const snippet = (body: string) => (body.length > 80 ? `${body.slice(0, 80)}…` : body);
 
 export function Message(props: {
@@ -93,7 +102,7 @@ export function Message(props: {
   const mine = side === 'person' && !unnumbered && !failed;
   // Not answered yet and not already taken back: the person's own undo. A message the agent has not got just goes; one it has asks first.
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
-  const got = m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
   const takeBack = (confirm = false) => {
     setAsk(false);
@@ -134,7 +143,12 @@ export function Message(props: {
       </div>
       <div className="msg-meta muted">
         {!unnumbered ? <span className="mono">#{m.id}</span> : null}
-        {side === 'person' && !failed ? (
+        {side === 'person' && !failed && m.receipt ? (
+          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
+            {' '}
+            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
+          </span>
+        ) : side === 'person' && !failed ? (
           <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
             {' '}
             <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
@@ -155,7 +169,7 @@ export function Message(props: {
       </div>
       {undoable ? (
         <div className="msg-acts">
-          {m.landing === 'queued' && props.working ? (
+          {m.landing === 'queued' && (m.receipt || props.working) ? (
             <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
           ) : null}
           <Button size="sm" icon="discard" label="Take back" onClick={() => (got ? setAsk(true) : takeBack())} />
@@ -171,6 +185,12 @@ export function Message(props: {
             {agent} already has this message. It is told to stop, and what waits behind it moves up. The words come back to the box.
           </p>
         </Dialog>
+      ) : null}
+      {m.receipt?.state === 'unknown' ? (
+        <div className="msg-meta failed-line" role="note">
+          <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
+          matters.
+        </div>
       ) : null}
       {failed ? (
         <div className="msg-meta failed-line" role="alert">

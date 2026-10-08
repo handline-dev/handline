@@ -310,3 +310,10 @@
   font: var(--t-hint);
   cursor: pointer;
 }
+.compose-now {
+  align-self: center;
+  display: inline-flex;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
