@@ -2,8 +2,11 @@ package supervisor
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/structured"
 )
 
 // Typing the tell and recording what it left behind (daemon/delivery.py).
@@ -51,11 +54,12 @@ func requestIDs(rs []*db.Request) []int64 {
 func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, handle string, aheadOf *db.Request, parked bool) bool {
 	var live []*db.Request
 	landed := false
+	structuredNow := e.structuredAgent(agent)
 	for _, r := range batch {
 		if !must(db.MarkDelivered(q, r.ID)) {
 			continue // retired in the gap since it was listed
 		}
-		if e.landedAlready(q, agent, r.ID) {
+		if !structuredNow && e.landedAlready(q, agent, r.ID) {
 			// the transcript first - a line it already holds is not typed again.
 			check(db.MarkTyped(q, r.ID, e.liveSession(q, agent)))
 			check(db.MarkLanded(q, r.ID))
@@ -75,13 +79,33 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 	} else {
 		text = batchText(q, live, folded, aheadOf)
 	}
-	if ok, _ := e.send(handle, text); !ok {
-		for _, r := range live {
-			check(db.ClearDelivered(q, r.ID))
+	confirmed := false
+	if structuredNow {
+		// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
+		state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, structured.Queue)
+		if state == NotSent {
+			for _, r := range live {
+				check(db.ClearDelivered(q, r.ID))
+			}
+			return false
 		}
-		return false
+		confirmed = state == Confirmed
+	} else {
+		if ok, _ := e.send(handle, text); !ok {
+			for _, r := range live {
+				check(db.ClearDelivered(q, r.ID))
+			}
+			return false
+		}
+		e.markTyped(q, agent, nil)
 	}
-	e.markTyped(q, agent, nil)
+	defer func() {
+		if confirmed {
+			for _, r := range live {
+				check(db.MarkLanded(q, r.ID))
+			}
+		}
+	}()
 	session := e.liveSession(q, agent)
 	check(db.MarkNoticesShown(q, requestIDs(folded), session))
 	for n, r := range live {
@@ -152,6 +176,15 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 	if len(answered) == 0 {
 		return false, nil
 	}
+	if e.structuredAgent(agent) {
+		// The same answers are the same operation; held behind a running turn.
+		state, _ := e.sendOnce(q, agent, "answers:"+idList(requestIDs(answered)), AnswersText(answered), structured.Queue)
+		if state == NotSent {
+			return false, nil // stays unannounced; told when the session is up
+		}
+		e.recordAnswers(q, agent, answered)
+		return true, nil
+	}
 	if e.typingHold(q, agent) != "" {
 		return false, nil // stays unannounced; told when it wakes or moves
 	}
@@ -178,6 +211,10 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bool, why string, err error) {
 	defer Catch(&err)
 	agent := row.Target
+	if e.structuredAgent(agent) {
+		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), structured.Now)
+		return state != NotSent, why, nil
+	}
 	handle := must(db.Terminal(q, agent))
 	if held := e.typingHold(q, agent); held != "" {
 		return false, held, nil
@@ -196,15 +233,7 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 			why = g
 			return
 		}
-		held := ""
-		if row.Kind.String == "task" {
-			if t := taskOf(q, row); t != nil {
-				st := must(db.TaskState(q, t))
-				held = fmt.Sprintf(", and T%d is %s - `hl task list` shows what you hold", t.ID, st)
-			}
-		}
-		typed, _ = e.send(handle, fmt.Sprintf("#%d from %s was cancelled: %s. Stop work on it; it is closed and needs no resolve%s. `hl read %d` shows it.",
-			row.ID, row.Requester, verdict, held, row.ID))
+		typed, _ = e.send(handle, cancelledText(q, row, verdict))
 		if typed {
 			e.markTyped(q, agent, nil)
 		} else {
@@ -215,4 +244,25 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 		return false, "something else is typing at " + agent, nil
 	}
 	return typed, why, nil
+}
+
+// cancelledText is what an agent is told when a request it was handed is closed under it.
+func cancelledText(q db.Q, row *db.Request, verdict string) string {
+	held := ""
+	if row.Kind.String == "task" {
+		if t := taskOf(q, row); t != nil {
+			st := must(db.TaskState(q, t))
+			held = fmt.Sprintf(", and T%d is %s - `hl task list` shows what you hold", t.ID, st)
+		}
+	}
+	return fmt.Sprintf("#%d from %s was cancelled: %s. Stop work on it; it is closed and needs no resolve%s. `hl read %d` shows it.",
+		row.ID, row.Requester, verdict, held, row.ID)
+}
+
+func idList(ids []int64) string {
+	parts := make([]string, len(ids))
+	for i, r := range ids {
+		parts[i] = strconv.FormatInt(r, 10)
+	}
+	return strings.Join(parts, ",")
 }
