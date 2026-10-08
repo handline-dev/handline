@@ -1,9 +1,10 @@
 // The three chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
 // dismiss and answer change the message and are put back if refused.
-import type { ChatMessage } from '@handline/client';
+import type { ChatMessage, Receipt } from '@handline/client';
 import { classify, sentence } from './errors.ts';
 import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
 import { qk } from './reads.ts';
+import { forgetOperation, laterReceipt, rememberOperation } from './send-ops.ts';
 import { patchMessage, type MsgPage } from './chat-events.ts';
 import type { WriteSpec } from './write-spec.ts';
 
@@ -36,7 +37,15 @@ const editAll = (c: Ctx, f: (d: Pages<MsgPage>) => Pages<MsgPage>) => edit<Pages
 const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (d) => patchMessage(d, id, patch));
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
-const sendParams = (p: never) => p as { agent: string; body: string; parent?: number };
+const sendParams = (p: never) => p as { agent: string; body: string; parent?: number; delivery?: 'now' | 'queue'; request_id?: string };
+
+const findRow = (d: Pages<MsgPage>, id: number) => d.pages.flatMap((page) => page.messages).find((m) => m.id === id);
+const setReceipt = (c: Ctx, id: number, receipt: Receipt | undefined) =>
+  editAll(c, (d) => {
+    const row = findRow(d, id);
+    const next = laterReceipt(row?.receipt, receipt);
+    return row && next && next !== row.receipt ? patchMessage(d, id, { receipt: next }) : d;
+  });
 
 export const chatWrites: Record<string, WriteSpec> = {
   'chat.send': {
@@ -44,8 +53,9 @@ export const chatWrites: Record<string, WriteSpec> = {
     label: 'send',
     touches: allChats,
     patch: (c, p) => {
-      const { agent, body, parent } = sendParams(p);
+      const { agent, body, parent, delivery, request_id } = sendParams(p);
       const row = waitingMessage(c.me, agent, body, c.now, parent ?? null);
+      if (request_id) rememberOperation(row.id, request_id, delivery);
       editAll(c, (d) => mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)));
     },
     // The row stays, said to have failed, with the daemon's sentence; Retry and Discard act on it.
@@ -65,8 +75,9 @@ export const chatWrites: Record<string, WriteSpec> = {
     },
     // The daemon's number replaces the row's, unless its event already put the real message in.
     reconcile: (c, p, result) => {
-      const { agent, body } = sendParams(p);
-      const request = (result as { request: number }).request;
+      const { agent, body, request_id } = sendParams(p);
+      const { request, receipt } = result as { request: number; receipt?: Receipt };
+      if (request_id) forgetOperation(request_id);
       editAll(c, (d) => {
         const has = d.pages.some((page) => page.messages.some((m) => m.id === request));
         return mapPages(d, (page) => ({
@@ -76,6 +87,26 @@ export const chatWrites: Record<string, WriteSpec> = {
           ),
         }));
       });
+      setReceipt(c, request, receipt);
+    },
+  },
+  // A queued message of a structured agent written now: its receipt is the daemon's, and the CLI's echo follows as an event.
+  'chat.send_now': {
+    kind: 'decided',
+    label: 'send now',
+    reconcile: (c, p, result) => setReceipt(c, (p as { request: number }).request, (result as { receipt?: Receipt }).receipt),
+  },
+  // Taking back a message that was only queued: it was never written, so it leaves the conversation (a written one is closed, and stays).
+  'chat.cancel': {
+    kind: 'decided',
+    label: 'take back',
+    reconcile: (c, p) => {
+      const { request } = p as { request: number };
+      editAll(c, (d) =>
+        findRow(d, request)?.receipt?.state === 'queued'
+          ? mapPages(d, (page) => ({ ...page, messages: page.messages.filter((m) => m.id !== request) }))
+          : d,
+      );
     },
   },
   'chat.dismiss': {

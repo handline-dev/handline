@@ -313,8 +313,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
-    'chat.send_now': 'send now',
-    'chat.cancel': 'take back',
     'chat.seen': 'mark seen',
     'account.login': 'log in',
     'terminal.close': 'close terminal',

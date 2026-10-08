@@ -7,6 +7,7 @@ import { mapPages, type Pages } from './cache.ts';
 import { NOT_WORKING, type MsgPage, type TrPage } from './chat-events.ts';
 import { useData, useFeed, useServes } from './provider.ts';
 import { qk } from './reads.ts';
+import { forgetRow, newOperationId, operationOf, type Delivery } from './send-ops.ts';
 import { useWrite } from './write.ts';
 
 export type ChatScope = 'mine' | 'all';
@@ -56,7 +57,10 @@ export function useChat(agent: string, scope: ChatScope): Chat {
   return {
     status: !served ? 'off' : msgs.isError || tr.isError ? 'error' : msgs.isPending || tr.isPending ? 'loading' : 'ready',
     error: msgs.error ?? tr.error,
-    messages: byId((msgs.data?.pages ?? []).map((p) => p.messages)).sort((a, b) => a.id - b.id),
+    // A withdrawn message of a structured agent was never written: it is not drawn.
+    messages: byId((msgs.data?.pages ?? []).map((p) => p.messages))
+      .filter((m) => !(m.receipt && m.landing === 'withdrawn'))
+      .sort((a, b) => a.id - b.id),
     items: byId([...(tr.data?.pages ?? [])].reverse().map((p) => p.items)).sort((a, b) => a.id - b.id),
     working: tr.data?.pages[0]?.working ?? NOT_WORKING,
     hasOlder: !!msgs.hasNextPage || !!tr.hasNextPage,
@@ -91,20 +95,34 @@ export function useChatActions(agent: string) {
       .getQueriesData<Pages<MsgPage>>({ queryKey: qk.chatMessagesOf(daemon, agent) })
       .flatMap(([, d]) => d?.pages.flatMap((p) => p.messages) ?? [])
       .find((m) => m.id === id && m.state === 'failed');
+  /** One operation id per message; a retry of a failed row sends the row's own. */
+  const post = (to: string, body: string, parent: number | null, op = newOperationId(), delivery?: Delivery) =>
+    send.mutate({
+      agent: to,
+      body,
+      ...(parent != null ? { parent } : {}),
+      ...(delivery ? { delivery } : {}),
+      request_id: op,
+    });
   return {
     /** `parent` makes it a reply to that message; `to` is the agent it goes to when that is not this chat's (a reply in the All tab). */
-    send: (body: string, opts?: { parent?: number; to?: string }) =>
-      send.mutate({ agent: opts?.to ?? agent, body, ...(opts?.parent != null ? { parent: opts.parent } : {}) }),
+    send: (body: string, opts?: { parent?: number; to?: string; delivery?: Delivery }) =>
+      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery),
     retry: (id: number) => {
       const m = failed(id);
       if (!m) return;
+      const was = operationOf(id);
       rows((x) => x.id !== id);
-      send.mutate({ agent: m.to, body: m.body, ...(m.parent != null ? { parent: m.parent } : {}) });
+      forgetRow(id);
+      post(m.to, m.body, m.parent, was?.op, was?.delivery);
     },
-    discard: (id: number) => rows((x) => x.id !== id),
-    /** Types a queued message at the agent now. */
+    discard: (id: number) => {
+      rows((x) => x.id !== id);
+      forgetRow(id);
+    },
+    /** Writes a queued message to the agent now; its receipt goes to sent. */
     sendNow: (request: number) => sendNow.mutate({ request }),
-    /** Takes the message back, delivered or not; one the agent already has needs `confirm`. Resolves when the daemon has done it, rejects when it refuses. */
+    /** Takes the message back, delivered or not (a queued one of a structured agent leaves the conversation, with no confirm); one the agent already has needs `confirm`. Resolves when the daemon has done it, rejects when it refuses. */
     cancel: (request: number, confirm = false) => cancel.mutateAsync({ request, ...(confirm ? { confirm: true } : {}) }),
     /** The agent's messages up to this number are in front of the person: they leave the FOR YOU list. */
     seen: (up_to: number) => seen.mutate({ agent, up_to }),
