@@ -307,10 +307,9 @@ func (e *Env) ReadAll(q db.Q, exclude string) (map[string]*Load, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := e.config()
 	out := map[string]*Load{}
 	for _, a := range paths.ListAccounts(e.Home) {
-		l := &Load{Account: a, Active: active[a], Cap: cfg.CapOf(a), Costs: costs}
+		l := &Load{Account: a, Active: active[a], Cap: e.CapNow(a), Costs: costs}
 		if b, ok := e.ReadBurn(a); ok {
 			l.Burn = &b
 		}

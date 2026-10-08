@@ -123,6 +123,7 @@ type fakeAgents struct {
 
 func (a fakeAgents) RepoOf(string) string             { return a.repo }
 func (fakeAgents) ReadConfig(string) error            { return nil }
+func (fakeAgents) MeasureBegin(db.Q, string, string)  {}
 func (fakeAgents) CurrentAccount(db.Q, string) string { return "acct" }
 
 type fakeStatus struct{}

@@ -44,9 +44,14 @@ type fakeUsage struct {
 	cap     int
 	others  int
 	exclude *string // the agent ActiveOn was asked to leave out
+	head    map[string]float64
 }
 
 func (u fakeUsage) CapOf(string) int { return u.cap }
+func (u fakeUsage) Headroom(acct string) (float64, bool) {
+	h, ok := u.head[acct]
+	return h, ok
+}
 func (u fakeUsage) ActiveOn(_ db.Q, _, agent string) int {
 	if u.exclude != nil {
 		*u.exclude = agent
@@ -446,10 +451,34 @@ func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t
 	if got := DescribeWakeWait(w); got != "waiting for a slot on a (1 of 2 mid-turn, 1 older waiting go first)" {
 		t.Fatal(got)
 	}
-	if got := DescribeWakeWait(&WakeWait{Account: "a", Full: 2, Busy: 2}); got != "waiting for a slot on a (2 of 2 mid-turn)" {
+	if got := DescribeWakeWait(&WakeWait{Account: "a", Slot: true, Full: 2, Busy: 2}); got != "waiting for a slot on a (2 of 2 mid-turn)" {
 		t.Fatal(got)
 	}
 	if wait(3, 1) != nil {
 		t.Fatal("room for the agent and the older waiter")
+	}
+	// An account ahead of its week has a cap of none: nothing is free however quiet it is, and the wait says why.
+	w = wait(0, 0)
+	if w == nil || !w.Slot || w.Full != 0 {
+		t.Fatalf("a cap of none is a full account: %+v", w)
+	}
+	if got := DescribeWakeWait(w); got != "waiting for a: it is ahead of its week and takes no new agent" {
+		t.Fatal(got)
+	}
+}
+
+func TestAColdWakeMovesToTheSlowestPacedAccountWithRoom(t *testing.T) {
+	r := newLaunchRig(t)
+	pct := 10
+	ok := AccountStatus{Exists: true, ShortTrusted: &pct}
+	hot := AccountStatus{Exists: true, ShortTrusted: func() *int { n := 99; return &n }()}
+	r.l.Ports.Accounts = fakeAccounts{true}
+	r.l.Ports.Usage = fakeUsage{st: ok, by: map[string]AccountStatus{"walled": hot}, head: map[string]float64{"ahead": 0.02, "behind": 0.6, "slow": 0.9, "walled": 0.95}}
+	home := r.l.Home
+	for _, a := range []string{"ahead", "behind", "slow", "walled"} {
+		os.MkdirAll(filepath.Join(paths.AccountsDir(home), a), 0o755)
+	}
+	if got := r.l.SlowestPaced("ann"); got != "slow" {
+		t.Fatalf("the account furthest behind its week among those that fit: %q", got)
 	}
 }

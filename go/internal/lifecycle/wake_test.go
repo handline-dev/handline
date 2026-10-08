@@ -159,9 +159,15 @@ func TestAWakeHoldsItsSlotFromTheMomentItIsDecided(t *testing.T) {
 type fullLaunch struct{ fakeLaunch }
 
 func (fullLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
-	return &WakeWait{Account: "a", Window: "slot", Full: 2, Busy: 2}
+	return &WakeWait{Account: "a", Window: "slot", Slot: true, Full: 2, Busy: 2}
 }
 func (fullLaunch) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
+func (fullLaunch) SlowestPaced(string) string          { return "" }
+
+// slowLaunch has a slower-paced account with room.
+type slowLaunch struct{ fullLaunch }
+
+func (slowLaunch) SlowestPaced(string) string { return "slow" }
 
 func TestAResumeOntoAFullAccountWaitsAndHoldsNothing(t *testing.T) {
 	m, d, tm := newManager(t)
@@ -176,5 +182,50 @@ func TestAResumeOntoAFullAccountWaitsAndHoldsNothing(t *testing.T) {
 	}
 	if _, _, ok, _ := db.LastEvent(m.Q, "a", "wake_reserved"); ok {
 		t.Fatal("a wait reserves nothing")
+	}
+}
+
+func TestAWarmResumeOntoAFullAccountWaitsEvenWhereAnotherHasRoom(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = slowLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop") // its cache is warm: the resume is free, so it waits for its slot
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" || len(tm.relaunched) != 0 {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, _, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
+		t.Fatal("a warm wake is not moved")
+	}
+}
+
+func TestAColdResumeOntoAFullAccountMovesToTheSlowestPacedOne(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = slowLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "a" || p["to"] != "slow" {
+		t.Fatalf("a cold wake on a full account moves: %v %v", moved, p)
+	}
+	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "slow" {
+		t.Fatalf("and holds the slot it moved to: %v %v", held, p)
+	}
+}
+
+func TestAColdResumeWithNowhereToGoWaitsForItsSlot(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = fullLaunch{} // every other account is full too
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" {
+		t.Fatalf("%v %q %v", ok, said, err)
 	}
 }
