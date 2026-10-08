@@ -100,6 +100,24 @@ func (d *DialogRules) Add(vendor, title, label string) (bool, string) {
 	return true, fmt.Sprintf("%s '%s' will be answered '%s'", vendor, title, label)
 }
 
+// Remove takes a rule away: (took, what to say).
+func (d *DialogRules) Remove(vendor, title, label string) (bool, string) {
+	rows := d.List()
+	var kept []Rule
+	for _, r := range rows {
+		if r != (Rule{vendor, title, label}) {
+			kept = append(kept, r)
+		}
+	}
+	if len(kept) == len(rows) {
+		return false, fmt.Sprintf("no rule: %s '%s' -> '%s'", vendor, title, label)
+	}
+	if err := d.save(kept); err != nil {
+		return false, err.Error()
+	}
+	return true, fmt.Sprintf("%s '%s' is no longer answered by rule", vendor, title)
+}
+
 // Match is the number of the option whose label exactly equals the rule for this vendor and title, or 0: no rule, no such label
 // among the options (numbers[i] is labels[i]'s number), or two options with that label (which one is not knowable).
 func (d *DialogRules) Match(vendor, title string, numbers []int, labels []string) int {

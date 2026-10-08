@@ -3,6 +3,7 @@ package rpc
 import (
 	"bufio"
 	"database/sql"
+	"fmt"
 	"net"
 	"path/filepath"
 	"testing"
@@ -141,5 +142,31 @@ func TestWritesAreKeptPerWriterSoTwoDevicesAndTheFounderMayUseOneRequestID(t *te
 	}
 	if len(got) != 3 || got[0] != "device:d1" || got[1] != "device:d2" || got[2] != "human" {
 		t.Fatalf("kept under the writer: %v", got)
+	}
+}
+
+func TestACommitThenErrorKeepsTheWritesAndTheRefusalButNoRecord(t *testing.T) {
+	db := newDB(t)
+	srv := writeServer(t, db, new(int), nil)
+	srv.Register("test.keep", Method{Role: "member", Write: true, Handler: func(c *Conn, p map[string]any) (any, error) {
+		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if _, err := tx.Exec("INSERT OR REPLACE INTO meta(name, value, updated) VALUES('kept', '1', 1)"); err != nil {
+				return nil, err
+			}
+			return nil, &CommitThen{Err: Refused("denied", "", "")}
+		})
+	}})
+	c := connect(t, srv, `{"client":"t","protocol":1,"key":"k"}`)
+	for i, rid := range []string{"k1", "k2"} {
+		r := c.raw(t, fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"test.keep","params":{"request_id":%q}}`, i+2, rid))
+		if r["error"].(map[string]any)["data"].(map[string]any)["code"] != "refused" {
+			t.Fatalf("answered refused: %v", r)
+		}
+	}
+	var kept, effects int
+	db.QueryRow("SELECT COUNT(*) FROM meta WHERE name = 'kept'").Scan(&kept)
+	db.QueryRow("SELECT COUNT(*) FROM write_effects").Scan(&effects)
+	if kept == 0 || effects != 0 {
+		t.Fatalf("the write stands, nothing is recorded, so a retry is judged again: %d %d", kept, effects)
 	}
 }

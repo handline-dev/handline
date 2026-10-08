@@ -138,3 +138,23 @@ func TestHrListCutsAnErrorAt400Characters(t *testing.T) {
 		t.Fatalf("%d %v", n, p["kind"])
 	}
 }
+
+func TestHrListServesAScheduleAndAGlobalProposalWithTheirWords(t *testing.T) {
+	e := testEnv(t)
+	putProposal(t, e, "0000000d", "id: \"0000000d\"\nkind: schedule\nagent: old\nrequested_by: boss\nwhy: w\ncreated: 5\nstate: proposed\nset.action: add\nset.cron: \"30 9 * * 1-5\"\nset.message: morning\n")
+	putProposal(t, e, "0000000e", "id: \"0000000e\"\nkind: global\nagent: dev-mode\nrequested_by: boss\nwhy: w\ncreated: 6\nstate: proposed\nset.value: \"on\"\n")
+	got, err := e.hrList(nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := got.(map[string]any)["proposals"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("both are listed: %v", list)
+	}
+	if d := list[0].(map[string]any)["diff"]; d != "old would be typed, weekdays 09:30: morning\nWritten to its agent.yaml; the daemon reads it on its next tick." {
+		t.Fatalf("%q", d)
+	}
+	if d := list[1].(map[string]any)["diff"].(string); d[:35] != "The global switch dev-mode (whether" {
+		t.Fatalf("%q", d)
+	}
+}
