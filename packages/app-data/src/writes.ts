@@ -208,22 +208,6 @@ const settings: Record<string, WriteSpec> = {
       if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...changes } }));
     },
   },
-  'settings.trust': {
-    kind: 'authored',
-    label: 'trust',
-    touches: (d) => [['d', d, 'settings']],
-    patch: (c, p) => {
-      const { account, worktrees } = as<{ account: string; worktrees: { agent?: string; path: string }[] }>(p);
-      const added = worktrees.map((w) => ({ account, agent: w.agent ?? null, path: w.path }));
-      edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({
-        ...s,
-        trust_folders: [
-          ...s.trust_folders,
-          ...added.filter((a) => !s.trust_folders.some((t) => t.path === a.path && t.account === account)),
-        ],
-      }));
-    },
-  },
   'trust.remove': {
     kind: 'authored',
     label: 'remove folder',
@@ -245,19 +229,6 @@ const settings: Record<string, WriteSpec> = {
         c.qc,
         qk.accounts(c.d),
         listOf('accounts', (l) => l.map((a) => (a.name === account ? accountAfter(a, as<AccountChange>(p)) : a))),
-      );
-    },
-  },
-  'account.set_cap': {
-    kind: 'authored',
-    label: 'set cap',
-    touches: (d) => [qk.accounts(d)],
-    patch: (c, p) => {
-      const { account, cap } = as<{ account: string; cap: number }>(p);
-      edit<List<'accounts', Account>>(
-        c.qc,
-        qk.accounts(c.d),
-        listOf('accounts', (l) => l.map((a) => (a.name === account ? { ...a, cap, cap_effective: cap } : a))),
       );
     },
   },
@@ -339,7 +310,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.fold': 'fold',
     'agent.move': 'move',
     'agent.unstall': 'clear stall',
-    'agent.create': 'create',
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
@@ -349,7 +319,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.login': 'log in',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
-    'worktree.set_status': 'set status',
     'device.pair': 'pair',
     'device.revoke': 'revoke',
   }).map(([m, label]) => [m, decided(label)]),
@@ -402,18 +371,13 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
-  'ask',
   'say',
-  'push',
-  'push.answer',
-  'push.cancelled',
   'land',
   'land.authorize',
   'land.pass',
   'hook.record',
   'hr.propose',
   'trust.propose',
-  'input.ask',
   'task.begin',
   'task.start',
   'task.progress',

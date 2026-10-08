@@ -158,7 +158,7 @@ def gen_md(spec: dict) -> str:
     o += ["", "### Format styled", ""] + [f"- **{k.replace('_', ' ').capitalize()}.** {v}" for k, v in spec["x-terminal-styled"].items()]
     o += ["", "## Transcript stream", ""] + [f"- **{k.replace('_', ' ').capitalize()}.** {v}" for k, v in spec["x-transcript"].items()]
     o += ["", "## Legacy verbs", "", "| Legacy verb | Method |", "|---|---|"]
-    o += [f"| `{k}` | {f'`{v}`' if v else 'none: the daemon types `say` itself'} |" for k, v in spec["x-legacy"].items()]
+    o += [f"| `{k}` | {f'`{v}`' if v else 'none'} |" for k, v in spec["x-legacy"].items()]
     return "\n".join(o) + "\n"
 
 

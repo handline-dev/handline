@@ -343,7 +343,7 @@ Closed by the API spec (checked against its text and types):
 - **Account preview**: `account_pick` on `agent.get`.
 - **Free-text answer to a dialog**: `prompt.answer` takes a free-text choice; `session.input` stays refused while a dialog is open.
 - **Chat**: paged messages with landing state, transcript, send, answer/dismiss/withdraw, locate and search, and a `chat` topic (the earlier `requests` topic is replaced by `chat` and `inbox`).
-- **Holders**: `AgentDetail.input_holders` is a list; `input.ask` is reserved and refused until implemented, as this document reserves it.
+- **Holders**: `AgentDetail.input_holders` is a list.
 
 **Styled terminal rows** are specified (format `styled`, `contract/protocol.md`); the daemon side is not built, and until it is the text grid is plain.
 

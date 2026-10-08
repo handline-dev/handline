@@ -285,7 +285,7 @@ func TestAGatewayRelaysWhatItDoesNotServeToTheRelayAsTheDevice(t *testing.T) {
 func TestACallAboveAMemberOrOutsideTheContractNeverReachesTheRelay(t *testing.T) {
 	d, f, _ := startGateway(t, "")
 	c := helloAs(t, d, mustPair(t, d))
-	for _, call := range []string{"agent.create", "account.login", "settings.set", "hook.record", "land", "task.progress"} {
+	for _, call := range []string{"account.remove", "account.login", "settings.set", "hook.record", "land", "task.progress"} {
 		r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`)
 		if gate(r) != "role" {
 			t.Fatalf("%s: %v", call, r)
@@ -305,7 +305,7 @@ func mustPair(t *testing.T, d *Daemon) string { token, _ := pair(t, d, "phone");
 func TestAnUnpairedConnectionGetsNothingForARelayedMethodEither(t *testing.T) {
 	d, f, _ := startGateway(t, "")
 	c := dialNet(t, d)
-	for _, call := range []string{"chat.send", "stats.get", "terminal.attach", "subscribe", "events.feed", "tasks.list", "agent.create"} {
+	for _, call := range []string{"chat.send", "stats.get", "terminal.attach", "subscribe", "events.feed", "tasks.list", "account.remove"} {
 		if r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`); !reflect.DeepEqual(r["error"], unpaired) {
 			t.Fatalf("%s: %v", call, r)
 		}

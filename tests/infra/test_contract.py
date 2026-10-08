@@ -21,13 +21,13 @@ METHODS = {m["name"]: m for m in SPEC["methods"]}
 PLAN_METHODS = """daemon.status accounts.list agents.list agent.get agent.timeline prompt.list terminal.attach terminal.history
 terminal.resize session.start session.wake session.stop session.restart session.park session.input session.keys session.interrupt
 prompt.answer input.take input.release inbox.list inbox.mark_read inbox.answer inbox.reply tasks.list task.get task.new task.withdraw
-task.cancel task.edit team.get hr.list hr.decide account.set_cap account.login repos.list worktrees.list worktree.diff
-worktree.set_status agent.options agent.create schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
-settings.set settings.trust devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.withdraw chat.search input.ask terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
-AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say ask push land hook.record agent.set " \
+task.cancel task.edit team.get hr.list hr.decide account.login repos.list worktrees.list worktree.diff
+agent.options schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
+settings.set devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.search terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
+AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say land hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \
-                     "terminal.history terminal.resize terminal.close chat.send chat.send_now input.ask devices.list device.pair device.revoke settings.set".split()
+                     "terminal.history terminal.resize terminal.close chat.send chat.send_now devices.list device.pair device.revoke settings.set".split()
 FOUNDER_ONLY = "schedule.add schedule.edit schedule.remove settings.get settings.set devices.list device.pair device.revoke".split()
 ROLES = SPEC["x-roles"]["order"]
 

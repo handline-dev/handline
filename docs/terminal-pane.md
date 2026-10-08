@@ -67,7 +67,7 @@ States of the terminal tab's strip (it carries these controls, web-main-view §2
 |---|---|---|
 | `daemon` | "Daemon types here" and **Take control** | read-only; a click or first key shows a one-line confirm "Take control? The daemon pauses delivering tasks and keys" |
 | this device | "input: YOU 3:12" (time since last key against `input_hold_idle_s`, from settings), **Release** | typing live; the idle clock restarts on each key |
-| another person or device | "held by <name> since <time>"; **Ask** only if `capabilities.input_ask` | read-only |
+| another person or device | "held by <name> since <time>" | read-only |
 | unknown / stale | "Reconnecting" | read-only |
 
 - **Take** = `input.take` first, always (§4.3); the pane does not rely on a short hold. Keys typed before the reply are discarded, not queued.
