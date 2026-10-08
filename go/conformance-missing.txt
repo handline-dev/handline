@@ -21,10 +21,7 @@ settings.trust
 task.cancel
 task.edit
 task.new
-terminal.attach
 terminal.close
-terminal.detach
-terminal.history
 terminal.input
 terminal.resize
 task.done
