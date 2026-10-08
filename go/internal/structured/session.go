@@ -155,6 +155,7 @@ type Session struct {
 	waiting  map[string]chan map[string]any // request_id -> the control response
 	prompts  map[string]context.CancelFunc  // request_id -> a permission prompt in flight
 	closed   bool
+	closeMu  sync.Mutex // one Close at a time; a repeat proves the group again
 	exitErr  error
 	done     chan struct{}
 	initDone chan struct{}
@@ -164,7 +165,8 @@ type entry struct {
 	op, uuid, text string
 	delivery       Delivery
 	state          State
-	settled        chan struct{} // closed on Confirmed
+	settled        chan struct{} // closed when the state is settled: Confirmed, or Unknown
+	timer          *time.Timer   // the echo deadline while Sent
 }
 
 // uuidFor is a valid UUID that is the same for the same operation id, so the CLI's echo names the operation.
@@ -308,12 +310,14 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 		s.mu.Unlock()
 		return r, nil
 	}
+	wasBusy := s.busy
 	s.markWritten(e)
 	s.mu.Unlock()
 	if err := s.writeUser(e, d); err != nil {
+		// A partial write may have reached the CLI, so the message is Unknown and is not retried; the counts it took are given back.
+		s.unknown(e)
 		s.mu.Lock()
-		e.state = Unknown // it may have reached the CLI
-		s.led.Put(e.record())
+		s.busy = wasBusy
 		s.mu.Unlock()
 		return Receipt{}, err
 	}
@@ -355,6 +359,33 @@ func (s *Session) markWritten(e *entry) {
 	e.state = Sent
 	s.echoing++
 	s.busy = true
+	e.timer = time.AfterFunc(EchoDeadline, func() { s.lose(e) })
+}
+
+// EchoDeadline is how long a written message may go without the CLI echoing it or reporting it queued or started. After it the
+// message is Unknown: it is not written again, the sender is told, and the next message is not held behind it.
+var EchoDeadline = 2 * time.Minute
+
+// lose settles a message that was written and never acknowledged.
+func (s *Session) lose(e *entry) { s.unknown(e) }
+
+// unknown turns a Sent or Confirmed message into Unknown, once. Caller does not hold s.mu.
+func (s *Session) unknown(e *entry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch e.state {
+	case Sent:
+		s.echoing--
+		close(e.settled)
+	case Confirmed:
+	default:
+		return
+	}
+	if e.timer != nil {
+		e.timer.Stop()
+	}
+	e.state = Unknown
+	s.led.Put(e.record())
 }
 
 func (s *Session) writeUser(e *entry, d Delivery) error {
@@ -376,6 +407,11 @@ func (s *Session) WaitConfirmed(ctx context.Context, op string) error {
 	}
 	select {
 	case <-e.settled:
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if e.state != Confirmed {
+			return errors.New("the message is unknown: the CLI never acknowledged it")
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -397,20 +433,24 @@ func (s *Session) Busy() bool {
 	return s.busy
 }
 
+// PromptTimeout is the longest a permission callback may take; past it the prompt is denied. The broker's own timeout is shorter.
+var PromptTimeout = 2 * time.Hour
+
 // CloseGrace is how long Close waits for the CLI to go after its stdin ends, before it kills the process group.
 var CloseGrace = 3 * time.Second
 
 // Close ends stdin, which ends the CLI, kills the CLI's process group if it does not go, and returns only once no process of the
 // group is left. An error means one is still alive: the caller must not report the agent stopped.
 func (s *Session) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return nil
-	}
+	first := !s.closed
 	s.closed = true
-	for _, cancel := range s.prompts {
-		cancel()
+	if first {
+		for _, cancel := range s.prompts {
+			cancel()
+		}
 	}
 	s.mu.Unlock()
 	s.in.Close()
@@ -421,8 +461,12 @@ func (s *Session) Close() error {
 		syscall.Kill(-pgid, syscall.SIGKILL)
 		<-s.done
 	}
-	return groupGone(pgid)
+	// Every call proves the group again, so a Close that failed once is not reported as done by the next.
+	return proveGone(pgid)
 }
+
+// proveGone is groupGone; a test replaces it.
+var proveGone = groupGone
 
 // groupGone proves the process group is empty, killing what is left of it: the CLI's children outlive it when it dies without
 // reaping them.
@@ -488,9 +532,18 @@ func (s *Session) handle(m map[string]any) {
 	case "command_lifecycle":
 		// The CLI has taken the message (msg_lifecycle_v1): queued or started, named by command_uuid. Seen on every real turn, also
 		// when the model call then failed and the isReplay echo never came.
-		if st := m["state"]; st == "queued" || st == "started" {
-			if uid, _ := m["command_uuid"].(string); uid != "" {
+		uid, _ := m["command_uuid"].(string)
+		switch m["state"] {
+		case "queued", "started":
+			if uid != "" {
 				s.echoed(uid)
+			}
+		case "cancelled": // queued and then dropped (an interrupt, an exit): it may not have run, and the sender is told
+			s.mu.Lock()
+			e := s.byUUID[uid]
+			s.mu.Unlock()
+			if e != nil {
+				s.unknown(e)
 			}
 		}
 	case "user":
@@ -513,6 +566,9 @@ func (s *Session) echoed(uid string) {
 	if e := s.byUUID[uid]; e != nil && e.state == Sent {
 		e.state = Confirmed
 		s.echoing--
+		if e.timer != nil {
+			e.timer.Stop()
+		}
 		s.led.Put(e.record())
 		close(e.settled)
 	}
@@ -555,10 +611,9 @@ func (s *Session) releaseNext() {
 	s.held = s.held[1:]
 	s.mu.Unlock()
 	if err := s.writeUser(next, Queue); err != nil {
+		s.unknown(next)
 		s.mu.Lock()
-		next.state = Unknown
-		s.echoing--
-		s.led.Put(next.record())
+		s.busy = false
 		s.mu.Unlock()
 	}
 }
@@ -586,11 +641,22 @@ func (s *Session) inbound(m map[string]any) {
 		defer func() { cancel(); s.mu.Lock(); delete(s.prompts, id); s.mu.Unlock() }()
 		d := Decision{Message: "no one answered the permission prompt"}
 		if s.h.CanUseTool != nil {
-			got, err := s.h.CanUseTool(ctx, tr)
-			if err == nil {
-				d = got
-			} else {
-				d.Message = "the permission prompt failed: " + err.Error()
+			type result struct {
+				d   Decision
+				err error
+			}
+			rc := make(chan result, 1)
+			go func() { got, err := s.h.CanUseTool(ctx, tr); rc <- result{got, err} }()
+			select {
+			case r := <-rc:
+				if r.err == nil {
+					d = r.d
+				} else {
+					d.Message = "the permission prompt failed: " + r.err.Error()
+				}
+			case <-time.After(PromptTimeout): // a handler that ignores ctx cannot hold the CLI for ever
+				d.Message = "the permission prompt was not answered in time"
+			case <-ctx.Done():
 			}
 		}
 		if ctx.Err() != nil { // cancelled by the CLI or by close: nothing to answer

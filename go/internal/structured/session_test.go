@@ -41,6 +41,9 @@ func fakeClaude() {
 	perm := make(chan map[string]any, 1)
 	hold := make(chan struct{}, 1)
 	turn := func(uid, text string) {
+		if os.Getenv("FAKE_SILENT") == "1" { // reads the message and says nothing
+			return
+		}
 		if os.Getenv("FAKE_LIFECYCLE_ONLY") == "1" { // what the real CLI did when the model call failed: no echo, only lifecycle
 			emit(map[string]any{"type": "command_lifecycle", "command_uuid": uid, "state": "queued"})
 		} else {
