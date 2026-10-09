@@ -28,6 +28,19 @@ def cmd_hooks_gate(args) -> int:
     return 0
 
 
+def cmd_hooks_go(args) -> int:
+    """The founder's rollout switch for the Go hook (go/cmd/hl/hook.go): only an entry reading "on" lets it act."""
+    if args.state is not None:
+        try:
+            protected.put("switches", "go_hook", args.state)
+        except protected.NotTheFounder as e:
+            print(e, file=sys.stderr)
+            return 1
+    on = (protected.get("switches", "go_hook") or "").strip() == "on"
+    print(f"go hook: {'on - the Go hl answers PreToolUse' if on else 'off - Python answers every hook'}")
+    return 0
+
+
 def cmd_hook(args) -> int:
     if args.event == "install":
         print("`hl hook` records one event from stdin. To add ocp's hooks to the "

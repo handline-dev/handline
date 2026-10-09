@@ -19,6 +19,7 @@ type command func(c *hlclient.Client, args []string) (code int, ok bool)
 var commands = map[string]command{
 	"auto-accept":         autoAccept,
 	"close":               closeCmd,
+	"hook":                hook,
 	"idle-background":     idleBackground,
 	"idle-timeout":        idleTimeout,
 	"ignore-cache-expiry": ignoreCacheExpiry,
@@ -47,12 +48,21 @@ func main() {
 	os.Exit(1)
 }
 
-// python execs the Python entry with argv and returns only when it cannot. The interpreter is the one bin/hl chose
-// ($HANDLINE_HL_PYTHON), else PATH's python3; the entry is bin/_ocp_entry.py beside this binary's go/ folder.
+// python execs the Python entry with argv and returns only when it cannot.
 func python(argv []string) error {
-	exe, err := os.Executable()
+	cmd, err := pythonArgv(argv)
 	if err != nil {
 		return err
+	}
+	return syscall.Exec(cmd[0], cmd, os.Environ())
+}
+
+// pythonArgv is the command line that runs the Python entry with argv. The interpreter is the one bin/hl chose
+// ($HANDLINE_HL_PYTHON), else PATH's python3; the entry is bin/_ocp_entry.py beside this binary's go/ folder.
+func pythonArgv(argv []string) ([]string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
 	}
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
@@ -63,9 +73,9 @@ func python(argv []string) error {
 		py = "python3"
 	}
 	if py, err = exec.LookPath(py); err != nil {
-		return err
+		return nil, err
 	}
-	return syscall.Exec(py, append([]string{py, entry}, argv...), os.Environ())
+	return append([]string{py, entry}, argv...), nil
 }
 
 // plain is the arguments when none is an option: an option, or --help, is Python's to parse.

@@ -5,11 +5,13 @@ package hlclient
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -219,6 +221,36 @@ func (c *Client) Written(method string, params map[string]any) (bool, string, ma
 	}
 	said, _ := got["said"].(string)
 	return true, said, got
+}
+
+// Legacy sends one legacy socket verb and answers the daemon's `{ok, said}` reply, nil when it could not be sent or read
+// (daemon/client.send). The daemon answers and hangs up, so a refused shutdown of the write side is no failure.
+func (c *Client) Legacy(payload map[string]any, timeout time.Duration) map[string]any {
+	conn, err := c.Connect()
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		return nil
+	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+	}
+	data, err := io.ReadAll(conn)
+	if err != nil {
+		return nil
+	}
+	var reply map[string]any
+	if json.Unmarshal(bytes.TrimSpace(data), &reply) != nil {
+		return nil
+	}
+	return reply
 }
 
 func newID() string {
