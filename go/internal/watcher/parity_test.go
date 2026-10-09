@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	osexec "os/exec"
@@ -84,12 +85,15 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
-		t.Skip("no python3:", err)
+		if errors.Is(err, osexec.ErrNotFound) {
+			t.Skip("no python3:", err)
+		}
+		t.Fatalf("the Python detector did not start: %v", err)
 	}
 	defer cmd.Process.Kill()
 	r := bufio.NewReader(out)
 	if line, _ := r.ReadString('\n'); line != "ready\n" {
-		t.Skipf("the Python detector did not start: %q", line)
+		t.Fatalf("the Python detector did not start (its stderr is above): %q", line)
 	}
 	d := detector(g.log.DB)
 	emit := func(e stream.Entry) (*stream.Event, error) { return g.log.Append(e) }
