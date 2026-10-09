@@ -14,6 +14,7 @@ one and the web UI's fake daemon: nothing here knows which it is talking to.
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import re
 import socket
@@ -283,8 +284,9 @@ def saved_names(node) -> set:
     return set()
 
 
-def spec_methods() -> set:
-    return {m["name"] for m in json.loads((HERE / "protocol.json").read_text())["methods"]}
+@functools.cache     # asked once per fixture; the spec is the biggest file here
+def spec_methods() -> frozenset:
+    return frozenset(m["name"] for m in json.loads((HERE / "protocol.json").read_text())["methods"])
 
 
 def listed_methods(target) -> set | None:
