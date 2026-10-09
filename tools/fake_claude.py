@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A stand-in for the claude CLI's stream-json mode, for the conformance run: it answers --version and every control request, echoes
-each user message and runs a turn that ends at once, except a message naming fake-hold (it ends at an interrupt) or fake-ask (it ends when its permission prompt is answered). The version comes from FAKE_CLAUDE_VERSION (tools/test-go.sh reads the pinned
-one out of the Go source), so the daemon's version check passes."""
+each user message and runs a turn that ends at once. A message naming fake-hold starts a turn that ends at an interrupt, and one
+naming fake-ask a turn that waits on a permission prompt. The version comes from FAKE_CLAUDE_VERSION (tools/test-go.sh reads the
+pinned one out of the Go source), so the daemon's version check passes."""
 import json
 import os
 import sys
