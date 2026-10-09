@@ -3,8 +3,6 @@
 account.login_code
 account.remove
 agent.unstall
-input.release
-input.take
 session.input
 session.keys
 session.type

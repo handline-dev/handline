@@ -81,3 +81,26 @@ func TestTheIdleLimitIsFromConfigIfAPositiveIntegerElseTheDefault(t *testing.T) 
 		}
 	}
 }
+
+func TestTakeWinsOnlyWhereNobodyElseHolds(t *testing.T) {
+	db, home := open(t)
+	now := time.Unix(10_000, 0)
+	if ok, err := Take(db, home, "a.one", "person", "casey", now); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if ok, _ := Take(db, home, "a.one", "person", "robin", now.Add(time.Second)); ok {
+		t.Fatal("a second taker must lose")
+	}
+	if ok, _ := Take(db, home, "a.one", "person", "casey", now.Add(time.Second)); !ok {
+		t.Fatal("the holder takes again")
+	}
+	if ok, _ := Take(db, home, "a.one", "person", "robin", now.Add(time.Hour)); !ok {
+		t.Fatal("an idle hold is lost")
+	}
+	if err := Release(db, "a.one"); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := Holder(db, home, "a.one", now); h != nil {
+		t.Fatal("released")
+	}
+}

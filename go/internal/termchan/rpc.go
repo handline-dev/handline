@@ -33,6 +33,8 @@ type Env struct {
 	Home    string
 	Backend func() term.Backend
 	Now     func() time.Time
+	// Structured says whether an agent runs as a structured session, which has no terminal to hold.
+	Structured func(agent string) bool
 
 	Hub   *Hub
 	Bytes *BytesHub
@@ -92,6 +94,8 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.attach", rpc.Method{Role: "member", Handler: e.attach})
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
+	s.Register("input.take", rpc.Method{Role: "member", Write: true, Handler: e.take})
+	s.Register("input.release", rpc.Method{Role: "member", Write: true, Handler: e.release})
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
