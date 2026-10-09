@@ -357,20 +357,26 @@ KEYARG = ["--var", "founder_key=k", *(x for k, v in {**VIEW_VARS, **LIST_VARS, *
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript", "--var", "working_agent=a.working", "--var", "crashed_agent=a.crashed"]
 
-def _ready() -> list[Path]:
-    """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed. One the fake runs and fails stays in,
-    so a fixture edit or a fake regression fails the fake runs instead of dropping out."""
+def _ready() -> tuple[list[Path], list]:
+    """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed, and the fake's results for
+    the rest. One the fake runs and fails stays in, so a fixture edit or a fake regression fails the fake runs instead of dropping out."""
     results = conformance.run_all(FILES, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
     dropped = {n for st, _, n in results if st in ("missing", "needvar", "skip")}
     out = Path(tempfile.mkdtemp(prefix="conformance-"))
+    kept: set[str] = set()
     for p in FILES:
         doc = json.loads(p.read_text())
         doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith(NOT_YET) or f["name"] not in dropped]
+        kept |= {f["name"] for f in doc["fixtures"]}
         (out / p.name).write_text(json.dumps(doc))
-    return sorted(out.glob("*.json"))
+    return sorted(out.glob("*.json")), [r for r in results if r[2] in kept]
 
 
-READY = _ready()
+READY, READY_RESULTS = _ready()
+# READY less the files whose steps wait on the clock (framing's waiting calls, devices' sleep), which hold each run
+# for seconds: for the tests of exit codes, skips and listings, which do not need them. The fake's run of all of READY
+# is checked once (test_the_fixtures_pass_against_a_fake_daemon), and each of those files has a test of its own.
+QUICK = [p for p in READY if p.name not in ("framing.json", "devices.json")]
 
 
 def _count(results, status: str) -> int:
@@ -378,14 +384,14 @@ def _count(results, status: str) -> int:
 
 
 def test_the_fixtures_pass_against_a_fake_daemon() -> None:
-    results = conformance.run_all(READY, _fakes("founder", "agent", "anonymous", "unpaired"), KEY)
+    results = READY_RESULTS
     bad = [(n, why) for s, why, n in results if s != "pass"]
     check("conformance: every fixture passes against the fake daemon", not bad and results, str(bad))
     check("conformance: each fixture is reported by name", {"hello.ok", "errors.not_found"} <= {n for _, _, n in results})
 
 
 def test_a_role_without_a_socket_is_skipped_not_passed() -> None:
-    results = conformance.run_all(READY, _fakes("founder"), KEY)
+    results = conformance.run_all(QUICK, _fakes("founder"), KEY)
     skipped = {n for s, _, n in results if s == "skip"}
     check("conformance: fixtures for roles with no socket are skipped", {"whoami.agent", "errors.refused_by_role"} <= skipped and not _count(results, "fail"), str(results))
 
@@ -443,7 +449,7 @@ def _first_fixture_fails(mutate, needle: str, name: str) -> None:
 def test_skips_for_a_missing_var_and_a_method_the_daemon_lacks() -> None:
     [(status, why, _)] = conformance.run_all(FILES, _fakes("founder"), {}, "hello.ok")
     check("conformance: a fixture needing a --var is reported needvar without it", status == "needvar" and "founder_key" in why, why)
-    results = conformance.run_all(READY, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
+    results = conformance.run_all(QUICK, _fakes("founder", "anonymous", lacks={"agent.get"}), KEY)
     by = {n: (s, why) for s, why, n in results}
     check("conformance: a fixture whose method the daemon does not list is reported missing, with the reason",
           by["errors.not_found"] == ("missing", "method not implemented by this daemon")
@@ -607,9 +613,9 @@ def test_a_reply_outside_the_json_rpc_envelope_fails() -> None:
 def test_a_run_that_skipped_is_not_green(td) -> None:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        only_founder = conformance.main([*KEYARG, *map(str, READY)], _fakes("founder"))
-        allowed = conformance.main(["--allow-skip", *KEYARG, *map(str, READY)], _fakes("founder"))
-        all_roles = conformance.main([*KEYARG, *map(str, READY)], _fakes("founder", "agent", "anonymous", "unpaired"))
+        only_founder = conformance.main([*KEYARG, *map(str, QUICK)], _fakes("founder"))
+        allowed = conformance.main(["--allow-skip", *KEYARG, *map(str, QUICK)], _fakes("founder"))
+        all_roles = conformance.main([*KEYARG, *map(str, QUICK)], _fakes("founder", "agent", "anonymous", "unpaired"))
     check("conformance: a run with only the founder socket exits 3, not 0", only_founder == 3, out.getvalue())
     check("conformance: --allow-skip makes the same run exit 0", allowed == 0)
     check("conformance: a run with every role passes with exit 0", all_roles == 0)
@@ -623,7 +629,7 @@ def test_a_run_that_skipped_is_not_green(td) -> None:
 def _run(args, **fake) -> tuple[int, str]:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        code = conformance.main([*args, *map(str, READY)], _fakes("founder", "agent", "anonymous", "unpaired", **fake))
+        code = conformance.main([*args, *map(str, QUICK)], _fakes("founder", "agent", "anonymous", "unpaired", **fake))
     return code, out.getvalue()
 
 
