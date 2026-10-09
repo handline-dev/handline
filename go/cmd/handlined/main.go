@@ -120,6 +120,7 @@ func main() {
 			}
 		}
 		cfg.Session = func() *sessionrpc.Env { return parts.SessionRPC(ccfg) }
+		cfg.Context = parts.Context
 	}
 	if *gateway {
 		for _, n := range strings.Split(*native, ",") {

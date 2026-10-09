@@ -396,7 +396,7 @@ Reply to an item. A message to whoever sent the item, settling it (`hl say --par
 
 ### `tasks.list`
 
-Task rows.
+Task rows. Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`).
 
 ### `task.get`
 

@@ -3,7 +3,8 @@
 //   transcript_agent=handline.auditor working_agent=conf.working crashed_agent=conf.crashed terminal_agent=handline.term-build
 // and, for structured_controls.json, structured_agent=handline.auditor (idle) turn_agent=conf.working interrupt_agent=conf.interrupt (its turn is ended by
 // the fixture) asking_agent=conf.asking (a permission is open); and, for agent_view_fields.json, view_ready_agent=view.ready view_blocked_agent=view.blocked
-// view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain
+// view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain; and, for tasks_list_fields.json,
+// tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from './daemon.ts';
 import { AGENTS } from './fixtures.ts';
@@ -32,6 +33,19 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   ] as const) {
     daemon.sessions.set(name, newSession({ ...base, name, state, view }, new Date().toISOString()));
   }
+  const at = new Date().toISOString();
+  const clock = { length_s: 3600, default: false, start: at, end: at, overdue_since: null, told: 0 };
+  const task = (id: number, to: string, state: string, more: object = {}) =>
+    daemon.tasks.seed({ id, from: 'handline.architect', to, title: `task ${id}`, state, clock, ...more });
+  task(9011, 't.blocked', 'doing');
+  task(9012, 't.blocked', 'queued', {
+    blockers: [{ task: 9011, reason: 'needs it' }],
+    block_reason: 'waiting on its blocker',
+    clock: { ...clock, default: true, start: null, end: null },
+  });
+  task(9021, 't.timed', 'doing');
+  task(9031, 't.overdue', 'doing', { clock: { ...clock, overdue_since: at, told: 1 } });
+  task(9041, 't.done', 'done', { done: at });
   const client = new DaemonClient({
     client: 'conformance-seed',
     connect: async () => {

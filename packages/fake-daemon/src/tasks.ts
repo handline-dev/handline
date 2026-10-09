@@ -1,6 +1,6 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
-import type { Task, TaskDetail } from '@handline/contract';
+import type { Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { refused, storeFailure } from './errors.ts';
 
@@ -17,7 +17,7 @@ interface Host {
   emit(topic: 'tasks', type: string, f: { data: Record<string, unknown> }): void;
   sessions: Map<string, unknown>;
 }
-type Row = Task & { body: string; blockers: { task: number; reason: string }[] };
+type Row = Task & { body: string; blockers: { task: number; reason: string }[]; clock?: TaskClock | null };
 
 export class FakeTasks {
   private held: Row[] | null = null;
@@ -79,8 +79,9 @@ export class FakeTasks {
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
   }
-  private view({ body: _body, blockers: _blockers, ...t }: Row): Task {
-    return { ...t };
+  private view({ body: _body, blockers, clock, ...t }: Row): Task {
+    const ended = t.state === 'done' || t.state === 'discarded';
+    return { ...t, blocked_by: blockers.map((b) => b.task), time: ended ? null : (clock ?? null) };
   }
   private change(t: Row, patch: Partial<Row>): void {
     Object.assign(t, patch);
@@ -119,7 +120,7 @@ export class FakeTasks {
       asker: t.from,
       discarded: null,
       merged_into: null,
-      time: null,
+      time: t.state === 'done' || t.state === 'discarded' ? null : (t.clock ?? null),
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
       subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, owner: r.to, state: r.state })),
       timeline: [],

@@ -226,6 +226,19 @@ export type TimelineEntry = {
   data?: { [key: string]: unknown };
 };
 
+/** The task's clock. */
+export type TaskClock = {
+  /** The time box in seconds. */
+  length_s: number;
+  /** True when the length is the daemon's default, none was set. */
+  default: boolean;
+  start: Timestamp | null;
+  end: Timestamp | null;
+  overdue_since: Timestamp | null;
+  /** How many overrun notices the opener has had. */
+  told: number;
+};
+
 /** A task row without its body. */
 export type Task = {
   id: number;
@@ -269,6 +282,10 @@ export type Task = {
     state: string;
     at: Timestamp;
   }[];
+  /** The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it. */
+  blocked_by?: number[];
+  /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
+  time?: TaskClock | null;
 };
 
 export type TaskDetail = Task & {
@@ -301,17 +318,8 @@ export type TaskDetail = Task & {
     at: Timestamp;
   } | null;
   merged_into: number | null;
-  time: {
-    /** The time box in seconds. */
-    length_s: number;
-    /** True when the length is the daemon's default, none was set. */
-    default: boolean;
-    start: Timestamp | null;
-    end: Timestamp | null;
-    overdue_since: Timestamp | null;
-    /** How many overrun notices the opener has had. */
-    told: number;
-  } | null;
+  /** The task's clock; null once it is done or discarded. */
+  time: TaskClock | null;
   parent_title: string | null;
   /** The sub-tasks by number: `children` with their titles, owners and states. */
   subtasks: {
