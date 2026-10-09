@@ -1518,6 +1518,8 @@ class ChatPage(JobsAware, Screen):
         self._blocks_done: set[str] = set()      # blocks closed by hand or answered: not offered again
         self._newest: int | None = None          # the newest message number drawn so far, None before the first draw
         self._rebuilding = False
+        self._was_at_bottom = True
+        self._rebuild_waits = 0
         self._unseen = 0                         # messages that arrived while scrolled up, not yet scrolled to
 
     def compose(self) -> ComposeResult:
@@ -1866,7 +1868,9 @@ class ChatPage(JobsAware, Screen):
         self._transcript_key, self._live = key, live
         keep = (self.replying.m["rid"], self.replying.m["part"]) if self.replying else None
         pane = self.query_one("#transcript", VerticalScroll)
-        at_bottom = pane.is_vertical_scroll_end
+        # A draw landing before the last one is laid out finds the emptied pane "at its end": it keeps what that one saw.
+        at_bottom = self._was_at_bottom if self._rebuilding else pane.is_vertical_scroll_end
+        self._was_at_bottom = at_bottom
         self._rebuilding = True         # the emptied pane reads as "at its end" until laid out again
         pane.remove_children()
         widgets = transcript_widgets(with_task_changes(msgs, changes), state == "RUNNING", why, wait)
@@ -1897,6 +1901,12 @@ class ChatPage(JobsAware, Screen):
         self.run_worker(write, thread=True, group="seen", exit_on_error=False)
 
     def _rebuilt(self) -> None:
+        shown = [w for w in self.query_one("#transcript", VerticalScroll).children if w.display]
+        if shown and any(w.outer_size.height == 0 for w in shown) and self._rebuild_waits < 20:
+            self._rebuild_waits += 1        # not laid out yet: the pane would read "at its end" and clear the count
+            self.set_timer(0.05, self._rebuilt)
+            return
+        self._rebuild_waits = 0
         self._rebuilding = False
         self._sync_newbar()
         self._fill_waits = 0
