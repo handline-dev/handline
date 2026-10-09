@@ -56,8 +56,12 @@ func fakeClaude() {
 		case "control_request":
 			answer := map[string]any{}
 			if req, _ := m["request"].(map[string]any); req["subtype"] == "get_usage" {
-				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{
-					"five_hour": map[string]any{"utilization": 40.0}, "seven_day": map[string]any{"utilization": 10.0}}}
+				five, seven := map[string]any{"utilization": 40.0}, map[string]any{"utilization": 10.0}
+				var r5, r7 int64
+				if n, _ := fmt.Sscanf(os.Getenv("FAKE_USAGE_RESETS"), "%d,%d", &r5, &r7); n == 2 { // when the windows end, unix seconds
+					five["resets_at"], seven["resets_at"] = r5, r7
+				}
+				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{"five_hour": five, "seven_day": seven}}
 			}
 			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": answer}})
 		case "user":

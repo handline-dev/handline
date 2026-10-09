@@ -20,11 +20,12 @@ import (
 )
 
 // The Python daemon's usage steps of a tick (poll_usage, then observe_burn), run once on a copy of the home the Go tick runs on with
-// -cutover, with the clock held at one second and the meter answering what the fake CLI answers (five hours 40%, seven days 10%).
+// -cutover, with the clock held at one second and the meter answering what the fake CLI answers (five hours 40%, seven days 10%, ending when the case says).
 const pythonUsageSteps = `
 import json, os, sys, time
 sys.path.insert(0, os.getcwd())
 T = int(sys.argv[1])
+R5, R7 = (int(x) or None for x in sys.argv[2].split(","))
 time.time = lambda: T
 from handline import db
 from handline.daemon import evaluate, usage_poll
@@ -32,7 +33,7 @@ from handline.team import accounts
 from handline.usage import usage_api
 from handline.vendors.base import Reading, Window
 accounts.logged_in = lambda acct: True
-usage_api.read = lambda acct, refresh=True: Reading(acct, (Window(300, 40, None), Window(10080, 10, None)), T)
+usage_api.read = lambda acct, refresh=True: Reading(acct, (Window(300, 40, R5), Window(10080, 10, R7)), T)
 con = db.connect()
 usage_poll.poll_usage(con, lambda s: None)
 evaluate.observe_burn(con, lambda s: None)
@@ -145,7 +146,29 @@ func copyTree(t *testing.T, from, to string) {
 	}
 }
 
+// usageCase is a stored reading (5h and 7d: percent, reset offset from now) and what the meter answers (reset offsets, 0 for none).
+type usageCase struct {
+	name                       string
+	stored                     [2]struct{ pct, reset int64 }
+	want5                      float64 // the 5h figure both sides must end on, so the case cannot pass by changing nothing
+	storedPing                 bool    // the ended 5h window has had its real turn, so neither side spends another
+	answerReset5, answerReset7 int64
+}
+
 func TestTheGoTickAtTheCutoverLeavesTheUsageTracesThePythonTickLeaves(t *testing.T) {
+	h := int64(3600)
+	for _, c := range []usageCase{
+		{name: "windows without a reset", stored: [2]struct{ pct, reset int64 }{{55, h}, {5, 2 * h}}},
+		// 55% stored and 40% read inside the one open window: the figure is never lowered.
+		{name: "a lower reading in the same open window", stored: [2]struct{ pct, reset int64 }{{55, h}, {12, 2 * h}}, answerReset5: h, answerReset7: 2 * h, want5: 55},
+		// The stored 5h window ended 10 minutes ago; the reading names the next one.
+		{name: "a reading after the window ended", stored: [2]struct{ pct, reset int64 }{{55, -600}, {12, 2 * h}}, storedPing: true, answerReset5: h, answerReset7: 2 * h, want5: 40},
+	} {
+		t.Run(c.name, func(t *testing.T) { compareUsageTicks(t, c) })
+	}
+}
+
+func compareUsageTicks(t *testing.T, c usageCase) {
 	py, err := osexec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 is not installed")
@@ -178,14 +201,28 @@ func TestTheGoTickAtTheCutoverLeavesTheUsageTracesThePythonTickLeaves(t *testing
 	}
 	// a1 already has a reading, old enough to be asked again, whose windows the new reading replaces.
 	old := now.Add(-3 * time.Hour).Unix()
-	seed, _ := json.Marshal(map[string]any{"collected_at": old, "session_id": "keep-me", "windows": []map[string]any{
-		{"minutes": 300, "used_percent": 55, "resets_at": now.Unix() + 3600, "observed_at": old, "carried": false, "lost": false},
-		{"minutes": 10080, "used_percent": 5, "resets_at": now.Unix() + 7200, "observed_at": old, "carried": false, "lost": false}}})
+	var stored []map[string]any
+	for i, m := range []int{300, 10080} {
+		stored = append(stored, map[string]any{"minutes": m, "used_percent": c.stored[i].pct, "resets_at": now.Unix() + c.stored[i].reset, "observed_at": old, "carried": false, "lost": false})
+	}
+	seed, _ := json.Marshal(map[string]any{"collected_at": old, "session_id": "keep-me", "windows": stored})
 	os.WriteFile(paths.StatusFile(home, "a1"), seed, 0o644)
+	at := func(off int64) int64 { // a reset offset as the clock's second, 0 for none
+		if off == 0 {
+			return 0
+		}
+		return now.Unix() + off
+	}
+	if c.storedPing { // an ended window earns a real turn once per reset, and neither side may spend it here
+		if _, err := d.Exec("INSERT INTO meta(name, value, updated) VALUES('reset-ping:a1:5h', ?, 0)", fmt.Sprint(at(c.stored[0].reset))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resets := fmt.Sprintf("%d,%d", at(c.answerReset5), at(c.answerReset7))
 	pyHome := t.TempDir()
 	copyTree(t, home, pyHome)
 
-	cmd := osexec.Command(py, "-I", "-c", pythonUsageSteps, fmt.Sprint(now.Unix()))
+	cmd := osexec.Command(py, "-I", "-c", pythonUsageSteps, fmt.Sprint(now.Unix()), resets)
 	cmd.Dir = root
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "HANDLINE_") && !strings.HasPrefix(kv, "OCP_") { // a session's own home names would be read first
@@ -201,6 +238,9 @@ func TestTheGoTickAtTheCutoverLeavesTheUsageTracesThePythonTickLeaves(t *testing
 
 	cfg := p.Run.cfg
 	cfg.Now = func() time.Time { return now }
+	if c.answerReset5 != 0 {
+		cfg.Env = append(append([]string(nil), cfg.Env...), "FAKE_USAGE_RESETS="+resets)
+	}
 	tk := p.Tick(cfg, TickConfig{Cutover: true})
 	if _, err := tk.Tick.Run(nil); err != nil {
 		t.Fatal(err)
@@ -213,6 +253,12 @@ func TestTheGoTickAtTheCutoverLeavesTheUsageTracesThePythonTickLeaves(t *testing
 	for _, k := range []string{"usage_samples", "token_calls", "meta", "cursors"} {
 		if len(pyTr[k].([]map[string]any)) == 0 {
 			t.Fatalf("the Python steps left no %s: the comparison would hold of nothing", k)
+		}
+	}
+	if c.want5 != 0 {
+		ws := pyTr["status.json"].(map[string]any)["a1"].(map[string]any)["windows"].([]any)
+		if got := ws[0].(map[string]any)["used_percent"]; got != c.want5 {
+			t.Fatalf("the Python steps left the 5h window at %v, want %v", got, c.want5)
 		}
 	}
 	for _, k := range []string{"usage_samples", "token_calls", "meta", "cursors", "status.json"} {
