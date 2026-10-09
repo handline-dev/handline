@@ -143,7 +143,10 @@ func (e *Env) item(id int64, kind, agent, body string, at int64, read, answered 
 }
 
 // founderItems is the mailbox the screen draws.
-func (e *Env) founderItems() ([]map[string]any, error) {
+func (e *Env) founderItems() ([]map[string]any, error) { return e.FounderItems(0) }
+
+// FounderItems is the mailbox from request number since up (0 is all of it): what inbox.list shows the founder, item by item.
+func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
 	rows, err := e.mailboxRows()
 	if err != nil {
 		return nil, err
@@ -151,6 +154,9 @@ func (e *Env) founderItems() ([]map[string]any, error) {
 	seen := map[string]int64{}
 	var out []map[string]any
 	for _, m := range rows {
+		if m.id < since {
+			continue
+		}
 		cursor, ok := seen[m.from]
 		if !ok {
 			cr, err := queryOne(e.DB, "SELECT row_id FROM cursors WHERE name = ?", "for_you_seen:"+m.from)
@@ -176,9 +182,16 @@ func (e *Env) founderItems() ([]map[string]any, error) {
 }
 
 // agentItems is an agent's own incoming requests.
-func (e *Env) agentItems(agent string) ([]map[string]any, error) {
+func (e *Env) agentItems(agent string) ([]map[string]any, error) { return e.AgentItems(agent, 0) }
+
+// AgentItems is an agent's own incoming requests: all of them, or with only set the one request of that number.
+func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
+	which, args := "", []any{agent}
+	if only != 0 {
+		which, args = "AND id = ? ", append(args, only)
+	}
 	rows, err := query(e.DB, "SELECT id, ts, requester, kind, body, read_at, state, "+answerSQL+" FROM requests "+
-		"WHERE target = ? AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", agent)
+		"WHERE target = ? "+which+"AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +209,15 @@ func (e *Env) agentItems(agent string) ([]map[string]any, error) {
 		out = append(out, it)
 	}
 	return out, nil
+}
+
+// Answered is whether the request has been answered, by the rule an agent's item gives: something closed it with words.
+func (e *Env) Answered(id int64) (bool, error) {
+	r, err := queryOne(e.DB, "SELECT "+answerSQL+" FROM requests WHERE id = ?", id)
+	if err != nil || r == nil {
+		return false, err
+	}
+	return r.set("answer"), nil
 }
 
 func (e *Env) inboxPage(c *rpc.Conn, params map[string]any) (map[string]any, error) {
