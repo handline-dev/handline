@@ -353,6 +353,23 @@ def test_the_view_pass_leaves_the_structured_agents_row_alone(home: Path) -> Non
         con.close()
 
 
+def test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(home: Path) -> None:
+    from handline import actions
+    con, _typed = _world(home)
+    try:
+        db.set_terminal(con, "frontend", "term_x", str(home / "frontend"))
+        word, why, clears = actions._delivery_state(con, "frontend", {}, {"term_x"})
+        check("stuck: a structured agent that still holds its terminal says so", word == "switched with its terminal open", word)
+        check("stuck: and names the fix", "hl close frontend" in why and "remove `structured:`" in why and not clears, why)
+        check("stuck: a terminal agent beside it does not",
+              actions._delivery_state(con, "backend", {}, {"term_x"})[0] != "switched with its terminal open")
+        db.set_closed(con, "frontend", "sess-frontend")
+        check("stuck: once it is closed it is not the finding",
+              actions._delivery_state(con, "frontend", {}, {"term_x"})[0] != "switched with its terminal open")
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_kind_is_read_as_the_go_daemon_reads_it(Path(td) / "k1"))
@@ -363,6 +380,7 @@ def main() -> int:
         run(lambda: test_the_same_calls_do_act_on_a_terminal_agent(Path(td) / "k5"))
         run(lambda: test_timebox_and_apply_settings_skip_it_and_a_task_it_holds_is_not_clocked_here(Path(td) / "k6"))
         run(lambda: test_the_view_pass_leaves_the_structured_agents_row_alone(Path(td) / "k7"))
+        run(lambda: test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(Path(td) / "k8"))
     return run_area(tests)
 
 
