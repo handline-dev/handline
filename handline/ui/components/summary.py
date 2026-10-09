@@ -7,10 +7,11 @@ from typing import NamedTuple
 from rich.style import Style
 from rich.text import Text
 
-from ... import actions, db
-from ...usage import load as loadmod, status
+from ... import actions
+from ...usage import status
 from ...infra import paths
-from ...daemon import locks as dmn_locks
+from ...daemon import client, locks as dmn_locks
+from .. import api
 
 class Summary(NamedTuple):
     running: int                    # agents working now
@@ -18,11 +19,16 @@ class Summary(NamedTuple):
     for_you: int = 0                # tasks delegated to the founder that are not done yet
 
 
-def summarize(con) -> Summary:
-    return Summary(
-        sum(1 for r in db.all_agent_states(con) if loadmod.is_running(r)),
-        sum(1 for m in actions.mailbox_rows(con) if m["gate"]),
-        len(actions.task_rows(con, owner=actions.HUMAN, state=list(actions.DELEGATED_STATES))))
+def summarize() -> Summary:
+    """The three counts, from the daemon's `agents.list`, `inbox.list` and `tasks.list`; zero when it cannot be asked."""
+    try:
+        running = sum(1 for a in api.call("agents.list")["agents"] if a["state"] == "running")
+        to_decide = len(api.call("inbox.list", {"kind": "decision", "limit": 200})["items"])
+        for_you = sum(1 for t in api.call("tasks.list", {"owner": actions.HUMAN, "limit": 200})["items"]
+                      if t["state"] in actions.DELEGATED_STATES)
+    except (client.RpcError, client.DaemonDown, OSError):
+        return Summary(0, 0, 0)
+    return Summary(running, to_decide, for_you)
 
 
 def summary_text(daemon_running: bool, clock: str, s: Summary) -> Text:
