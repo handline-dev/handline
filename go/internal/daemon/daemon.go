@@ -87,6 +87,8 @@ type Config struct {
 	Answers prompts.Structured
 	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
 	SessionOpen func(agent string) bool
+	// Context is the model id and context figures of an agent on an account (agent.strip). Nil leaves them null.
+	Context func(agent, account string) (string, *int, *int64, int)
 	// Delivery is what the supervisor knows of why a queued line waits (a chat line's sending_reason). Nil leaves out the reasons that need it.
 	Delivery reads.Delivery
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
@@ -349,6 +351,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
+	renv.Context = d.cfg.Context
 	if d.logins != nil {
 		renv.Login = d.logins.Of
 	}
