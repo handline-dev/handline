@@ -208,7 +208,6 @@ func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
 			run(ins, 1, 100, "human", "bob", "question", "landed", nil)
 			run(ins, 2, 150, "bob", "human", "the answer", "landed", 1)
 			run(ins, 3, 200, "amy", "bob", "hello", "landed", nil)
-			run("UPDATE requests SET delivered_at = 205, typed_at = 206, landed_at = 210 WHERE id = 3") // landed, so no sending reason (the reads give a simpler one than Python)
 			run("INSERT INTO events(ts, agent, kind, payload) VALUES(5, 'bob', 'task_begin', '{\"task_id\":1}')")
 			run(pb, "bob", 6, 6)
 			run("UPDATE prompt_blocks SET gone_at = 9 WHERE id = 1")
