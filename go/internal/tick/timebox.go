@@ -73,7 +73,12 @@ type TimeboxPorts interface {
 }
 
 // Timebox is the five notices.
-type Timebox struct{ Ports TimeboxPorts }
+type Timebox struct {
+	Ports TimeboxPorts
+	// Cutover: the Python daemon no longer ticks, so the task clock covers every owner; before it, only the owners this daemon drives (the
+	// Python clock skips these, and a clock run by both tells an opener twice).
+	Cutover bool
+}
 
 func (b *Timebox) tell(t *Tick, who, text string, now int64) bool {
 	if who == db.Human {
@@ -113,7 +118,14 @@ func (b *Timebox) boss(agent string) string {
 // SweepTaskTimeouts is a task's timeout clock, read each tick: it runs only while the task is doing; past it the opener is told, and again
 // every stretch until it is done, extended or released. A task with no timeout_s takes the default where it becomes doing.
 func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
+	driven := map[string]bool{}
+	for _, a := range t.Host.Agents() {
+		driven[a] = true
+	}
 	for _, row := range must(db.TasksToClock(t.Q)) {
+		if !b.Cutover && !driven[row.Owner] {
+			continue // a terminal agent's task: the Python daemon's clock
+		}
 		tid := row.ID
 		if !b.Ports.TaskDoing(t.Q, row) {
 			if row.TimeoutAt.Valid {

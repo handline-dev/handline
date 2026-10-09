@@ -182,3 +182,14 @@ func TestRetireWriteClosesAHeldRequestWithoutSettlingItsDecisionTask(t *testing.
 		t.Fatalf("%v %q", ok, why)
 	}
 }
+
+// A name no agent directory backs has no state to queue: the write made `hl ps` list it as an agent.
+func TestResolveQueuesNoStateRowForARequesterThatIsNoAgent(t *testing.T) {
+	r := newRig(t)
+	rid := r.ask("ghost", "bob", "q", "ask")
+	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
+	r.must(err)
+	if len(r.eval.calls) != 0 {
+		t.Fatalf("a requester no agent has was queued: %v", r.eval.calls)
+	}
+}

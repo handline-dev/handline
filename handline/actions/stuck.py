@@ -51,6 +51,11 @@ def _delivery_state(con, agent: str, sessions: dict | None,
         # considered at all. Reporting a missing terminal ahead of it sent the
         # reader to start one, which would not have moved the request.
         return "stalled", f"{agent} is FATAL - the daemon will not touch it (w clears it)", False
+    if agents.is_structured(agent) and row["terminal"] and not row["closed_at"]:
+        # The Go daemon drives it and will not touch a row whose terminal session may still run: nothing reaches it until that is closed.
+        return ("switched with its terminal open",
+                f"{agent} is structured but its terminal session is still open and nothing reaches it: remove `structured:` from its "
+                f"agent.yaml, `hl close {agent}`, then put the line back", False)
     handle = row["terminal"]
     # A closed session's pane closes with it (T407): no terminal is that agent's normal state, and its reason is below.
     if not handle and not dmn_lifecycle.resumable_without_terminal(row):

@@ -2,11 +2,14 @@
 package paths
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Getenv reads name under both prefixes, HANDLINE_ first, as infra/names.getenv does.
@@ -117,20 +120,37 @@ func Removing(home, acct string) bool {
 	return err == nil
 }
 
-// ListAgents is the registered agents: a folder holding agent.yaml, by name.
+// ListAgents is the registered agents: a folder holding agent.yaml, by name. A listing that cannot be read is an empty one; a caller
+// that must tell the two apart uses ReadAgents.
 func ListAgents(home string) []string {
-	entries, err := os.ReadDir(AgentsDir(home))
-	if err != nil {
+	out, _ := ReadAgents(home)
+	if out == nil {
 		return []string{}
+	}
+	return out
+}
+
+// ReadAgents is ListAgents with the read errors: the agents directory, or an entry's agent.yaml, that cannot be read for a reason other
+// than not being there (no agents directory is no agents).
+func ReadAgents(home string) ([]string, error) {
+	entries, err := os.ReadDir(AgentsDir(home))
+	if errors.Is(err, fs.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	out := []string{}
 	for _, e := range entries {
-		if _, err := os.Stat(filepath.Join(AgentsDir(home), e.Name(), "agent.yaml")); err == nil {
+		_, err := os.Stat(filepath.Join(AgentsDir(home), e.Name(), "agent.yaml"))
+		if err == nil {
 			out = append(out, e.Name())
+		} else if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			return nil, err
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // OcpExe is the command a hook or launch line should call hl with: HANDLINE_BIN or OCP_BIN, else the first of Commands on PATH.
