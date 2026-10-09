@@ -425,6 +425,13 @@ export type Account = {
   agents_running?: number;
   /** Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
   agents_unplaced?: number;
+  /** The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed. */
+  login?: {
+    login_id: string;
+    state: "waiting" | "code_sent" | "done" | "failed" | "cancelled";
+    /** Present while waiting. */
+    url?: string;
+  } | null;
 };
 
 export type DaemonStatus = {
@@ -1817,8 +1824,21 @@ export interface Methods {
   account: string;
   request_id: RequestId;
 }; result: Accepted & {
-    terminal: string;
+    login_id: string;
+    state: "waiting";
+    /** The authorize URL the claude CLI printed; the person opens it and brings the code back with account.login_code. */
+    url: string;
   } };
+  "account.login_cancel": { params: {
+  login_id: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "account.login_code": { params: {
+  login_id: string;
+  /** One-time; written to the CLI's stdin and nowhere else. */
+  code: string;
+  request_id: RequestId;
+}; result: Accepted };
   "account.remove": { params: {
   account: string;
   /** Change nothing: answer `plan` and `would_remove`. A dry run needs no `confirm`. */
@@ -2038,6 +2058,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
+  "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },
+  "account.login_code": { role: "founder", callers: null, write: true, since: 1 },
   "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },

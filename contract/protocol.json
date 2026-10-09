@@ -5992,7 +5992,7 @@
   },
   {
    "name": "account.login",
-   "summary": "Start a login; returns a terminal for terminal.attach.",
+   "summary": "Start a login on the account; answers the login id and the URL to open.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6020,12 +6020,24 @@
       {
        "type": "object",
        "properties": {
-        "terminal": {
+        "login_id": {
          "type": "string"
+        },
+        "state": {
+         "type": "string",
+         "enum": [
+          "waiting"
+         ]
+        },
+        "url": {
+         "type": "string",
+         "description": "The authorize URL the claude CLI printed; the person opens it and brings the code back with account.login_code."
         }
        },
        "required": [
-        "terminal"
+        "login_id",
+        "state",
+        "url"
        ]
       }
      ]
@@ -6041,7 +6053,98 @@
     {
      "$ref": "#/components/errors/not_found"
     }
-   ]
+   ],
+   "description": "No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`."
+  },
+  {
+   "name": "account.login_cancel",
+   "summary": "Stop a login in progress.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "login_id",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "Idempotent: a login already ended answers accepted. An id the daemon never issued is not_found. The login's whole process group is killed, since the CLI ignores SIGTERM for a second."
+  },
+  {
+   "name": "account.login_code",
+   "summary": "Hand the one-time code from the authorize page to a login waiting for it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "login_id",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "code",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One-time; written to the CLI's stdin and nowhere else."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The code is never echoed back, never in an event, a log or the request record. Refused with gate `state` when the login is not waiting for a code. An id the daemon never issued is not_found."
   },
   {
    "name": "account.remove",
@@ -8846,6 +8949,40 @@
       "type": "integer",
       "minimum": 0,
       "description": "Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0."
+     },
+     "login": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "login_id": {
+          "type": "string"
+         },
+         "state": {
+          "type": "string",
+          "enum": [
+           "waiting",
+           "code_sent",
+           "done",
+           "failed",
+           "cancelled"
+          ]
+         },
+         "url": {
+          "type": "string",
+          "description": "Present while waiting."
+         }
+        },
+        "required": [
+         "login_id",
+         "state"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed."
      }
     },
     "required": [
