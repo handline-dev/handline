@@ -105,6 +105,11 @@ agent (ROLE.md, base.md); this file does not repeat them.
   background); a count you quote is not a verdict. `tools/check.sh` is also what `hl land --check` runs:
   the Go suite and the Python files that test only Go (its GO_FILES) for a change to go/ or the apps only, the whole suite
   (`tools/suite.sh`) for anything else, nothing for documentation.
+- Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
+  conflict, lands without a new review round. The auditor records the PASS on the new sha at once
+  and the merger lands it.
+- Live checks: run them yourself on sigma, the test account, one short run each, and put the
+  results in the task. Do not send a live run to the founder.
 - Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
   venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
   print nothing without them, and a hang looks like a stall).
