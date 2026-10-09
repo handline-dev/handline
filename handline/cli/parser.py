@@ -484,6 +484,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="test the merge of these shas onto main here, in order, with one suite run, and print the "
                         "tree for each; on red, split the batch and drop the shas that break it. Records nothing")
     p.add_argument("--tree", default=None, help="the tree `--check` printed; `land <sha> <message> --tree <tree>` records it")
+    p.add_argument("--fix", default=None, metavar="DIR",
+                   help="the merger's housekeeping for one sha, with --check and then with the land: each file under DIR, "
+                        "at its repo path, is written over the merge (a conflict it resolves, a missing doc line); "
+                        "only paths in tools/housekeeping.paths, anything else needs a PASS")
+    p.add_argument("--squash", action="store_true",
+                   help="land one commit carrying the merge message instead of the merge, so a WIP branch message never reaches main")
     p.set_defaults(fn=cmd_land)
 
     p = sub.add_parser("schedule", help="show, add, edit or remove the messages the daemon types at an agent "

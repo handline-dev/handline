@@ -411,6 +411,144 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
             os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
+def test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(home: Path) -> None:
+    """What is not the auditor's to judge, the merger fixes when it lands, with no new review: `--fix <dir>` writes
+    whole files on main's tools/housekeeping.paths over the merge (resolving a list-file conflict), anything else is
+    refused as needing a PASS, and `--squash` lands one commit carrying the merger's message instead of a WIP one."""
+    import shutil
+    from handline.daemon import lands
+    main = _repo(home / "repo")
+    shutil.copy(ROOT / "tools" / "housekeeping.paths", main / "tools" / "housekeeping.paths")
+    (main / "handline" / "infra").mkdir(parents=True)
+    shutil.copy(ROOT / "handline" / "infra" / "housekeeping.py", main / "handline" / "infra" / "housekeeping.py")
+    (main / "go").mkdir()
+    (main / "go" / "conformance-missing.txt").write_text("a\nb\n")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "lists")
+    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
+    os.environ["OCP_LAND_REPO"] = str(main)
+    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
+    real_tell, told = lands._tell, []
+    lands._tell = lambda con, to, body, log: told.append(body)
+
+    def check_fix(sha: str, fixdir: Path) -> subprocess.CompletedProcess:
+        return subprocess.run([str(LAND), "--check", "--fix", str(fixdir), sha], cwd=main, capture_output=True,
+                              text=True, env=ENV, timeout=60)
+
+    def land(sha: str, message: str, tree: str, fix=None, squash=False) -> tuple[bool, str, dict]:
+        ok, said = lands.request(con, sha, message, tree, lands.MERGER, fix, squash)
+        row = None
+        for _ in range(20 if ok else 0):      # lands queued before this one run first, one per sweep
+            lands.sweep(con, lambda m: None)
+            lands._worker["thread"].join(60)
+            row = con.execute("SELECT * FROM lands WHERE sha = ? ORDER BY id DESC LIMIT 1", (sha,)).fetchone()
+            if row["state"] not in ("queued", "running"):
+                break
+        return ok, said, dict(row) if row else {}
+    con = db.connect()
+    try:
+        # Both sides add a line at the end of a list file: a conflict only the merger's resolution can land.
+        listed = _branch(main, "listed", "go/conformance-missing.txt", "a\nb\nc\n")
+        _git(main, "commit", "-q", "--allow-empty", "-m", "noop")
+        moved = _branch(main, "moved", "go/conformance-missing.txt", "a\nb\nd\n")
+        _git(main, "merge", "-q", "--ff-only", moved)
+        lands.record_pass(con, listed, AUDITOR)
+        r = subprocess.run([str(LAND), "--check", listed], cwd=main, capture_output=True, text=True, env=ENV, timeout=60)
+        check("fix: without a fix the list-file conflict stops the check", r.returncode == 1 and "conflicts" in r.stderr,
+              r.stderr)
+        fixdir = home / "fix"
+        (fixdir / "go").mkdir(parents=True)
+        (fixdir / "go" / "conformance-missing.txt").write_text("a\nb\nc\nd\n")
+        r = check_fix(listed, fixdir)
+        tree = r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else ""
+        check("fix: with the resolved list file the check passes and names the tree", len(tree) == 40, r.stderr)
+        ok, said, row = land(listed, "Merge listed", tree, {"go/conformance-missing.txt": "a\nb\nc\nd\n"})
+        check("fix: the daemon lands the resolved merge, main at the tree the merger tested",
+              ok and row.get("state") == "landed" and _git(main, "rev-parse", "HEAD^{tree}") == tree
+              and (main / "go" / "conformance-missing.txt").read_text() == "a\nb\nc\nd\n", said + str(row))
+        check("fix: as a merge of the passed sha", _git(main, "rev-parse", "HEAD^2") == listed)
+
+        # A code hunk is not housekeeping: both the check and the daemon refuse it as needing a PASS.
+        code = _branch(main, "code", "c.py", "c = 1\n")
+        lands.record_pass(con, code, AUDITOR)
+        codefix = home / "codefix"
+        codefix.mkdir()
+        (codefix / "a.py").write_text("x = 2\n")
+        r = check_fix(code, codefix)
+        check("fix: a code path in --fix fails the check as needing a PASS", r.returncode == 1 and "needs a PASS" in r.stderr,
+              r.stderr)
+        before = _git(main, "rev-parse", "HEAD")
+        for fix in ({"a.py": "x = 2\n"}, {"../out.md": "x\n"}, {".git/config.md": "x\n"}):
+            ok, said = lands.request(con, code, "Merge code", _check(main, code), lands.MERGER, fix)
+            check(f"fix: the daemon refuses {next(iter(fix))!r} and queues nothing", not ok and "--fix" in said, said)
+        check("fix: main untouched by a refused fix", _git(main, "rev-parse", "HEAD") == before)
+
+        # A symlink in the merged tree is not written through, to a file or to a directory outside the worktree.
+        outside = home / "outside"
+        (outside / "dir").mkdir(parents=True)
+        (outside / "CLAUDE.md").write_text("theirs\n")
+        _git(main, "checkout", "-q", "-b", "links", "main")
+        (main / "docs").mkdir(exist_ok=True)
+        os.symlink(outside / "CLAUDE.md", main / "docs" / "notes.md")
+        os.symlink(outside / "dir", main / "docs" / "linked")
+        _git(main, "add", "-A")
+        _git(main, "commit", "-q", "-m", "links")
+        links = _git(main, "rev-parse", "HEAD")
+        _git(main, "checkout", "-q", "main")
+        lands.record_pass(con, links, AUDITOR)
+        for path in ("docs/notes.md", "docs/linked/x.md"):
+            linkfix = home / ("linkfix-" + path.replace("/", "-"))
+            (linkfix / path).parent.mkdir(parents=True)
+            (linkfix / path).write_text("mine\n")
+            r = check_fix(links, linkfix)
+            check(f"fix: the check does not write through the symlink on {path}",
+                  r.returncode == 1 and "symlink" in r.stderr, r.stderr)
+            ok, said, row = land(links, "Merge links", _check(main, links), {path: "mine\n"})
+            check(f"fix: nor does the daemon, and {path} does not land",
+                  row.get("state") != "landed" and "symlink" in str(row.get("detail") or row), said + str(row))
+        check("fix: the files outside are untouched",
+              (outside / "CLAUDE.md").read_text() == "theirs\n" and not (outside / "dir" / "x.md").exists())
+
+        # A WIP commit message never reaches main: --squash lands one commit with the merger's message.
+        wip = _branch(main, "WIP", "docs/x.md", "# x\n")
+        lands.record_pass(con, wip, AUDITOR)
+        parent = _git(main, "rev-parse", "HEAD")
+        ok, said, row = land(wip, "Docs: say how x works", _check(main, wip), squash=True)
+        check("squash: lands one commit on main with the merger's message",
+              ok and row.get("state") == "landed" and _git(main, "log", "-1", "--format=%P %s") == f"{parent} Docs: say how x works",
+              said + str(row) + _git(main, "log", "-2", "--format=%P %s"))
+        check("squash: the branch's WIP message is not in main's history",
+              "WIP" not in _git(main, "log", "--format=%s", f"{parent}..HEAD"))
+    finally:
+        con.close()
+        lands._tell = real_tell
+        for k, v in keep.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+def test_a_housekeeping_fix_never_reaches_agent_instructions(home: Path) -> None:
+    """A fix lands with no review, so it may not touch what every agent session reads as instructions, whatever
+    the list says, and a glob's `*` stays inside one path component."""
+    from handline.infra import housekeeping
+    globs = housekeeping.read_globs((ROOT / "tools" / "housekeeping.paths").read_text())
+    for path in ("CLAUDE.md", "handline/CLAUDE.md", "docs/claude.md", "CLAUDE.local.md", "AGENTS.md",
+                 "docs/AGENTS.md", ".claude/agents/x.md", ".claude/commands/y.md", "docs/.claude/z.md",
+                 "skill/SKILL.md", "skill/README.md"):
+        check(f"instructions: {path} needs a PASS even if a glob allowed it",
+              "instructions" in (housekeeping.refusal(path, globs + ["**/*.md", "**"]) or ""))
+    for path in ("x.md", "handline/x.md", "go/sub/conformance-x.txt", "docs/x.py", "docs//x.md", "./README.md",
+                 "docs/../x.md", "/README.md"):
+        check(f"paths: {path} is not housekeeping", housekeeping.refusal(path, globs) is not None)
+    for path in ("README.md", "apps/web/README.md", "docs/x.md", "docs/a/b.md", "design/02-team.md",
+                 "go/conformance-missing.txt"):
+        check(f"paths: {path} is housekeeping", housekeeping.refusal(path, globs) is None,
+              str(housekeeping.refusal(path, globs)))
+    check("glob: * does not cross a /", not housekeeping.matches("a/b.md", "*.md"))
+    check("glob: ** is any number of whole components",
+          housekeeping.matches("README.md", "**/README.md") and housekeeping.matches("a/b/README.md", "**/README.md")
+          and not housekeeping.matches("a/xREADME.md", "**/README.md"))
+
+
 def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Path) -> None:
     """A branch whose diff adds an email fails the merger's `--check`, and the daemon refuses a merge
     message carrying a task id, though the branch itself is clean."""
@@ -466,6 +604,8 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
         f"hl land {sha} \"Merge feat\" --tree {tree}": ("land", sha),
         f"hl land --tree {tree} {sha} msg": ("land", sha),
         "hl land --pass abc#x": ("land_pass", "abc#x"),
+        f"hl land {sha} msg --tree {tree} --fix /tmp/fix --squash": ("land", sha),
+        f"hl land --squash {sha} msg --tree {tree}": ("land", sha),
     }
     no = [f"hl land --check {sha}", "hl land --list", f"hl land {sha} msg", f"hl land --pass",
           f"hl land --pass {sha} && tools/suite.sh", f"tools/suite.sh; hl land --pass {sha}",
@@ -473,7 +613,8 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
           f"hl land {sha} \"$(cat x)\" --tree {tree}", f"hl land --pass {sha}\nrm x",
           f"python3 tests/x.py hl land --pass {sha}", f"echo hl land --pass {sha}", f"hl land --pass a b",
           f"hl land --tree {tree} {sha} #x", f"hl land --pass {sha} #x", f"hl land --pass {sha} # note", "hl land #c --pass abc1234",
-          f"hl land --bogus {sha}", f"hl land --pass {sha} > out", "hl land"]
+          f"hl land --bogus {sha}", f"hl land --pass {sha} > out", "hl land",
+          f"hl land --pass {sha} --fix /tmp/fix", f"hl land --pass {sha} --squash"]
     for cmd, want in ok.items():
         check(f"gate: vouches for {cmd[:50]!r}", landgate.parse("Bash", {"command": cmd}) == want,
               str(landgate.parse("Bash", {"command": cmd})))
@@ -504,12 +645,12 @@ def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
     import io
     from handline.cli import land as cli_land
     sent, real_tree, real_send = [], cli_land._tested_trees, cli_land.dmn_client.send
-    cli_land._tested_trees = lambda shas: ["t" * 40]
+    cli_land._tested_trees = lambda shas, fix=None: ["t" * 40]
     cli_land.dmn_client.send = lambda payload, timeout=0: (sent.append(payload), {"ok": True, "said": "ok"})[1]
 
     def run_land(**kw):
         args = argparse.Namespace(**{"sha": None, "message": None, "passed": False, "list": False,
-                                     "check": None, "tree": None, **kw})
+                                     "check": None, "tree": None, "fix": None, "squash": False, **kw})
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = cli_land.cmd_land(args)
@@ -564,7 +705,8 @@ def test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(home: 
     os.environ["SUITE_RUNS"] = str(runs)
 
     def run_pass(sha):
-        args = argparse.Namespace(sha=sha, message=None, passed=True, list=False, check=None, tree=None)
+        args = argparse.Namespace(sha=sha, message=None, passed=True, list=False, check=None, tree=None, fix=None,
+                                  squash=False)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = cli_land.cmd_land(args)
@@ -751,6 +893,8 @@ def main() -> int:
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
+        run(lambda: test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(Path(td) / "l4b"))
+        run(lambda: test_a_housekeeping_fix_never_reaches_agent_instructions(Path(td) / "l4c"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
         run(lambda: test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(Path(td) / "l5b"))
