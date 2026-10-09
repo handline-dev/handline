@@ -19,6 +19,11 @@ type Delivery interface {
 	AccountFull(agent string) (acct string, pct int, full bool)
 	// Wall is what holds back a wake that is due, nil when no wake is due or nothing holds it back.
 	Wall(q db.Q, agent string, row *db.AgentState) (*Wall, error)
+	// ForgottenResolve is the head request an agent looks to have forgotten (told, still open, nothing asked) and how long it has sat idle.
+	ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (head, idleS int64, found bool, err error)
+	// Fire is the trigger the daemon would hand the agent off for at its next tick, as the tick evaluates it for the agent on account;
+	// "" for none, and for an agent whose triggers do not apply.
+	Fire(q db.Q, agent string, row *db.AgentState, account string) (string, error)
 }
 
 // QueueReason is queue_reason: why request rid, queued for agent, has not reached it. It is the one builder behind chat.messages'

@@ -30,6 +30,8 @@ type Config struct {
 	Now  func() time.Time
 	// CLI is the claude binary.
 	CLI string
+	// CLIVersion is the claude version a structured start accepts; "" is structured.PinnedCLI.
+	CLIVersion string
 	// ConfigDir is an account's CLAUDE_CONFIG_DIR; nil is the account's own directory under Home, "" the one the launch lands on.
 	ConfigDir func(account string) string
 	// Args are the extra CLI arguments of every structured launch (--setting-sources project and the hooks' --settings).
@@ -135,7 +137,7 @@ func New(cfg Config) *Parts {
 	sink := &transcript.Sink{Now: cfg.Now}
 	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log, home: cfg.Home}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
-	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now}
+	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now, CLIVersion: cfg.CLIVersion}
 	run.mgr, run.parts = mgr, p
 	sink.Session = mgr.SessionID
 	p.Manager, p.Agents = mgr, &AgentsPort{mgr: mgr, kind: kind}
