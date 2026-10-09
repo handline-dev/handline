@@ -274,7 +274,16 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	clock, err := e.taskClock(t, state)
+	if err != nil {
+		return nil, err
+	}
+	blockedBy := make([]int64, len(blockers))
+	for i, b := range blockers {
+		blockedBy[i] = b.i("id")
+	}
 	task := map[string]any{
+		"blocked_by": blockedBy, "time": clock,
 		"id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),

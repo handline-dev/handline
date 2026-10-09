@@ -157,6 +157,8 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	// The Task Go's reads serve leaves out six optional fields Python's carries, on purpose: no app reads them from a Task (the asker column
 	// sorts on `from`, a discarded task is told by its state). Go's data must equal Python's on every field it has.
 	missing := map[string]bool{"last_activity": true, "edited_by": true, "asker": true, "discarded": true, "mismatch": true, "requests": true}
+	// And it carries two Python's does not send yet (blocked_by, the task clock): until the Python slice lands they are Go's alone.
+	ahead := map[string]bool{"blocked_by": true, "time": true}
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
 		pyTask, _ := norm(py[i]["data"]).(map[string]any)
@@ -172,7 +174,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			}
 		}
 		for k := range goTask {
-			if _, has := pyTask[k]; !has {
+			if _, has := pyTask[k]; !has && !ahead[k] {
 				t.Errorf("row %d: Go's Task has %s, Python's does not", i, k)
 			}
 		}
