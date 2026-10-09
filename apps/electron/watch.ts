@@ -10,12 +10,16 @@ const webDist = process.env.HANDLINE_WEB_DIST ?? process.env.OCP_WEB_DIST ?? pat
 const webIndex = path.join(webDist, 'index.html');
 const goDir = path.resolve(import.meta.dirname, '../../go');
 let child: ChildProcess | undefined;
+let stopping = false;
 const restart = (): void => {
+  if (stopping) return; // the exit already in flight starts Electron once, from the latest build
   const old = child;
   const start = (): void => {
+    stopping = false;
     child = spawn('electron', ['.'], { stdio: 'inherit', shell: false });
   };
-  if (old && old.exitCode === null) {
+  if (old && old.exitCode === null && old.signalCode === null) {
+    stopping = true;
     old.once('exit', start);
     old.kill();
   } else start();
