@@ -22,10 +22,9 @@ import (
 // A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
-	UnaskedRunningS     = 900
-	TitleShown          = 60
-	StopWaitBackstopS   = 900
-	DefaultTaskTimeoutS = 3600 // actions.DEFAULT_TASK_TIMEOUT_S
+	UnaskedRunningS   = 900
+	TitleShown        = 60
+	StopWaitBackstopS = 900
 	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
 	NoticeRetryS = 60
 )
@@ -123,7 +122,7 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue
 		}
 		if !row.TimeoutAt.Valid {
-			check(db.AdvanceTaskTimeout(t.Q, tid, now, DefaultTaskTimeoutS))
+			check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 			continue
 		}
 		if row.TimeoutAt.Int64 > now {
@@ -142,7 +141,7 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`.%s",
 			tid, title, row.Owner, timefmt.Ago(box), tid, stop)
 		if b.tell(t, row.OpenedBy, text, now) {
-			check(db.AdvanceTaskTimeout(t.Q, tid, now, DefaultTaskTimeoutS))
+			check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 			// the deadline missed and the one that replaced it: a screen chains notices by them
 			next := must(db.GetTask(t.Q, tid))
 			var nextAt any

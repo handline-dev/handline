@@ -295,3 +295,21 @@ func TestOneNoticesFailureStopsTheRestAsAnExceptionDid(t *testing.T) {
 type panicking struct{ *tbPorts }
 
 func (p *panicking) StopWaitReason(db.Q, string) string { panic("boom") }
+
+func TestATaskGivenNoTimeoutRunsFourHoursBeforeItsOpenerIsTold(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 0)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1000+4*3600 {
+		t.Fatalf("the default is 4h: %+v", task)
+	}
+	b.SweepTaskTimeouts(tk, 1000+4*3600-60)
+	if len(p.sent) != 0 {
+		t.Fatalf("told at 3h59m: %v", p.sent)
+	}
+	b.SweepTaskTimeouts(tk, 1000+4*3600+60)
+	if len(p.sent) != 1 {
+		t.Fatalf("not told at 4h01m: %v", p.sent)
+	}
+}

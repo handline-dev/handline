@@ -414,6 +414,13 @@ func TasksToClock(q Q) ([]*Task, error) {
 	return taskRows(q, "SELECT "+taskCols+" FROM tasks WHERE done_evidence IS NULL AND discarded_by IS NULL ORDER BY id")
 }
 
+// MaxTaskTimeoutS is actions.MAX_TASK_TIMEOUT_S: no task is given longer than this. DefaultTaskTimeoutS is actions.DEFAULT_TASK_TIMEOUT_S, what
+// a task never given a timeout gets: the same.
+const (
+	MaxTaskTimeoutS     = 4 * 3600
+	DefaultTaskTimeoutS = MaxTaskTimeoutS
+)
+
 // AdvanceTaskTimeout is db.advance_task_timeout: starts or re-arms a task's clock, timeout_s from now, defaultS for a task never given one.
 func AdvanceTaskTimeout(q Q, tid, now, defaultS int64) error {
 	_, err := q.Exec("UPDATE tasks SET timeout_s = COALESCE(timeout_s, ?), timeout_at = ? + COALESCE(timeout_s, ?) WHERE id = ?", defaultS, now, defaultS, tid)
