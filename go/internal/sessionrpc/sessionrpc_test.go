@@ -380,8 +380,11 @@ print(control.unstall(con, "ann")); con.commit()
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "OCP_HOME="+r.e.Home, "HANDLINE_HOME="+r.e.Home, "HANDLINE_TEST_ROOT="+filepath.Dir(r.e.Home), "OCP_TEST_ROOT="+filepath.Dir(r.e.Home))
 	out, err := cmd.CombinedOutput()
+	if errors.Is(err, exec.ErrNotFound) {
+		t.Skip("no python3")
+	}
 	if err != nil {
-		t.Skipf("the Python unstall did not run: %v: %s", err, out)
+		t.Fatalf("the Python unstall did not run: %v: %s", err, out)
 	}
 	said, err := r.e.Unstall("ann")
 	if err != nil || strings.TrimSpace(string(out)) != said {
