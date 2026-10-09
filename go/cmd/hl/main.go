@@ -17,11 +17,16 @@ import (
 type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
-	"close":    closeCmd,
-	"progress": progress,
-	"restart":  restart,
-	"say":      say,
-	"task":     task,
+	"auto-accept":         autoAccept,
+	"close":               closeCmd,
+	"idle-background":     idleBackground,
+	"idle-timeout":        idleTimeout,
+	"ignore-cache-expiry": ignoreCacheExpiry,
+	"notice-digest":       noticeDigest,
+	"progress":            progress,
+	"restart":             restart,
+	"say":                 say,
+	"task":                task,
 }
 
 func main() {
