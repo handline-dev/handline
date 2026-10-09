@@ -148,6 +148,22 @@ def group_uses(uses: list[AgentUse]) -> list[UseRow]:
     return rows
 
 
+def pick_use(uses: list[AgentUse], pick: str) -> AgentUse | None:
+    """What a pick of the agents table means: an agent by its name, or `grp:<name>` for the agent `<name>` and every `<name>.*` together
+    (their fractions of each account added up, as `group_uses` adds them). None when it names neither, or nobody used anything."""
+    group = pick[4:] if pick.startswith("grp:") else None
+    if group is None:
+        members = [u for u in uses if u.agent == pick]
+    else:
+        members = [u for u in uses if u.agent == group or u.agent.startswith(group + ".")]
+    fracs: dict[str, float] = {}
+    for u in members:
+        for acct, f in u.fracs.items():
+            fracs[acct] = fracs.get(acct, 0.0) + f
+    return AgentUse(pick, sum(u.tokens for u in members), sum(u.cost for u in members), sum(u.share for u in members), None, fracs) \
+        if fracs else None
+
+
 OTHER = "other"
 
 

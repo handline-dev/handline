@@ -14,7 +14,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rpc import _code  # noqa: E402
+from test_rpc import _code, _hp  # noqa: E402
 from test_rpc_task_moves import _dies_then_retries  # noqa: E402
 from test_rpc_tasks import _call, _count, _lose_the_reply, _new  # noqa: E402
 
@@ -95,6 +95,75 @@ def test_stats_outlook_states_its_range_and_keeps_recorded_apart_from_guessed(ho
     check("stats.outlook: an agent session is refused by role", _code(_call("stats.outlook", {"range": "7d"})) == "refused")
 
 
+def _seed_use(home: Path) -> None:
+    """Three agents (a group `orca` of two, and `solo`) that spent tokens in the last day on one account whose week rose by 20 points."""
+    import json
+    import time as _t
+    support._board_world(home)
+    con = db.connect()
+    now = int(_t.time())
+    for name, calls in (("orca", 1), ("orca.ui", 2), ("solo", 1.3)):
+        con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'IDLE', 0, ?)", (name, f"/w/{name}"))
+        con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                    ("alpha", "p", f"p-{name}", now - 3600, "claude-opus-5-5", f"/w/{name}", int(calls * 1_000_000), 0, 0, 0, 0))
+    for ago_h, used in ((25, 10), (12, 20), (1, 30)):
+        wins = [{"minutes": 10080, "used_percent": used, "resets_at": now + 48 * 3600, "lost": False}]
+        con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)", ("alpha", now - ago_h * 3600, json.dumps(wins)))
+    con.commit()
+    con.close()
+
+
+def test_stats_outlook_says_what_each_agent_used_and_the_curve_of_one_picked(home: Path) -> None:
+    _seed_use(home)
+    r = _call("stats.outlook", {"range": "24h"}, as_agent=None)["result"]
+    rows = {u["agent"]: u for u in r["agent_use"]}
+    check("agent_use: every agent that spent tokens, largest cost first, ties by name",
+          [u["agent"] for u in r["agent_use"]] == ["orca.ui", "solo", "orca"], str(r["agent_use"]))
+    ui = rows["orca.ui"]
+    total = sum(u["cost"] for u in r["agent_use"])
+    check("agent_use: tokens, list-price cost, its share of everyone's cost and its share of the account",
+          ui["tokens"] == 2_000_000 and ui["cost"] > 0 and abs(ui["share"] - ui["cost"] / total) < 1e-3
+          and abs(ui["fracs"]["alpha"] - ui["share"]) < 1e-9 and abs(sum(u["share"] for u in r["agent_use"]) - 1) < 1e-3, str(ui))
+    check("agent_use: est_pct is its share of the account times the points the week rose (30 - 10)",
+          all(abs(u["est_pct"] - u["share"] * 20) < 0.01 for u in r["agent_use"]), str(rows))
+    check("agent_use: cost, share and fracs are rounded to 4 places and est_pct to 2, as the Go daemon rounds them",
+          all(u["cost"] == round(u["cost"], 4) and u["share"] == round(u["share"], 4) and u["est_pct"] == round(u["est_pct"], 2)
+              and all(f == round(f, 4) for f in u["fracs"].values()) for u in r["agent_use"])
+          and any(u["share"] != round(u["share"], 2) and u["est_pct"] != round(u["est_pct"], 1) for u in r["agent_use"]), str(rows))
+    check("overlay: absent when no agent is asked for", "overlay" not in r)
+    one = _call("stats.outlook", {"range": "24h", "agent": "solo"}, as_agent=None)["result"]
+    check("overlay: one number per past point, ending at what it used", len(one["overlay"]) == len(one["past"]) > 0
+          and abs(one["overlay"][-1] - rows["solo"]["est_pct"]) < 0.01 and one["overlay"] == sorted(one["overlay"])
+          and all(v == round(v, 2) for v in one["overlay"]), str(one["overlay"]))
+    grp = _call("stats.outlook", {"range": "24h", "agent": "grp:orca"}, as_agent=None)["result"]
+    check("overlay: grp:<name> is the agent and every <name>.* together", abs(grp["overlay"][-1] - (rows["orca"]["est_pct"] + ui["est_pct"])) < 0.02, str(grp["overlay"]))
+    check("overlay: a name that is no agent and no group is empty, not an error",
+          _call("stats.outlook", {"range": "24h", "agent": "orca.nobody"}, as_agent=None)["result"]["overlay"] == []
+          and _call("stats.outlook", {"range": "24h", "agent": "grp:nobody"}, as_agent=None)["result"]["overlay"] == [])
+    bad = _call("stats.outlook", {"range": "24h", "agent": 5}, as_agent=None)
+    check("overlay: an agent that is not a string is bad_request naming agent", _code(bad) == "bad_request" and bad["error"]["data"]["field"] == "agent")
+
+
+def test_the_outlook_agent_use_fixtures_pass_against_this_daemon(home: Path) -> None:
+    import json
+    import socket
+    import threading
+    from handline.daemon import socket_server
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
+    import conformance
+    _seed_use(home)
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    doc = json.loads(Path("contract/fixtures/outlook_agent_use.json").read_text())
+    results = conformance.run_all([Path("contract/fixtures/outlook_agent_use.json")], {"founder": connect},
+                                  {"founder_key": _hp()["key"], "outlook_agent": "solo", "outlook_group": "orca"})
+    bad = [(n, why) for st, why, n in results if st != "pass"]
+    check("fixtures: every outlook agent_use fixture passes against this daemon", len(results) == len(doc["fixtures"]) and not bad, str(bad))
+
+
 def test_a_multi_prompt_takes_an_array_of_keys_and_no_other_prompt_does(home: Path) -> None:
     from handline.daemon import rpc, rpc_agents, rpc_prompts
     def block(multi: bool) -> dict:
@@ -126,6 +195,8 @@ def main() -> int:
         run(lambda: test_a_task_row_carries_its_priority_and_task_edit_changes_it(Path(td) / "t1"))
         run(lambda: test_chat_send_now_marks_the_founders_queued_message_and_a_retry_marks_nothing_twice(Path(td) / "t2"))
         run(lambda: test_stats_outlook_states_its_range_and_keeps_recorded_apart_from_guessed(Path(td) / "t3"))
+        run(lambda: test_stats_outlook_says_what_each_agent_used_and_the_curve_of_one_picked(Path(td) / "t3b"))
+        run(lambda: test_the_outlook_agent_use_fixtures_pass_against_this_daemon(Path(td) / "t3c"))
         run(lambda: test_a_multi_prompt_takes_an_array_of_keys_and_no_other_prompt_does(Path(td) / "t4"))
         run(lambda: test_hl_task_edit_with_a_priority_works_from_an_agent_session(Path(td) / "t5"))
     return run_area(tests)
