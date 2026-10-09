@@ -81,7 +81,7 @@ func TestASecondCodeAnUnknownLoginAndABadCodeAreRefused(t *testing.T) {
 }
 
 func TestACodeBeforeTheURLIsHandedOutIsRefused(t *testing.T) {
-	r := newRig(t, "sleep 300\n") // never prints a URL: Start waits for it
+	r := newRig(t, "sleep 30\n") // never prints a URL: Start waits for it
 	started := make(chan struct{})
 	go func() { r.m.Start("main"); close(started) }()
 	var id string
