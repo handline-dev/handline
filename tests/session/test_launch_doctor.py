@@ -2579,6 +2579,7 @@ def main() -> int:
         run(lambda: test_launch_argv_always_carries_no_chrome(Path(td) / 'no_chrome'))
         run(lambda: test_chrome_opt_in_reads_only_a_real_true_and_changes_the_fingerprint(Path(td) / 'chrome_opt'))
         run(lambda: test_shared_settings_turn_claude_notifications_off_once(Path(td) / 'notif'))
+        run(lambda: _check_claude_driver_fixture(Path(td) / 'claude_fixture'))
     return run_area(tests)
 
 

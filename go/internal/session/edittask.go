@@ -68,8 +68,8 @@ func editExempt(home, agent string, toolInput any) bool {
 	if path == "" {
 		return false
 	}
-	real, note := realpath(path), paths.HandoffNoteFile(home, agent)
-	if real == realpath(note) && !isLink(path) && !isLink(note) {
+	real, note := paths.Realpath(path), paths.HandoffNoteFile(home, agent)
+	if real == paths.Realpath(note) && !isLink(path) && !isLink(note) {
 		return true
 	}
 	roots := []string{memoryDir(home, agent), os.Getenv("TMPDIR")}
@@ -80,7 +80,7 @@ func editExempt(home, agent string, toolInput any) bool {
 		if root == "" {
 			continue
 		}
-		root = realpath(root)
+		root = paths.Realpath(root)
 		if real == root || strings.HasPrefix(real, root+"/") {
 			return true
 		}
