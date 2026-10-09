@@ -137,6 +137,8 @@ class FakeDaemon:
         return word.upper() if self.upper_case else word
 
     def _view(self, name: str) -> dict:
+        if name in VIEW_FIELDS:
+            return {"name": name, "role": "", "state_detail": "", **VIEW_FIELDS[name]}
         return {"name": name, "role": "", "state": self.state_word(name[4:]), "state_detail": ""}
 
     def _inbox(self) -> list:
@@ -198,13 +200,13 @@ class FakeDaemon:
         if method == "agent.get":
             if "agent" not in params:
                 return fail(_err(-32602, "bad_request", field="agent")), said_hello
-            if str(params["agent"]).startswith("a.s."):
+            if str(params["agent"]).startswith("a.s.") or params["agent"] in VIEW_FIELDS:
                 return ok({**self._view(params["agent"]), "cwd": "/",
                            "can": {v: {"ok": True, "why": None} for v in ("terminal", "wake", "close", "restart", "park", "fold", "move")}}), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
         if method == "agents.list":
             return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": self.state_word("idle"), "state_detail": "3m"},
-                                  *(self._view(f"a.s.{w}") for w in STATE_WORDS)]}), said_hello
+                                  *(self._view(f"a.s.{w}") for w in STATE_WORDS), *(self._view(n) for n in VIEW_FIELDS)]}), said_hello
         if method == "agent.timeline":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -323,9 +325,21 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
-KEY = {"founder_key": "k", **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "styled_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
+# The agents the agent_view_fields fixtures name (--var view_*_agent), with the AgentView fields they differ in.
+VIEW_FIELDS = {
+    "a.v.ready": {"state": "idle", "kind": "opus high", "task_count": 2, "ready": True, "wall": None},
+    "a.v.blocked": {"state": "idle", "kind": "opus high", "task_count": 1, "ready": False, "wall": None},
+    "a.v.busy": {"state": "running", "kind": "codex gpt-5 mid", "task_count": 1, "ready": False, "wall": None},
+    "a.v.walled": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False,
+                   "wall": {"account": "acct.one", "clock": 1_790_000_000, "assumed": True}},
+    "a.v.plain": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False, "wall": None},
+}
+VIEW_VARS = {"view_ready_agent": "a.v.ready", "view_blocked_agent": "a.v.blocked", "view_busy_agent": "a.v.busy",
+             "view_walled_agent": "a.v.walled", "view_plain_agent": "a.v.plain"}
+
+KEY = {"founder_key": "k", **VIEW_VARS, **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "styled_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
        "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle", "transcript_agent": "a.transcript", "working_agent": "a.working", "crashed_agent": "a.crashed"}
-KEYARG = ["--var", "founder_key=k", *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "styled_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
+KEYARG = ["--var", "founder_key=k", *(x for k, v in VIEW_VARS.items() for x in ("--var", f"{k}={v}")), *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "styled_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
           "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript", "--var", "working_agent=a.working", "--var", "crashed_agent=a.crashed"]
 

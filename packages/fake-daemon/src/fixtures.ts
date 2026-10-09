@@ -1,4 +1,4 @@
-import type { Prompt } from '@handline/contract';
+import type { AgentView, Prompt } from '@handline/contract';
 import type { FakeTranscript } from './transcript.ts';
 import type { FakeChat } from './chat.ts';
 import type { FakeInbox } from './inbox.ts';
@@ -17,6 +17,8 @@ export interface AgentFixture {
   branch: string;
   session: string | null;
   wall?: boolean;
+  /** AgentView fields the agent_view_fields conformance fixtures pin, served as they are. */
+  view?: Partial<Pick<AgentView, 'kind' | 'task_count' | 'ready' | 'wall'>>;
 }
 
 export const AGENTS: AgentFixture[] = [
