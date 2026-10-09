@@ -31,6 +31,7 @@ func newRec(t *testing.T, seen map[string]session.Observed) (*Reconciler, *[]str
 	r := &Reconciler{Q: openDB(t), Log: func(s string) { logs = append(logs, s) }}
 	r.Ports = ReconcilerPorts{
 		Agents:           func() []string { return []string{"a"} },
+		Registered:       func() ([]string, error) { return []string{"a"}, nil },
 		Observe:          func([]string, map[string]string) map[string]session.Observed { return seen },
 		NoteSeen:         func(map[string]session.Observed, time.Time) {},
 		RefreshView:      func(db.Q, string) {},
@@ -279,5 +280,49 @@ func TestOnlyAnAgentsOwnFailureStallsItAndTheDaemonsPropagates(t *testing.T) {
 	r.Ports.WaitingFor = func(db.Q, string) (bool, error) { return false, errors.New("database is locked") }
 	if _, err := r.Reconcile(); err == nil {
 		t.Fatal("a database error reading what is waiting disappeared")
+	}
+}
+
+func TestASweepDropsTheStateRowOfANameNoAgentHasButNotARegisteredAgentsOrOneWithATerminal(t *testing.T) {
+	r, _ := newRec(t, nil)
+	db.SetAgentState(r.Q, "a", states.Idle, 0, "registered")
+	db.SetAgentState(r.Q, "ghost", states.Queued, 0, "written for a name that never was an agent")
+	db.SetAgentState(r.Q, "retired", states.Idle, 0, "")
+	db.SetTerminal(r.Q, "retired", "t1", "/wt")
+	var acts []string
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "ghost"); row != nil {
+		t.Fatalf("kept: %+v", row)
+	}
+	for _, keep := range []string{"a", "retired"} {
+		if row, _ := db.GetAgentState(r.Q, keep); row == nil {
+			t.Fatalf("%s was dropped", keep)
+		}
+	}
+	if len(acts) != 1 || acts[0] != "ghost: no such agent; its state row is dropped" {
+		t.Fatalf("%v", acts)
+	}
+}
+
+func TestASweepDropsNothingWhenTheAgentsCannotBeListedOrNoneAre(t *testing.T) {
+	for name, list := range map[string]func() ([]string, error){
+		"unreadable": func() ([]string, error) { return nil, errors.New("too many open files") },
+		"empty":      func() ([]string, error) { return []string{}, nil },
+	} {
+		r, logs := newRec(t, nil)
+		r.Ports.Registered = list
+		db.SetAgentState(r.Q, "structured", states.Idle, 0, "no terminal by design")
+		var acts []string
+		if err := r.Sweep(&acts); err != nil {
+			t.Fatal(err)
+		}
+		if row, _ := db.GetAgentState(r.Q, "structured"); row == nil || len(acts) != 0 {
+			t.Fatalf("%s: row dropped: %v", name, acts)
+		}
+		if n := strings.Count(strings.Join(*logs, "\n"), "could not be listed"); (name == "unreadable") != (n == 1) {
+			t.Fatalf("%s: logged %d times", name, n)
+		}
 	}
 }

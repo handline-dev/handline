@@ -207,9 +207,9 @@ func (e *Env) RetireTell(q db.Q, p *RetirePlan) (string, error) {
 func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string, notify bool) (msg string, err error) {
 	defer Catch(&err)
 	must(db.AddEvent(q, row.Target, "resolve", db.KV{K: "request_id", V: rid}, db.KV{K: "state", V: state}, db.KV{K: "requester", V: row.Requester}))
-	// The reply is the wake. Only queue the requester when nothing else it asked for is still outstanding, and never out of a terminal state or a
+	// The reply is the wake, for an agent: a requester no agent directory backs has no state to queue. Only queue the requester when nothing else it asked for is still outstanding, and never out of a terminal state or a
 	// usage park: an answer is not evidence the window rolled over.
-	if row.Response.String == "async" && row.Requester != db.Human && !e.isTerminal(q, row.Requester) && e.wallReason(q, row.Requester, nil) == "" {
+	if row.Response.String == "async" && row.Requester != db.Human && e.registered(row.Requester) && !e.isTerminal(q, row.Requester) && e.wallReason(q, row.Requester, nil) == "" {
 		var outstanding int
 		check(q.QueryRow("SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' AND response = 'async'", row.Requester).Scan(&outstanding))
 		if outstanding == 0 {

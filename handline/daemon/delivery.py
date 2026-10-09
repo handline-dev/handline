@@ -47,6 +47,26 @@ def table_lists_session(agent: str) -> bool | None:
     return None if sessions is None else bool(sessions.get(agent))
 
 
+def seen_world(con) -> tuple[dict | None, set | None]:
+    """The (sessions, handles) `actions.stuck` takes, from what the sweep saw this tick: (None, None), which asks nothing, when it saw
+    nothing fresh. Handles are the live ones among the handles the agents hold; None when any could not be read."""
+    if time.time() - _seen_at["t"] > SEEN_FRESH_S or not _seen:
+        return None, None
+    seen = list(_seen.items())
+    sessions = {a: o.session_pid for a, o in seen if o.session_pid is not None} if all(o.session_seen for _, o in seen) else None
+    handles: set | None = set()
+    for a, o in seen:
+        h = db.get_terminal(con, a)
+        if not h:
+            continue
+        if o.terminal_alive is None:
+            handles = None
+            break
+        if o.terminal_alive:
+            handles.add(h)
+    return sessions, handles
+
+
 # A screen read costs a call to the terminal host, so one answer holds this long.
 DRAWN_FRESH_S = 5
 _drawn: dict[str, tuple[float, bool]] = {}

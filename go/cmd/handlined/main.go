@@ -19,20 +19,61 @@ import (
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/version"
 )
 
 // resolveHome refuses the default home unless it was asked for: this daemon does not yet guard the real
-// home against a build that is not the installed one, so nothing starts on it by accident.
+// home against a build that is not the installed one, so nothing starts on it by accident. -home naming the
+// real home is refused the same way, and HANDLINE_HOME and OCP_HOME naming different homes is an error.
 func resolveHome(flagHome string, allowReal bool) (string, error) {
+	newHome, oldHome := os.Getenv("HANDLINE_HOME"), os.Getenv("OCP_HOME")
+	if newHome != "" && oldHome != "" && realPath(newHome) != realPath(oldHome) {
+		return "", fmt.Errorf("HANDLINE_HOME=%s and OCP_HOME=%s name different homes: set one, or both to the same folder", newHome, oldHome)
+	}
 	if flagHome != "" {
+		if !allowReal && isRealHome(flagHome) {
+			return "", fmt.Errorf("-home %s is the real handline home (-allow-real-home starts on it)", flagHome)
+		}
 		return flagHome, nil
 	}
 	if !allowReal {
 		return "", fmt.Errorf("-home is required while the daemon is in development (-allow-real-home uses %s)", paths.Home())
 	}
 	return paths.Home(), nil
+}
+
+// realPath is p with links followed, through its nearest ancestor that exists.
+func realPath(p string) string {
+	p = filepath.Clean(p)
+	for rest := ""; ; {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return filepath.Join(p, rest)
+		}
+		rest, p = filepath.Join(filepath.Base(p), rest), parent
+	}
+}
+
+// isRealHome is whether p is, or is inside, the user's ~/.handline or ~/.orcapipe, by the account's home directory and not the
+// test root's stand-in for it.
+func isRealHome(p string) bool {
+	u, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	p = realPath(p)
+	for _, d := range []string{".handline", ".orcapipe"} {
+		real := realPath(filepath.Join(u, d))
+		if p == real || strings.HasPrefix(p, real+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here. One name per
@@ -88,6 +129,7 @@ func main() {
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	ownPrompts := flag.Bool("own-prompts", false, "run the screen watch that writes prompt_blocks: this daemon is then the only writer, so it takes the daemon singleton and does not start beside a Python daemon, and is refused with -gateway")
 	structuredCLI := flag.String("structured-cli", "", "the claude binary structured sessions run: with it the daemon builds the structured manager and serves the transcript for the agents whose agent.yaml says structured: true; empty runs none")
+	claudeVersion := flag.String("claude-version", "", "with -structured-cli: the claude version a structured start accepts instead of the one the control types were read against ("+structured.PinnedCLI+"); a newer claude is run on trust until the types are read against it")
 	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only. The tick also reads every account's usage and token log, so the Python daemon must not tick beside it on the same home")
 	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
@@ -104,7 +146,7 @@ func main() {
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
-		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
+		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
 		parts := compose.New(ccfg)
 		cfg.Watch = *structuredTick && *cutover
 		cfg.Delivery = parts.Delivery()

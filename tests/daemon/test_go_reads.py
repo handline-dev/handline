@@ -73,7 +73,8 @@ def _seed_view_fields(home: Path, con) -> None:
     background-work and a no-terminal agent, each with a queued current task (so ready is asked of each), a walled wake, a doing task in
     time, one past its deadline with a notice behind it and one past it with none. Every time is fixed, so the two daemons asked minutes apart agree."""
     now = int(time.time())
-    for name in ("view_done", "view_parked", "view_bg", "view_term", "view_walled", "view_timed", "view_over", "view_late"):
+    for name in ("view_done", "view_parked", "view_bg", "view_term", "view_walled", "view_timed", "view_over", "view_late",
+                 "view_fire", "view_ask", "view_alert", "view_stuck", "view_broken"):
         agents.register(name)
 
     def task(agent: str, doing: int | None = None, timeout_at: int | None = None) -> int:
@@ -100,6 +101,16 @@ def _seed_view_fields(home: Path, con) -> None:
     over = task("view_over", doing=now - 8000, timeout_at=now - 500), row("view_over", "RUNNING", "t-8")
     db.add_event(con, "manager", "task_timeout_exceeded", {"task_id": over[0], "timeout_s": 3600, "text": "late", "deadline": now - 4100, "next": now - 500})
     task("view_late", doing=now - 8000, timeout_at=now - 500), row("view_late", "RUNNING", "t-9")
+    # fire: an agent whose account is at the wall; ask: an open ask to the founder; alert: a delivery block the founder has been told of;
+    # config_error: an agent.yaml that is not a map. cache_ignored is asked of the worker (its own switch off) and the rest (the global one).
+    task("view_fire"), row("view_fire", "IDLE", "t-10", account="zeta")
+    task("view_ask"), row("view_ask", "IDLE", "t-11")
+    db.add_request(con, "view_ask", db.HUMAN, "may I?", None, "subordinate", "async", "ask", 0, None)
+    task("view_alert"), row("view_alert", "IDLE", "t-12")
+    db.block_open(con, "view_alert", "dialog", "a permission dialog", "a task", now - 100, now - 50)
+    task("view_stuck"), row("view_stuck", "DEGRADED", "t-15", wake_at=now + 3600)      # a finding of actions.stuck about it
+    task("view_broken"), row("view_broken", "IDLE", "t-14")
+    support.hand_edit_agent("view_broken", "- not a map\n")
 
 
 def _seed(home: Path) -> dict:
@@ -190,7 +201,7 @@ def _seed(home: Path) -> dict:
     db.set_cursor(con, stream.PRUNED, 2)
     protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
     protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
-    agentview.refresh(con, int(time.time()))
+    agentview.refresh(con, int(time.time()), print)
     con.close()
     return {"tasks": [a, b, c, done], "ask": ask, "card": card}
 
@@ -409,6 +420,12 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
           and clock("view_over")["told"] == 1 and clock("view_over")["overdue_since"] != clock("view_late")["overdue_since"]
           and clock("view_late")["told"] == 0 and clock("view_late")["overdue_since"] is not None and timed["finished"]["time"] is None,
           str({n: (v["ready"], v["wall"], v["task_count"]) for n, v in views.items()}))
+    check("go reads: setup: the rows fire, attention, cache_ignored and config_error are asked of are in the states they are meant to be",
+          views["view_fire"]["fire"] == "usage" and views["view_done"]["fire"] is None and views["view_ask"]["attention"] == "ask"
+          and views["view_alert"]["attention"] == "alert" and views["view_timed"]["attention"] == "running" and views["view_done"]["attention"] is None
+          and views["view_stuck"]["attention"] == "stuck" and views["view_done"]["cache_ignored"] and not views["worker"]["cache_ignored"]
+          and views["view_broken"]["config_error"] and "kind" not in views["view_broken"] and views["view_done"]["config_error"] is None,
+          str({n: (v["fire"], v["attention"], v["cache_ignored"], v["config_error"]) for n, v in views.items()}))
     check("go reads: setup: the worker has a branch, an open session, a person holding the input and a permission prompt",
           worker["worktree"]["branch"] == "feature" and worker["session_open"] and worker["input_holders"][0]["kind"] == "person"
           and worker["prompt"]["kind"] == "permission" and len(worker["prompt"]["options"]) == 3, str(worker))
@@ -447,6 +464,81 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
                 check("go reads: the daemon did not panic", False, log)
 
 
+def _seed_outlook(home: Path) -> None:
+    """Agents that spent tokens on two accounts, at two prices and one at none, in a group and alone; both accounts' weeks rose."""
+    support._board_world(home)
+    now = int(time.time())
+    con = db.connect()
+    calls = [("orca", "alpha", "claude-opus-5-5", 1_000_000), ("orca", "beta", "claude-opus-5-5", 333_333),
+             ("orca.ui", "alpha", "claude-sonnet-5", 2_500_000), ("orca.db", "beta", "claude-opus-5-5", 777_777),
+             ("solo", "alpha", "claude-opus-5-5", 1_300_000), ("free", "beta", "claude-opus-5-5", 0)]
+    for i, (agent, acct, model, inp) in enumerate(calls):
+        con.execute("INSERT OR IGNORE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'IDLE', 0, ?)", (agent, f"/w/{agent}"))
+        con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                    (acct, "p", f"p{i}", now - 3600 * (2 + i), model, f"/w/{agent}", inp, 0, 0, inp // 10, 0))
+    for acct, rise in (("alpha", (10, 20, 31)), ("beta", (5, 5, 9))):
+        for ago_h, used in zip((200, 12, 1), rise):
+            wins = [{"minutes": 10080, "used_percent": used, "resets_at": now + 48 * 3600, "lost": False}]
+            con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)", (acct, now - ago_h * 3600, json.dumps(wins)))
+    con.commit()
+    con.close()
+
+
+def test_go_outlook_agent_use_and_overlay_equal_python(home: Path) -> None:
+    """stats.outlook's agent_use and overlay on one database, in two ranges and for an agent, a group, a free agent and two picks that
+    name nobody: the rows (order, tokens, cost, share, est_pct, fracs) and the curve, at the rounding both serve."""
+    _seed_outlook(home)
+    cases = [(rng, pick) for rng in ("24h", "7d") for pick in (None, "orca.ui", "grp:orca", "solo", "free", "orca.nobody", "grp:nobody")]
+
+    def answered(reply: dict, who: str, rng: str, pick: str | None) -> dict | None:
+        """The result of a reply, or None after saying which daemon failed which case and how: an error on both sides must not compare equal."""
+        res = reply.get("result")
+        ok = isinstance(res, dict) and "error" not in reply
+        check(f"go outlook: {who} answers {rng} agent {pick!r} with a result", ok, f"error: {json.dumps(reply.get('error', reply), sort_keys=True)[:600]}")
+        return res if ok else None
+
+    def parts(res: dict) -> dict:
+        return {k: res.get(k, "<absent>") for k in ("accounts", "agent_use", "overlay")}
+    asked = {(r, p): _python("stats.outlook", {"range": r, **({"agent": p} if p else {})}, None) for r, p in cases}
+    results = {c: answered(asked[c], "Python", *c) for c in cases}
+    if not all(results.values()):
+        return
+    want = {c: parts(res) for c, res in results.items()}
+    check("go outlook: setup: every case lists the agents that spent (the table does not depend on the pick), so none compares nothing",
+          all(len(w["agent_use"]) == 5 and w["accounts"] == 2 for w in want.values()), str({c: len(w["agent_use"]) for c, w in want.items()}))
+    check("go outlook: setup: the overlay is empty only for a pick that names nobody, and absent only with no pick",
+          all((w["overlay"] == "<absent>") == (c[1] is None) and (w["overlay"] == []) == (c[1] in ("orca.nobody", "grp:nobody"))
+              for c, w in want.items()), str({c: w["overlay"] for c, w in want.items() if c[0] == "7d"}))
+    rows = want[("24h", None)]["agent_use"]
+    check("go outlook: setup: five agents, largest cost first, one with no spend at 0 on its account, a rise averaged over two accounts",
+          [u["agent"] for u in rows] == ["orca", "solo", "orca.ui", "orca.db", "free"] and rows[-1]["fracs"] == {"beta": 0.0}
+          and all(u["est_pct"] is not None for u in rows) and len(rows[0]["fracs"]) == 2, str(rows))
+    check("go outlook: setup: no overlay unless an agent is asked for; a group and a free agent have one; a name that is nobody is empty",
+          want[("24h", None)]["overlay"] == "<absent>" and any(want[("24h", "grp:orca")]["overlay"]) and want[("24h", "free")]["overlay"]
+          and not any(want[("24h", "free")]["overlay"]) and want[("24h", "orca.nobody")]["overlay"] == [], str(want[("24h", "grp:orca")]))
+    with tempfile.TemporaryDirectory() as td:
+        binary = str(Path(td) / "handlined")
+        built = subprocess.run([str(ROOT / "tools" / "build-go.sh"), binary], capture_output=True, text=True)
+        if built.returncode:
+            print("SKIP  go outlook: the Go daemon does not build here:", (built.stdout + built.stderr)[-300:])
+            return
+        go = GoDaemon(binary, home)
+        try:
+            for rng, pick in cases:
+                _forget_sessions()
+                res = answered(go.call("stats.outlook", {"range": rng, **({"agent": pick} if pick else {})}, _hp()), "Go", rng, pick)
+                if res is None:
+                    continue
+                got = parts(res)
+                check(f"go outlook: {rng} agent {pick!r} answers as the Python daemon does", got == want[(rng, pick)],
+                      f"\n go:     {json.dumps(got, sort_keys=True)[:1800]}\n python: {json.dumps(want[(rng, pick)], sort_keys=True)[:1800]}")
+        finally:
+            _forget_sessions()
+            log = go.stop()
+            if "panic" in log:
+                check("go outlook: the daemon did not panic", False, log)
+
+
 def _refresh_prompts() -> None:
     con = db.connect()
     try:
@@ -458,6 +550,7 @@ def _refresh_prompts() -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_go_reads_equal_python_reads_on_one_database(Path(td) / "r1"))
+        run(lambda: test_go_outlook_agent_use_and_overlay_equal_python(Path(td) / "r2"))
     return run_area(tests)
 
 

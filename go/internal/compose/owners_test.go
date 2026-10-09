@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // ownersRig is wired(), with a terminal agent (bob) beside the structured one (alice) and an agent_view row for an agent that is gone.
@@ -76,5 +77,21 @@ func TestAtTheCutoverTheGoTickOwnsTheUsagePollAndDropsTheRowOfAGoneAgent(t *test
 	}
 	if got := count("usage_samples"); got <= samples {
 		t.Fatalf("after the cutover this tick polls usage: %d samples, was %d", got, samples)
+	}
+}
+
+func TestAtTheCutoverTheGoTickAsksADueAccountForItsUsageAndWhilePythonTicksItDoesNot(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _ := ownersRig(t)
+		cfg := p.Run.cfg
+		cfg.Log = t.Logf
+		tk := p.Tick(cfg, TickConfig{Cutover: cutover})
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+		_, err := os.Stat(paths.StatusFile(p.home, "a1"))
+		if read := err == nil; read != cutover {
+			t.Fatalf("cutover %v: account a1 read=%v", cutover, read)
+		}
 	}
 }

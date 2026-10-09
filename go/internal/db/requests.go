@@ -232,6 +232,11 @@ func QueuedFor(q Q, target string) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND (state = 'queued' OR "+heldDelivery+") AND NOT "+leftoverDelivery+" ORDER BY queue_order, id", target)
 }
 
+// QueuedAwaiting is the requests queued for target that nothing has closed or landed, oldest first: the rows the stuck findings read.
+func QueuedAwaiting(q Q, target string) ([]*Request, error) {
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE state = 'queued' AND NOT "+leftoverDelivery+" AND target = ? ORDER BY ts", target)
+}
+
 // UndeliveredFor is db.undelivered_for: the queued requests the target has never been shown.
 func UndeliveredFor(q Q, target string) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND state = 'queued' AND NOT "+leftoverDelivery+" AND delivered_at IS NULL ORDER BY queue_order, id", target)

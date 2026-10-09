@@ -24,7 +24,7 @@ else
     [ $# -eq 0 ] && whole=1
 fi
 echo "tools/test.sh: $py -u ${target[*]} $*" >&2
-env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME OCP_HOME="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@" | tee "$scratch/run.log"
+env -u OCP_AGENT -u OCP_ACCOUNT -u HANDLINE_AGENT -u HANDLINE_ACCOUNT -u HANDLINE_HOME -u HANDLINE_TEST_ROOT OCP_HOME="$scratch" OCP_TEST_ROOT="$scratch" PYTHONUNBUFFERED=1 "$py" -u "${target[@]}" "$@" | tee "$scratch/run.log"
 status=${PIPESTATUS[0]}
 # The whole suite includes the Go daemon's required check (go test -race ./...); OCP_TEST_GO names another
 # command for it (tests/infra/test_test_sh.py runs this script with a stub, not a nested go test -race).
