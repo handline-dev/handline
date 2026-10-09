@@ -179,3 +179,21 @@ func (e *Env) HRView(pid string) map[string]any {
 	}
 	return nil
 }
+
+// HRProposals is every proposal hr.list can show, as it shows it, in no bound and by wire id: what a change in the store is told from.
+func (e *Env) HRProposals() []map[string]any {
+	ps := e.proposals()
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].wireID < ps[j].wireID })
+	out := make([]map[string]any, 0, len(ps))
+	seen := map[int64]int{}
+	for _, p := range ps {
+		v := e.proposalView(p)
+		if at, dup := seen[p.wireID]; dup { // two files with one id: the later one stands, as a dict keyed by id has it
+			out[at] = v
+			continue
+		}
+		seen[p.wireID] = len(out)
+		out = append(out, v)
+	}
+	return out
+}

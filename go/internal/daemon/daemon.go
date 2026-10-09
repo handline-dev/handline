@@ -229,8 +229,9 @@ func Start(cfg Config) (*Daemon, error) {
 		d.hub.Run(d.stop, cfg.Log)
 	}()
 	if cfg.Watch && !cfg.Gateway {
-		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log,
+		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watcher.HRSignature(cfg.Home),
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
+				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
