@@ -67,7 +67,7 @@ type Config struct {
 	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
 
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
-	// layer. Nil tells nothing.
+	// layer. Nil is the Env's own telling once its ports are all wired (OnOpen sets them), and tells nothing before that.
 	Teller taskwrites.Teller
 
 	// Env is the telling layer the chat, mailbox and say writes run on (supervisor.Env). Nil is an Env of this database and home alone: its
@@ -261,6 +261,18 @@ func (d *Daemon) env() *supervisor.Env {
 	return d.envMade
 }
 
+// teller is what follows the task and chat writes: the configured one, else the supervisor Env once every port has its owner, since a
+// missing port is a nil call. Nil tells nothing; the tick does it later.
+func (d *Daemon) teller() taskwrites.Teller {
+	if d.cfg.Teller != nil {
+		return d.cfg.Teller
+	}
+	if e := d.env(); e.Ports.Wired() {
+		return e
+	}
+	return nil
+}
+
 // hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
 func (d *Daemon) hrEnv() *hrwrites.Env {
 	env := d.env()
@@ -280,7 +292,7 @@ func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.St
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 	return []func(*rpc.Server){
 		func(s *rpc.Server) { adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home}) },
-		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.cfg.Teller) },
+		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
@@ -289,7 +301,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 				sessionrpc.Register(s, d.cfg.Session())
 			}
 		},
-		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.cfg.Teller) },
+		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
 }
