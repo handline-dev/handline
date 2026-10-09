@@ -36,6 +36,9 @@ type Term struct {
 	Driver  func(handle string) Driver
 	Settle  time.Duration
 	Gap     time.Duration // between the keys of one question answer
+	// Sleep and Now are the clock the waits on a screen run on; nil is the time package's. A test gives them a fake one.
+	Sleep func(time.Duration)
+	Now   func() time.Time
 
 	cacheMu sync.Mutex
 	cache   map[string]cachedBlocker // ScreenBlockerCached's reads, by handle
