@@ -2,7 +2,6 @@
 # The Go task owns this file: delete a line when its method lands, so a daemon that drops it again fails the run.
 account.login_code
 account.remove
-agent.strip
 agent.unstall
 session.input
 session.keys
