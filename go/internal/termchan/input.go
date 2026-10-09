@@ -27,7 +27,7 @@ func (e *Env) inputAgent(params map[string]any) (string, error) {
 
 // holderGate refuses while a person or device other than the caller holds agent's input; the daemon holding it is not a refusal.
 func (e *Env) holderGate(c *rpc.Conn, agent string) error {
-	r, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
+	r, err := e.holder(agent)
 	if err != nil {
 		return err
 	}
@@ -37,13 +37,27 @@ func (e *Env) holderGate(c *rpc.Conn, agent string) error {
 	return nil
 }
 
-// holdersChanged records the change and sends `holder` to every client of agent's terminal.
-func (e *Env) holdersChanged(agent string) error {
+// holder is whoever holds agent's input. An idle hold is lost here, and the loss is recorded and told like a take.
+func (e *Env) holder(agent string) (*inputhold.Row, error) {
+	r, dropped, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
+	if err == nil && dropped {
+		err = e.HoldersChanged(agent)
+	}
+	return r, err
+}
+
+// HoldersChanged records that who holds agent's input changed and sends `holder` to every client of agent's terminal: a take, a
+// release, or a hold found idle by whichever call read it (inputhold.Holder says so).
+func (e *Env) HoldersChanged(agent string) error {
 	holders, err := e.holders(agent)
 	if err != nil {
 		return err
 	}
-	if _, err := db.AddEvent(e.DB, agent, "input_holder", db.KV{K: "holders", V: holders}); err != nil {
+	list := make([]any, len(holders)) // the keys in the order Python's dict keeps them
+	for i, h := range holders {
+		list[i] = rpc.Pairs{{K: "kind", V: h["kind"]}, {K: "name", V: h["name"]}, {K: "since", V: h["since"]}}
+	}
+	if _, err := db.AddEvent(e.DB, agent, "input_holder", db.KV{K: "holders", V: list}); err != nil {
 		return err
 	}
 	handle, err := e.terminalOf(agent)
@@ -70,7 +84,7 @@ func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
 		kind = "device"
 	}
 	me, _ := c.Caller.Info["name"].(string)
-	took, err := inputhold.Take(e.DB, e.Home, agent, kind, me, e.now())
+	took, err := inputhold.Take(e.DB, agent, kind, me, e.now())
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +94,7 @@ func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 		return nil, rpc.Refused(agent+"'s terminal was taken by someone else", "input_holder", "")
 	}
-	if err := e.holdersChanged(agent); err != nil {
+	if err := e.HoldersChanged(agent); err != nil {
 		return nil, err
 	}
 	holders, err := e.holders(agent)
@@ -95,7 +109,7 @@ func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
+	r, err := e.holder(agent)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +122,7 @@ func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
 	if err := inputhold.Release(e.DB, agent); err != nil {
 		return nil, err
 	}
-	if err := e.holdersChanged(agent); err != nil {
+	if err := e.HoldersChanged(agent); err != nil {
 		return nil, err
 	}
 	return map[string]any{"accepted": true, "said": agent + ": its input is the daemon's again"}, nil

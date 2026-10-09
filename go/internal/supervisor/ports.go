@@ -94,7 +94,8 @@ type Channel interface {
 	Marker(q db.Q, agent, kind string, by map[string]any)
 	// RecordScreenSample keeps a sample of a screen that reported background work.
 	RecordScreenSample(q db.Q, agent string, row *db.AgentState, running string, tail []string)
-	// HeldByOther is who else holds the agent's terminal input, "" when nobody.
+	// HeldByOther is who else holds the agent's terminal input, "" when nobody. A real one reads it with inputhold.Holder and, when that
+	// says it dropped an idle hold, runs termchan.Env.HoldersChanged; the ports built so far have no terminal to hold and answer "".
 	HeldByOther(q db.Q, agent string) string
 	HeldWhy(agent, holder string) string
 }

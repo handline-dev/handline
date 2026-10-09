@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
@@ -262,7 +261,7 @@ func (e *Env) holders(agent string) ([]map[string]any, error) {
 	if agent == "" {
 		return []map[string]any{}, nil
 	}
-	r, err := inputhold.Holder(e.DB, e.Home, agent, e.now())
+	r, err := e.holder(agent)
 	if err != nil {
 		return nil, err
 	}

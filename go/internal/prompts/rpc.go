@@ -174,7 +174,10 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
 	}
 	me, _ := c.Caller.ActorInfo()["name"].(string)
-	holder, err := inputhold.Holder(e.DB, e.Home, name, e.now())
+	holder, dropped, err := inputhold.Holder(e.DB, e.Home, name, e.now())
+	if err == nil && dropped && e.HoldersChanged != nil {
+		err = e.HoldersChanged(name)
+	}
 	if err != nil {
 		return nil, err
 	}
