@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -15,8 +16,8 @@ import (
 // reaching it - a worktree's hl run by hand - unless HANDLINE_ALLOW_LIVE=1 says it is meant.
 func LiveRefusal(home string) string {
 	newHome, oldHome := os.Getenv("HANDLINE_HOME"), os.Getenv("OCP_HOME")
-	if newHome != "" && oldHome != "" && resolved(newHome) != resolved(oldHome) {
-		return fmt.Sprintf("HANDLINE_HOME (%s) and OCP_HOME (%s) name different homes: unset one", newHome, oldHome)
+	if strings.TrimSpace(newHome) != "" && strings.TrimSpace(oldHome) != "" && resolved(newHome) != resolved(oldHome) {
+		return fmt.Sprintf("HANDLINE_HOME=%s and OCP_HOME=%s name different homes: set one, or both to the same folder", newHome, oldHome)
 	}
 	if !isLive(home) {
 		return ""
@@ -35,10 +36,20 @@ func LiveRefusal(home string) string {
 		"point HANDLINE_HOME at a scratch folder, or set HANDLINE_ALLOW_LIVE=1 to mean it", here, home)
 }
 
+// realUserHome is the user's home from the user database, not $HOME, so a test that sets HOME cannot move what the
+// guard protects (paths._real_user_home). Without cgo, darwin's os/user still asks libc.
+var realUserHome = func() string {
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		return u.HomeDir
+	}
+	h, _ := os.UserHomeDir()
+	return h
+}
+
 // isLive is whether home is, or is inside, the real user's ~/.handline or ~/.orcapipe.
 func isLive(home string) bool {
-	real, err := os.UserHomeDir()
-	if err != nil {
+	real := realUserHome()
+	if real == "" {
 		return false
 	}
 	h := resolved(home)
