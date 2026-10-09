@@ -17,6 +17,7 @@ import (
 type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
+	"account":             account,
 	"auto-accept":         autoAccept,
 	"close":               closeCmd,
 	"dev-mode":            devMode,
