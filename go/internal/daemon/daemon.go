@@ -86,6 +86,8 @@ type Config struct {
 	Answers prompts.Structured
 	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
 	SessionOpen func(agent string) bool
+	// Context is the model id and context figures of an agent on an account (agent.strip). Nil leaves them null.
+	Context func(agent, account string) (string, *int64, int)
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
 	// serves none of them.
 	Session func() *sessionrpc.Env
@@ -314,6 +316,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
+	renv.Context = d.cfg.Context
 	reads.Register(s, renv)
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)

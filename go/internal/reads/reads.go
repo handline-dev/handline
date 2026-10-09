@@ -35,6 +35,9 @@ type Env struct {
 	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
 	// reads this where a terminal agent's row says it.
 	SessionOpen func(agent string) bool
+	// Context is the model id and the context figures of an agent on an account, as the usage reads give them: tokens used (nil when
+	// unknown) and the limit it is judged against (0 when unknown). agent.strip leaves them null when nil.
+	Context func(agent, account string) (model string, used *int64, limit int)
 }
 
 // Register adds the read methods to the server's table.
@@ -43,6 +46,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("daemon.status", rpc.Method{Role: "agent", Handler: e.status})
 	s.Register("agents.list", rpc.Method{Role: "agent", Handler: e.agentsList})
 	s.Register("agent.get", rpc.Method{Role: "agent", Handler: e.agentGet})
+	s.Register("agent.strip", rpc.Method{Role: "member", Handler: e.agentStrip})
 	s.Register("agent.timeline", rpc.Method{Role: "member", Handler: e.agentTimeline})
 	s.Register("tasks.list", rpc.Method{Role: "agent", Handler: e.tasksList})
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})

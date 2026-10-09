@@ -4,7 +4,6 @@ account.login
 account.login_cancel
 account.login_code
 account.remove
-agent.strip
 agent.unstall
 input.release
 input.take

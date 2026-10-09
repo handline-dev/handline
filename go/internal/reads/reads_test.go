@@ -230,3 +230,71 @@ func TestSessionOpenOfAStructuredAgentIsItsRunningProcessNotATerminal(t *testing
 		}
 	}
 }
+
+func TestAgentStripReadsTheStoredViewAndTheContextHook(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "alice", "")
+	until := time.Now().Add(90 * time.Second).UTC().Format("2006-01-02T15:04:05Z")
+	view := `{"name":"alice","state":"waiting","state_detail":"allow Bash?","account":"theta","cache_until":"` + until + `"}`
+	for _, q := range []string{
+		"INSERT INTO agent_state(agent, state, updated) VALUES('alice', 'running', 1)",
+		"INSERT INTO agent_view(agent, view, updated) VALUES('alice', '" + view + "', 1)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	used := int64(250)
+	e.Context = func(agent, account string) (string, *int64, int) {
+		if agent != "alice" || account != "theta" {
+			t.Fatalf("asked for %s on %s", agent, account)
+		}
+		return "claude-opus-5-5", &used, 1000
+	}
+	got, err := e.agentStrip(nil, map[string]any{"agent": "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	left := m["cache_left_s"].(int64)
+	if m["screen_word"] != "DIALOG" || m["screen_detail"] != "allow Bash?" || m["account"] != "theta" || m["model"] != "claude-opus-5-5" ||
+		m["ctx_used"] != int64(250) || m["ctx_pct"] != 25 || m["ctx_limit"] != 1000 || left < 85 || left > 90 {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestAgentStripOfAnAgentWithNoStateOrAccountIsNulls(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	e.Context = func(string, string) (string, *int64, int) { t.Fatal("no account, nothing to read"); return "", nil, 0 }
+	got, err := e.agentStrip(nil, map[string]any{"agent": "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	for _, k := range []string{"model", "account", "ctx_pct", "ctx_used", "ctx_limit", "cache_left_s", "screen_word"} {
+		if m[k] != nil {
+			t.Fatalf("%s = %v", k, m[k])
+		}
+	}
+	if m["screen_detail"] != "" {
+		t.Fatalf("%v", m)
+	}
+	for _, params := range []map[string]any{{"agent": "nobody"}, {}} {
+		if _, err := e.agentStrip(nil, params); err == nil {
+			t.Fatalf("%v is refused", params)
+		}
+	}
+}
+
+func TestScreenWordIsTheWireStateReadBack(t *testing.T) {
+	for _, c := range []struct{ state, detail, word, shown string }{
+		{"running", "", "RUNNING", ""}, {"waiting", "x", "DIALOG", "x"}, {"stalled", "x", "FATAL", "x"},
+		{"parked", "moving", "MOVING", ""}, {"parked", "13:05", "PENDING", "13:05"}, {"queued", "", "PENDING", ""},
+		{"idle", "", "IDLE", ""}, {"no_terminal", "", "IDLE", ""},
+	} {
+		if w, d := screenWord(c.state, c.detail); w != c.word || d != c.shown {
+			t.Errorf("%s/%q: %s %q", c.state, c.detail, w, d)
+		}
+	}
+}

@@ -100,3 +100,19 @@ func (r procs) Kill(agent string) error {
 	defer r.p.Locks.Lock(agent)()
 	return r.p.Manager.Kill(agent)
 }
+
+// Context is the model id and context figures of an agent on an account (agent.strip): the figures the policy tick judges the agent by.
+// Before the lifecycle is built there are none.
+func (p *Parts) Context(agent, account string) (string, *int64, int) {
+	if p.LC == nil {
+		return "", nil, 0
+	}
+	tu := tickUsage{p: p, u: p.LC.usage, roster: p.LC.roster}
+	st := tu.ReadForAgent(agent, account)
+	var used *int64
+	if st.TrustedCtxUsed != nil {
+		n := int64(*st.TrustedCtxUsed)
+		used = &n
+	}
+	return st.ModelID, used, tu.ContextLimit(agent, st.ModelID)
+}
