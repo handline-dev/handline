@@ -221,7 +221,6 @@ deny:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 20        # per agent
 ```
 
 **An edge that is not stated is refused by default.** That keeps agents from scattering requests anywhere.
@@ -271,7 +270,6 @@ All of it is deterministic, so no model is needed. Only at the points that reall
 every ask gets a chain_id + depth
 depth > max_chain_depth → escalate to the orchestrator (gate)
 A→B→A detected inside one chain → stop at once + gate
-a per-agent hourly ask cap → THROTTLED when exceeded (infra §8.6)
 ```
 
 Review loops are especially dangerous: `backend → reviewer → (finding) → backend → reviewer → ...`

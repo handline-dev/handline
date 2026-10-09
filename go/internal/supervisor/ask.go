@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
@@ -255,7 +254,7 @@ type AskIn struct {
 }
 
 // AskOut is ask's answer. The writes are on the Q given; After holds the inbox file and the telling to run once they commit (its lines are
-// appended to Message by Finish). A refusal has OK false, and its writes (a denied row, the THROTTLED state) are meant to commit.
+// appended to Message by Finish). A refusal has OK false, and its writes (a denied row) are meant to commit.
 type AskOut struct {
 	OK      bool
 	Message string
@@ -337,39 +336,6 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		o.After = after
 		return o, nil
 	}
-	limited, note, rerr := t.RateLimited(q, requester, e.nowT())
-	if rerr != nil {
-		return nil, rerr
-	}
-	if limited {
-		window := now - team.AskWindowS
-		// The first refusal keeps the text; an identical one behind it is the same refusal, not a second event.
-		rid := must(db.StandingDenial(q, requester, in.Target, in.Body, in.Files, window))
-		if rid == 0 {
-			kind := in.Kind
-			if kind == "" {
-				kind = strOf(d.Kind)
-			}
-			if kind == "" {
-				kind = sayKind
-			}
-			rid = must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Relation: strOf(d.Relation),
-				Response: d.Response, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, State: "denied", Verdict: note, ChainID: chainID}))
-		}
-		freeAt := now + team.AskWindowS
-		if oldest, ok := ok2(db.OldestCountedAsk(q, requester, window)); ok {
-			freeAt = oldest + team.AskWindowS
-		}
-		// Section 8.6: too many asks is a resource problem, so it throttles and clears itself when a slot frees.
-		if !e.isTerminal(q, requester) {
-			check(db.SetAgentState(q, requester, states.Throttled, freeAt, note))
-		}
-		when := time.Unix(freeAt, 0).Format("15:04")
-		o := refuse(fmt.Sprintf("%s - %s is THROTTLED. The window rolls, so the next slot frees at %s; wait for it rather than retrying, because a refusal sends nothing. Your text is kept as #%d.",
-			note, requester, when, rid))
-		o.After = after
-		return o, nil
-	}
 	kind := in.Kind
 	if kind == "" {
 		kind = strOf(d.Kind)
@@ -387,7 +353,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	}
 	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "relation", V: nullable(d.Relation)},
 		db.KV{K: "response", V: d.Response}, db.KV{K: "chain_depth", V: depth}))
-	msg := fmt.Sprintf("queued as #%d for %s (response=%s, %s)", rid, in.Target, d.Response, note)
+	msg := fmt.Sprintf("queued as #%d for %s (response=%s)", rid, in.Target, d.Response)
 	if in.Within != nil {
 		if err := in.Within(q, rid, msg); err != nil {
 			return nil, err

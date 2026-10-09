@@ -30,7 +30,7 @@ WAKER = {
     HANDOFF: "the handoff's own step commits, or expire_handoffs() times it out into DEGRADED",
     DEGRADED: "the daemon retries it itself after DEGRADED_RETRY_S",
     PARKED: "wake_at - the usage window, the async-reply fallback, or the short move recheck",
-    THROTTLED: "wake_at - the ask window rolls over (team.ASK_WINDOW_S)",
+    THROTTLED: "wake_at - nothing sets it since the hourly ask cap went; a row left in it wakes at its wake_at",
     STALLED: "a person: w, behind a confirmation (unstall, folded into wake)",
 }
 
