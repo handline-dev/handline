@@ -6,6 +6,9 @@ given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check
 tree it tested. A sha lands when
   - an auditor (any agent named `<team>.auditor`) recorded a PASS for that exact sha (`hl land --pass`), and
   - the merger recorded it with the tree its test saw (`hl land <sha> <message> --tree <tree>`).
+The merger may also fix what is not the auditor's to judge - a list-file or README conflict, a missing doc line -
+with `--fix <dir>`: whole files on main's tools/housekeeping.paths, written over the merge; anything else needs a
+PASS. With `--squash` main gets one commit carrying the merger's message, so a WIP branch message never lands.
 Both are accepted only from a process of the session `hl launch` recorded for that agent (found by
 the socket's peer pid, infra/sessiontoken.py), never on the name in the request. The daemon merges the sha into main itself, and fast-forwards main only if the result is the
 tree that was tested; if main moved meanwhile the trees differ and the merger tests again. A sha lands
@@ -13,6 +16,7 @@ at most once.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -23,7 +27,7 @@ import time
 from pathlib import Path
 
 from .. import db
-from ..infra import gitrun, names, paths, textsafe
+from ..infra import gitrun, housekeeping, names, paths, textsafe
 from ..team import ask as askmod, team
 
 REQUESTER = "land"
@@ -85,8 +89,41 @@ def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
     return True, f"PASS recorded for {full[:8]}"
 
 
-def request(con, sha: str, message: str, tree: str | None, caller: str | None) -> tuple[bool, str]:
-    """Queue `sha` to be landed with `message`, the merger having tested a merge whose tree is `tree`."""
+FIX_MAX_BYTES = 1 << 20
+
+
+def housekeeping_paths() -> list[str]:
+    """main's tools/housekeeping.paths: the globs a merger may fix at land time. Read from main's checkout, which
+    the daemon alone writes, never from a branch."""
+    try:
+        return housekeeping.read_globs((repo() / "tools" / "housekeeping.paths").read_text(encoding="utf-8"))
+    except OSError:
+        return []
+
+
+def _fix_refusal(fix: dict) -> str | None:
+    """Why the merger's `--fix` files may not land without a PASS, or None: every path relative, inside the repo
+    and on a housekeeping path, never a file agents read as instructions, every file text, and not too much of it."""
+    if not isinstance(fix, dict) or not fix:
+        return "--fix sent no files"
+    allowed = housekeeping_paths()
+    total = 0
+    for path, text in fix.items():
+        if not isinstance(path, str) or not isinstance(text, str):
+            return "--fix sends paths and their text"
+        why = housekeeping.refusal(path, allowed)
+        if why:
+            return why
+        total += len(text.encode("utf-8"))
+    if total > FIX_MAX_BYTES:
+        return f"--fix sends {total} bytes; housekeeping is at most {FIX_MAX_BYTES}"
+    return None
+
+
+def request(con, sha: str, message: str, tree: str | None, caller: str | None, fix: dict | None = None,
+            squash: bool = False) -> tuple[bool, str]:
+    """Queue `sha` to be landed with `message`, the merger having tested a merge whose tree is `tree` - with `fix`,
+    its housekeeping files written over the merge, and with `squash`, as one commit carrying `message`."""
     if caller != MERGER:
         return False, f"{caller or 'someone else'} may not land a branch; the merger does"
     message = (message or "").strip()
@@ -95,6 +132,10 @@ def request(con, sha: str, message: str, tree: str | None, caller: str | None) -
     refusal = _message_refusal(message)
     if refusal:
         return False, f"the merge message carries personal data or a local id: {refusal}"
+    if fix is not None:
+        why = _fix_refusal(fix)
+        if why:
+            return False, why
     full, why = _commit(sha)
     if full is None:
         return False, why
@@ -108,8 +149,17 @@ def request(con, sha: str, message: str, tree: str | None, caller: str | None) -
     rc, _, _ = _git("merge-base", "--is-ancestor", full, "main")
     if rc == 0:
         return False, f"{full[:8]} is already on main"
-    cur = con.execute("INSERT INTO lands(sha, message, tree, requester, state, ts) VALUES(?, ?, ?, ?, 'queued', ?)",
-                      (full, message, tree.strip(), caller, int(time.time())))
+    con.execute("BEGIN IMMEDIATE")      # the land and its fix are one write: the sweep never sees one without the other
+    try:
+        cur = con.execute("INSERT INTO lands(sha, message, tree, requester, state, ts) VALUES(?, ?, ?, ?, 'queued', ?)",
+                          (full, message, tree.strip(), caller, int(time.time())))
+        if fix is not None or squash:
+            con.execute("INSERT INTO land_fixes(land_id, files, squash) VALUES(?, ?, ?)",
+                        (cur.lastrowid, json.dumps(fix or {}), int(bool(squash))))
+        con.execute("COMMIT")
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
     ahead = con.execute("SELECT COUNT(*) FROM lands WHERE state IN ('queued', 'running') AND id < ?",
                         (cur.lastrowid,)).fetchone()[0]
     return True, f"land #{cur.lastrowid}: {full[:8]} queued" + (f", {ahead} ahead of it" if ahead else "")
@@ -123,9 +173,10 @@ def _tell(con, to: str, body: str, log) -> None:
     askmod.push(con, to, rid)
 
 
-def _land(row) -> tuple[bool, str]:
-    """Merge `row.sha` into main in a scratch worktree, git only, and fast-forward main when the merge
-    is the tree that was tested. (landed, merge sha or why not)."""
+def _land(row, fix: dict | None = None, squash: bool = False) -> tuple[bool, str]:
+    """Merge `row.sha` into main in a scratch worktree, git only, write the merger's housekeeping `fix` over it
+    (a conflict may stand only where `fix` has the file), and fast-forward main when the result is the tree that
+    was tested - as the merge, or with `squash` as one commit on main carrying the message. (landed, sha or why not)."""
     rc, out, _ = _git("worktree", "list", "--porcelain")
     main_dir = None
     cur = None
@@ -140,13 +191,32 @@ def _land(row) -> tuple[bool, str]:
     try:
         if _git("worktree", "add", "--detach", work, "main", cwd=main_dir)[0] != 0:
             return False, "could not make a scratch worktree"
-        if _git("merge", "--no-ff", "-q", "-m", row["message"], row["sha"], cwd=work)[0] != 0:
-            rc, files, _ = _git("diff", "--name-only", "--diff-filter=U", cwd=work)
-            return False, f"conflicts with main in: {' '.join(files.split())}"
+        clean = _git("merge", "--no-ff", "-q", "-m", row["message"], row["sha"], cwd=work)[0] == 0
+        if not clean:
+            _, files, _ = _git("diff", "--name-only", "--diff-filter=U", cwd=work)
+            unfixed = [p for p in files.split() if p not in (fix or {})]
+            if unfixed:
+                return False, f"conflicts with main in: {' '.join(unfixed)}"
+        if fix:
+            why = _fix_refusal(fix)         # against main's list as it is now, not as it was when the land was queued
+            if why:
+                return False, why
+            why = housekeeping.write(work, {path: text.encode("utf-8") for path, text in fix.items()})
+            if why:
+                return False, why
+            # Into the merge commit itself: amended when the merge went through, the merge's own commit when it stopped.
+            commit = ["--amend", "--no-edit"] if clean else ["-m", row["message"]]
+            if _git("add", "--", *fix, cwd=work)[0] != 0 or \
+                    _git("commit", "-q", "--no-verify", *commit, cwd=work)[0] != 0:
+                return False, "the housekeeping fix could not be committed over the merge"
         _, tree, _ = _git("rev-parse", "HEAD^{tree}", cwd=work)
         if tree.strip() != row["tree"]:
             return False, "main moved since the merger's test: the merge is not the tree it tested; test again"
         _, merged, _ = _git("rev-parse", "HEAD", cwd=work)
+        if squash:
+            rc, merged, _ = _git("commit-tree", tree.strip(), "-p", "HEAD^1", "-m", row["message"], cwd=work)
+            if rc != 0:
+                return False, "the squashed commit could not be made"
         if _git("merge", "--ff-only", "-q", merged.strip(), cwd=main_dir)[0] != 0:
             return False, "main moved while this ran (or its checkout is dirty); nothing landed"
         return True, merged.strip()
@@ -160,7 +230,9 @@ def _land(row) -> tuple[bool, str]:
 def _run_one(row, log) -> None:
     con = db.connect()
     try:
-        landed, out = _land(row)
+        extra = con.execute("SELECT files, squash FROM land_fixes WHERE land_id = ?", (row["id"],)).fetchone()
+        fix = (json.loads(extra["files"]) or None) if extra else None
+        landed, out = _land(row, fix, bool(extra and extra["squash"]))
         con.execute("UPDATE lands SET state = ?, merged = ?, output = ?, done_at = ? WHERE id = ?",
                     ("landed" if landed else "failed", out if landed else None, out[-OUTPUT_KEPT:],
                      int(time.time()), row["id"]))

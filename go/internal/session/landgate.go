@@ -13,7 +13,7 @@ import (
 // runs as a child of the same session that sends `land_pass` and `land`, so the daemon cannot tell the two apart by who is calling.
 // What a branch's code cannot do is be the command the hook sees: the hook runs outside the Bash sandbox, so it alone can read the
 // per-session key `hl launch` keeps in a folder the sandbox hides. When the tool call is exactly `hl land --pass <sha>` or
-// `hl land <sha> <message> --tree <tree>` and nothing else, it hands the daemon the key with the verb and the sha, and the daemon
+// `hl land <sha> <message> --tree <tree>` (optionally with `--fix <dir>` and `--squash`) and nothing else, it hands the daemon the key with the verb and the sha, and the daemon
 // accepts that one request from that session for a minute (landauth).
 
 const operators = ";&|<>()"
@@ -128,13 +128,19 @@ func ParseLand(toolName string, toolInput any) (verb, sha string, ok bool) {
 	}
 	rest := words[2:]
 	var positional []string
-	tree := false
+	tree, housekeeping := false, false
 	for i := 0; i < len(rest); {
 		w := rest[i]
 		switch {
 		case w == "--tree":
 			tree = true
 			i += 2
+		case w == "--fix": // the merger's housekeeping directory: a land's, never a pass's
+			housekeeping = true
+			i += 2
+		case w == "--squash":
+			housekeeping = true
+			i++
 		case strings.HasPrefix(w, "-") && w != "--pass":
 			return // --check, --list and anything unknown send no verb
 		default:
@@ -146,7 +152,7 @@ func ParseLand(toolName string, toolInput any) (verb, sha string, ok bool) {
 	}
 	// Whether this is a pass is read off the whole list, as the spec does: a --pass in the place of --tree's value is one too.
 	if slices.Contains(rest, "--pass") {
-		if len(positional) == 1 {
+		if len(positional) == 1 && !housekeeping {
 			return "land_pass", positional[0], true
 		}
 		return
