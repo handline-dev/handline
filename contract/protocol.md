@@ -157,7 +157,9 @@ A method marked write takes a required `request_id`.
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
 | `accounts.list` | agent |  | `roster?` | `{accounts}` | `bad_request` |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `account.login` | founder | yes | `account`, `request_id` | `Accepted & {terminal}` | `refused`, `not_found` |  |
+| `account.login` | founder | yes | `account`, `request_id` | `Accepted & {login_id, state, url}` | `refused`, `not_found` | role, state |
+| `account.login_cancel` | founder | yes | `login_id`, `request_id` | `Accepted` | `refused`, `not_found` | role |
+| `account.login_code` | founder | yes | `login_id`, `code`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, state |
 | `account.remove` | founder | yes | `account`, `dry_run?`, `confirm?`, `request_id` | `Accepted & {would_remove, plan}` | `refused`, `not_found`, `bad_request` |  |
 | `repos.list` | member |  | none | `{repos}` |  |  |
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
@@ -558,7 +560,15 @@ The account Settings form in one call: alias, cap, usage recovery and the month 
 
 ### `account.login`
 
-Start a login; returns a terminal for terminal.attach.
+Start a login on the account; answers the login id and the URL to open. No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`.
+
+### `account.login_cancel`
+
+Stop a login in progress. Idempotent: a login already ended answers accepted. An id the daemon never issued is not_found. The login's whole process group is killed, since the CLI ignores SIGTERM for a second.
+
+### `account.login_code`
+
+Hand the one-time code from the authorize page to a login waiting for it. The code is never echoed back, never in an event, a log or the request record. Refused with gate `state` when the login is not waiting for a code. An id the daemon never issued is not_found.
 
 ### `account.remove`
 

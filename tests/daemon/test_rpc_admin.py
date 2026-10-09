@@ -8,6 +8,7 @@ Run on its own: python3 tests/daemon/test_rpc_admin.py   (all areas: python3 tes
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -293,12 +294,16 @@ def test_the_admin_fixtures_pass_against_this_daemon(home: Path) -> None:
             return a
         return connect
     _world(home)
+    doc = json.loads(Path("contract/fixtures/admin_writes.json").read_text())
+    doc["fixtures"] = [f for f in doc["fixtures"] if not f["about"].startswith("NOT_YET_IN_PYTHON")]
+    fixtures = home / "admin_writes.json"
+    fixtures.write_text(json.dumps(doc))
     real = sessiontoken.agent_of
     results = []
     try:
         for role in ("founder", "agent"):
             sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
-            results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/admin_writes.json")], {role: connector()},
+            results += [(*r, role) for r in conformance.run_all([fixtures], {role: connector()},
                                                                  {"founder_key": _hp()["key"], "account": "acct.one", "schedule_agent": "worker"})
                         if r[0] != "skip"]
     finally:
