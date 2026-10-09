@@ -3,6 +3,7 @@ package hlclient
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
@@ -19,22 +20,38 @@ func Agent() string {
 
 // CurrentAgent is who is asking (ask.current_agent): $OCP_AGENT, except under a Claude Code that itself runs under
 // another, which inherited the name without being that agent and is nobody; that refusal is recorded.
-func (c *Client) CurrentAgent(argv []string) string {
+func (c *Client) CurrentAgent() string {
 	agent := Agent()
 	if agent != "" && sessiontoken.New(c.Home).Nested(0) {
-		c.record(agent, "nested_claude_refused", argv)
+		c.record(agent, "nested_claude_refused", os.Args[1:])
 		return ""
 	}
 	return agent
 }
 
-// WhoRefusal is why a write cannot be made as a caller that cannot be named (ask._who_refusal).
+// AskingAgent is CurrentAgent, reading a person at their own terminal as the founder (ask.asking_agent): an inherited
+// name nobody vouches for is no one, and so is a script that lost the variable and has no terminal.
+func (c *Client) AskingAgent() string {
+	if Agent() != "" {
+		return c.CurrentAgent()
+	}
+	if StdinIsTerminal() {
+		return Human
+	}
+	return ""
+}
+
+// Human is the founder's name as a caller.
+const Human = "human"
+
+// WhoRefusal is why a write cannot be made as a caller that cannot be named (cli/ask._who_refusal).
 func WhoRefusal(verb string) string {
 	if a := Agent(); a != "" {
 		return fmt.Sprintf("refused: this runs under a second Claude Code started inside an agent's session, which "+
 			"inherited the name %s without being that agent; only the agent's own session can %s as it", a, verb)
 	}
-	return "cannot tell who is writing: OCP_AGENT is unset"
+	return fmt.Sprintf("cannot tell who is %sing this: OCP_AGENT is unset and this is not an interactive shell. "+
+		"Agents are started with `hl launch <agent>`, which sets it.", verb)
 }
 
 // NoteVerbChain records a state-changing command and the programs above it (ask.note_verb_chain), so a command whose

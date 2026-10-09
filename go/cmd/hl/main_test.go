@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -68,9 +70,16 @@ func newRig(t *testing.T) *rig {
 
 // run is hl with args under env, nothing inherited but PATH: (stdout, stderr, exit code).
 func (r *rig) run(env []string, args ...string) (string, string, int) {
+	return r.runIn("", env, args...)
+}
+
+// runIn is run with stdin.
+func (r *rig) runIn(stdin string, env []string, args ...string) (string, string, int) {
 	cmd := exec.Command(r.hl, args...)
+	cmd.Dir = r.root
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HANDLINE_TEST_ROOT=" + r.root, "HANDLINE_HOME=" + r.home,
-		"HANDLINE_HL_PYTHON=" + r.py}, env...)
+		"HANDLINE_HL_PYTHON=" + r.py, "TZ=UTC"}, env...)
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -90,7 +99,7 @@ func TestWhatIsNotPortedRunsPythonWithTheSameArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := filepath.Join(real, "bin", "_ocp_entry.py")
-	for _, args := range [][]string{{}, {"task", "show", "T1"}, {"progress", "--help"}, {"progress", "a", "b"}} {
+	for _, args := range [][]string{{}, {"inbox", "--all"}, {"progress", "--help"}, {"progress", "a", "b"}} {
 		out, _, code := r.run(nil, args...)
 		want := strings.TrimSpace("python " + entry + " " + strings.Join(args, " "))
 		if code != 0 || strings.TrimSpace(out) != want {
@@ -107,15 +116,16 @@ func TestProgressNamesNoOneWithoutAnAgent(t *testing.T) {
 	}
 }
 
-func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
-	r := newRig(t)
+// daemon serves the rig's socket: each method answers its result (an object, `{}` when none is given), or its error
+// when the result starts with "error:". calls is every message received, hello included.
+func (r *rig) daemon(results map[string]string) (calls func() []map[string]any) {
 	ln, err := net.Listen("unix", filepath.Join(r.home, "daemon.sock"))
 	if err != nil {
-		t.Fatal(err)
+		r.t.Fatal(err)
 	}
-	defer ln.Close()
+	r.t.Cleanup(func() { ln.Close() })
 	var mu sync.Mutex
-	var calls []map[string]any
+	var got []map[string]any
 	go func() {
 		for {
 			conn, err := ln.Accept()
@@ -127,21 +137,42 @@ func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
 				var m map[string]any
 				_ = json.Unmarshal(sc.Bytes(), &m)
 				mu.Lock()
-				calls = append(calls, m)
+				got = append(got, m)
 				mu.Unlock()
-				result := `{}`
-				switch m["method"] {
-				case "task.progress":
-					result = `{"said":"progress kept on #7"}`
-				case "progress.get":
-					result = `{"note":"done: a\u001b[31m"}`
-				}
 				id, _ := json.Marshal(m["id"])
-				conn.Write([]byte(`{"jsonrpc":"2.0","id":` + string(id) + `,"result":` + result + "}\n"))
+				result, _ := m["method"].(string)
+				answer := `"result":{}`
+				if res, ok := results[result]; ok && strings.HasPrefix(res, "error:") {
+					answer = `"error":{"code":-32000,"message":` + strconv.Quote(res[6:]) + `,"data":{"code":"refused"}}`
+				} else if ok {
+					var flat bytes.Buffer
+					if err := json.Compact(&flat, []byte(res)); err != nil {
+						panic(err)
+					}
+					answer = `"result":` + flat.String()
+				}
+				conn.Write([]byte(`{"jsonrpc":"2.0","id":` + string(id) + `,` + answer + "}\n"))
 			}
 			conn.Close()
 		}
 	}()
+	return func() []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		var out []map[string]any
+		for _, m := range got {
+			if m["method"] != "hello" {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+}
+
+func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
+	r := newRig(t)
+	calls := r.daemon(map[string]string{"task.progress": `{"said":"progress kept on #7"}`,
+		"progress.get": `{"note":"done: a\u001b[31m"}`})
 	agent := []string{"HANDLINE_AGENT=a.one"}
 	if out, errs, code := r.run(agent, "progress", "done: a"); code != 0 || out != "progress kept on #7\n" || errs != "" {
 		t.Fatalf("write: %q %q %d", out, errs, code)
@@ -149,12 +180,11 @@ func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
 	if out, _, code := r.run(agent, "progress"); code != 0 || out != "done: a\n" {
 		t.Fatalf("show: %q %d", out, code)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(calls) != 4 || calls[1]["method"] != "task.progress" || calls[3]["method"] != "progress.get" {
-		t.Fatalf("calls %v", calls)
+	got := calls()
+	if len(got) != 2 || got[0]["method"] != "task.progress" || got[1]["method"] != "progress.get" {
+		t.Fatalf("calls %v", got)
 	}
-	if p := calls[1]["params"].(map[string]any); p["note"] != "done: a" || p["request_id"] == nil {
+	if p := got[0]["params"].(map[string]any); p["note"] != "done: a" || p["request_id"] == nil {
 		t.Fatalf("params %v", p)
 	}
 }

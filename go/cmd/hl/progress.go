@@ -14,8 +14,12 @@ func progress(c *hlclient.Client, args []string) (int, bool) {
 		return 0, false
 	}
 	c.NoteVerbChain([]string{"progress", ""})
-	if c.CurrentAgent([]string{"progress"}) == "" {
-		fmt.Fprintln(os.Stderr, hlclient.WhoRefusal("write"))
+	if c.CurrentAgent() == "" {
+		why := "cannot tell who is writing: OCP_AGENT is unset"
+		if hlclient.Agent() != "" {
+			why = hlclient.WhoRefusal("write")
+		}
+		fmt.Fprintln(os.Stderr, why)
 		return 1, true
 	}
 	if len(args) == 0 {

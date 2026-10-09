@@ -18,6 +18,7 @@ type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
 	"progress": progress,
+	"task":     task,
 }
 
 func main() {

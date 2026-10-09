@@ -196,6 +196,12 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 
 // Write is a write under a fresh request_id: (true, what it said) or (false, why it was refused or not made).
 func (c *Client) Write(method string, params map[string]any) (bool, string) {
+	ok, said, _ := c.Written(method, params)
+	return ok, said
+}
+
+// Written is Write, and the whole result beside the words (nil when refused or not made).
+func (c *Client) Written(method string, params map[string]any) (bool, string, map[string]any) {
 	p := map[string]any{"request_id": newID()}
 	for k, v := range params {
 		p[k] = v
@@ -205,14 +211,14 @@ func (c *Client) Write(method string, params map[string]any) (bool, string) {
 	var refused *RPCError
 	switch {
 	case errors.As(err, &down):
-		return false, "daemon not running, nothing done: " + down.Error()
+		return false, "daemon not running, nothing done: " + down.Error(), nil
 	case errors.As(err, &refused):
-		return false, refused.Error()
+		return false, refused.Error(), nil
 	case err != nil:
-		return false, "the daemon did not answer, so it is not known whether this was done: " + err.Error()
+		return false, "the daemon did not answer, so it is not known whether this was done: " + err.Error(), nil
 	}
 	said, _ := got["said"].(string)
-	return true, said
+	return true, said, got
 }
 
 func newID() string {
