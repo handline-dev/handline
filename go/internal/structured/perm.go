@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,7 +24,7 @@ const (
 // rule that matched is returned and recorded in the event.
 type Policy struct {
 	Guard func(tool string, input any) string // a reason to refuse, or ""; the shell guard
-	Allow []string                            // tool names allowed without asking
+	Allow []string                            // allowed without asking: a tool's name, or Bash(command) / Bash(prefix:*) as settings.json writes them
 }
 
 func (p Policy) Decide(r ToolRequest) (v Verdict, rule, reason string) {
@@ -33,11 +34,32 @@ func (p Policy) Decide(r ToolRequest) (v Verdict, rule, reason string) {
 		}
 	}
 	for _, t := range p.Allow {
-		if t == r.ToolName {
+		if allows(t, r) {
 			return Allow, "allow:" + t, ""
 		}
 	}
 	return Ask, "", ""
+}
+
+// allows is whether the rule covers the call. A Bash rule covers a command only when it is one simple command: a command that chains
+// or redirects others (or substitutes, or runs over lines) is the rule's prefix and something more, and goes to a person.
+func allows(rule string, r ToolRequest) bool {
+	if rule == r.ToolName {
+		return true
+	}
+	spec, ok := strings.CutPrefix(rule, "Bash(")
+	spec, closed := strings.CutSuffix(spec, ")")
+	if !ok || !closed || r.ToolName != "Bash" {
+		return false
+	}
+	command, _ := r.Input["command"].(string)
+	if command == "" || strings.ContainsAny(command, ";&|<>`$()\\\n") {
+		return false
+	}
+	if prefix, ok := strings.CutSuffix(spec, ":*"); ok {
+		return command == prefix || strings.HasPrefix(command, prefix+" ")
+	}
+	return command == spec
 }
 
 // PromptRow is a permission prompt as the prompt store shows it.
