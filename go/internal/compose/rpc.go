@@ -55,6 +55,9 @@ func (c controls) Wake(call sessionrpc.Call, agent string) (bool, string, error)
 }
 
 func (c controls) Close(call sessionrpc.Call, agent string, fresh bool) (bool, string, error) {
+	if c.p.Run.Busy(agent) { // a person's close does not end a turn that runs: it is interrupted first
+		return false, agent + " is mid-turn; interrupt it first", nil
+	}
 	st, o := c.status(agent), lifecycle.CloseOpts{Force: call.Person}
 	if fresh {
 		return c.lc.Manager.CloseFresh(agent, st, o)

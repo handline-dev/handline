@@ -43,8 +43,13 @@ FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/
 [ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/structured/session.go" >&2; exit 1; }
 export FAKE_CLAUDE_VERSION
 conformance() {
+    local fixtures=() f
+    for f in "$here"/../contract/fixtures/*.json; do
+        # Flags off there is no structured session to seed, so structured_controls.json is played only with -structured-cli.
+        [ "$1" != "--structured-cli" ] && [ "${f##*/}" = structured_controls.json ] || fixtures+=("$f")
+    done
     python3 "$here/conformance_fds.py" "$work/handlined" "$@" --allow-missing-file "$here/../go/conformance-missing.txt" \
-        --allow-needvar-file "$here/../go/conformance-needvar.txt" "$here"/../contract/fixtures/*.json
+        --allow-needvar-file "$here/../go/conformance-needvar.txt" "${fixtures[@]}"
 }
 echo "tools/test-go.sh: conformance fixtures, flags off" >&2
 # Flags off: remove this run at cutover, when -structured-cli becomes the default.
