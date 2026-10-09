@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 )
@@ -20,11 +19,12 @@ const (
 	Deny                 // a guard refuses it
 )
 
-// Policy is the step before a person is asked: the guard that refuses a tool call, then the tools the agent may always use. The
-// rule that matched is returned and recorded in the event.
+// Policy is the step before a person is asked: the guard that refuses a tool call, the tools never allowed, then the tools the agent may
+// always use. The rule that matched is returned and recorded in the event.
 type Policy struct {
 	Guard func(tool string, input any) string // a reason to refuse, or ""; the shell guard
-	Allow []string                            // allowed without asking: a tool's name, or Bash(command) / Bash(prefix:*) as settings.json writes them
+	Deny  []string                            // tool names refused outright, whatever Allow says
+	Allow []string                            // tool names allowed without asking
 }
 
 func (p Policy) Decide(r ToolRequest) (v Verdict, rule, reason string) {
@@ -33,33 +33,17 @@ func (p Policy) Decide(r ToolRequest) (v Verdict, rule, reason string) {
 			return Deny, "guard", why
 		}
 	}
+	for _, t := range p.Deny {
+		if t == r.ToolName {
+			return Deny, "deny:" + t, t + " is denied in the settings"
+		}
+	}
 	for _, t := range p.Allow {
-		if allows(t, r) {
+		if t == r.ToolName {
 			return Allow, "allow:" + t, ""
 		}
 	}
 	return Ask, "", ""
-}
-
-// allows is whether the rule covers the call. A Bash rule covers a command only when it is one simple command: a command that chains
-// or redirects others (or substitutes, or runs over lines) is the rule's prefix and something more, and goes to a person.
-func allows(rule string, r ToolRequest) bool {
-	if rule == r.ToolName {
-		return true
-	}
-	spec, ok := strings.CutPrefix(rule, "Bash(")
-	spec, closed := strings.CutSuffix(spec, ")")
-	if !ok || !closed || r.ToolName != "Bash" {
-		return false
-	}
-	command, _ := r.Input["command"].(string)
-	if command == "" || strings.ContainsAny(command, ";&|<>`$()\\\n") {
-		return false
-	}
-	if prefix, ok := strings.CutSuffix(spec, ":*"); ok {
-		return command == prefix || strings.HasPrefix(command, prefix+" ")
-	}
-	return command == spec
 }
 
 // PromptRow is a permission prompt as the prompt store shows it.
