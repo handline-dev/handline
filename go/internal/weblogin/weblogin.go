@@ -141,7 +141,7 @@ func (m *Manager) Start(account string) (Login, error) {
 	case u, open := <-urls:
 		if open && u != "" {
 			m.mu.Lock()
-			waiting := r.active() // a child that printed its URL and died at once, or was cancelled, is not waiting
+			waiting := r.state == Waiting // a child that printed its URL and died at once, was cancelled, or was sent a code is not waiting
 			if waiting {
 				r.url = u
 			}
@@ -168,7 +168,9 @@ func (m *Manager) launch(r *run) (<-chan string, error) {
 	if err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
 	r.stdin = stdin
+	m.mu.Unlock()
 	stdout, err := r.cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -316,7 +318,7 @@ func (m *Manager) SendCode(id, code string) error {
 		m.mu.Unlock()
 		return ErrUnknown
 	}
-	if r.state != Waiting || r.reaped {
+	if r.state != Waiting || r.url == "" || r.stdin == nil || r.reaped { // no URL handed out yet: the person has nothing to take a code from
 		m.mu.Unlock()
 		return &Refusal{"the login is not waiting for a code"}
 	}

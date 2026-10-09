@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // takesACode prints its URL, reads one line from stdin into a file, then leaves its credential: a login that is finished by the code.
@@ -77,4 +78,29 @@ func TestASecondCodeAnUnknownLoginAndABadCodeAreRefused(t *testing.T) {
 	if err := r.m.SendCode(l.ID, "late"); !errors.As(err, &no) {
 		t.Fatalf("a code for an ended login: %v", err)
 	}
+}
+
+func TestACodeBeforeTheURLIsHandedOutIsRefused(t *testing.T) {
+	r := newRig(t, "sleep 300\n") // never prints a URL: Start waits for it
+	started := make(chan struct{})
+	go func() { r.m.Start("main"); close(started) }()
+	var id string
+	for i := 0; i < 400 && id == ""; i++ {
+		if l := r.m.Of("main"); l != nil {
+			id = l.ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("the login never showed")
+	}
+	var no *Refusal
+	if err := r.m.SendCode(id, "early"); !errors.As(err, &no) {
+		t.Fatalf("a code before the URL: %v", err)
+	}
+	if r.state("main") != Waiting {
+		t.Fatalf("state %q", r.state("main"))
+	}
+	r.timer.fire(URLWait)
+	<-started
 }
