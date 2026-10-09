@@ -66,8 +66,12 @@ if [ -x "$py" ] && [ -f "$reqs" ] && [ -f "$stamp" ]; then
     [ "$want" = "$have" ] && ready=1
 fi
 
-if [ "$ready" = 1 ]; then
-    exec "$py" "$script_dir/_ocp_entry.py" "$@"
-else
-    exec python3 "$script_dir/_ocp_entry.py" "$@"
+[ "$ready" = 1 ] || py=python3
+
+# The Go hl once tools/build-hl.sh has built it: it runs the commands it has ported and hands every other one to this
+# same Python. HANDLINE_HL_GO=0 keeps everything on Python.
+gohl="$script_dir/../go/hl"
+if [ -x "$gohl" ] && [ "${HANDLINE_HL_GO:-${OCP_HL_GO:-1}}" != 0 ]; then
+    HANDLINE_HL_PYTHON="$py" exec "$gohl" "$@"
 fi
+exec "$py" "$script_dir/_ocp_entry.py" "$@"
