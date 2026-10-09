@@ -33,6 +33,12 @@ session.stop.state_gate_refuses_a_session_mid_work
 session.stop.terminal_lock_gate_holds_for_exit
 session.wake.terminal_lock_gate
 settings.set.a_key_without_a_per_agent_value_is_bad_request
+tasks.list.a_done_task_has_no_clock
+tasks.list.a_task_not_held_has_an_empty_blocked_by
+tasks.list.an_overdue_task_says_since_when
+tasks.list.before_pages_through_every_task
+tasks.list.blocked_by_names_the_open_blockers
+tasks.list.time_is_the_tasks_clock
 terminal.attach.a_host_without_attributes_refuses_styled
 terminal.attach.a_text_only_host_refuses_bytes
 terminal.attach.bytes_snapshot_shape
