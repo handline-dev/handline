@@ -169,17 +169,18 @@ def test_the_edit_gate_enforce_switch_is_the_founders_to_flip(home: Path) -> Non
           stopgate.enforced() is False)
 
 
-def test_the_go_hook_switch_is_the_founders_and_off_until_set(home: Path) -> None:
+def test_the_go_switches_are_the_founders_and_off_until_set(home: Path) -> None:
     _daemon_home(home, 20)
-    rc, out = _cli(["hooks", "go"], as_agent=None)
-    check("go hook: off until the founder sets it", rc == 0 and "off - Python answers every hook" in out, out)
-    rc, out = _cli(["hooks", "go", "on"], as_agent="backend")
-    check("go hook: an agent cannot switch it", rc == 1 and protected.get("switches", "go_hook") is None, out)
-    rc, out = _cli(["hooks", "go", "on"], as_agent=None)
-    check("go hook: the founder switches it on, as the Go hl reads it",
-          rc == 0 and "on - the Go hl answers the tool-call hooks" in out and protected.get("switches", "go_hook") == "on", out)
-    rc, out = _cli(["hooks", "go", "off"], as_agent=None)
-    check("go hook: and off", rc == 0 and "off -" in out, out)
+    for part, name in (("hook", "go_hook"),):
+        rc, out = _cli(["go", part], as_agent=None)
+        check(f"go {part}: off until the founder sets it", rc == 0 and "off - Python does it" in out, out)
+        rc, out = _cli(["go", part, "on"], as_agent="backend")
+        check(f"go {part}: an agent cannot switch it", rc == 1 and protected.get("switches", name) is None, out)
+        rc, out = _cli(["go", part, "on"], as_agent=None)
+        check(f"go {part}: the founder switches it on, under the name the Go hl reads",
+              rc == 0 and f"go {part}: on - the Go hl" in out and protected.get("switches", name) == "on", out)
+    rc, out = _cli(["go", "hook", "off"], as_agent=None)
+    check("go hook: and off again", rc == 0 and "off -" in out, out)
 
 
 def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None:
@@ -251,7 +252,7 @@ def main() -> int:
         run(lambda: test_record_from_stdin_denies_through_claudes_own_format(Path(td) / 'et4'))
         run(lambda: test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(Path(td) / 'et6'))
         run(lambda: _check_hook_guard_fixture(Path(td) / 'et7'))
-        run(lambda: test_the_go_hook_switch_is_the_founders_and_off_until_set(Path(td) / 'et8'))
+        run(lambda: test_the_go_switches_are_the_founders_and_off_until_set(Path(td) / 'et8'))
     return run_area(tests)
 
 

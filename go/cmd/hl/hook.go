@@ -25,10 +25,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// goHookOn is the founder's rollout switch (`hl hooks go on`): only an entry that reads "on" lets the Go hook act, so a
-// store that cannot be read leaves every hook to Python.
-func goHookOn(home string) bool {
-	v, _ := protected.New(home).Get("switches", "go_hook")
+// goSwitchOn is whether the founder switched a part of the Go hl on (`hl go <hook|launch> on`): only an entry that reads
+// "on" does, so a store that cannot be read leaves that part to Python.
+func goSwitchOn(home, name string) bool {
+	v, _ := protected.New(home).Get("switches", name)
 	return strings.TrimSpace(v) == "on"
 }
 
@@ -40,7 +40,7 @@ var goEvents = map[string]bool{"PreToolUse": true, "PostToolUse": true, "PostToo
 // away the wait a permission prompt raised and record the event, and a PostToolUse notes a memory file used and a
 // command started in the background. It always exits 0, as a hook that fails must never take the session with it.
 func hook(c *hlclient.Client, args []string) (int, bool) {
-	if len(args) != 1 || !goEvents[args[0]] || !goHookOn(c.Home) {
+	if len(args) != 1 || !goEvents[args[0]] || !goSwitchOn(c.Home, "go_hook") {
 		return 0, false
 	}
 	event := args[0]

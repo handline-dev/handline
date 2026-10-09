@@ -28,16 +28,21 @@ def cmd_hooks_gate(args) -> int:
     return 0
 
 
-def cmd_hooks_go(args) -> int:
-    """The founder's rollout switch for the Go hook (go/cmd/hl/hook.go): only an entry reading "on" lets it act."""
+# The parts of the Go hl the founder switches on one at a time (go/cmd/hl): each reads its entry and acts only on "on".
+GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks")}
+
+
+def cmd_go(args) -> int:
+    """Show or set one part's switch: on, the Go hl does it; off (the default), Python does."""
+    name, what = GO_PARTS[args.part]
     if args.state is not None:
         try:
-            protected.put("switches", "go_hook", args.state)
+            protected.put("switches", name, args.state)
         except protected.NotTheFounder as e:
             print(e, file=sys.stderr)
             return 1
-    on = (protected.get("switches", "go_hook") or "").strip() == "on"
-    print(f"go hook: {'on - the Go hl answers the tool-call hooks' if on else 'off - Python answers every hook'}")
+    on = (protected.get("switches", name) or "").strip() == "on"
+    print(f"go {args.part}: {'on - ' + what if on else 'off - Python does it'}")
     return 0
 
 
