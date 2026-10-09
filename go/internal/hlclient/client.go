@@ -76,7 +76,11 @@ func New() *Client {
 }
 
 // kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.
+// A plist this process cannot see, a sandboxed agent's case, is not taken as installed.
 func kickstart() error {
+	if _, err := os.Stat(filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist")); err != nil {
+		return errors.New("no service is installed to start it (`hl service install`)")
+	}
 	out, err := exec.Command("launchctl", "kickstart", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).CombinedOutput()
 	if err == nil {
 		return nil
