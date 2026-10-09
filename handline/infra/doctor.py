@@ -189,22 +189,32 @@ def _check_hl_on_path(r: Report) -> None:
 
 
 def _check_go_hl(r: Report) -> None:
-    """bin/hl runs go/hl only while it was built from this checkout's go/ (go/hl.src); after a pull it runs Python."""
+    """bin/hl runs go/hl only while git names the trees go/hl.src recorded for what the build compiled; otherwise it
+    runs Python. Read as bin/hl reads it."""
     root = paths.repo_root()
-    gohl = root / "go" / "hl"
-    if not gohl.exists():
+    if not (root / "go" / "hl").exists():
+        return
+    if not (root / ".git").exists():
+        r.add(OK, "go/hl runs as built: this is not a git checkout, so there is no source to compare")
+        return
+    rebuild = str(root / "tools" / "build-hl.sh")
+    try:
+        revs, _, trees = (root / "go" / "hl.src").read_text().rstrip("\n").partition("\n")
+    except OSError:
+        revs = trees = ""
+    if not trees:
+        r.add(WARN, "go/hl has no record of the source it was built from: hl runs on Python until it is rebuilt", rebuild)
         return
     try:
-        built = (root / "go" / "hl.src").read_text().strip()
-    except OSError:
-        built = ""
-    try:
-        now = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD:go"], capture_output=True, text=True).stdout.strip()
-    except OSError:
-        now = ""                                # no git: nothing to compare, as bin/hl reads it
-    if now and built != now:
+        git = subprocess.run(["git", "-C", str(root), "rev-parse", *revs.split()], capture_output=True, text=True)
+        now, why = (git.stdout.rstrip("\n"), "") if git.returncode == 0 else ("", git.stderr.strip())
+    except OSError as e:
+        now, why = "", str(e)
+    if why:
+        r.add(WARN, "git gave no answer on go/hl's source, so hl runs on Python", why)
+    elif now != trees:
         r.add(WARN, "go/hl was built from other Go source than this checkout's: hl runs on Python until it is rebuilt",
-              str(root / "tools" / "build-hl.sh"))
+              rebuild)
     else:
         r.add(OK, "go/hl is built from this checkout's Go source")
 

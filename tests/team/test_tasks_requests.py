@@ -7283,45 +7283,67 @@ def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
 
 
 def test_bin_hl_runs_go_hl_only_while_it_is_built_from_this_go_source(home: Path) -> None:
-    """bin/hl execs go/hl only while go/hl.src names this checkout's go/ tree (a pull since makes it Python's until a
-    rebuild), with no git call while the stamp is newer than git's index; doctor says when it is behind."""
+    """bin/hl execs go/hl only while git names the trees go/hl.src recorded for what the build compiled (a pull that
+    changed one makes it Python's until a rebuild; a change to other Go does not), with no git call while the stamp is
+    newer than git's index; git not answering is Python too; doctor says which."""
     from handline.infra import doctor
     repo = home / "repo"
     (repo / "bin").mkdir(parents=True)
-    (repo / "go").mkdir()
+    for pkg in ("cmd/hl", "internal/rpc", "internal/daemon"):
+        (repo / "go" / pkg).mkdir(parents=True)
+        (repo / "go" / pkg / "a.go").write_text("package a\n")
     shutil.copy(paths.repo_root() / "bin" / "hl", repo / "bin" / "hl")
     (repo / "bin" / "_ocp_entry.py").write_text("print('python')\n")
     (repo / "go" / "hl").write_text("#!/bin/sh\necho go\n")
     (repo / "go" / "hl").chmod(0o755)
-    (repo / "go" / "main.go").write_text("package main\n")
     git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
+    commit = lambda pkg: (  # noqa: E731
+        (repo / "go" / pkg / "a.go").write_text((repo / "go" / pkg / "a.go").read_text() + "// changed\n"),
+        git("add", "go"), git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", pkg))
     git("init", "-q")
-    git("add", "go/main.go")
+    git("add", "go/cmd", "go/internal")
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
     hl = lambda **env: subprocess.run([str(repo / "bin" / "hl")], capture_output=True, text=True, timeout=30,  # noqa: E731
                                       env={**os.environ, **env}).stdout.strip()
     stamp = repo / "go" / "hl.src"
     check("go/hl: no stamp, so Python answers", hl() == "python")
     stamp.write_text(git("rev-parse", "HEAD:go") + "\n")
+    os.utime(stamp, (1, 1))
+    check("go/hl: a whole-tree stamp from before is not read as current", hl() == "python")
+    revs = "HEAD:go/cmd/hl HEAD:go/internal/rpc"
+    stamp.write_text(f"{revs}\n{git('rev-parse', *revs.split())}\n")
     os.utime(stamp, (1, 1))                      # older than git's index: the stamp is checked against git
-    check("go/hl: built from this go/ tree, so it runs", hl() == "go")
+    check("go/hl: built from these trees, so it runs", hl() == "go")
     check("go/hl: and the stamp is touched, so the next run asks git nothing",
           stamp.stat().st_mtime > (repo / ".git" / "index").stat().st_mtime)
     check("go/hl: HANDLINE_HL_GO=0 keeps it on Python", hl(HANDLINE_HL_GO="0") == "python")
+    os.utime(stamp, (1, 1))
+    check("go/hl: git not answering is Python's, not the build unchecked", hl(GIT_DIR=str(home / "nowhere")) == "python")
     report = doctor.Report()
     real_root, paths.repo_root = paths.repo_root, lambda: repo
     try:
         doctor._check_go_hl(report)
-        (repo / "go" / "main.go").write_text("package main\n// changed\n")
-        git("add", "go/main.go")
-        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "two")
-        check("go/hl: a commit to go/ since the build makes it Python's", hl() == "python")
+        commit("internal/daemon")
+        os.utime(stamp, (1, 1))
+        check("go/hl: a commit to Go the build did not compile leaves it on", hl() == "go")
+        commit("internal/rpc")
+        check("go/hl: a commit to a package it compiled makes it Python's", hl() == "python")
+        doctor._check_go_hl(report)
+        os.environ["GIT_DIR"] = str(home / "nowhere")
+        try:
+            doctor._check_go_hl(report)
+        finally:
+            del os.environ["GIT_DIR"]
+        (repo / ".git").rename(repo / "git.off")
+        check("go/hl: outside a git checkout the build runs", hl() == "go")
         doctor._check_go_hl(report)
     finally:
         paths.repo_root = real_root
     said = [(level, what) for level, what, *_ in report.rows]
-    check("doctor: fine while current, then says to rebuild", [lvl for lvl, _ in said] == [doctor.OK, doctor.WARN]
-          and "until it is rebuilt" in said[1][1], said)
+    check("doctor: fine while current, then says to rebuild, then that git gave no answer, then runs as built",
+          [lvl for lvl, _ in said] == [doctor.OK, doctor.WARN, doctor.WARN, doctor.OK]
+          and "until it is rebuilt" in said[1][1] and "no answer" in said[2][1] and "not a git checkout" in said[3][1],
+          said)
 
 
 def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
