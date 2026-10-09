@@ -43,6 +43,10 @@ def _drift(con, label: str, now: int) -> None:
     left = handoff_note.cache_left(con, "backend", now)
     check(f"{label}: the cache time is the daemon's",
           (view["cache_until"] is None) == (left is None) and (left is None or view["cache_until"] == agentview._ts(now + left)))
+    check(f"{label}: kind, task_count and ready are the screen's", (view["kind"], view["task_count"], view["ready"]) == (ui.kind, ui.tasks, ui.ready),
+          f"{view['kind']} {view['task_count']} {view['ready']} vs {ui.kind} {ui.tasks} {ui.ready}")
+    check(f"{label}: wall is the screen's wall cell", (view["wall"] is None) == (ui.wall is None) and (
+        ui.wall is None or (view["wall"]["account"], view["wall"]["assumed"]) == (ui.wall.account, ui.wall.mark == "?")), str(view["wall"]))
     check(f"{label}: account, task and parent", view["account"] == agents.current_account("backend", con)
           and (view["task"] or {}).get("id") == db.current_task(con, "backend")
           and view["parent"] == actions.supervisor_of(actions.routing(), "backend"), str(view))
@@ -116,6 +120,90 @@ limits:
         check("parent: the agent its routing table says it answers to", agentview.stored(con, "backend")["parent"] == "manager")
     finally:
         con.close()
+
+
+def _seed_view_fields(home: Path, con, now: int) -> dict:
+    """Five agents, one for each case the spec's fixtures name: ready, blocked, busy, walled and plain."""
+    for n in ("a.ready", "a.blocked", "a.busy", "a.walled", "a.plain"):
+        agents.register(n)
+        db.set_account(con, n, "alpha")
+    for n, state in (("a.ready", dmn_states.IDLE), ("a.blocked", dmn_states.IDLE), ("a.busy", dmn_states.RUNNING),
+                     ("a.walled", dmn_states.IDLE), ("a.plain", dmn_states.IDLE)):
+        db.set_agent_state(con, n, state)
+    for n in ("a.ready", "a.blocked", "a.busy"):
+        tid = db.new_task(con, f"{n} work", n, "manager")
+        db.set_current_task(con, n, tid)
+        db.set_task_queued(con, tid, "manager")
+        if n == "a.blocked":
+            db.add_block(con, tid, db.new_task(con, "first", "manager", "manager"))
+    db.set_closed(con, "a.walled", "sess-wall")
+    db.add_request(con, "reviewer", "a.walled", "look", None, "peer", "async", None, 0, None)
+    write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+    return {"view_ready_agent": "a.ready", "view_blocked_agent": "a.blocked", "view_busy_agent": "a.busy",
+            "view_walled_agent": "a.walled", "view_plain_agent": "a.plain"}
+
+
+def test_the_view_says_what_kind_how_many_tasks_ready_and_walled(home: Path) -> None:
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        _seed_view_fields(home, con, now)
+        agentview.refresh(con, now)
+        v = {n: agentview.stored(con, n) for n in ("a.ready", "a.blocked", "a.busy", "a.walled", "a.plain")}
+        check("kind: the model and its effort, as the Rail's column", v["a.ready"]["kind"] == agents.kind(agents.read("a.ready")), str(v["a.ready"]))
+        check("ready: idle, a queued current task, no open blocker", v["a.ready"]["ready"] is True and v["a.ready"]["task_count"] == 1)
+        check("ready: an open blocker holds it", v["a.blocked"]["ready"] is False and v["a.blocked"]["task_count"] == 1)
+        check("ready: a running agent is not", v["a.busy"]["ready"] is False)
+        check("wall: the account, the window's reset as unix seconds, not a guess",
+              v["a.walled"]["wall"] == {"account": "alpha", "clock": now + 1800, "assumed": False}, str(v["a.walled"]["wall"]))
+        check("wall: null with nothing to wake it", v["a.plain"]["wall"] is None and v["a.ready"]["wall"] is None)
+        check("task_count: none for an agent with no tasks", v["a.plain"]["task_count"] == 0)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5)
+        agentview.refresh(con, now)
+        check("wall: the clock is null when the window's reset is not known",
+              (w := agentview.stored(con, "a.walled")["wall"]) and w["account"] == "alpha" and w["clock"] is None, str(w))
+        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+        agentview.refresh(con, now)
+        check("wall: gone the moment the account has room", agentview.stored(con, "a.walled")["wall"] is None)
+        db.set_current_task(con, "a.plain", None)
+        draft = db.new_task(con, "not approved yet", "a.plain", "manager")
+        agentview.refresh(con, now)
+        check("task_count: a draft that is not the current task is not counted (open_task_counts)",
+              agentview.stored(con, "a.plain")["task_count"] == 0, str(agentview.stored(con, "a.plain")))
+        db.set_current_task(con, "a.plain", draft)
+        agentview.refresh(con, now)
+        check("task_count: the same draft counts once it is the current task", agentview.stored(con, "a.plain")["task_count"] == 1)
+    finally:
+        con.close()
+
+
+def test_the_view_field_fixtures_pass_against_this_daemon(home: Path) -> None:
+    import json
+    import socket
+    import threading
+    from handline.daemon import socket_server
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
+    import conformance
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        variables = _seed_view_fields(home, con, now)
+        agentview.refresh(con, now)
+    finally:
+        con.close()
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    doc = json.loads(Path("contract/fixtures/agent_view_fields.json").read_text())
+    fixtures = home / "agent_view_fields.json"
+    fixtures.write_text(json.dumps(doc))
+    results = conformance.run_all([fixtures], {"founder": connect}, {"founder_key": _hp()["key"], **variables})
+    bad = [(n, why) for st, why, n in results if st != "pass"]
+    check("fixtures: every AgentView field fixture passes against this daemon", len(results) == len(doc["fixtures"]) and not bad, str(bad))
 
 
 def test_the_view_carries_the_context_the_strip_reads(home: Path) -> None:
@@ -340,6 +428,8 @@ def main() -> int:
         run(lambda: test_the_stored_view_does_not_drift_from_what_the_screens_work_out(Path(td) / "a1"))
         run(lambda: test_the_fields_a_quiet_agent_never_sets_are_checked_where_they_are_set(Path(td) / "a2a"))
         run(lambda: test_the_view_carries_the_context_the_strip_reads(Path(td) / "a2c"))
+        run(lambda: test_the_view_says_what_kind_how_many_tasks_ready_and_walled(Path(td) / "a2d"))
+        run(lambda: test_the_view_field_fixtures_pass_against_this_daemon(Path(td) / "a2e"))
         run(lambda: test_one_agents_failure_does_not_stale_the_others(Path(td) / "a2b"))
         run(lambda: test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(Path(td) / "a2"))
         run(lambda: test_the_tick_stores_every_agents_view(Path(td) / "a3"))
