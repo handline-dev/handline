@@ -55,22 +55,28 @@ type Row struct {
 	Since      int64
 }
 
-// Holder is whoever holds agent's input, or nil when the daemon does; an idle hold is dropped here.
-func Holder(db *sql.DB, home, agent string, now time.Time) (*Row, error) {
+// Holder is whoever holds agent's input, or nil when the daemon does. An idle hold is dropped here, and dropped says so: the loss is
+// recorded and told to the terminal's watchers like a take, which only the caller can do, so a caller that gets dropped runs that step
+// (termchan.Env.HoldersChanged).
+func Holder(db *sql.DB, home, agent string, now time.Time) (*Row, bool, error) {
 	var r Row
 	var last int64
 	err := db.QueryRow("SELECT kind, name, since, last_typed FROM input_holders WHERE agent = ?", agent).Scan(&r.Kind, &r.Name, &r.Since, &last)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	if now.Unix()-last >= IdleSeconds(home) {
-		_, err := db.Exec("DELETE FROM input_holders WHERE agent = ?", agent)
-		return nil, err
+	if now.Unix()-last < IdleSeconds(home) {
+		return &r, false, nil
 	}
-	return &r, nil
+	res, err := db.Exec("DELETE FROM input_holders WHERE agent = ?", agent)
+	if err != nil {
+		return nil, false, err
+	}
+	n, err := res.RowsAffected() // two readers may find it idle together: only the one that deleted the row tells
+	return nil, n > 0, err
 }
 
 // Touch is the holder typing: the idle hold counts from now.
@@ -80,11 +86,8 @@ func Touch(db *sql.DB, agent, name string, now time.Time) error {
 }
 
 // Take holds agent's input as name: one statement that sets the row only when there is none or it is already name's, and says
-// whether it did, so two takes at once cannot both win. An idle hold is dropped first.
-func Take(db *sql.DB, home, agent, kind, name string, now time.Time) (bool, error) {
-	if _, err := Holder(db, home, agent, now); err != nil {
-		return false, err
-	}
+// whether it did, so two takes at once cannot both win. The caller reads Holder first, which drops an idle hold and tells of it.
+func Take(db *sql.DB, agent, kind, name string, now time.Time) (bool, error) {
 	res, err := db.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "+
 		"ON CONFLICT(agent) DO UPDATE SET last_typed = excluded.last_typed WHERE input_holders.name = excluded.name",
 		agent, kind, name, now.Unix(), now.Unix())

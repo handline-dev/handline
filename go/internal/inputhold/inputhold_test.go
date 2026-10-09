@@ -31,18 +31,18 @@ func hold(t *testing.T, db *sql.DB, agent, name string, lastTyped int64) {
 func TestAHoldIsReadBackUntilItsHolderHasBeenIdleLongEnough(t *testing.T) {
 	db, home := open(t)
 	now := time.Unix(10_000, 0)
-	if h, err := Holder(db, home, "a.one", now); h != nil || err != nil {
+	if h, _, err := Holder(db, home, "a.one", now); h != nil || err != nil {
 		t.Fatalf("nobody holds it: %v %v", h, err)
 	}
 	hold(t, db, "a.one", "casey", now.Unix()-599)
-	if h, _ := Holder(db, home, "a.one", now); h == nil || h.Name != "casey" || h.Kind != "person" {
+	if h, _, _ := Holder(db, home, "a.one", now); h == nil || h.Name != "casey" || h.Kind != "person" {
 		t.Fatalf("%+v", h)
 	}
 	if HeldWhy("a.one", "casey") != "a.one's terminal is held by casey" {
 		t.Fatal(HeldWhy("a.one", "casey"))
 	}
 	// the tenth minute: the hold is dropped, and stays dropped
-	if h, _ := Holder(db, home, "a.one", now.Add(time.Second)); h != nil {
+	if h, _, _ := Holder(db, home, "a.one", now.Add(time.Second)); h != nil {
 		t.Fatalf("an idle hold stands: %+v", h)
 	}
 	var n int
@@ -63,7 +63,7 @@ func TestTouchCountsTheIdleFromNowAndOnlyForTheHolder(t *testing.T) {
 	if last != now.Unix() {
 		t.Fatalf("last_typed %d", last)
 	}
-	if h, _ := Holder(db, home, "a.one", now.Add(599*time.Second)); h == nil {
+	if h, _, _ := Holder(db, home, "a.one", now.Add(599*time.Second)); h == nil {
 		t.Fatal("the touch did not restart the idle count")
 	}
 }
@@ -85,22 +85,25 @@ func TestTheIdleLimitIsFromConfigIfAPositiveIntegerElseTheDefault(t *testing.T) 
 func TestTakeWinsOnlyWhereNobodyElseHolds(t *testing.T) {
 	db, home := open(t)
 	now := time.Unix(10_000, 0)
-	if ok, err := Take(db, home, "a.one", "person", "casey", now); !ok || err != nil {
+	if ok, err := Take(db, "a.one", "person", "casey", now); !ok || err != nil {
 		t.Fatalf("%v %v", ok, err)
 	}
-	if ok, _ := Take(db, home, "a.one", "person", "robin", now.Add(time.Second)); ok {
+	if ok, _ := Take(db, "a.one", "person", "robin", now.Add(time.Second)); ok {
 		t.Fatal("a second taker must lose")
 	}
-	if ok, _ := Take(db, home, "a.one", "person", "casey", now.Add(time.Second)); !ok {
+	if ok, _ := Take(db, "a.one", "person", "casey", now.Add(time.Second)); !ok {
 		t.Fatal("the holder takes again")
 	}
-	if ok, _ := Take(db, home, "a.one", "person", "robin", now.Add(time.Hour)); !ok {
+	if _, dropped, _ := Holder(db, home, "a.one", now.Add(time.Hour)); !dropped {
+		t.Fatal("an idle hold is lost")
+	}
+	if ok, _ := Take(db, "a.one", "person", "robin", now.Add(time.Hour)); !ok {
 		t.Fatal("an idle hold is lost")
 	}
 	if err := Release(db, "a.one"); err != nil {
 		t.Fatal(err)
 	}
-	if h, _ := Holder(db, home, "a.one", now); h != nil {
+	if h, _, _ := Holder(db, home, "a.one", now); h != nil {
 		t.Fatal("released")
 	}
 }

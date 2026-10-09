@@ -119,3 +119,60 @@ func TestAStructuredAgentHasNoInputToHold(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// holdIdle puts casey's hold on ann, last typed an hour before the rig's clock.
+func holdIdle(t *testing.T, r rig) {
+	t.Helper()
+	at := r.e.now().Unix() - 3600
+	if _, err := r.e.DB.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('ann', 'person', 'casey', ?, ?)", at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func holderPayloads(t *testing.T, r rig) []string {
+	t.Helper()
+	rows, err := r.e.DB.Query("SELECT payload FROM events WHERE kind = 'input_holder' AND agent = 'ann' ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		rows.Scan(&p)
+		out = append(out, p)
+	}
+	return out
+}
+
+const daemonHolds = `{"holders": [{"kind": "daemon", "name": "daemon", "since": null}]}`
+
+func TestAnIdleHoldFoundByAnyReadIsRecordedOnceAndTold(t *testing.T) {
+	reads := map[string]func(rig){
+		"the holder list an attach reads": func(r rig) { r.e.holders("ann") },
+		"the gate of a take":              func(r rig) { r.e.take(person("robin"), map[string]any{"agent": "ann"}) },
+		"a release":                       func(r rig) { r.e.release(person("robin"), map[string]any{"agent": "ann"}) },
+	}
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			r.agent(t)
+			holdIdle(t, r)
+			read(r)
+			got := holderPayloads(t, r)
+			if name == "the gate of a take" { // the take that follows is a change of its own
+				if len(got) != 2 || got[0] != daemonHolds {
+					t.Fatalf("%v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0] != daemonHolds {
+				t.Fatalf("%v", got)
+			}
+			r.e.holders("ann") // the hold is gone: reading again records nothing
+			if len(holderPayloads(t, r)) != 1 {
+				t.Fatal("a second read told again")
+			}
+		})
+	}
+}

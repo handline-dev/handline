@@ -172,6 +172,7 @@ func Start(cfg Config) (*Daemon, error) {
 			return term.Current(cfg.Home)
 		})
 		d.tchan.Structured = cfg.Structured
+		d.prompts.HoldersChanged = d.tchan.HoldersChanged
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 	}
 	if cfg.Gateway {

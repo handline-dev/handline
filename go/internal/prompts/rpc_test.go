@@ -252,6 +252,20 @@ func TestTheInputHolderGate(t *testing.T) {
 			t.Fatalf("last_typed %d was not touched", got)
 		}
 	})
+	t.Run("an idle hold that expires tells its watchers once", func(t *testing.T) {
+		e, h := testEnv(t)
+		id := shown(t, e, h, question)
+		var told []string
+		e.HoldersChanged = func(agent string) error { told = append(told, agent); return nil }
+		holdInput(t, e, "someone.else", time.Now().Add(-time.Hour))
+		clearsOnAnyKey(h)
+		if _, err := answers(e, id, "1"); err != nil {
+			t.Fatal(err)
+		}
+		if len(told) != 1 || told[0] != "backend" {
+			t.Fatalf("told %v", told)
+		}
+	})
 	t.Run("an idle hold is dropped and the answer goes through", func(t *testing.T) {
 		e, h := testEnv(t)
 		id := shown(t, e, h, question)
