@@ -1,7 +1,7 @@
 """Requests between agents (team model section 3): what `hl task new` and `hl say` write.
 
 The agent supplies a target and a message. Everything else is decided here:
-whether the edge is allowed, chain depth, rate limiting, and
+whether the edge is allowed, chain depth, and
 what happens to the requester. No model is involved in any of it.
 
 A denied request returns the reason, so the agent learns the policy rather than
@@ -19,7 +19,6 @@ from .. import db
 from ..infra import atomic, names, paths, sessiontoken, textsafe
 from ..infra.yamlcompat import ConfigError
 from . import team
-from ..infra import timefmt
 
 # States an agent may not move itself out of. STALLED is a task defect and
 # only a human clears it (section 8.6); without this an agent could launder
@@ -343,33 +342,6 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                                f"as #{eid}."), None
             return False, decision.reason, None
 
-        limited, note = t.rate_limited(con, requester)
-        if limited:
-            now = int(time.time())
-            window = now - team.ASK_WINDOW_S
-            # The first refusal keeps the text, so nothing an agent wrote is
-            # lost by being refused. An identical one behind it is the same
-            # refusal, not a second event: a retry loop spent 35 request
-            # numbers in six seconds, and every row it wrote was a message
-            # that had never been sent to anyone.
-            rid = db.standing_denial(con, requester, target, body, files, window)
-            if rid is None:
-                rid = db.add_request(con, requester, target, body, files, decision.relation,
-                                     decision.response, kind or decision.kind or SAY_KIND, depth, parent_id,
-                                     state="denied", verdict=note, chain_id=chain_id)
-            oldest = db.oldest_counted_ask(con, requester, window)
-            free_at = now + team.ASK_WINDOW_S if oldest is None else oldest + team.ASK_WINDOW_S
-            # Section 8.6: too many asks is a resource problem, so it throttles
-            # and clears itself when a slot frees, rather than needing a human
-            # the way a task defect does.
-            if not _terminal(con, requester):
-                db.set_agent_state(con, requester, "THROTTLED",
-                                   wake_at=free_at, detail=note)
-            when = timefmt.stamp(free_at, timefmt.CLOCK)
-            return False, (f"{note} - {requester} is THROTTLED. The window rolls, so the "
-                           f"next slot frees at {when}; wait for it rather than retrying, "
-                           f"because a refusal sends nothing. Your text is kept as #{rid}."), None
-
         if within:
             con.execute("BEGIN IMMEDIATE")
         try:
@@ -390,7 +362,7 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
                 "request_id": rid, "target": target, "relation": decision.relation,
                 "response": decision.response, "chain_depth": depth,
             })
-            note = f"queued as #{rid} for {target} (response={decision.response}, {note})"
+            note = f"queued as #{rid} for {target} (response={decision.response})"
             if within:
                 within(con, rid, note)
                 con.execute("COMMIT")

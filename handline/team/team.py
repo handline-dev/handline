@@ -11,7 +11,6 @@ requests around, and they cannot infer policy or route around it.
 from __future__ import annotations
 
 import fnmatch
-import time
 from dataclasses import dataclass
 
 from ..infra import paths, sealed
@@ -39,7 +38,6 @@ def parent_name(agent: str) -> str | None:
     return head if dot and head else None
 
 DEFAULT_MAX_CHAIN_DEPTH = 4
-DEFAULT_ASK_RATE_PER_HOUR = 20
 
 # blocking is deliberately absent (team model section 2, axis 3): a requester
 # holding an account while it waits is the most expensive idle in a system
@@ -47,9 +45,7 @@ DEFAULT_ASK_RATE_PER_HOUR = 20
 VALID_RESPONSE = {"async", "fire_and_forget"}
 
 
-# The ask limiter's window. Rolling, not a bucket that empties on the hour: a
-# slot frees exactly one of these after the ask that took it, and an agent told
-# to "wait for the window" waits an hour for what was minutes away.
+# How long a refused message sent again unchanged is the same refusal, not a new denied row.
 ASK_WINDOW_S = 3600
 
 
@@ -77,7 +73,6 @@ class Team:
         self.deny: list[dict] = data.get("deny") or []
         limits = data.get("limits") or {}
         self.max_chain_depth = int(limits.get("max_chain_depth", DEFAULT_MAX_CHAIN_DEPTH))
-        self.ask_rate_per_hour = int(limits.get("ask_rate_per_hour", DEFAULT_ASK_RATE_PER_HOUR))
         self._validate()
 
     # ------------------------------------------------------------ loading
@@ -255,14 +250,6 @@ class Team:
             "(unlisted edges are denied by default)",
         )
 
-    def rate_limited(self, con, requester: str) -> tuple[bool, str]:
-        from .. import db
-
-        used = db.asks_since(con, requester, int(time.time()) - ASK_WINDOW_S)
-        if used >= self.ask_rate_per_hour:
-            return True, f"rate limit: {used} asks in the last hour >= {self.ask_rate_per_hour}"
-        return False, f"{used}/{self.ask_rate_per_hour} asks this hour"
-
 
 STARTER = """# team.yaml - routing policy. Unlisted edges are denied.
 teams:
@@ -288,5 +275,4 @@ deny: []
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 20
 """

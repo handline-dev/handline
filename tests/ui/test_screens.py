@@ -3030,7 +3030,8 @@ def test_every_state_the_daemon_can_write_has_a_waker() -> None:
     check("waker: at least the states this suite knows are written are found "
           "(the scan itself is not vacuous)",
           {"PARKED", "STALLED", "IDLE", "QUEUED", "HANDOFF", "DEGRADED",
-           "THROTTLED", "RUNNING"} <= written, str(written))
+           "RUNNING"} <= written, str(written))
+    check("waker: nothing writes THROTTLED since the hourly ask cap went", "THROTTLED" not in written, str(written))
     missing = written - set(dmn_states.WAKER)
     check("waker: every state the daemon can write has a way back",
           not missing, str(missing))
@@ -3180,19 +3181,7 @@ def test_a_refused_ask_is_not_a_new_message(home: Path) -> None:
     """A refusal sends nothing, so retrying it cannot work - and a retry loop
     that writes a row per attempt spent 35 request numbers in six seconds, each
     one a message no one was ever sent."""
-    _two_agents_one_slot(home)
-    for i in range(2):
-        askmod.ask("b", f"n{i}", requester="a")
-    # Half an hour ago, so "when a slot frees" and "an hour from now" are not
-    # the same instant and the test can tell which one it got.
-    sent = int(time.time()) - 1800
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET ts = ? WHERE requester = 'a'", (sent,))
-        con.commit()
-    finally:
-        con.close()
-
+    _two_agents(home, a_may_ask_b=False)
     ok, first, _ = askmod.ask("b", "spec B", requester="a")
     for _ in range(9):
         ok, msg, _ = askmod.ask("b", "spec B", requester="a")
@@ -3204,28 +3193,16 @@ def test_a_refused_ask_is_not_a_new_message(home: Path) -> None:
               str([dict(r) for r in rows]))
         check("refused: and that row keeps the text, so nothing is lost",
               rows and rows[0]["body"] == "spec B", str([dict(r) for r in rows]))
-        check("refused: the refusal says where the text is kept",
-              f"#{rows[0]['id']}" in msg, msg)
 
         # A different message is a different refusal: the record is per thing
         # said, not per attempt to say it.
         askmod.ask("b", "something else", requester="a")
         n = con.execute("SELECT COUNT(*) c FROM requests WHERE state = 'denied'").fetchone()["c"]
         check("refused: a different message is recorded on its own", n == 2, str(n))
-
-        # The window rolls, so the wait is until the oldest ask leaves it -
-        # being told to wait for "the window" cost an hour for what was
-        # minutes away.
-        row = db.get_agent_state(con, "a")
-        check("refused: the throttle lifts when a slot frees, not an hour on",
-              abs(row["wake_at"] - (sent + team.ASK_WINDOW_S)) <= 2,
-              f"wake_at={row['wake_at']} slot={sent + team.ASK_WINDOW_S}")
-        check("refused: and the message says when that is",
-              time.strftime("%H:%M", time.localtime(sent + team.ASK_WINDOW_S)) in msg, msg)
     finally:
         con.close()
     check("refused: every retry is still refused", not ok, msg)
-    check("refused: with the same answer as the first", "THROTTLED" in first, first)
+    check("refused: with the same answer as the first", msg == first and "denied" in first, first)
 
 
 def test_the_screen_says_when_two_daemons_are_running(home: Path) -> None:

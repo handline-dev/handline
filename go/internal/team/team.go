@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sealed"
@@ -21,10 +20,9 @@ import (
 const (
 	// DefaultLinks are the links an agent has without any edge written for them: it may ask its parent (its name up to the last
 	// dot), its children and its siblings, and a manager may ask the founder (a decision task).
-	Human                 = "human"
-	DefaultMaxChainDepth  = 4
-	DefaultAskRatePerHour = 20
-	// AskWindowS is the ask limiter's window: rolling, so a slot frees exactly one window after the ask that took it.
+	Human                = "human"
+	DefaultMaxChainDepth = 4
+	// AskWindowS is how long a refused message sent again unchanged is the same refusal, not a new denied row.
 	AskWindowS  = 3600
 	StarterTeam = `# team.yaml - routing policy. Unlisted edges are denied.
 teams:
@@ -50,7 +48,6 @@ deny: []
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 20
 `
 )
 
@@ -86,12 +83,11 @@ type Edge struct {
 
 // Team is team.yaml read.
 type Team struct {
-	Teams          map[string][]string
-	teamOrder      []string
-	Agents         map[string]map[string]any
-	Edges, Deny    []Edge
-	MaxChainDepth  int
-	AskRatePerHour int
+	Teams         map[string][]string
+	teamOrder     []string
+	Agents        map[string]map[string]any
+	Edges, Deny   []Edge
+	MaxChainDepth int
 }
 
 func omap(v any) (*yamlcompat.OMap, bool) { o, ok := v.(*yamlcompat.OMap); return o, ok }
@@ -158,7 +154,7 @@ func pyRepr(v any) string {
 // NewTeam builds the policy from a parsed document (ordered maps), refusing what could silently allow.
 func NewTeam(doc *yamlcompat.OMap) (*Team, error) {
 	t := &Team{Teams: map[string][]string{}, Agents: map[string]map[string]any{},
-		MaxChainDepth: DefaultMaxChainDepth, AskRatePerHour: DefaultAskRatePerHour}
+		MaxChainDepth: DefaultMaxChainDepth}
 	if o, ok := omap(doc.M["teams"]); ok && truthy(o) {
 		for _, name := range o.Keys {
 			t.teamOrder = append(t.teamOrder, name)
@@ -249,11 +245,6 @@ func NewTeam(doc *yamlcompat.OMap) (*Team, error) {
 		var err error
 		if v, has := limits.M["max_chain_depth"]; has {
 			if t.MaxChainDepth, err = pyInt(v); err != nil {
-				return nil, err
-			}
-		}
-		if v, has := limits.M["ask_rate_per_hour"]; has {
-			if t.AskRatePerHour, err = pyInt(v); err != nil {
 				return nil, err
 			}
 		}
@@ -527,18 +518,4 @@ func pyStrOr(v any, has bool) string {
 		return ""
 	}
 	return pyStr(v)
-}
-
-// RateLimited is whether the requester has used its asks for the last hour, and the line to say about it.
-func (t *Team) RateLimited(db Querier, requester string, now time.Time) (bool, string, error) {
-	var used int
-	err := db.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL",
-		requester, now.Unix()-AskWindowS).Scan(&used)
-	if err != nil {
-		return false, "", err
-	}
-	if used >= t.AskRatePerHour {
-		return true, fmt.Sprintf("rate limit: %d asks in the last hour >= %d", used, t.AskRatePerHour), nil
-	}
-	return false, fmt.Sprintf("%d/%d asks this hour", used, t.AskRatePerHour), nil
 }

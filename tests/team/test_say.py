@@ -81,7 +81,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     agents.register("peer")
     rc, out = _cli(["say", "peer", "a bare hello"], as_agent="worker")
@@ -386,7 +385,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     rc, out = _plain_say_to_worker("is X true?")
     check("setup: a say to worker opens", rc == 0, out)

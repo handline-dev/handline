@@ -725,16 +725,6 @@ func (r *Request) Dismissal() (bool, string, string) {
 	return false, "", ""
 }
 
-// OldestCountedAsk is db.oldest_counted_ask: when the ask that has to leave the window before a slot frees was sent.
-func OldestCountedAsk(q Q, requester string, since int64) (int64, bool, error) {
-	var ts int64
-	err := q.QueryRow("SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL ORDER BY ts LIMIT 1", requester, since).Scan(&ts)
-	if err == sql.ErrNoRows {
-		return 0, false, nil
-	}
-	return ts, err == nil, err
-}
-
 // StandingDenial is db.standing_denial: the id of an identical ask already refused inside the window, 0 for none.
 func StandingDenial(q Q, requester, target, body, files string, since int64) (int64, error) {
 	var id int64
@@ -744,13 +734,6 @@ func StandingDenial(q Q, requester, target, body, files string, since int64) (in
 		return 0, nil
 	}
 	return id, err
-}
-
-// AsksSince is db.asks_since: the asks the requester made since, refused ones and answers not counted.
-func AsksSince(q Q, requester string, since int64) (int, error) {
-	var n int
-	err := q.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' AND settles IS NULL", requester, since).Scan(&n)
-	return n, err
 }
 
 // Notice is a say the board wrote for its target in a transaction, to be told after the commit.

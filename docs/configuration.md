@@ -36,7 +36,6 @@ deny: []
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 20
 ```
 
 - `teams` groups agents. A team's manager is the member named like the team.

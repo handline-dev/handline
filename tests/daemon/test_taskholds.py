@@ -112,7 +112,6 @@ deny:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
