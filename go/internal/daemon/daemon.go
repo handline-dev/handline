@@ -186,6 +186,9 @@ func Start(cfg Config) (*Daemon, error) {
 	d.hub = stream.NewHub()
 	d.hub.Log = &stream.Log{DB: db}
 	d.hub.Reach = (&reads.Env{DB: db, Home: cfg.Home}).Reach
+	if d.logins != nil { // a login's state moving is an account.changed on the accounts topic
+		d.logins.Changed = d.accountChanged
+	}
 	if d.transcripts() {
 		sink := cfg.Transcript
 		sink.DB = db
@@ -258,6 +261,17 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 		h.Live = env.Observer.LiveSessions
 	}
 	return h
+}
+
+// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
+func (d *Daemon) accountChanged(name string) {
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
+	if !ok {
+		return
+	}
+	if err := d.hub.AccountChanged(acct); err != nil {
+		d.cfg.Log("  stream: account.changed %s: %v", name, err)
+	}
 }
 
 // transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are

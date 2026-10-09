@@ -83,42 +83,69 @@ func loginWord(in, known bool) string {
 
 // accountsList is accounts.list: every account with its login, usage windows, agents, recent moves, label, caps and cycle.
 func (e *Env) accountsList(_ *rpc.Conn, _ map[string]any) (any, error) {
-	cfg := usage.LoadConfig(e.Home)
-	ue := &usage.Env{Home: e.Home, Config: func() usage.Config { return cfg }}
-	names := paths.ListAgents(e.Home)
-	now := time.Now()
+	v := e.accountView()
 	var accts []any
 	for _, a := range paths.ListAccounts(e.Home) {
-		st := usage.ReadStatus(e.Home, a)
-		in, known := team.Accounts{Home: e.Home}.LoginState(a)
-		on := []any{}
-		for _, n := range names {
-			if e.currentAccount(n) == a {
-				on = append(on, n)
-			}
-		}
-		var cap any
-		if n, ok := cfg.OwnCap(a); ok {
-			cap = n
-		}
-		var end any
-		if d := cfg.EndDate(e.Home, a, now); d != "" {
-			end = d
-		}
-		acct := map[string]any{
-			"name": a, "login_state": loginWord(in, known), "five_hour": windowView(st.Short), "weekly": windowView(st.Long),
-			"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": ue.CapNow(a),
-			"recover": cfg.RecoverEnabled(a),
-			"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}}
-		if l := e.loginOf(a); l != nil {
-			acct["login"] = l
-		}
-		accts = append(accts, acct)
+		accts = append(accts, v.of(a))
 	}
 	if accts == nil {
 		accts = []any{}
 	}
 	return map[string]any{"accounts": accts}, nil
+}
+
+// Account is the spec's Account of one account, as accounts.list shows it; false when there is no such account.
+func (e *Env) Account(name string) (map[string]any, bool) {
+	for _, a := range paths.ListAccounts(e.Home) {
+		if a == name {
+			return e.accountView().of(a), true
+		}
+	}
+	return nil, false
+}
+
+// accountView is what the accounts of one call are read with.
+type accountView struct {
+	e     *Env
+	cfg   usage.Config
+	ue    *usage.Env
+	names []string
+	now   time.Time
+}
+
+func (e *Env) accountView() *accountView {
+	cfg := usage.LoadConfig(e.Home)
+	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, Config: func() usage.Config { return cfg }},
+		names: paths.ListAgents(e.Home), now: time.Now()}
+}
+
+func (v *accountView) of(a string) map[string]any {
+	e, cfg := v.e, v.cfg
+	st := usage.ReadStatus(e.Home, a)
+	in, known := team.Accounts{Home: e.Home}.LoginState(a)
+	on := []any{}
+	for _, n := range v.names {
+		if e.currentAccount(n) == a {
+			on = append(on, n)
+		}
+	}
+	var cap any
+	if n, ok := cfg.OwnCap(a); ok {
+		cap = n
+	}
+	var end any
+	if d := cfg.EndDate(e.Home, a, v.now); d != "" {
+		end = d
+	}
+	acct := map[string]any{
+		"name": a, "login_state": loginWord(in, known), "five_hour": windowView(st.Short), "weekly": windowView(st.Long),
+		"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": v.ue.CapNow(a),
+		"recover": cfg.RecoverEnabled(a),
+		"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}}
+	if l := e.loginOf(a); l != nil {
+		acct["login"] = l
+	}
+	return acct
 }
 
 // loginOf is the account's latest web login as the accounts topic shows it, nil when none was started.

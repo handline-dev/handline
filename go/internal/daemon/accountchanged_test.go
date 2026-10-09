@@ -1,0 +1,101 @@
+package daemon
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/weblogin"
+)
+
+// loginStates are the login states the accounts topic said for the account, in order.
+func loginStates(t *testing.T, h *stream.Hub) (states []string, urls []bool) {
+	t.Helper()
+	rows, err := h.Log.Since(0, []string{"accounts"}, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range rows {
+		var a struct {
+			Name  string
+			Login struct{ State, URL string }
+		}
+		if e.Type != "account.changed" || json.Unmarshal(e.Data, &a) != nil || a.Name != "main" {
+			t.Fatalf("%s %s", e.Type, e.Data)
+		}
+		states, urls = append(states, a.Login.State), append(urls, a.Login.URL != "")
+	}
+	return
+}
+
+func loginDaemon(t *testing.T, script string) *Daemon {
+	t.Helper()
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "accounts", "main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	d := &Daemon{db: db, cfg: Config{Home: home, Log: func(string, ...any) {}}, hub: stream.NewHub(),
+		logins: &weblogin.Manager{Home: home, Lookup: func(string) (string, error) { return bin, nil }}}
+	d.hub.Log = &stream.Log{DB: db}
+	d.logins.Changed = d.accountChanged
+	t.Cleanup(d.logins.Close)
+	return d
+}
+
+func awaitStates(t *testing.T, d *Daemon, n int) []string {
+	t.Helper()
+	for i := 0; i < 400; i++ {
+		if states, _ := loginStates(t, d.hub); len(states) >= n {
+			return states
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	states, _ := loginStates(t, d.hub)
+	t.Fatalf("the accounts topic said %v, wanted %d states", states, n)
+	return nil
+}
+
+func TestALoginSaysWaitingThenDoneOnTheAccountsTopic(t *testing.T) {
+	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\nsleep 0.3\ntouch \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n")
+	t.Setenv("SANDBOX_RUNTIME", "")
+	if _, err := d.logins.Start("main"); err != nil {
+		t.Fatal(err)
+	}
+	got := awaitStates(t, d, 2)
+	if got[0] != "waiting" || got[1] != "done" {
+		t.Fatalf("%v", got)
+	}
+	if _, urls := loginStates(t, d.hub); !urls[0] || urls[1] {
+		t.Fatalf("the URL goes with waiting alone: %v", urls)
+	}
+}
+
+func TestACancelledLoginSaysCancelledOnTheAccountsTopic(t *testing.T) {
+	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\ncat > /dev/null\n")
+	l, err := d.logins.Start("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.logins.Cancel(l.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // the reaped child must not say a second end
+	got := awaitStates(t, d, 2)
+	if len(got) != 2 || got[0] != "waiting" || got[1] != "cancelled" {
+		t.Fatalf("%v", got)
+	}
+}
