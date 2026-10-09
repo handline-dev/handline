@@ -22,7 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/transcript"
 )
 
-// TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it answers --version and every control request, echoes each
+// TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it answers --version and every control request (get_usage with limits), echoes each
 // user message and runs a turn that ends at once.
 func TestMain(m *testing.M) {
 	if os.Getenv("FAKE_CLAUDE") == "1" {
@@ -54,7 +54,12 @@ func fakeClaude() {
 		json.Unmarshal(sc.Bytes(), &m)
 		switch m["type"] {
 		case "control_request":
-			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": map[string]any{}}})
+			answer := map[string]any{}
+			if req, _ := m["request"].(map[string]any); req["subtype"] == "get_usage" {
+				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{
+					"five_hour": map[string]any{"utilization": 40.0}, "seven_day": map[string]any{"utilization": 10.0}}}
+			}
+			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": answer}})
 		case "user":
 			msg := m["message"].(map[string]any)
 			go func(uid, text string) {

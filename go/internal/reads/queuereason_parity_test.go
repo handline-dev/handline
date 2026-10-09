@@ -69,6 +69,13 @@ func TestQueueReasonIsThePythonQueueReasonInEachState(t *testing.T) {
 			withTerminal(t, e)
 			run(t, e, "UPDATE requests SET state = 'answered' WHERE id = 1")
 		}, fakeDelivery{}, 1},
+		{"switched with its terminal open", func(e *Env) {
+			addAgent(t, e, "bob", "")
+			os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("structured: true\n"), 0o644)
+			e.Structured = func(a string) bool { return a == "bob" }
+			state(t, e, "IDLE", nil)
+			withTerminal(t, e)
+		}, nil, 1},
 		{"behind the head", func(e *Env) {
 			addAgent(t, e, "bob", "")
 			state(t, e, "IDLE", nil)

@@ -17,7 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import (applysettings, delivery, evaluate, handoff, handoff_note, landing, lifecycle,  # noqa: E402
                              messaging, reconciler, timebox)
-from handline.daemon import agentview  # noqa: E402
+from handline.daemon import agentview, rpc_hooks  # noqa: E402
 from handline.session import triggers  # noqa: E402
 
 LOG = lambda _m: None  # noqa: E731
@@ -127,6 +127,20 @@ def test_the_kind_is_read_as_the_go_daemon_reads_it(home: Path) -> None:
     cfg["mode"] = "plan"
     agents.write("backend", cfg)
     check("kind: a permission mode is not the switch", not agents.is_structured("backend"))
+
+
+def test_a_hook_that_reaches_this_daemon_moves_a_terminal_agent_and_not_a_structured_one(home: Path) -> None:
+    con, _ = _world(home)
+    try:
+        before = _snapshot(con, "frontend")
+        for agent in ("backend", "frontend"):
+            rpc_hooks.apply(con, agent, "UserPromptSubmit", {"prompt": "go"}, f"req-{agent}", int(time.time()))
+        check("hook: a terminal agent's turn start is recorded", db.get_agent_state(con, "backend")["state"] == "RUNNING")
+        check("hook: the structured agent's record is exactly as it was", _snapshot(con, "frontend") == before, str(_snapshot(con, "frontend")))
+        check("hook: and the line is not marked applied, so the owner can still take it",
+              con.execute("SELECT 1 FROM hook_applied WHERE agent = 'frontend'").fetchone() is None)
+    finally:
+        con.close()
 
 
 def test_a_tick_drives_the_terminal_agent_and_leaves_the_structured_one_untouched(home: Path) -> None:
@@ -339,15 +353,34 @@ def test_the_view_pass_leaves_the_structured_agents_row_alone(home: Path) -> Non
         con.close()
 
 
+def test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(home: Path) -> None:
+    from handline import actions
+    con, _typed = _world(home)
+    try:
+        db.set_terminal(con, "frontend", "term_x", str(home / "frontend"))
+        word, why, clears = actions._delivery_state(con, "frontend", {}, {"term_x"})
+        check("stuck: a structured agent that still holds its terminal says so", word == "switched with its terminal open", word)
+        check("stuck: and names the fix", "hl close frontend" in why and "remove `structured:`" in why and not clears, why)
+        check("stuck: a terminal agent beside it does not",
+              actions._delivery_state(con, "backend", {}, {"term_x"})[0] != "switched with its terminal open")
+        db.set_closed(con, "frontend", "sess-frontend")
+        check("stuck: once it is closed it is not the finding",
+              actions._delivery_state(con, "frontend", {}, {"term_x"})[0] != "switched with its terminal open")
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_kind_is_read_as_the_go_daemon_reads_it(Path(td) / "k1"))
+        run(lambda: test_a_hook_that_reaches_this_daemon_moves_a_terminal_agent_and_not_a_structured_one(Path(td) / "k2h"))
         run(lambda: test_a_tick_drives_the_terminal_agent_and_leaves_the_structured_one_untouched(Path(td) / "k2"))
         run(lambda: test_startup_and_the_reconciler_leave_it_alone(Path(td) / "k3"))
         run(lambda: test_every_acting_call_is_a_no_op_for_a_structured_agent(Path(td) / "k4"))
         run(lambda: test_the_same_calls_do_act_on_a_terminal_agent(Path(td) / "k5"))
         run(lambda: test_timebox_and_apply_settings_skip_it_and_a_task_it_holds_is_not_clocked_here(Path(td) / "k6"))
         run(lambda: test_the_view_pass_leaves_the_structured_agents_row_alone(Path(td) / "k7"))
+        run(lambda: test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(Path(td) / "k8"))
     return run_area(tests)
 
 

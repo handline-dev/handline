@@ -19,6 +19,11 @@ type Delivery interface {
 	AccountFull(agent string) (acct string, pct int, full bool)
 	// Wall is what holds back a wake that is due, nil when no wake is due or nothing holds it back.
 	Wall(q db.Q, agent string, row *db.AgentState) (*Wall, error)
+	// ForgottenResolve is the head request an agent looks to have forgotten (told, still open, nothing asked) and how long it has sat idle.
+	ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (head, idleS int64, found bool, err error)
+	// Fire is the trigger the daemon would hand the agent off for at its next tick, as the tick evaluates it for the agent on account;
+	// "" for none, and for an agent whose triggers do not apply.
+	Fire(q db.Q, agent string, row *db.AgentState, account string) (string, error)
 }
 
 // QueueReason is queue_reason: why request rid, queued for agent, has not reached it. It is the one builder behind chat.messages'
@@ -26,7 +31,7 @@ type Delivery interface {
 //
 // Straight from _delivery_state, in its order. drops "no terminal", "terminal gone", "no session" -> nothing reaches it (terminal-only:
 // a structured agent has no terminal and its closed session is "closed, ..."); drops "closed, no daemon" -> this is the daemon;
-// drops "closed, starting" -> a structured wake holds an in-process lock, not the terminal lock file.
+// adds "switched with its terminal open" (a structured agent whose row still holds a terminal); drops "closed, starting" -> a structured wake holds an in-process lock, not the terminal lock file.
 func (e *Env) QueueReason(agent string, rid int64) (string, error) {
 	req, err := db.GetRequest(e.DB, rid)
 	if err != nil {
@@ -67,7 +72,11 @@ func (e *Env) deliveryState(agent, none string) (string, error) {
 	if row.State == states.Stalled {
 		return "stalled", nil
 	}
-	if row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+	closed := row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
+	if !closed && row.Terminal.String != "" && e.Structured != nil && e.Structured(agent) {
+		return "switched with its terminal open", nil
+	}
+	if closed {
 		return e.closedState(agent, row)
 	}
 	switch row.State {
