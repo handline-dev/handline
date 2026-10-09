@@ -918,6 +918,30 @@ func repliesOf(r row, agent string) []map[string]any {
 	return out
 }
 
+// promptItemOf is a prompt block as a transcript item.
+func promptItemOf(agent string, b row) map[string]any {
+	return map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
+		"prompt": promptOf(agent, b), "open": !b.set("gone_at")}
+}
+
+// taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it.
+func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
+	event, known := transcriptEvents[ev.str("kind")]
+	p := decodeObject(ev.str("payload"))
+	tid, isInt := rpc.AsInt(p["task_id"])
+	if !known || !isInt {
+		return nil, 0, false
+	}
+	var evidence any
+	if event == "done" {
+		evidence = p["done"]
+	} else if event == "withdrawn" {
+		evidence = p["reason"]
+	}
+	return map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event",
+		"task_event": map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}}, tid, true
+}
+
 func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	before, err := rangedInt(params, "before", 0, 0)
 	if err != nil {
@@ -960,8 +984,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	for _, b := range blocks {
-		items = append(items, map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
-			"prompt": promptOf(agent, b), "open": !b.set("gone_at")})
+		items = append(items, promptItemOf(agent, b))
 	}
 	kinds := make([]string, 0, len(transcriptEvents))
 	for k := range transcriptEvents {
@@ -974,20 +997,9 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	for _, ev := range evs {
-		p := decodeObject(ev.str("payload"))
-		tid, isInt := rpc.AsInt(p["task_id"])
-		if !isInt {
-			continue
+		if item, _, ok := taskItemOf(ev); ok {
+			items = append(items, item)
 		}
-		event := transcriptEvents[ev.str("kind")]
-		var evidence any
-		if event == "done" {
-			evidence = p["done"]
-		} else if event == "withdrawn" {
-			evidence = p["reason"]
-		}
-		items = append(items, map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event",
-			"task_event": map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}})
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i]["id"].(int64) < items[j]["id"].(int64) })
 	more := false
@@ -1036,7 +1048,11 @@ func (e *Env) working(agent string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	view := decodeObject(string(raw))
+	return workingFrom(decodeObject(string(raw))), nil
+}
+
+// workingFrom is an agent's view as the spec's Working.
+func workingFrom(view map[string]any) map[string]any {
 	var line any
 	for _, k := range []string{"blocker", "state_detail"} {
 		if truthy(view[k]) {
@@ -1044,5 +1060,5 @@ func (e *Env) working(agent string) (map[string]any, error) {
 			break
 		}
 	}
-	return map[string]any{"turn_running": strings.EqualFold(pyStr(view["state"]), "running"), "line": line, "since": view["state_since"]}, nil
+	return map[string]any{"turn_running": strings.EqualFold(pyStr(view["state"]), "running"), "line": line, "since": view["state_since"]}
 }
