@@ -150,6 +150,45 @@ def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Pa
             os.environ.pop(k, None)
 
 
+def test_code_from_another_checkout_cannot_reach_the_live_home(home: Path) -> None:
+    """A worktree's or a clone's code - a test run by hand, a scratch script - pointed at the live home is refused,
+    unless HANDLINE_ALLOW_LIVE=1 says it is meant; the checkout the installed hl runs is not, nor is any other home."""
+    real = home / "realuser"
+    (real / ".handline").mkdir(parents=True)
+    other = home / "clone" / "bin" / "hl"
+    other.parent.mkdir(parents=True)
+    other.write_text("#!/bin/sh\n")
+    saved = _set(OCP_TEST_ROOT=None, HANDLINE_TEST_ROOT=None, HANDLINE_HOME=None, OCP_HOME=str(real / ".handline"),
+                 HANDLINE_BIN=None, OCP_BIN=str(other), HANDLINE_ALLOW_LIVE=None, OCP_ALLOW_LIVE=None)
+    old = paths._real_user_home
+    paths._real_user_home = lambda: real
+
+    def said() -> str:
+        try:
+            paths.home()
+            return ""
+        except SystemExit as e:
+            return str(e)
+    try:
+        msg = said()
+        check("guard: another checkout's code is refused the live home, saying what to do",
+              "not the checkout the installed hl runs" in msg and "HANDLINE_ALLOW_LIVE=1" in msg, msg)
+        os.environ["OCP_HOME"] = str(real / ".handline" / "sub")
+        check("guard: a folder inside the live home is the live home", bool(said()))
+        os.environ["HANDLINE_ALLOW_LIVE"] = "1"
+        check("guard: HANDLINE_ALLOW_LIVE=1 lets it through", not said(), said())
+        os.environ.pop("HANDLINE_ALLOW_LIVE")
+        os.environ["OCP_BIN"] = str(paths.repo_root() / "bin" / "hl")
+        os.environ["OCP_HOME"] = str(real / ".handline")
+        check("guard: the installed checkout reaches the live home", not said(), said())
+        os.environ["OCP_BIN"] = str(other)
+        os.environ["OCP_HOME"] = str(home / "scratch")
+        check("guard: another checkout reaches any other home", not said(), said())
+    finally:
+        paths._real_user_home = old
+        _restore(saved)
+
+
 def test_a_test_reaching_either_real_home_is_caught(home: Path) -> None:
     real = home / "realuser"
     (real / ".handline").mkdir(parents=True)
@@ -233,6 +272,7 @@ def main() -> int:
         run(lambda: test_the_default_home_is_dot_handline_only_once_it_exists(Path(td) / "dflt"))
         run(lambda: test_what_a_session_is_started_with_carries_both_names(Path(td) / "envboth"))
         run(lambda: test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(Path(td) / "childenv"))
+        run(lambda: test_code_from_another_checkout_cannot_reach_the_live_home(Path(td) / "liveguard"))
         run(lambda: test_a_test_reaching_either_real_home_is_caught(Path(td) / "guard"))
         run(lambda: test_the_session_scan_reads_either_name_of_a_process_environment())
         run(lambda: test_the_handline_command_runs_the_same_program_as_ocp(Path(td) / "cmd"))

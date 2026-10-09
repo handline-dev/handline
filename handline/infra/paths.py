@@ -1,6 +1,7 @@
 """Layout of ~/.orcapipe (design 01-infra.md section 3)."""
 from __future__ import annotations
 
+import functools
 import os
 import pwd
 import shutil
@@ -67,11 +68,28 @@ def home() -> Path:
     h = Path(raw or default_home()).expanduser()
     if h.is_symlink():
         h = h.resolve()     # after the home moved, the old path is a link: sandbox rules match real paths
-    if names.getenv(TEST_ROOT_ENV):
-        for real in ((_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")):
-            if real == h.resolve() or real in h.resolve().parents:
-                raise RealHomeInTest(f"a test reached the real home: {h}")
+    live = any(real == h.resolve() or real in h.resolve().parents for real in live_homes())
+    if live and names.getenv(TEST_ROOT_ENV):
+        raise RealHomeInTest(f"a test reached the real home: {h}")
+    if live and names.getenv("ALLOW_LIVE") != "1" and not _installed_checkout():
+        # SystemExit, not an error a caller's `except Exception` turns into some other complaint.
+        raise SystemExit(f"{repo_root()} is not the checkout the installed hl runs, and the home is the live one ({h}): "
+                         f"point HANDLINE_HOME at a scratch folder, or set HANDLINE_ALLOW_LIVE=1 to mean it")
     return h
+
+
+def _installed_checkout() -> bool:
+    """Whether this code is the checkout the installed `hl` command runs (the first one on PATH, or $HANDLINE_BIN):
+    the one every agent, hook and the daemon use. A worktree or a second clone is not, so its code - a test run by
+    hand, a scratch script - cannot write to the live home by accident. Nothing installed is nothing to protect."""
+    return _runs_this_checkout(names.getenv("OCP_BIN"), os.environ.get("PATH"))
+
+
+@functools.lru_cache(maxsize=8)
+def _runs_this_checkout(bin_env: str | None, path_env: str | None) -> bool:
+    """`_installed_checkout` for one HANDLINE_BIN and PATH: home() is called on every turn of the daemon's loop."""
+    exe = bin_env or next(filter(None, (shutil.which(c, path=path_env) for c in names.COMMANDS)), None)
+    return exe is None or Path(exe).resolve().parent.parent == repo_root().resolve()
 
 
 def config_file() -> Path:

@@ -8,6 +8,10 @@ if ! command -v go >/dev/null; then
     exit 1
 fi
 . "$here/go-env.sh"
+# A scratch home for anything a test starts that reads one: never the live home of the agent running this.
+scratch_home="$(mktemp -d "${TMPDIR:-/tmp}/handline-go-home.XXXXXX")" || exit 1
+trap 'rm -rf "$scratch_home"' EXIT
+export HANDLINE_HOME="$scratch_home" OCP_HOME="$scratch_home"
 # The whole run also checks go.mod and go.sum are tidy (a run with go test args does not).
 [ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
 echo "tools/test-go.sh: go test -race ${*:-./...}" >&2
@@ -22,7 +26,7 @@ if [ ! -f "$harness" ]; then
     exit 0
 fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/handlined.XXXXXX")" || exit 1
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" "$scratch_home"' EXIT
 # The two lists are kept one name per line in byte order, so two branches deleting neighbouring names merge instead of conflicting.
 for list in "$here/../go/conformance-missing.txt" "$here/../go/conformance-needvar.txt"; do
     grep -v '^#' "$list" | LC_ALL=C sort -c 2>/dev/null || {
