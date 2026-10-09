@@ -5046,7 +5046,7 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
     check("off the loop: a refresh asks the daemon only from a worker thread", not left, str(left))
 
 
-OFF_LOOP = {"agent.get"}        # the methods moved off the loop so far
+OFF_LOOP = {"agent.get", "chat.refs", "tasks.list"}        # the methods moved off the loop so far
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:

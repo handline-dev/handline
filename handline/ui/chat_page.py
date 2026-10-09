@@ -1685,10 +1685,17 @@ class ChatPage(JobsAware, Screen):
             return
         self._pools_at = time.monotonic()
         self._off_loop("can", self._read_can, self._apply_can)
+        self._off_loop("refs", self._read_refs, self._apply_refs)
+
+    def _read_refs(self) -> tuple | None:
         try:
-            self.tasks_pool, self.requests_pool = refs_of(self.agent)
+            return refs_of(self.agent)
         except (client.RpcError, client.DaemonDown, OSError):
-            return
+            return None
+
+    def _apply_refs(self, got: tuple | None) -> None:
+        if got is not None:
+            self.tasks_pool, self.requests_pool = got
 
     def _read_can(self) -> dict | None:
         try:
