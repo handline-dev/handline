@@ -92,7 +92,8 @@ func TestHrListProposalFields(t *testing.T) {
 		p["reason"] != `it is idle: "really"` || p["requested_by"] != "boss" || p["title"] != "retire old" {
 		t.Fatalf("%v", p)
 	}
-	if want := map[string]any{"vendor": "codex", "sets": map[string]any{"model": "opus"}}; !reflect.DeepEqual(p["asked"], want) {
+	// a retire asks for no sets, whatever else the file holds
+	if want := map[string]any{"vendor": "codex"}; !reflect.DeepEqual(p["asked"], want) {
 		t.Fatalf("%v", p["asked"])
 	}
 	if len(p["subject"].(string)) != 64 {
@@ -100,17 +101,51 @@ func TestHrListProposalFields(t *testing.T) {
 	}
 }
 
-func TestContextProposalDiffIsUnified(t *testing.T) {
-	e := testEnv(t)
-	addAgent(t, e, "w", "one\ntwo\nthree\n")
-	f, err := parseFlat("id: 1\nkind: context\nagent: w\nset.ROLE.md: \"\\\"one\\nTWO\\nthree\\n\\\"\"\n")
-	if err != nil {
-		t.Fatal(err)
+// A proposal's diff is what approving does, in words, one change per line (the spec's Proposal.diff), as rpc_hr._change_lines words it.
+func TestProposalDiffIsOneChangePerLineInTheSpecsWords(t *testing.T) {
+	cases := []struct{ name, file, want string }{
+		{"retire", "kind: retire\nagent: old\n", "retire old"},
+		{"add", "kind: add\nagent: new\nteam: eng\nmodel: opus\nvendor: codex\n", "register new, team eng, model opus, vendor codex"},
+		{"settings", "kind: settings\nagent: w\nset.model: opus\nset.effort: \"\"\n", "set model of w to opus\nset effort of w to (none)"},
+		{"settings with nothing set", "kind: settings\nagent: w\n", "change the settings of w"},
+		{"link", "kind: link\nagent: a\nto: b\nrelation: peer\n", "allow a to ask b (response async, relation peer)"},
+		{"unlink", "kind: unlink\nagent: a\nto: b\n", "remove the edge a -> b"},
+		{"team", "kind: team\nagent: eng\nrepo: r\nmembers: \"a,b\"\n", "create team eng (working in r) with members a, b"},
+		{"context", "kind: context\nagent: w\nset.ROLE.md: \"\\\"x\\\"\"\n", "replace ROLE.md of w"},
+		{"rename", "kind: rename\nagent: a\nto: b\n", "rename a to b"},
+		{"schedule", "kind: schedule\nagent: old\nset.action: add\n", "schedule old"},
+		{"global", "kind: global\nagent: dev-mode\nset.value: \"on\"\n", "global dev-mode"},
+		{"bundle, in the order it is applied", "kind: bundle\nagent: x\ni1.kind: retire\ni1.agent: old\ni2.kind: add\ni2.agent: new\ni3.kind: rename\ni3.agent: a\ni3.to: b\n",
+			"register new\nrename a to b\nretire old"},
 	}
-	f.m["set.ROLE.md"] = `"one\nTWO\nthree\n"`
-	want := "w's standing context would be replaced, as a diff of what is there now:\n--- ROLE.md (now)\n+++ ROLE.md (proposed)\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\nWritten from the next launch; a running session is not restarted."
-	if got := e.diff(f); got != want {
-		t.Fatalf("%q", got)
+	for _, c := range cases {
+		f, err := parseFlat("id: \"0000000a\"\nrequested_by: boss\ncreated: 1\nstate: proposed\n" + c.file)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := f.diff(); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAskedSetsAreOnlyForSettingsAndABundleNamesItsChanges(t *testing.T) {
+	e := testEnv(t)
+	putProposal(t, e, "0000000a", "id: \"0000000a\"\nkind: retire\nagent: old\nrequested_by: boss\ncreated: 1\nstate: proposed\nset.model: opus\n")
+	putProposal(t, e, "0000000b", "id: \"0000000b\"\nkind: settings\nagent: w\nrequested_by: boss\ncreated: 1\nstate: proposed\nset.model: opus\n")
+	putProposal(t, e, "0000000c", "id: \"0000000c\"\nkind: bundle\nagent: x\nrequested_by: boss\ncreated: 1\nstate: proposed\ni1.kind: retire\ni1.agent: old\ni2.kind: add\ni2.agent: new\n")
+	got := map[int64]map[string]any{}
+	for _, v := range e.HRProposals() {
+		got[v["id"].(int64)] = v
+	}
+	if _, has := got[10]["asked"]; has {
+		t.Errorf("a retire asks for no sets: %v", got[10]["asked"])
+	}
+	if a, _ := got[11]["asked"].(map[string]any); a["sets"] == nil {
+		t.Errorf("a settings proposal asks for its sets: %v", got[11]["asked"])
+	}
+	if got[12]["agent"] != "2 changes" || got[12]["title"] != "bundle 2 changes" {
+		t.Errorf("a bundle is named by its changes: %v %v", got[12]["agent"], got[12]["title"])
 	}
 }
 
@@ -151,10 +186,10 @@ func TestHrListServesAScheduleAndAGlobalProposalWithTheirWords(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("both are listed: %v", list)
 	}
-	if d := list[0].(map[string]any)["diff"]; d != "old would be typed, weekdays 09:30: morning\nWritten to its agent.yaml; the daemon reads it on its next tick." {
+	if d := list[0].(map[string]any)["diff"]; d != "schedule old" {
 		t.Fatalf("%q", d)
 	}
-	if d := list[1].(map[string]any)["diff"].(string); d[:35] != "The global switch dev-mode (whether" {
+	if d := list[1].(map[string]any)["diff"].(string); d != "global dev-mode" {
 		t.Fatalf("%q", d)
 	}
 }
