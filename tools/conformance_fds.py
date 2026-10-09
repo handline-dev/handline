@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [--structured-cli CLI] [conformance args]
+"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [--structured-cli CLI [--structured-tick]] [conformance args]
 
 A sandbox may refuse to bind a socket, so the daemon (`-serve-fds`) serves connections this script made as socketpairs and
 passes to it, one per fixture. It starts on a scratch home with a founder key minted where it reads it, which is given to
@@ -125,6 +125,8 @@ def main(argv: list[str]) -> int:
     structured_cli = []
     if rest[:1] == ["--structured-cli"]:  # the daemon serves the session.* methods over structured sessions run by this CLI
         structured_cli, rest = ["-structured-cli", rest[1]], rest[2:]
+        if rest[:1] == ["--structured-tick"]:  # and the policy tick runs over them, as in production
+            structured_cli, rest = structured_cli + ["-structured-tick"], rest[1:]
     with tempfile.TemporaryDirectory(prefix="handlined.") as tmp:
         test_root = Path(tmp).resolve()
         home = test_root / "state"
