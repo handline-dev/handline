@@ -125,7 +125,7 @@ func TestAPromptIsAnsweredByPromptAnswer(t *testing.T) {
 
 func TestAWaitingPromptStaysFreshAndNoAnswerIsADeny(t *testing.T) {
 	b, p, _ := broker(t)
-	b.Timeout = time.Second
+	b.Timeout = 3 * time.Second // the refresh must be seen before it: the poll below is generous, and so is this
 	got := make(chan Decision, 1)
 	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); got <- d }()
 	waitOpen(t, p)
