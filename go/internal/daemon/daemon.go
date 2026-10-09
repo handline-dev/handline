@@ -78,6 +78,8 @@ type Config struct {
 	Transcript *transcript.Sink
 	// Structured says whether an agent runs as a structured session.
 	Structured func(agent string) bool
+	// Answers answers the permission prompts of structured agents (prompt.answer). Nil leaves every agent to the screen.
+	Answers prompts.Structured
 	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
 	SessionOpen func(agent string) bool
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
@@ -148,6 +150,7 @@ func Start(cfg Config) (*Daemon, error) {
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
+		d.prompts.Structured = cfg.Answers
 		if cfg.Terminal != nil {
 			d.prompts.Term = term.New(cfg.Terminal, nil)
 		}
