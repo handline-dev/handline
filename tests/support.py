@@ -1516,7 +1516,7 @@ def claude_driver_cases(root: Path) -> dict:
         settings.append(out)
     resumes = {" ".join(x): drv.is_resume(x) for x in (["--resume", "abc"], ["--resume=abc"], ["-r"], ["--resumex"], [])}
     return {"wanted": sorted(wanted), "launch": launches, "settings": settings, "is_resume": resumes,
-            "transcript_dir": str(drv.transcript_dir(Path("/c"), "/Users/x/my repo.v2"))}
+            "transcript_dir": str(drv.transcript_dir(Path("/c"), "/Users/user/my repo.v2"))}
 
 
 def _check_claude_driver_fixture(root: Path) -> None:
