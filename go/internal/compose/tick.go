@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -29,7 +30,7 @@ type Tick struct {
 type TickConfig struct {
 	// Stop ends the loop when closed.
 	Stop <-chan struct{}
-	// Cutover says the Python daemon no longer ticks: this tick then owns the usage poll (samples, burn, token log) and every agent_view
+	// Cutover says the Python daemon no longer ticks: this tick then owns the usage poll (account readings, samples, burn, token log) and every agent_view
 	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
 	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
 	Cutover bool
@@ -67,6 +68,16 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Run:  p.Run,
 		Now:  now,
 	}}
+	pollUsage := func(db.Q) error { return nil } // the Python daemon's until the cutover
+	if tc.Cutover {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-tc.Stop
+			cancel()
+		}()
+		poller := newPoller(ctx, cfg, uenv, q)
+		pollUsage = func(db.Q) error { poller.Tick(ctx); return nil }
+	}
 	t := &tick.Tick{Q: q, Log: logLine, Now: now,
 		Host:      tickHost{p: p},
 		Usage:     tu,
@@ -78,7 +89,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Sweeps: tick.Sweeps{
 			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none
 			CollectSnapshot: func(db.Q) error { return nil }, // a structured session has no screen to read
-			PollUsage:       func(db.Q) error { return nil },
+			PollUsage:       pollUsage,
 			Rollover:        func(string) (bool, string) { return false, "" }, // folding the day is a model call that stays Python's
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},

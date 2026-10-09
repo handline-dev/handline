@@ -43,8 +43,10 @@ type Meter struct {
 	Home string
 	// Claude is the CLI's path.
 	Claude string
-	Open   OpenFunc
-	Now    func() time.Time
+	// Env are NAME=value pairs set on every process it starts.
+	Env  []string
+	Open OpenFunc
+	Now  func() time.Time
 }
 
 func (m *Meter) open(ctx context.Context, l structured.Launch, h structured.Handlers) (CLI, error) {
@@ -72,7 +74,7 @@ func (m *Meter) launch(acct string) (l structured.Launch, cleanup func(), err er
 	if err != nil {
 		return l, nil, err
 	}
-	return structured.Launch{Path: m.Claude, Cwd: cwd, ConfigDir: dir, Args: []string{"--setting-sources", "project"}},
+	return structured.Launch{Path: m.Claude, Cwd: cwd, ConfigDir: dir, Args: []string{"--setting-sources", "project"}, Env: m.Env},
 		func() { os.RemoveAll(cwd) }, nil
 }
 
