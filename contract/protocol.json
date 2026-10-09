@@ -3734,7 +3734,8 @@
    },
    "x-role": "agent",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`)."
   },
   {
    "name": "task.get",
@@ -7983,6 +7984,65 @@
      "text"
     ]
    },
+   "TaskClock": {
+    "type": "object",
+    "properties": {
+     "length_s": {
+      "type": "integer",
+      "description": "The time box in seconds."
+     },
+     "default": {
+      "type": "boolean",
+      "description": "True when the length is the daemon's default, none was set."
+     },
+     "start": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "When the current stretch began counting; null until the task is doing."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "end": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "Its deadline; null until the task is doing."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "overdue_since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "The first deadline that was missed, which is not `end` once notices moved it; null while in time. A client derives time left and time over from `end`, `overdue_since` and its own clock."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "told": {
+      "type": "integer",
+      "description": "How many overrun notices the opener has had."
+     }
+    },
+    "required": [
+     "length_s",
+     "default",
+     "start",
+     "end",
+     "overdue_since",
+     "told"
+    ],
+    "description": "The task's clock."
+   },
    "Task": {
     "type": "object",
     "properties": {
@@ -8179,6 +8239,24 @@
         "at"
        ]
       }
+     },
+     "blocked_by": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it."
+     },
+     "time": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskClock"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -8348,68 +8426,13 @@
        "time": {
         "oneOf": [
          {
-          "type": "object",
-          "properties": {
-           "length_s": {
-            "type": "integer",
-            "description": "The time box in seconds."
-           },
-           "default": {
-            "type": "boolean",
-            "description": "True when the length is the daemon's default, none was set."
-           },
-           "start": {
-            "oneOf": [
-             {
-              "$ref": "#/components/schemas/Timestamp",
-              "description": "When the current stretch began counting; null until the task is doing."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "end": {
-            "oneOf": [
-             {
-              "$ref": "#/components/schemas/Timestamp",
-              "description": "Its deadline; null until the task is doing."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "overdue_since": {
-            "oneOf": [
-             {
-              "$ref": "#/components/schemas/Timestamp",
-              "description": "The first deadline that was missed, which is not `end` once notices moved it; null while in time. A client derives time left and time over from `end`, `overdue_since` and its own clock."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "told": {
-            "type": "integer",
-            "description": "How many overrun notices the opener has had."
-           }
-          },
-          "required": [
-           "length_s",
-           "default",
-           "start",
-           "end",
-           "overdue_since",
-           "told"
-          ],
-          "description": "The task's clock; null once it is done or discarded."
+          "$ref": "#/components/schemas/TaskClock"
          },
          {
           "type": "null"
          }
-        ]
+        ],
+        "description": "The task's clock; null once it is done or discarded."
        },
        "parent_title": {
         "oneOf": [
