@@ -13,6 +13,7 @@ type fakeDelivery struct {
 
 func (f fakeDelivery) WallReason(db.Q, string, *db.AgentState) (string, error) { return f.wall, nil }
 func (f fakeDelivery) ClosedWakeCause(string, *db.AgentState) (string, error)  { return f.cause, nil }
+func (f fakeDelivery) Wall(db.Q, string, *db.AgentState) (*Wall, error)        { return nil, nil }
 func (f fakeDelivery) AccountFull(string) (string, int, bool)                  { return "acct", 95, f.full }
 
 func run(t *testing.T, e *Env, q string, args ...any) {

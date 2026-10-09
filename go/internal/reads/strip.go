@@ -40,7 +40,7 @@ func (e *Env) agentStrip(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := e.viewOf(name, stored)
+	raw, err := e.viewOf(name, stored, nil)
 	if err != nil {
 		return nil, err
 	}

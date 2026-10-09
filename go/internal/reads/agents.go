@@ -32,22 +32,29 @@ func (e *Env) roleLine(name string) string {
 // noView is the state word of an agent the tick has stored no view for (x-state-words in protocol.json).
 const noView = "no_terminal"
 
-// viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view). An agent with no
+// viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view) with the fields read beside it when x is given (agents.list, agent.get). An agent with no
 // stored view yet gets what can be read without the tick's judgement of its screen: no terminal is known for it, so its
 // state is the spec's word for that.
-func (e *Env) viewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
+func (e *Env) viewOf(name string, stored map[string]json.RawMessage, x *viewCtx) (json.RawMessage, error) {
 	v, err := e.baseViewOf(name, stored)
-	if err != nil || e.Structured == nil || !e.Structured(name) {
-		return v, err
+	if err != nil {
+		return nil, err
 	}
-	// A structured agent says so: a client shows its transcript where a terminal agent's terminal would be. Absent means a terminal agent.
 	dec := json.NewDecoder(bytes.NewReader(v))
 	dec.UseNumber()
 	var view map[string]any
 	if err := dec.Decode(&view); err != nil {
 		return nil, err
 	}
-	view["structured"] = true
+	// A structured agent says so: a client shows its transcript where a terminal agent's terminal would be. Absent means a terminal agent.
+	if e.Structured != nil && e.Structured(name) {
+		view["structured"] = true
+	}
+	if x != nil {
+		if err := e.addFields(name, view, x); err != nil {
+			return nil, err
+		}
+	}
 	return json.Marshal(view)
 }
 
@@ -87,9 +94,13 @@ func (e *Env) agentsList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	x, err := e.viewCtx()
+	if err != nil {
+		return nil, err
+	}
 	agents := []json.RawMessage{}
 	for _, n := range e.listAgents() {
-		v, err := e.viewOf(n, stored)
+		v, err := e.viewOf(n, stored, x)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +133,11 @@ func (e *Env) agentGet(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := e.viewOf(name, stored)
+	x, err := e.viewCtx()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := e.viewOf(name, stored, x)
 	if err != nil {
 		return nil, err
 	}
