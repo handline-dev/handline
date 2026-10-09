@@ -294,6 +294,15 @@ def test_an_ask_to_the_founder_that_is_answered_is_inbox_changed_with_the_item_a
 
 def test_the_inbox_detector_reads_only_what_was_touched_since_its_last_pass(home: Path) -> None:
     support._daemon_home(home, 20)
+    real_time, pinned = time.time, int(time.time()) + 0.5       # a clock that crosses a second mid-test puts two of the old rows in one second
+    time.time = lambda: pinned
+    try:
+        _the_inbox_detector_reads_only_what_was_touched(home)
+    finally:
+        time.time = real_time
+
+
+def _the_inbox_detector_reads_only_what_was_touched(home: Path) -> None:
     stream.HUB.subs.clear()
     con = db.connect()
     for i in range(300):        # a long history: none of it is touched again
