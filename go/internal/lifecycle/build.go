@@ -135,11 +135,10 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	if err != nil {
 		return nil, nil, err
 	}
-	hiddenT, err := l.HiddenTranscripts(agent, drv)
+	hide, noWrite, err := l.Confinement(agent, cwd, drv)
 	if err != nil {
 		return nil, nil, err
 	}
-	hide := append(append(hiddenT, l.HiddenMemories(agent)...), l.Tokens.HiddenFolders()...)
 	var trusted []string
 	if len(mode) > 0 && chosen == team.DefaultMode {
 		trusted = l.TrustedEnvironment(cwd)
@@ -148,7 +147,7 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 		Model: modelOf(cfg), Effort: effort, Disallowed: DisallowedTools,
 		MCPArgs:  append(append([]string{}, mcpArg...), team.MCPConfigArgs(cfg)...),
 		Preamble: preamble, Hide: hide,
-		NoWrite:   append(l.MainRefFiles(cwd), l.RosterFiles()...),
+		NoWrite:   noWrite,
 		MemoryDir: memoryDir, Trusted: trusted, Chrome: team.Chrome(cfg),
 		SandboxOff:  !l.Roster.SandboxOn(agent, cfg),
 		MCPApproved: approved, ExtraDirs: extraDirs,

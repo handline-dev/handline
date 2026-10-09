@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
@@ -46,7 +47,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	roster := team.NewRoster(home)
 	uenv := &usage.Env{Home: home}
 	accounts := team.Accounts{Home: home}
-	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Now: cfg.Now, Ports: lifecycle.LaunchPorts{
+	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Now: cfg.Now, Ports: lifecycle.LaunchPorts{
 		Usage:          &lifecycle.UsageAdapter{Env: uenv, Q: q},
 		Accounts:       accounts,
 		Vendors:        vendors{home: home, roster: roster},
