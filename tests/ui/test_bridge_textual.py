@@ -5054,6 +5054,27 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
 OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen"}        # the methods moved off the loop so far
 
 
+async def test_a_read_that_raises_does_not_stop_the_page_reading() -> None:
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
+    _home("offloop-raise")
+    agents.register("reviewer")
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        got = []
+
+        def boom() -> None:
+            raise RuntimeError("read failed")
+        page._off_loop("probe", boom, got.append)
+        await pilot.pause(0.5)
+        page._off_loop("probe", lambda: 7, got.append)
+        await pilot.pause(0.5)
+    check("off the loop: a read that raised frees its kind, the next one runs", got == [7], str(got))
+
+
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
@@ -5897,6 +5918,7 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_chat_page_never_asks_the_daemon_on_the_ui_loop()
+    await test_a_read_that_raises_does_not_stop_the_page_reading()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it()

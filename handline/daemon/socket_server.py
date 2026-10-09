@@ -116,7 +116,8 @@ def _agent_set(con, log, **kw) -> tuple[bool, str]:
 
 
 def _land(con, log, **kw) -> tuple[bool, str]:
-    return lands.request(con, kw["sha"], kw["message"], kw.get("tree"), kw.get("caller"))
+    return lands.request(con, kw["sha"], kw["message"], kw.get("tree"), kw.get("caller"), kw.get("fix"),
+                         bool(kw.get("squash")))
 
 
 def _land_pass(con, log, **kw) -> tuple[bool, str]:

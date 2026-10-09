@@ -191,21 +191,15 @@ func TestNoticesAreBornLandedAndWaitForADigest(t *testing.T) {
 	}
 }
 
-func TestTheAskWindowCountsAsksAndFindsAStandingDenial(t *testing.T) {
+func TestAStandingDenialIsTheSameMessageRefusedBefore(t *testing.T) {
 	q := open(t)
 	ask(t, q, "a", "b", "one", "ask")
 	d, _ := AddRequest(q, NewRequest{Requester: "a", Target: "b", Body: "dup", State: "denied"})
-	if n, _ := AsksSince(q, "a", 0); n != 1 {
-		t.Fatalf("a refused ask counts: %d", n)
-	}
 	if id, _ := StandingDenial(q, "a", "b", "dup", "", 0); id != d {
 		t.Fatal(id)
 	}
 	if id, _ := StandingDenial(q, "a", "b", "dup", "f.txt", 0); id != 0 {
 		t.Fatal("a different file is a different message")
-	}
-	if at, ok, _ := OldestCountedAsk(q, "a", 0); !ok || at != 1000 {
-		t.Fatal(at, ok)
 	}
 }
 

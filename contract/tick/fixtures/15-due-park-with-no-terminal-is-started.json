@@ -322,6 +322,13 @@
     "applied_at": 1760000000,
     "name": "transcript_events",
     "version": 11
+   },
+   {
+    "__rowid": 12,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "land_fixes",
+    "version": 12
    }
   ]
  },
@@ -346,7 +353,7 @@
   "agents/marina/agent.yaml": "name: marina\nmodel: sonnet\neffort: medium\nweight: light\nenabled: true\nrepo: {HOME}/checkout\n",
   "agents/marina/base.md": "# base - marina\n\n(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n",
   "config.yaml": "handoff_note: false\n",
-  "team.yaml": "\nteams:\n  product: [product]\n  eng:     [backend, frontend]\n  growth:  [marketing, analytics]\n  ops:     [archivist]\n\nagents:\n  product:    { model: mid,   weight: light }\n  backend:    { model: high,  weight: heavy }\n  frontend:   { model: high,  weight: heavy }\n  marketing:  { model: mid,   weight: light }\n  analytics:  { model: mid,   weight: light }\n  archivist:  { model: cheap, weight: light }\n  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }\n\nedges:\n  - { from: \"*\",         to: \"reviewer\",     relation: peer,  response: async }\n  - { from: \"reviewer\",  to: \"*\",            kind: verdict,   response: async }\n  - { from: \"product\",   to: \"eng.*\",        relation: peer,  response: async }\n  - { from: \"product\",   to: \"growth.*\",     relation: peer,  response: async }\n  - { from: \"analytics\", to: \"product\",      relation: peer,  response: async }\n  - { from: \"*\",         to: \"archivist\",    relation: peer,  response: fire_and_forget }\n  - { from: \"*\",         to: \"human\", kind: task }\n\ndeny:\n  - { from: \"eng.*\",    to: \"growth.*\",  reason: \"go through product\" }\n  - { from: \"growth.*\", to: \"eng.*\",     reason: \"same\" }\n\nlimits:\n  max_chain_depth: 4\n  ask_rate_per_hour: 20\n"
+  "team.yaml": "\nteams:\n  product: [product]\n  eng:     [backend, frontend]\n  growth:  [marketing, analytics]\n  ops:     [archivist]\n\nagents:\n  product:    { model: mid,   weight: light }\n  backend:    { model: high,  weight: heavy }\n  frontend:   { model: high,  weight: heavy }\n  marketing:  { model: mid,   weight: light }\n  analytics:  { model: mid,   weight: light }\n  archivist:  { model: cheap, weight: light }\n  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }\n\nedges:\n  - { from: \"*\",         to: \"reviewer\",     relation: peer,  response: async }\n  - { from: \"reviewer\",  to: \"*\",            kind: verdict,   response: async }\n  - { from: \"product\",   to: \"eng.*\",        relation: peer,  response: async }\n  - { from: \"product\",   to: \"growth.*\",     relation: peer,  response: async }\n  - { from: \"analytics\", to: \"product\",      relation: peer,  response: async }\n  - { from: \"*\",         to: \"archivist\",    relation: peer,  response: fire_and_forget }\n  - { from: \"*\",         to: \"human\", kind: task }\n\ndeny:\n  - { from: \"eng.*\",    to: \"growth.*\",  reason: \"go through product\" }\n  - { from: \"growth.*\", to: \"eng.*\",     reason: \"same\" }\n\nlimits:\n  max_chain_depth: 4\n"
  },
  "format": 1,
  "host_up": true,

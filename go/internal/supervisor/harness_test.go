@@ -28,7 +28,6 @@ edges:
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 5
 `
 
 // fakeTerm is a terminal host: every handle shows a session, and what is typed is kept.

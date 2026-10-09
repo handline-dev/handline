@@ -146,16 +146,17 @@ func TestWithoutTheProposalsPortNothingIsAnsweredAndAnUnregisteredAskerIsToldInP
 	}
 }
 
-func TestAskAtARateLimitOfZeroThrottlesInsteadOfFailing(t *testing.T) {
+// There is no hourly cap on asks: a team.yaml that still names the old ask_rate_per_hour, even 0, loads and the ask goes out.
+func TestAnOldAskRateInTeamYamlCapsNothing(t *testing.T) {
 	r := newRig(t)
-	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "ask_rate_per_hour: 5", "ask_rate_per_hour: 0", 1)), 0o644)
+	old := strings.Replace(teamYAML, "  max_chain_depth: 4\n", "  max_chain_depth: 4\n  ask_rate_per_hour: 0\n", 1)
+	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(old), 0o644)
 	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "hello", Requester: "alice"})
 	r.must(err)
-	if out.OK || !strings.Contains(out.Message, "rate limit: 0 asks in the last hour >= 0 - alice is THROTTLED") {
+	if !out.OK || strings.Contains(out.Message, "this hour") {
 		t.Fatalf("%+v", out)
 	}
-	s, _ := db.GetAgentState(r.DB, "alice")
-	if s.State != "THROTTLED" || s.WakeAt.Int64 != r.clock+3600 {
+	if s, _ := db.GetAgentState(r.DB, "alice"); s != nil && s.State == "THROTTLED" {
 		t.Fatalf("%+v", s)
 	}
 }

@@ -761,7 +761,6 @@ deny:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 20
 """
 
 
@@ -1799,14 +1798,14 @@ LIVE_TRUST_PROMPT_FOLDER = (
     "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/trust-probe")
 
 
-def _two_agents_one_slot(home: Path, cap: int = 2) -> None:
+def _two_agents(home: Path, a_may_ask_b: bool = True) -> None:
+    """Agents a and b; b may ask a, and a may ask b unless `a_may_ask_b` is False (then routing refuses it)."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
-    hand_edit_team(
-        "agents:\n  a: {}\n  b: {}\n"
-        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
-        f"limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: {cap}\n"
-    )
+    edges = '  - { from: "b", to: "a", relation: peer, response: fire_and_forget }\n'
+    if a_may_ask_b:
+        edges += '  - { from: "a", to: "b", relation: peer, response: fire_and_forget }\n'
+    hand_edit_team(f"agents:\n  a: {{}}\n  b: {{}}\nedges:\n{edges}limits:\n  max_chain_depth: 99\n")
     agents.register("a")
     agents.register("b")
 
@@ -1942,7 +1941,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     for n in ("manager", "worker"):
         agents.register(n)
@@ -2033,7 +2031,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     for n in ("boss", "reviewer", "lane.x"):
         agents.register(n)
@@ -2399,7 +2396,7 @@ __all__ = [
     '_ANSI_TEXT_OK',
     'LIVE_TRUST_PROMPT_CAPTURE',
     'LIVE_TRUST_PROMPT_FOLDER',
-    '_two_agents_one_slot',
+    '_two_agents',
     'zai_quota',
     'TEST_FILTER',
     '_RUN_DEPTH',
