@@ -1,4 +1,6 @@
 """trust.propose, trust.list and trust.remove: the fake checks arguments and holds no roots."""
+import os
+
 from . import err, fake
 
 
@@ -8,7 +10,7 @@ def _bad(field):
 
 @fake("trust.propose")
 def propose(role, method, params):
-    if not isinstance(params.get("root"), str):
+    if not isinstance(params.get("root"), str) or not os.path.isabs(params["root"]):
         return _bad("root")
     if "why" in params and not isinstance(params["why"], str):
         return _bad("why")
@@ -24,6 +26,6 @@ def listing(role, method, params):
 
 @fake("trust.remove")
 def remove(role, method, params):
-    if not isinstance(params.get("root"), str):
+    if not isinstance(params.get("root"), str) or not os.path.isabs(params["root"]):
         return _bad("root")
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "root"}}

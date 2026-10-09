@@ -192,17 +192,23 @@ def listing() -> list[dict]:
 
 def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
     """Ask the founder to add `root` to standing consent. Nothing changes yet."""
+    ok, said, _ = propose_with_id(root, why, requester)
+    return ok, said
+
+
+def propose_with_id(root: str, why: str, requester: str) -> tuple[bool, str, str | None]:
+    """`propose`, and the proposal's id when one was raised."""
     if not (why or "").strip():
-        return False, "say why: the founder is deciding, not rubber-stamping"
+        return False, "say why: the founder is deciding, not rubber-stamping", None
     resolved = _resolved(root) or str(Path(root).expanduser())
     if is_declared(resolved):
-        return False, f"{resolved} is already inside a declared root"
+        return False, f"{resolved} is already inside a declared root", None
     prop = {"id": uuid.uuid4().hex[:8], "root": resolved, "why": why.strip(),
             "requested_by": requester, "created": int(time.time()), "state": "proposed"}
     from .. import actions      # a decision is a task of the founder's
     ok, said, rid = actions.open_decision(requester, _decision_text(prop))
     if not ok:
-        return False, f"could not raise it: {said}"
+        return False, f"could not raise it: {said}", None
     prop["request"] = rid
     con = db.connect()
     try:
@@ -211,7 +217,7 @@ def propose(root: str, why: str, requester: str) -> tuple[bool, str]:
         con.close()
     _save_proposal(prop)
     return True, (f"proposal {prop['id']} raised as #{rid}. Nothing changes until the "
-                  f"founder answers it; an approve is applied then, and you are told how it went.")
+                  f"founder answers it; an approve is applied then, and you are told how it went."), prop["id"]
 
 
 def _root_read(body: str | None, requester: str) -> str | None:

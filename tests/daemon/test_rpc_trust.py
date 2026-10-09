@@ -59,6 +59,15 @@ def test_an_agent_proposes_and_the_founder_declares_as_the_commands_do(home: Pat
     check("propose: a paired device is refused, gate role, and nothing is declared", got == "role" and len(trust.list_roots()) == 1, str(got))
 
 
+def test_a_root_that_is_not_an_absolute_path_is_refused_before_the_store_reads_it(home: Path) -> None:
+    _world(home)
+    for method, who in (("trust.propose", "manager"), ("trust.propose", None), ("trust.remove", None)):
+        for root in (".", "sub", "../x", "~/widget"):
+            r = _call(method, {"root": root, "why": "w", "request_id": f"rel-{method}-{who}-{root}"}, as_agent=who)
+            check(f"{method} as {who or 'founder'}: {root!r} is bad_request naming root", _code(r) == "bad_request" and r["error"]["data"].get("field") == "root", str(r))
+    check("a relative root declared nothing and raised nothing", not trust.list_roots() and not trust.listing())
+
+
 def test_list_shows_the_roots_and_with_proposals_the_proposals(home: Path) -> None:
     _world(home)
     trust.enact(str(home / "a"), "first")
@@ -113,6 +122,7 @@ def main() -> int:
         run(lambda: test_an_agent_proposes_and_the_founder_declares_as_the_commands_do(Path(td) / "t1"))
         run(lambda: test_list_shows_the_roots_and_with_proposals_the_proposals(Path(td) / "t2"))
         run(lambda: test_remove_is_the_founders_and_says_what_the_command_says(Path(td) / "t3"))
+        run(lambda: test_a_root_that_is_not_an_absolute_path_is_refused_before_the_store_reads_it(Path(td) / "t5"))
         run(lambda: test_the_trust_fixtures_pass_against_this_daemon(Path(td) / "t4"))
     return run_area(tests)
 

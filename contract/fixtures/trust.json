@@ -41,6 +41,65 @@
    ]
   },
   {
+   "name": "trust.propose.root_is_absolute",
+   "spec": "trust.propose",
+   "about": "A root that is not an absolute path (a relative one, or one with ~) is bad_request naming root: the daemon would resolve it against its own folder and home, so the client does it against its own.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.propose",
+      "params": {
+       "root": ".",
+       "why": "w",
+       "request_id": "tp-abs-0"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "trust.propose",
+      "params": {
+       "root": "~/widget",
+       "why": "w",
+       "request_id": "tp-abs-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "trust.propose.why_is_text",
    "spec": "trust.propose",
    "about": "A why that is not text is bad_request naming it.",
@@ -187,6 +246,63 @@
       "params": {
        "root": 5,
        "request_id": "tr-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.remove.root_is_absolute",
+   "spec": "trust.remove",
+   "about": "A root that is not an absolute path (a relative one, or one with ~) is bad_request naming root: the daemon would resolve it against its own folder and home, so the client does it against its own.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.remove",
+      "params": {
+       "root": ".",
+       "request_id": "tr-abs-0"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "trust.remove",
+      "params": {
+       "root": "~/widget",
+       "request_id": "tr-abs-1"
       }
      },
      "error": {

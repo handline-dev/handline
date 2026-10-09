@@ -4,6 +4,8 @@ An agent's trust.propose raises a decision for the founder; the founder's declar
 the founder's: the roots live in the protected store, which an agent session cannot write, so the method is not an agent's either."""
 from __future__ import annotations
 
+import os
+
 from .. import db
 from ..team import ask as askmod
 from ..team import trust
@@ -38,17 +40,25 @@ def _text(params, field: str, required: bool = True) -> str | None:
     return v
 
 
+def _root(params) -> str:
+    """A root the caller spelled out in full: the store resolves a relative one, or a `~`, against the daemon's own directory and home, not the caller's."""
+    root = _text(params, "root")
+    if not os.path.isabs(root):
+        raise rpc.bad_request("root is an absolute path; the client resolves it against its own folder", "root", rpc.INVALID_PARAMS)
+    return root
+
+
 def _propose(ctx, params) -> dict:
-    root, why = _text(params, "root"), _text(params, "why", required=False)
+    root, why = _root(params), _text(params, "why", required=False)
     me = _me(ctx)
     if me == askmod.HUMAN:
         ok, said = trust.enact(root, why or "added by the founder")
         result = {"accepted": True, "said": said}
     else:
-        ok, said = trust.propose(root, why or "", requester=me)
+        ok, said, proposal = trust.propose_with_id(root, why or "", requester=me)
         result = {"accepted": True, "said": said}
         if ok:
-            result["proposal"] = said.split()[1]
+            result["proposal"] = proposal
     if not ok:
         raise rpc.refused(said)
     return _wrote(ctx, params, "trust.propose", result)
@@ -73,7 +83,7 @@ def _list(ctx, params) -> dict:
 
 
 def _remove(ctx, params) -> dict:
-    root = _text(params, "root")
+    root = _root(params)
     ok, said = trust.remove(root)
     if not ok:
         if "is not a declared root" in said:
