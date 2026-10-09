@@ -74,6 +74,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("agent.options", rpc.Method{Role: "member", Handler: e.agentOptions})
 	s.Register("operation.get", rpc.Method{Role: "member", Handler: e.operationGet})
 	s.Register("accounts.list", rpc.Method{Role: "agent", Handler: e.accountsList})
+	s.Register("status.pick", rpc.Method{Role: "agent", Handler: e.statusPick})
 	s.Register("stats.get", rpc.Method{Role: "member", Handler: e.statsGet})
 	s.Register("stats.outlook", rpc.Method{Role: "member", Handler: e.statsOutlook})
 	s.Register("team.get", rpc.Method{Role: "agent", Handler: e.teamGet})
