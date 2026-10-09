@@ -26,6 +26,7 @@ home = Path(tempfile.mkdtemp(prefix="usagefix-")) / ".orcapipe"
 for _k in [k for k in os.environ if k.startswith("HANDLINE_")]:
     del os.environ[_k]
 os.environ["OCP_HOME"] = str(home)
+os.environ["OCP_TEST_ROOT"] = str(home.parent)  # a scratch run: paths.home() refuses the real home
 
 from handline.usage import burnrate, load as loadmod, status  # noqa: E402
 from handline.infra import paths  # noqa: E402
