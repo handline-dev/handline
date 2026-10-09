@@ -24,7 +24,7 @@ func TestATasksClockRunsOnlyWhileItIsDoing(t *testing.T) {
 	now := time.Now().Unix()
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(1, 'q', 'bob', 'human', 1, 'human')")
 	_, c := clockOf(t, e, 1)
-	if c["length_s"] != int64(defaultTaskTimeoutS) || c["default"] != true || c["start"] != nil || c["end"] != nil || c["told"] != 0 {
+	if c["length_s"] != int64(4*3600) || c["default"] != true || c["start"] != nil || c["end"] != nil || c["told"] != 0 {
 		t.Fatalf("a queued task has a length and no counting: %v", c)
 	}
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, timeout_s, timeout_at, sent_at) VALUES(2, 'd', 'bob', 'human', 1, 'human', 600, ?, 1)", now+300)
@@ -100,5 +100,16 @@ func TestAllWithBeforePagesThroughEveryTaskNewestFirst(t *testing.T) {
 	}
 	if len(seen) != 5 || seen[0] != 5 || seen[4] != 1 {
 		t.Fatalf("every task once, newest first: %v", seen)
+	}
+}
+
+func TestADoingTaskGivenNoTimeoutCountsFourHoursBack(t *testing.T) {
+	e := testEnv(t)
+	end := time.Now().Unix() + 3600
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, timeout_at, sent_at) VALUES(1, 'd', 'bob', 'human', 1, 'human', ?, 1)", end)
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, current_task) VALUES('bob', 'RUNNING', 0, 1)")
+	_, c := clockOf(t, e, 1)
+	if c["length_s"] != int64(4*3600) || c["default"] != true || c["start"] != ts(end-4*3600) || c["end"] != ts(end) {
+		t.Fatalf("%v", c)
 	}
 }

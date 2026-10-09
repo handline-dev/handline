@@ -3,10 +3,9 @@ package reads
 import (
 	"fmt"
 	"time"
-)
 
-// defaultTaskTimeoutS is actions.DEFAULT_TASK_TIMEOUT_S: the length of a task never given one.
-const defaultTaskTimeoutS = 4 * 3600
+	"github.com/handline/handline/go/internal/db"
+)
 
 // taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded. The overdue moment is the first deadline
 // missed, found by following the overrun notices back from the deadline now in force (an edit replaces the deadline and ends the chain).
@@ -17,7 +16,7 @@ func (e *Env) taskClock(t row, state string) (any, error) {
 	length := t.i("timeout_s")
 	isDefault := !t.set("timeout_s")
 	if isDefault || length == 0 {
-		length = defaultTaskTimeoutS
+		length = db.DefaultTaskTimeoutS
 	}
 	clock := map[string]any{"length_s": length, "default": isDefault, "start": nil, "end": nil, "overdue_since": nil, "told": 0}
 	if state != "doing" || !t.set("timeout_at") {
