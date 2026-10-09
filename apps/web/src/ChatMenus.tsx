@@ -62,7 +62,11 @@ export function useEntries(
           hint: `/${v.id.replace('_fresh', ' fresh')}`,
           verb: v,
         })),
-        ...(detail.terminal ? [{ key: 'terminal', icon: 'terminal', label: 'Terminal', hint: '/terminal', terminal: true } as Entry] : []),
+        ...(detail.structured
+          ? [{ key: 'transcript', icon: 'terminal', label: 'Transcript', hint: '/transcript', terminal: true } as Entry]
+          : detail.terminal
+            ? [{ key: 'terminal', icon: 'terminal', label: 'Terminal', hint: '/terminal', terminal: true } as Entry]
+            : []),
       ];
       return all.filter((e) => !q || e.key.startsWith(q) || e.label.toLowerCase().startsWith(q));
     }
@@ -84,8 +88,11 @@ export function useEntries(
   }, [kind, query, view, detail, served, tasks.data, agent, messages, history]);
 }
 
-/** Opens the agent's terminal beside the chat, as the `/terminal` verb does. */
+/** Opens the agent's terminal (a structured agent's transcript) beside the chat, as the `/terminal` and `/transcript` verbs do. */
 export function useOpenTerminal(detail: AgentDetail): () => void {
   const { apply } = useWorkspace();
-  return () => detail.terminal && apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }));
+  return () =>
+    detail.structured
+      ? apply((w) => openTab(w, 'transcript'))
+      : detail.terminal && apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }));
 }

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CHAT,
+  TRANSCRIPT,
   MAX_GROUPS,
   activate,
   applyPreset,
@@ -295,4 +296,12 @@ test('the default layout is one pane: Chat shown, the session terminal second be
   assert.deepEqual(ids(none), [CHAT]);
   invariants(ws);
   invariants(none);
+});
+
+test('a structured agent opens with Chat and Transcript, and the transcript tab is one per workspace', () => {
+  const ws = defaultWorkspace({ structured: true });
+  assert.deepEqual(ids(ws), [`${CHAT}+${TRANSCRIPT}`]);
+  assert.deepEqual(openTab(ws, 'transcript'), activate(ws, TRANSCRIPT));
+  assert.deepEqual(parseWorkspace(JSON.parse(serialize(ws))), ws);
+  invariants(ws);
 });

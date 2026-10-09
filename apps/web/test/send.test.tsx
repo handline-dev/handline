@@ -50,7 +50,7 @@ async function mount(s = setup()) {
   await act(async () => {
     root!.render(<App store={store} daemon="test" storage={memory()} />);
   });
-  await until(() => $('[data-tab^="terminal:"]'), 'the watching tab');
+  await until(() => $('[data-tab="transcript"]'), 'the watching tab');
   await click($('[data-tab^="chat"]')!);
   await until(() => compose() && !compose().disabled, 'the send box');
   return s;

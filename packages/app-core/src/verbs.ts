@@ -62,6 +62,10 @@ export function verbsOf(a: AgentView, d: Pick<AgentDetail, 'session_open' | 'ses
   return ids.map((id) => VERBS[id]);
 }
 
+/** The consequence the confirmation states; a structured agent has no terminal to keep. */
+export const askOf = (v: Verb, d: Pick<AgentDetail, 'structured'>): string | undefined =>
+  v.id === 'close' && d.structured ? 'Its session ends; the worktree and account stay.' : v.ask;
+
 /** Whether a verb asks first on this row: the confirm set. */
 export const asks = (v: Verb): boolean => needsAsk(v.id);
 

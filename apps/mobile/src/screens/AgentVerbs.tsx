@@ -3,7 +3,7 @@
 // Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4).
 import { useState } from 'react';
 import { Text, View } from 'react-native';
-import { needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
+import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
@@ -95,7 +95,7 @@ function VerbSheet(props: {
       onCancel={props.onClose}
       onSubmit={confirm}
     >
-      {verb.ask && <Text style={{ color: c.muted }}>{verb.ask}</Text>}
+      {askOf(verb, detail) && <Text style={{ color: c.muted }}>{askOf(verb, detail)}</Text>}
       {move && (
         <Row style={{ flexWrap: 'wrap' }}>
           {accounts.map((x) => (

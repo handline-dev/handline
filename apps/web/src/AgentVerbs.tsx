@@ -2,10 +2,10 @@
 // Each is a decided write: the row shows the verb's gerund until the agents topic changes it. The ones in the bridge's CONFIRM ask first,
 // in a sheet under the row, and the sheet checks the row again on Confirm: a row that changed sends nothing.
 import { useEffect, useRef, useState } from 'react';
-import { verbsOf, type Verb } from '@handline/app-core';
+import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { useAccounts, useAgentDetail, useAgents, useVerbRun } from '@handline/app-data';
+import { useAccounts, useAgentDetail, useAgents, classify, sentence, useVerbRun } from '@handline/app-data';
 
 /** Whether the daemon lists the verb's method; one it does not list shows disabled with the reason. */
 export function useServed(): (v: Verb) => boolean {
@@ -24,6 +24,8 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
   const run = useVerbRun(a.name);
   const [account, setAccount] = useState('');
   const [changed, setChanged] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const ok = useRef<HTMLButtonElement>(null);
   useEffect(() => ok.current?.focus(), []);
   useEffect(() => {
@@ -32,10 +34,22 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
   const move = verb.id === 'move';
+  const structured = d?.structured === true;
+  const interruptFirst = structured && verb.id === 'close' && (a.state === 'running' || a.state === 'waiting');
+  const go = (v: Verb, acct?: string) => {
+    setBusy(true);
+    setRefused(null);
+    run(v, acct, {
+      onSuccess: onClose,
+      onError: (e) => {
+        setBusy(false);
+        setRefused(sentence(classify(e)));
+      },
+    });
+  };
   const confirm = () => {
     if (d && !verbsOf(a, d).some((v) => v.id === verb.id)) return setChanged(true); // the row changed while the sheet was open
-    run(verb, account);
-    onClose();
+    go(verb, account);
   };
   if (changed)
     return (
@@ -51,7 +65,9 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
       <strong>
         {verb.label} {a.name}?
       </strong>
-      {verb.ask ? <span className="muted">{verb.ask}</span> : null}
+      {askOf(verb, { structured }) ? <span className="muted">{askOf(verb, { structured })}</span> : null}
+      {refused ? <span role="alert">{refused}</span> : null}
+      {interruptFirst ? <span className="muted">{a.name} is mid-turn. Interrupt ends the turn and keeps the session.</span> : null}
       {move ? (
         <select aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
           <option value="">choose an account</option>
@@ -63,9 +79,14 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
         </select>
       ) : null}
       <span className="verb-sheet-actions">
-        <button ref={ok} className="btn primary" disabled={move && !account} onClick={confirm}>
+        <button ref={ok} className="btn primary" disabled={busy || (move && !account)} onClick={confirm}>
           {move ? 'Move' : 'Confirm'}
         </button>
+        {interruptFirst ? (
+          <button className="btn" disabled={busy} onClick={() => go(VERBS.interrupt)}>
+            Interrupt first
+          </button>
+        ) : null}
         <button className="btn" onClick={onClose}>
           Cancel
         </button>
