@@ -3766,7 +3766,7 @@
   },
   {
    "name": "task.new",
-   "summary": "Create a task.",
+   "summary": "Create a task. The founder or a member device opens one for an agent only, and it opens queued.",
    "paramStructure": "by-name",
    "params": [
     {

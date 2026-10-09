@@ -1173,6 +1173,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
 
+    The founder may open one for an agent; it is queued by them as it opens.
+
     T294: a child task always blocks its parent (orcapipe's #1910: every
     `--parent` adds the block, no --expects gate, even when the parent's own
     owner opens the child for itself) - mark_task_done already refuses
@@ -1180,6 +1182,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child is discarded.
     """
+    if me == HUMAN and owner == HUMAN:
+        return False, "the founder opens a task for an agent, not for themself", None
     # A task of the founder's is a decision unless it says otherwise.
     expects = expects or ("decision" if owner == HUMAN else "report")
     if not (body or "").strip():
@@ -1200,6 +1204,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     def together(con, rid: int, _note: str) -> None:
         """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it."""
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s)
+        if me == HUMAN:         # the founder's own task needs no one's approval
+            db.set_task_queued(con, tid, HUMAN)
         opened.append(tid)
         _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner, "expects": expects})

@@ -334,6 +334,36 @@ func ago(secs int64) string {
 // span is a long time as days and hours, as infra/timefmt.span has it from a day up.
 func span(secs int64) string { return fmt.Sprintf("%dd%dh", secs/86400, secs%86400/3600) }
 
+// Tasks is the spec's Task of each of the tasks by id, as the board shows them now, without their bodies (the shape of tasks.list and
+// task.get); a task that is gone is left out. The board is read once for all of them, which is what a change event carries.
+func (e *Env) Tasks(ids []int64) (map[int64]map[string]any, error) {
+	out := map[int64]map[string]any{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	_, open, err := e.boardRows(false)
+	if err != nil {
+		return nil, err
+	}
+	b, err := e.loadBoard(open)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		t, err := queryOne(e.DB, "SELECT * FROM tasks WHERE id = ?", id)
+		if err != nil {
+			return nil, err
+		}
+		if t == nil {
+			continue
+		}
+		if out[id], err = e.taskOf(t, b.state(t)); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	tid, err := optInt(params, "task")
 	if err != nil || tid == nil {

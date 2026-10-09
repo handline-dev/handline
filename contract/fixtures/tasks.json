@@ -1,9 +1,9 @@
 {
  "fixtures": [
   {
-   "name": "task.new.the_founder_is_refused",
+   "name": "task.new.not_for_the_founder_themself",
    "spec": "task.new",
-   "about": "A task is opened by an agent: the founder's call is refused.",
+   "about": "The founder opens a task for an agent: one for human is refused.",
    "as": "founder",
    "steps": [
     {
@@ -25,7 +25,7 @@
       "id": 2,
       "method": "task.new",
       "params": {
-       "owner": "a.one",
+       "owner": "human",
        "title": "t",
        "body": "b",
        "time_box": "1h",

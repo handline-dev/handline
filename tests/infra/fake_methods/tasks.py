@@ -11,8 +11,8 @@ def tasks(role, method, params):
     if params.get("priority") is not None and (isinstance(params["priority"], bool) or params["priority"] not in (1, 2, 3)):
         return "fail", err(-32602, "bad_request", field="priority")
     if method == "task.new":
-        if role != "agent":
-            return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not an agent"}}
+        if role != "agent" and params.get("owner") == "human":
+            return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "for an agent, not for themself"}}
         if params.get("time_box") not in ("30m", "1h", "2h"):
             return "fail", err(-32602, "bad_request", field="time_box")
         CURRENT.ctx.state["task_page"] = True
