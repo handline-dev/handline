@@ -34,7 +34,7 @@ func viewOfAgent(t *testing.T, e *Env, name string) map[string]any {
 func TestAgentViewServesKindTaskCountAndReady(t *testing.T) {
 	e := testEnv(t)
 	addAgent(t, e, "bob", "")
-	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"IDLE"}', 0)`)
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle"}', 0)`)
 	// 1 is bob's current task, queued; 2 is a draft that is not current and does not count; 3 is queued and waits.
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(1, 'a', 'bob', 'human', 1, 'human'), (3, 'c', 'bob', 'human', 1, 'human')")
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(2, 'b', 'bob', 'human', 1)")
@@ -56,9 +56,26 @@ func TestAgentViewServesKindTaskCountAndReady(t *testing.T) {
 	if v = viewOfAgent(t, e, "bob"); v["ready"] != true {
 		t.Fatalf("a done blocker holds nothing: %v", v)
 	}
-	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"RUNNING"}'`)
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"running"}'`)
 	if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
 		t.Fatalf("a running agent is not ready: %v", v)
+	}
+	// The wire word idle also covers a DONE agent and a parked one with nothing to do: only the row's IDLE is the screen word.
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle"}'`)
+	for _, st := range []string{"DONE", "PARKED"} {
+		run(t, e, "UPDATE agent_state SET state = ? WHERE agent = 'bob'", st)
+		if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
+			t.Fatalf("a %s agent is not ready: %v", st, v)
+		}
+	}
+}
+
+func TestAStoredViewThatDoesNotDecodeIsAnError(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{not json', 0)`)
+	if _, err := e.agentsList(nil, nil); err == nil {
+		t.Fatal("served an agent with no name or state")
 	}
 }
 
