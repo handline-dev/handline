@@ -10,11 +10,11 @@ export interface Note {
   actor: string | null;
 }
 export type PageTab = 'chat' | 'terminal';
-/** The agent a one-page app has open: which tab shows, and its attached terminal (its row and detail are `useAgentDetail(agent)`). */
+/** The agent a one-page app has open: which tab shows, and its attached terminal, null for a structured agent, which has none (its row and detail are `useAgentDetail(agent)`). */
 export interface Page {
   agent: string;
   tab: PageTab;
-  view: TerminalView;
+  view: TerminalView | null;
 }
 
 export class Store {
@@ -118,13 +118,25 @@ export class Store {
 
   // ---- the open agent page (one-page apps) ----
 
-  /** Opens the agent's page: attaches its terminal and sets the page. Two quick calls end with the later one open; the earlier one lets go of what it took. */
+  /** Opens the agent's page: attaches its terminal (a structured agent has none) and sets the page. Two quick calls end with the later one open; the earlier one lets go of what it took. */
   async openAgent(agent: string): Promise<void> {
     const seq = ++this.openSeq;
     await this.closeAgent();
     if (seq !== this.openSeq) return;
     let attached = false;
     try {
+      // The daemon refuses a terminal to a structured agent; a failed read is left to the attach to report.
+      const structured = await this.client.call('agent.get', { agent }).then(
+        (d) => d.structured === true,
+        () => false,
+      );
+      if (seq !== this.openSeq) throw new Superseded();
+      if (structured) {
+        this.error = null;
+        this.page = { agent, tab: 'chat', view: null };
+        this.emit();
+        return;
+      }
       const view = await this.client.attachTerminal(agent);
       attached = true;
       if (seq !== this.openSeq) throw new Superseded();
@@ -144,7 +156,7 @@ export class Store {
     this.unwatchView = null;
     this.page = null;
     this.emit();
-    await this.client.detachTerminal(p.agent).catch(() => {});
+    if (p.view) await this.client.detachTerminal(p.agent).catch(() => {});
   }
   setTab(tab: PageTab): void {
     if (this.page) {
