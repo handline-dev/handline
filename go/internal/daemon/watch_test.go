@@ -11,9 +11,12 @@ import (
 	"github.com/handline/handline/go/internal/watcher"
 )
 
-// watchedRows is how many task.changed, agent.changed, task_done and chat.message rows the daemon's stream holds after a task, an agent view,
-// a task-done event and a request are made once the watch has had its first look.
-func watchedRows(t *testing.T, watch bool) (tasks, agents, notes, chats int) {
+// watchedTypes are the event types the test counts, one source change each: a task, an agent view, a task-done event, a request and a
+// proposal file.
+var watchedTypes = []string{"task.changed", "agent.changed", "task_done", "chat.message", "hr.raised"}
+
+// watchedRows is how many rows of each type the daemon's stream holds once the watch has had its first look and the changes are made.
+func watchedRows(t *testing.T, watch bool) map[string]int {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "hl")
 	if err != nil {
@@ -49,20 +52,33 @@ func watchedRows(t *testing.T, watch bool) (tasks, agents, notes, chats int) {
 			t.Fatal(err)
 		}
 	}
+	// a proposal file: the store is files, so no database commit tells of it
+	os.MkdirAll(filepath.Join(dir, "hr"), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, "hr", "0000000a.yaml"),
+		[]byte("id: \"0000000a\"\nkind: retire\nagent: old\nrequested_by: boss\nwhy: idle\ncreated: 5\nstate: proposed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(4 * watcher.Every)
-	for typ, n := range map[string]*int{"task.changed": &tasks, "agent.changed": &agents, "task_done": &notes, "chat.message": &chats} {
-		if err := d.db.QueryRow("SELECT COUNT(*) FROM stream_log WHERE type = ?", typ).Scan(n); err != nil && err != sql.ErrNoRows {
+	out := map[string]int{}
+	for _, typ := range watchedTypes {
+		var n int
+		if err := d.db.QueryRow("SELECT COUNT(*) FROM stream_log WHERE type = ?", typ).Scan(&n); err != nil && err != sql.ErrNoRows {
 			t.Fatal(err)
 		}
+		out[typ] = n
 	}
-	return tasks, agents, notes, chats
+	return out
 }
 
 func TestTheWatcherIsOffUntilCutoverAndThenOneChangeIsOneRow(t *testing.T) {
-	if tasks, agents, notes, chats := watchedRows(t, false); tasks+agents+notes+chats != 0 {
-		t.Fatalf("the watcher was off and wrote %d task rows, %d agent rows, %d notifications, %d chat messages", tasks, agents, notes, chats)
+	for typ, n := range watchedRows(t, false) {
+		if n != 0 {
+			t.Errorf("the watcher was off and wrote %d %s rows", n, typ)
+		}
 	}
-	if tasks, agents, notes, chats := watchedRows(t, true); tasks != 1 || agents != 1 || notes != 1 || chats != 1 {
-		t.Fatalf("one change of each wrote %d task rows, %d agent rows, %d notifications, %d chat messages", tasks, agents, notes, chats)
+	for typ, n := range watchedRows(t, true) {
+		if n != 1 {
+			t.Errorf("one change wrote %d %s rows", n, typ)
+		}
 	}
 }

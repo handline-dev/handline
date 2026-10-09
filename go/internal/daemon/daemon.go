@@ -32,6 +32,7 @@ import (
 	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/version"
 	"github.com/handline/handline/go/internal/watcher"
+	"github.com/handline/handline/go/internal/weblogin"
 )
 
 // daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
@@ -67,7 +68,7 @@ type Config struct {
 	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
 
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
-	// layer. Nil tells nothing.
+	// layer. Nil is the Env's own telling once its ports are all wired (OnOpen sets them), and tells nothing before that.
 	Teller taskwrites.Teller
 
 	// Env is the telling layer the chat, mailbox and say writes run on (supervisor.Env). Nil is an Env of this database and home alone: its
@@ -105,10 +106,11 @@ type Daemon struct {
 	cfg     Config
 	db      *sql.DB
 	hooks   *hooks.Recorder
-	prompts *prompts.Env  // nil on a gateway: the Python daemon alone presses keys
-	tchan   *termchan.Env // the terminal channel and the input hold; nil on a gateway
-	single  *lock.Hold    // the daemon singleton, held while this daemon watches screens
-	stop    chan struct{} // closed by Close: the spool loop ends
+	logins  *weblogin.Manager // the web logins; nil in a gateway
+	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
+	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
+	single  *lock.Hold        // the daemon singleton, held while this daemon watches screens
+	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
 	local   *rpc.Server
@@ -157,6 +159,7 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
+		d.logins = &weblogin.Manager{Home: cfg.Home}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 		d.prompts.Structured = cfg.Answers
 		if cfg.Terminal != nil {
@@ -191,6 +194,9 @@ func Start(cfg Config) (*Daemon, error) {
 	d.hub = stream.NewHub()
 	d.hub.Log = &stream.Log{DB: db}
 	d.hub.Reach = (&reads.Env{DB: db, Home: cfg.Home}).Reach
+	if d.logins != nil { // a login's state moving is an account.changed on the accounts topic
+		d.logins.Changed = d.accountChanged
+	}
 	if d.transcripts() {
 		sink := cfg.Transcript
 		sink.DB = db
@@ -231,8 +237,9 @@ func Start(cfg Config) (*Daemon, error) {
 		d.hub.Run(d.stop, cfg.Log)
 	}()
 	if cfg.Watch && !cfg.Gateway {
-		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log,
+		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watcher.HRSignature(cfg.Home),
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
+				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
@@ -265,6 +272,18 @@ func (d *Daemon) env() *supervisor.Env {
 	return d.envMade
 }
 
+// teller is what follows the task and chat writes: the configured one, else the supervisor Env once every port has its owner, since a
+// missing port is a nil call. Nil tells nothing; the tick does it later.
+func (d *Daemon) teller() taskwrites.Teller {
+	if d.cfg.Teller != nil {
+		return d.cfg.Teller
+	}
+	if e := d.env(); e.Ports.Wired() {
+		return e
+	}
+	return nil
+}
+
 // hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
 func (d *Daemon) hrEnv() *hrwrites.Env {
 	env := d.env()
@@ -275,6 +294,17 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
+// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
+func (d *Daemon) accountChanged(name string) {
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
+	if !ok {
+		return
+	}
+	if err := d.hub.AccountChanged(acct); err != nil {
+		d.cfg.Log("  stream: account.changed %s: %v", name, err)
+	}
+}
+
 // transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
 // structured sessions.
 func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
@@ -283,8 +313,10 @@ func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.St
 // adds its line at its own place, so two ports do not edit the same spot and git merges them.
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 	return []func(*rpc.Server){
-		func(s *rpc.Server) { adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home}) },
-		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.cfg.Teller) },
+		func(s *rpc.Server) {
+			adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home, Logins: d.logins})
+		},
+		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
@@ -293,7 +325,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 				sessionrpc.Register(s, d.cfg.Session())
 			}
 		},
-		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.cfg.Teller) },
+		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
 }
@@ -319,6 +351,9 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
 	renv.Context = d.cfg.Context
+	if d.logins != nil {
+		renv.Login = d.logins.Of
+	}
 	reads.Register(s, renv)
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
@@ -463,6 +498,9 @@ func (d *Daemon) Close() {
 	}
 	if d.net != nil {
 		d.net.close()
+	}
+	if d.logins != nil {
+		d.logins.Close()
 	}
 	d.wg.Wait()
 	d.pidFile.remove()

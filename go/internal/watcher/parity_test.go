@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	osexec "os/exec"
@@ -53,6 +54,9 @@ func same(a, b any) bool {
 
 // parity runs pyName (a detector of the Python watcher) and the Go detector over two databases that setup and then change are applied to
 // alike, and returns the rows Python wrote, and the rows Go wrote.
+// parityHome, when set, is the home the Python detector runs in (the hr proposals are files in it) and the Go one reads.
+var parityHome string
+
 func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup, change func(run func(string, ...any))) (py []map[string]any, goRows []*stream.Event) {
 	t.Helper()
 	root, _ := filepath.Abs("../../..")
@@ -81,15 +85,21 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	cmd := osexec.Command("python3", "-I", "-c", script, filepath.Join(dir, "py.sqlite"))
 	cmd.Dir = root
 	cmd.Stderr = os.Stderr
+	if parityHome != "" {
+		cmd.Env = append(os.Environ(), "OCP_HOME="+parityHome, "HANDLINE_HOME="+parityHome, "HANDLINE_TEST_ROOT="+filepath.Dir(parityHome), "OCP_TEST_ROOT="+filepath.Dir(parityHome))
+	}
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
-		t.Skip("no python3:", err)
+		if errors.Is(err, osexec.ErrNotFound) {
+			t.Skip("no python3:", err)
+		}
+		t.Fatalf("the Python detector did not start: %v", err)
 	}
 	defer cmd.Process.Kill()
 	r := bufio.NewReader(out)
 	if line, _ := r.ReadString('\n'); line != "ready\n" {
-		t.Skipf("the Python detector did not start: %q", line)
+		t.Fatalf("the Python detector did not start (its stderr is above): %q", line)
 	}
 	d := detector(g.log.DB)
 	emit := func(e stream.Entry) (*stream.Event, error) { return g.log.Append(e) }
@@ -105,7 +115,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	if err := json.Unmarshal([]byte(line), &py); err != nil {
 		t.Fatalf("%q: %v", line, err)
 	}
-	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "inbox", "chat"}, "", 100)
+	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "inbox", "hr", "chat"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}

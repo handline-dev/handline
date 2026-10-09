@@ -3,6 +3,7 @@ package reads
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -81,7 +82,11 @@ func (e *Env) proposals() []proposal {
 }
 
 func (e *Env) proposalView(p proposal) map[string]any {
-	v := map[string]any{"id": p.wireID, "kind": p.text("kind"), "agent": p.text("agent"), "title": p.title(), "diff": e.diff(p.flat),
+	agent := p.text("agent")
+	if p.text("kind") == "bundle" {
+		agent = fmt.Sprintf("%d changes", len(p.items()))
+	}
+	v := map[string]any{"id": p.wireID, "kind": p.text("kind"), "agent": agent, "title": p.title(), "diff": p.diff(),
 		"subject": p.subject(), "state": p.state, "created": ts(p.created), "settled": nil, "error": nil}
 	if p.state != "open" {
 		v["settled"] = ts(p.settled)
@@ -101,7 +106,7 @@ func (e *Env) proposalView(p proposal) map[string]any {
 			asked[k] = p.text(k)
 		}
 	}
-	if keys, vals := p.sets(); len(keys) > 0 && p.text("kind") != "bundle" {
+	if keys, vals := p.sets(); len(keys) > 0 && p.text("kind") == "settings" {
 		sets := map[string]any{}
 		for _, k := range keys {
 			sets[k] = vals[k]
@@ -178,4 +183,22 @@ func (e *Env) HRView(pid string) map[string]any {
 		}
 	}
 	return nil
+}
+
+// HRProposals is every proposal hr.list can show, as it shows it, in no bound and by wire id: what a change in the store is told from.
+func (e *Env) HRProposals() []map[string]any {
+	ps := e.proposals()
+	sort.SliceStable(ps, func(i, j int) bool { return ps[i].wireID < ps[j].wireID })
+	out := make([]map[string]any, 0, len(ps))
+	seen := map[int64]int{}
+	for _, p := range ps {
+		v := e.proposalView(p)
+		if at, dup := seen[p.wireID]; dup { // two files with one id: the later one stands, as a dict keyed by id has it
+			out[at] = v
+			continue
+		}
+		seen[p.wireID] = len(out)
+		out = append(out, v)
+	}
+	return out
 }

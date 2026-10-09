@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,8 +28,11 @@ func pythonReason(t *testing.T, home, agent string, rid int64) string {
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "OCP_HOME="+home, "HANDLINE_HOME="+home, "HANDLINE_TEST_ROOT="+filepath.Dir(home), "OCP_TEST_ROOT="+filepath.Dir(home))
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Skipf("the Python queue_reason did not run: %v: %s", err, out)
+	if errors.Is(err, exec.ErrNotFound) {
+		t.Skip("no python3:", err)
+	}
+	if err != nil { // Python ran and failed: the parity is broken, not unavailable
+		t.Fatalf("the Python queue_reason failed: %v: %s", err, out)
 	}
 	return strings.TrimSpace(string(out))
 }
