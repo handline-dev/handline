@@ -2935,7 +2935,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "fold", "fold_failed", "cache_renewal", "idle_fold",
                     "forced_move", "fresh_close", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
-                    "unstuck", "login_expired", "trust_confirmed", "wake", "wake_failed", "restart_owed", "SessionStart",
+                    "unstuck", "login_expired", "trust_confirmed", "wake", "wake_failed", "restart_owed", "move_owed", "SessionStart",
                     "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
                     "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
@@ -4358,6 +4358,59 @@ def test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(home: Pat
     finally:
         (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
         obsmod.live_sessions) = real
+        con.close()
+
+
+def test_a_closed_agent_moved_by_hand_wakes_on_the_new_account(home: Path) -> None:
+    """`hl agent move` on a closed agent refused with 'no live session to move'. It now
+    records the destination, and the next wake starts fresh there, once."""
+    _daemon_home(home, 20)
+    accounts.register("beta")
+    agents.register("keeper")
+    credentialed(home, "alpha", "beta")
+    con = db.connect()
+    real = (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
+            obsmod.live_sessions)
+    launched: list[str] = []
+    try:
+        obsmod.live_sessions = lambda: {}
+        db.set_terminal(con, "keeper", "term_x", "wt")
+        db.set_closed(con, "keeper", "sess-old")
+        keep_handoff("keeper", "# handoff · keeper\nprevious session: sess-old")
+        db.set_account(con, "keeper", "alpha")
+        write_status(home, "alpha", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
+        write_status(home, "beta", pct_5h=10, pct_7d=5, reset_5h=int(time.time()) + 1800)
+        termmod.available = lambda: True
+        termmod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
+        termmod.resume_with = lambda h, text: (True, "handed back")
+        dmn_delivery.wait_for_session = lambda agent, timeout=0: True
+
+        check("closed move: the bridge offers it", actions.can(con, "keeper", "move")[0],
+              actions.can(con, "keeper", "move")[1])
+        ok, msg = dmn_handoff.force_move(con, "keeper", "beta", "the founder", lambda _m: None)
+        check("closed move: accepted", ok and "beta" in msg, msg)
+        check("closed move: nothing is launched until work wakes it", not launched, str(launched))
+        check("closed move: it stays closed with its resume id until then",
+              db.get_agent_state(con, "keeper")["resume_session"] == "sess-old")
+
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        ok, why = dmn_lifecycle._wake_agent(con, "keeper", lambda _m: None)
+        check("closed move: the wake succeeds", ok, why)
+        check("closed move: it starts fresh on beta, not --resume on alpha",
+              launched and "--account beta" in launched[-1] and "--resume" not in launched[-1],
+              str(launched))
+        check("closed move: the old resume id is dropped",
+              db.get_agent_state(con, "keeper")["resume_session"] is None)
+        moved = [e for e in db.events_after(con, 0, agent="keeper") if e["kind"] == "moved_account"]
+        check("closed move: the move is on the record",
+              moved and '"to": "beta"' in moved[-1]["payload"], str(moved))
+
+        db.set_closed(con, "keeper", "sess-new")
+        check("closed move: the wake used it up - the next one picks as usual",
+              dmn_lifecycle.move_owed(con, "keeper", db.get_agent_state(con, "keeper")) is None)
+    finally:
+        (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
+         obsmod.live_sessions) = real
         con.close()
 
 
@@ -6168,6 +6221,7 @@ def main() -> int:
             Path(td) / 'limitparked'))
         run(lambda: test_a_pinned_closed_agent_moves_instead_of_waiting_out_its_window(
             Path(td) / 'pinned'))
+        run(lambda: test_a_closed_agent_moved_by_hand_wakes_on_the_new_account(Path(td) / 'closedmove'))
         run(lambda: test_a_stale_account_whose_window_rolled_over_can_take_work(Path(td) / 'stalebeta'))
         run(lambda: test_room_is_filtered_before_the_ranking_not_after(Path(td) / 'roomfirst'))
         run(lambda: test_the_runway_is_an_estimate_from_the_daemons_burn(Path(td) / 'runway'))

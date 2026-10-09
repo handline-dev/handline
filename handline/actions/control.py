@@ -198,7 +198,7 @@ def tail_of_typescript(raw: str, lines: int = 2) -> str:
 
 
 def move(con, agent: str, account: str) -> str:
-    """Force this agent's live session onto `account`, recording its handoff first."""
+    """Force this agent onto `account`: a live session now, recording its handoff first; a closed one at its next wake."""
     ok, msg = dmn_handoff.force_move(con, agent, account, "human (bridge)", lambda _m: None)
     return msg
 
@@ -270,8 +270,8 @@ def can(con, agent: str, key: str) -> tuple[bool, str]:
         # to want folded.
         return (False, busy_why) if busy else (True, "")
     if key == "move":
-        if closed or not row["terminal"]:
-            return False, f"{agent} has no live session to move"
+        if not (closed or row["terminal"]):
+            return False, f"{agent} has no session to move"
         if state in (dmn_states.HANDOFF, dmn_states.STALLED):
             return False, f"{agent} is {state}"
         return True, ""

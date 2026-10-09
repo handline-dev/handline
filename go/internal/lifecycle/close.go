@@ -49,6 +49,7 @@ const (
 	// TypingElsewhere is what a refusal says when the terminal lock is held by whoever is typing.
 	TypingElsewhere = "someone else is typing at this agent"
 	RestartOwedKind = "restart_owed"
+	MoveOwedKind    = "move_owed"
 	Unconfirmed     = "the process table could not be confirmed just now"
 	PaneMark        = "its terminal was closed with it"
 	NothingWaiting  = "nothing is waiting for it; it is woken when something is sent to it"
@@ -374,6 +375,22 @@ func (m *Manager) restartOwed(agent string, row *db.AgentState) map[string]any {
 		return nil
 	}
 	if closed, ok := must2(db.LastEventID(m.Q, agent, "close")); ok && closed > id {
+		return nil
+	}
+	return payload
+}
+
+// moveOwed is the account a person moved this closed agent to - {to, by} - else nil: owed to its next wake, and over once a wake is
+// recorded after it.
+func (m *Manager) moveOwed(agent string, row *db.AgentState) map[string]any {
+	if row == nil || !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
+		return nil
+	}
+	id, payload, ok := must3(db.LastEvent(m.Q, agent, MoveOwedKind))
+	if !ok {
+		return nil
+	}
+	if woke, ok := must2(db.LastEventID(m.Q, agent, "wake")); ok && woke > id {
 		return nil
 	}
 	return payload

@@ -243,3 +243,45 @@ func TestAColdResumeWhoseOwnAccountIsFullOnlyByOlderWaitersDoesNotMoveToItself(t
 		t.Fatalf("and is not moved, least of all to the account it is on: %v", p)
 	}
 }
+
+// roomLaunch has room on every account but "full".
+type roomLaunch struct{ fakeLaunch }
+
+func (roomLaunch) RoomOn(_ db.Q, _ string, _ *db.AgentState, acct string) string {
+	if acct == "full" {
+		return "has no free slot"
+	}
+	return ""
+}
+
+func TestAClosedAgentMovedByHandWakesFreshOnTheNewAccountOnce(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = roomLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "full"}, db.KV{K: "by", V: "the founder"})
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || ok || said != "full has no free slot - waiting to start a there (moved by the founder)" || len(tm.relaunched) != 0 {
+		t.Fatalf("a destination with no room waits: %v %q %v", ok, said, err)
+	}
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "beta"}, db.KV{K: "by", V: "the founder"})
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["to"] != "beta" || p["trigger"] != "forced" {
+		t.Fatalf("the move is on the record: %v %v", moved, p)
+	}
+	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "beta" {
+		t.Fatalf("it starts on the account it was moved to: %v %v", held, p)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("a fresh start, not a resume of the old account's session: %v", tm.relaunched)
+	}
+	db.SetClosed(m.Q, "a", "sess-2")
+	row, _ := db.GetAgentState(m.Q, "a")
+	if m.moveOwed("a", row) != nil {
+		t.Fatal("the wake used the move up: the next one picks as usual")
+	}
+}

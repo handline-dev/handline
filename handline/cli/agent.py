@@ -15,7 +15,7 @@ from ..team import spawn as spawnmod
 
 
 def cmd_agent_move(args) -> int:
-    """Move an agent's live session to another account now (a human's call)."""
+    """Move an agent to another account (a human's call): a live session now, a closed one at its next wake."""
     if names.getenv("OCP_AGENT"):
         print("a forced move ends a session: it is the founder's, from a terminal or "
               "the screen, not an agent's", file=sys.stderr)
@@ -25,7 +25,7 @@ def cmd_agent_move(args) -> int:
             print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
             return 1
         if input(f"move {args.agent} to '{args.account}'? this records its handoff, "
-                 f"ends its session, and starts a new one there (y/N): ").strip().lower() != "y":
+                 f"ends its session if one runs, and starts a new one there (y/N): ").strip().lower() != "y":
             print("not moved")
             return 1
     con = db.connect()
