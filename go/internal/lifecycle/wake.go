@@ -378,6 +378,29 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	if movedTo == "" && !force && !m.waitingFor(agent) {
 		return false, NothingWaiting
 	}
+	if owed := m.moveOwed(agent, row); movedTo == "" && owed != nil {
+		// A person moved it while it was closed: a fresh start there from the handoff record, since a resume id cannot follow an
+		// account change.
+		to, _ := owed["to"].(string)
+		by, _ := owed["by"].(string)
+		if why := m.Launch.RoomOn(m.Q, agent, row, to); why != "" {
+			return false, fmt.Sprintf("%s %s - waiting to start %s there (moved by %s)", to, why, agent, by)
+		}
+		if row.ResumeSession.String != "" && must(db.GetHandoff(m.Q, agent)) == "" {
+			if gaps := must(m.Handoff.Record(m.Q, agent, row.ResumeSession.String)); len(gaps) > 0 {
+				m.Log("  %s: moved with no handoff (could not read %s)", agent, strings.Join(gaps, ", "))
+			}
+		}
+		movedID, _ := must2(db.LastEventID(m.Q, agent, "moved_account"))
+		if owedID, _ := must2(db.LastEventID(m.Q, agent, MoveOwedKind)); movedID < owedID {
+			// Once per move, not on every retry of a wake that fails after it.
+			check(db.ForgetResume(m.Q, agent))
+			must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: row.Account.String}, db.KV{K: "to", V: to},
+				db.KV{K: "trigger", V: "forced"}))
+			m.Agents.MeasureBegin(m.Q, agent, to)
+		}
+		row, movedTo = must(db.GetAgentState(m.Q, agent)), to
+	}
 	// `hl launch` refuses at the 5h wall, and the daemon can read that before it types anything. Trying anyway would spend the wake
 	// timeout to be told what we already knew, and count a streak against an agent whose only problem rolls over by itself. The account
 	// this launch lands on is the one a session to resume lives under, so an agent whose own account is at the wall waits for its window

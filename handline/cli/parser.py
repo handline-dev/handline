@@ -89,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_account_list)
 
     ag = sub.add_parser("agent", help="agents").add_subparsers(dest="sub", required=True)
-    p = ag.add_parser("move", help="move a live session to another account now")
+    p = ag.add_parser("move", help="move a session to another account: a live one now, a closed one at its next wake")
     p.add_argument("agent")
     p.add_argument("account")
     p.add_argument("--yes", action="store_true", help="skip the confirmation")

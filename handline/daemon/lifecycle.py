@@ -285,6 +285,7 @@ def close_fresh(con, agent: str, log, st, keep_pane: bool = False,
 # What a refusal says when the terminal lock is held by whoever is typing: callers that must tell it from a state refusal match it.
 TYPING_ELSEWHERE = "someone else is typing at this agent"
 RESTART_OWED = "restart_owed"
+MOVE_OWED = "move_owed"
 WAKE_BACKOFF_S = (10, 30, 90)       # the pause after the first, second and later failed wakes of a restart owed
 # A reading of the process table that missed is read again after each pause: a session just ended
 # leaves the table while it is read, which is the moment a restart reads it.
@@ -306,6 +307,19 @@ def restart_owed(con, agent: str, row) -> dict | None:
     if (woke is not None and woke > owed[0]) or (closed is not None and closed > owed[0]):
         return None
     return owed[1]
+
+
+def move_owed(con, agent: str, row) -> dict | None:
+    """The account a person moved this closed agent to - {to, by} - else None: owed to the wake
+    that ends this close. Over once a wake is recorded after it, or once the agent was closed again
+    since: some starts record no wake (a trust screen, a hand relaunch), and their close is."""
+    if not row or not row["closed_at"]:
+        return None
+    owed = db.last_event(con, agent, MOVE_OWED)
+    if not owed or row["closed_at"] > db.last_event_ts(con, agent, MOVE_OWED):
+        return None
+    woke = db.last_event_id(con, agent, "wake")
+    return None if woke is not None and woke > owed[0] else owed[1]
 
 
 def restart_retry_wait(con, agent: str, row, now: int) -> int:
@@ -869,6 +883,25 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
         # agent was mid-work and its handoff is what it is started with.
         if moved_to is None and not force and not waiting_for(con, agent):
             return False, NOTHING_WAITING
+        owed_move = move_owed(con, agent, row) if moved_to is None else None
+        if owed_move:
+            # A person moved it while it was closed: a fresh start there from the handoff record,
+            # since a resume id cannot follow an account change.
+            dest = owed_move["to"]
+            room, why = handoff._forced_plan(con, agent, dest)
+            if room is None:
+                return False, f"{why} - waiting to start {agent} there (moved by {owed_move['by']})"
+            if row["resume_session"] and not db.get_handoff(con, agent):
+                gaps = handoffmod.record(con, agent, closed_session=row["resume_session"])
+                if gaps:
+                    log(f"  {agent}: moved with no handoff (could not read {', '.join(gaps)})")
+            if (db.last_event_id(con, agent, "moved_account") or 0) < db.last_event_id(con, agent, MOVE_OWED):
+                # Once per move, not on every retry of a wake that fails after it.
+                db.forget_resume(con, agent)
+                db.add_event(con, agent, "moved_account", {"from": row["account"], "to": dest,
+                                                           "trigger": "forced"})
+                measure.begin(con, agent, dest)
+            row, moved_to = db.get_agent_state(con, agent), dest
         # `hl launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout
         # to be told what we already knew, and count a streak against an agent

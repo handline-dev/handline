@@ -243,3 +243,64 @@ func TestAColdResumeWhoseOwnAccountIsFullOnlyByOlderWaitersDoesNotMoveToItself(t
 		t.Fatalf("and is not moved, least of all to the account it is on: %v", p)
 	}
 }
+
+// roomLaunch has room on every account but "full".
+type roomLaunch struct{ fakeLaunch }
+
+func (roomLaunch) RoomOn(_ db.Q, _ string, _ *db.AgentState, acct string) string {
+	if acct == "full" {
+		return "has no free slot"
+	}
+	return ""
+}
+
+func TestAClosedAgentMovedByHandWakesFreshOnTheNewAccountOnce(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = roomLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "full"}, db.KV{K: "by", V: "the founder"})
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || ok || said != "full has no free slot - waiting to start a there (moved by the founder)" || len(tm.relaunched) != 0 {
+		t.Fatalf("a destination with no room waits: %v %q %v", ok, said, err)
+	}
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "beta"}, db.KV{K: "by", V: "the founder"})
+	tm.launchOK = false
+	if ok, _, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || ok {
+		t.Fatalf("a launch that fails: %v %v", ok, err)
+	}
+	tm.launchOK = true
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["to"] != "beta" || p["trigger"] != "forced" {
+		t.Fatalf("the move is on the record: %v %v", moved, p)
+	}
+	var n int
+	m.Q.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'a' AND kind = 'moved_account'").Scan(&n)
+	if n != 1 {
+		t.Fatalf("once across the retry, not %d times", n)
+	}
+	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "beta" {
+		t.Fatalf("it starts on the account it was moved to: %v %v", held, p)
+	}
+	if last := tm.relaunched[len(tm.relaunched)-1]; strings.Contains(last, "--resume") {
+		t.Fatalf("a fresh start, not a resume of the old account's session: %v", tm.relaunched)
+	}
+	db.SetClosed(m.Q, "a", "sess-2")
+	row, _ := db.GetAgentState(m.Q, "a")
+	if m.moveOwed("a", row) != nil {
+		t.Fatal("the wake used the move up: the next one picks as usual")
+	} // A session that comes up with no wake recorded (a trust screen, a hand relaunch) and is closed again: the move was for the close
+	// before.
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "beta"}, db.KV{K: "by", V: "the founder"})
+	db.ClearClosed(m.Q, "a")
+	db.SetClosed(m.Q, "a", "sess-3")
+	m.Q.Exec("UPDATE agent_state SET closed_at = closed_at + 5 WHERE agent = 'a'")
+	row, _ = db.GetAgentState(m.Q, "a")
+	if m.moveOwed("a", row) != nil {
+		t.Fatal("a close after the move voids it")
+	}
+}

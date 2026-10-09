@@ -107,7 +107,8 @@ def resume_handoff(con, row, log) -> None:
 
 # ---------------------------------------------------------------- handoff
 def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
-    """Move an agent's live session to `dest` now, through the handoff's own move.
+    """Move an agent's live session to `dest` now, through the handoff's own move; a closed
+    agent's next wake starts fresh there (`lifecycle.move_owed`).
 
     Record the handoff, end the session with no resume id, start fresh on
     `dest`, record the account: the path a usage wall takes with the
@@ -124,13 +125,17 @@ def force_move(con, agent: str, dest: str, by: str, log) -> tuple[bool, str]:
     if here == dest:
         return False, f"{agent} is already on {dest}"
     row = db.get_agent_state(con, agent)
-    if not row or not row["terminal"] or row["closed_at"]:
-        return False, f"{agent} has no live session to move"
+    if not row or not (row["terminal"] or row["closed_at"]):
+        return False, f"{agent} has no session to move"
     if row["state"] in (HANDOFF, STALLED):
         return False, f"{agent} is {row['state']}"
     room, why = _forced_plan(con, agent, dest)
     if room is None:
         return False, f"{why} - not moving {agent} there"
+    if row["closed_at"]:
+        # Nothing to end: the move is owed to the next wake, which starts fresh on `dest`.
+        db.add_event(con, agent, "move_owed", {"to": dest, "by": by})
+        return True, f"{agent} is closed: its next wake starts it on {dest} (moved by {by})"
     trigger = triggers.Trigger(True, "forced", f"forced by {by}: {here} -> {dest}")
     perform_handoff(con, agent, trigger, log, dest=dest)
     landed = db.get_agent_state(con, agent)
