@@ -2,11 +2,13 @@ package sessionrpc
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -305,4 +307,103 @@ func (r *rig) dialHas(c *conn, method string) bool {
 	m := c.call(method, map[string]any{"agent": "ann", "request_id": rid("x" + method)})
 	e, _ := m["error"].(map[string]any)
 	return e == nil || e["code"] != float64(-32601)
+}
+
+func cursorNames(t *testing.T, d interface {
+	Query(string, ...any) (*sql.Rows, error)
+}) string {
+	t.Helper()
+	rows, err := d.Query("SELECT name FROM cursors WHERE name LIKE 'dialog_%' ORDER BY name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		rows.Scan(&n)
+		names = append(names, n)
+	}
+	return strings.Join(names, ",")
+}
+
+func seedStall(t *testing.T, d *sql.DB, state string) {
+	t.Helper()
+	for _, q := range []string{
+		"UPDATE agent_state SET state = '" + state + "', detail = 'x', failed_attempts = 3, throttle_count = 2, wake_failures = 1 WHERE agent = 'ann'",
+		"INSERT INTO cursors(name, row_id, updated) VALUES('dialog_since:ann', 5, 5), ('dialog_title:ann', 6, 6), ('dialog_since:bob', 7, 7)",
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestWakeOfAStalledAgentDropsItsDialogMarkAndNobodyElses(t *testing.T) {
+	r := newRig(t)
+	seedStall(t, r.e.DB, "STALLED")
+	result(t, r.dial(false).call("session.wake", map[string]any{"agent": "ann", "request_id": rid("1")}))
+	if got := cursorNames(t, r.e.DB); got != "dialog_since:bob" {
+		t.Fatalf("cursors left: %s", got)
+	}
+}
+
+func TestUnstallOfAnAgentThatIsNotStalledLeavesItsDialogMark(t *testing.T) {
+	r := newRig(t)
+	seedStall(t, r.e.DB, "RUNNING")
+	said, err := r.e.Unstall("ann")
+	if err != nil || said != "ann: not STALLED (RUNNING)" {
+		t.Fatalf("%q %v", said, err)
+	}
+	if got := cursorNames(t, r.e.DB); got != "dialog_since:ann,dialog_since:bob,dialog_title:ann" {
+		t.Fatalf("cursors: %s", got)
+	}
+}
+
+// Python's control.unstall, run on a copy of the database Go unstalls, leaves the same state, counters and cursors.
+func TestUnstallLeavesWhatPythonsUnstallLeaves(t *testing.T) {
+	r := newRig(t)
+	seedStall(t, r.e.DB, "STALLED")
+	copyFile := filepath.Join(t.TempDir(), "py.sqlite")
+	if _, err := r.e.DB.Exec("VACUUM INTO '" + copyFile + "'"); err != nil {
+		t.Fatal(err)
+	}
+	const script = `
+import os, sqlite3, sys
+sys.path.insert(0, os.getcwd())
+from handline.actions import control
+con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
+print(control.unstall(con, "ann")); con.commit()
+`
+	root, _ := filepath.Abs("../../..")
+	cmd := exec.Command("python3", "-I", "-c", script, copyFile)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "OCP_HOME="+r.e.Home, "HANDLINE_HOME="+r.e.Home, "HANDLINE_TEST_ROOT="+filepath.Dir(r.e.Home), "OCP_TEST_ROOT="+filepath.Dir(r.e.Home))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("the Python unstall did not run: %v: %s", err, out)
+	}
+	said, err := r.e.Unstall("ann")
+	if err != nil || strings.TrimSpace(string(out)) != said {
+		t.Fatalf("said %q (%v), Python %q", said, err, out)
+	}
+	py, err := sql.Open("sqlite", copyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer py.Close()
+	const q = "SELECT state, detail, failed_attempts, throttle_count, wake_failures FROM agent_state WHERE agent = 'ann'"
+	var a, b [5]any
+	for i, d := range []*sql.DB{r.e.DB, py} {
+		got := &a
+		if i == 1 {
+			got = &b
+		}
+		if err := d.QueryRow(q).Scan(&got[0], &got[1], &got[2], &got[3], &got[4]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if a != b || cursorNames(t, r.e.DB) != cursorNames(t, py) {
+		t.Fatalf("Go %v %s, Python %v %s", a, cursorNames(t, r.e.DB), b, cursorNames(t, py))
+	}
 }
