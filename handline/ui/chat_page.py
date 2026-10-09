@@ -1503,6 +1503,9 @@ class ChatPage(JobsAware, Screen):
         self.more = False                   # older requests than `oldest` exist
         self._sig: tuple | None = None
         self._unread_daemon = False        # the daemon could not be asked for the chat, and the page has said so
+        self._inflight: set[str] = set()    # the reads on a worker thread, one per kind
+        self._again: set[str] = set()       # asked for while one was in flight: run once more after it
+        self._pools_at = float("-inf")      # when the menus' pools were last read
         self._live: tuple | None = None             # the spinner, wait and reason the widgets show now
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
         self._block_id: int | None = None      # the block the modal on screen shows
@@ -1655,14 +1658,47 @@ class ChatPage(JobsAware, Screen):
             self._sig = None                # the reason a message waits follows the agent's state
         self.query_one("#status", Static).update(self._status())
 
+    def _off_loop(self, kind: str, read, apply) -> None:
+        """Run `read` on a worker thread and `apply` its result on the loop: the screen never waits on the daemon.
+        One read per `kind` at a time; asked again meanwhile, it runs once more when the first lands."""
+        if kind in self._inflight:
+            self._again.add(kind)
+            return
+        self._inflight.add(kind)
+
+        def done(got) -> None:
+            self._inflight.discard(kind)
+            if self.is_attached:
+                apply(got)
+                if kind in self._again:
+                    self._again.discard(kind)
+                    self._off_loop(kind, read, apply)
+
+        def work() -> None:
+            self.app.call_from_thread(done, read())
+        self.run_worker(work, thread=True, group=f"read_{kind}", exit_on_error=False)
+
+    POOLS_S = 10        # the # and / menus' lists change slowly: read them this often, not on every refresh
+
     def refresh_pools(self) -> None:
+        if time.monotonic() - self._pools_at < self.POOLS_S:
+            return
+        self._pools_at = time.monotonic()
+        self._off_loop("can", self._read_can, self._apply_can)
         try:
-            tasks, requests = refs_of(self.agent)
-            can = api.call("agent.get", {"agent": self.agent})["can"]
+            self.tasks_pool, self.requests_pool = refs_of(self.agent)
         except (client.RpcError, client.DaemonDown, OSError):
             return
-        self.tasks_pool, self.requests_pool = tasks, requests
-        self.verbs_pool = tuple(v for v in CHAT_VERBS if can[v]["ok"])
+
+    def _read_can(self) -> dict | None:
+        try:
+            return api.call("agent.get", {"agent": self.agent})["can"]
+        except (client.RpcError, client.DaemonDown, OSError):
+            return None
+
+    def _apply_can(self, can: dict | None) -> None:
+        if can is not None:
+            self.verbs_pool = tuple(v for v in CHAT_VERBS if can[v]["ok"])
 
     def refresh_agent_strip(self) -> None:
         self.query_one(SandboxBanner).refresh_state(self.agent, True)
