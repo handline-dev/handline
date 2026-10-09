@@ -324,15 +324,15 @@ func (s *sub) run() {
 		for len(s.replay) == 0 && len(s.queue) == 0 && s.gap == nil && !s.dead {
 			s.cond.Wait()
 		}
-		if s.dead {
-			s.mu.Unlock()
-			return
-		}
-		if s.gap != nil {
+		if s.gap != nil { // sent even when the subscription has ended, as the Python stream does
 			gap := s.gap
 			s.mu.Unlock()
 			s.send(gap)
 			s.hangUp()
+			return
+		}
+		if s.dead {
+			s.mu.Unlock()
 			return
 		}
 		var msg []byte
