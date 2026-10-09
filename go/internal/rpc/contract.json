@@ -355,7 +355,7 @@
   "role": "agent"
  },
  "trust.remove": {
-  "role": "agent"
+  "role": "founder"
  },
  "unsubscribe": {
   "role": "agent"

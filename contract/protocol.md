@@ -147,9 +147,9 @@ A method marked write takes a required `request_id`.
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
 | `hr.propose` | agent | yes | `kind`, `args`, `why?`, `request_id` | `Accepted & {proposal}` | `refused`, `bad_request` |  |
 | `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` | proposal_settled |
-| `trust.propose` | agent | yes | `root`, `why`, `request_id` | `Accepted & {proposal}` | `refused` |  |
-| `trust.list` | agent |  | `proposals?` | `{roots, proposals}` |  |  |
-| `trust.remove` | agent | yes | `root`, `request_id` | `Accepted` | `not_found` |  |
+| `trust.propose` | agent | yes | `root`, `why?`, `request_id` | `Accepted & {proposal}` | `refused` |  |
+| `trust.list` | agent |  | `proposals?` | `{roots, proposals, declared}` |  |  |
+| `trust.remove` | founder | yes | `root`, `request_id` | `Accepted` | `not_found` |  |
 | `agent.triggers` | agent |  | `agent?` | `{agents}` |  |  |
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
@@ -520,15 +520,15 @@ Take back an undecided proposal: its author's own, or any for the founder; anoth
 
 ### `trust.propose`
 
-Propose declaring a folder ocp may answer Claude's trust prompt in (the founder's own call declares it).
+Propose declaring a folder ocp may answer Claude's trust prompt in (hl trust add); the founder's own call declares it. Called by an agent it raises a decision for the founder, `why` required, and answers the proposal's id; called by the founder it declares the root directly, `why` optional (default `added by the founder`), and answers no proposal. A root already inside a declared one, a missing why or a decision that could not be raised is refused with the store's words. A paired device is refused, gate role.
 
 ### `trust.list`
 
-Declared trust roots and proposals.
+Declared trust roots, and with proposals the proposals (hl trust list, hl trust proposals).
 
 ### `trust.remove`
 
-Drop a declared root; no gate, as today.
+Drop a declared root (hl trust remove); needs no approval. The founder's: the declared roots live in the protected store, which an agent session cannot write, so an agent calling `hl trust remove` is refused today and by this method (gate role). A root that is not declared is not_found.
 
 ### `agent.triggers`
 
@@ -698,7 +698,6 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl hr list` | `hr.list` |
 | `hl trust add` | `trust.propose` |
 | `hl trust list|proposals` | `trust.list` |
-| `hl trust remove` | `trust.remove` |
 | `hl team` | `team.get` |
 | `hl ps` | `agents.list` |
 | `hl status` | `accounts.list` |
@@ -712,7 +711,7 @@ Every `hl` command an agent runs today and the method that serves it.
 
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
-- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
+- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
 - **Needs a decision:** `hl spawn (a founder's act; no method serves it)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 

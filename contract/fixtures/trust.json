@@ -1,0 +1,279 @@
+{
+ "fixtures": [
+  {
+   "name": "trust.propose.root_is_text",
+   "spec": "trust.propose",
+   "about": "A root that is not text is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.propose",
+      "params": {
+       "root": 5,
+       "why": "w",
+       "request_id": "tp-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.propose.why_is_text",
+   "spec": "trust.propose",
+   "about": "A why that is not text is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.propose",
+      "params": {
+       "root": "/r",
+       "why": 5,
+       "request_id": "tp-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "why"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.list.shape",
+   "spec": "trust.list",
+   "about": "Roots, the same with why and who, and proposals (empty unless asked) are arrays.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.list",
+      "params": {}
+     },
+     "result": {
+      "roots": {
+       "$type": "array"
+      },
+      "declared": {
+       "$type": "array"
+      },
+      "proposals": {
+       "$each": {
+        "$type": "object"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.list.proposals_is_a_boolean",
+   "spec": "trust.list",
+   "about": "proposals that is not true or false is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.list",
+      "params": {
+       "proposals": "yes"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "proposals"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.remove.root_is_text",
+   "spec": "trust.remove",
+   "about": "A root that is not text is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.remove",
+      "params": {
+       "root": 5,
+       "request_id": "tr-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "root"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.remove.a_root_not_declared_is_not_found",
+   "spec": "trust.remove",
+   "about": "A root nobody declared is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.remove",
+      "params": {
+       "root": "/no/such/conformance-root",
+       "request_id": "tr-2"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "trust.remove.is_refused_to_an_agent_session",
+   "spec": "trust.remove",
+   "about": "Removing a root is the founder's: an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "trust.remove",
+      "params": {
+       "root": "/r",
+       "request_id": "tr-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

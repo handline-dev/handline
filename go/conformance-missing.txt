@@ -8,3 +8,6 @@ session.type
 terminal.close
 terminal.input
 terminal.resize
+trust.list
+trust.propose
+trust.remove
