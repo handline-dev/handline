@@ -69,10 +69,36 @@ func (e *Env) statsOutlook(_ *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, badParam("range is one of "+outlookRanges, "range")
 	}
-	return e.outlookAt(name, hours, time.Now())
+	pick, err := optStr(params, "agent")
+	if err != nil {
+		return nil, err
+	}
+	return e.outlookAt(name, hours, time.Now(), pick)
 }
 
-func (e *Env) outlookAt(name string, hours int, clock time.Time) (any, error) {
+// agentUseOf is the spec's agent_use row.
+func agentUseOf(u usage.AgentUse) map[string]any {
+	var est any
+	if u.EstPct != nil {
+		est = round(*u.EstPct, 2)
+	}
+	fracs := map[string]any{}
+	for a, f := range u.Fracs {
+		fracs[a] = round(f, 4)
+	}
+	return map[string]any{"agent": u.Agent, "tokens": u.Tokens, "cost": round(u.Cost, 4), "share": round(u.Share, 4), "est_pct": est, "fracs": fracs}
+}
+
+// overlayOf is the spec's overlay, at two places like left_pct.
+func overlayOf(rows usage.Samples, uses []usage.AgentUse, pick string, past []usage.OutlookPoint) []any {
+	out := []any{}
+	for _, v := range usage.Overlay(rows, uses, pick, past) {
+		out = append(out, round(v, 2))
+	}
+	return out
+}
+
+func (e *Env) outlookAt(name string, hours int, clock time.Time, pick *string) (any, error) {
 	now := clock.Unix()
 	days := max(1, hours/24)
 	ue := &usage.Env{Home: e.Home, Now: func() float64 { return float64(now) }}
@@ -131,6 +157,18 @@ func (e *Env) outlookAt(name string, hours int, clock time.Time) (any, error) {
 		}
 		perDay = append(perDay, map[string]any{"day": d, "agents": agents})
 	}
-	return map[string]any{"range": name, "now": ts(now), "accounts": out.Accounts, "past": points(out.Past), "future": points(out.Future),
-		"runway": runway, "cost_per_day": perDay}, nil
+	uses, err := usage.AgentUsesOf(e.DB, now-int64(hours)*3600, now, usage.PricesFromConfig(cfg), usage.WeekConsumed(rows, now-int64(hours)*3600, now))
+	if err != nil {
+		return nil, err
+	}
+	agentUse := []any{}
+	for _, u := range uses {
+		agentUse = append(agentUse, agentUseOf(u))
+	}
+	res := map[string]any{"range": name, "now": ts(now), "accounts": out.Accounts, "past": points(out.Past), "future": points(out.Future),
+		"runway": runway, "cost_per_day": perDay, "agent_use": agentUse}
+	if pick != nil {
+		res["overlay"] = overlayOf(rows, uses, *pick, out.Past)
+	}
+	return res, nil
 }
