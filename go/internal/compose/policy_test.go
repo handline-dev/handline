@@ -30,7 +30,7 @@ func TestTheSharedPolicyAllowsOnlyBareToolNamesAndAsksForEveryBashCommand(t *tes
 	}{
 		{"Grep", "", structured.Allow},
 		{"Bash", "cat ~/.ssh/id_ed25519", structured.Ask},
-		{"Bash", "cat /Users/x/.orcapipe/secret", structured.Ask},
+		{"Bash", "cat ~/.orcapipe/secret", structured.Ask},
 		{"Bash", "ls -la ~/.handline/accounts", structured.Ask},
 		{"Bash", "git status", structured.Ask},
 		{"Bash", "ls", structured.Ask},
