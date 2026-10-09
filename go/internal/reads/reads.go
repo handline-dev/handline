@@ -35,9 +35,9 @@ type Env struct {
 	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
 	// reads this where a terminal agent's row says it.
 	SessionOpen func(agent string) bool
-	// Context is the model id and the context figures of an agent on an account, as the usage reads give them: tokens used (nil when
-	// unknown) and the limit it is judged against (0 when unknown). agent.strip leaves them null when nil.
-	Context func(agent, account string) (model string, used *int64, limit int)
+	// Context is the model id and the context figures of an agent on an account, as the usage reads give them: the status file's percent,
+	// tokens used (nil when unknown or stale) and the limit tokens are judged against (0 when unknown). agent.strip leaves them null then.
+	Context func(agent, account string) (model string, pct *int, used *int64, limit int)
 	// Delivery is what the supervisor knows of why a queued line waits; nil leaves out the reasons that need it.
 	Delivery Delivery
 }
