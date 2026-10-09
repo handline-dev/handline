@@ -148,6 +148,7 @@ export function Transcript(props: { agent: string; transcript: TranscriptState }
       skeleton="terminal"
       label="the transcript"
       empty=""
+      retryRefused
     >
       {t.running && <Working agent={props.agent} />}
       <ScrollView

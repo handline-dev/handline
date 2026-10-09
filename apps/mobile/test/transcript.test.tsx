@@ -1,5 +1,6 @@
 import { act } from 'react';
-import { describe, expect, it } from 'vitest';
+import { Alert } from 'react-native';
+import { describe, expect, it, vi } from 'vitest';
 import { $, mount, press, text, until } from './harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
@@ -144,7 +145,7 @@ describe('the controls of a structured agent', () => {
 });
 
 describe('a structured agent’s prompt and its stored session', () => {
-  it('reaches the Chat tab as Allow and Deny from detail.prompt', async () => {
+  it('reaches the Chat tab as Yes and No from detail.prompt', async () => {
     const m = await mount((s) => {
       s.daemon.sessions.get(AUD)!.prompt = {
         id: 'p9',
@@ -165,6 +166,69 @@ describe('a structured agent’s prompt and its stored session', () => {
     await press($(`agent-${AUD}`));
     await until(() => $('prompt-card'), 'the card on the Chat tab');
     expect($('terminal')).toBeNull();
+    expect([...$('prompt-card')!.querySelectorAll<HTMLElement>('[data-testid^="answer-"]')].map((b) => b.textContent)).toEqual([
+      'Yes',
+      'No',
+    ]);
+    m.store.stop();
+  });
+});
+
+const buttons = () => [...document.querySelectorAll<HTMLElement>('[role="button"]')].map((b) => b.textContent);
+const button = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === label) ?? null;
+
+describe('the header row of a structured agent', () => {
+  it('lists Close and Kill while idle, with no Exit and no Interrupt', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => button('Close'), 'the header row');
+    expect(buttons()).toContain('Kill');
+    expect(buttons()).not.toContain('Exit');
+    expect(buttons()).not.toContain('Interrupt');
+    m.store.stop();
+  });
+
+  it('adds Interrupt while a turn runs', async () => {
+    const m = await mount((s) => {
+      s.daemon.sessions.get(AUD)!.state = 'running';
+      s.daemon.chat.setTurn(AUD, true);
+    });
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => button('Interrupt'), 'Interrupt');
+    expect(buttons()).not.toContain('Exit');
+    m.store.stop();
+  });
+
+  it('offers Resume and Start new for a closed one; Resume wakes it and Start new asks first', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
+    await press($(`agent-${AUD}`));
+    await until(() => button('Resume'), 'Resume');
+    const alert = vi.spyOn(Alert, 'alert');
+    await press(button('Start new'));
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining('over?'), expect.anything(), expect.anything());
+    expect(m.daemon.sessions.get(AUD)!.open).toBe(false);
+    alert.mockRestore();
+    await press(button('Resume'));
+    await until(() => m.daemon.sessions.get(AUD)!.open, 'the session woken');
+    m.store.stop();
+  });
+});
+
+describe('a refused transcript read of a structured agent', () => {
+  it('is an error with Retry, not "not served"', async () => {
+    const m = await mount((s) => s.daemon.knobs.refuse('transcript.events', 'unsupported', 'no transcript'));
+    await open(m);
+    await until(() => $('error'), 'the error block');
+    expect($('not-served')).toBeNull();
+    expect($('terminal')).toBeNull();
+    m.daemon.knobs.clear();
+    await press(button('Retry'));
+    await until(() => $('transcript'), 'the turns after Retry');
     m.store.stop();
   });
 });
