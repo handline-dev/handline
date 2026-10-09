@@ -8,7 +8,6 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/usage"
-	"github.com/handline/handline/go/internal/weblogin"
 )
 
 const movesShown = 20
@@ -148,7 +147,7 @@ func (v *accountView) of(a string) map[string]any {
 	return acct
 }
 
-// loginOf is the account's latest web login as the accounts topic shows it, nil when none was started.
+// loginOf is the account's latest web login as the accounts topic shows it, nil when none was started. It never has the authorize URL: only the founder's account.login reply does.
 func (e *Env) loginOf(acct string) map[string]any {
 	if e.Login == nil {
 		return nil
@@ -157,9 +156,5 @@ func (e *Env) loginOf(acct string) map[string]any {
 	if l == nil {
 		return nil
 	}
-	out := map[string]any{"login_id": l.ID, "state": l.State}
-	if l.State == weblogin.Waiting && l.URL != "" {
-		out["url"] = l.URL
-	}
-	return out
+	return map[string]any{"login_id": l.ID, "state": l.State}
 }

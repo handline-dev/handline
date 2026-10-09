@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 // loginStates are the login states the accounts topic said for the account, in order.
-func loginStates(t *testing.T, h *stream.Hub) (states []string, urls []bool) {
+func loginStates(t *testing.T, h *stream.Hub) (states []string) {
 	t.Helper()
 	rows, err := h.Log.Since(0, []string{"accounts"}, "", 100)
 	if err != nil {
@@ -22,12 +23,15 @@ func loginStates(t *testing.T, h *stream.Hub) (states []string, urls []bool) {
 	for _, e := range rows {
 		var a struct {
 			Name  string
-			Login struct{ State, URL string }
+			Login struct{ State string }
 		}
 		if e.Type != "account.changed" || json.Unmarshal(e.Data, &a) != nil || a.Name != "main" {
 			t.Fatalf("%s %s", e.Type, e.Data)
 		}
-		states, urls = append(states, a.Login.State), append(urls, a.Login.URL != "")
+		if strings.Contains(string(e.Data), "claude.example") || strings.Contains(string(e.Data), `"url"`) {
+			t.Fatalf("the authorize URL is in the stream_log: %s", e.Data)
+		}
+		states = append(states, a.Login.State)
 	}
 	return
 }
@@ -59,12 +63,12 @@ func loginDaemon(t *testing.T, script string) *Daemon {
 func awaitStates(t *testing.T, d *Daemon, n int) []string {
 	t.Helper()
 	for i := 0; i < 400; i++ {
-		if states, _ := loginStates(t, d.hub); len(states) >= n {
+		if states := loginStates(t, d.hub); len(states) >= n {
 			return states
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	states, _ := loginStates(t, d.hub)
+	states := loginStates(t, d.hub)
 	t.Fatalf("the accounts topic said %v, wanted %d states", states, n)
 	return nil
 }
@@ -78,9 +82,6 @@ func TestALoginSaysWaitingThenDoneOnTheAccountsTopic(t *testing.T) {
 	got := awaitStates(t, d, 2)
 	if got[0] != "waiting" || got[1] != "done" {
 		t.Fatalf("%v", got)
-	}
-	if _, urls := loginStates(t, d.hub); !urls[0] || urls[1] {
-		t.Fatalf("the URL goes with waiting alone: %v", urls)
 	}
 }
 
