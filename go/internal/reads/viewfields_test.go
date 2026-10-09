@@ -1,0 +1,74 @@
+package reads
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/handline/handline/go/internal/db"
+)
+
+type wallDelivery struct{ fakeDelivery }
+
+func (wallDelivery) Wall(db.Q, string, *db.AgentState) (*Wall, error) {
+	return &Wall{Account: "acct", Clock: 1700, Assumed: true}, nil
+}
+
+func viewOfAgent(t *testing.T, e *Env, name string) map[string]any {
+	t.Helper()
+	got, err := e.agentsList(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Agents []map[string]any }
+	json.Unmarshal(b, &out)
+	for _, a := range out.Agents {
+		if a["name"] == name {
+			return a
+		}
+	}
+	t.Fatalf("%s not listed: %s", name, b)
+	return nil
+}
+
+func TestAgentViewServesKindTaskCountAndReady(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"IDLE"}', 0)`)
+	// 1 is bob's current task, queued; 2 is a draft that is not current and does not count; 3 is queued and waits.
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(1, 'a', 'bob', 'human', 1, 'human'), (3, 'c', 'bob', 'human', 1, 'human')")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(2, 'b', 'bob', 'human', 1)")
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, current_task) VALUES('bob', 'IDLE', 0, 1)")
+	v := viewOfAgent(t, e, "bob")
+	if k, _ := v["kind"].(string); k == "" {
+		t.Fatalf("kind %v", v["kind"])
+	}
+	if v["task_count"] != float64(2) || v["ready"] != true || v["wall"] != nil {
+		t.Fatalf("%v", v)
+	}
+
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(4, 'blocker', 'amy', 'human', 1)")
+	run(t, e, "INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 4, 1)")
+	if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
+		t.Fatalf("an open blocker holds it: %v", v)
+	}
+	run(t, e, "UPDATE tasks SET done_evidence = 'x' WHERE id = 4")
+	if v = viewOfAgent(t, e, "bob"); v["ready"] != true {
+		t.Fatalf("a done blocker holds nothing: %v", v)
+	}
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"RUNNING"}'`)
+	if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
+		t.Fatalf("a running agent is not ready: %v", v)
+	}
+}
+
+func TestAgentViewServesTheWallTheLifecycleNames(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	e.Delivery = wallDelivery{}
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, closed_at) VALUES('bob', 'IDLE', 0, 5)")
+	w, _ := viewOfAgent(t, e, "bob")["wall"].(map[string]any)
+	if w["account"] != "acct" || w["assumed"] != true || w["clock"] == nil {
+		t.Fatalf("%v", w)
+	}
+}

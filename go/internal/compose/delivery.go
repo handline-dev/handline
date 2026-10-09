@@ -52,3 +52,22 @@ func (d delivery) AccountFull(agent string) (string, int, bool) {
 	}
 	return acct, *pct, true
 }
+
+// Wall is the account that holds back a wake that is due: the lifecycle's wait for it, only while something is trying to wake the agent.
+func (d delivery) Wall(q db.Q, agent string, row *db.AgentState) (*reads.Wall, error) {
+	if d.p.LC == nil {
+		return nil, nil
+	}
+	if yes, err := d.p.LC.Manager.WouldWake(row); err != nil || !yes {
+		return nil, err
+	}
+	w := d.p.LC.Launch.WakeWait(q, agent, row)
+	if w == nil {
+		return nil, nil
+	}
+	out := &reads.Wall{Account: w.Account, Assumed: w.Assumed}
+	if !w.Slot {
+		out.Clock = w.Reset
+	}
+	return out, nil
+}

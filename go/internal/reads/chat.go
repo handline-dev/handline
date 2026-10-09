@@ -1030,7 +1030,11 @@ func (e *Env) working(agent string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := e.viewOf(agent, stored)
+	x, err := e.viewCtx()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := e.viewOf(agent, stored, x)
 	if err != nil {
 		return nil, err
 	}

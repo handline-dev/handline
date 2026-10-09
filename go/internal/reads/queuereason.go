@@ -17,6 +17,8 @@ type Delivery interface {
 	ClosedWakeCause(agent string, row *db.AgentState) (string, error)
 	// AccountFull is the agent's account and its short-window percent, when that is at the block.
 	AccountFull(agent string) (acct string, pct int, full bool)
+	// Wall is what holds back a wake that is due, nil when no wake is due or nothing holds it back.
+	Wall(q db.Q, agent string, row *db.AgentState) (*Wall, error)
 }
 
 // QueueReason is queue_reason: why request rid, queued for agent, has not reached it. It is the one builder behind chat.messages'
