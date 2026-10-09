@@ -37,7 +37,7 @@ class DialogModal(Dialog):
                 yield Static(Text("\n".join(textsafe.oneline(l) for l in d["body"]), style="dim"), id="body")
             for number, label in d["options"]:
                 yield Button(Text(f"{number}. {textsafe.oneline(label)}"), id=f"opt_{number}", compact=True)
-            if d["title"] != term.TRUNCATED_TITLE:      # no rule can be kept for it (dialogs._remember)
+            if d.get("always", True) and d["title"] != term.TRUNCATED_TITLE:      # no rule can be kept for it (dialogs._remember)
                 yield Checkbox("always choose the one I pick", id="always")
             yield Static("click an option or press its number · esc closes (the terminal is left as it is)", id="hint")
 
@@ -47,9 +47,9 @@ class DialogModal(Dialog):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
-        self.finish((int(event.button.id.split("_")[1]), self._always()))
+        self.finish((event.button.id.split("_")[1], self._always()))
 
     def on_key(self, event) -> None:
-        if event.character and event.character.isdigit() and any(n == int(event.character) for n, _ in self.dialog["options"]):
+        if event.character and event.character.isdigit() and any(n == event.character for n, _ in self.dialog["options"]):
             event.stop()
-            self.finish((int(event.character), self._always()))
+            self.finish((event.character, self._always()))
