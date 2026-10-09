@@ -188,6 +188,27 @@ def _check_hl_on_path(r: Report) -> None:
               f'a human runs: ln -s "{paths.repo_root() / "bin" / "hl"}" ~/.local/bin/hl  (ocp and handline keep working)')
 
 
+def _check_go_hl(r: Report) -> None:
+    """bin/hl runs go/hl only while it was built from this checkout's go/ (go/hl.src); after a pull it runs Python."""
+    root = paths.repo_root()
+    gohl = root / "go" / "hl"
+    if not gohl.exists():
+        return
+    try:
+        built = (root / "go" / "hl.src").read_text().strip()
+    except OSError:
+        built = ""
+    try:
+        now = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD:go"], capture_output=True, text=True).stdout.strip()
+    except OSError:
+        now = ""                                # no git: nothing to compare, as bin/hl reads it
+    if now and built != now:
+        r.add(WARN, "go/hl was built from other Go source than this checkout's: hl runs on Python until it is rebuilt",
+              str(root / "tools" / "build-hl.sh"))
+    else:
+        r.add(OK, "go/hl is built from this checkout's Go source")
+
+
 def _check_accounts(r: Report) -> None:
     names = paths.list_accounts()
     if not names:
@@ -689,6 +710,7 @@ def _run() -> Report:
     _check_home_socket(r)
     _check_ocp_sandboxed(r)
     _check_hl_on_path(r)
+    _check_go_hl(r)
     _check_accounts(r)
     _check_rate_limits_present(r)
     _check_agents(r)

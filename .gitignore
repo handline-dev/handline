@@ -11,6 +11,7 @@ docs/vendor-extension-board.md
 # built Go daemon
 /go/handlined
 /go/hl
+/go/hl.src
 
 node_modules/
 .turbo/

@@ -69,9 +69,28 @@ fi
 [ "$ready" = 1 ] || py=python3
 
 # The Go hl once tools/build-hl.sh has built it: it runs the commands it has ported and hands every other one to this
-# same Python. HANDLINE_HL_GO=0 keeps everything on Python.
+# same Python. HANDLINE_HL_GO=0 keeps everything on Python. A build of other Go source than this checkout's go/ (a pull
+# since, or none recorded) is not run: Python answers, slower and current, and `hl doctor` says to rebuild. Outside a
+# git checkout there is nothing to compare, and the build is run. Every git checkout, pull or commit rewrites git's
+# index, so a stamp newer than it needs no git call; this runs before every hook, so that is the usual path.
 gohl="$script_dir/../go/hl"
 if [ -x "$gohl" ] && [ "${HANDLINE_HL_GO:-${OCP_HL_GO:-1}}" != 0 ]; then
-    HANDLINE_HL_PYTHON="$py" exec "$gohl" "$@"
+    gitdir="$script_dir/../.git"
+    if [ -f "$gitdir" ]; then                    # a worktree: .git names where its git directory is
+        line=""
+        read -r line < "$gitdir" || true
+        gitdir="${line#gitdir: }"
+        case "$gitdir" in /*) ;; *) gitdir="$script_dir/../$gitdir" ;; esac
+    fi
+    if [ -f "$gohl.src" ] && [ "$gohl.src" -nt "$gitdir/index" ]; then
+        HANDLINE_HL_PYTHON="$py" exec "$gohl" "$@"
+    fi
+    built=""
+    [ -f "$gohl.src" ] && { read -r built < "$gohl.src" || true; }
+    source_now="$(git -C "$script_dir/.." rev-parse HEAD:go 2>/dev/null || true)"
+    if [ -z "$source_now" ] || [ "$source_now" = "$built" ]; then
+        [ -n "$built" ] && touch "$gohl.src" 2>/dev/null || true
+        HANDLINE_HL_PYTHON="$py" exec "$gohl" "$@"
+    fi
 fi
 exec "$py" "$script_dir/_ocp_entry.py" "$@"
