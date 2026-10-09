@@ -135,6 +135,7 @@ func main() {
 	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only. The tick also reads every account's usage and token log, so the Python daemon must not tick beside it on the same home")
 	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
 	landRepo := flag.String("land-repo", "", "the repository main is checked out in, which `hl land` merges into (default: OCP_LAND_REPO; with neither a land is refused)")
+	terminalTick := flag.Bool("terminal-tick", false, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -structured-cli, and the Python daemon must not tick beside it on the same home")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -160,9 +161,9 @@ func main() {
 			parts.Bind(db, env)
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
-			if *structuredTick {
+			if *structuredTick || *terminalTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
-					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, ScratchRoot: housekeeping.ScratchRoot()})
+					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick, ScratchRoot: housekeeping.ScratchRoot()})
 					return tk.Start()
 				}
 			}
