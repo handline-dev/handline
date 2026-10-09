@@ -3,7 +3,7 @@ import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from
 import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, AgentView } from '@handline/client';
+import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
@@ -175,10 +175,16 @@ function TranscriptTab(props: { detail: AgentDetail }) {
 }
 
 function Terminal(props: { detail: AgentDetail }) {
+  const view = useSelector((s) => s.page!.view);
+  if (!view) return null; // a structured agent has no terminal
+  return <TerminalOf detail={props.detail} view={view} />;
+}
+
+function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
   const c = usePalette();
   const store = useStore();
   const me = useSelector((s) => s.me);
-  const view = useSelector((s) => s.page!.view);
+  const view = props.view;
   const lines = view.lines();
   // An open session whose snapshot has not come yet.
   const waiting = props.detail.session_open && view.frame.length === 0 && view.history.length === 0;

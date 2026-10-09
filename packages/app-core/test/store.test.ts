@@ -61,6 +61,17 @@ test('opening an agent page starts on Chat, Terminal is a tab away, and closing 
   client.close();
 });
 
+test('a structured agent opens with no terminal view, and closing it detaches nothing', async () => {
+  const { store, client } = await open();
+  await store.openAgent('handline.auditor');
+  assert.equal(store.page!.agent, 'handline.auditor');
+  assert.equal(store.page!.view, null);
+  assert.equal(store.error, null);
+  await store.closeAgent();
+  assert.equal(store.page, null);
+  client.close();
+});
+
 test('a lost connection shows as the state and the open page stays open through the reconnect', async () => {
   const { store, daemon, net } = await open();
   await store.openAgent(ARCH);
