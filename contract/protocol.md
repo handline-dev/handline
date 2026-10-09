@@ -169,7 +169,7 @@ A method marked write takes a required `request_id`.
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` | `bad_request` |  |
-| `stats.outlook` | member |  | `range` | `Outlook` | `bad_request` |  |
+| `stats.outlook` | member |  | `range`, `agent?` | `Outlook` | `bad_request` |  |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `answers.list` | founder |  | none | `{answers}` |  |  |
