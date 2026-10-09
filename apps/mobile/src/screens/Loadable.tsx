@@ -25,6 +25,8 @@ export function Loadable(props: {
   /** What the region shows, for "Loading …" and "This daemon does not serve …". */
   label: string;
   empty: string;
+  /** A refused read is an error to retry, not "not served" (a view with no other way to show the thing). */
+  retryRefused?: boolean;
   children: ReactNode;
 }) {
   const c = usePalette();
@@ -42,7 +44,7 @@ export function Loadable(props: {
     // A lost connection says nothing here (the banner does) and a missing thing is just empty.
     if (failure.kind === 'transport') return q.data === undefined ? null : <>{props.children}</>;
     if (failure.kind === 'not_found') return note('empty', props.empty);
-    if (failure.kind === 'not_served') return note('not-served', `This daemon does not serve ${props.label}.`);
+    if (failure.kind === 'not_served' && !props.retryRefused) return note('not-served', `This daemon does not serve ${props.label}.`);
     return (
       <View style={{ flex: 1 }}>
         <View testID="error" accessibilityRole="alert" style={{ padding: space.lg, gap: space.sm }}>
