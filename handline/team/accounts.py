@@ -294,6 +294,27 @@ def clear_login_expired(acct: str) -> None:
     _expired_file(acct).unlink(missing_ok=True)
 
 
+# `credential_present` is a keychain subprocess too, and `agent.get` asks it of every account
+# through the launch pick: a login or logout is seen within this long.
+PRESENT_TTL_S = 10
+_present: dict[str, tuple[float, bool | None]] = {}
+
+
+def _credential_present(acct: str, drv) -> bool | None:
+    seen = _present.get(acct)
+    if seen and time.monotonic() - seen[0] < PRESENT_TTL_S:
+        return seen[1]
+    present = drv.credential_present(vendors.config_dir(acct))
+    _present[acct] = (time.monotonic(), present)
+    return present
+
+
+def forget_present(acct: str) -> None:
+    """Drop the remembered credential of `acct`: a caller that has just run a login or logout
+    itself asks again and must get the answer it made."""
+    _present.pop(acct, None)
+
+
 def login_state(acct: str) -> bool | None:
     """Whether this account has credentials, as its driver's
     `credential_present` answers: a file's existence for claude, a run of
@@ -307,7 +328,7 @@ def login_state(acct: str) -> bool | None:
         return False
     if login_expired(acct):
         return False
-    return drv.credential_present(vendors.config_dir(acct))
+    return _credential_present(acct, drv)
 
 
 def logged_in(acct: str) -> bool:
@@ -567,6 +588,7 @@ def add_account(name: str, run, no_login: bool = False,
         return True, f"registered account '{name}'; log it in with: hl login {name}"
     argv, env = vendors.for_account(name).login_argv(), env_for(name)
     run(argv, env)
+    forget_present(name)
     if not logged_in(name):
         return False, f"'{name}' is registered but not logged in - hl login {name}"
     twins = same_login_as(name)
@@ -608,6 +630,7 @@ def remove_account(name: str, confirm, run, con=None) -> tuple[bool, str]:
         argv, env = logout_argv(name)
         if argv:
             code = run(argv, env)
+            forget_present(name)
             if code != 0 or logged_in(name):
                 drv = vendors.for_account(name)
                 return False, (f"logout failed - '{name}' is still logged in, so it stays. "

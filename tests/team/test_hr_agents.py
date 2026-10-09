@@ -1906,18 +1906,22 @@ def test_the_opencode_driver(home: Path) -> None:
               not accounts.logged_in("zai") and runs == [], str(runs))
         (cdir / "opencode").mkdir()
         (cdir / "opencode" / "auth.json").write_text("{}")
+        accounts._present.clear()
         check("opencode: one credential counted is logged in",
               accounts.logged_in("zai"), str(runs))
         check("opencode: and the count was asked of this account's directory",
               runs and runs[-1][0] == ["/x/bin/opencode", "auth", "list"]
               and runs[-1][1].get("XDG_DATA_HOME") == str(cdir), str(runs[-1:]))
         listed["out"] = _auth_list_out(0)
+        accounts._present.clear()
         check("opencode: the auth.json a logout leaves behind is not logged in",
               not accounts.logged_in("zai"))
         listed["out"] = subprocess.TimeoutExpired(["opencode"], 20)
+        accounts._present.clear()
         check("opencode: nor is one opencode cannot answer for",
               not accounts.logged_in("zai"))
         listed["out"] = _auth_list_out(1)
+        accounts._present.clear()
 
         # A session: the TUI's own command line, as `ps` shows it.
         tui = "/Users/ron/.opencode/bin/opencode -m zai-coding-plan/glm-5.2"
@@ -3728,6 +3732,7 @@ def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> No
           str(vendors.config_dir("alpha")) in msg, msg)
 
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
+    accounts._present.clear()
     action, msg = accounts.login_plan("alpha")
     check("login: an account already logged in is left alone", action == "already", msg)
     action, _ = accounts.login_plan("alpha", force=True)

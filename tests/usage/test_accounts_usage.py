@@ -1131,6 +1131,61 @@ def test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(home:
         os.environ.update(real_env)
 
 
+def test_login_state_asks_the_credential_once_inside_the_ttl(home: Path) -> None:
+    """`credential_present` is a keychain subprocess: two `logged_in` inside PRESENT_TTL_S run it once,
+    one after it runs it again."""
+    drv = vendors.get("claude")
+    asked: list[Path] = []
+    drv.credential_present = lambda config_dir: asked.append(config_dir) or True
+    real_mono = accounts.time.monotonic
+    now = [1000.0]
+    accounts.time.monotonic = lambda: now[0]
+    try:
+        accounts._present.clear()
+        check("logged in", accounts.logged_in("alpha"))
+        now[0] += accounts.PRESENT_TTL_S - 1
+        check("and again inside the TTL", accounts.logged_in("alpha"))
+        check("the credential was asked once", len(asked) == 1, str(asked))
+        now[0] += 2
+        accounts.logged_in("alpha")
+        check("after the TTL it is asked again", len(asked) == 2, str(asked))
+    finally:
+        accounts.time.monotonic = real_mono
+        del drv.credential_present
+
+
+def test_a_login_or_logout_run_in_process_is_seen_at_once(home: Path) -> None:
+    """The remembered credential must not answer the check right after the caller itself logged
+    out or in: remove retires the account, add finds it logged in."""
+    use_home(home)
+    hand_edit_team("agents:\n  backend: {}\n")
+    accounts.register("gamma")
+    credentialed(home, "gamma")
+    cred = home / "accounts" / "gamma" / ".claude" / ".credentials.json"
+    real_identity = accounts.identity
+    accounts.identity = lambda a: None
+    try:
+        fresh_backup()
+
+        def logout(argv, env):
+            cred.unlink()
+            return 0
+        accounts._present.clear()
+        ok, msg = accounts.remove_account("gamma", lambda: True, logout)
+        check("remove: a logout that deletes the credential retires the account, the real login check",
+              ok and "gamma" not in paths.list_accounts(), msg)
+
+        def login(argv, env):
+            credentialed(home, "delta")
+            return 0
+        accounts._present.clear()
+        check("add: control, delta reads logged out", not accounts.logged_in("delta"))
+        ok, msg = accounts.add_account("delta", login)
+        check("add: a login that writes the credential reads as logged in at once", ok, msg)
+    finally:
+        accounts.identity = real_identity
+
+
 def test_access_token_detailed_tells_missing_apart_from_could_not_read() -> None:
     """`_access_token_detailed` (#2186's SHOULD-FIX 1): `security` exit 44 or
     a parsed item with no accessToken is the credential genuinely gone; every
@@ -3196,6 +3251,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
         # Nothing walled, nothing logged in: wake_wait has no wall to name, so
         # the guard in _wake_agent is what refuses, with no_room's own text.
         (home / "accounts" / "alpha" / ".claude" / ".credentials.json").unlink()
+        accounts._present.clear()
         ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         check("no room: a fresh wake with no account to go to returns no_room's text",
               not ok and why == launch.no_room("backend") and "logged in" in why, why)
@@ -6159,6 +6215,8 @@ def main() -> int:
         run(lambda: test_read_claude_tells_a_dead_credential_apart_from_transient())
         run(lambda: test_access_token_detailed_tells_missing_apart_from_could_not_read())
         run(lambda: test_a_sandboxed_process_cannot_tell_a_missing_login_from_a_hidden_one(Path(td) / 'sbxlogin'))
+        run(lambda: test_login_state_asks_the_credential_once_inside_the_ttl(Path(td) / 'ttlcred'))
+        run(lambda: test_a_login_or_logout_run_in_process_is_seen_at_once(Path(td) / 'ttlseen'))
         run(lambda: test_the_zai_meter_reads_the_plan_and_hides_its_key(Path(td) / 'zaimeter'))
         run(lambda: test_a_reading_is_asked_of_the_accounts_own_drivers_meter(Path(td) / 'meterdrv'))
         run(lambda: test_usage_api_record_stands_in_for_a_probe(Path(td) / 'usagerec'))

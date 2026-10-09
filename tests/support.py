@@ -363,6 +363,7 @@ def restore_world() -> None:
     blockedmod._checked.clear()
     dmn_login_expired._checked.clear()
     accounts._modified.clear()
+    accounts._present.clear()
     # The machine's process table is not the test world: with the real reading, whether a doctor or a task
     # check goes on to ask the host for its terminals depends on what happens to be running. "Could not look" is
     # the answer the world gives; a test about sessions sets its own, or takes REAL_OBSERVE's.

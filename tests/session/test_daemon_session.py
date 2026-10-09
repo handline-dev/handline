@@ -3810,6 +3810,7 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         dmn_login_expired._checked.clear()
         con.execute("DELETE FROM events WHERE kind IN ('SessionStart', 'moved_account')")
         (home / "accounts" / "beta" / ".claude" / ".credentials.json").unlink()
+        accounts._present.clear()
         dmn_evaluate.supervise(con, "backend", logs.append, int(time.time()), {}, [])
         row = db.get_agent_state(con, "backend")
         check("with no other account it is STALLED, naming the account and the login command",
@@ -3822,6 +3823,7 @@ def test_a_login_expired_line_on_screen_disables_the_account_and_moves_its_agent
         cred = home / "accounts" / "alpha" / ".claude" / ".credentials.json"
         os.utime(cred, (time.time() + 60, time.time() + 60))     # a login writes it anew
         accounts._modified.clear()
+        accounts._present.clear()
         check("a login after the mark enables the account again", accounts.logged_in("alpha")
               and accounts.login_expired("alpha") is None)
         dmn_reconciler.sweep(con, logs.append, [])
