@@ -1,6 +1,8 @@
 // What contract/fixtures/delivery.json needs of a daemon: two more structured sessions, one with a turn running and one whose last
 // message was lost after it was written. `node src/serve.ts --conformance` serves them; the vars are
 //   transcript_agent=handline.auditor working_agent=conf.working crashed_agent=conf.crashed terminal_agent=handline.term-build
+// and, for structured_controls.json, structured_agent=handline.auditor (idle) turn_agent=conf.working interrupt_agent=conf.interrupt (its turn is ended by
+// the fixture) asking_agent=conf.asking (a permission is open)
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from './daemon.ts';
 import { AGENTS } from './fixtures.ts';
@@ -11,10 +13,13 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   for (const [name, state] of [
     ['conf.working', 'running'],
     ['conf.crashed', 'idle'],
+    ['conf.interrupt', 'running'],
+    ['conf.asking', 'running'],
   ] as const) {
     daemon.sessions.set(name, newSession({ ...base, name, state }, new Date().toISOString()));
     daemon.transcript.structure(name);
     if (state === 'running') daemon.chat.setTurn(name, true);
+    if (name === 'conf.asking') daemon.transcript.ask(name, '6f1c0a52-0000-4000-8000-0000000000a1', 'Bash', 'ls');
   }
   const client = new DaemonClient({
     client: 'conformance-seed',

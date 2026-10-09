@@ -35,7 +35,7 @@ export async function mount(
   client?: string,
   as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode } = {},
 ) {
-  const s = setup({ daemon, client, role: as.role });
+  const s = setup({ daemon, client, role: as.role, structuredTerminal: true });
   prepare(s);
   const store = new Store(s.client);
   box = document.body.appendChild(document.createElement('div'));

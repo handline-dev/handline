@@ -39,7 +39,9 @@ export class FakeTranscript {
   /** Plays `agent` as a structured session from now on. */
   structure(agent: string): void {
     if (!this.logs.has(agent)) this.logs.set(agent, []);
-    this.host.sessions.get(agent)!.structured = true;
+    const s = this.host.sessions.get(agent)!;
+    s.structured = true;
+    s.hasTerminal = false; // no terminal and no input holder: the typing methods are refused for it
   }
   owns = (agent: string): boolean => this.logs.has(agent);
 

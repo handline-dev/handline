@@ -180,6 +180,7 @@ test('a stale prompt answer sends nothing and names the open prompt', async () =
 
 test('at the wall keys pass and typed input is refused', async () => {
   const { client, daemon } = setup();
+  Object.assign(daemon.sessions.get(W)!, { structured: false, hasTerminal: true }); // seeded as a structured session; this one types at a terminal
   await client.start();
   await assert.rejects(client.sendInput(W, 'x'), (e: RpcError) => e.code === 'refused' && e.gate === 'wall');
   await client.sendKeys(W, 'esc');

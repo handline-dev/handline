@@ -192,7 +192,7 @@ export class Script {
     if (s.open) throw refused('state', 'the session is already open');
     if (wake && !s.sessionId) throw refused('state', 'there is no closed session to resume');
     s.open = true;
-    s.hasTerminal = true;
+    s.hasTerminal = !s.structured;
     s.sessionId ??= `s-${s.fx.name}-${++s.counter}`;
     this.edit(s, () => {
       s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree)));

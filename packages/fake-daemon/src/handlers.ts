@@ -4,6 +4,7 @@ import { badRequest, Failure, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
+import { withStructured } from './structured-controls.ts';
 import type { FakeTranscript } from './transcript.ts';
 import { HR_HANDLERS, teamOf } from './hr.ts';
 import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from './session.ts';
@@ -30,7 +31,7 @@ function formatOf(p: Record<string, unknown>): 'text' | 'bytes' | 'styled' {
   throw badRequest(`format is text, bytes or styled, not ${String(p.format)}`, 'format');
 }
 
-export const HANDLERS: Record<string, (h: Call) => unknown> = {
+const BASE: Record<string, (h: Call) => unknown> = {
   ...SETTINGS_HANDLERS,
   ...HR_HANDLERS,
   'transcript.events': ({ p, transcript }) => transcript.read(p),
@@ -199,3 +200,5 @@ export const HANDLERS: Record<string, (h: Call) => unknown> = {
     return script.rawInput(byTerminal(p.terminal), p, c, actor);
   },
 };
+
+export const HANDLERS = withStructured(BASE);
