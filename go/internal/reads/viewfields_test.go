@@ -60,12 +60,19 @@ func TestAgentViewServesKindTaskCountAndReady(t *testing.T) {
 	if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
 		t.Fatalf("a running agent is not ready: %v", v)
 	}
-	// The wire word idle also covers a DONE agent and a parked one with nothing to do: only the row's IDLE is the screen word.
-	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle"}'`)
-	for _, st := range []string{"DONE", "PARKED"} {
-		run(t, e, "UPDATE agent_state SET state = ? WHERE agent = 'bob'", st)
-		if v = viewOfAgent(t, e, "bob"); v["ready"] != false {
-			t.Fatalf("a %s agent is not ready: %v", st, v)
+	// Ready follows the screen word, read back from the wire word the tick writes: IDLE for idle and no_terminal, which a DONE row, a
+	// parked one with nothing behind it and a queued one with background work all write.
+	for _, c := range []struct {
+		row, wire string
+		ready     bool
+	}{
+		{"IDLE", "idle", true}, {"DONE", "idle", true}, {"PARKED", "idle", true}, {"QUEUED", "idle", true}, {"IDLE", "no_terminal", true},
+		{"QUEUED", "queued", false}, {"PARKED", "parked", false}, {"RUNNING", "running", false}, {"IDLE", "waiting", false}, {"STALLED", "stalled", false},
+	} {
+		run(t, e, "UPDATE agent_state SET state = ? WHERE agent = 'bob'", c.row)
+		run(t, e, `UPDATE agent_view SET view = json_object('name', 'bob', 'state', ?)`, c.wire)
+		if v = viewOfAgent(t, e, "bob"); v["ready"] != c.ready {
+			t.Fatalf("%s row, wire %s: ready %v, want %v", c.row, c.wire, v["ready"], c.ready)
 		}
 	}
 }
