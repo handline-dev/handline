@@ -750,6 +750,19 @@ def _transcript_events(con) -> None:
     """)
 
 
+def _land_fixes(con) -> None:
+    """The merger's housekeeping on a land (`hl land --fix`, `--squash`): the files written over the merge, as a
+    JSON object {path: text}, and whether main gets one commit with the merger's message instead of the merge.
+    Additive: a process that does not know the table never reads it, and a land with no row lands as before."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS land_fixes (
+          land_id INTEGER PRIMARY KEY,
+          files   TEXT    NOT NULL,
+          squash  INTEGER NOT NULL DEFAULT 0
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -762,6 +775,7 @@ MIGRATIONS = [
     (9, "devices", _devices, True),
     (10, "agent_extra_worktrees", _agent_extra_worktrees, True),
     (11, "transcript_events", _transcript_events, True),
+    (12, "land_fixes", _land_fixes, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
