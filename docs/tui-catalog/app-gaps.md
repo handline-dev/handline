@@ -6,16 +6,17 @@ For each entry of [index.md](index.md): does the app (`apps/web`, in Electron `a
 
 ### No (nothing in the app)
 
-1. **Full output of a shell command** (modal-output, "Show all" on a shell card). The app's card shows the command only (`ChatMessages.tsx:277`); the printed output and the "early lines let go" count have no view.
+1. **Full output of a shell command** (modal-output, "Show all" on a shell card). The app's card shows the command only (the tool line, `ChatMessages.tsx:260-266`: tool name and text, no output); the printed output and the "early lines let go" count have no view.
 2. **Whole handoff of a session** (modal-handoff). The app shows one line, `Handoff: <text>` (`ChatMessages.tsx:290`), not the scrollable whole.
 3. **Add an account** (accounts-add). The app tells the person to run `hl account add <name>` on the host (`Accounts.tsx:59-67`).
-4. **Reject all** in HR (R). The app has Approve all, not Reject all (`HrTab.tsx:44-75`).
+4. **Edit and delete a memo** on a task. The app only adds (`task.memo.add`, `TaskDetail.tsx:282`); `task.memo.edit` and `task.memo.delete` exist in `packages/app-data/src/writes.ts` with no UI.
+5. **Reject all** in HR (R). The app has Approve all, not Reject all (`HrTab.tsx:44-75`).
 
 ### Partly
 
-5. **Daemon down** (home-daemon-down): a status-bar icon and tooltip (`StatusBar.tsx:18`), no page that says the daemon is stopped and what to do.
-6. **Key lists per panel** (the `?` entries): the app has one global list of 5 keys (`KeysSheet.tsx`) plus the Inbox and Tasks lists; Stats and the account/chat pages have none.
-7. **Account Login** (account-settings Login button): starts the vendor flow in a daemon terminal (`Accounts.tsx:183`), from the list, not from the account's settings.
+6. **Daemon down** (home-daemon-down): a status-bar icon and tooltip (`StatusBar.tsx:18`), no page that says the daemon is stopped and what to do.
+7. **Key lists per panel** (the `?` entries): the app has one global list of 5 keys (`KeysSheet.tsx`) plus the Inbox and Tasks lists; Stats and the account/chat pages have none.
+8. **Account Login** (account-settings Login button): starts the vendor flow in a daemon terminal (`Accounts.tsx:183`), from the list, not from the account's settings.
 
 ### Yes
 
@@ -26,10 +27,10 @@ Everything else in the catalog. Table below.
 | Catalog entry | App | Where |
 |---|---|---|
 | home-agents, home-agents-keys | yes | `Sidebar.tsx` (cache left, context), `TeamPage.tsx`, `KeysSheet.tsx` |
-| home-accounts, home-accounts-keys | yes | `Accounts.tsx` (the `?` list: gap 6) |
+| home-accounts, home-accounts-keys | yes | `Accounts.tsx` (the `?` list: gap 7) |
 | home-messages, home-messages-keys | yes | `Inbox.tsx` (own `?`) |
 | tab-stats, stats-view, stats-range, stats-screen | yes | `Stats.tsx`, `Outlook.tsx` (view and range selectors) |
-| stats-keys | partly | gap 6 |
+| stats-keys | partly | gap 7 |
 | tab-hr, hr-proposals, hr-reject, hr-withdraw | yes | `HrTab.tsx` |
 | hr-edit-settings | yes | `HrTab.tsx:231` goes to `SettingsView.tsx` |
 | tab-settings | yes | `Settings.tsx`, `SettingsView.tsx` |
@@ -40,7 +41,8 @@ Everything else in the catalog. Table below.
 | tasks-keys | yes | `TaskSheets.tsx` key sheet |
 | task-detail | yes | `TaskDetail.tsx` |
 | task-assign, task-done, task-discard | yes | `TaskDetail.tsx` (owner edit, `ReasonSheet`) |
-| not-captured: u (queue/draft), r (reopen), memo, brief edit | yes | `TaskDetail.tsx:48-60` |
+| not-captured: u (queue/draft), r (reopen), brief edit | yes | `TaskDetail.tsx:48-60`, Edit sheet |
+| not-captured: memo edit, memo delete | no | gap 4; add only |
 | agents-message, agents-close, agents-restart, agents-park, agents-fold, agents-move, agents-wake | yes | `AgentVerbs.tsx`, `ChatMenus.tsx` |
 | accounts-cap, account-settings (alias, cap, recovery, month end), accounts-remove | yes | `AccountSettings.tsx`, `AccountRemove.tsx` |
 | accounts-add | no | host command only |
@@ -58,7 +60,7 @@ Everything else in the catalog. Table below.
 | modal-schedule-add, modal-schedule-edit | yes | `Schedules.tsx` |
 | modal-site-add, modal-site-edit | partly | `SettingsView.tsx:213` adds and removes a site; no edit in place |
 | modal-answer-add | yes | `Answers.tsx` |
-| home-daemon-down | partly | gap 5 |
+| home-daemon-down | partly | gap 6 |
 | empty-home, empty-tasks, empty-stats, empty-hr | yes | `Empty.tsx` in each page (`Accounts.tsx:100` for accounts) |
 | t (terminal), e (editor) | yes | `TerminalTab.tsx`, `EditorButton.tsx`; Electron `editor.ts` |
 
