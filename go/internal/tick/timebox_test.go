@@ -103,6 +103,23 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 	}
 }
 
+func TestATerminalAgentsTaskIsClockedOnlyAtTheCutover(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	mine := newTask(t, tk, "a", "boss", 100) // "a" is driven here
+	terminal := newTask(t, tk, "term", "boss", 100)
+	p.doing[mine], p.doing[terminal] = true, true
+	b.SweepTaskTimeouts(tk, 1000)
+	b.SweepTaskTimeouts(tk, 1200)
+	if task, _ := db.GetTask(tk.Q, terminal); task.TimeoutAt.Valid || len(p.sent) != 1 || !strings.Contains(p.sent[0], "held by a") {
+		t.Fatalf("the Python daemon's clock was run too: %+v %v", task, p.sent)
+	}
+	b.Cutover = true
+	b.SweepTaskTimeouts(tk, 1300)
+	if task, _ := db.GetTask(tk.Q, terminal); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1400 {
+		t.Fatalf("after the cutover every owner's task is clocked: %+v", task)
+	}
+}
+
 func countEvents(t *testing.T, tk *Tick, agent, kind string) int {
 	t.Helper()
 	var n int

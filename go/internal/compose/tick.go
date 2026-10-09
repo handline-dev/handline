@@ -97,7 +97,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now), own: tc.Cutover},
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
-	t.Passes = append(p.passes(cfg, t), agentViewPass(view))
+	t.Passes = append(p.passes(cfg, t, tc.Cutover), agentViewPass(view))
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
 	return &Tick{Tick: t, Loop: loop}
 }
