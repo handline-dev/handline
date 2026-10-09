@@ -51,7 +51,7 @@ def ensure_cwd() -> None:
 
 def _agreed_home_setting() -> str | None:
     """HANDLINE_HOME / OCP_HOME as set. Both set to different folders is an error, not a pick of the first: the one a run
-    meant to use as scratch lost to the one that is the real home (T2916)."""
+    meant to use as scratch lost to the one that is the real home."""
     new, old = os.environ.get(names.NEW + "HOME"), os.environ.get(names.OLD + "HOME")
     if new is not None and old is not None and new.strip() and old.strip() \
             and Path(new).expanduser().resolve() != Path(old).expanduser().resolve():

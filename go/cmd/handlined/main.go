@@ -25,7 +25,7 @@ import (
 
 // resolveHome refuses the default home unless it was asked for: this daemon does not yet guard the real
 // home against a build that is not the installed one, so nothing starts on it by accident. -home naming the
-// real home is refused the same way, and HANDLINE_HOME and OCP_HOME naming different homes is an error (T2916).
+// real home is refused the same way, and HANDLINE_HOME and OCP_HOME naming different homes is an error.
 func resolveHome(flagHome string, allowReal bool) (string, error) {
 	newHome, oldHome := os.Getenv("HANDLINE_HOME"), os.Getenv("OCP_HOME")
 	if newHome != "" && oldHome != "" && realPath(newHome) != realPath(oldHome) {
