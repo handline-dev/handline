@@ -53,13 +53,17 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 		}
 	}
 
-	r = call(t, mk("human"), line(2, base, "f1"))
-	if r[0]["error"] == nil {
-		t.Fatalf("a task is opened by an agent: %v", r[0])
+	// The founder opens a task for an agent, queued as it opens; never one for themself.
+	r = call(t, mk("", &fakeTeller{}), line(2, base, "f1"), line(3, `"owner":"human","title":"t","body":"b","time_box":"1h",`, "f2"))
+	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 5 AND opened_by = 'human' AND queued_by = 'human'") != 1 {
+		t.Fatalf("the founder's task opens queued: %v", r[0])
+	}
+	if code(r[1]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 {
+		t.Fatalf("not one for the founder themself: %v", r[1])
 	}
 	f = &fakeTeller{deny: "no edge"}
 	r = call(t, mk("manager", f), line(2, base, "d1"))
-	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 4 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 || len(f.opened) != 0 {
+	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 || len(f.opened) != 0 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
 	}
 }

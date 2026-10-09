@@ -75,10 +75,30 @@ def test_task_new_opens_a_task_for_its_owner_and_a_retry_opens_no_second(home: P
           _count("SELECT COUNT(*) FROM write_effects WHERE request_id = 'n1' AND method = 'task.new'") == 1)
 
 
+def test_the_founder_opens_a_task_for_an_agent(home: Path) -> None:
+    support._board_world(home)
+    support.hand_edit_team("""
+agents:
+  manager: {}
+  worker:  {}
+edges:
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
+    r = _call("task.new", {"owner": "worker", "title": "the work", "body": "do it", "time_box": "1h", "request_id": "f1"}, as_agent=None)
+    tid = r.get("result", {}).get("task")
+    check("task.new: the founder opens a task for an agent", isinstance(tid, int), str(r))
+    con = db.connect()
+    row = db.get_task(con, tid)
+    check("task.new: opened by human and queued by them, with its brief delivered to the owner",
+          row["owner"] == "worker" and row["opened_by"] == "human" and row["queued_by"] == "human"
+          and len(db.task_requests(con, tid)) == 1, str(dict(row)))
+    con.close()
+
+
 def test_task_new_refuses_what_it_cannot_open(home: Path) -> None:
     support._board_world(home)
-    r = _call("task.new", {"owner": "worker", "title": "t", "body": "b", "time_box": "1h", "request_id": "n2"}, as_agent=None)
-    check("task.new: the founder is refused, not an agent", _code(r) == "refused", str(r))
+    r = _call("task.new", {"owner": "human", "title": "t", "body": "b", "time_box": "1h", "request_id": "n2"}, as_agent=None)
+    check("task.new: the founder's task for themself is refused", _code(r) == "refused" and "for an agent" in r["error"]["message"], str(r))
     r = _new("n3", owner="nobody")
     check("task.new: an owner that is no agent is not_found", _code(r) == "not_found", str(r))
     r = _new("n4", time_box="soon")
@@ -233,6 +253,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_task_new_opens_a_task_for_its_owner_and_a_retry_opens_no_second(Path(td) / "t1"))
         run(lambda: test_task_new_refuses_what_it_cannot_open(Path(td) / "t2"))
+        run(lambda: test_the_founder_opens_a_task_for_an_agent(Path(td) / "t2f"))
         run(lambda: test_task_edit_changes_what_the_opener_names_and_refuses_the_rest(Path(td) / "t3"))
         run(lambda: test_task_edit_adds_and_removes_a_wait_in_the_transaction_of_its_other_parts(Path(td) / "t3b"))
         run(lambda: test_task_withdraw_and_task_cancel_end_a_task_for_the_right_caller(Path(td) / "t4"))
