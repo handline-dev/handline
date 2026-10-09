@@ -11,6 +11,7 @@ import {
   needsConfirm,
   offered,
   railGroups,
+  stopModesOf,
   shortName,
   teamOf,
   type Dot,
@@ -239,4 +240,39 @@ test('a card offers a permission yes and no only, a dialog its always options on
   assert.deepEqual(keys(card('dialog'), true), ['1', '2', '3']);
   assert.deepEqual(keys(card('dialog'), false), ['1', '3']);
   assert.deepEqual(keys(card('question'), false), ['1', '2', '3']);
+});
+
+test('a structured agent is never held, taken or typed to; it is interrupted only while a turn runs or waits', () => {
+  const d = (over: object) =>
+    ({
+      ...agent('a'),
+      structured: true,
+      terminal: null,
+      session_id: null,
+      session_open: false,
+      input_holders: [],
+      ...over,
+    }) as unknown as AgentDetail;
+  const on = (x: AgentDetail) =>
+    Object.entries(controlsOf(x, 'me'))
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+  assert.deepEqual(on(d({ session_open: true, session_id: 's', state: 'running' })), ['stop', 'interrupt']);
+  assert.deepEqual(on(d({ session_open: true, session_id: 's', state: 'waiting' })), ['stop', 'interrupt']);
+  assert.deepEqual(on(d({ session_open: true, session_id: 's', state: 'idle' })), ['stop']);
+  assert.deepEqual(on(d({ session_id: 's', state: 'parked' })), ['resume']);
+  assert.deepEqual(on(d({ state: 'stalled', session_open: true })), ['stop']);
+  assert.deepEqual(on(d({})), ['start']);
+});
+
+test('the stop modes of a structured agent are in session words and drop Exit', () => {
+  assert.deepEqual(
+    stopModesOf({ structured: true }).map((m) => m.mode),
+    ['interrupt', 'close', 'kill'],
+  );
+  assert.deepEqual(
+    stopModesOf({}).map((m) => m.mode),
+    ['interrupt', 'exit', 'close', 'kill'],
+  );
+  assert.ok(stopModesOf({ structured: true }).every((m) => !/terminal|Esc|exit/i.test(m.hint)));
 });

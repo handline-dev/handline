@@ -164,7 +164,7 @@ export function Watch({ agent, structured, terminal }: { agent: string; structur
 }
 
 function Structured({ agent, terminal }: { agent: string; terminal: ReactNode }) {
-  const t = useTranscript(agent);
+  const t = useTranscript(agent, true);
   // `terminal` is the fallback for a daemon that said structured and then refused the read
   return t.status === 'terminal' ? <>{terminal}</> : <TranscriptView agent={agent} t={t} />;
 }

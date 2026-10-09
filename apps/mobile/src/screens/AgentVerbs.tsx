@@ -11,7 +11,7 @@ import { usePalette } from '../theme.ts';
 import { Sheet, useWhyNot } from './TaskActions.tsx';
 import { Button, Row } from './parts.tsx';
 
-const HIDDEN: VerbId[] = ['close', 'clear_stall'];
+const HIDDEN: VerbId[] = ['interrupt', 'close', 'clear_stall'];
 
 export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefined; onSettings: () => void }) {
   const { detail, row } = props;
