@@ -210,6 +210,10 @@ def _normal(method: str, reply: dict) -> dict:
         res.pop("account_pick", None)
         res.pop("cwd", None)        # the chat page's fields: the Go daemon does not send them yet
         res.pop("can", None)
+    if method in ("agents.list", "agent.get") and res:
+        for a in res.get("agents", [res]):
+            for k in ("kind", "task_count", "ready", "wall"):
+                a.pop(k, None)      # the AgentView fields the Go daemon sends before Python does
     if method == "chat.requests" and res:
         res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
     if method in ("tasks.list", "task.get") and res:
