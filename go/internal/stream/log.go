@@ -46,6 +46,8 @@ type Entry struct {
 type Log struct {
 	DB  *sql.DB
 	Now func() time.Time // nil is time.Now
+
+	beforeTx func() // test hook: runs between Prune working out how far to go and taking the write lock
 }
 
 func (l *Log) now() time.Time {
@@ -175,19 +177,24 @@ func (l *Log) Prune() error {
 		return err
 	}
 	through := max(old, over-1, 0)
-	done, err := l.PrunedThrough()
-	if err != nil || through <= done {
-		return err
+	if l.beforeTx != nil {
+		l.beforeTx()
 	}
 	tx, err := l.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	// The mark is read inside the transaction and written as a maximum: another writer's prune in between never moves it back.
+	done, err := db.Cursor(tx, PrunedCursor)
+	if err != nil || through <= done {
+		return err
+	}
 	if _, err := tx.Exec("DELETE FROM stream_log WHERE id <= ?", through); err != nil {
 		return err
 	}
-	if err := db.SetCursor(tx, PrunedCursor, through); err != nil {
+	if _, err := tx.Exec("INSERT INTO cursors(name, row_id, updated) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET "+
+		"row_id=MAX(row_id, excluded.row_id), updated=excluded.updated", PrunedCursor, through, db.Now()); err != nil {
 		return err
 	}
 	return tx.Commit()

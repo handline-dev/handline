@@ -296,3 +296,51 @@ func TestAnAccountChangeIsAnAccountsEventWithTheAccountAsData(t *testing.T) {
 		t.Fatalf("%+v %s", e, e.Data)
 	}
 }
+
+func TestASubscriberThatOverflowedAndThenDiedStillGetsItsGap(t *testing.T) {
+	w := newWire()
+	s := &sub{send: w.send, hangUp: w.hangUp, topics: map[string]bool{"chat": true}}
+	s.cond = sync.NewCond(&s.mu)
+	for i := int64(1); i <= MaxQueue+1; i++ {
+		ev := &Event{Cursor: i, Topic: "chat", Type: "chat.message", Data: json.RawMessage(`{}`)}
+		s.offer(ev, msgOf(ev))
+	}
+	s.end()
+	s.run()
+	if got := w.methods(); len(got) != 1 || got[0] != "gap:slow_client" {
+		t.Fatalf("%v", got)
+	}
+}
+
+func TestAPruneByAnotherWriterInBetweenNeverMovesTheMarkBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "db.sqlite")
+	d, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	other, err := store.Open(path) // the other writer is another process in life: its own connection here
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	old := &Log{DB: d, Now: func() time.Time { return time.Now().Add(-RetentionS*time.Second - time.Hour) }}
+	var last *Event
+	for i := 0; i < 3; i++ {
+		last, _ = old.Append(Entry{Topic: "chat", Type: "chat.message", Data: map[string]any{}})
+	}
+	l := &Log{DB: d}
+	l.beforeTx = func() {
+		// the other writer's prune lands after this one worked out how far to go, and went further
+		if _, err := other.Exec("INSERT INTO cursors(name, row_id, updated) VALUES(?,?,0) ON CONFLICT(name) DO UPDATE SET row_id=excluded.row_id",
+			PrunedCursor, last.Cursor+10); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := l.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := l.PrunedThrough(); got < last.Cursor+10 {
+		t.Fatalf("the mark went back to %d", got)
+	}
+}
