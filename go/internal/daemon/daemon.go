@@ -31,6 +31,7 @@ import (
 	"github.com/handline/handline/go/internal/termchan"
 	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/version"
+	"github.com/handline/handline/go/internal/watcher"
 )
 
 // daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
@@ -78,6 +79,9 @@ type Config struct {
 	Transcript *transcript.Sink
 	// Structured says whether an agent runs as a structured session.
 	Structured func(agent string) bool
+	// Watch runs the detectors that have moved here from the Python daemon's watcher, which write their rows to the stream. Off while that
+	// watcher still runs: a second writer would double every event.
+	Watch bool
 	// Answers answers the permission prompts of structured agents (prompt.answer). Nil leaves every agent to the screen.
 	Answers prompts.Structured
 	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
@@ -222,6 +226,15 @@ func Start(cfg Config) (*Daemon, error) {
 		defer d.wg.Done()
 		d.hub.Run(d.stop, cfg.Log)
 	}()
+	if cfg.Watch && !cfg.Gateway {
+		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log,
+			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}}}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			w.Run(d.stop)
+		}()
+	}
 	if d.single != nil {
 		d.wg.Add(1)
 		go func() {

@@ -334,6 +334,25 @@ func ago(secs int64) string {
 // span is a long time as days and hours, as infra/timefmt.span has it from a day up.
 func span(secs int64) string { return fmt.Sprintf("%dd%dh", secs/86400, secs%86400/3600) }
 
+// Task is the spec's Task for one task as the board shows it now, without its body; false when there is no such task. A change event
+// carries it, so it is the shape tasks.list and task.get serve.
+func (e *Env) Task(id int64) (map[string]any, bool, error) {
+	t, err := queryOne(e.DB, "SELECT * FROM tasks WHERE id = ?", id)
+	if err != nil || t == nil {
+		return nil, false, err
+	}
+	_, open, err := e.boardRows(false)
+	if err != nil {
+		return nil, false, err
+	}
+	b, err := e.loadBoard(open)
+	if err != nil {
+		return nil, false, err
+	}
+	task, err := e.taskOf(t, b.state(t))
+	return task, err == nil, err
+}
+
 func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	tid, err := optInt(params, "task")
 	if err != nil || tid == nil {
