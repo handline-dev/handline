@@ -18,9 +18,6 @@ import (
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
-// maxTaskTimeoutS is actions.MAX_TASK_TIMEOUT_S: the longest time box a task is given.
-const maxTaskTimeoutS = 4 * 3600
-
 // Register adds the chat writes to the server's table.
 // tell is what follows a task the writes open or settle once it has committed.
 func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
@@ -220,8 +217,8 @@ func checkTask(task any) error {
 		return err
 	}
 	secs, err := timefmt.ParseSpan(s)
-	if err == nil && secs > maxTaskTimeoutS {
-		err = fmt.Errorf("a task timeout is at most %s (%s is longer)", timefmt.Span(maxTaskTimeoutS, false), s)
+	if err == nil && secs > db.MaxTaskTimeoutS {
+		err = fmt.Errorf("a task timeout is at most %s (%s is longer)", timefmt.Span(db.MaxTaskTimeoutS, false), s)
 	}
 	if err != nil {
 		return badParam(err.Error(), "time_box")

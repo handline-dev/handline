@@ -135,8 +135,8 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, title, body 
 		switch {
 		case *timeoutS <= 0:
 			return "a task timeout is at least 1s - it counts time still to run, not none", "", nil
-		case *timeoutS > maxTaskTimeoutS:
-			return fmt.Sprintf("a task timeout is at most %s - %s is longer", timefmt.Span(maxTaskTimeoutS, false), timefmt.Span(*timeoutS, false)), "", nil
+		case *timeoutS > db.MaxTaskTimeoutS:
+			return fmt.Sprintf("a task timeout is at most %s - %s is longer", timefmt.Span(db.MaxTaskTimeoutS, false), timefmt.Span(*timeoutS, false)), "", nil
 		}
 		if doing, err = isDoing(tx, t); err != nil {
 			return "", "", err
