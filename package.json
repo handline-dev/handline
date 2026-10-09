@@ -9,6 +9,7 @@
   "scripts": {
     "app:main": "node apps/electron/follow-start.ts",
     "app": "pnpm --filter @handline/web build && HANDLINE_GATEWAY=${HANDLINE_GATEWAY:-127.0.0.1:7443} pnpm --filter @handline/electron start",
+    "app:watch": "pnpm --filter @handline/web exec vite build --watch & HANDLINE_GATEWAY=${HANDLINE_GATEWAY:-127.0.0.1:7443} pnpm --filter @handline/electron watch",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "build": "turbo build",
