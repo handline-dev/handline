@@ -38,11 +38,15 @@ With no `-cert` and `-key` this is Tailscale mode (below): nothing to set up.
   relay connection is how Python learns a device hung up or was revoked. If the relay is down, or drops with a call unanswered, the
   call fails with `daemon_busy` (retry after 2 s) and the next call opens a new connection.
 - **The devices topic** is the gateway's, in memory: `device.redeem` and `device.revoke` send `device.paired` and `device.revoked` to the
-  founder connections subscribed to `devices` (the gateway's local socket), nothing is written to `stream_log` (Python owns it), and
-  events are live only with cursor 0; a client reads `devices.list` again after a reconnect. `subscribe` and `unsubscribe` are native
-  only for that topic: a list naming `devices` must name nothing else (`bad_request`, field `topics`: one subscription cannot be both the
-  gateway's and the daemon's), and any other list from a device is relayed whole, Python judging it. A device naming `devices` alone is refused
-  (`gate: role`). On the gateway's own socket, or a daemon with no gateway, another topic is answered with cursor 0 and never sends anything.
+  founder connections subscribed to `devices`, with cursor 0; a client reads `devices.list` again after a reconnect. A list naming
+  `devices` must name nothing else (`bad_request`, field `topics`: devices and transcript are live from memory, the rest come from the log),
+  and a device naming `devices` alone is refused (`gate: role`).
+- **The other topics** are rows of `stream_log`, whose id is the cursor, and `subscribe` and `unsubscribe` serve them here, on the gateway too
+  (nothing is relayed). Rows come from any writer: this daemon's `Hub.Append`, and the Python daemon's watcher until it stops. One poll of
+  `MAX(id)` every 0.25 s (or at once after an Append) hands the new rows to the subscribers in cursor order; there are no change detectors
+  here, so a topic's rows still come from Python until its detector moves. A resume replays up to 5000 events and then sends `gap`
+  (`retention`, which is also a cursor older than `stream:pruned`); a subscriber more than 1000 live events behind gets `gap` (`slow_client`)
+  and is hung up. An agent session is sent what its role may read (`stream.AgentMay`). Retention is 7 days or 50000 rows, pruned hourly.
 
 ## Web UI and TLS
 
