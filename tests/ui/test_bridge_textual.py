@@ -3525,6 +3525,11 @@ async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_n
 
         async def refresh() -> None:
             page.refresh_view()
+            await pilot.pause(0.1)
+            for _ in range(50):         # the reads run on worker threads: wait until the last one is drawn
+                if not page._inflight:
+                    break
+                await pilot.pause(0.1)
             await pilot.pause(0.5)
         check("newbar: at the bottom nothing shows", pane.is_vertical_scroll_end and not bar.display)
         arrive("while at the bottom")
@@ -5021,6 +5026,34 @@ async def test_the_schedule_form_builds_the_cron_and_the_list_removes_the_row_pr
               and "second, reworded" not in screen_text(), str(left))
 
 
+async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
+    """A daemon RPC on the loop froze the whole screen for as long as it took (0.5-3 s stalls)."""
+    import threading
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
+    _home("offloop")
+    agents.register("reviewer")
+    loop_thread, on_loop = threading.get_ident(), []
+    real = cp.api.call
+    cp.api.call = lambda *a, **k: (on_loop.append(a[0]) if threading.get_ident() == loop_thread else None, real(*a, **k))[1]
+    try:
+        app = BridgeApp()
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            page = cp.ChatPage("reviewer")
+            await app.push_screen(page)
+            await pilot.pause()
+            page.refresh_view()
+            await pilot.pause(0.5)
+    finally:
+        cp.api.call = real
+    left = [m for m in on_loop if m in OFF_LOOP]
+    check("off the loop: a refresh asks the daemon only from a worker thread", not left, str(left))
+
+
+OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen"}        # the methods moved off the loop so far
+
+
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
     """T563: an idle agent whose current task is blocked shows `blocked by T<n>` on the work line;
     working and a wait for a reply come first."""
@@ -5863,6 +5896,7 @@ async def _run_all() -> None:
     await test_the_task_page_sends_a_draft_straight_to_done_from_its_button_and_its_key()
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
+    await test_the_chat_page_never_asks_the_daemon_on_the_ui_loop()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()
     await test_the_memo_box_asks_whoever_is_picked_and_the_chat_does_not_echo_it()
