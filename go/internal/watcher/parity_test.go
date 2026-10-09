@@ -150,15 +150,17 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			run("UPDATE tasks SET title = 'new', priority = 1 WHERE id = 1")
 			run("INSERT INTO task_memos(task_id, author, body, created_at) VALUES(1, 'bob', 'note', 5)")
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(2, 'second', 'carol', 'human', 1, 'human')")
+			// one an open blocker holds, and one doing past its deadline (the clock counts from the deadline missed)
+			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(3, 'held', 'carol', 'human', 1, 'human')")
+			run("INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(3, 1, 1)")
+			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, timeout_s, timeout_at) VALUES(4, 'late', 'dave', 'human', 1, 'human', 1, 3600, 100)")
 		})
-	if len(py) != len(events) || len(py) != 2 {
+	if len(py) != len(events) || len(py) != 4 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
 	// The Task Go's reads serve leaves out six optional fields Python's carries, on purpose: no app reads them from a Task (the asker column
 	// sorts on `from`, a discarded task is told by its state). Go's data must equal Python's on every field it has.
 	missing := map[string]bool{"last_activity": true, "edited_by": true, "asker": true, "discarded": true, "mismatch": true, "requests": true}
-	// And it carries two Python's does not send yet (blocked_by, the task clock): until the Python slice lands they are Go's alone.
-	ahead := map[string]bool{"blocked_by": true, "time": true}
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
 		pyTask, _ := norm(py[i]["data"]).(map[string]any)
@@ -173,8 +175,18 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 				t.Errorf("row %d %s: python %v, go %v", i, k, v, g)
 			}
 		}
+		switch fmt.Sprint(goTask["id"]) {
+		case "3":
+			if fmt.Sprint(goTask["blocked_by"]) != "[1]" {
+				t.Errorf("the held task lists its blocker: %v", goTask["blocked_by"])
+			}
+		case "4":
+			if c, _ := goTask["time"].(map[string]any); c == nil || c["overdue_since"] == nil {
+				t.Errorf("the late task says since when: %v", goTask["time"])
+			}
+		}
 		for k := range goTask {
-			if _, has := pyTask[k]; !has && !ahead[k] {
+			if _, has := pyTask[k]; !has {
 				t.Errorf("row %d: Go's Task has %s, Python's does not", i, k)
 			}
 		}

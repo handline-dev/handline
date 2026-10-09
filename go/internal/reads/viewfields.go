@@ -73,10 +73,14 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 	}
 	view["task_count"] = x.taskCount[name]
 	view["ready"] = x.ready[name] && screenIdle(view["state"])
-	view["wall"] = nil
 	if e.Delivery == nil {
+		// No lifecycle here to say: the wall the stored view holds (the Python tick writes one) stands.
+		if _, has := view["wall"]; !has {
+			view["wall"] = nil
+		}
 		return nil
 	}
+	view["wall"] = nil
 	row, err := db.GetAgentState(e.DB, name)
 	if err != nil || row == nil {
 		return err
