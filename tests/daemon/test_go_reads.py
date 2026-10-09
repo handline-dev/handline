@@ -447,6 +447,81 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
                 check("go reads: the daemon did not panic", False, log)
 
 
+def _seed_outlook(home: Path) -> None:
+    """Agents that spent tokens on two accounts, at two prices and one at none, in a group and alone; both accounts' weeks rose."""
+    support._board_world(home)
+    now = int(time.time())
+    con = db.connect()
+    calls = [("orca", "alpha", "claude-opus-5-5", 1_000_000), ("orca", "beta", "claude-opus-5-5", 333_333),
+             ("orca.ui", "alpha", "claude-sonnet-5", 2_500_000), ("orca.db", "beta", "claude-opus-5-5", 777_777),
+             ("solo", "alpha", "claude-opus-5-5", 1_300_000), ("free", "beta", "claude-opus-5-5", 0)]
+    for i, (agent, acct, model, inp) in enumerate(calls):
+        con.execute("INSERT OR IGNORE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'IDLE', 0, ?)", (agent, f"/w/{agent}"))
+        con.execute("INSERT INTO token_calls VALUES(?,?,?,?,?,?,0,?,?,?,?,?)",
+                    (acct, "p", f"p{i}", now - 3600 * (2 + i), model, f"/w/{agent}", inp, 0, 0, inp // 10, 0))
+    for acct, rise in (("alpha", (10, 20, 31)), ("beta", (5, 5, 9))):
+        for ago_h, used in zip((200, 12, 1), rise):
+            wins = [{"minutes": 10080, "used_percent": used, "resets_at": now + 48 * 3600, "lost": False}]
+            con.execute("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)", (acct, now - ago_h * 3600, json.dumps(wins)))
+    con.commit()
+    con.close()
+
+
+def test_go_outlook_agent_use_and_overlay_equal_python(home: Path) -> None:
+    """stats.outlook's agent_use and overlay on one database, in two ranges and for an agent, a group, a free agent and two picks that
+    name nobody: the rows (order, tokens, cost, share, est_pct, fracs) and the curve, at the rounding both serve."""
+    _seed_outlook(home)
+    cases = [(rng, pick) for rng in ("24h", "7d") for pick in (None, "orca.ui", "grp:orca", "solo", "free", "orca.nobody", "grp:nobody")]
+
+    def answered(reply: dict, who: str, rng: str, pick: str | None) -> dict | None:
+        """The result of a reply, or None after saying which daemon failed which case and how: an error on both sides must not compare equal."""
+        res = reply.get("result")
+        ok = isinstance(res, dict) and "error" not in reply
+        check(f"go outlook: {who} answers {rng} agent {pick!r} with a result", ok, f"error: {json.dumps(reply.get('error', reply), sort_keys=True)[:600]}")
+        return res if ok else None
+
+    def parts(res: dict) -> dict:
+        return {k: res.get(k, "<absent>") for k in ("accounts", "agent_use", "overlay")}
+    asked = {(r, p): _python("stats.outlook", {"range": r, **({"agent": p} if p else {})}, None) for r, p in cases}
+    results = {c: answered(asked[c], "Python", *c) for c in cases}
+    if not all(results.values()):
+        return
+    want = {c: parts(res) for c, res in results.items()}
+    check("go outlook: setup: every case lists the agents that spent (the table does not depend on the pick), so none compares nothing",
+          all(len(w["agent_use"]) == 5 and w["accounts"] == 2 for w in want.values()), str({c: len(w["agent_use"]) for c, w in want.items()}))
+    check("go outlook: setup: the overlay is empty only for a pick that names nobody, and absent only with no pick",
+          all((w["overlay"] == "<absent>") == (c[1] is None) and (w["overlay"] == []) == (c[1] in ("orca.nobody", "grp:nobody"))
+              for c, w in want.items()), str({c: w["overlay"] for c, w in want.items() if c[0] == "7d"}))
+    rows = want[("24h", None)]["agent_use"]
+    check("go outlook: setup: five agents, largest cost first, one with no spend at 0 on its account, a rise averaged over two accounts",
+          [u["agent"] for u in rows] == ["orca", "solo", "orca.ui", "orca.db", "free"] and rows[-1]["fracs"] == {"beta": 0.0}
+          and all(u["est_pct"] is not None for u in rows) and len(rows[0]["fracs"]) == 2, str(rows))
+    check("go outlook: setup: no overlay unless an agent is asked for; a group and a free agent have one; a name that is nobody is empty",
+          want[("24h", None)]["overlay"] == "<absent>" and any(want[("24h", "grp:orca")]["overlay"]) and want[("24h", "free")]["overlay"]
+          and not any(want[("24h", "free")]["overlay"]) and want[("24h", "orca.nobody")]["overlay"] == [], str(want[("24h", "grp:orca")]))
+    with tempfile.TemporaryDirectory() as td:
+        binary = str(Path(td) / "handlined")
+        built = subprocess.run([str(ROOT / "tools" / "build-go.sh"), binary], capture_output=True, text=True)
+        if built.returncode:
+            print("SKIP  go outlook: the Go daemon does not build here:", (built.stdout + built.stderr)[-300:])
+            return
+        go = GoDaemon(binary, home)
+        try:
+            for rng, pick in cases:
+                _forget_sessions()
+                res = answered(go.call("stats.outlook", {"range": rng, **({"agent": pick} if pick else {})}, _hp()), "Go", rng, pick)
+                if res is None:
+                    continue
+                got = parts(res)
+                check(f"go outlook: {rng} agent {pick!r} answers as the Python daemon does", got == want[(rng, pick)],
+                      f"\n go:     {json.dumps(got, sort_keys=True)[:1800]}\n python: {json.dumps(want[(rng, pick)], sort_keys=True)[:1800]}")
+        finally:
+            _forget_sessions()
+            log = go.stop()
+            if "panic" in log:
+                check("go outlook: the daemon did not panic", False, log)
+
+
 def _refresh_prompts() -> None:
     con = db.connect()
     try:
@@ -458,6 +533,7 @@ def _refresh_prompts() -> None:
 def main() -> int:
     def tests(td):
         run(lambda: test_go_reads_equal_python_reads_on_one_database(Path(td) / "r1"))
+        run(lambda: test_go_outlook_agent_use_and_overlay_equal_python(Path(td) / "r2"))
     return run_area(tests)
 
 
