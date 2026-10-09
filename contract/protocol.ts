@@ -147,7 +147,7 @@ export type AgentView = {
   structured?: boolean;
   /** What the agent is, for a column (agents.kind): the model and its effort as `<model> <effort>`, effort one of low, mid, high, xhi, max (any other effort is shown whole), with the vendor in front as `<vendor> <model> <effort>` only when it is not claude. Absent from a daemon that does not serve it yet. */
   kind?: string;
-  /** The tasks the agent owns that are not done: the current one and those waiting. Absent from a daemon that does not serve it yet. */
+  /** The tasks the agent owns that are not done: the current one and those waiting (queued or doing). A draft that is not the current task is not counted, as it is not approved yet; one the agent picked up and made current is. Absent from a daemon that does not serve it yet. */
   task_count?: number;
   /** The agent is idle (the screen word IDLE), has a current task, that task is queued, and no open blocker holds it: it can be given work now. Absent means false. */
   ready?: boolean;
@@ -967,7 +967,7 @@ export type Outlook = {
     share: number;
     /** An estimate of the points of the combined week the agent used in the span: its cost share of each account times the points that account used, averaged over the accounts. An estimate, because what the plan charges is not what the price list says. Null when no account has a reading. */
     est_pct: number | null;
-    /** Its cost share of each account in the span, by account name (a fraction, 0 to 1); an account it spent nothing on is absent. */
+    /** Its cost share of each account in the span, by account name (a fraction, 0 to 1). An account on which nothing at all was spent is absent; one on which others spent but none of this agent's tokens was priced is 0. */
     fracs: { [key: string]: number };
   }[];
   /** Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it. */
