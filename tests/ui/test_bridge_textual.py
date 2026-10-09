@@ -2030,6 +2030,15 @@ def test_summary_line() -> None:
               ok and sm.summarize().for_you == 1, sm.summarize())
     finally:
         con.close()
+    real = api.call
+
+    def down(*a, **k):
+        raise sm.client.DaemonDown("the daemon is not running")
+    api.call = down
+    try:
+        check("summary: a daemon that cannot be asked counts zero and raises nothing", sm.summarize() == sm.Summary(0, 0, 0))
+    finally:
+        api.call = real
 
 
 def test_key_token_translates_textual_keys() -> None:

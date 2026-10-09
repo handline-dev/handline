@@ -10,7 +10,7 @@ from rich.text import Text
 from ... import actions
 from ...usage import status
 from ...infra import paths
-from ...daemon import locks as dmn_locks
+from ...daemon import client, locks as dmn_locks
 from .. import api
 
 class Summary(NamedTuple):
@@ -20,11 +20,14 @@ class Summary(NamedTuple):
 
 
 def summarize() -> Summary:
-    """The three counts, from the daemon's `agents.list`, `inbox.list` and `tasks.list`."""
-    running = sum(1 for a in api.call("agents.list")["agents"] if a["state"] == "running")
-    to_decide = len(api.call("inbox.list", {"kind": "decision", "limit": 200})["items"])
-    for_you = sum(1 for t in api.call("tasks.list", {"owner": actions.HUMAN, "limit": 200})["items"]
-                  if t["state"] in actions.DELEGATED_STATES)
+    """The three counts, from the daemon's `agents.list`, `inbox.list` and `tasks.list`; zero when it cannot be asked."""
+    try:
+        running = sum(1 for a in api.call("agents.list")["agents"] if a["state"] == "running")
+        to_decide = len(api.call("inbox.list", {"kind": "decision", "limit": 200})["items"])
+        for_you = sum(1 for t in api.call("tasks.list", {"owner": actions.HUMAN, "limit": 200})["items"]
+                      if t["state"] in actions.DELEGATED_STATES)
+    except (client.RpcError, client.DaemonDown, OSError):
+        return Summary(0, 0, 0)
     return Summary(running, to_decide, for_you)
 
 

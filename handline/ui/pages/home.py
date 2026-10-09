@@ -36,7 +36,7 @@ from ..components.table_sync import sync_rows
 from ..components.key_guide import Key, KeyGuide, KeyHelp
 from ..components.outlook_view import OutlookView
 from ..components.tasks_view import TasksView
-from ..components.summary import clock, daemon_running, marks_on_screen, summarize, summary_text
+from ..components.summary import Summary, clock, daemon_running, marks_on_screen, summarize, summary_text
 from ..keys import key_token
 from .stats import StatsScreen
 
@@ -345,7 +345,8 @@ class HomePage(RowActions, JobsAware, Screen):
         try:
             agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
                           if panel == tui.AGENTS else None)
-            summary = summarize()
+            daemon = daemon_running()
+            summary = summarize() if daemon else Summary(0, 0, 0)     # a redraw never asks launchd to start a down daemon
             accounts = tui.accounts_data(con)
             rows, notes = tui.agents_data(con)
             agents = (rows, notes, agent_rows.collect(con, rows))
@@ -354,7 +355,7 @@ class HomePage(RowActions, JobsAware, Screen):
         finally:
             con.close()
         usage = {r.name: status.read(r.name) for r in accounts[0]}
-        return Read(summary, agent_keys, daemon_running(), accounts, usage, agents, messages, proposals,
+        return Read(summary, agent_keys, daemon, accounts, usage, agents, messages, proposals,
                     marks_on_screen())
 
     def _arrived(self, got: Read) -> None:
