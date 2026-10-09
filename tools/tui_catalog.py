@@ -75,7 +75,10 @@ def seed() -> None:
         con.commit()
         print({n: actions.task_state(con, db.get_task(con, i)) for n, i in
                (("draft", draft), ("queued", queued), ("doing", doing), ("blocked", blocked), ("done", done))})
-        for who, body, kind in (("reviewer", "The diff for T%d is ready for you: two files, no migrations." % doing, None),
+        mk("Rework the whole onboarding flow so that a new user reaches the first useful screen in under a minute, "
+           "with the tour, the empty states and the sample data all reviewed by design", "frontend")
+        for who, body, kind in (("product", "A long note on the roadmap: " + "the quarter's themes are speed, trust and the first minute. " * 6, None),
+                                ("reviewer", "The diff for T%d is ready for you: two files, no migrations." % doing, None),
                                 ("product", "Which of the two onboarding flows should we ship first?", "question"),
                                 ("frontend", "Pushed the settings page; it needs your eye on the empty state.", None)):
             db.add_request(con, who, actions.HUMAN, body, None, "peer", "async", kind, 0, None)
@@ -84,6 +87,10 @@ def seed() -> None:
         con.commit()
     finally:
         con.close()
+    from handline.team import hr
+    hr.propose("settings", "backend", requester="backend", why="it reads the docs a lot",
+               sets={"browser": "playwright", "browser_sites": "https://docs.example.org"})
+    hr.propose("add", "dohyun", repo="/repo", requester="reviewer", why="the review queue is two days deep")
     # The scratch home has no live sessions, so every verb would be refused: offer them all, as a live session does.
     actions.can = lambda con, agent, label: (True, "")
     from handline.ui.pages import home as home_page
@@ -143,13 +150,61 @@ async def walk() -> None:
             app.screen.query_one("#scope", Tabs).active = tab
             await pilot.pause(1.2)
             await shot(pilot, f"tab-{tab}", "Home tabs", f"The {tab} tab of the home page.")
+        await hr_tab(pilot)
+        await stats_tab(pilot)
         await home_again(pilot)
         await tasks_tab(pilot)
         await home_again(pilot)
         await home_actions(pilot)
+        await home_extras(pilot)
         await account_page(pilot)
         await chat_pages(pilot)
+        await modals(pilot)
         await daemon_down(pilot)
+
+
+async def hr_tab(pilot) -> None:
+    from handline.ui.components.agent_settings_screen import AgentSettingsScreen
+    await tab_of(pilot, "hr")
+    pilot.app.screen.query_one("#hr_table").focus()
+    await pilot.pause(0.3)
+    await shot(pilot, "hr-proposals", "HR tab", "Roster proposals waiting on the founder: the list, the one under the cursor in full, the agents below.")
+    for key, stem, what in (
+            ("r", "hr-reject", "r: reject the proposal, with a reason."),
+            ("e", "hr-edit-settings", "e: the agent settings screen for the agent under the cursor in the agents list.")):
+        if key == "e":
+            pilot.app.screen.query_one("#hr_agents").focus()
+            await pilot.pause(0.3)
+        await press(pilot, key, wait=0.8)
+        await shot(pilot, stem, "HR tab", what)
+        if type(pilot.app.screen).__name__ == "AgentSettingsScreen":
+            await press(pilot, "escape", wait=0.6)
+            await press(pilot, "escape", wait=0.6)      # leave_or_ask: a second Esc if it asked
+        else:
+            await press(pilot, "escape", wait=0.4)
+    pilot.app.screen.query_one("#hr_table").focus()
+    await pilot.pause(0.3)
+    await press(pilot, "w", wait=0.8)
+    await shot(pilot, "hr-withdraw", "HR tab", "w: withdraw a proposal the founder raised (what it says on one an agent raised).")
+    await press(pilot, "escape", wait=0.4)
+
+
+async def stats_tab(pilot) -> None:
+    await tab_of(pilot, "stats")
+    from handline.ui.components.outlook_view import OutlookView
+    pilot.app.screen.query_one(OutlookView).focus()
+    await pilot.pause(0.3)
+    for key, stem, what in (
+            ("v", "stats-view", "v: choose what the WEEK LEFT numbers are (session left, week left, ...)."),
+            ("r", "stats-range", "r: step the range (12h, 24h, 3d, 7d, 14d; 7d, 14d, 30d in the cost view)."),
+            ("question_mark", "stats-keys", "?: the Stats key list.")):
+        await press(pilot, key, wait=0.7)
+        await shot(pilot, stem, "Stats", what)
+        await press(pilot, "escape", wait=0.4)
+    await tab_of(pilot, "home")
+    await press(pilot, "S", wait=1.2)
+    await shot(pilot, "stats-screen", "Stats", "S from Home: the Stats page on its own screen.")
+    await press(pilot, "escape", wait=0.6)
 
 
 async def home_again(pilot) -> None:
@@ -179,6 +234,12 @@ async def tasks_tab(pilot) -> None:
     await shot(pilot, "tasks-sorted", "Tasks tab", "Sorted by the next column (s; S reverses; a click on a column head sorts by it).")
     await press(pilot, "space", "down", "space", wait=0.4)
     await shot(pilot, "tasks-marked", "Tasks tab", "Rows marked with space; d, o, p, m act on all marked rows, and the bar below says so.")
+    await press(pilot, "A", wait=0.5)
+    await shot(pilot, "tasks-all-marked", "Tasks tab", "A: mark every row shown.")
+    await press(pilot, "A", wait=0.4)
+    await press(pilot, "S", wait=0.5)
+    await shot(pilot, "tasks-sort-reverse", "Tasks tab", "S: the sort reversed.")
+    await press(pilot, "S", wait=0.4)
     await press(pilot, "o", wait=0.6)
     await shot(pilot, "tasks-owner", "Tasks tab", "Change the owner of the marked tasks (o).")
     await press(pilot, "escape", wait=0.4)
@@ -193,9 +254,29 @@ async def tasks_tab(pilot) -> None:
     await press(pilot, "escape", wait=0.4)
     await press(pilot, "enter", wait=1.0)
     await shot(pilot, "task-detail", "Tasks tab", "One task opened (enter): its state, memos, request and what it waits on.")
+    for key, stem, what in (
+            ("a", "task-assign", "a on a task page: hand the task to another agent."),
+            ("x", "task-done", "x on a task page: mark it done, with a reason."),
+            ("d", "task-discard", "d on a task page: discard it, with a reason.")):
+        await press(pilot, key, wait=0.7)
+        await shot(pilot, stem, "Task page verbs", what)
+        if type(pilot.app.screen).__name__ != "TaskDetail":     # a modal is up: close it, keep the page
+            await press(pilot, "escape", wait=0.4)
     await press(pilot, "escape", wait=0.5)
     await press(pilot, "question_mark", wait=0.5)
     await shot(pilot, "tasks-keys", "Tasks tab", "The Tasks tab key list (?).")
+    await press(pilot, "escape", wait=0.4)
+
+
+async def home_extras(pilot) -> None:
+    """Home verbs not shot with their panel: w wake, and M mark all read in FOR YOU."""
+    await to_panel(pilot, 1)
+    await press(pilot, "w", wait=0.8)
+    await shot(pilot, "agents-wake", "Home: agent verbs", "w: wake the agent under the cursor (what it says when it is already working).")
+    await press(pilot, "escape", wait=0.4)
+    await to_panel(pilot, 2)
+    await press(pilot, "M", wait=0.8)
+    await shot(pilot, "messages-mark-all", "Home: message verbs", "M: mark every message read (what waits on an answer stays).")
     await press(pilot, "escape", wait=0.4)
 
 
@@ -268,6 +349,9 @@ async def chat_pages(pilot) -> None:
     await tab_of(pilot, "settings")
     await shot(pilot, "chat-settings", "Chat page", "The agent's settings: model, effort, account, switches.")
     await tab_of(pilot, "mine")
+    await press(pilot, "ctrl+r", wait=0.6)
+    await shot(pilot, "chat-history", "Chat page", "ctrl+r: what was sent before; typing narrows the list (empty here: nothing was sent from this scratch home).")
+    await press(pilot, "escape", wait=0.3)
     await press(pilot, "slash", wait=0.6)
     await shot(pilot, "chat-slash", "Chat page", "Typing / in the compose box lists the agent's slash commands.")
     await press(pilot, "escape", wait=0.3)
@@ -276,17 +360,87 @@ async def chat_pages(pilot) -> None:
 async def daemon_down(pilot) -> None:
     """The home page when the daemon is not running (its banner and what the rows say then)."""
     from handline.ui.pages import home as home_page
-    pilot.app.pop_screen()
-    await pilot.pause(0.8)
     home_page.daemon_running = lambda: False
     await pilot.pause(2.5)
     await shot(pilot, "home-daemon-down", "States", "The home page with the daemon stopped.")
     home_page.daemon_running = lambda: True
 
 
+async def modal(pilot, screen, stem: str, what: str, group: str = "Modals") -> None:
+    """Push `screen` as the app's own code would, shoot it, close it."""
+    pilot.app.push_screen(screen)
+    await pilot.pause(0.6)
+    await shot(pilot, stem, group, what)
+    pilot.app.pop_screen()
+    await pilot.pause(0.3)
+
+
+async def modals(pilot) -> None:
+    """Modals that open only while a live session is in a state (a blocked prompt, a running command), built from the
+    same dicts the code makes them from; and the forms whose open path is a menu or button deep in a settings tab."""
+    from handline.ui.chat_page import HandoffModal
+    from handline.ui.components.answer_add import AnswerAdd
+    from handline.ui.components.confirm import Confirm
+    from handline.ui.components.dialog_modal import DialogModal
+    from handline.ui.components.permission_modal import PermissionModal
+    from handline.ui.components.question_modal import QuestionModal
+    from handline.ui.components.schedule_add import ScheduleAdd
+    from handline.ui.components.shell_card import OutputModal
+    from handline.ui.components.sites_list import SiteEdit
+    pilot.app.pop_screen()          # the chat page, back to Home
+    await pilot.pause(0.8)
+
+    async def press_fn(*_a):
+        return True, ""
+    question = {"agent": "product", "header": "Onboarding", "question": "Which of the two onboarding flows should we ship first?",
+                "options": [{"label": "Short flow", "description": "three screens"}, {"label": "Guided flow", "description": "seven screens, with a tour"}],
+                "multi_select": False, "other_number": 3, "other_text": ""}
+    await modal(pilot, QuestionModal(question, press_fn), "modal-question", "An agent's blocked question (one choice) answered from the screen.")
+    await modal(pilot, QuestionModal({**question, "header": "Checks", "question": "Which checks should run before the release?",
+                                      "options": [{"label": "Unit tests", "checked": True}, {"label": "Browser tests"}, {"label": "Load test"}],
+                                      "multi_select": True}, press_fn),
+                "modal-question-multi", "The same for a question that takes several answers: checkboxes and Submit picked.")
+    await modal(pilot, PermissionModal({"agent": "backend", "tool": "Bash", "lines": ["rm -rf build/", "Do you want to proceed?"], "reason": ""}),
+                "modal-permission", "An agent waits for permission to run a tool; y or n answers it.")
+    await modal(pilot, DialogModal({"agent": "frontend", "title": "Choose a template", "body": ["Which template for the new page?"],
+                                    "options": [(1, "Blank"), (2, "Settings form"), (3, "List and detail")], "always": True}),
+                "modal-dialog", "An agent's blocked menu prompt: pick its number, or tick always to keep the pick as a rule.")
+    await modal(pilot, HandoffModal("session 2 of backend", "\n".join(f"line {i} of the handoff: what was done, what is left" for i in range(60))),
+                "modal-handoff", "A session's handoff, whole and scrollable (enter on the session marker in chat).")
+    await modal(pilot, OutputModal("$ ls -la", [f"-rw-r--r--  1 ron  staff  {i * 100}  file{i}.txt" for i in range(80)], 12),
+                "modal-output", "Everything a shell command printed (Show all on a shell card), with how many early lines were let go.")
+    await modal(pilot, Confirm("Restart backend's session?", "Its terminal is closed and started again.", yes="Restart"),
+                "modal-confirm-restart", "A confirm before a restart (f5 in chat).", )
+    await modal(pilot, Confirm("Skip permission prompts for backend?", "It will run every tool without asking.", yes="Skip", danger=True),
+                "modal-confirm-skip-permissions", "Agent settings: turning off permission prompts asks first (danger style).")
+    await modal(pilot, Confirm("Run backend with no sandbox?", "Its commands can then reach everything on this machine.", yes="Turn off", danger=True),
+                "modal-confirm-no-sandbox", "Agent settings: turning the sandbox off asks first (danger style).")
+    await modal(pilot, ScheduleAdd(), "modal-schedule-add", "Add a schedule: when, and the message sent to the agent.")
+    await modal(pilot, ScheduleAdd(("30 9 * * 1-5", "Check the open tasks")), "modal-schedule-edit", "Edit a schedule: the form opens on its time and message.")
+    await modal(pilot, SiteEdit(["example.com"]), "modal-site-add", "Add an allowed site (Settings tab, sites).")
+    await modal(pilot, SiteEdit([], "example.com"), "modal-site-edit", "Edit a site.")
+    await modal(pilot, AnswerAdd(), "modal-answer-add", "Add an auto-answer rule (Settings tab): trust a folder, or answer a prompt for good.")
+
+
+async def empty_walk() -> None:
+    """A home with no agent, task or message: what each page says when there is nothing to list."""
+    from handline.ui.bridge_textual import BridgeApp
+    t._daemon_home(Path(tempfile.mkdtemp(prefix="tui_catalog_empty_", dir=t.TEST_ROOT)), 0)
+    app = BridgeApp()
+    async with app.run_test(size=SIZE) as pilot:
+        await pilot.pause(1.5)
+        await shot(pilot, "empty-home", "Empty states", "Home with one idle agent, no task and nothing waiting on the founder.")
+        await press(pilot, "T", wait=0.8)
+        await shot(pilot, "empty-tasks", "Empty states", "The Tasks tab with no task.")
+        for tab in ("stats", "hr"):
+            await tab_of(pilot, tab)
+            await shot(pilot, f"empty-{tab}", "Empty states", f"The {tab} tab with nothing recorded.")
+
+
 def main() -> None:
     seed()
     asyncio.run(walk())
+    asyncio.run(empty_walk())
     index()
 
 
@@ -300,15 +454,14 @@ def index() -> None:
         lines += [f"### {stem}", "", what, "", f"![{stem}](img/{stem}.svg)", ""]
     lines += ["", "## Not captured", "",
               "- Shots are SVG (no PNG converter on the build machine); open them in a browser.",
+              "- The modals in `Modals` are built with sample data, as the code builds them from a live session's prompt; they were not reached by a real blocked session.",
               "- Modals are shown up to the question; no answer is sent, so no result screen (confirm done, error toast) is shown.",
-              "- Stats, HR and Settings tabs show the scratch home's thin data: no weekly readings, no per-agent usage rows.",
+              "- Toasts (a refused verb, a saved setting) do not show in a shot.",
+              "- Stats and the Settings tab show the scratch home's thin data: no weekly readings, no per-agent usage rows.",
               "- Opened outside the TUI, so not shot: t (terminal), e (editor), the account Login flow.",
-              "- Empty states other than daemon-down (no agents, no tasks, no messages) are not shot; error and long-text states are not shot either.",
-              "- Modals: Question, Permission, Dialog (answering an agent's blocked prompt in chat), Handoff, ScheduleAdd, SiteEdit, AnswerAdd, Output (shell card), and the f5 restart and agent-settings Confirms (skip permissions, no sandbox).",
-              "- Task detail verbs a/x/u/r/d (assign, done, reopen, discard), memo and brief edit; Tasks tab A and S.",
-              "- HR proposals (a/A/r/R/w/e) and the agent settings screen: no proposals are seeded.",
-              "- Stats: r/v/backspace/? on WEEK LEFT and the full Stats screen (S).",
-              "- Chat ctrl+r history; Home w (wake) and M (mark all read).", ""]
+              "- Task page u (queue/draft) and r (reopen a done task); memo and brief edit.",
+              "- The f5 restart outside a modal, and approve (a, A) and reject-all (R) in HR: they change the roster.",
+              "- Error states: only the FATAL agent row is shot.", ""]
     OUT.joinpath("index.md").write_text("\n".join(lines))
 
 

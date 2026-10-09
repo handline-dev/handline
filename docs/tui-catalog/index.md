@@ -63,6 +63,60 @@ The settings tab of the home page.
 ![tab-settings](img/tab-settings.svg)
 
 
+## HR tab
+
+### hr-proposals
+
+Roster proposals waiting on the founder: the list, the one under the cursor in full, the agents below.
+
+![hr-proposals](img/hr-proposals.svg)
+
+### hr-reject
+
+r: reject the proposal, with a reason.
+
+![hr-reject](img/hr-reject.svg)
+
+### hr-edit-settings
+
+e: the agent settings screen for the agent under the cursor in the agents list.
+
+![hr-edit-settings](img/hr-edit-settings.svg)
+
+### hr-withdraw
+
+w: withdraw a proposal the founder raised (what it says on one an agent raised).
+
+![hr-withdraw](img/hr-withdraw.svg)
+
+
+## Stats
+
+### stats-view
+
+v: choose what the WEEK LEFT numbers are (session left, week left, ...).
+
+![stats-view](img/stats-view.svg)
+
+### stats-range
+
+r: step the range (12h, 24h, 3d, 7d, 14d; 7d, 14d, 30d in the cost view).
+
+![stats-range](img/stats-range.svg)
+
+### stats-keys
+
+?: the Stats key list.
+
+![stats-keys](img/stats-keys.svg)
+
+### stats-screen
+
+S from Home: the Stats page on its own screen.
+
+![stats-screen](img/stats-screen.svg)
+
+
 ## Tasks tab
 
 ### tasks-list
@@ -107,6 +161,18 @@ Rows marked with space; d, o, p, m act on all marked rows, and the bar below say
 
 ![tasks-marked](img/tasks-marked.svg)
 
+### tasks-all-marked
+
+A: mark every row shown.
+
+![tasks-all-marked](img/tasks-all-marked.svg)
+
+### tasks-sort-reverse
+
+S: the sort reversed.
+
+![tasks-sort-reverse](img/tasks-sort-reverse.svg)
+
 ### tasks-owner
 
 Change the owner of the marked tasks (o).
@@ -136,6 +202,30 @@ Fold the marked tasks into the row under the cursor (m).
 One task opened (enter): its state, memos, request and what it waits on.
 
 ![task-detail](img/task-detail.svg)
+
+
+## Task page verbs
+
+### task-assign
+
+a on a task page: hand the task to another agent.
+
+![task-assign](img/task-assign.svg)
+
+### task-done
+
+x on a task page: mark it done, with a reason.
+
+![task-done](img/task-done.svg)
+
+### task-discard
+
+d on a task page: discard it, with a reason.
+
+![task-discard](img/task-discard.svg)
+
+
+## Tasks tab
 
 ### tasks-keys
 
@@ -225,6 +315,24 @@ m: mark a message read away from FOR YOU (what waits on an answer stays).
 ![messages-mark-read](img/messages-mark-read.svg)
 
 
+## Home: agent verbs
+
+### agents-wake
+
+w: wake the agent under the cursor (what it says when it is already working).
+
+![agents-wake](img/agents-wake.svg)
+
+
+## Home: message verbs
+
+### messages-mark-all
+
+M: mark every message read (what waits on an answer stays).
+
+![messages-mark-all](img/messages-mark-all.svg)
+
+
 ## Account page
 
 ### account-overview
@@ -272,11 +380,104 @@ The agent's settings: model, effort, account, switches.
 
 ![chat-settings](img/chat-settings.svg)
 
+### chat-history
+
+ctrl+r: what was sent before; typing narrows the list (empty here: nothing was sent from this scratch home).
+
+![chat-history](img/chat-history.svg)
+
 ### chat-slash
 
 Typing / in the compose box lists the agent's slash commands.
 
 ![chat-slash](img/chat-slash.svg)
+
+
+## Modals
+
+### modal-question
+
+An agent's blocked question (one choice) answered from the screen.
+
+![modal-question](img/modal-question.svg)
+
+### modal-question-multi
+
+The same for a question that takes several answers: checkboxes and Submit picked.
+
+![modal-question-multi](img/modal-question-multi.svg)
+
+### modal-permission
+
+An agent waits for permission to run a tool; y or n answers it.
+
+![modal-permission](img/modal-permission.svg)
+
+### modal-dialog
+
+An agent's blocked menu prompt: pick its number, or tick always to keep the pick as a rule.
+
+![modal-dialog](img/modal-dialog.svg)
+
+### modal-handoff
+
+A session's handoff, whole and scrollable (enter on the session marker in chat).
+
+![modal-handoff](img/modal-handoff.svg)
+
+### modal-output
+
+Everything a shell command printed (Show all on a shell card), with how many early lines were let go.
+
+![modal-output](img/modal-output.svg)
+
+### modal-confirm-restart
+
+A confirm before a restart (f5 in chat).
+
+![modal-confirm-restart](img/modal-confirm-restart.svg)
+
+### modal-confirm-skip-permissions
+
+Agent settings: turning off permission prompts asks first (danger style).
+
+![modal-confirm-skip-permissions](img/modal-confirm-skip-permissions.svg)
+
+### modal-confirm-no-sandbox
+
+Agent settings: turning the sandbox off asks first (danger style).
+
+![modal-confirm-no-sandbox](img/modal-confirm-no-sandbox.svg)
+
+### modal-schedule-add
+
+Add a schedule: when, and the message sent to the agent.
+
+![modal-schedule-add](img/modal-schedule-add.svg)
+
+### modal-schedule-edit
+
+Edit a schedule: the form opens on its time and message.
+
+![modal-schedule-edit](img/modal-schedule-edit.svg)
+
+### modal-site-add
+
+Add an allowed site (Settings tab, sites).
+
+![modal-site-add](img/modal-site-add.svg)
+
+### modal-site-edit
+
+Edit a site.
+
+![modal-site-edit](img/modal-site-edit.svg)
+
+### modal-answer-add
+
+Add an auto-answer rule (Settings tab): trust a folder, or answer a prompt for good.
+
+![modal-answer-add](img/modal-answer-add.svg)
 
 
 ## States
@@ -288,15 +489,41 @@ The home page with the daemon stopped.
 ![home-daemon-down](img/home-daemon-down.svg)
 
 
+## Empty states
+
+### empty-home
+
+Home with one idle agent, no task and nothing waiting on the founder.
+
+![empty-home](img/empty-home.svg)
+
+### empty-tasks
+
+The Tasks tab with no task.
+
+![empty-tasks](img/empty-tasks.svg)
+
+### empty-stats
+
+The stats tab with nothing recorded.
+
+![empty-stats](img/empty-stats.svg)
+
+### empty-hr
+
+The hr tab with nothing recorded.
+
+![empty-hr](img/empty-hr.svg)
+
+
 ## Not captured
 
 - Shots are SVG (no PNG converter on the build machine); open them in a browser.
+- The modals in `Modals` are built with sample data, as the code builds them from a live session's prompt; they were not reached by a real blocked session.
 - Modals are shown up to the question; no answer is sent, so no result screen (confirm done, error toast) is shown.
-- Stats, HR and Settings tabs show the scratch home's thin data: no weekly readings, no per-agent usage rows.
+- Toasts (a refused verb, a saved setting) do not show in a shot.
+- Stats and the Settings tab show the scratch home's thin data: no weekly readings, no per-agent usage rows.
 - Opened outside the TUI, so not shot: t (terminal), e (editor), the account Login flow.
-- Empty states other than daemon-down (no agents, no tasks, no messages) are not shot; error and long-text states are not shot either.
-- Modals: Question, Permission, Dialog (answering an agent's blocked prompt in chat), Handoff, ScheduleAdd, SiteEdit, AnswerAdd, Output (shell card), and the f5 restart and agent-settings Confirms (skip permissions, no sandbox).
-- Task detail verbs a/x/u/r/d (assign, done, reopen, discard), memo and brief edit; Tasks tab A and S.
-- HR proposals (a/A/r/R/w/e) and the agent settings screen: no proposals are seeded.
-- Stats: r/v/backspace/? on WEEK LEFT and the full Stats screen (S).
-- Chat ctrl+r history; Home w (wake) and M (mark all read).
+- Task page u (queue/draft) and r (reopen a done task); memo and brief edit.
+- The f5 restart outside a modal, and approve (a, A) and reject-all (R) in HR: they change the roster.
+- Error states: only the FATAL agent row is shot.
