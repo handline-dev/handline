@@ -107,6 +107,7 @@ func main() {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
 		parts := compose.New(ccfg)
 		cfg.Watch = *structuredTick && *cutover
+		cfg.Delivery = parts.Delivery()
 		cfg.Transcript, cfg.Structured, cfg.SessionOpen, cfg.Agents, cfg.Answers = parts.Sink, parts.Kind, parts.Run.Alive, parts.Agents, parts.Manager
 		cfg.OnOpen = func(db *sql.DB, env *supervisor.Env) {
 			parts.Bind(db, env)

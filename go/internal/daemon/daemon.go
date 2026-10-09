@@ -88,6 +88,8 @@ type Config struct {
 	SessionOpen func(agent string) bool
 	// Context is the model id and context figures of an agent on an account (agent.strip). Nil leaves them null.
 	Context func(agent, account string) (string, *int64, int)
+	// Delivery is what the supervisor knows of why a queued line waits (a chat line's sending_reason). Nil leaves out the reasons that need it.
+	Delivery reads.Delivery
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
 	// serves none of them.
 	Session func() *sessionrpc.Env
@@ -231,7 +233,7 @@ func Start(cfg Config) (*Daemon, error) {
 	if cfg.Watch && !cfg.Gateway {
 		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log,
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
-				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home}}}}
+				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
@@ -311,7 +313,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
-	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()}
+	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion(), Delivery: d.cfg.Delivery}
 	if d.transcripts() {
 		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })

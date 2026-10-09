@@ -191,20 +191,6 @@ func orEmpty(v any) any {
 	return v
 }
 
-// sendingReason says why a queued line has not reached an agent: what this daemon can know of the queue is whether
-// an older line is ahead of it.
-func (c *chat) sendingReason(r row) (any, error) {
-	ahead, err := queryOne(c.e.DB, "SELECT MIN(id) AS id FROM requests WHERE target = ? AND state = 'queued' AND settles IS NULL AND id < ?",
-		r.str("target"), r.i("id"))
-	if err != nil {
-		return nil, err
-	}
-	if ahead.set("id") {
-		return fmt.Sprintf("behind #%d", ahead.i("id")), nil
-	}
-	return "waiting for the agent", nil
-}
-
 // receiptOf is the receipt of a message to a structured agent: the state its session's ledger holds for the message, nil for a message
 // the session never took. Landing follows it: queued is queued, sent and unknown are typed, confirmed is delivered.
 func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) {
@@ -264,7 +250,7 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	var why any
 	if (state == "queued" || state == "typed") && r.str("target") != human {
 		var err error
-		if why, err = c.sendingReason(r); err != nil {
+		if why, err = c.e.QueueReason(r.str("target"), r.i("id")); err != nil {
 			return nil, err
 		}
 		if receipt != nil && receipt["state"] == "unknown" {
