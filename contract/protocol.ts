@@ -119,7 +119,7 @@ export type AgentView = {
   ctx_pct?: number | null;
   has_dialog: boolean;
   parent: AgentName | null;
-  /** Who holds the input; one in v1, a list so more can later. */
+  /** Who holds the input; one in v1, a list so more can later. A structured agent has no input to hold: []. */
   input_holders?: InputHolder[];
   /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
   state_detail: string;
@@ -143,7 +143,7 @@ export type AgentView = {
   }[];
   /** Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true). */
   wake_wait_reason?: string | null;
-  /** The daemon runs this agent as a structured session: the transcript topic and transcript.events serve it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too. */
+  /** The agent is set up to run as a structured session, whether its session is live or closed: the transcript topic and transcript.events serve it (the stored log too), chat.send returns a receipt for it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too. */
   structured?: boolean;
 };
 
@@ -154,6 +154,7 @@ export type AgentDetail = AgentView & {
   } | null;
   terminal: string | null;
   session_id: string | null;
+  /** A session is running. For a structured agent, its session is live (terminal is null). */
   session_open: boolean;
   /** The account the daemon would place a session start on, before session.start; account null with a reason when none can take work. */
   account_pick: {
@@ -1201,6 +1202,7 @@ export interface Methods {
 }; result: Accepted };
   "session.start": { params: {
   agent: AgentName;
+  /** The Go daemon does not place sessions on a named account yet: it answers bad_request, field account, never drops it. A client offers no account picker until then. */
   account?: string;
   repo?: string;
   base?: string;

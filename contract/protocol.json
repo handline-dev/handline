@@ -39,7 +39,7 @@
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
-  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. transcript.events for an agent the daemon runs as a terminal.",
+  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. transcript.events for an agent the daemon runs as a terminal; the typing and terminal methods for an agent it runs as a structured session.",
   "not_self": "The agent named is not the caller's own session.",
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
@@ -1255,7 +1255,7 @@
   },
   {
    "name": "session.start",
-   "summary": "Launch a session in the agent's terminal, optionally on a named account.",
+   "summary": "Launch a session for the agent, optionally on a named account: in its terminal, or for a structured agent as a structured session with no terminal.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1269,7 +1269,8 @@
      "name": "account",
      "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "The Go daemon does not place sessions on a named account yet: it answers bad_request, field account, never drops it. A client offers no account picker until then."
      }
     },
     {
@@ -1361,7 +1362,7 @@
   {
    "name": "session.stop",
    "summary": "exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process.",
-   "description": "An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person.",
+   "description": "An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1577,9 +1578,10 @@
     "terminal_lock",
     "input_holder",
     "wall",
-    "screen_blocker"
+    "screen_blocker",
+    "unsupported"
    ],
-   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. Refused (gate unsupported) for an agent the daemon runs as a structured session: it has no terminal to type at, so a client sends chat.send and watches the transcript."
   },
   {
    "name": "session.keys",
@@ -1635,9 +1637,10 @@
    "x-gates": [
     "role",
     "terminal_lock",
-    "input_holder"
+    "input_holder",
+    "unsupported"
    ],
-   "description": " Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
+   "description": "Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. Refused (gate unsupported) for an agent the daemon runs as a structured session: it has no terminal to type at, so a client sends chat.send and watches the transcript."
   },
   {
    "name": "session.type",
@@ -1690,13 +1693,14 @@
    "x-gates": [
     "role",
     "terminal_lock",
-    "input_holder"
+    "input_holder",
+    "unsupported"
    ],
-   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id."
+   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. Refused (gate unsupported) for an agent the daemon runs as a structured session: it has no terminal to type at, so a client sends chat.send and watches the transcript."
   },
   {
    "name": "session.interrupt",
-   "summary": "Stop the turn in progress (Esc). The daemon never does this by itself.",
+   "summary": "Stop the turn in progress (Esc for a terminal agent; a control request to the CLI for a structured one).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1735,7 +1739,8 @@
     "role",
     "terminal_lock",
     "input_holder"
-   ]
+   ],
+   "description": "For a structured agent no terminal lock or input hold applies, and it is refused (gate state) when no turn is running, so a stale button learns why."
   },
   {
    "name": "prompt.list",
@@ -1857,7 +1862,8 @@
     "role",
     "terminal_lock",
     "input_holder"
-   ]
+   ],
+   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies."
   },
   {
    "name": "input.take",
@@ -1913,8 +1919,10 @@
    ],
    "x-gates": [
     "role",
-    "input_holder"
-   ]
+    "input_holder",
+    "unsupported"
+   ],
+   "description": "Refused (gate unsupported) for an agent the daemon runs as a structured session: it has no terminal to type at, so a client sends chat.send and watches the transcript."
   },
   {
    "name": "input.release",
@@ -1954,8 +1962,10 @@
     }
    ],
    "x-gates": [
-    "role"
-   ]
+    "role",
+    "unsupported"
+   ],
+   "description": "Refused (gate unsupported) for an agent the daemon runs as a structured session: it has no terminal to type at, so a client sends chat.send and watches the transcript."
   },
   {
    "name": "chat.messages",
@@ -2264,7 +2274,7 @@
    "x-gates": [
     "unsupported"
    ],
-   "description": "Refused (gate unsupported) for an agent the daemon does not run as a structured session (a terminal agent: watch its terminal). since_seq with before_seq, or a limit outside 1 to 500, is bad_request naming the field."
+   "description": "Refused (gate unsupported) for an agent the daemon does not run as a structured session (a terminal agent: watch its terminal). since_seq with before_seq, or a limit outside 1 to 500, is bad_request naming the field. Served for a structured agent whether or not its session is live, from the stored log."
   },
   {
    "name": "chat.locate",
@@ -3041,7 +3051,7 @@
    "x-gates": [
     "unsupported"
    ],
-   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach."
+   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, refused (gate unsupported) for an agent the daemon runs as a structured session; it has no terminal."
   },
   {
    "name": "terminal.history",
@@ -7398,7 +7408,7 @@
       "items": {
        "$ref": "#/components/schemas/InputHolder"
       },
-      "description": "Who holds the input; one in v1, a list so more can later."
+      "description": "Who holds the input; one in v1, a list so more can later. A structured agent has no input to hold: []."
      },
      "state_detail": {
       "type": "string",
@@ -7469,7 +7479,7 @@
      },
      "structured": {
       "type": "boolean",
-      "description": "The daemon runs this agent as a structured session: the transcript topic and transcript.events serve it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too."
+      "description": "The agent is set up to run as a structured session, whether its session is live or closed: the transcript topic and transcript.events serve it (the stored log too), chat.send returns a receipt for it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too."
      }
     },
     "required": [
@@ -7522,7 +7532,7 @@
         "oneOf": [
          {
           "type": "string",
-          "description": "Terminal handle for terminal.attach."
+          "description": "Terminal handle for terminal.attach. Null for a structured agent."
          },
          {
           "type": "null"
@@ -7540,7 +7550,8 @@
         ]
        },
        "session_open": {
-        "type": "boolean"
+        "type": "boolean",
+        "description": "A session is running. For a structured agent, its session is live (terminal is null)."
        },
        "account_pick": {
         "type": "object",
@@ -11655,5 +11666,12 @@
   "queued": "chat.send_now writes a queued operation now, with priority now (receipt sent). chat.cancel withdraws it without confirm. Both are refused (gate state) for any other receipt; there is no chat.withdraw.",
   "view": "ChatMessage.receipt carries the receipt, and landing follows it: queued is queued, sent and unknown are typed (sending_reason says unknown), confirmed is delivered. Each change sends the usual chat.message event. A terminal agent's message has no receipt.",
   "terminal": "An agent whose AgentView.structured is not true accepts `delivery` and ignores it, and its result and messages have no receipt."
+ },
+ "x-structured-controls": {
+  "what": "How the apps drive and watch an agent that AgentView.structured marks. It has no terminal: everything below is a chat, session or prompt call.",
+  "watch": "transcript.events and the transcript topic show what it did; chat.transcript and chat.messages draw the conversation and each message's receipt. Both stay readable while its session is closed.",
+  "detail": "agent.get: terminal null, session_open true while its session is live, input_holders [].",
+  "controls": "session.start, wake, restart, park, stop (exit and close are the same; kill is for a person) and interrupt (refused, gate state, when no turn runs); prompt.answer takes allow or deny; chat.send, chat.send_now and chat.cancel as in Delivery.",
+  "never": "session.input, session.keys, session.type, input.take, input.release and terminal.attach with agent are refused (gate unsupported). A client does not send them for a structured agent and shows no terminal tab, holder, key strip or Take control."
  }
 }

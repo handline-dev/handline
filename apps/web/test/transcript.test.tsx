@@ -31,7 +31,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
 
-async function mount(agent: string, s = setup()) {
+async function mount(agent: string, s = setup({ structuredTerminal: true })) {
   const store = new Store(s.client);
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
@@ -96,7 +96,7 @@ describe('the transcript of a structured agent', () => {
   });
 
   it('shows a skeleton while it loads and, when the read fails, an error with a Retry that reads again', async () => {
-    const s = setup();
+    const s = setup({ structuredTerminal: true });
     s.daemon.knobs.latency(300);
     s.daemon.knobs.refuse('transcript.events', 'busy', 'try later', undefined, 1);
     await mount(AUD, s);

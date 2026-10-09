@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
 import { setup } from '../src/helpers.ts';
+import type { Script } from '../src/script.ts';
 
 const AUD = 'handline.auditor'; // a structured session
 const TERM = 'handline.term-build'; // a terminal agent
@@ -129,7 +130,8 @@ test('a session call that starts a turn shows turn_running in the working line, 
   const A = 'handline.architect';
   daemon.transcript.structure(A);
   assert.equal((await client.call('chat.transcript', { agent: A })).working.turn_running, false);
-  await client.call('session.input', { agent: A, text: 'go', request_id: 'op-13i' });
+  // a structured agent takes no typing; its turn starts the way the scripted one does
+  (daemon as unknown as { script: Script }).script.startTurn(daemon.sessions.get(A)!, { kind: 'user', name: 'founder' });
   assert.equal((await client.call('chat.transcript', { agent: A })).working.turn_running, true);
   const r = await client.call('chat.send', { agent: A, body: 'behind it', request_id: 'op-13' });
   assert.equal(r.receipt?.state, 'queued');

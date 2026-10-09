@@ -118,7 +118,7 @@ export function detail(s: Session): AgentDetail {
     terminal: s.hasTerminal ? tid(s) : null,
     session_id: s.sessionId,
     session_open: s.open,
-    input_holders: [s.holder],
+    input_holders: s.structured ? [] : [s.holder],
     account_pick: { account: s.fx.account, reason: 'fixture' },
     prompt: s.prompt,
     settings: s.settings as AgentDetail['settings'],
