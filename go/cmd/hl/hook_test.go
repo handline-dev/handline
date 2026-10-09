@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -97,5 +100,86 @@ func TestHookIsPythonsWhileTheSwitchIsOffAndForAnyOtherEvent(t *testing.T) {
 	stdin := `{"hook_event_name": "PostToolUse"}`
 	if out, _, code := on.runIn(stdin, asAgent, "hook", "PreToolUse"); code != 0 || !strings.HasSuffix(out, " hook PreToolUse\n") {
 		t.Errorf("named another event: %q %d", out, code)
+	}
+}
+
+func postToolUse(event, tool string, input map[string]any, more map[string]any) string {
+	m := map[string]any{"hook_event_name": event, "session_id": "s", "tool_name": tool, "tool_input": input}
+	for k, v := range more {
+		m[k] = v
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+func TestPostToolUseRecordsClearsItsWaitAndNotesWhatItUsed(t *testing.T) {
+	r := hookRig(t, true)
+	calls := r.daemon(nil)
+	wait := filepath.Join(r.home, "waiting", "a.one.json")
+	if err := os.MkdirAll(filepath.Dir(wait), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mem := filepath.Join(paths.AgentDir(r.home, "a.one"), "memory")
+	if err := os.MkdirAll(mem, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Another tool finishing is not an answer to the prompt the Bash call raised; that call finishing is.
+	held := `{"tool": "Bash", "command": "make", "since": 5}`
+	if err := os.WriteFile(wait, []byte(held), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := postToolUse("PostToolUse", "Read", map[string]any{"file_path": filepath.Join(mem, "topic.md")}, nil)
+	if out, errs, code := r.runIn(read, asAgent, "hook", "PostToolUse"); code != 0 || errs != "" || out != "{}\n" {
+		t.Fatalf("read: %q %q %d", out, errs, code)
+	}
+	if _, err := os.Stat(wait); err != nil {
+		t.Fatal("another tool's call took the wait away")
+	}
+	use, err := os.ReadFile(filepath.Join(paths.AgentDir(r.home, "a.one"), "memory-use.json"))
+	if err != nil || !regexp.MustCompile(`^\{\n "topic\.md": \d+\n\}\n$`).Match(use) {
+		t.Fatalf("memory use %q %v", use, err)
+	}
+	bg := postToolUse("PostToolUse", "Bash", map[string]any{"command": "make", "run_in_background": true},
+		map[string]any{"tool_response": "Command running in background with ID: b7x. Output is being written to: /tmp/s/tasks/b7x.output", "tool_use_id": "tu1"})
+	if out, _, code := r.runIn(bg, asAgent, "hook", "PostToolUse"); code != 0 || out != "{}\n" {
+		t.Fatalf("bg: %q %d", out, code)
+	}
+	if _, err := os.Stat(wait); err == nil {
+		t.Fatal("the call that raised the wait finished and it stayed")
+	}
+	got := calls()
+	if len(got) != 2 || got[0]["method"] != "hook.record" {
+		t.Fatalf("calls %v", got)
+	}
+	p := got[1]["params"].(map[string]any)
+	if p["agent"] != "a.one" || p["kind"] != "PostToolUse" || p["request_id"] == "" || p["data"].(map[string]any)["tool_use_id"] != "tu1" {
+		t.Fatalf("params %v", p)
+	}
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var payload string
+	if err := d.QueryRow("SELECT payload FROM events WHERE agent = 'a.one' AND kind = 'background_started'").Scan(&payload); err != nil ||
+		payload != `{"command": "make", "job": "b7x", "output": "/tmp/s/tasks/b7x.output", "session": "s", "tool_use_id": "tu1"}` {
+		t.Fatalf("background %q %v", payload, err)
+	}
+}
+
+func TestPostToolUseSpoolsWhenTheDaemonDoesNotAnswer(t *testing.T) {
+	r := hookRig(t, true)
+	in := postToolUse("PostToolUseFailure", "Read", map[string]any{"file_path": "/x"}, nil)
+	if out, _, code := r.runIn(in, asAgent, "hook", "PostToolUseFailure"); code != 0 || out != "{}\n" {
+		t.Fatalf("%q %d", out, code)
+	}
+	b, err := os.ReadFile(filepath.Join(r.home, "hook-spool.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line map[string]any
+	if json.Unmarshal(b, &line) != nil || line["agent"] != "a.one" || line["kind"] != "PostToolUseFailure" || line["request_id"] == "" ||
+		line["data"].(map[string]any)["tool_name"] != "Read" || !strings.HasSuffix(string(b), "}\n") {
+		t.Fatalf("spooled %q", b)
 	}
 }

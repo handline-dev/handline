@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -9,10 +10,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/atomicfile"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
@@ -197,4 +201,108 @@ func lastUse(v any) (last float64, recorded, ok bool) {
 		}
 	}
 	return 0, true, false
+}
+
+// renoteS is how recently a noted memory file is not noted again: a day's granularity is all the stale rule needs.
+const renoteS = 24 * 3600
+
+// NoteMemoryUse records that the agent read or wrote one of its memory files, the index aside, in
+// agents/<name>/memory-use.json ({path relative to the folder: unix seconds}), for `hl memory status` (memoryguard.note_use).
+// The read-modify-write holds a lock that waits, as two PostToolUse hooks of one turn can run at once.
+func NoteMemoryUse(home, agent, tool string, toolInput any, now int64) error {
+	input, ok := toolInput.(map[string]any)
+	if !ok || (tool != "Read" && tool != "Write" && tool != "Edit" && tool != "MultiEdit") {
+		return nil
+	}
+	rel, ok := memoryRel(home, agent, input)
+	if !ok || rel == memoryIndex {
+		return nil
+	}
+	f := filepath.Join(paths.AgentDir(home, agent), memoryUseFile)
+	if lock, err := os.OpenFile(f+".lock", os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+		defer lock.Close()
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
+	}
+	used := map[string]any{}
+	if b, err := os.ReadFile(f); err == nil {
+		d := json.NewDecoder(bytes.NewReader(b))
+		d.UseNumber()
+		var v any
+		if d.Decode(&v) == nil {
+			if m, ok := v.(map[string]any); ok {
+				used = m
+			}
+		}
+	}
+	if v, ok := used[rel]; ok {
+		then, ok := wholeSeconds(v)
+		if !ok {
+			return fmt.Errorf("%s: %v is not a time", rel, v) // Python's int() raises, and its hook writes nothing
+		}
+		if now-then < renoteS {
+			return nil
+		}
+	}
+	used[rel] = json.Number(strconv.FormatInt(now, 10))
+	return atomicfile.Write(f, indented(used, "")+"\n")
+}
+
+// wholeSeconds is int(v or 0) for a value read with UseNumber: ok false where Python's int() would raise.
+func wholeSeconds(v any) (int64, bool) {
+	switch x := v.(type) {
+	case nil:
+		return 0, true
+	case bool:
+		return map[bool]int64{true: 1}[x], true
+	case json.Number:
+		if n, err := x.Int64(); err == nil {
+			return n, true
+		}
+		if f, err := x.Float64(); err == nil {
+			return int64(f), true
+		}
+	case string:
+		if x == "" {
+			return 0, true
+		}
+		if n, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64); err == nil {
+			return n, true
+		}
+	case []any:
+		return 0, len(x) == 0
+	case map[string]any:
+		return 0, len(x) == 0
+	}
+	return 0, false
+}
+
+// indented is json.dumps(v, sort_keys=True, indent=1) at this indent.
+func indented(v any, at string) string {
+	in := at + " "
+	switch x := v.(type) {
+	case map[string]any:
+		if len(x) == 0 {
+			return "{}"
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = in + rpc.PyJSON(k, false, true) + ": " + indented(x[k], in)
+		}
+		return "{\n" + strings.Join(parts, ",\n") + "\n" + at + "}"
+	case []any:
+		if len(x) == 0 {
+			return "[]"
+		}
+		parts := make([]string, len(x))
+		for i, e := range x {
+			parts[i] = in + indented(e, in)
+		}
+		return "[\n" + strings.Join(parts, ",\n") + "\n" + at + "]"
+	}
+	return rpc.PyJSON(v, true, true)
 }

@@ -177,7 +177,7 @@ def test_the_go_hook_switch_is_the_founders_and_off_until_set(home: Path) -> Non
     check("go hook: an agent cannot switch it", rc == 1 and protected.get("switches", "go_hook") is None, out)
     rc, out = _cli(["hooks", "go", "on"], as_agent=None)
     check("go hook: the founder switches it on, as the Go hl reads it",
-          rc == 0 and "on - the Go hl answers PreToolUse" in out and protected.get("switches", "go_hook") == "on", out)
+          rc == 0 and "on - the Go hl answers the tool-call hooks" in out and protected.get("switches", "go_hook") == "on", out)
     rc, out = _cli(["hooks", "go", "off"], as_agent=None)
     check("go hook: and off", rc == 0 and "off -" in out, out)
 

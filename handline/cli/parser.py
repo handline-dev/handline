@@ -151,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
-    p = hk.add_parser("go", help="show or set whether the Go hl answers the PreToolUse hook itself (off: Python does)")
+    p = hk.add_parser("go", help="show or set whether the Go hl answers the tool-call hooks (PreToolUse, PostToolUse) itself (off: Python does)")
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_go)
 

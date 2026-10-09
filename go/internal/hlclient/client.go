@@ -61,6 +61,9 @@ type Client struct {
 	Dial func() (net.Conn, error)
 	Kick func() error
 	Wait time.Duration
+	// As is the name hello gives, Name when empty; Deadline a call's, Timeout when zero.
+	As       string
+	Deadline time.Duration
 }
 
 // New is the client for this process's home, holding the founder key when this terminal may read it.
@@ -146,8 +149,15 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		return nil, err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(Timeout))
-	hello := map[string]any{"client": Name, "protocol": 1}
+	deadline, as := c.Deadline, c.As
+	if deadline == 0 {
+		deadline = Timeout
+	}
+	if as == "" {
+		as = Name
+	}
+	_ = conn.SetDeadline(time.Now().Add(deadline))
+	hello := map[string]any{"client": as, "protocol": 1}
 	if c.Key != "" {
 		hello["key"] = c.Key
 	}

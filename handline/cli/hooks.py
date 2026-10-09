@@ -37,7 +37,7 @@ def cmd_hooks_go(args) -> int:
             print(e, file=sys.stderr)
             return 1
     on = (protected.get("switches", "go_hook") or "").strip() == "on"
-    print(f"go hook: {'on - the Go hl answers PreToolUse' if on else 'off - Python answers every hook'}")
+    print(f"go hook: {'on - the Go hl answers the tool-call hooks' if on else 'off - Python answers every hook'}")
     return 0
 
 
