@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from .. import db
 from ..daemon import client as dmn_client
@@ -65,10 +66,13 @@ def _refs_refusal(sha: str) -> str:
     return textsafe.text((r.stdout + r.stderr).strip()) or f"land.sh --check --refs {sha} exited {r.returncode}"
 
 
-def _tested_trees(shas: list[str]) -> list[str] | None:
+def _tested_trees(shas: list[str], fix: str | None = None) -> list[str] | None:
     """The tree after each merge `land.sh --check` tested, in order, run here, in the caller's own sandbox.
-    A single passed sha may skip the suite rerun (`--passed`); a train's merge is never one sha's tree."""
+    A single passed sha may skip the suite rerun (`--passed`); a train's merge is never one sha's tree.
+    `fix` is the merger's housekeeping directory for a single sha (`land.sh --check --fix`)."""
     flag = _passed_flag(shas[0]) if len(shas) == 1 else []
+    if fix:
+        flag += ["--fix", fix]
     r = subprocess.run([str(paths.repo_root() / "tools" / "land.sh"), "--check", *flag, *shas], capture_output=True,
                        text=True, cwd=paths.repo_root())
     sys.stderr.write(r.stderr[-2000:])
@@ -104,8 +108,11 @@ def cmd_land(args) -> int:
     if args.list:
         return _list()
     if args.check:
+        if args.fix and len(args.check) != 1:
+            print("--fix is for one sha, not a train: check and land the others first")
+            return 1
         if len(args.check) == 1:
-            trees = _tested_trees(args.check)
+            trees = _tested_trees(args.check, args.fix)
             if trees is None:
                 print("the merge did not test green here; nothing to record")
                 return 1
@@ -132,4 +139,30 @@ def cmd_land(args) -> int:
     if not args.message or not args.tree:
         print("usage: hl land --check <sha>, then hl land <sha> <merge message> --tree <tree it printed>")
         return 1
-    return _send({"verb": "land", "sha": args.sha, "message": args.message, "tree": args.tree})
+    payload = {"verb": "land", "sha": args.sha, "message": args.message, "tree": args.tree}
+    if args.squash:
+        payload["squash"] = True
+    if args.fix:
+        files, err = _fix_files(Path(args.fix))
+        if err:
+            print(err)
+            return 1
+        payload["fix"] = files
+    return _send(payload)
+
+
+def _fix_files(root: Path) -> tuple[dict[str, str], str]:
+    """{repo path: text} for every file under `root`, the merger's `--fix` directory; ({}, why) when it cannot be sent.
+    Which paths may land is the daemon's to say (main's tools/housekeeping.paths)."""
+    if not root.is_dir():
+        return {}, f"--fix {root}: not a directory"
+    files = {}
+    for p in sorted(root.rglob("*")):
+        if p.is_symlink():
+            return {}, f"--fix {p}: a link; send the file itself"
+        if p.is_file():
+            try:
+                files[p.relative_to(root).as_posix()] = p.read_bytes().decode("utf-8")
+            except UnicodeDecodeError:
+                return {}, f"--fix {p}: not UTF-8 text; housekeeping is text"
+    return (files, "") if files else ({}, f"--fix {root}: no files in it")

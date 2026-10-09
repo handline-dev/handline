@@ -5,7 +5,7 @@ that sends `land_pass` and `land`, so the daemon cannot tell the two apart by wh
 branch's code cannot do is be the command the session's own PreToolUse hook sees. The hook is run by the
 harness outside the Bash sandbox, so it alone can read the per-session key `hl launch` keeps in a folder
 the sandbox hides (`infra/sessiontoken.py`). When the tool call is exactly `hl land --pass <sha>` or
-`hl land <sha> <message> --tree <tree>` and nothing else, it hands the daemon the key with the verb and
+`hl land <sha> <message> --tree <tree>` (optionally with `--fix <dir>` and `--squash`) and nothing else, it hands the daemon the key with the verb and
 the sha, and the daemon accepts that one request from that session for a minute (`daemon/landauth.py`).
 A land verb that nothing vouched for, such as one sent from inside a test run, is refused.
 """
@@ -37,11 +37,15 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
         return None
     if any(set(w) <= _OPERATORS or w.startswith("#") for w in words):
         return None                         # an operator, or a comment the shell would drop
-    rest, positional, tree, i = words[2:], [], False, 0
+    rest, positional, tree, housekeeping, i = words[2:], [], False, False, 0
     while i < len(rest):
         w = rest[i]
         if w == "--tree":
             tree, i = True, i + 2
+        elif w == "--fix":                  # the merger's housekeeping directory: a land's, never a pass's
+            housekeeping, i = True, i + 2
+        elif w == "--squash":
+            housekeeping, i = True, i + 1
         elif w.startswith("-") and w != "--pass":
             return None                     # --check, --list and anything unknown send no verb
         else:
@@ -49,7 +53,7 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
                 positional.append(w)
             i += 1
     if "--pass" in rest:
-        return ("land_pass", positional[0]) if len(positional) == 1 else None
+        return ("land_pass", positional[0]) if len(positional) == 1 and not housekeeping else None
     return ("land", positional[0]) if tree and len(positional) == 2 else None
 
 

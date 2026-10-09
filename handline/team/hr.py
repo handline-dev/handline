@@ -228,12 +228,12 @@ def _draft(kind: str, name: str, requester: str, why: str,
         repo = repo or _team_repo(team_name)
         if not repo:
             return {}, (f"{name} needs a repo: --repo <path> (or --team of a manager that has "
-                        f"one). Orca makes its worktree there; without one it never starts.")
+                        f"one). Its worktree is made there; without one it never starts.")
     if kind == "team":
         if not repo:
             return {}, (f"team {name} needs --repo <path> for its manager; a member without "
-                        f"its own --member SUFFIX=REPO works there too. Orca makes each "
-                        f"worktree in it.")
+                        f"its own --member SUFFIX=REPO works there too. Each worktree is "
+                        f"made in it.")
         repos = {n: (repos or {}).get(n) or repo for n in full}     # written into every agent.yaml
 
     prop = {

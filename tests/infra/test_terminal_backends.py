@@ -144,6 +144,16 @@ def test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(home: P
             guidemod.show("launch")
         check(f"guide: {host.name} words its own launch line and no `@` placeholder is left",
               want in out.getvalue() and "@" not in out.getvalue(), out.getvalue())
+        title = "Orca" if host.name == "orca" else host.name
+        shown = ""
+        for topic in ("launch", "memory"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                guidemod.show(topic)
+            shown += out.getvalue()
+        check(f"guide: under {host.name}, the launch and memory topics say {title} runs the launch command, and hl launch "
+              f"sets the config dir", f"{title} runs the launch command" in shown and f"because {title} runs our" in shown
+              and "hl launch sets CLAUDE_CONFIG_DIR itself" in shown, shown)
 
 
 def test_a_missing_host_is_named_by_that_host_in_each_message(home: Path) -> None:
