@@ -12,9 +12,6 @@ import (
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
-// maxTaskTimeoutS is actions.MAX_TASK_TIMEOUT_S: no task is given longer than this.
-const maxTaskTimeoutS = 4 * 3600
-
 // unserved are the parameters the contract names and no action is behind yet.
 func unserved(p map[string]any, keys ...string) error {
 	for _, k := range keys {
@@ -35,8 +32,8 @@ func timeBox(p map[string]any, key string) (int64, error) {
 		return 0, badParam(key+" is text", key)
 	}
 	secs, err := timefmt.ParseSpan(v)
-	if err == nil && secs > maxTaskTimeoutS {
-		err = fmt.Errorf("a task timeout is at most %s (%s is longer)", timefmt.Span(maxTaskTimeoutS, false), v)
+	if err == nil && secs > db.MaxTaskTimeoutS {
+		err = fmt.Errorf("a task timeout is at most %s (%s is longer)", timefmt.Span(db.MaxTaskTimeoutS, false), v)
 	}
 	if err != nil {
 		return 0, badParam(err.Error(), key)

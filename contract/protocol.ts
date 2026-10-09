@@ -956,6 +956,22 @@ export type Outlook = {
     /** List-price cost in US dollars of each agent that day. */
     agents: { [key: string]: number };
   }[];
+  /** What each agent used over the last `range` (the span of `past`), largest cost first, ties by name. A client groups agents by the first part of the dotted name; a group's numbers are the sums of its members' (est_pct null if any member's is). Absent from a daemon that does not send it. */
+  agent_use?: {
+    agent: string;
+    /** Tokens the agent used in the span. */
+    tokens: number;
+    /** Its cost in US dollars at list price in the span, from the token log. */
+    cost: number;
+    /** Its cost as a fraction (0 to 1) of everyone's cost in the span; 0 when nothing was spent. */
+    share: number;
+    /** An estimate of the points of the combined week the agent used in the span: its cost share of each account times the points that account used, averaged over the accounts. An estimate, because what the plan charges is not what the price list says. Null when no account has a reading. */
+    est_pct: number | null;
+    /** Its cost share of each account in the span, by account name (a fraction, 0 to 1); an account it spent nothing on is absent. */
+    fracs: { [key: string]: number };
+  }[];
+  /** Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it. */
+  overlay?: number[];
 };
 
 export type TerminalBytesSnapshot = {
@@ -1922,6 +1938,8 @@ export interface Methods {
   "stats.outlook": { params: {
   /** Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1). */
   range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
+  /** Also give `overlay` for this pick: an agent's name, or `grp:<name>` for the group of agents whose dotted names start with `<name>.` (and the agent `<name>` itself), the key of a row of the agents table a client draws. It rides on this call and not on a method of its own because the curve is read against `past` and must be sampled at the same moment as it; one pick costs one array, not one per agent. */
+  agent?: string;
 }; result: Outlook };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */

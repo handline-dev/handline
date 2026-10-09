@@ -11,6 +11,17 @@ const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build']
 const ADMIN = /^(stats\.|settings\.|answers?\.)/;
 const DEFAULTS = { active_cap: 4, park_timeout_s: 1800 };
 
+/** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
+const AGENT_USE = [
+  { agent: 'grp.one', tokens: 9000, cost: 3.5, share: 0.7, est_pct: 4.2, fracs: { alpha: 0.7 } },
+  { agent: 'grp.two', tokens: 3000, cost: 1.5, share: 0.3, est_pct: null, fracs: { alpha: 0.3 } },
+];
+const OVERLAYS: Record<string, number[]> = {
+  'grp.one': [0, 1.5, 2.9, 4, 5, 5.5, 6, 6.2, 6.4, 6.6, 6.8, 7, 7.2],
+  'grp.two': [0, 0.5, 1.2, 1.5, 1.8, 2, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7],
+  'grp:grp': [0, 2, 4.1, 5.5, 6.8, 7.5, 8.1, 8.4, 8.7, 9, 9.3, 9.6, 9.9],
+};
+
 export class FakeAdmin {
   private now: () => Timestamp;
   private on: boolean;
@@ -43,7 +54,7 @@ export class FakeAdmin {
       case 'stats.get':
         return this.stats(p.window === '7d' ? '7d' : '24h');
       case 'stats.outlook':
-        return this.outlook(String(p.range) as Outlook['range']);
+        return this.outlook(String(p.range) as Outlook['range'], p.agent);
       case 'settings.get':
         return this.settings();
       case 'settings.set':
@@ -79,7 +90,7 @@ export class FakeAdmin {
     };
   }
 
-  outlook(range: Outlook['range']): Outlook {
+  outlook(range: Outlook['range'], pick?: unknown): Outlook {
     if (!['12h', '24h', '3d', '7d', '14d', '30d'].includes(range)) throw badRequest(`no range ${range}`, 'range');
     const now = Date.parse(this.now());
     const span = { '12h': 12 * HOUR, '24h': DAY, '3d': 3 * DAY, '7d': 7 * DAY, '14d': 14 * DAY, '30d': 30 * DAY }[range];
@@ -94,6 +105,7 @@ export class FakeAdmin {
       at: at(now + (head * (i + 1)) / steps),
       left_pct: Math.max(0, 50 - ((i + 1) * 50) / steps),
     }));
+    if (pick !== undefined && typeof pick !== 'string') throw badRequest('agent is a string', 'agent');
     const days = Math.max(1, Math.min(30, Math.round(span / DAY)));
     const cost_per_day = Array.from({ length: days }, (_, i) => ({
       day: at(now - (days - 1 - i) * DAY).slice(0, 10),
@@ -110,6 +122,8 @@ export class FakeAdmin {
         { account: 'beta', runs_out_in_seconds: 2 * 3600, week_resets_at: null },
       ],
       cost_per_day,
+      agent_use: AGENT_USE.map((u) => ({ ...u, fracs: { ...u.fracs } })),
+      ...(pick !== undefined && { overlay: (OVERLAYS[pick] ?? []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length) }),
     };
   }
 

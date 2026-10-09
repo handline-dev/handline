@@ -194,3 +194,29 @@ func (e *Env) accountLoginCancel(c *rpc.Conn, p map[string]any) (any, error) {
 	}
 	return wrote(c, "login cancelled", nil)
 }
+
+// account.login_code hands the one-time code to the login's stdin. The code is write-only: the method is Unkept, so no reply or params are
+// stored for a retry, and the answer, the event and every error leave it out.
+func (e *Env) accountLoginCode(_ *rpc.Conn, p map[string]any) (any, error) {
+	id, ok := p["login_id"].(string)
+	if !ok || id == "" {
+		return nil, badParam("login_id is a login's id", "login_id")
+	}
+	code, ok := p["code"].(string)
+	if !ok {
+		return nil, badParam("code is a string", "code")
+	}
+	err := e.Logins.SendCode(id, code)
+	var no *weblogin.Refusal
+	switch {
+	case errors.Is(err, weblogin.ErrUnknown):
+		return nil, notFound("login", id, "no such login: "+id)
+	case errors.Is(err, weblogin.ErrBadCode):
+		return nil, badParam("code is one line of text", "code")
+	case errors.As(err, &no):
+		return nil, refused(no.Reason, "state")
+	case err != nil:
+		return nil, refused("the code could not be handed to the login", "")
+	}
+	return map[string]any{"accepted": true, "said": "code handed to the login"}, nil
+}

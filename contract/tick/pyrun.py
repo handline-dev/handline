@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -199,7 +200,13 @@ def _sub(value, home: str, back: bool = False):
 
 def run(fixture: dict) -> dict:
     tmp = tempfile.mkdtemp(prefix="tick-")
-    root = Path(tmp).resolve()
+    try:
+        return _run(fixture, Path(tmp).resolve())
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)      # one per fixture run: left behind, they filled the disk
+
+
+def _run(fixture: dict, root: Path) -> dict:
     home = root / ".handline-tick"
     home.mkdir()
     os.environ.update(TZ="UTC", OCP_TEST_ROOT=str(root), OCP_HOME=str(home), HANDLINE_HOME=str(home), LANG="C", LC_ALL="C")
