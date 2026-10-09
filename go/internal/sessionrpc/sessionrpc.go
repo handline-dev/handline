@@ -237,6 +237,11 @@ func (e *Env) Unstall(agent string) (string, error) {
 			return "", err
 		}
 	}
+	for _, key := range []string{"dialog_since:", "dialog_title:"} {
+		if err := db.ClearCursor(e.DB, key+agent); err != nil {
+			return "", err
+		}
+	}
 	return agent + ": STALLED -> QUEUED", nil
 }
 

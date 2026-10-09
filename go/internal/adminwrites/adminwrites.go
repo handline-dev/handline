@@ -10,6 +10,7 @@ import (
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/weblogin"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -17,6 +18,8 @@ import (
 type Env struct {
 	DB   *sql.DB
 	Home string
+	// Logins runs the web logins; nil serves neither account.login nor account.login_cancel.
+	Logins *weblogin.Manager
 }
 
 // Register adds the writes to the server's table.
@@ -26,6 +29,10 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("schedule.remove", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleRemove})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
+	if e.Logins != nil {
+		s.Register("account.login", rpc.Method{Role: "founder", Write: true, Handler: e.accountLogin, Refresh: e.refreshLogin})
+		s.Register("account.login_cancel", rpc.Method{Role: "founder", Write: true, Handler: e.accountLoginCancel})
+	}
 }
 
 func badParam(message, field string) *rpc.Error {

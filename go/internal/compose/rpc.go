@@ -100,3 +100,20 @@ func (r procs) Kill(agent string) error {
 	defer r.p.Locks.Lock(agent)()
 	return r.p.Manager.Kill(agent)
 }
+
+// Context is the model id and context figures of an agent on an account (agent.strip). The percent is the status file's own, nil when
+// stale, as the usage read gives it; the tokens and the limit are the ones the policy tick judges the agent by. Before the lifecycle is
+// built there are none.
+func (p *Parts) Context(agent, account string) (string, *int, *int64, int) {
+	if p.LC == nil {
+		return "", nil, nil, 0
+	}
+	tu := tickUsage{p: p, u: p.LC.usage, roster: p.LC.roster}
+	st := tu.ReadForAgent(agent, account)
+	var used *int64
+	if st.TrustedCtxUsed != nil {
+		n := int64(*st.TrustedCtxUsed)
+		used = &n
+	}
+	return st.ModelID, p.LC.usage.ReadForAgent(agent, account).TrustedCtxPct(), used, tu.ContextLimit(agent, st.ModelID)
+}
