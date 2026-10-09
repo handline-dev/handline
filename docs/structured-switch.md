@@ -45,10 +45,10 @@ One extra process beside the Python daemon, which keeps the socket, the gateway 
 
 ## See it works
 
-- `structured.log`: `handlined <sha> serving`, then on work `the agent: started with its wake prompt` (a wake takes up to one tick, 30 s).
+- `structured.log`: `handlined <sha> serving`, then on work `<agent>: started with its wake prompt` (a wake takes up to one tick, 30 s).
 - `hl say <agent> "ping"`: queued by Python, delivered by Go. `transcript_events` for the agent gains `turn_start`, `text`, `turn_end`;
   `agent_view` for the agent reads `idle` or `running`, not `no_terminal`, once a session is open; `session_starts` has a row.
-- Python is hands-off: `daemon.err.log` has no the agent wake or delivery line.
+- Python is hands-off: `daemon.err.log` has no wake or delivery line.
 - Leave a terminal agent in the same run: its state, `agent_view` row and typing must not change.
 
 ## Way back
@@ -61,10 +61,10 @@ One extra process beside the Python daemon, which keeps the socket, the gateway 
 
 ## Trial (scratch home, fake CLI, over socketpairs: the sandbox binds no socket)
 
-Checked, with the flags above and no `-cutover`: a task sent to the agent (`chat.send` with `task`) woke the closed session at once and the fake ran two turns (wake prompt, then the task);
+Checked, with the flags above and no `-cutover`: a task sent to it (`chat.send` with `task`) woke the closed session at once and the fake ran two turns (wake prompt, then the task);
 `transcript.events` and `agent_view` filled; `task.done` closed the task; the daemon stopped and started again, recorded the session gone with its resume id, and the next message woke a fresh session in at most one tick;
 `--settings` carried the hooks of ours from the shared settings (PreToolUse guard and Stop; run on the real `shared/.claude/settings.json`, `HooksSettings` kept all 12 `ocp hook` events), with `--setting-sources project`;
-a terminal agent beside the agent kept its state and got no view row; `usage_samples`, `token_calls` and `stream_log` stayed empty; Python's skip tests leave the agent alone; two Go processes double-launch (a gap on the board).
+a terminal agent beside it kept its state and got no view row; `usage_samples`, `token_calls` and `stream_log` stayed empty; Python's skip tests leave it alone; two Go processes double-launch (a gap on the board).
 
 The fake cannot show: a real permission prompt stream (a gap), the 2.1.295 control types (a gap), context and cache clocks (the fake has no transcript file: the cold-wake note says `degraded`),
 hooks reaching the Python daemon over its socket (a gap), a closed row that still holds a `terminal` handle, the real worktree and account choice, usage limits and handoff, resume of a real session id, and the Python daemon running beside it (it could not bind a socket here).
