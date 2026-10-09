@@ -3,7 +3,7 @@
   {
    "name": "tasks.list.blocked_by_names_the_open_blockers",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: Every task row has blocked_by, a list of integers; a task an open blocker holds lists it, and its block_reason says so. Needs --var tasks_blocked_owner: an agent that owns a task held by an open blocker and the blocker, two tasks.",
+   "about": "Every task row has blocked_by, a list of integers; a task an open blocker holds lists it, and its block_reason says so. Needs --var tasks_blocked_owner: an agent that owns a task held by an open blocker and the blocker, two tasks.",
    "as": "founder",
    "steps": [
     {
@@ -57,7 +57,7 @@
   {
    "name": "tasks.list.a_task_not_held_has_an_empty_blocked_by",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: A task nothing holds has blocked_by [] and no block_reason. Needs --var tasks_timed_owner: an agent with a doing task that nothing holds.",
+   "about": "A task nothing holds has blocked_by [] and no block_reason. Needs --var tasks_timed_owner: an agent with a doing task that nothing holds.",
    "as": "founder",
    "steps": [
     {
@@ -96,7 +96,7 @@
   {
    "name": "tasks.list.time_is_the_tasks_clock",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: A task that is doing carries time, the object task.get gives: its length in seconds, whether that is the default, start, end, overdue_since null while in time, and how many overrun notices were sent. Needs --var tasks_timed_owner: an agent with a doing task in time.",
+   "about": "A task that is doing carries time, the object task.get gives: its length in seconds, whether that is the default, start, end, overdue_since null while in time, and how many overrun notices were sent. Needs --var tasks_timed_owner: an agent with a doing task in time.",
    "as": "founder",
    "steps": [
     {
@@ -166,7 +166,7 @@
   {
    "name": "tasks.list.an_overdue_task_says_since_when",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: A task past its deadline has overdue_since, the first deadline it missed. Needs --var tasks_overdue_owner: an agent with a doing task past its deadline.",
+   "about": "A task past its deadline has overdue_since, the first deadline it missed. Needs --var tasks_overdue_owner: an agent with a doing task past its deadline.",
    "as": "founder",
    "steps": [
     {
@@ -237,7 +237,7 @@
   {
    "name": "tasks.list.a_done_task_has_no_clock",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: A task that is done or discarded has time null, and still lists blocked_by. Needs --var tasks_done_owner: an agent with a done task.",
+   "about": "A task that is done or discarded has time null, and still lists blocked_by. Needs --var tasks_done_owner: an agent with a done task.",
    "as": "founder",
    "steps": [
     {
@@ -280,7 +280,7 @@
   {
    "name": "tasks.list.before_pages_through_every_task",
    "spec": "tasks.list",
-   "about": "NOT_YET_IN_PYTHON: all, limit 200 and before page through every task, newest id first: a page of one says there is more, and before its id gives the one after. Needs --var tasks_blocked_owner: an agent that owns exactly two tasks.",
+   "about": "all, limit 200 and before page through every task, newest id first: a page of one says there is more, and before its id gives the one after. Needs --var tasks_blocked_owner: an agent that owns exactly two tasks.",
    "as": "founder",
    "steps": [
     {

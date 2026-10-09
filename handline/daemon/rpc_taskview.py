@@ -74,6 +74,7 @@ def task_of(con, row, state: str) -> dict:
         "delivered": agentview._ts(row["delivered_at"]), "done": agentview._ts(row["done_at"]),
         "hold_reason": taskholds.wait_line(con, row, state),
         "block_reason": ("waiting on " + ", ".join(f"T{b['id']}" for b in blockers)) if blockers else None,
+        "blocked_by": [b["id"] for b in blockers], "time": _clock(con, row, state),
         "evidence": row["done_evidence"], "priority": row["priority"],
         "last_activity": agentview._ts(_last_activity(con, row)),
         "edited_by": row["edited_by"], "asker": actions.task_asker(con, row),
@@ -156,7 +157,7 @@ def _detail(con, row, state: str) -> dict:
     return {"asker": actions.task_asker(con, row),
             "discarded": ({"by": row["discarded_by"], "reason": row["discard_reason"] or "", "at": agentview._ts(row["discarded_at"])}
                           if row["discarded_by"] else None),
-            "merged_into": row["merged_into"], "time": _clock(con, row, state),
+            "merged_into": row["merged_into"],
             "parent_title": parent["title"] if parent else None,
             "subtasks": [{"id": k["id"], "title": k["title"], "owner": k["owner"], "state": actions.task_state(con, k)} for k in kids],
             "timeline": _timeline(con, row["id"]), "people": {"recent": recent, "team": team, "others": others}}
