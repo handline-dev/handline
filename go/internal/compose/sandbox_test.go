@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/sessiontoken"
 )
 
 func sandboxOf(t *testing.T, shared string, c Confinement) (fs map[string]any, sandbox map[string]any, deny []any) {
@@ -76,6 +77,11 @@ func TestAStructuredSessionIsStartedInTheSandboxWithTheOtherAgentsHidden(t *test
 	if !got.Sandbox.Enabled || !slices.Contains(got.Sandbox.Filesystem.DenyRead, bobMemory) ||
 		!slices.Contains(got.Permissions.Deny, "Read(/"+bobMemory+"/**)") {
 		t.Fatalf("another agent's memory is not hidden: %s", b)
+	}
+	for _, folder := range sessiontoken.New(home).HiddenFolders() { // the hooks' keys and the founder's
+		if !slices.Contains(got.Sandbox.Filesystem.DenyRead, folder) || !slices.Contains(got.Permissions.Deny, "Read(/"+folder+"/**)") {
+			t.Fatalf("the key folder %s is not hidden: %s", folder, b)
+		}
 	}
 	team := filepath.Join(home, "team.yaml")
 	if !slices.Contains(got.Sandbox.Filesystem.DenyWrite, team) || !slices.Contains(got.Permissions.Deny, "Edit(/"+team+")") {
