@@ -1,9 +1,12 @@
 package reads
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/rpc"
 )
 
 func clockOf(t *testing.T, e *Env, id int64) (map[string]any, map[string]any) {
@@ -68,5 +71,34 @@ func TestATaskListsTheOpenTasksThatHoldItAndNoDoneOne(t *testing.T) {
 	}
 	if task, _ = clockOf(t, e, 2); len(task["blocked_by"].([]int64)) != 0 {
 		t.Fatalf("nothing holds it: %v", task["blocked_by"])
+	}
+}
+
+func TestAllWithBeforePagesThroughEveryTaskNewestFirst(t *testing.T) {
+	e := testEnv(t)
+	for i := 1; i <= 5; i++ {
+		run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(?, 't', 'bob', 'human', 1)", i)
+	}
+	run(t, e, "UPDATE tasks SET done_evidence = 'x' WHERE id IN (2, 4)")
+	c := &rpc.Conn{Caller: rpc.Caller{Role: "founder"}}
+	var seen []int64
+	params := map[string]any{"all": true, "limit": json.Number("2")}
+	for {
+		got, err := e.tasksList(c, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page := got.(map[string]any)
+		items := page["items"].([]any)
+		for _, it := range items {
+			seen = append(seen, it.(map[string]any)["id"].(int64))
+		}
+		if page["more"] != true {
+			break
+		}
+		params["before"] = json.Number(strconv.FormatInt(seen[len(seen)-1], 10))
+	}
+	if len(seen) != 5 || seen[0] != 5 || seen[4] != 1 {
+		t.Fatalf("every task once, newest first: %v", seen)
 	}
 }
