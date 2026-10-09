@@ -2022,12 +2022,12 @@ def test_summary_line() -> None:
     con = db.connect()
     try:
         check("summary: nothing running or waiting counts zero",
-              sm.summarize(con) == sm.Summary(0, 0, 0), sm.summarize(con))
+              sm.summarize() == sm.Summary(0, 0, 0), sm.summarize())
         db.set_agent_state(con, "backend", "RUNNING")
-        check("summary: a running agent counts", sm.summarize(con).running == 1)
+        check("summary: a running agent counts", sm.summarize().running == 1)
         ok, _, tid = actions.task_new("product", actions.HUMAN, "for the founder", "the work and its done")
         check("summary: a task handed to the founder counts as for you, once queued",
-              ok and sm.summarize(con).for_you == 1, sm.summarize(con))
+              ok and sm.summarize().for_you == 1, sm.summarize())
     finally:
         con.close()
 

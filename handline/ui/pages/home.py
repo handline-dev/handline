@@ -345,7 +345,7 @@ class HomePage(RowActions, JobsAware, Screen):
         try:
             agent_keys = (tui.agent_footer_keys(con, str(target) if target is not None else None)
                           if panel == tui.AGENTS else None)
-            summary = summarize(con)
+            summary = summarize()
             accounts = tui.accounts_data(con)
             rows, notes = tui.agents_data(con)
             agents = (rows, notes, agent_rows.collect(con, rows))
