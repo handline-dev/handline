@@ -178,6 +178,8 @@ func Start(cfg Config) (*Daemon, error) {
 		d.dev.Log = cfg.Log
 	}
 	d.hub = stream.NewHub()
+	d.hub.Log = &stream.Log{DB: db}
+	d.hub.Reach = (&reads.Env{DB: db, Home: cfg.Home}).Reach
 	if d.transcripts() {
 		sink := cfg.Transcript
 		sink.DB = db
@@ -212,6 +214,11 @@ func Start(cfg Config) (*Daemon, error) {
 		d.wg.Add(1)
 		go d.spoolLoop()
 	}
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.hub.Run(d.stop, cfg.Log)
+	}()
 	if d.single != nil {
 		d.wg.Add(1)
 		go func() {
