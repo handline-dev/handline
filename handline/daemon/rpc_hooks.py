@@ -7,12 +7,15 @@ import time
 
 from .. import db
 from ..session import events
+from ..team import agents
 from . import rpc
 
 MAX_LAG_S = 7 * 24 * 3600
 
 
 def apply(con, agent: str, kind: str, data: dict, request_id: str, at: int) -> None:
+    if agents.is_structured(agent):
+        return  # the Go daemon owns a structured agent's state: a hook that reached this socket records and moves nothing here
     events.apply_hook(con, agent, kind, data, request_id, at)
 
 
