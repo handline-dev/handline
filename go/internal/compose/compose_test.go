@@ -103,12 +103,14 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 func TestAClaudeOtherThanThePinIsRefusedUnlessTheConfigAcceptsItsVersion(t *testing.T) {
 	spec := lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}
 	t.Setenv("FAKE_CLAUDE_VERSION", "9.9.9") // the version check runs the CLI from the daemon's own environment
-	p, _ := rig(t)
+	p, home := rig(t)
+	withLifecycle(p, home)
 	err := p.Run.Open(spec)
 	if err == nil || !strings.Contains(err.Error(), "9.9.9") {
 		t.Fatalf("a claude that is not the pinned version started: %v", err)
 	}
-	p, _ = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
+	p, home = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
+	withLifecycle(p, home)
 	if err := p.Run.Open(spec); err != nil {
 		t.Fatal(err)
 	}
