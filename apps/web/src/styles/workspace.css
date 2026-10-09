@@ -51,7 +51,8 @@
   border-radius: 10px;
   background: var(--panel);
   border: 1px solid var(--line);
-  overflow-wrap: anywhere;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .msg.person {
   align-self: flex-end;
