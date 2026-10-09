@@ -59,6 +59,7 @@ func (ts *timers) fire(d time.Duration) {
 func newRig(t *testing.T, script string) *rig {
 	t.Helper()
 	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
+	t.Setenv("SANDBOX_RUNTIME", "") // a sandboxed process cannot tell if a credential is there, and an exit it cannot check is taken as done
 	home := t.TempDir()
 	for _, a := range []string{"main", "other"} {
 		if err := os.MkdirAll(filepath.Join(home, "accounts", a), 0o755); err != nil {
@@ -309,5 +310,85 @@ func TestCloseKillsTheChildren(t *testing.T) {
 	var no *Refusal
 	if _, err := r.m.Start("other"); !errors.As(err, &no) {
 		t.Fatalf("a closed manager started a login: %v", err)
+	}
+}
+
+func TestCancelAfterTheEndSignalsNothing(t *testing.T) {
+	r := newRig(t, "echo "+fakeURL+"\nsleep 0.2\n")
+	var mu sync.Mutex
+	var sent []int
+	r.m.Signal = func(pid int, sig syscall.Signal) error {
+		mu.Lock()
+		sent = append(sent, pid)
+		mu.Unlock()
+		return syscall.Kill(-pid, sig)
+	}
+	l, err := r.m.Start("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.settles("main", Failed) // exits 0 without a credential
+	for i := 0; i < 200; i++ {
+		r.m.mu.Lock()
+		reaped := r.m.byID[l.ID].reaped
+		r.m.mu.Unlock()
+		if reaped {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := r.m.Cancel(l.ID); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 0 {
+		t.Fatalf("a login that ended was signalled: %v", sent)
+	}
+}
+
+func TestTheCapEndsTheLoginAtOnceEvenWhileAGrandchildHoldsStdout(t *testing.T) {
+	// The signal is lost here, as when a grandchild holds the pipe: the login must end by the cap, not by the reaper.
+	r := newRig(t, waitsOnStdin)
+	var mu sync.Mutex
+	killed := 0
+	r.m.Signal = func(pid int, sig syscall.Signal) error { mu.Lock(); killed++; mu.Unlock(); return nil }
+	if _, err := r.m.Start("main"); err != nil {
+		t.Fatal(err)
+	}
+	r.grandchild("main")
+	r.m.mu.Lock()
+	pid := r.m.byAcct["main"].pid
+	r.m.mu.Unlock()
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // the stub lost the kill, so the test makes it
+	r.timer.fire(MaxRun)
+	r.settles("main", Failed)
+	for i := 0; i < 200; i++ {
+		mu.Lock()
+		n := killed
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if killed != 1 {
+		t.Fatalf("signals sent: %d", killed)
+	}
+	if _, err := r.m.Start("main"); err != nil {
+		t.Fatalf("a new login after the cap: %v", err)
+	}
+}
+
+func TestAChildThatDiesAtOnceDoesNotAnswerWaiting(t *testing.T) {
+	r := newRig(t, "echo "+fakeURL+"\n")
+	for i := 0; i < 20; i++ {
+		l, err := r.m.Start("main")
+		if err == nil && l.State != Waiting {
+			t.Fatalf("answered %+v", l)
+		}
+		r.settles("main", Failed)
 	}
 }

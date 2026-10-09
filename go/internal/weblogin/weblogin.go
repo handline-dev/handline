@@ -57,6 +57,8 @@ type Manager struct {
 	Lookup func(name string) (string, error)
 	// Changed is told the account whose login state moved, after it moved; nil is none.
 	Changed func(account string)
+	// Signal sends sig to the process group of pid; nil is syscall.Kill(-pid, sig). Tests give one that records.
+	Signal func(pid int, sig syscall.Signal) error
 
 	mu      sync.Mutex
 	byID    map[string]*run
@@ -69,6 +71,7 @@ type run struct {
 	state, url  string
 	cmd         *exec.Cmd
 	pid         int           // the child's, once started; it leads its own process group
+	reaped      bool          // the child has been waited for: its number is free and is never signalled again
 	ended       chan struct{} // closed once the child is reaped
 }
 
@@ -136,17 +139,23 @@ func (m *Manager) Start(account string) (Login, error) {
 	case u, open := <-urls:
 		if open && u != "" {
 			m.mu.Lock()
-			r.url = u
+			waiting := r.active() // a child that printed its URL and died at once, or was cancelled, is not waiting
+			if waiting {
+				r.url = u
+			}
 			m.mu.Unlock()
-			m.changed(account)
-			return Login{ID: r.id, State: Waiting, URL: u}, nil
+			if waiting {
+				m.changed(account)
+				return Login{ID: r.id, State: Waiting, URL: u}, nil
+			}
+			return Login{}, &Refusal{"the login ended before it could be answered"}
 		}
-		m.kill(r)
 		m.end(r, Failed)
+		m.kill(r)
 		return Login{}, &Refusal{"the login ended without giving a URL"}
 	case <-m.wait(URLWait):
-		m.kill(r)
 		m.end(r, Failed)
+		m.kill(r)
 		return Login{}, &Refusal{"the login gave no URL within 20 seconds"}
 	}
 }
@@ -185,13 +194,17 @@ func (m *Manager) launch(r *run) (<-chan string, error) {
 	go func() {
 		readers.Wait() // the pipes must be read out before Wait closes them
 		err := r.cmd.Wait()
+		m.mu.Lock()
+		r.reaped = true
+		m.mu.Unlock()
 		m.exited(r, err)
 		close(r.ended)
 	}()
 	go func() {
 		select {
 		case <-r.ended:
-		case <-m.wait(MaxRun):
+		case <-m.wait(MaxRun): // the login ends here, not when the reaper runs: it waits for stdout, which a grandchild may hold open
+			m.end(r, Failed)
 			m.kill(r)
 		}
 	}()
@@ -249,14 +262,19 @@ func (m *Manager) changed(account string) {
 	}
 }
 
-// kill ends the child's whole process group; the CLI ignores SIGTERM for about a second.
+// kill ends the child's whole process group; the CLI ignores SIGTERM for about a second. A child already waited for is left alone: its
+// number may be some other process group's by now.
 func (m *Manager) kill(r *run) {
 	m.mu.Lock()
-	pid := r.pid
-	m.mu.Unlock()
-	if pid > 0 {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
+	defer m.mu.Unlock()
+	if r.pid <= 0 || r.reaped {
+		return
 	}
+	signal := m.Signal
+	if signal == nil {
+		signal = func(pid int, sig syscall.Signal) error { return syscall.Kill(-pid, sig) }
+	}
+	_ = signal(r.pid, syscall.SIGKILL)
 }
 
 // ErrUnknown is a login id this daemon never issued.
