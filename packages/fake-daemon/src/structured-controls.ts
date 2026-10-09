@@ -1,12 +1,12 @@
 // What differs for an agent played as a structured session (x-structured-controls): it has no terminal and no input holder, the typing
 // and terminal methods are refused for it (unless a test asked for the old shape with a terminal), and interrupt and close look at whether a turn runs.
-import { refused } from './errors.ts';
+import { Failure, refused } from './errors.ts';
 import type { Call } from './handlers.ts';
 
 type Handler = (h: Call) => unknown;
 
-/** Agent-addressed methods that need a terminal to type at or watch. */
-const NO_TERMINAL = new Set(['session.input', 'session.keys', 'session.type', 'input.take', 'input.release', 'terminal.attach']);
+/** Agent-addressed methods that need a terminal to type at. */
+const NO_TERMINAL = new Set(['session.input', 'session.keys', 'session.type', 'input.take', 'input.release']);
 const turnRuns = (state: string) => state === 'running' || state === 'waiting';
 
 function structuredHandler(method: string, fn: Handler): Handler {
@@ -15,6 +15,12 @@ function structuredHandler(method: string, fn: Handler): Handler {
       const s = typeof h.p.agent === 'string' ? h.agent() : null;
       if (s?.structured && !s.hasTerminal)
         throw refused('unsupported', `${s.fx.name} runs as a structured session and has no terminal`, 'send a message with chat.send');
+      return fn(h);
+    };
+  if (method === 'terminal.attach')
+    return (h) => {
+      const s = typeof h.p.agent === 'string' ? h.agent() : null;
+      if (s?.structured && !s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`);
       return fn(h);
     };
   if (method === 'session.interrupt')

@@ -6,7 +6,7 @@ import { setup } from '../src/helpers.ts';
 const AUD = 'handline.auditor'; // a structured session, idle
 const rejected = (gate: string) => (e: RpcError) => e.code === 'refused' && e.gate === gate;
 
-test('a structured agent has no terminal and no input holder, and the typing methods are refused for it', async () => {
+test('a structured agent has no terminal and no input holder, and the typing methods are refused and terminal.attach finds none', async () => {
   const { client } = setup();
   await client.start();
   const d = await client.call('agent.get', { agent: AUD });
@@ -14,7 +14,7 @@ test('a structured agent has no terminal and no input holder, and the typing met
   await assert.rejects(client.call('session.input', { agent: AUD, text: 'x', request_id: 'sc-1' }), rejected('unsupported'));
   await assert.rejects(client.call('session.keys', { agent: AUD, keys: ['enter'], request_id: 'sc-2' }), rejected('unsupported'));
   await assert.rejects(client.call('input.take', { agent: AUD, request_id: 'sc-3' }), rejected('unsupported'));
-  await assert.rejects(client.call('terminal.attach', { agent: AUD }), rejected('unsupported'));
+  await assert.rejects(client.call('terminal.attach', { agent: AUD }), (e: RpcError) => e.code === 'not_found');
   client.close();
 });
 

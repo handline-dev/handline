@@ -22,7 +22,7 @@ Transcript over Terminal on the phone and in the web Watch tab.
 
 ### F1 TS fake (packages/fake-daemon)
 Done when: a structured fake agent has `terminal: null`, `session_open` from its session, `input_holders: []`; `session.input`,
-`session.keys`, `session.type`, `input.take`, `terminal.attach` are refused for it; `session.interrupt` ends the running turn and is
+`session.keys`, `session.type`, `input.take` are refused for it (gate unsupported; the Go daemon does not serve them at all) and `terminal.attach` by agent is not_found; `session.interrupt` ends the running turn and is
 refused (gate state) when none runs; `structured_controls.json` passes against the fake and the Go daemon.
 
 ## packages/app-core and app-data
@@ -36,7 +36,7 @@ refused (gate state) when none runs; `structured_controls.json` passes against t
 | A5 | `useWrite` knows `session.input/keys/type`, `terminal.input/resize`, `input.take/release` for any agent. Nothing stops a structured agent being sent one. | `useWrite` for these methods throws in dev and test when the agent row is `structured`; a guard test lists the five. |
 | A6 | `useTranscript` returns `terminal` when the read is refused, which both apps use as "show the terminal". A structured agent should never get there. | The `terminal` fallback stays for a daemon without the topic only; tests cover a refused read for `structured: true` as an error with Retry. |
 | A7 | Resume is two things: `verbsOf` uses `session.wake`, the Resume buttons use `session.restart`. | One path: a closed agent with a session id is woken (`session.wake`); restart is for an open session. Check the Go `Restart` of a closed agent before choosing. |
-| A8 | `Store.openAgent` (`app-core/src/store.ts`) attaches the agent's terminal before it sets the page. For a structured agent the daemon refuses that (gate unsupported), so the phone's agent page never opens; the web opens by route and needs the terminal handle only for the Watch tab (W1). | `openAgent` for a `structured` agent sets the page with no terminal view, and the phone never builds Terminal for it. Tests run on the fake in its real shape (the `structuredTerminal` lines below are gone). |
+| A8 | `Store.openAgent` (`app-core/src/store.ts`) attaches the agent's terminal before it sets the page. For a structured agent the daemon answers not_found (it has no terminal), so the phone's agent page never opens; the web opens by route and needs the terminal handle only for the Watch tab (W1). | `openAgent` for a `structured` agent sets the page with no terminal view, and the phone never builds Terminal for it. Tests run on the fake in its real shape (the `structuredTerminal` lines below are gone). |
 
 ## apps/web
 
@@ -65,7 +65,7 @@ refused (gate state) when none runs; `structured_controls.json` passes against t
 C1, C3, C4 and C5 are in `contract/protocol.json` (`x-structured-controls`, the method texts, `unsupported` on the typing methods) with
 `contract/fixtures/structured_controls.json` (11 fixtures; they need vars, so the Go run lists them in `go/conformance-needvar.txt`
 until the daemon seeds them). C2 and C6 were not gaps. F1 is in `packages/fake-daemon` (`structured-controls.ts`): a structured fake
-agent has no terminal or holder, refuses the typing methods and `terminal.attach` by agent, interrupts only a running turn and refuses
+agent has no terminal or holder, refuses the typing methods and finds no terminal to attach, interrupts only a running turn and refuses
 a close mid-turn. Run them with `serve.ts --conformance --autoplay 50`, vars `structured_agent=handline.auditor turn_agent=conf.working
 interrupt_agent=conf.interrupt asking_agent=conf.asking`. The Python fake does not play them (`NOT_YET_IN_PYTHON`).
 
