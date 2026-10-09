@@ -2,7 +2,6 @@ package reads
 
 import (
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -20,9 +19,6 @@ type viewFields struct {
 	taskCount map[string]int
 	// ready is the agents whose current task is queued and held by no open blocker.
 	ready map[string]bool
-	// idle is the agents whose row says IDLE: the screen word's source, which the wire word is not (it is idle for DONE and a parked
-	// agent with nothing to do as well).
-	idle map[string]bool
 }
 
 // viewFields reads the board once for every agent.
@@ -44,13 +40,7 @@ func (e *Env) viewFields() (*viewFields, error) {
 	for _, r := range rows {
 		blocked[r.i("task_id")] = true
 	}
-	f := &viewFields{taskCount: map[string]int{}, ready: map[string]bool{}, idle: map[string]bool{}}
-	if rows, err = query(e.DB, "SELECT agent FROM agent_state WHERE state = ?", states.Idle); err != nil {
-		return nil, err
-	}
-	for _, r := range rows {
-		f.idle[r.str("agent")] = true
-	}
+	f := &viewFields{taskCount: map[string]int{}, ready: map[string]bool{}}
 	for _, t := range open {
 		owner, id := t.str("owner"), t.i("id")
 		state := b.state(t)
@@ -82,7 +72,7 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 		view["kind"] = team.Kind(cfg)
 	}
 	view["task_count"] = x.taskCount[name]
-	view["ready"] = x.ready[name] && x.idle[name] && view["state"] == "idle"
+	view["ready"] = x.ready[name] && screenIdle(view["state"])
 	view["wall"] = nil
 	if e.Delivery == nil {
 		return nil
@@ -101,4 +91,14 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 	}
 	view["wall"] = map[string]any{"account": w.Account, "clock": clock, "assumed": w.Assumed}
 	return nil
+}
+
+// screenIdle is whether a stored wire word is the screen word IDLE, as agentview.screen_word reads it back: idle, no_terminal and any
+// word not named here.
+func screenIdle(word any) bool {
+	switch word {
+	case "running", "queued", "parked", "waiting", "stalled":
+		return false
+	}
+	return true
 }
