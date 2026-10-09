@@ -145,6 +145,21 @@ export type AgentView = {
   wake_wait_reason?: string | null;
   /** The agent is set up to run as a structured session, whether its session is live or closed: the transcript topic and transcript.events serve it (the stored log too), chat.send returns a receipt for it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too. */
   structured?: boolean;
+  /** What the agent is, for a column (agents.kind): the model and its effort as `<model> <effort>`, effort one of low, mid, high, xhi, max (any other effort is shown whole), with the vendor in front as `<vendor> <model> <effort>` only when it is not claude. Absent from a daemon that does not serve it yet. */
+  kind?: string;
+  /** The tasks the agent owns that are not done: the current one and those waiting. Absent from a daemon that does not serve it yet. */
+  task_count?: number;
+  /** The agent is idle (the screen word IDLE), has a current task, that task is queued, and no open blocker holds it: it can be given work now. Absent means false. */
+  ready?: boolean;
+  /** What holds back a wake that is due (the screens' wall cell): the account that would wake it. Null when would_wake is false or nothing holds it back. Absent from a daemon that does not serve it yet. */
+  wall?: {
+    /** The account whose window the wake waits on. */
+    account: string;
+    /** When that window rolls over, as unix seconds: the shortest walled window, the longest when only that stands. Null when the reset is not known or the wait is for a slot (the account is at its cap), not a window. */
+    clock: number | null;
+    /** The account is a guess (nothing has confirmed the one the resume is tied to), not the account itself. */
+    assumed: boolean;
+  } | null;
 };
 
 export type AgentDetail = AgentView & {
