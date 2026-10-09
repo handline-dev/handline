@@ -48,7 +48,7 @@ With no `-cert` and `-key` this is Tailscale mode (below): nothing to set up.
   (`retention`, which is also a cursor older than `stream:pruned`); a subscriber more than 1000 live events behind gets `gap` (`slow_client`)
   and is hung up. An agent session is sent what its role may read (`stream.AgentMay`). Retention is 7 days or 50000 rows, pruned hourly.
   The detectors that turn database changes into rows are `internal/watcher`: one per topic, each moved here from the Python watcher, and started
-  only with `-structured-tick -cutover` (until then Python writes the rows and a second writer would double them). Moved so far: tasks.
+  only with `-structured-tick -cutover` (until then Python writes the rows and a second writer would double them). Moved so far: tasks, agents (with the stall notification), notifications.
 
 ## Web UI and TLS
 
