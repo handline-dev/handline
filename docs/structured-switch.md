@@ -30,7 +30,7 @@ One extra process beside the Python daemon, which keeps the socket, the gateway 
        hl close <agent>
        python3 -c "import sqlite3;print(sqlite3.connect('<home>/db.sqlite').execute(\"select state,terminal,closed_at,resume_session from agent_state where agent='<agent>'\").fetchall())"
 
-   Wait for `closed_at` to be set. (Go would otherwise resume the same session id beside a live claude, a gap on the board.) Whether the leftover `terminal` handle in the row bothers Go was not tried: the scratch rows had none.
+   Do this before the `structured:` line goes in: an agent switched with its terminal still open is held, and the stuck panel and the chat read "switched with its terminal open". The way out: remove the line, close it, put the line back. Wait for `closed_at` to be set. (Go would otherwise resume the same session id beside a live claude, a gap on the board.) Whether the leftover `terminal` handle in the row bothers Go was not tried: the scratch rows had none.
 2. Install the process as a second launchd job. Copy the `EnvironmentVariables` of `~/Library/LaunchAgents/dev.orcapipe.daemon.plist` (PATH must reach `ocp`/`hl`), then:
 
        ~/Library/LaunchAgents/dev.orcapipe.structured.plist:
