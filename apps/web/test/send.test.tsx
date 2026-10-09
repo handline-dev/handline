@@ -42,7 +42,7 @@ const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const receipt = (body: string) => msg(body)?.querySelector('.receipt')?.getAttribute('data-receipt');
 const button = (m: Element | undefined, label: string) => [...(m?.querySelectorAll('button') ?? [])].find((b) => text(b) === label);
 
-async function mount(s = setup({ structuredTerminal: true })) {
+async function mount(s = setup()) {
   const store = new Store(s.client);
   location.hash = `#/agents/${AUD}`;
   box = document.body.appendChild(document.createElement('div'));
@@ -84,7 +84,7 @@ describe('a message to a structured agent', () => {
   });
 
   it('is queued behind a running turn, written when it ends, and can be sent now', async () => {
-    const s = setup({ structuredTerminal: true });
+    const s = setup();
     s.daemon.sessions.get(AUD)!.state = 'running';
     running(s);
     await mount(s);
@@ -99,7 +99,7 @@ describe('a message to a structured agent', () => {
   });
 
   it('joins the running turn at once when Now is ticked', async () => {
-    const s = setup({ structuredTerminal: true });
+    const s = setup();
     s.daemon.sessions.get(AUD)!.state = 'running';
     running(s);
     await mount(s);
@@ -111,7 +111,7 @@ describe('a message to a structured agent', () => {
   });
 
   it('is withdrawn while queued: it leaves the list and its words come back to the box', async () => {
-    const s = setup({ structuredTerminal: true });
+    const s = setup();
     s.daemon.sessions.get(AUD)!.state = 'running';
     running(s);
     await mount(s);
