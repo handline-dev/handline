@@ -1,8 +1,13 @@
 // `pnpm app:watch`: rebuilds the main process and preloads on every save and restarts Electron after each rebuild.
 // The web bundle is rebuilt by `vite build --watch` (run beside this); reload the window (Cmd+R) to see it.
 import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { context, type BuildOptions } from 'esbuild';
 
+const webDist = process.env.HANDLINE_WEB_DIST ?? process.env.OCP_WEB_DIST ?? path.resolve(import.meta.dirname, '../web/dist');
+const webIndex = path.join(webDist, 'index.html');
 let child: ChildProcess | undefined;
 const restart = (): void => {
   const old = child;
@@ -23,7 +28,7 @@ const common: BuildOptions = {
   external: ['electron'],
   logLevel: 'info',
   define: { 'import.meta.dirname': '__dirname', 'import.meta.filename': '__filename' },
-  plugins: [{ name: 'restart', setup: (b) => b.onEnd((r) => r.errors.length === 0 && restart()) }],
+  plugins: [{ name: 'restart', setup: (b) => b.onEnd((r) => r.errors.length === 0 && child && restart()) }],
 };
 
 const ctx = await context({
@@ -33,6 +38,9 @@ const ctx = await context({
   outExtension: { '.js': '.cjs' },
 });
 await ctx.watch();
+// Electron serves apps/web/dist, so the first start waits for the first vite build.
+while (!fs.existsSync(webIndex)) await sleep(250);
+restart();
 process.on('SIGINT', () => {
   child?.kill();
   process.exit(0);
