@@ -21,7 +21,8 @@ import (
 const pythonDetector = `
 import json, os, sqlite3, sys
 sys.path.insert(0, os.getcwd())
-from handline.daemon import stream
+from handline.daemon import locks, stream
+locks.running_elsewhere = os.getpid  # this detector is the daemon, as the Go one is: not the live one's lock
 con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
 state = {}
 stream.%s(con, state); con.commit()
@@ -85,9 +86,11 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	cmd := osexec.Command("python3", "-I", "-c", script, filepath.Join(dir, "py.sqlite"))
 	cmd.Dir = root
 	cmd.Stderr = os.Stderr
-	if parityHome != "" {
-		cmd.Env = append(os.Environ(), "OCP_HOME="+parityHome, "HANDLINE_HOME="+parityHome, "HANDLINE_TEST_ROOT="+filepath.Dir(parityHome), "OCP_TEST_ROOT="+filepath.Dir(parityHome))
+	home := parityHome
+	if home == "" { // never the home this test was started with: that may be the live one
+		home = filepath.Join(t.TempDir(), "home")
 	}
+	cmd.Env = append(os.Environ(), "OCP_HOME="+home, "HANDLINE_HOME="+home, "HANDLINE_TEST_ROOT="+filepath.Dir(home), "OCP_TEST_ROOT="+filepath.Dir(home))
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
