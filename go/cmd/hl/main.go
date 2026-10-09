@@ -17,7 +17,9 @@ import (
 type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
+	"close":    closeCmd,
 	"progress": progress,
+	"restart":  restart,
 	"say":      say,
 	"task":     task,
 }
