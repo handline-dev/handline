@@ -120,3 +120,20 @@ func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedArePythons(t *testin
 		t.Fatalf("calls %v", got)
 	}
 }
+
+func TestDevModeShowsAndSetsThroughSettings(t *testing.T) {
+	r := founderRig(t)
+	calls := r.daemon(map[string]string{"settings.get": `{"values":{"dev_mode":true}}`, "settings.set": `{"accepted":true,"said":"set"}`})
+	if out, _, code := r.run(nil, "dev-mode"); code != 0 || out != "on\n" {
+		t.Errorf("show: %q %d", out, code)
+	}
+	if out, _, code := r.run(nil, "dev-mode", "off"); code != 0 || out != "dev-mode: off\n" {
+		t.Errorf("set: %q %d", out, code)
+	}
+	if got := sent(calls()); !reflect.DeepEqual(got, []string{`settings.get {}`, `settings.set {"changes":{"dev_mode":false}}`}) {
+		t.Fatalf("calls %v", got)
+	}
+	if out, _, _ := r.run(asAgent, "dev-mode", "on", "--why", "w"); !strings.HasPrefix(out, "python ") {
+		t.Errorf("an agent's proposal went to Go: %q", out)
+	}
+}

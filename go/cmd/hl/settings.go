@@ -282,3 +282,31 @@ func autoAccept(c *hlclient.Client, args []string) (int, bool) {
 	}
 	return 0, true
 }
+
+// devMode is `hl dev-mode [on|off]` (cli/daemon.py cmd_dev_mode): whether the daemon restarts itself when its own code
+// changed.
+func devMode(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, []string{"--why"}, nil, nil)
+	on, given, ok2 := onOff(p)
+	if !ok || !ok2 || len(p.pos) > 1 || !settingsCaller(c) {
+		return 0, false
+	}
+	if !given {
+		s, err := getSettings(c, "")
+		if err != nil {
+			return failed(err.Error()), true
+		}
+		if now, _ := s.values["dev_mode"].(bool); now {
+			fmt.Println("on")
+		} else {
+			fmt.Println("off")
+		}
+		return 0, true
+	}
+	if why := setSettings(c, "", map[string]any{"dev_mode": on}); why != "" {
+		fmt.Fprintln(os.Stderr, why)
+		return 1, true
+	}
+	fmt.Printf("dev-mode: %s\n", p.pos[0])
+	return 0, true
+}

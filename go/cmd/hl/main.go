@@ -19,6 +19,7 @@ type command func(c *hlclient.Client, args []string) (code int, ok bool)
 var commands = map[string]command{
 	"auto-accept":         autoAccept,
 	"close":               closeCmd,
+	"dev-mode":            devMode,
 	"hook":                hook,
 	"idle-background":     idleBackground,
 	"idle-timeout":        idleTimeout,
