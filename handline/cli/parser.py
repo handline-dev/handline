@@ -152,9 +152,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
 
-    p = sub.add_parser("go", help="show or set whether the Go hl runs a part itself: hook (the tool-call hooks); "
-                                  "off, Python does")
-    p.add_argument("part", choices=["hook"])
+    p = sub.add_parser("go", help="show or set whether the Go hl runs a part itself: hook (the tool-call hooks) or "
+                                  "launch (a Claude agent's start under tmux); off, Python does")
+    p.add_argument("part", choices=["hook", "launch"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_go)
 

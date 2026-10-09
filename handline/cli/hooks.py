@@ -29,7 +29,8 @@ def cmd_hooks_gate(args) -> int:
 
 
 # The parts of the Go hl the founder switches on one at a time (go/cmd/hl): each reads its entry and acts only on "on".
-GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks")}
+GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks"),
+            "launch": ("go_launch", "the Go hl starts a Claude agent under tmux")}
 
 
 def cmd_go(args) -> int:

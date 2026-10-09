@@ -171,7 +171,7 @@ def test_the_edit_gate_enforce_switch_is_the_founders_to_flip(home: Path) -> Non
 
 def test_the_go_switches_are_the_founders_and_off_until_set(home: Path) -> None:
     _daemon_home(home, 20)
-    for part, name in (("hook", "go_hook"),):
+    for part, name in (("hook", "go_hook"), ("launch", "go_launch")):
         rc, out = _cli(["go", part], as_agent=None)
         check(f"go {part}: off until the founder sets it", rc == 0 and "off - Python does it" in out, out)
         rc, out = _cli(["go", part, "on"], as_agent="backend")
@@ -180,7 +180,8 @@ def test_the_go_switches_are_the_founders_and_off_until_set(home: Path) -> None:
         check(f"go {part}: the founder switches it on, under the name the Go hl reads",
               rc == 0 and f"go {part}: on - the Go hl" in out and protected.get("switches", name) == "on", out)
     rc, out = _cli(["go", "hook", "off"], as_agent=None)
-    check("go hook: and off again", rc == 0 and "off -" in out, out)
+    check("go hook: off again, and launch stays on", rc == 0 and "off -" in out
+          and protected.get("switches", "go_launch") == "on", out)
 
 
 def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None:
