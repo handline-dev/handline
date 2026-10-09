@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView } from '@handline/client';
-import { CONFIRM_VERBS, VERBS, callOf, verbsOf } from '../src/index.ts';
+import { CONFIRM_VERBS, askOf, VERBS, callOf, verbsOf } from '../src/index.ts';
 
 const row = (state: string) => ({ name: 'a.b', state }) as AgentView;
 const ids = (state: string, session_open: boolean, session_id: string | null) =>
@@ -36,4 +36,10 @@ test('a structured agent lists interrupt only while a turn runs or waits', () =>
   assert.deepEqual(of('stalled', false), ['clear_stall', 'move']);
   assert.deepEqual(ids('running', true, 's1'), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']); // a terminal agent has it in the stop menu
   assert.deepEqual(callOf(VERBS.interrupt, 'a.b'), { method: 'session.interrupt', params: { agent: 'a.b' } });
+});
+
+test('askOf: Close names the terminal that stays only for a terminal agent', () => {
+  assert.match(askOf(VERBS.close, { structured: false })!, /terminal/);
+  assert.doesNotMatch(askOf(VERBS.close, { structured: true })!, /terminal/);
+  assert.equal(askOf(VERBS.park, { structured: true }), VERBS.park.ask);
 });

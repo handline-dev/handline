@@ -6,8 +6,8 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
-export const TAB_KINDS: readonly TabKind[] = ['chat', 'tasks', 'terminal', 'shell', 'emulator', 'web', 'markdown', 'review'];
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
+export const TAB_KINDS: readonly TabKind[] = ['chat', 'tasks', 'terminal', 'transcript', 'shell', 'emulator', 'web', 'markdown', 'review'];
 export type TabParams = Record<string, string | number>;
 export interface Tab {
   id: string;
@@ -42,6 +42,7 @@ export type Path = ('a' | 'b')[];
 
 export const CHAT = 'chat';
 export const TASKS = 'tasks';
+export const TRANSCRIPT = 'transcript';
 export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
@@ -54,6 +55,7 @@ const clampAt = (at: number) => Math.min(MAX_AT, Math.max(MIN_AT, at));
 export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): string {
   if (kind === 'chat') return CHAT;
   if (kind === 'tasks') return TASKS;
+  if (kind === 'transcript') return TRANSCRIPT;
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
@@ -63,9 +65,13 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
 
 const nextGroupId = (ws: Workspace): string => `g${Math.max(0, ...groupsOf(ws.root).map((g) => Number(g.id.slice(1)) || 0)) + 1}`;
 
-/** One pane: Chat first and shown, the agent's Claude Code terminal second behind it. No session, no terminal tab. */
-export function defaultWorkspace(opts: { terminal?: string } = {}): Workspace {
+/** One pane: Chat first and shown, the agent's Claude Code terminal (or, for a structured agent, its transcript) second behind it. No session, no terminal tab. */
+export function defaultWorkspace(opts: { terminal?: string; structured?: boolean } = {}): Workspace {
   const tabs: Record<string, Tab> = { [CHAT]: { id: CHAT, kind: 'chat', params: {} } };
+  if (opts.structured) {
+    tabs[TRANSCRIPT] = { id: TRANSCRIPT, kind: 'transcript', params: {} };
+    return { v: 1, root: group('g1', [CHAT, TRANSCRIPT], CHAT), active: 'g1', tabs };
+  }
   if (!opts.terminal) return { v: 1, root: group('g1', [CHAT]), active: 'g1', tabs };
   const t = tabId(null, 'terminal', { handle: opts.terminal });
   tabs[t] = { id: t, kind: 'terminal', params: { handle: opts.terminal } };

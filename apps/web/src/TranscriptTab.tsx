@@ -1,7 +1,7 @@
 // What a structured agent did, in place of its terminal: the message that began each turn, its text, tool calls and results (collapsed until
 // opened), permission cards, what the turn cost, and errors. It follows the stream while the person is at the end and offers a jump back when not.
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Skeleton, useTranscript, type Transcript, type Turn } from '@handline/app-data';
+import { Skeleton, useTranscript, classify, sentence, useWrite, type Transcript, type Turn } from '@handline/app-data';
 import { PromptCard } from './PromptCard.tsx';
 import { Button, Empty } from './ui/index.ts';
 
@@ -97,6 +97,22 @@ function TurnView({ agent, turn }: { agent: string; turn: Turn }) {
   );
 }
 
+/** The line over a running turn: Interrupt ends it, and a refusal says why beside the button. */
+function Working({ agent }: { agent: string }) {
+  const interrupt = useWrite('session.interrupt', agent);
+  return (
+    <div className="tr-working" role="status">
+      <span>Working…</span>
+      <Button
+        label={interrupt.isPending ? 'Interrupting…' : 'Interrupt'}
+        onClick={() => interrupt.mutate({ agent })}
+        disabled={interrupt.isPending}
+      />
+      {interrupt.isError ? <span className="muted">{sentence(classify(interrupt.error))}</span> : null}
+    </div>
+  );
+}
+
 /** The transcript of a structured agent. */
 export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
   const box = useRef<HTMLDivElement>(null);
@@ -119,6 +135,7 @@ export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
     );
   return (
     <div className="tr" data-status={t.status}>
+      {t.running ? <Working agent={agent} /> : null}
       <div
         className="tr-scroll"
         ref={box}
@@ -160,11 +177,9 @@ export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
 
 /** The watching tab of an agent: its transcript when the daemon runs it as a structured session, else its terminal. */
 export function Watch({ agent, structured, terminal }: { agent: string; structured: boolean; terminal: ReactNode }) {
-  return structured ? <Structured agent={agent} terminal={terminal} /> : <>{terminal}</>;
+  return structured ? <Structured agent={agent} /> : <>{terminal}</>;
 }
 
-function Structured({ agent, terminal }: { agent: string; terminal: ReactNode }) {
-  const t = useTranscript(agent, true);
-  // `terminal` is the fallback for a daemon that said structured and then refused the read
-  return t.status === 'terminal' ? <>{terminal}</> : <TranscriptView agent={agent} t={t} />;
+function Structured({ agent }: { agent: string }) {
+  return <TranscriptView agent={agent} t={useTranscript(agent, true)} />;
 }

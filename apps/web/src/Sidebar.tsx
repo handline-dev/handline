@@ -279,7 +279,13 @@ function RowControls({
   };
   const stop = (mode: StopMode) => {
     menu.current?.removeAttribute('open');
-    if (mode === 'kill' && !confirm(`Kill the terminal of ${agent}?${a.task ? ` It has work in flight: ${a.task.title}.` : ''}`)) return;
+    if (
+      mode === 'kill' &&
+      !confirm(
+        `${d.structured ? `End the session of ${agent}` : `Kill the terminal of ${agent}`}?${a.task ? ` It has work in flight: ${a.task.title}.` : ''}`,
+      )
+    )
+      return;
     if (mode === 'interrupt') interrupt.mutate({ agent });
     else stopWrite.mutate({ agent, mode });
   };
@@ -287,7 +293,11 @@ function RowControls({
   return (
     <span className="row-actions">
       {c.start ? (
-        <button className="btn primary" disabled={busy} onClick={() => start.mutate({ agent, account: account || undefined })}>
+        <button
+          className="btn primary"
+          disabled={busy}
+          onClick={() => start.mutate(d.structured ? { agent } : { agent, account: account || undefined })}
+        >
           {start.isPending ? 'starting…' : '▶ Start'}
         </button>
       ) : null}
@@ -301,7 +311,7 @@ function RowControls({
           {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
         </summary>
         <div className="menu-list">
-          {c.start ? (
+          {c.start && !d.structured ? (
             <select
               aria-label="Account for this start"
               title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}

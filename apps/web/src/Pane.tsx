@@ -28,15 +28,17 @@ import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
-const label = (t: Tab): string =>
+const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
     ? 'Chat'
     : t.kind === 'tasks'
       ? 'Tasks'
-      : t.kind === 'terminal'
-        ? 'Claude Code'
-        : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal' };
+      : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+        ? 'Transcript'
+        : t.kind === 'terminal'
+          ? 'Claude Code'
+          : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal' };
 const PRESETS: [Preset, string][] = [
   ['single', 'One pane'],
   ['cols', 'Two columns'],
@@ -51,9 +53,10 @@ export function Pane({ group }: { group: Group }) {
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const badges = badgesOf(detail, store.me);
+  const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
-  const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal');
+  const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal' || ws.tabs[id]?.kind === 'transcript');
   const termShown = termId !== undefined && termId === group.activeTab;
   const attention = needsAttention(badges);
   const wasAttention = useRef(attention);
@@ -108,9 +111,9 @@ export function Pane({ group }: { group: Group }) {
                 } else if (e.key === 'Enter' || e.key === ' ') apply((w) => activate(w, id));
               }}
             >
-              <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t)} aria-hidden />
-              <span className="tab-label">{label(t)}</span>
-              {t.kind === 'terminal' ? (
+              <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t, structured)} aria-hidden />
+              <span className="tab-label">{label(t, structured)}</span>
+              {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
                   <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
                   {unread && id !== group.activeTab ? <span className="unread-dot" title="Needs you" /> : null}
@@ -119,12 +122,13 @@ export function Pane({ group }: { group: Group }) {
               {id === CHAT ? null : (
                 <button
                   className="x"
-                  aria-label={`Close ${label(t)}`}
-                  title={t.kind === 'terminal' ? 'Close the tab; the agent keeps running' : 'Close the tab'}
+                  aria-label={`Close ${label(t, structured)}`}
+                  title={t.kind === 'terminal' || t.kind === 'transcript' ? 'Close the tab; the agent keeps running' : 'Close the tab'}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (
                       t.kind === 'terminal' &&
+                      !structured &&
                       detail.session_open &&
                       !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
                     )
@@ -153,7 +157,17 @@ export function Pane({ group }: { group: Group }) {
               >
                 <Icon name="tasks" size={14} aria-hidden /> Tasks
               </button>
-              {detail.terminal ? (
+              {structured ? (
+                <button
+                  className="menu-item"
+                  onClick={(e) => {
+                    e.currentTarget.closest('details')!.removeAttribute('open');
+                    apply((w) => openTab(w, 'transcript', {}, group.id));
+                  }}
+                >
+                  <Icon name="terminal" size={14} aria-hidden /> Transcript
+                </button>
+              ) : detail.terminal ? (
                 <button
                   className="menu-item"
                   onClick={(e) => {
@@ -196,10 +210,10 @@ export function Pane({ group }: { group: Group }) {
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} />
-        ) : tab.kind === 'terminal' ? (
+        ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}
-            structured={detail.structured === true}
+            structured={structured}
             terminal={
               wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
                 <BytesTab agent={agent} detail={detail} />
@@ -210,7 +224,7 @@ export function Pane({ group }: { group: Group }) {
           />
         ) : (
           <div className="empty big">
-            <strong>{label(tab)}</strong>
+            <strong>{label(tab, structured)}</strong>
             <p>This daemon does not serve {tab.kind} tabs. Close this tab.</p>
           </div>
         )}

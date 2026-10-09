@@ -28,7 +28,11 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
     <section className="chat">
       <div className="stream">
-        <Empty icon="chat" name="No chat yet" hint="Use the terminal tab to work with the agent" />
+        <Empty
+          icon="chat"
+          name="No chat yet"
+          hint={detail.structured ? 'Send a message to start' : 'Use the terminal tab to work with the agent'}
+        />
       </div>
       <div className="cards">
         <PromptSlot agent={agent} prompt={detail.prompt} />

@@ -2,6 +2,12 @@
 import { callOf, VERBS, type Verb, type VerbId } from '@handline/app-core';
 import { usePending, useWrite } from './write.ts';
 
+/** What a caller may ask to hear of a verb's write: it settled, or the daemon refused it. */
+export interface VerbDone {
+  onSuccess?: () => void;
+  onError?: (e: unknown) => void;
+}
+
 /** Starts a verb's write. */
 export function useVerbRun(agent: string) {
   const wake = useWrite('session.wake', agent);
@@ -12,16 +18,16 @@ export function useVerbRun(agent: string) {
   const fold = useWrite('agent.fold', agent);
   const move = useWrite('agent.move', agent);
   const unstall = useWrite('agent.unstall', agent);
-  return (v: Verb, account?: string) => {
+  return (v: Verb, account?: string, on?: VerbDone) => {
     const p = callOf(v, agent, account).params as never;
-    if (v.method === 'session.wake') wake.mutate(p);
-    else if (v.method === 'session.interrupt') interrupt.mutate(p);
-    else if (v.method === 'session.stop') stop.mutate(p);
-    else if (v.method === 'session.restart') restart.mutate(p);
-    else if (v.method === 'session.park') park.mutate(p);
-    else if (v.method === 'agent.fold') fold.mutate(p);
-    else if (v.method === 'agent.move') move.mutate(p);
-    else if (v.method === 'agent.unstall') unstall.mutate(p);
+    if (v.method === 'session.wake') wake.mutate(p, on);
+    else if (v.method === 'session.interrupt') interrupt.mutate(p, on);
+    else if (v.method === 'session.stop') stop.mutate(p, on);
+    else if (v.method === 'session.restart') restart.mutate(p, on);
+    else if (v.method === 'session.park') park.mutate(p, on);
+    else if (v.method === 'agent.fold') fold.mutate(p, on);
+    else if (v.method === 'agent.move') move.mutate(p, on);
+    else if (v.method === 'agent.unstall') unstall.mutate(p, on);
   };
 }
 

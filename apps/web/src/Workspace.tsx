@@ -69,7 +69,9 @@ export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daem
 function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: AgentDetail; daemon: string; storage: KV | null }) {
   const store = useStore();
   const key = storageKey(daemon, agent);
-  const [ws, setWs] = useState(() => loadWorkspace(storage, key, () => defaultWorkspace({ terminal: detail.terminal ?? undefined })));
+  const [ws, setWs] = useState(() =>
+    loadWorkspace(storage, key, () => defaultWorkspace({ terminal: detail.terminal ?? undefined, structured: detail.structured === true })),
+  );
   const [dragging, setDragging] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: innerWidth, h: innerHeight });
