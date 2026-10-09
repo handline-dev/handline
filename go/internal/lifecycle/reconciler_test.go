@@ -31,7 +31,7 @@ func newRec(t *testing.T, seen map[string]session.Observed) (*Reconciler, *[]str
 	r := &Reconciler{Q: openDB(t), Log: func(s string) { logs = append(logs, s) }}
 	r.Ports = ReconcilerPorts{
 		Agents:           func() []string { return []string{"a"} },
-		Registered:       func() []string { return []string{"a"} },
+		Registered:       func() ([]string, error) { return []string{"a"}, nil },
 		Observe:          func([]string, map[string]string) map[string]session.Observed { return seen },
 		NoteSeen:         func(map[string]session.Observed, time.Time) {},
 		RefreshView:      func(db.Q, string) {},
@@ -303,5 +303,26 @@ func TestASweepDropsTheStateRowOfANameNoAgentHasButNotARegisteredAgentsOrOneWith
 	}
 	if len(acts) != 1 || acts[0] != "ghost: no such agent; its state row is dropped" {
 		t.Fatalf("%v", acts)
+	}
+}
+
+func TestASweepDropsNothingWhenTheAgentsCannotBeListedOrNoneAre(t *testing.T) {
+	for name, list := range map[string]func() ([]string, error){
+		"unreadable": func() ([]string, error) { return nil, errors.New("too many open files") },
+		"empty":      func() ([]string, error) { return []string{}, nil },
+	} {
+		r, logs := newRec(t, nil)
+		r.Ports.Registered = list
+		db.SetAgentState(r.Q, "structured", states.Idle, 0, "no terminal by design")
+		var acts []string
+		if err := r.Sweep(&acts); err != nil {
+			t.Fatal(err)
+		}
+		if row, _ := db.GetAgentState(r.Q, "structured"); row == nil || len(acts) != 0 {
+			t.Fatalf("%s: row dropped: %v", name, acts)
+		}
+		if n := strings.Count(strings.Join(*logs, "\n"), "could not be listed"); (name == "unreadable") != (n == 1) {
+			t.Fatalf("%s: logged %d times", name, n)
+		}
 	}
 }
