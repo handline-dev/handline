@@ -38,6 +38,9 @@ type Watcher struct {
 	Emit      Emit
 	Detectors []Detector
 	Log       func(format string, args ...any)
+	// Signature says whether something the database does not hold has changed (the hr proposals are files): a change in it wakes the loop
+	// as a commit does. Nil is none.
+	Signature func() string
 }
 
 // Scan runs every detector once.
@@ -62,6 +65,7 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 		}
 	}()
 	var version int64 = -1
+	sig := "\x00" // never a signature: the first look is a change
 	for ctx.Err() == nil {
 		wait := Every
 		if conn == nil {
@@ -78,8 +82,8 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 				w.fail(err)
 				conn.Close()
 				conn, wait = nil, Retry
-			} else if v != version {
-				version = v
+			} else if now := w.signature(); v != version || now != sig {
+				version, sig = v, now
 				w.Scan()
 			}
 		}
@@ -88,6 +92,13 @@ func (w *Watcher) Run(stop <-chan struct{}) {
 		case <-time.After(wait):
 		}
 	}
+}
+
+func (w *Watcher) signature() string {
+	if w.Signature == nil {
+		return ""
+	}
+	return w.Signature()
 }
 
 func (w *Watcher) fail(err error) {
