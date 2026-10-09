@@ -425,12 +425,10 @@ export type Account = {
   agents_running?: number;
   /** Only with accounts.list `roster: true`. Agents whose config cannot be read and so count on no account; the same on every account, and every figure above is a floor while it is above 0. */
   agents_unplaced?: number;
-  /** The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed. */
+  /** The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed. Never carries the authorize URL: only the founder's account.login reply has it. */
   login?: {
     login_id: string;
     state: "waiting" | "code_sent" | "done" | "failed" | "cancelled";
-    /** Present while waiting. */
-    url?: string;
   } | null;
 };
 
