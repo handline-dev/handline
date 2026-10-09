@@ -25,15 +25,55 @@ import (
 )
 
 // resolveHome refuses the default home unless it was asked for: this daemon does not yet guard the real
-// home against a build that is not the installed one, so nothing starts on it by accident.
+// home against a build that is not the installed one, so nothing starts on it by accident. -home naming the
+// real home is refused the same way, and HANDLINE_HOME and OCP_HOME naming different homes is an error.
 func resolveHome(flagHome string, allowReal bool) (string, error) {
+	newHome, oldHome := os.Getenv("HANDLINE_HOME"), os.Getenv("OCP_HOME")
+	if newHome != "" && oldHome != "" && realPath(newHome) != realPath(oldHome) {
+		return "", fmt.Errorf("HANDLINE_HOME=%s and OCP_HOME=%s name different homes: set one, or both to the same folder", newHome, oldHome)
+	}
 	if flagHome != "" {
+		if !allowReal && isRealHome(flagHome) {
+			return "", fmt.Errorf("-home %s is the real handline home (-allow-real-home starts on it)", flagHome)
+		}
 		return flagHome, nil
 	}
 	if !allowReal {
 		return "", fmt.Errorf("-home is required while the daemon is in development (-allow-real-home uses %s)", paths.Home())
 	}
 	return paths.Home(), nil
+}
+
+// realPath is p with links followed, through its nearest ancestor that exists.
+func realPath(p string) string {
+	p = filepath.Clean(p)
+	for rest := ""; ; {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return filepath.Join(p, rest)
+		}
+		rest, p = filepath.Join(filepath.Base(p), rest), parent
+	}
+}
+
+// isRealHome is whether p is, or is inside, the user's ~/.handline or ~/.orcapipe, by the account's home directory and not the
+// test root's stand-in for it.
+func isRealHome(p string) bool {
+	u, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	p = realPath(p)
+	for _, d := range []string{".handline", ".orcapipe"} {
+		real := realPath(filepath.Join(u, d))
+		if p == real || strings.HasPrefix(p, real+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultNative is what the Go daemon serves from the database today; every other method is relayed until it is named here. One name per
