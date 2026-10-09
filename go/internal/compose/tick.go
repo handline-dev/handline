@@ -46,6 +46,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	view := p.agentView(cfg, tc.Cutover, tu)
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
 		Agents:        p.structuredAgents,
+		Registered:    func() []string { return paths.ListAgents(home) },
 		Observe:       func([]string, map[string]string) map[string]session.Observed { return map[string]session.Observed{} },
 		NoteSeen:      func(map[string]session.Observed, time.Time) {},
 		ResumeHandoff: func(_ db.Q, row db.HandoffRow) error { return lc.Mover.ResumeHandoff(row) },

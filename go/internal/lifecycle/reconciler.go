@@ -31,7 +31,8 @@ func TrustStallPrefixes(agent string) []string {
 
 // ReconcilerPorts is everything the startup pass and the sweep reach that another group owns.
 type ReconcilerPorts struct {
-	Agents           func() []string                                                                // paths.list_agents
+	Agents           func() []string                                                                // agents.driven
+	Registered       func() []string                                                                // paths.list_agents
 	Observe          func(agents []string, terminals map[string]string) map[string]session.Observed // session/observe.observe
 	NoteSeen         func(seen map[string]session.Observed, at time.Time)                           // delivery's last look at the table
 	ResumeHandoff    func(q db.Q, h db.HandoffRow) error                                            // handoff.resume_handoff
@@ -303,6 +304,23 @@ func (r *Reconciler) closeStall(agent string, actions *[]string, prefixes []stri
 // a terminal Orca does not list is gone, and a session with no process is not running. Where the only evidence is a probe it wants
 // two witnesses before it moves.
 func (r *Reconciler) Sweep(actions *[]string) error {
+	registered := map[string]bool{}
+	for _, a := range r.Ports.Registered() {
+		registered[a] = true
+	}
+	rows, err := db.AllAgentStates(r.Q)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if !registered[row.Agent] && row.Terminal.String == "" {
+			// No agent directory backs it, and a retired agent's row goes with it: this was written for a name that never was one.
+			if _, err := r.Q.Exec("DELETE FROM agent_state WHERE agent = ?", row.Agent); err != nil {
+				return err
+			}
+			*actions = append(*actions, row.Agent+": no such agent; its state row is dropped")
+		}
+	}
 	names := r.Ports.Agents()
 	terminals := map[string]string{}
 	for _, a := range names {
