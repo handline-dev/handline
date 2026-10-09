@@ -125,24 +125,28 @@ func TestGoAndPythonWriteTheSameHrEvents(t *testing.T) {
 			decided("0000000a", "rejected", now-100, now-5, "")
 			decided("0000000c", "approved", now-90, now-4, "error: no room\n")
 			putProposal(t, home, "0000000d", "proposed", now-3, 0, "requested_by: human\n") // the founder's own: never listed
+			// one of each kind, raised: the diff and what is asked are the same words as Python's
+			for i, f := range []string{
+				"kind: add\nagent: new\nteam: eng\nmodel: opus\nvendor: codex\n",
+				"kind: settings\nagent: w\nset.model: opus\nset.effort: high\n",
+				"kind: link\nagent: a\nto: b\nrelation: peer\n",
+				"kind: unlink\nagent: a\nto: b\n",
+				"kind: team\nagent: eng\nrepo: r\nmembers: \"a,b\"\n",
+				"kind: context\nagent: w\nset.ROLE.md: \"\\\"x\\\"\"\n",
+				"kind: rename\nagent: a\nto: b\n",
+				"kind: bundle\nagent: x\ni1.kind: retire\ni1.agent: old\ni2.kind: add\ni2.agent: new\n",
+			} {
+				id := fmt.Sprintf("000000%02x", 0x20+i)
+				putProposal(t, home, id, "proposed", now-int64(i), 0, f)
+			}
 		})
-	if len(py) != len(events) || len(py) != 3 {
+	if len(py) != len(events) || len(py) != 11 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
-		// The proposal's diff is worded differently: Python's hr.list says "retire old", one change per line as the spec has it; Go's says
-		// what the card says. Every other field must be equal.
-		var pyData, goData map[string]map[string]any
-		json.Unmarshal([]byte(py[i]["data"].(string)), &pyData)
-		json.Unmarshal(e.Data, &goData)
-		if pyData["proposal"]["diff"] == "" || goData["proposal"]["diff"] == "" {
-			t.Errorf("row %d: a proposal without a diff", i)
-		}
-		delete(pyData["proposal"], "diff")
-		delete(goData["proposal"], "diff")
-		if !same(pyData, goData) {
-			t.Errorf("row %d data: python %v, go %v", i, pyData, goData)
+		if !same(py[i]["data"], e.Data) {
+			t.Errorf("row %d data: python %v, go %s", i, py[i]["data"], e.Data)
 		}
 	}
 }
