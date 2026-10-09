@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"net"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/stream"
 )
 
 // pidAuth knows process 1 as the agent "a" and holds the founder key "k".
@@ -165,26 +165,51 @@ func TestDevicesIsSubscribedAloneAndOnlyByTheFounder(t *testing.T) {
 	f.onlyHelloReached(t)
 }
 
-func TestEveryOtherSubscribeOfADeviceIsRelayed(t *testing.T) {
+func TestEveryOtherSubscribeOfADeviceIsServedHereFromTheLog(t *testing.T) {
 	d, f := startStream(t)
 	m := helloAs(t, d, mustPair(t, d))
 	for _, call := range []string{
 		`{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"topics":["tasks","chat"],"agent":"a"}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"unsubscribe","params":{"topics":["tasks"]}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"subscribe","params":{"topics":"nope"}}`, // the daemon behind judges it
-		`{"jsonrpc":"2.0","id":5,"method":"subscribe","params":{}}`,
 	} {
 		r := m.ask(call)
-		want := "subscribe"
-		if strings.Contains(call, `"unsubscribe"`) {
-			want = "unsubscribe"
-		}
-		if r["result"] == nil || r["result"].(map[string]any)["method"] != want {
+		if r["result"] == nil || r["result"].(map[string]any)["method"] != nil {
 			t.Fatalf("%s: %v", call, r)
 		}
 	}
-	if f.dials.Load() != 1 {
-		t.Fatalf("%d relay connections", f.dials.Load())
+	for _, call := range []string{
+		`{"jsonrpc":"2.0","id":4,"method":"subscribe","params":{"topics":"nope"}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"subscribe","params":{}}`,
+	} {
+		e, _ := m.ask(call)["error"].(map[string]any)
+		if e == nil || e["code"].(float64) != -32602 || e["data"].(map[string]any)["field"] != "topics" {
+			t.Fatalf("%s: %v", call, e)
+		}
+	}
+	f.onlyHelloReached(t)
+}
+
+func TestARowAppendedAfterASubscribeReachesTheSubscriber(t *testing.T) {
+	d, _ := startStream(t)
+	fo := pipeTo(t, d, "k")
+	r := fo.ask(`{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"topics":["accounts"]}}`)["result"].(map[string]any)
+	if r["cursor"] != float64(0) {
+		t.Fatalf("%v", r)
+	}
+	ev, err := d.hub.Append(stream.Entry{Topic: "accounts", Type: "account.changed", Data: map[string]any{"name": "main"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := eventOf(t, fo.next())
+	if got["cursor"] != float64(ev.Cursor) || got["topic"] != "accounts" || got["type"] != "account.changed" || got["agent"] != nil {
+		t.Fatalf("%v", got)
+	}
+	fo.ask(`{"jsonrpc":"2.0","id":3,"method":"unsubscribe","params":{"topics":["accounts"]}}`)
+	if _, err := d.hub.Append(stream.Entry{Topic: "accounts", Type: "account.changed", Data: map[string]any{"name": "main"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !fo.quiet() {
+		t.Fatal("an event came after unsubscribe")
 	}
 }
 

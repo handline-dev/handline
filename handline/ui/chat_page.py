@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import threading
+import traceback
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -1685,13 +1686,19 @@ class ChatPage(JobsAware, Screen):
         def done(got) -> None:
             self._inflight.discard(kind)
             if self.is_attached:
-                apply(got)
+                if got is not None:
+                    apply(got)
                 if kind in self._again:
                     self._again.discard(kind)
                     self._off_loop(kind, read, apply)
 
         def work() -> None:
-            self.app.call_from_thread(done, read())
+            try:
+                got = read()
+            except Exception:       # a read that raised must still free its kind, or the page never reads it again
+                log_action(f"{kind} read failed: {traceback.format_exc(limit=3)}")
+                got = None
+            self.app.call_from_thread(done, got)
         self.run_worker(work, thread=True, group=f"read_{kind}", exit_on_error=False)
 
     POOLS_S = 10        # the # and / menus' lists change slowly: read them this often, not on every refresh
