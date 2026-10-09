@@ -1,0 +1,347 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.get.view_fields_ready",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An idle agent whose current task is queued and held by no open blocker: ready is true, task_count is at least 1 and it has no wall, in agent.get and in agents.list (kind is always a string). Needs --var view_ready_agent: an idle agent whose current task is queued and held by no open blocker.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_ready_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_ready_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "ready": true,
+      "task_count": {
+       "$type": "integer"
+      },
+      "wall": null
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_ready_agent}}",
+        "kind": {
+         "$type": "string"
+        },
+        "ready": true,
+        "task_count": {
+         "$type": "integer"
+        },
+        "wall": null
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_fields_blocked",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An idle agent whose current task is queued but held by an open blocker: ready is false though it is idle and has a current task, in agent.get and in agents.list (kind is always a string). Needs --var view_blocked_agent: an idle agent whose current task is queued but held by an open blocker.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_blocked_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_blocked_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "ready": false,
+      "task_count": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_blocked_agent}}",
+        "kind": {
+         "$type": "string"
+        },
+        "ready": false,
+        "task_count": {
+         "$type": "integer"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_fields_busy",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent that is not idle (running a turn) with a queued current task: ready is false, in agent.get and in agents.list (kind is always a string). Needs --var view_busy_agent: an agent that is not idle (running a turn) with a queued current task.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_busy_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_busy_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "ready": false,
+      "task_count": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_busy_agent}}",
+        "kind": {
+         "$type": "string"
+        },
+        "ready": false,
+        "task_count": {
+         "$type": "integer"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_fields_walled",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: A closed agent that would wake but waits on an account's window: wall names the account, the reset clock as unix seconds or null, and whether the account is assumed, in agent.get and in agents.list (kind is always a string). Needs --var view_walled_agent: a closed agent that would wake but waits on an account's window.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_walled_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_walled_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "wall": {
+       "account": {
+        "$type": "string"
+       },
+       "clock": {
+        "$oneOf": [
+         {
+          "$type": "integer"
+         },
+         {
+          "$type": "null"
+         }
+        ]
+       },
+       "assumed": {
+        "$type": "boolean"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_walled_agent}}",
+        "kind": {
+         "$type": "string"
+        },
+        "wall": {
+         "account": {
+          "$type": "string"
+         },
+         "clock": {
+          "$oneOf": [
+           {
+            "$type": "integer"
+           },
+           {
+            "$type": "null"
+           }
+          ]
+         },
+         "assumed": {
+          "$type": "boolean"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_fields_unwalled",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent with nothing holding back a wake and no tasks: wall is null, ready is false and task_count is 0, in agent.get and in agents.list (kind is always a string). Needs --var view_plain_agent: an agent with nothing holding back a wake and no tasks.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_plain_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_plain_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "wall": null,
+      "ready": false,
+      "task_count": 0
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_plain_agent}}",
+        "kind": {
+         "$type": "string"
+        },
+        "wall": null,
+        "ready": false,
+        "task_count": 0
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

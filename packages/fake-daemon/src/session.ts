@@ -104,6 +104,7 @@ export function view(s: Session): AgentView {
     has_dialog: s.prompt !== null,
     parent: s.fx.parent,
     ...(s.structured && { structured: true }),
+    ...s.fx.view,
   };
 }
 
