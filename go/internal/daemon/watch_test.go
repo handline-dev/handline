@@ -10,8 +10,8 @@ import (
 	"github.com/handline/handline/go/internal/watcher"
 )
 
-// taskRows is how many task.changed rows the daemon's stream holds after a task is made and then changed.
-func taskRows(t *testing.T, watch bool) int {
+// watchedRows is how many task.changed and agent.changed rows the daemon's stream holds after a task and an agent view are made.
+func watchedRows(t *testing.T, watch bool) (tasks, agents int) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "hl")
 	if err != nil {
@@ -27,19 +27,23 @@ func taskRows(t *testing.T, watch bool) int {
 	if _, err := d.db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'bob', 'human', 1)"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(4 * watcher.Every)
-	var n int
-	if err := d.db.QueryRow("SELECT COUNT(*) FROM stream_log WHERE topic = 'tasks' AND type = 'task.changed'").Scan(&n); err != nil && err != sql.ErrNoRows {
+	if _, err := d.db.Exec(`INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle"}', 0)`); err != nil {
 		t.Fatal(err)
 	}
-	return n
+	time.Sleep(4 * watcher.Every)
+	for topic, n := range map[string]*int{"task.changed": &tasks, "agent.changed": &agents} {
+		if err := d.db.QueryRow("SELECT COUNT(*) FROM stream_log WHERE type = ?", topic).Scan(n); err != nil && err != sql.ErrNoRows {
+			t.Fatal(err)
+		}
+	}
+	return tasks, agents
 }
 
 func TestTheWatcherIsOffUntilCutoverAndThenOneChangeIsOneRow(t *testing.T) {
-	if n := taskRows(t, false); n != 0 {
-		t.Fatalf("the watcher was off and wrote %d rows", n)
+	if tasks, agents := watchedRows(t, false); tasks != 0 || agents != 0 {
+		t.Fatalf("the watcher was off and wrote %d task rows and %d agent rows", tasks, agents)
 	}
-	if n := taskRows(t, true); n != 1 {
-		t.Fatalf("one change wrote %d rows", n)
+	if tasks, agents := watchedRows(t, true); tasks != 1 || agents != 1 {
+		t.Fatalf("one change of each wrote %d task rows and %d agent rows", tasks, agents)
 	}
 }

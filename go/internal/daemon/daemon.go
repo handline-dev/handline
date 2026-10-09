@@ -228,7 +228,7 @@ func Start(cfg Config) (*Daemon, error) {
 	}()
 	if cfg.Watch && !cfg.Gateway {
 		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log,
-			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}}}
+			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}}}
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
