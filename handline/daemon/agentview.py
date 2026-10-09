@@ -12,7 +12,7 @@ from .. import actions, db
 from ..infra import paths
 from ..infra.textsafe import oneline
 from ..infra.yamlcompat import ConfigError
-from ..session import blocked as blockedmod, term
+from ..session import blocked as blockedmod, launch, term
 from ..team import agents
 from ..usage import status
 from . import delivery, handoff_note, lifecycle
@@ -50,11 +50,22 @@ def _ctx_pct(name: str, account: str | None) -> int | None:
     return status.read_for_agent(name, account).trusted_ctx_pct if account else None
 
 
-def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
-    """`table` is the routing table when the caller has read it already (once for every agent)."""
+def _wall(con, name: str, row, would_wake: bool) -> dict | None:
+    """What holds back a wake that is due, the way the Rail's wall cell draws it: the account that would wake the agent, when its
+    window rolls over (unix seconds; None when unknown or when the wait is for a slot, not a window), and whether the account is a guess."""
+    w = launch.wake_wait(name, row, con) if would_wake else None
+    if not w:
+        return None
+    return {"account": w.account, "clock": None if w.full or not w.reset else int(w.reset), "assumed": bool(w.assumed)}
+
+
+def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ) -> dict:
+    """`table` and `counts` (open tasks per owner) are what the caller has read already (once for every agent)."""
     now = int(time.time()) if now is None else now
     if table is _READ:
         table = actions.routing()
+    if counts is _READ:
+        counts = actions.open_task_counts(con, name)
     row = db.get_agent_state(con, name)
     word, detail = screen_state(con, row, now)
     wire, detail = wire_state(con, row, word, detail)
@@ -69,7 +80,10 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
     task = db.current_task(con, name)
     task_row = db.get_task(con, task) if task is not None else None
     account = agents.current_account(name, con)
-    return {
+    would_wake = bool(lifecycle.would_wake(con, row))
+    ready = (task_row is not None and word == "IDLE" and actions.task_state(con, task_row) == "queued"
+             and not db.task_blockers(con, task))
+    view = {
         "name": name,
         "role": _role_line(name),
         "model": model,
@@ -80,7 +94,7 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "block": {"kind": shown["kind"], "since": _ts(shown["since"])} if shown else None,
         "wall_reason": delivery.wall_reason(con, name, row),
         "background_since": _ts(delivery.bg_since(con, name)),
-        "would_wake": bool(lifecycle.would_wake(con, row)),
+        "would_wake": would_wake,
         "blocker": oneline(blockedmod.headline(shown["kind"], shown["detail"]))[:DETAIL_CAP] if shown else None,
         "account": account,
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
@@ -88,7 +102,13 @@ def compute(con, name: str, now: int | None = None, table=_READ) -> dict:
         "ctx_pct": _ctx_pct(name, account),
         "has_dialog": word == "DIALOG",
         "parent": actions.supervisor_of(table, name) if table else None,
+        "task_count": counts.get(name, 0),
+        "ready": ready,
+        "wall": _wall(con, name, row, would_wake),
     }
+    if cfg:
+        view["kind"] = agents.kind(cfg)
+    return view
 
 
 def refresh(con, now: int | None = None, log=lambda m: None) -> None:
@@ -97,10 +117,10 @@ def refresh(con, now: int | None = None, log=lambda m: None) -> None:
     names = paths.list_agents()
     driven = agents.driven()  # a structured agent's row is the Go daemon's: not written, and not dropped while the agent exists
     kept = {r["agent"]: r["view"] for r in con.execute("SELECT agent, view FROM agent_view")}
-    table = actions.routing()
+    table, counts = actions.routing(), actions.open_task_counts(con)
     for name in driven:
         try:
-            view = json.dumps(compute(con, name, now, table), sort_keys=True)
+            view = json.dumps(compute(con, name, now, table, counts), sort_keys=True)
         except Exception as e:  # noqa: BLE001 - one agent's failure must not stale every agent after it
             log(f"  agent view: {name}: {type(e).__name__}: {e}")
             continue
