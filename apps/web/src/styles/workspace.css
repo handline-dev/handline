@@ -39,6 +39,9 @@
 .older {
   align-self: center;
 }
+.stream.col > .anim-item {
+  max-width: 100%;
+}
 .stream.col > .anim-item:has(> .msg.person) {
   align-self: flex-end;
 }
