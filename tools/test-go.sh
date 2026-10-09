@@ -57,3 +57,5 @@ conformance --allow-missing session.interrupt --allow-missing session.park --all
     --allow-missing session.start --allow-missing session.stop --allow-missing session.wake || exit 1
 echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
 conformance --structured-cli "$here/fake_claude.py"
+echo "tools/test-go.sh: conformance fixtures, -structured-cli -structured-tick" >&2
+conformance --structured-cli "$here/fake_claude.py" --structured-tick
