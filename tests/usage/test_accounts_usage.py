@@ -4394,6 +4394,11 @@ def test_a_closed_agent_moved_by_hand_wakes_on_the_new_account(home: Path) -> No
               db.get_agent_state(con, "keeper")["resume_session"] == "sess-old")
 
         db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        termmod.relaunch = lambda h, cmd, **kw: (False, "refused")
+        ok, why = dmn_lifecycle._wake_agent(con, "keeper", lambda _m: None)
+        check("closed move: a launch that fails leaves the move owed", not ok
+              and dmn_lifecycle.move_owed(con, "keeper", db.get_agent_state(con, "keeper")), why)
+        termmod.relaunch = lambda h, cmd, **kw: (launched.append(cmd), (True, "relaunched"))[1]
         ok, why = dmn_lifecycle._wake_agent(con, "keeper", lambda _m: None)
         check("closed move: the wake succeeds", ok, why)
         check("closed move: it starts fresh on beta, not --resume on alpha",
@@ -4402,12 +4407,28 @@ def test_a_closed_agent_moved_by_hand_wakes_on_the_new_account(home: Path) -> No
         check("closed move: the old resume id is dropped",
               db.get_agent_state(con, "keeper")["resume_session"] is None)
         moved = [e for e in db.events_after(con, 0, agent="keeper") if e["kind"] == "moved_account"]
-        check("closed move: the move is on the record",
-              moved and '"to": "beta"' in moved[-1]["payload"], str(moved))
+        check("closed move: the move is on the record, once across the retry",
+              len(moved) == 1 and '"to": "beta"' in moved[-1]["payload"], str(moved))
 
         db.set_closed(con, "keeper", "sess-new")
         check("closed move: the wake used it up - the next one picks as usual",
               dmn_lifecycle.move_owed(con, "keeper", db.get_agent_state(con, "keeper")) is None)
+
+        # A session that comes up with no wake recorded (a trust screen, a hand relaunch) and is
+        # closed again: the move was for the close before, and this one resumes where it is.
+        db.set_account(con, "keeper", "alpha")
+        ok, msg = dmn_handoff.force_move(con, "keeper", "beta", "the founder", lambda _m: None)
+        check("closed move: moved again", ok, msg)
+        db.clear_closed(con, "keeper")
+        db.set_closed(con, "keeper", "sess-3")
+        con.execute("UPDATE agent_state SET closed_at = closed_at + 5 WHERE agent = 'keeper'")
+        check("closed move: a close after the move voids it",
+              dmn_lifecycle.move_owed(con, "keeper", db.get_agent_state(con, "keeper")) is None)
+        launched.clear()
+        db.add_request(con, "marina", "keeper", "and more", None, "peer", "async", None, 0, None)
+        ok, why = dmn_lifecycle._wake_agent(con, "keeper", lambda _m: None, warm=True)
+        check("closed move: and the next wake resumes its session",
+              ok and launched and "--resume sess-3" in launched[0], f"{why} {launched}")
     finally:
         (termmod.available, termmod.relaunch, termmod.resume_with, dmn_delivery.wait_for_session,
          obsmod.live_sessions) = real

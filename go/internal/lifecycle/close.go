@@ -380,14 +380,18 @@ func (m *Manager) restartOwed(agent string, row *db.AgentState) map[string]any {
 	return payload
 }
 
-// moveOwed is the account a person moved this closed agent to - {to, by} - else nil: owed to its next wake, and over once a wake is
-// recorded after it.
+// moveOwed is the account a person moved this closed agent to - {to, by} - else nil: owed to the wake that ends this close. Over once a
+// wake is recorded after it, or once the agent was closed again since: some starts record no wake (a trust screen, a hand relaunch), and
+// their close is.
 func (m *Manager) moveOwed(agent string, row *db.AgentState) map[string]any {
 	if row == nil || !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
 		return nil
 	}
 	id, payload, ok := must3(db.LastEvent(m.Q, agent, MoveOwedKind))
 	if !ok {
+		return nil
+	}
+	if at, _ := must2(db.LastEventTS(m.Q, agent, MoveOwedKind)); row.ClosedAt.Int64 > at {
 		return nil
 	}
 	if woke, ok := must2(db.LastEventID(m.Q, agent, "wake")); ok && woke > id {

@@ -310,12 +310,13 @@ def restart_owed(con, agent: str, row) -> dict | None:
 
 
 def move_owed(con, agent: str, row) -> dict | None:
-    """The account a person moved this closed agent to - {to, by} - else None: owed to its next
-    wake, and over once a wake is recorded after it."""
+    """The account a person moved this closed agent to - {to, by} - else None: owed to the wake
+    that ends this close. Over once a wake is recorded after it, or once the agent was closed again
+    since: some starts record no wake (a trust screen, a hand relaunch), and their close is."""
     if not row or not row["closed_at"]:
         return None
     owed = db.last_event(con, agent, MOVE_OWED)
-    if not owed:
+    if not owed or row["closed_at"] > db.last_event_ts(con, agent, MOVE_OWED):
         return None
     woke = db.last_event_id(con, agent, "wake")
     return None if woke is not None and woke > owed[0] else owed[1]
@@ -894,10 +895,12 @@ def _wake_agent(con, agent: str, log, moved_to: str | None = None,
                 gaps = handoffmod.record(con, agent, closed_session=row["resume_session"])
                 if gaps:
                     log(f"  {agent}: moved with no handoff (could not read {', '.join(gaps)})")
-            db.forget_resume(con, agent)
-            db.add_event(con, agent, "moved_account", {"from": row["account"], "to": dest,
-                                                       "trigger": "forced"})
-            measure.begin(con, agent, dest)
+            if (db.last_event_id(con, agent, "moved_account") or 0) < db.last_event_id(con, agent, MOVE_OWED):
+                # Once per move, not on every retry of a wake that fails after it.
+                db.forget_resume(con, agent)
+                db.add_event(con, agent, "moved_account", {"from": row["account"], "to": dest,
+                                                           "trigger": "forced"})
+                measure.begin(con, agent, dest)
             row, moved_to = db.get_agent_state(con, agent), dest
         # `hl launch` refuses at the 5h wall, and the daemon can read that
         # before it types anything. Trying anyway would spend the wake timeout

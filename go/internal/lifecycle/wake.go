@@ -391,10 +391,14 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 				m.Log("  %s: moved with no handoff (could not read %s)", agent, strings.Join(gaps, ", "))
 			}
 		}
-		check(db.ForgetResume(m.Q, agent))
-		must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: row.Account.String}, db.KV{K: "to", V: to},
-			db.KV{K: "trigger", V: "forced"}))
-		m.Agents.MeasureBegin(m.Q, agent, to)
+		movedID, _ := must2(db.LastEventID(m.Q, agent, "moved_account"))
+		if owedID, _ := must2(db.LastEventID(m.Q, agent, MoveOwedKind)); movedID < owedID {
+			// Once per move, not on every retry of a wake that fails after it.
+			check(db.ForgetResume(m.Q, agent))
+			must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: row.Account.String}, db.KV{K: "to", V: to},
+				db.KV{K: "trigger", V: "forced"}))
+			m.Agents.MeasureBegin(m.Q, agent, to)
+		}
 		row, movedTo = must(db.GetAgentState(m.Q, agent)), to
 	}
 	// `hl launch` refuses at the 5h wall, and the daemon can read that before it types anything. Trying anyway would spend the wake
