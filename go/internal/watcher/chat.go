@@ -214,18 +214,18 @@ func (c *Chat) workingStates(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	var names []string
 	now := map[string]map[string]any{}
 	for rows.Next() {
 		var name, view string
 		if err := rows.Scan(&name, &view); err != nil {
-			rows.Close()
 			return err
 		}
 		names = append(names, name)
 		now[name] = reads.WorkingOf(view)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return err
 	}
 	before := c.working
