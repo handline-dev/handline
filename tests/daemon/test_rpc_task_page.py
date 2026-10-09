@@ -5,6 +5,7 @@ Run on its own: python3 tests/daemon/test_rpc_task_page.py   (all areas: python3
 """
 from __future__ import annotations
 
+import json
 import socket
 import sys
 import threading
@@ -101,6 +102,80 @@ def test_a_task_past_its_deadline_says_since_when(home: Path) -> None:
     con.close()
     t = _get(tid)["time"]
     check("TaskDetail.time: a missed deadline is overdue since that moment, and has its end", t["overdue_since"] is not None and t["end"] is not None, str(t))
+
+
+def _list(params: dict) -> dict:
+    return _call("tasks.list", params, as_agent=None)["result"]
+
+
+def test_a_list_row_carries_what_blocks_it_and_the_clock_task_get_gives(home: Path) -> None:
+    support._board_world(home)
+    held, blocker, free = (_new(f"l{n}")["result"]["task"] for n in range(3))
+    con = db.connect()
+    db.add_block(con, held, blocker)
+    con.close()
+    rows = {r["id"]: r for r in _list({"owner": "worker"})["items"]}
+    check("tasks.list: blocked_by names the open blockers, and block_reason says so",
+          rows[held]["blocked_by"] == [blocker] and rows[held]["block_reason"] == f"waiting on T{blocker}", str(rows[held]))
+    check("tasks.list: a task nothing holds has an empty blocked_by", rows[free]["blocked_by"] == [] and rows[free]["block_reason"] is None)
+    check("tasks.list: time is the object task.get gives for the same task", all(
+        rows[t]["time"] is not None and rows[t]["time"]["length_s"] == _get(t)["time"]["length_s"] for t in (held, blocker, free)))
+    con = db.connect()
+    con.execute("UPDATE tasks SET done_at = ?, done_evidence = 'shipped' WHERE id = ?", (int(time.time()), blocker))
+    con.commit()
+    con.close()
+    after = {r["id"]: r for r in _list({"owner": "worker", "all": True})["items"]}
+    check("tasks.list: a blocker that is done no longer holds", after[held]["blocked_by"] == [])
+    check("tasks.list: a done task has no clock and still lists blocked_by", after[blocker]["time"] is None and after[blocker]["blocked_by"] == [])
+
+
+def test_all_with_limit_and_before_pages_through_every_task_once(home: Path) -> None:
+    support._board_world(home)
+    made = sorted(_new(f"p{n}")["result"]["task"] for n in range(7))
+    seen, before = [], None
+    for _ in range(10):
+        page = _list({"owner": "worker", "all": True, "limit": 3, **({"before": before} if before else {})})
+        seen += [i["id"] for i in page["items"]]
+        if not page["more"]:
+            break
+        before = page["items"][-1]["id"]
+    check("tasks.list paging: newest first, every task once, and the last page says no more",
+          seen == sorted(made, reverse=True) and not page["more"], str((seen, made)))
+    big = _list({"all": True, "limit": 200})
+    check("tasks.list paging: limit 200 holds all of them", {i["id"] for i in big["items"]} >= set(made) and big["more"] is False)
+
+
+def test_the_list_field_fixtures_pass_against_this_daemon(home: Path) -> None:
+    from handline.daemon import socket_server
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
+    import conformance
+    support._board_world(home)
+    owners = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.timed", "tasks_overdue_owner": "a.t.overdue",
+              "tasks_done_owner": "a.t.done"}
+    for o in owners.values():
+        agents.register(o)
+    con = db.connect()
+    made = {}
+    for k, o in owners.items():
+        made[k] = db.new_task(con, f"{o} work", o, "manager")
+        db.set_task_queued(con, made[k], "manager")
+        con.execute("UPDATE tasks SET sent_at = ?, delivered_at = ? WHERE id = ?", (int(time.time()), int(time.time()), made[k]))
+    db.add_block(con, made["tasks_blocked_owner"], db.new_task(con, "first", "manager", "manager"))
+    db.new_task(con, "another of the blocked owner's", owners["tasks_blocked_owner"], "manager")      # the paging fixture needs a second
+    con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 600, made["tasks_overdue_owner"]))
+    con.execute("UPDATE tasks SET done_at = ?, done_evidence = 'shipped' WHERE id = ?", (int(time.time()), made["tasks_done_owner"]))
+    con.commit()
+    con.close()
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    doc = json.loads(Path("contract/fixtures/tasks_list_fields.json").read_text())
+    results = conformance.run_all([Path("contract/fixtures/tasks_list_fields.json")], {"founder": connect},
+                                  {"founder_key": _hp()["key"], **owners})
+    bad = [(n, why) for st, why, n in results if st != "pass"]
+    check("fixtures: every tasks.list field fixture passes against this daemon", len(results) == len(doc["fixtures"]) and not bad, str(bad))
 
 
 def test_task_ask_sends_a_linked_question_once_and_a_death_between_repeats_nothing(home: Path) -> None:
@@ -204,6 +279,9 @@ def main() -> int:
         run(lambda: test_the_list_row_says_what_hl_task_list_prints_and_the_board_says_who_holds_each(Path(td) / "t6"))
         run(lambda: test_progress_get_reads_the_note_progress_keeps(Path(td) / "t7"))
         run(lambda: test_the_task_page_fixtures_pass_against_this_daemon(Path(td) / "t5"))
+        run(lambda: test_a_list_row_carries_what_blocks_it_and_the_clock_task_get_gives(Path(td) / "t8"))
+        run(lambda: test_all_with_limit_and_before_pages_through_every_task_once(Path(td) / "t9"))
+        run(lambda: test_the_list_field_fixtures_pass_against_this_daemon(Path(td) / "t10"))
     return run_area(tests)
 
 
