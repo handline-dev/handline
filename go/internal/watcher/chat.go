@@ -17,10 +17,6 @@ const (
 	chatPrompts = "stream:chat_prompts"
 )
 
-// A request is touched when it changed (state_at, else its own ts) or an answer to it was said (a row with settles = its id).
-const chatTouchedSQL = "SELECT id, MAX(t) AS touched FROM (SELECT id, COALESCE(state_at, ts) AS t FROM requests WHERE settles IS NULL AND COALESCE(state_at, ts) >= ? " +
-	"UNION ALL SELECT settles, ts FROM requests WHERE settles IS NOT NULL AND ts >= ?) GROUP BY id ORDER BY touched, id"
-
 const chatTouchedNewest = "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests WHERE settles IS NULL " +
 	"UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)"
 
@@ -72,21 +68,8 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 	if first {
 		c.done = map[int64]string{}
 	}
-	rows, err := q.Query(chatTouchedSQL, last, last)
+	touched, err := requestsTouched(q, ChatTouchedSQL, sql.Named("last", last))
 	if err != nil {
-		return err
-	}
-	type touch struct{ id, at int64 }
-	var touched []touch
-	for rows.Next() {
-		var t touch
-		if err := rows.Scan(&t.id, &t.at); err != nil {
-			rows.Close()
-			return err
-		}
-		touched = append(touched, t)
-	}
-	if err := rows.Close(); err != nil {
 		return err
 	}
 	for _, t := range touched {
@@ -101,7 +84,7 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 		if c.done[t.id] == message {
 			continue
 		}
-		if first && t.at == last { // said before the restart, or by the Python watcher: seen, not news
+		if first && t.when.Int64 == last { // said before the restart, or by the Python watcher: seen, not news
 			c.done[t.id] = message
 			continue
 		}
@@ -120,8 +103,8 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 				}
 			}
 		}
-		if t.at > last {
-			last, c.done = t.at, map[int64]string{}
+		if t.when.Int64 > last {
+			last, c.done = t.when.Int64, map[int64]string{}
 		}
 		c.done[t.id] = message
 		if err := db.SetCursor(q, chatTouched, last); err != nil {
@@ -231,18 +214,18 @@ func (c *Chat) workingStates(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	var names []string
 	now := map[string]map[string]any{}
 	for rows.Next() {
 		var name, view string
 		if err := rows.Scan(&name, &view); err != nil {
-			rows.Close()
 			return err
 		}
 		names = append(names, name)
 		now[name] = reads.WorkingOf(view)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return err
 	}
 	before := c.working

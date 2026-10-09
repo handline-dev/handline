@@ -69,9 +69,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err := unserved(p, "relation", "response", "reply", "waits_on"); err != nil {
 			return nil, err
 		}
-		if c.Caller.Role != "agent" {
-			return nil, rpc.Refused("a task is opened by an agent, never in the founder's name", "", "")
-		}
 		owner, err := text(p, "owner")
 		if err != nil {
 			return nil, err
@@ -184,6 +181,9 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	owner, body, prio, expects, secs := in.Owner, in.Body, in.Prio, in.Expects, in.Secs
 	parent, hasParent, blocker, hasBlocker := in.Parent, in.HasParent, in.Blocker, in.HasBlocker
 	clean := in.Title
+	if me == human && owner == human {
+		return 0, nil, refusal("the founder opens a task for an agent, not for themself")
+	}
 	if hasBlocker { // refused before anything is opened, as the command does
 		if why, err := blockerRefusal(tx, blocker); err != nil {
 			return 0, nil, err
@@ -212,6 +212,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		var err error
 		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs); err != nil {
 			return err
+		}
+		if me == human { // the founder's own task needs no one's approval
+			if _, err := db.SetTaskQueued(tx, tid, human); err != nil {
+				return err
+			}
 		}
 		if err := db.LinkRequest(tx, tid, rid); err != nil {
 			return err

@@ -163,8 +163,8 @@ NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
 
 
 def chain_members(con, chain_id: str) -> list:
-    # An answer is a message in the chain, never an ask in it: the rate limit, the
-    # cycle guard and the ping-pong check all count asks.
+    # An answer is a message in the chain, never an ask in it: the cycle guard and the
+    # ping-pong check count asks.
     clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})", "settles IS NULL"]
     params: list = [chain_id, *NEVER_REACHED_TARGET]
     return con.execute(
@@ -623,19 +623,6 @@ def is_still_queued(con, rid: int) -> bool:
     return bool(row and row["state"] == "queued")
 
 
-def oldest_counted_ask(con, requester: str, since_ts: int) -> int | None:
-    """When the ask that has to leave the window before a slot frees was sent.
-
-    The same rule as `asks_since`, so the two cannot disagree about which asks
-    are in the window.
-    """
-    row = con.execute(
-        "SELECT ts FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' "
-        "AND settles IS NULL ORDER BY ts LIMIT 1", (requester, since_ts),
-    ).fetchone()
-    return int(row["ts"]) if row else None
-
-
 def standing_denial(con, requester: str, target: str, body: str, files: str | None,
                     since_ts: int) -> int | None:
     """The id of an identical ask already refused inside the window, if any.
@@ -649,12 +636,3 @@ def standing_denial(con, requester: str, target: str, body: str, files: str | No
         (requester, target, body, files, since_ts),
     ).fetchone()
     return int(row["id"]) if row else None
-
-
-def asks_since(con, requester: str, since_ts: int) -> int:
-    row = con.execute(
-        "SELECT COUNT(*) AS c FROM requests WHERE requester = ? AND ts >= ? AND state != 'denied' "
-        "AND settles IS NULL",
-        (requester, since_ts),
-    ).fetchone()
-    return int(row["c"])

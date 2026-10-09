@@ -23,7 +23,7 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "psst"})
-	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async, ") {
+	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async)") {
 		t.Fatalf("%+v", out)
 	}
 	if !strings.Contains(r.term.last(), "#1 from alice, waiting for you:\npsst") {

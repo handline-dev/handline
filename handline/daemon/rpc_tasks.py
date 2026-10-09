@@ -78,8 +78,6 @@ def _accepted(said: str, **more) -> dict:
 
 def _new(ctx, params) -> dict:
     _unserved(params)
-    if ctx.caller.role != "agent":
-        raise rpc.refused("a task is opened by an agent, never in the founder's name")
     owner, title, body = _text(params, "owner"), _text(params, "title"), _text(params, "body", required=False)
     if body is not None and not body.strip():
         raise rpc.bad_request("body is text and not empty", "body", rpc.INVALID_PARAMS)

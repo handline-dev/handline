@@ -218,9 +218,6 @@ def cmd_task_new(args) -> int:
     if me is None:
         print(_who_refusal("open a task"))
         return 1
-    if me == askmod.HUMAN:
-        print("a task is opened by an agent, never in the founder's name")
-        return 1
     if not _task_owner_ok(args.owner):
         print(f"no agent named {args.owner}")
         return 1

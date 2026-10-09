@@ -89,14 +89,18 @@ func (t *Tasks) Scan(q *sql.DB, emit Emit) error {
 	if before == nil {
 		return nil
 	}
+	var changed []int64
 	for _, id := range sortedIDs(print) {
-		if before[id] == print[id] {
-			continue
+		if before[id] != print[id] {
+			changed = append(changed, id)
 		}
-		task, ok, err := t.Reads.Task(id)
-		if err != nil {
-			return err
-		}
+	}
+	tasks, err := t.Reads.Tasks(changed)
+	if err != nil {
+		return err
+	}
+	for _, id := range changed {
+		task, ok := tasks[id]
 		if !ok {
 			continue
 		}

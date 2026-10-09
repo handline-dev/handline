@@ -2,6 +2,12 @@
  "account.login": {
   "role": "founder"
  },
+ "account.login_cancel": {
+  "role": "founder"
+ },
+ "account.login_code": {
+  "role": "founder"
+ },
  "account.remove": {
   "role": "founder"
  },

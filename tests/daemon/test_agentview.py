@@ -107,7 +107,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
         tui.EXPANDED.add("manager")         # a closed supervisor's report is not drawn
         try:

@@ -50,7 +50,7 @@ from .components.dialog import Dialog
 from .components.dialog_modal import DialogModal
 from .components.permission_modal import PermissionModal
 from .components.question_modal import QuestionModal
-from .components.jobs_aware import JobsAware, dispatch_agent_verb
+from .components.jobs_aware import JobsAware
 from .components.ime import TextBox
 from .components.text_prompt import TextPrompt
 from .components.action_bar import ActionBar
@@ -342,16 +342,16 @@ def safe_block(value) -> str:
 _REF = re.compile(r"(?<![\w#])#(\d+)\b")
 
 
-def wait_reason(con, agent: str, msgs: list[dict], running: bool) -> str:
+def wait_reason(msgs: list[dict], running: bool) -> str:
     """Why the first unread message waits: the human's own that is not typed yet
     (unless the spinner already says it), else one to `agent` from another agent, which waits
     on its recipient. What the agent sent is not waiting."""
     waiting = [m for m in msgs if m["queued"] and m["landing"] == "queued"]
     held = [m for m in msgs if m["held"] and m["unread"]]
     if waiting and not running:
-        return actions.queue_reason(con, agent, waiting[0]["rid"])
+        return waiting[0]["sending_reason"]
     if not waiting and held:
-        return f"{held[0]['to']}: {actions.queue_reason(con, held[0]['to'], held[0]['rid'])}"
+        return f"{held[0]['to']}: {held[0]['sending_reason']}"
     return ""
 
 
@@ -1512,10 +1512,10 @@ class ChatPage(JobsAware, Screen):
         self._force_convo = False
         self._live: tuple | None = None             # the spinner, wait and reason the widgets show now
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
-        self._block_id: int | None = None      # the block the modal on screen shows
+        self._block_id: str | None = None      # the block the modal on screen shows
         self._block_modal = None
         self._block_pressing = False      # an answer is in flight: the block going away is its own doing
-        self._blocks_done: set[int] = set()      # blocks closed by hand or answered: not offered again
+        self._blocks_done: set[str] = set()      # blocks closed by hand or answered: not offered again
         self._newest: int | None = None          # the newest message number drawn so far, None before the first draw
         self._rebuilding = False
         self._unseen = 0                         # messages that arrived while scrolled up, not yet scrolled to
@@ -1574,14 +1574,18 @@ class ChatPage(JobsAware, Screen):
         self.app.push_screen(TaskDetail(int(event.row_key.value)))
 
     def refresh_block(self) -> None:
-        """Show this agent's block - the one prompt the daemon's watch found on its screen - as
-        exactly one modal, by its kind. A block is offered once: closed by hand or answered, it
-        is not offered again. Nothing here reads a terminal."""
-        con = db.connect()
+        self._off_loop("prompts", self._read_prompts, self._show_block)
+
+    def _read_prompts(self) -> list[dict] | None:
         try:
-            block = actions.open_block_of(con, self.agent)
-        finally:
-            con.close()
+            return api.call("prompt.list", {"agent": self.agent})["prompts"]
+        except (client.RpcError, client.DaemonDown, OSError):
+            return None
+
+    def _show_block(self, found: list[dict]) -> None:
+        """Show this agent's open prompt - the one `prompt.list` finds on its screen - as exactly one
+        modal, by its kind. A prompt is offered once: closed by hand or answered, it is not offered again."""
+        block = found[0] if found else None
         shown = self._block_modal
         if shown is not None:
             if shown is self.app.screen and not self._block_pressing \
@@ -1590,45 +1594,54 @@ class ChatPage(JobsAware, Screen):
             if shown is self.app.screen or shown in self.app.screen_stack:
                 return
             self._block_modal = None
-        if block is None or not block["answerable"] or block["id"] in self._blocks_done \
+        keys = [o["key"] for o in block["options"] if o["key"] != "esc"] if block else []
+        if block is None or not keys or block["id"] in self._blocks_done \
                 or isinstance(self.app.screen, (DialogModal, PermissionModal, QuestionModal, TextPrompt, HandoffModal)):
             return
         self._block_id, self._block_pressing = block["id"], False
-        detail = {**block["detail"], "title": block["title"]}
-        bid = block["id"]
-        if block["kind"] == PERMISSION:
-            modal = PermissionModal(detail)
-            self.app.push_screen(modal, lambda yes: self.block_picked(bid, "permission", yes,
-                                                                     None if yes is None else {"yes": yes}))
-        elif block["kind"] == QUESTION:
+        pid = block["id"]
+        options = [o for o in block["options"] if o["key"] != "esc"]
+        if block["kind"] == "permission":
+            modal = PermissionModal(block)
+            self.app.push_screen(modal, lambda yes: self.block_picked(
+                pid, "permission", yes, None if yes is None else "yes" if yes else "no"))
+        elif block.get("multi"):
             def press(choices: "tuple[int, ...]", text: "str | None") -> "tuple[bool, str]":
-                return actions.request_block_answer(bid, {"choices": list(choices), "text": text})
+                return self.answer_prompt(pid, [options[i]["key"] for i in choices])
 
             def start() -> None:
                 self._block_pressing = True     # sending, on the modal's own thread
-            modal = QuestionModal(detail, press, start)
-            self.app.push_screen(modal, lambda result: self.block_asked(bid, result))
+            ask = {"agent": block["agent"], "header": block["kind"], "question": (block["lines"] or [""])[0],
+                   "options": options, "multi_select": True, "other_number": None, "other_text": None}
+            modal = QuestionModal(ask, press, start)
+            self.app.push_screen(modal, lambda result: self.block_asked(pid, result))
         else:
-            modal = DialogModal(detail)
+            lines = block["lines"]
+            ask = {"agent": block["agent"], "title": lines[0] if lines else block["kind"], "body": lines[1:],
+                   "options": [(o["key"], o["label"]) for o in options], "always": False}
+            modal = DialogModal(ask)
             self.app.push_screen(modal, lambda picked: self.block_picked(
-                bid, "dialog", picked, None if picked is None else {"number": picked[0], "always": picked[1]}))
+                pid, "dialog", picked, None if picked is None else picked[0]))
         self._block_modal = modal
 
-    CANCEL = {"cancel": True}
+    CANCEL = "esc"
 
-    def block_picked(self, block_id: int, kind: str, picked, choice: "dict | None") -> None:
+    def answer_prompt(self, prompt_id: str, choice) -> "tuple[bool, str]":
+        return api.write("prompt.answer", {"agent": self.agent, "prompt": prompt_id, "choice": choice})
+
+    def block_picked(self, block_id: str, kind: str, picked, choice: "str | None") -> None:
         """A permission or dialog modal closed: send its pick to the daemon and say what came back.
         Esc closes it with no pick, and that is sent as a cancel (Esc in the terminal)."""
         self._blocks_done.add(block_id)      # closed or answered: not offered again
         self.send_block(block_id, kind, choice or self.CANCEL)
 
-    def send_block(self, block_id: int, kind: str, choice: dict) -> None:
+    def send_block(self, block_id: str, kind: str, choice) -> None:
         def press() -> None:
-            ok, said = actions.request_block_answer(block_id, choice)
+            ok, said = self.answer_prompt(block_id, choice)
             self.app.call_from_thread(self.block_result, kind, ok, said)
         self.run_worker(press, thread=True, group="block_press")
 
-    def block_asked(self, block_id: int, result: "tuple[bool, str] | None") -> None:
+    def block_asked(self, block_id: str, result: "tuple[bool, str] | None") -> None:
         self._blocks_done.add(block_id)
         self._block_pressing = False
         if result is None:      # Esc before anything was sent: a cancel
@@ -1824,15 +1837,11 @@ class ChatPage(JobsAware, Screen):
         asks = [i["message"] for i in items if i["type"] == "request"]
         self.oldest = min((m["id"] for m in asks), default=None)
         msgs = messages_of(items, self.agent)
-        con = db.connect()
-        try:
-            # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
-            seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
-            if seen > self._seen:      # a write only when something new is drawn
-                self._mark_seen(seen)
-            why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
-        finally:
-            con.close()
+        # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
+        seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
+        if seen > self._seen:      # a write only when something new is drawn
+            self._mark_seen(seen)
+        why = wait_reason(msgs, self.agent_state[0] == "RUNNING")
         changes = changes_of(items, self.agent, msgs) + hr_cards(self.agent, msgs)
         state, detail = self.agent_state
         wait = detail if detail.startswith(WAITS) else ""
@@ -2102,14 +2111,42 @@ class ChatPage(JobsAware, Screen):
             self.set_sort(sg.arg)
             self.query_one("#scope", Tabs).active = "tasks"
 
+    VERB_CALLS = {"terminal": ("session.start", {}), "wake": ("session.wake", {}), "close": ("session.stop", {"mode": "close"}),
+                  "restart": ("session.restart", {}), "park": ("session.park", {}), "fold": ("agent.fold", {}),
+                  "move": ("agent.move", {})}
+
     def run_verb(self, label: str, arg: str = "") -> None:
-        """The home page's key for `label`, on this page's agent: same asks, same job."""
+        """The home page's key for `label`, on this page's agent: asked here, done by the daemon's session and agent verbs."""
         async def go() -> None:
-            con = db.connect()
             try:
-                await dispatch_agent_verb(self, con, self.agent, label, arg)
-            finally:
-                con.close()
+                got = await asyncio.to_thread(api.call, "agent.get", {"agent": self.agent})
+            except (client.RpcError, client.DaemonDown, OSError) as e:
+                self.notify(safe(str(e)), severity="error", timeout=6, markup=False)
+                return
+            allowed = got["can"][label]
+            if not allowed["ok"]:
+                self.notify(safe(allowed["why"] or f"{label} does not apply"), severity="error", timeout=6, markup=False)
+                return
+            method, params = self.VERB_CALLS[label]
+            params = {"agent": self.agent, **params}
+            if label == "move":
+                dest = arg or await self.app.push_screen_wait(TextPrompt(f"move {self.agent} to which account:"))
+                if not dest or not await self.app.push_screen_wait(
+                        Confirm(f"move {self.agent} to {dest.strip()} - records its handoff, ends its session, "
+                                f"and starts a new one there")):
+                    self.notify("not moved")
+                    return
+                params["account"] = dest.strip()
+            else:
+                fresh = label == "restart" and arg == "fresh"
+                if (label in tui.CONFIRM or (label == "wake" and got.get("state") == "stalled")) and not await \
+                        self.app.push_screen_wait(Confirm(f"{label} {self.agent}" + (" as a new conversation" if fresh else ""))):
+                    self.notify("left alone")
+                    return
+                if fresh:
+                    params["fresh"] = True
+            ok, said = await asyncio.to_thread(api.write, method, params)
+            self.notify(safe(said), severity="information" if ok else "error", timeout=5 if ok else 10, markup=False)
         self.run_worker(go(), group="verb", exit_on_error=False)
 
     def _redraw(self) -> None:
@@ -2372,11 +2409,16 @@ class ChatPage(JobsAware, Screen):
 
     def run_shell(self, body: str, command: str) -> None:
         """A `!` line is not sent: zsh runs it in the agent's worktree and a card shows the result."""
-        con = db.connect()
-        try:
-            cwd = actions.cwd_for(con, self.agent)
-        finally:
-            con.close()
+        def work() -> None:
+            try:
+                cwd = api.call("agent.get", {"agent": self.agent})["cwd"]
+            except (client.RpcError, client.DaemonDown, OSError) as e:
+                self.app.call_from_thread(self.notify, f"the shell cannot start: {safe(str(e))}", severity="error", markup=False)
+                return
+            self.app.call_from_thread(self._start_shell, body, command, cwd)
+        self.run_worker(work, thread=True, group="shell_cwd", exit_on_error=False)
+
+    def _start_shell(self, body: str, command: str, cwd: str) -> None:
         try:
             run = actions.ShellRun(command, cwd)
         except PermissionError as e:

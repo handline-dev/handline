@@ -723,8 +723,8 @@ def test_the_queue_reason_comes_from_the_message_below_the_line() -> None:
               texts.index("reviewer's own, not delivered") < texts.index("to reviewer, not read"),
               str(texts))
         check("why: the reason is for the message to the agent, not the one sent",
-              cp.wait_reason(con, "reviewer", msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
-              cp.wait_reason(con, "reviewer", msgs, False))
+              cp.wait_reason(msgs, False) == "reviewer: " + actions.queue_reason(con, "reviewer", below),
+              cp.wait_reason(msgs, False))
     finally:
         con.close()
 
@@ -2732,14 +2732,13 @@ def test_esc_on_a_block_modal_is_a_cancel_sent_to_the_daemon() -> None:
     page._blocks_done, page._block_pressing, sent, said = set(), True, [], []
     page.send_block = lambda bid, kind, choice: sent.append((bid, kind, choice))
     page.block_result = lambda kind, ok, text: said.append((kind, ok, text))
-    page.block_picked(7, "permission", None, None)
-    page.block_picked(8, "dialog", (1, False), {"number": 1, "always": False})
-    page.block_asked(9, None)
-    page.block_asked(10, (True, "sent"))
+    page.block_picked("a", "permission", None, None)
+    page.block_picked("b", "dialog", ("1", False), "1")
+    page.block_asked("c", None)
+    page.block_asked("d", (True, "sent"))
     check("block modals: Esc sends a cancel, a pick sends the pick, a finished question sends nothing more",
-          sent == [(7, "permission", {"cancel": True}), (8, "dialog", {"number": 1, "always": False}),
-                   (9, "question", {"cancel": True})] and said == [("question", True, "sent")], str((sent, said)))
-    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {7, 8, 9, 10})
+          sent == [("a", "permission", "esc"), ("b", "dialog", "1"), ("c", "question", "esc")] and said == [("question", True, "sent")], str((sent, said)))
+    check("block modals: each is closed for good, so it is not offered again", page._blocks_done == {"a", "b", "c", "d"})
 
 
 def test_the_home_cursor_moves_only_when_the_row_is_not_already_there() -> None:
@@ -5051,7 +5050,34 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
     check("off the loop: a refresh asks the daemon only from a worker thread", not left, str(left))
 
 
-OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen"}        # the methods moved off the loop so far
+OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests", "agent.strip", "chat.seen", "prompt.list"}        # the methods moved off the loop so far
+
+
+async def test_a_shell_line_with_the_daemon_down_says_so_and_the_page_lives() -> None:
+    from handline.ui import chat_page as cp
+    from handline.ui.bridge_textual import BridgeApp
+    _home("shelldown")
+    agents.register("reviewer")
+    app = BridgeApp()
+    async with app.run_test(size=(100, 30)) as pilot:
+        page = cp.ChatPage("reviewer")
+        await app.push_screen(page)
+        await pilot.pause()
+        real, told = cp.api.call, []
+
+        def down(method, *a, **k):
+            if method == "agent.get":
+                raise cp.client.DaemonDown("the daemon is not running")
+            return real(method, *a, **k)
+        cp.api.call = down
+        page.notify = lambda said, **k: told.append(said)
+        try:
+            page.run_shell("!ls", "ls")
+            await pilot.pause(0.5)
+        finally:
+            cp.api.call = real
+        check("shell: the daemon down is said, no card is made and the page stays",
+              len(told) == 1 and not page.shells and app.screen is page, str(told))
 
 
 async def test_a_read_that_raises_does_not_stop_the_page_reading() -> None:
@@ -5918,6 +5944,7 @@ async def _run_all() -> None:
     test_every_timeline_kind_the_task_page_can_get_is_drawn()
     await test_a_blocked_task_says_so_where_working_would_be()
     await test_the_chat_page_never_asks_the_daemon_on_the_ui_loop()
+    await test_a_shell_line_with_the_daemon_down_says_so_and_the_page_lives()
     await test_a_read_that_raises_does_not_stop_the_page_reading()
     await test_the_task_timeline_shows_a_long_entry_whole_beside_its_icons()
     await test_a_long_timeline_scrolls_to_its_last_entry_and_shows_every_line_of_each()

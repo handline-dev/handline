@@ -309,7 +309,9 @@ def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path)
         con.close()
 
 
-def test_ask_rate_limit(home: Path) -> None:
+def test_asks_have_no_hourly_cap(home: Path) -> None:
+    """There is no limit on asks an hour: a team.yaml that still names the old ask_rate_per_hour loads, and
+    every ask past it goes out, its reply says nothing of a count, and the agent is never THROTTLED."""
     use_home(home)
     hand_edit_team(
         "agents:\n  a: {}\n  b: {}\n"
@@ -318,9 +320,15 @@ def test_ask_rate_limit(home: Path) -> None:
     )
     agents.register("a")
     agents.register("b")
-    results = [askmod.ask("b", f"n{i}", requester="a")[0] for i in range(5)]
-    check("rate limit: allows up to the cap", results[:3] == [True, True, True], str(results))
-    check("rate limit: refuses past the cap", results[3:] == [False, False], str(results))
+    results = [askmod.ask("b", f"n{i}", requester="a") for i in range(25)]
+    check("no cap: 25 asks in a row all go out", all(ok for ok, _, _ in results), str([m for ok, m, _ in results if not ok]))
+    check("no cap: no reply counts asks", not any("this hour" in m for _, m, _ in results), results[-1][1])
+    con = db.connect()
+    try:
+        row = db.get_agent_state(con, "a")
+        check("no cap: the agent is not THROTTLED", row is None or row["state"] != "THROTTLED", str(row and dict(row)))
+    finally:
+        con.close()
 
 
 def test_a_runaway_is_stopped_and_raised_to_the_founder(home: Path) -> None:
@@ -381,34 +389,6 @@ def test_review_pingpong(home: Path) -> None:
           stopped and "src/auth.ts" in stopped[0], stopped[0] if stopped else "")
     check("review: and says it is probably a spec question",
           stopped and "spec question" in stopped[0], stopped[0] if stopped else "")
-
-
-def test_rate_limit_throttles(home: Path) -> None:
-    """Too many asks is a resource problem: it throttles and clears itself,
-    rather than needing a human the way a task defect does (section 8.6)."""
-    use_home(home)
-    hand_edit_team(
-        "agents:\n  a: {}\n  b: {}\n"
-        'edges:\n  - { from: "*", to: "*", relation: peer, response: fire_and_forget }\n'
-        "limits:\n  max_chain_depth: 99\n  ask_rate_per_hour: 2\n"
-    )
-    agents.register("a")
-    agents.register("b")
-    for i in range(3):
-        ok, msg, _ = askmod.ask("b", f"n{i}", requester="a")
-    check("rate limit: the over-cap ask is refused", not ok, msg)
-    check("rate limit: and says the agent is throttled", "THROTTLED" in msg, msg)
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, "a")
-        check("rate limit: the agent really is THROTTLED", row["state"] == "THROTTLED",
-              str(dict(row)))
-        check("rate limit: with a wake_at so it clears itself",
-              row["wake_at"] is not None, str(dict(row)))
-        check("rate limit: and the refused text is kept as a say (T766)",
-              con.execute("SELECT kind FROM requests WHERE state = 'denied' AND body = 'n2'").fetchone()["kind"] == "say")
-    finally:
-        con.close()
 
 
 def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
@@ -664,7 +644,6 @@ deny:
   - { from: "other", to: "asker", reason: "no replies" }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     for n in ("asker", "worker", "other"):
         agents.register(n)
@@ -3743,7 +3722,6 @@ edges:
   - { from: "*", to: "human", kind: task }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker", "helper"):
         agents.register(n)
@@ -3854,7 +3832,6 @@ edges:
   - { from: "*", to: "human", kind: task }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker", "hr"):
         agents.register(n)
@@ -3917,9 +3894,8 @@ def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
     """A refused ask reached nobody, so nothing can come back from it. Told
     otherwise, an agent reads 34 of its own refusals as replies from the agent
     it never got to ask."""
-    _two_agents_one_slot(home)
-    for i in range(3):
-        askmod.ask("b", f"n{i}", requester="a")
+    _two_agents(home, a_may_ask_b=False)
+    askmod.ask("b", "n0", requester="a")
 
     con = db.connect()
     try:
@@ -3935,9 +3911,8 @@ def test_a_refused_ask_is_never_announced_as_an_answer(home: Path) -> None:
 def test_a_refusal_is_not_read_back_as_an_answer(home: Path) -> None:
     """`hl read` labels a verdict with who answered. On a denied row the
     verdict is this system's refusal, and the row reached no one."""
-    _two_agents_one_slot(home)
-    for i in range(3):
-        askmod.ask("b", f"n{i}", requester="a")
+    _two_agents(home, a_may_ask_b=False)
+    askmod.ask("b", "n0", requester="a")
     con = db.connect()
     try:
         rid = con.execute("SELECT id FROM requests WHERE state = 'denied'").fetchone()["id"]
@@ -3960,7 +3935,7 @@ def test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(home: Pat
     by <target> ---' above it - a row the target never received, read back
     as though it had answered (auditor's #1565, the residual left open at
     #1348)."""
-    _two_agents_one_slot(home, cap=10)
+    _two_agents(home)
     ok, _, a = askmod.ask("b", "first", requester="a")
     askmod.withdraw(a, requester="a", reason="typo")
 
@@ -4144,8 +4119,8 @@ def test_task_new_list_and_link(home: Path) -> None:
     check("task new: opens a task", rc == 0 and "task T1" in out, out)
     rc, out = _cli(["task", "new", "--owner", "nobody", "x", "x", "-t", "1h"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "x", "-t", "1h"], as_agent=askmod.HUMAN)
-    check("task new: never in the founder's name", rc == 1, out)
+    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "x", "x", "-t", "1h"], as_agent=askmod.HUMAN)
+    check("task new: the founder opens one for an agent, not for themself", rc == 1 and "for an agent" in out, out)
     rc, out = _cli(["task", "new", "--owner", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
     rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
@@ -4307,7 +4282,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     agents.register("outsider")
 
@@ -4868,10 +4842,9 @@ def test_the_per_task_event_lookups_use_the_index_not_a_scan(home: Path) -> None
         con.close()
 
 
-def test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(home: Path) -> None:
+def test_an_answer_is_not_an_ask_for_the_cycle_check(home: Path) -> None:
     """T421 (auditor #2828): an answer row is a message in the chain, not an ask
-    in it - so answering does not use up the answerer's asks, and a follow-up
-    under an answer is not a cycle."""
+    in it - so a follow-up under an answer is not a cycle."""
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
     hand_edit_team("""
@@ -4885,7 +4858,6 @@ edges:
 
 limits:
   max_chain_depth: 8
-  ask_rate_per_hour: 3
 """)
     for n in ("a", "b"):
         agents.register(n)
@@ -4898,13 +4870,9 @@ limits:
             rids.append(rid)
         for rid in rids:
             askmod.resolve(rid, "answered")
-        check("rate: three answers were written as rows", len([1 for r in rids if db.answer_row_of(con, r)]) == 3)
-        check("rate: answering used none of b's asks", db.asks_since(con, "b", 0) == 0,
-              str(db.asks_since(con, "b", 0)))
-        ok, msg, _ = askmod.ask("a", "b's first ask of the hour", requester="b")
-        check("rate: so b's own first ask goes through", ok, msg)
-        check("rate: and the oldest counted ask is b's own, not an answer",
-              db.oldest_counted_ask(con, "b", 0) is not None)
+        check("answers: three answers were written as rows", len([1 for r in rids if db.answer_row_of(con, r)]) == 3)
+        ok, msg, _ = askmod.ask("a", "b's own ask", requester="b")
+        check("answers: b's own ask goes through after answering", ok, msg)
 
         hand_edit_team("""
 agents:
@@ -4917,7 +4885,6 @@ edges:
 
 limits:
   max_chain_depth: 8
-  ask_rate_per_hour: 50
 """)
         answer = db.answer_row_of(con, rids[0])
         ok, msg, _ = askmod.ask("b", "under the answer", requester="a", parent_id=answer["id"])
@@ -5074,7 +5041,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     ok, msg, tid = actions.task_new("worker", askmod.HUMAN, "which name?", "which name should it have?")
     check("setup: a decision task", ok, msg)
@@ -5136,7 +5102,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     ok, msg, t_done = actions.task_new("worker", askmod.HUMAN, "decision: done path", "decision: done path")
     check("setup: first decision task opens", ok, msg)
@@ -6157,7 +6122,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     for n in ("manager", "worker", "owner2"):
         agents.register(n)
@@ -6462,7 +6426,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
@@ -6512,7 +6475,6 @@ deny:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
@@ -6560,7 +6522,6 @@ deny:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
@@ -7114,7 +7075,7 @@ def test_dismissing_an_agents_own_answered_request_keeps_its_verdict(home: Path)
     `resolve`, which stamped "read - no reply" over the verdict the target
     actually wrote. Dismissing must never rewrite an answer, whoever asked for
     it, and doing it twice must not either."""
-    _two_agents_one_slot(home)
+    _two_agents(home)
     ok, said, rid = askmod.ask("b", "spec?", requester="a")
     check("dismiss: the ask went through", ok, said)
     askmod.resolve(rid, "yes, ship it")
@@ -7142,7 +7103,7 @@ def test_dismissing_your_own_answer_does_not_announce_it_for_the_requester(
     answered must not stamp announced_at on the requester's behalf - that
     would mark the row as told when the requester has never actually seen
     it."""
-    _two_agents_one_slot(home)
+    _two_agents(home)
     ok, said, rid = askmod.ask("b", "spec?", requester="a")
     check("dismiss: the ask went through", ok, said)
     askmod.resolve(rid, "yes, ship it")
@@ -7228,7 +7189,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
         ok, msg1, f1 = askmod.say(askmod.HUMAN, "fyi one", requester="manager")
         check("reason gaps: setup - the fyi actually lands", ok, msg1)
@@ -8050,7 +8010,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     agents.register("other")
     con = db.connect()
@@ -8121,7 +8080,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """
     settles = (("dismissed", lambda con, card: actions.dismiss(con, card, me=actions.HUMAN, reason="no")),
                ("answered", lambda con, card: askmod.resolve(card, "go ahead")))
@@ -8372,7 +8330,6 @@ edges:
   - { from: "*", to: "*", relation: peer, response: async }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker"):
         agents.register(n)
@@ -8402,7 +8359,6 @@ edges:
   - { from: "*", to: "*", relation: peer, response: fire_and_forget }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker"):
         agents.register(n)
@@ -8472,7 +8428,6 @@ edges:
   - { from: "*", to: "human", kind: task }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker", "helper"):
         agents.register(n)
@@ -8728,7 +8683,6 @@ edges:
   - { from: "*", to: "human", kind: task }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "worker", "helper", "dev.auditor", "dev.merger"):
         agents.register(n)
@@ -8975,7 +8929,6 @@ edges:
   - { from: "*", to: "*", relation: peer, response: async }
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 500
 """)
     for n in ("manager", "dev.worker", "dev.auditor"):
         agents.register(n)
@@ -9046,7 +8999,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     ok, msg, tid = actions.task_new("worker", askmod.HUMAN, "which name?", "which name should it have?")
     check("release: setup, a founder-held task", ok, msg)
@@ -9129,7 +9081,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     for n in ("boss", "mid", "leaf", "other"):
         agents.register(n)
@@ -9191,7 +9142,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
@@ -9305,7 +9255,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 """)
     con = db.connect()
     try:
@@ -9402,10 +9351,9 @@ def main() -> int:
         run(lambda: test_migration_marks_only_each_targets_head_delivered(Path(td) / 'oldmig'))
         run(lambda: test_retire_if_undelivered_is_the_gate_against_the_delivery_race(
             Path(td) / 'retirerace'))
-        run(lambda: test_ask_rate_limit(Path(td) / 'ratehome'))
+        run(lambda: test_asks_have_no_hourly_cap(Path(td) / 'ratehome'))
         run(lambda: test_a_runaway_is_stopped_and_raised_to_the_founder(Path(td) / 'cyc'))
         run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
-        run(lambda: test_rate_limit_throttles(Path(td) / 'throt'))
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
         run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
         run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))
@@ -9486,7 +9434,7 @@ def main() -> int:
         run(lambda: test_a_say_to_the_founder_asks_for_no_reply(Path(td) / 'sayhuman'))
         run(lambda: test_task_rows_reads_the_board_in_a_fixed_number_of_queries_and_agrees_with_the_per_task_path(Path(td) / 'boardrows'))
         run(lambda: test_the_per_task_event_lookups_use_the_index_not_a_scan(Path(td) / 'evindex'))
-        run(lambda: test_an_answer_is_not_an_ask_for_the_rate_limit_or_the_cycle_check(Path(td) / 'answerrate'))
+        run(lambda: test_an_answer_is_not_an_ask_for_the_cycle_check(Path(td) / 'answerrate'))
         run(lambda: test_asks_reports_and_decisions_become_says_and_queued_ones_become_tasks(Path(td) / 'kindsay'))
         run(lambda: test_an_decisionion_is_a_decision_task_and_the_gate_is_the_open_task(Path(td) / 'escgate'))
         run(lambda: test_an_answer_is_a_message_of_its_own_with_its_own_number(Path(td) / 'answerrow'))

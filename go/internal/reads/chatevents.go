@@ -1,9 +1,6 @@
 package reads
 
-import (
-	"encoding/json"
-	"sort"
-)
+import "sort"
 
 // What the chat topic's events carry is what the chat reads return, built by the same functions: these are the entry points the watcher
 // calls with the ids it found changed.
@@ -60,13 +57,7 @@ func (e *Env) PromptItem(id int64) (item map[string]any, agent string, ok bool, 
 }
 
 // WorkingOf is a stored agent view (the agent_view row's JSON) as the spec's Working.
-func WorkingOf(view string) map[string]any {
-	var v map[string]any
-	if json.Unmarshal([]byte(view), &v) != nil {
-		v = map[string]any{}
-	}
-	return workingFrom(v)
-}
+func WorkingOf(view string) map[string]any { return workingFrom(decodeObject(view)) }
 
 // ChatTaskKinds are the kinds of task event the chat shows, sorted.
 func ChatTaskKinds() []string {

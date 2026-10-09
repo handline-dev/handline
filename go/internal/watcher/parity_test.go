@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	osexec "os/exec"
 	"path/filepath"
 	"testing"
@@ -79,6 +80,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	script := fmt.Sprintf(pythonDetector, pyName, pyName)
 	cmd := osexec.Command("python3", "-I", "-c", script, filepath.Join(dir, "py.sqlite"))
 	cmd.Dir = root
+	cmd.Stderr = os.Stderr
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -103,7 +105,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	if err := json.Unmarshal([]byte(line), &py); err != nil {
 		t.Fatalf("%q: %v", line, err)
 	}
-	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "chat"}, "", 100)
+	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "inbox", "chat"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}

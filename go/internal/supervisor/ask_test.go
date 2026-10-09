@@ -15,7 +15,7 @@ func TestAskQueuesWritesTheInboxFileAndTellsOnlyAfterTheCommit(t *testing.T) {
 	r.agentUp("bob")
 	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "please look", Requester: "alice", Notify: false})
 	r.must(err)
-	if !out.OK || out.RID == 0 || !strings.HasPrefix(out.Message, "queued as #") || !strings.Contains(out.Message, "for bob (response=async, 0/5 asks this hour)") {
+	if !out.OK || out.RID == 0 || !strings.HasPrefix(out.Message, "queued as #") || !strings.Contains(out.Message, "for bob (response=async)") {
 		t.Fatalf("%+v", out)
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "bob", "inbox", inboxName(out.RID))); err == nil {
@@ -80,33 +80,6 @@ func TestADeniedAskKeepsItsTextOnceAndSaysWhy(t *testing.T) {
 	}
 }
 
-func TestTheRateLimitThrottlesTheAskerAndKeepsTheText(t *testing.T) {
-	r := newRig(t)
-	for i := 0; i < 5; i++ {
-		out, _ := r.Ask(r.DB, AskIn{Target: "bob", Body: "n" + string(rune('a'+i)), Requester: "alice"})
-		if !out.OK {
-			t.Fatalf("ask %d: %s", i, out.Message)
-		}
-	}
-	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "one too many", Requester: "alice"})
-	r.must(err)
-	if out.OK || !strings.Contains(out.Message, "rate limit: 5 asks in the last hour >= 5 - alice is THROTTLED") || !strings.Contains(out.Message, "Your text is kept as #") {
-		t.Fatalf("%s", out.Message)
-	}
-	s, _ := db.GetAgentState(r.DB, "alice")
-	if s.State != "THROTTLED" || s.WakeAt.Int64 != 100000+3600 {
-		t.Fatalf("%+v", s)
-	}
-	again, _ := r.Ask(r.DB, AskIn{Target: "bob", Body: "one too many", Requester: "alice"})
-	if again.OK {
-		t.Fatal("asked while throttled")
-	}
-	var n int
-	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE body = 'one too many'").Scan(&n)
-	if n != 1 {
-		t.Fatalf("an identical retry wrote %d rows", n)
-	}
-}
 
 func TestACycleInAChainIsRaisedToTheFounderButASayBackIsNot(t *testing.T) {
 	r := newRig(t)
