@@ -38,7 +38,7 @@ func EditGuard(d *sql.DB, home, agent, tool string, toolInput any) (string, erro
 			mine = append(mine, t)
 		}
 	}
-	head := fmt.Sprintf("%s refused: %s holds no current task, and every change must belong to one (T295).", tool, agent)
+	head := fmt.Sprintf("%s refused: %s holds no current task, and every change must belong to one (T295).", tool, agent) // local-ref-ok: Python's words
 	if len(mine) == 0 {
 		return head + " You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open " +
 			"one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`.", nil
