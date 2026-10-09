@@ -238,9 +238,9 @@
    ]
   },
   {
-   "name": "terminal.attach.a_structured_agent_is_unsupported",
+   "name": "terminal.attach.a_structured_agent_has_no_terminal",
    "spec": "terminal.attach",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "NOT_YET_IN_PYTHON: A structured agent has no terminal to attach: not_found (terminal).",
    "as": "founder",
    "steps": [
     {
@@ -266,10 +266,9 @@
       }
      },
      "error": {
-      "code": -32002,
+      "code": -32001,
       "data": {
-       "code": "refused",
-       "gate": "unsupported"
+       "code": "not_found"
       }
      }
     }

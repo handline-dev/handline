@@ -39,7 +39,7 @@ session.type.a_structured_agent_is_unsupported
 session.wake.terminal_lock_gate
 settings.set.a_key_without_a_per_agent_value_is_bad_request
 terminal.attach.a_host_without_attributes_refuses_styled
-terminal.attach.a_structured_agent_is_unsupported
+terminal.attach.a_structured_agent_has_no_terminal
 terminal.attach.a_text_only_host_refuses_bytes
 terminal.attach.bytes_snapshot_shape
 terminal.attach.snapshot_shape
