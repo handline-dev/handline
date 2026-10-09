@@ -1506,6 +1506,9 @@ class ChatPage(JobsAware, Screen):
         self._inflight: set[str] = set()    # the reads on a worker thread, one per kind
         self._again: set[str] = set()       # asked for while one was in flight: run once more after it
         self._pools_at = float("-inf")      # when the menus' pools were last read
+        self._read_error: str | None = None     # why the last chat read failed, for the loop to say
+        self._gen = 0                       # bumped when the scope changes: a read begun before it is dropped
+        self._force_convo = False
         self._live: tuple | None = None             # the spinner, wait and reason the widgets show now
         self._transcript_key: tuple | None = None   # what the transcript widgets were last built from
         self._block_id: int | None = None      # the block the modal on screen shows
@@ -1732,16 +1735,23 @@ class ChatPage(JobsAware, Screen):
         try:
             got = read_requests(self.agent, self.everyone, before, since, want, limit)
         except (client.RpcError, client.DaemonDown, OSError) as e:
-            if not self._unread_daemon:     # said once, not on every refresh
-                self._unread_daemon = True
-                self.notify(f"the chat cannot be read: {e}", severity="error")
+            self._read_error = str(e)
             return None
-        self._unread_daemon = False
+        self._read_error = None
         return got
 
-    def read_if_changed(self, hr: tuple, force: bool = False) -> tuple[list[dict], str] | None:
-        """The items to draw and the chat's version, or None to leave the screen as it is: the daemon cannot be read, or the
-        version (one item read) and the pending HR cards are what `_sig` has. Sets `oldest` and `more` only on a read."""
+    def _report_unread(self) -> None:
+        """On the loop, after a read: say once that the chat cannot be read, not on every refresh."""
+        if self._read_error is None:
+            self._unread_daemon = False
+        elif not self._unread_daemon:
+            self._unread_daemon = True
+            self.notify(f"the chat cannot be read: {self._read_error}", severity="error")
+
+    def read_if_changed(self, hr: tuple, force: bool = False) -> tuple[list[dict], bool | None, str] | None:
+        """The items to draw, whether older requests remain (None: not asked) and the chat's version, or None to leave the
+        screen as it is: the daemon cannot be read, or the version (one item read) and the pending HR cards are what
+        `_sig` has. Reads only: it runs on a worker thread."""
         if self.oldest is not None and not force and self._sig is not None:
             peek = self._read_requests(limit=1)
             if peek is None or (peek[2], hr) == self._sig:
@@ -1753,15 +1763,15 @@ class ChatPage(JobsAware, Screen):
             if got is None:
                 return None
             items, more, version = got
-            self.more = more
         else:
             got = self._read_requests(since=self.oldest)
             if got is None:
                 return None
             items, _, version = got
+            more = None
         if (version, hr) == self._sig and not force:
             return None
-        return items, version
+        return items, more, version
 
     def refresh_conversation(self, force: bool = False) -> None:
         """Bring what is on screen up to date. Unchanged, this is one
@@ -1776,11 +1786,27 @@ class ChatPage(JobsAware, Screen):
         and the scroll only jumps to the bottom when the viewer was already
         there (founder #1975/T309): moving it while someone has scrolled up
         to read older messages would yank the page out from under them."""
+        self._force_convo = self._force_convo or force
+        self._off_loop("convo", self._read_convo, self._draw_convo)
+
+    def _read_convo(self) -> tuple:
+        """On a worker thread: the chat read for `refresh_conversation`."""
+        force, self._force_convo = self._force_convo, False
+        gen = self._gen
         hr = tuple((p["id"], p["state"]) for p in hr_card.pending())
-        read = self.read_if_changed(hr, force)
+        return gen, force, hr, self.read_if_changed(hr, force)
+
+    def _draw_convo(self, got: tuple) -> None:
+        gen, force, hr, read = got
+        self._report_unread()
+        if gen != self._gen:        # the scope changed under the read: it is of another view
+            self.refresh_conversation(force)
+            return
         if read is None:
             return
-        items, version = read
+        items, more, version = read
+        if more is not None:
+            self.more = more
         self._sig = (version, hr)
         asks = [i["message"] for i in items if i["type"] == "request"]
         self.oldest = min((m["id"] for m in asks), default=None)
@@ -1899,6 +1925,7 @@ class ChatPage(JobsAware, Screen):
         if not self.more or self.oldest is None:
             return
         got = self._read_requests(before=self.oldest)
+        self._report_unread()
         if got is None:
             return
         items, self.more, _ = got
@@ -2145,6 +2172,7 @@ class ChatPage(JobsAware, Screen):
             elif event.tab.id == self._scope_wait:
                 self._scope_wait = None     # the remembered tab is up; from here a pick is the human's
         self.oldest, self.more, self._sig, self._transcript_key = None, False, None, None
+        self._gen += 1
         self.reply_to(None)
         self._tabbed = True
         if self.is_mounted:
@@ -2188,6 +2216,7 @@ class ChatPage(JobsAware, Screen):
                 self.query_one("#scope", Tabs).active = "all"
             else:
                 self.oldest, self._sig, self._transcript_key = None, None, None
+                self._gen += 1
                 self.refresh_conversation(force=True)
             self.set_timer(0.2, self._reveal_step)
         else:

@@ -3525,6 +3525,11 @@ async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_n
 
         async def refresh() -> None:
             page.refresh_view()
+            await pilot.pause(0.1)
+            for _ in range(50):         # the reads run on worker threads: wait until the last one is drawn
+                if not page._inflight:
+                    break
+                await pilot.pause(0.1)
             await pilot.pause(0.5)
         check("newbar: at the bottom nothing shows", pane.is_vertical_scroll_end and not bar.display)
         arrive("while at the bottom")
@@ -5046,7 +5051,7 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
     check("off the loop: a refresh asks the daemon only from a worker thread", not left, str(left))
 
 
-OFF_LOOP = {"agent.get", "chat.refs", "tasks.list"}        # the methods moved off the loop so far
+OFF_LOOP = {"agent.get", "chat.refs", "tasks.list", "chat.requests"}        # the methods moved off the loop so far
 
 
 async def test_a_blocked_task_says_so_where_working_would_be() -> None:
