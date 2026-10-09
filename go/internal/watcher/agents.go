@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/json"
 	"slices"
@@ -11,7 +12,8 @@ import (
 // Agents is the agents topic: a changed agent_view row is agent.changed (the view as data), one that turned stalled also says so on the
 // notifications topic, and a row gone is agent.removed. It reads the table whoever wrote the row. Its first look says nothing.
 type Agents struct {
-	seen map[string]string
+	seen  map[string]string
+	query string // tests: a read that fails part way
 }
 
 func (*Agents) Name() string { return "agents" }
@@ -25,20 +27,20 @@ func stateOf(view string) string {
 }
 
 func (a *Agents) Scan(q *sql.DB, emit Emit) error {
-	rows, err := q.Query("SELECT agent, view FROM agent_view ORDER BY agent")
+	rows, err := q.Query(cmp.Or(a.query, "SELECT agent, view FROM agent_view"))
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 	now := map[string]string{}
 	for rows.Next() {
 		var name, view string
 		if err := rows.Scan(&name, &view); err != nil {
-			rows.Close()
 			return err
 		}
 		now[name] = view
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil { // a read that stopped short is not a list with agents gone
 		return err
 	}
 	before := a.seen

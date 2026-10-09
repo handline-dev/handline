@@ -49,3 +49,25 @@ func TestAnAgentViewThatChangesTurnsStalledOrGoesIsToldOnceEach(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestAReadThatFailsAfterTheFirstRowSaysNothing(t *testing.T) {
+	d, l := rig(t)
+	exec(t, d, "INSERT INTO agent_view(agent, view, updated) VALUES('amy', ?, 0), ('bob', ?, 0)", view("idle"), view("stalled"))
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	a := &Agents{}
+	if err := a.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	// the read fails on bob's row, after amy's: a short list must not read as bob gone
+	a.query = "SELECT agent, CASE WHEN agent = 'bob' THEN json_extract('{', '$') ELSE view END FROM agent_view"
+	if err := a.Scan(d, emit); err == nil {
+		t.Fatal("the failed read was swallowed")
+	}
+	a.query = ""
+	if err := a.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := l.Since(0, []string{"agents", "notifications"}, "", 100); len(got) != 0 {
+		t.Fatalf("a failed read said %d things: %+v", len(got), got[0])
+	}
+}

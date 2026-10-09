@@ -83,9 +83,11 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 		}
 		events = append(events, e)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
 	}
+	rows.Close()
 	for _, e := range events {
 		payload := payloadOf(e.body)
 		if e.kind == "mark_task_done" {
@@ -132,9 +134,11 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 		}
 		prompts = append(prompts, p)
 	}
-	if err := prows.Close(); err != nil {
+	if err := prows.Err(); err != nil {
+		prows.Close()
 		return err
 	}
+	prows.Close()
 	for _, p := range prompts {
 		if data, _, ok := n.Reads.PromptOf(p.agent, p.id); ok {
 			if _, err := emit(stream.Entry{Topic: "notifications", Type: "prompt_asked", Data: data, Agent: p.agent,
