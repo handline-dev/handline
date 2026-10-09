@@ -106,7 +106,7 @@ func main() {
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
 		parts := compose.New(ccfg)
-		cfg.Transcript, cfg.Structured, cfg.Agents = parts.Sink, parts.Kind, parts.Agents
+		cfg.Transcript, cfg.Structured, cfg.SessionOpen, cfg.Agents = parts.Sink, parts.Kind, parts.Run.Alive, parts.Agents
 		cfg.OnOpen = func(db *sql.DB, env *supervisor.Env) {
 			parts.Bind(db, env)
 			ccfg.DB = db
