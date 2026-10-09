@@ -56,3 +56,17 @@ func TestAnOverdueTasksClockSaysSinceTheFirstMissedDeadline(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestATaskListsTheOpenTasksThatHoldItAndNoDoneOne(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'held', 'bob', 'human', 1), (2, 'open', 'amy', 'human', 1), (3, 'done', 'amy', 'human', 1)")
+	run(t, e, "UPDATE tasks SET done_evidence = 'x' WHERE id = 3")
+	run(t, e, "INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 2, 1), (1, 3, 1)")
+	task, _ := clockOf(t, e, 1)
+	if got, _ := task["blocked_by"].([]int64); len(got) != 1 || got[0] != 2 || task["block_reason"] != "waiting on T2" {
+		t.Fatalf("%v", task)
+	}
+	if task, _ = clockOf(t, e, 2); len(task["blocked_by"].([]int64)) != 0 {
+		t.Fatalf("nothing holds it: %v", task["blocked_by"])
+	}
+}

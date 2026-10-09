@@ -219,7 +219,7 @@ def _normal(method: str, reply: dict) -> dict:
     if method in ("tasks.list", "task.get") and res:
         res.pop("reason_gaps", None)
         for t in res.get("items", [res]):
-            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "parent_title", "subtasks", "timeline", "people"):
+            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "blocked_by", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
     if method == "schedules.list" and res:
         for e in res.get("errors", []):
