@@ -96,3 +96,12 @@ func TestAgentViewServesTheWallTheLifecycleNames(t *testing.T) {
 		t.Fatalf("%v", w)
 	}
 }
+
+func TestAStoredWallStandsWhereNoLifecycleCanSayOtherwise(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle","wall":{"account":"acct","clock":null,"assumed":false}}', 0)`)
+	if w, _ := viewOfAgent(t, e, "bob")["wall"].(map[string]any); w["account"] != "acct" {
+		t.Fatalf("%v", w)
+	}
+}

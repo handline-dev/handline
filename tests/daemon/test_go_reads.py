@@ -68,6 +68,40 @@ def _seed_accounts(home: Path, con, now: int) -> None:
         con.execute("UPDATE events SET ts = ? WHERE id = (SELECT MAX(id) FROM events)", (at,))
 
 
+def _seed_view_fields(home: Path, con) -> None:
+    """Agents and tasks in the states kind, task_count, ready, wall, blocked_by and time are read from: a DONE, a parked, a queued-with-
+    background-work and a no-terminal agent, each with a queued current task (so ready is asked of each), a walled wake, a doing task in
+    time, one past its deadline with a notice behind it and one past it with none. Every time is fixed, so the two daemons asked minutes apart agree."""
+    now = int(time.time())
+    for name in ("view_done", "view_parked", "view_bg", "view_term", "view_walled", "view_timed", "view_over", "view_late"):
+        agents.register(name)
+
+    def task(agent: str, doing: int | None = None, timeout_at: int | None = None) -> int:
+        tid = db.new_task(con, f"{agent} work", agent, "manager", timeout_s=3600)
+        con.execute("UPDATE tasks SET queued_by = 'manager', queued_at = ?, sent_at = ?, timeout_at = ? WHERE id = ?", (now, doing, timeout_at, tid))
+        con.execute("INSERT INTO agent_state(agent, state, updated) VALUES(?, 'IDLE', ?) ON CONFLICT(agent) DO NOTHING", (agent, now))
+        con.execute("UPDATE agent_state SET current_task = ? WHERE agent = ?", (tid, agent))
+        return tid
+
+    def row(agent: str, state: str, terminal: str | None, **cols) -> None:
+        sets = ", ".join(f"{k} = ?" for k in cols)
+        con.execute(f"UPDATE agent_state SET state = ?, terminal = ?{', ' + sets if sets else ''} WHERE agent = ?", (state, terminal, *cols.values(), agent))
+
+    task("view_done"), row("view_done", "DONE", "t-3")
+    task("view_parked"), row("view_parked", "PARKED", "t-4", wake_at=now + 30 * 86400)
+    task("view_bg"), row("view_bg", "QUEUED", "t-5")
+    con.execute("INSERT INTO cursors(name, row_id, updated) VALUES('bgwork:view_bg', 1, ?)", (now - 9000,))     # "background 2h" for half an hour
+    task("view_term"), row("view_term", "IDLE", None)
+    task("view_walled"), row("view_walled", "PARKED", "t-6", wake_at=now - 100, closed_at=now - 200, resume_session="sess-w", account="zeta")
+    (home / "accounts" / "zeta").mkdir(parents=True, exist_ok=True)
+    (home / "accounts" / "zeta" / "status.json").write_text(json.dumps({"collected_at": now, "windows": [
+        {"minutes": 300, "used_percent": 100.0, "resets_at": now + 3600, "observed_at": now, "carried": False, "lost": False}]}))
+    task("view_timed", doing=now, timeout_at=now + 1800), row("view_timed", "RUNNING", "t-7")
+    over = task("view_over", doing=now - 8000, timeout_at=now - 500), row("view_over", "RUNNING", "t-8")
+    db.add_event(con, "manager", "task_timeout_exceeded", {"task_id": over[0], "timeout_s": 3600, "text": "late", "deadline": now - 4100, "next": now - 500})
+    task("view_late", doing=now - 8000, timeout_at=now - 500), row("view_late", "RUNNING", "t-9")
+
+
 def _seed(home: Path) -> dict:
     """A board with every state, a child, a wait, a memo, a handoff, and a founder's mailbox of each kind."""
     support._board_world(home)
@@ -127,6 +161,7 @@ def _seed(home: Path) -> dict:
     db.set_agent_state(con, "manager", "idle")
     con.execute("UPDATE agent_state SET terminal = 't-2', closed_at = ? WHERE agent = 'manager'", (int(time.time()),))
     con.execute("UPDATE agent_state SET worktree = ?, extra_worktrees = ? WHERE agent = 'manager'", ("id-7::" + str(boss_tree), json.dumps([str(extra_tree), "/nowhere"])))
+    _seed_view_fields(home, con)
     for op, state, step, msg, res in (("op-1", "done", "start", "ok", {"agent": "worker"}), ("op-2", "running", "register", None, None), ("op-3", "failed", "start", "no repo", None)):
         con.execute("INSERT INTO operations(id, kind, state, step, steps_done, steps_total, message, result_json, agent, created_at, updated_at) "
                     "VALUES(?, 'agent.create', ?, ?, 1, 2, ?, ?, 'worker', 1, 1)", (op, state, step, msg, json.dumps(res) if res else None))
@@ -214,16 +249,12 @@ def _normal(method: str, reply: dict) -> dict:
         res.pop("account_pick", None)
         res.pop("cwd", None)        # the chat page's fields: the Go daemon does not send them yet
         res.pop("can", None)
-    if method in ("agents.list", "agent.get") and res:
-        for a in res.get("agents", [res]):
-            for k in ("kind", "task_count", "ready", "wall"):
-                a.pop(k, None)      # the AgentView fields the Go daemon sends before Python does
     if method == "chat.requests" and res:
         res["version"] = len(res["version"])        # opaque: each daemon hashes what changes its own way
     if method in ("tasks.list", "task.get") and res:
         res.pop("reason_gaps", None)
         for t in res.get("items", [res]):
-            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "time", "blocked_by", "parent_title", "subtasks", "timeline", "people"):
+            for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
     if method == "schedules.list" and res:
         for e in res.get("errors", []):
@@ -367,6 +398,17 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         locks.running_elsewhere, termmod.live_terminals = real, real_live
     worker = want[(None, "agent.get", json.dumps({"agent": "worker"}, sort_keys=True))]["result"]
     manager = want[(None, "agent.get", json.dumps({"agent": "manager"}, sort_keys=True))]["result"]
+    views = {v["name"]: v for v in want[(None, "agents.list", "{}")]["result"]["agents"]}
+    timed = {t["title"]: t for t in want[(None, "tasks.list", json.dumps({"all": True}))]["result"]["items"]}
+    clock = lambda title: timed[f"{title} work"]["time"]
+    check("go reads: setup: the rows the new AgentView and Task fields are asked of are in the states they are meant to be",
+          all(views[n]["ready"] for n in ("view_done", "view_parked", "view_bg", "view_term")) and not views["view_timed"]["ready"]
+          and views["view_walled"]["wall"]["account"] == "zeta" and views["view_done"]["wall"] is None and views["view_done"]["task_count"] == 1
+          and views["view_done"]["kind"] and timed["third"]["blocked_by"] and timed["first"]["blocked_by"] == []
+          and clock("view_timed")["overdue_since"] is None and clock("view_timed")["end"] is not None
+          and clock("view_over")["told"] == 1 and clock("view_over")["overdue_since"] != clock("view_late")["overdue_since"]
+          and clock("view_late")["told"] == 0 and clock("view_late")["overdue_since"] is not None and timed["finished"]["time"] is None,
+          str({n: (v["ready"], v["wall"], v["task_count"]) for n, v in views.items()}))
     check("go reads: setup: the worker has a branch, an open session, a person holding the input and a permission prompt",
           worker["worktree"]["branch"] == "feature" and worker["session_open"] and worker["input_holders"][0]["kind"] == "person"
           and worker["prompt"]["kind"] == "permission" and len(worker["prompt"]["options"]) == 3, str(worker))
