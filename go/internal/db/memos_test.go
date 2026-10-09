@@ -32,14 +32,3 @@ func TestMemosAreAddedReadEditedAndDeletedWithAFractionalStamp(t *testing.T) {
 		t.Fatalf("%+v %v", m, err)
 	}
 }
-
-func TestOldestCountedAskIsNothingWhenTheRequesterHasNone(t *testing.T) {
-	q := open(t)
-	if at, ok, err := OldestCountedAsk(q, "nobody", 0); err != nil || ok || at != 0 {
-		t.Fatalf("%d %v %v", at, ok, err)
-	}
-	ask(t, q, "a", "b", "x", "ask")
-	if at, ok, err := OldestCountedAsk(q, "a", 0); err != nil || !ok || at != 1000 {
-		t.Fatalf("%d %v %v", at, ok, err)
-	}
-}

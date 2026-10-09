@@ -204,7 +204,6 @@ edges:
 
 limits:
   max_chain_depth: 4
-  ask_rate_per_hour: 50
 ''')
     check("agent.options: a name team.yaml declares that no agent has is free", _call("agent.options")["result"]["free_names"] == ["newcomer"])
 
