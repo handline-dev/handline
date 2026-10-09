@@ -25,7 +25,12 @@ func main() {
 	argv := os.Args[1:]
 	if len(argv) > 0 {
 		if run := commands[argv[0]]; run != nil {
-			if code, ok := run(hlclient.New(), argv[1:]); ok {
+			c := hlclient.New()
+			if why := hlclient.LiveRefusal(c.Home); why != "" {
+				fmt.Fprintln(os.Stderr, why)
+				os.Exit(1)
+			}
+			if code, ok := run(c, argv[1:]); ok {
 				os.Exit(code)
 			}
 		}
