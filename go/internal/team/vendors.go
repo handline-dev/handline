@@ -69,6 +69,15 @@ func LoginArgv(vendor string) []string {
 	return []string{"claude", "/login"}
 }
 
+// WebLoginArgv is the command the daemon runs for a login the web page drives, with no terminal: the CLI prints the authorize URL and
+// reads the code on stdin. ok is false for a vendor with no such login.
+func WebLoginArgv(vendor string) (argv []string, ok bool) {
+	if vendor == DefaultVendor {
+		return []string{"claude", "auth", "login"}, true
+	}
+	return nil, false
+}
+
 // AccountVendor is the vendor an account is an account of. An account that records none predates vendors and is the default's;
 // a file that is there but empty is not a vendor, so it names none and every driver lookup refuses it.
 func AccountVendor(home, acct string) string {

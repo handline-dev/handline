@@ -32,6 +32,7 @@ import (
 	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/version"
 	"github.com/handline/handline/go/internal/watcher"
+	"github.com/handline/handline/go/internal/weblogin"
 )
 
 // daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
@@ -103,10 +104,11 @@ type Daemon struct {
 	cfg     Config
 	db      *sql.DB
 	hooks   *hooks.Recorder
-	prompts *prompts.Env  // nil on a gateway: the Python daemon alone presses keys
-	tchan   *termchan.Env // the terminal channel and the input hold; nil on a gateway
-	single  *lock.Hold    // the daemon singleton, held while this daemon watches screens
-	stop    chan struct{} // closed by Close: the spool loop ends
+	logins  *weblogin.Manager // the web logins; nil in a gateway
+	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
+	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
+	single  *lock.Hold        // the daemon singleton, held while this daemon watches screens
+	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
 	local   *rpc.Server
@@ -155,6 +157,7 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
+		d.logins = &weblogin.Manager{Home: cfg.Home}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 		d.prompts.Structured = cfg.Answers
 		if cfg.Terminal != nil {
@@ -189,6 +192,9 @@ func Start(cfg Config) (*Daemon, error) {
 	d.hub = stream.NewHub()
 	d.hub.Log = &stream.Log{DB: db}
 	d.hub.Reach = (&reads.Env{DB: db, Home: cfg.Home}).Reach
+	if d.logins != nil { // a login's state moving is an account.changed on the accounts topic
+		d.logins.Changed = d.accountChanged
+	}
 	if d.transcripts() {
 		sink := cfg.Transcript
 		sink.DB = db
@@ -286,6 +292,17 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
+// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
+func (d *Daemon) accountChanged(name string) {
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
+	if !ok {
+		return
+	}
+	if err := d.hub.AccountChanged(acct); err != nil {
+		d.cfg.Log("  stream: account.changed %s: %v", name, err)
+	}
+}
+
 // transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
 // structured sessions.
 func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
@@ -294,7 +311,9 @@ func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.St
 // adds its line at its own place, so two ports do not edit the same spot and git merges them.
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 	return []func(*rpc.Server){
-		func(s *rpc.Server) { adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home}) },
+		func(s *rpc.Server) {
+			adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home, Logins: d.logins})
+		},
 		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
@@ -328,6 +347,9 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.transcripts() {
 		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
+	}
+	if d.logins != nil {
+		renv.Login = d.logins.Of
 	}
 	reads.Register(s, renv)
 	if d.cfg.Gateway {
@@ -473,6 +495,9 @@ func (d *Daemon) Close() {
 	}
 	if d.net != nil {
 		d.net.close()
+	}
+	if d.logins != nil {
+		d.logins.Close()
 	}
 	d.wg.Wait()
 	d.pidFile.remove()

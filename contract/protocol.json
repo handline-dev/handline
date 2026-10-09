@@ -8978,10 +8978,6 @@
            "failed",
            "cancelled"
           ]
-         },
-         "url": {
-          "type": "string",
-          "description": "Present while waiting."
          }
         },
         "required": [
@@ -8993,7 +8989,7 @@
         "type": "null"
        }
       ],
-      "description": "The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed."
+      "description": "The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed. Never carries the authorize URL: only the founder's account.login reply has it."
      }
     },
     "required": [
