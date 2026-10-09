@@ -42,7 +42,7 @@ func TestHookDeniesAsPythonWritesIt(t *testing.T) {
 	r := hookRig(t, true)
 	out, errs, code := r.runIn(preToolUse("Write", map[string]any{"file_path": "/nowhere/f.py", "content": "x"}), asAgent, "hook", "PreToolUse")
 	want := `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": ` +
-		`"Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the ` +
+		`"Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the ` + // local-ref-ok: Python's words
 		`founder just told you to do this, run ` + "`hl task begin \\\"<title>\\\"`" + ` to open one; otherwise ask whoever gave you the ` +
 		"work: `hl say <them> \\\"please open a task for <this work>\\\"`." + `"}}` + "\n"
 	if code != 0 || errs != "" || out != want {

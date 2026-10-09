@@ -92,7 +92,7 @@ func TestTheSmallMethodsAreWhatPythonSays(t *testing.T) {
 			t.Errorf("IsResume(%q) = %v", line, got)
 		}
 	}
-	if got, _ := (Driver{}).TranscriptDir("/c", "/Users/x/my repo.v2"); got != f.TranscriptDir {
+	if got, _ := (Driver{}).TranscriptDir("/c", "/Users/user/my repo.v2"); got != f.TranscriptDir {
 		t.Errorf("TranscriptDir %q, Python's %q", got, f.TranscriptDir)
 	}
 }
