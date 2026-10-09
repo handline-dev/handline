@@ -3504,6 +3504,17 @@ def test_the_sandbox_banner_reads_the_lease_and_one_click_ends_it() -> None:
     check("sandbox: an unreadable agent is not shown as off", not actions.sandbox_is_off("no-such-agent"))
 
 
+async def refreshed(page, pilot) -> None:
+    """`refresh_view`, then wait until the reads it started (on worker threads) are drawn."""
+    page.refresh_view()
+    await pilot.pause(0.1)
+    for _ in range(50):
+        if not page._inflight:
+            break
+        await pilot.pause(0.1)
+    await pilot.pause(0.5)
+
+
 async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_newest() -> None:
     from handline.team import ask as askmod
     from handline.ui import chat_page as cp
@@ -3523,13 +3534,7 @@ async def test_a_scrolled_up_chat_says_how_many_messages_came_and_jumps_to_the_n
             askmod.ask(actions.HUMAN, text, requester="reviewer")
 
         async def refresh() -> None:
-            page.refresh_view()
-            await pilot.pause(0.1)
-            for _ in range(50):         # the reads run on worker threads: wait until the last one is drawn
-                if not page._inflight:
-                    break
-                await pilot.pause(0.1)
-            await pilot.pause(0.5)
+            await refreshed(page, pilot)
         check("newbar: at the bottom nothing shows", pane.is_vertical_scroll_end and not bar.display)
         arrive("while at the bottom")
         await refresh()
@@ -3590,8 +3595,7 @@ async def test_older_messages_loaded_above_are_not_counted_as_new() -> None:
         pane.scroll_to(y=0, animate=False)
         await pilot.pause(0.3)
         askmod.ask(actions.HUMAN, "one new one", requester="reviewer")
-        page.refresh_view()
-        await pilot.pause(0.5)
+        await refreshed(page, pilot)
         check("newbar: after older messages were loaded, one arrival counts as one",
               bar.display and "1 new message (click) ↓" in str(bar.render()), str(bar.render()))
 
@@ -3752,8 +3756,7 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
             con.commit()
         finally:
             con.close()
-        page.refresh_view()
-        await pilot.pause(0.4)
+        await refreshed(page, pilot)
         check("session mark: a resumed start written while the page is open draws nothing",
               len(list(page.query(cp.SessionMark))) == 2, str(len(list(page.query(cp.SessionMark)))))
         con = db.connect()
@@ -3762,8 +3765,7 @@ async def test_a_session_start_is_a_quiet_system_line_and_its_handoff_opens_in_a
             con.commit()
         finally:
             con.close()
-        page.refresh_view()
-        await pilot.pause(0.4)
+        await refreshed(page, pilot)
         check("session mark: a fresh start written while the page is open is drawn on the next refresh, with no new message",
               len(list(page.query(cp.SessionMark))) == 3, str(len(list(page.query(cp.SessionMark)))))
 
@@ -5042,8 +5044,7 @@ async def test_the_chat_page_never_asks_the_daemon_on_the_ui_loop() -> None:
             page = cp.ChatPage("reviewer")
             await app.push_screen(page)
             await pilot.pause()
-            page.refresh_view()
-            await pilot.pause(0.5)
+            await refreshed(page, pilot)
     finally:
         cp.api.call = real
     left = [m for m in on_loop if m in OFF_LOOP]

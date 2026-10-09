@@ -38,6 +38,8 @@ type Env struct {
 	SessionOpen func(agent string) bool
 	// Login is an account's latest web login, nil for none; nil is no logins.
 	Login func(account string) *weblogin.Login
+	// Delivery is what the supervisor knows of why a queued line waits; nil leaves out the reasons that need it.
+	Delivery Delivery
 }
 
 // Register adds the read methods to the server's table.
