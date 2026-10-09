@@ -38,6 +38,10 @@ import (
 // daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
 const daemonLock = "daemon"
 
+// structuredLock is the singleton of the process that runs the structured sessions of a home. The agent lock that keeps a session to one
+// launch is in-process, so a second process on the home would launch and wake the same agents again.
+const structuredLock = "structured"
+
 type Config struct {
 	Home       string
 	DBFile     string
@@ -110,6 +114,7 @@ type Daemon struct {
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon watches screens
+	running *lock.Hold        // the structured singleton, held while this daemon runs structured sessions
 	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
@@ -189,6 +194,13 @@ func Start(cfg Config) (*Daemon, error) {
 			return nil, errors.New("another daemon holds this home: not starting a second screen watch")
 		}
 	}
+	if cfg.Structured != nil {
+		if d.running = lock.TakeSingleton(cfg.Home, structuredLock); d.running == nil {
+			db.Close()
+			d.single.Release()
+			return nil, errors.New("another daemon runs the structured sessions of this home: not starting a second")
+		}
+	}
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
 		d.dev.Log = cfg.Log
@@ -215,6 +227,7 @@ func Start(cfg Config) (*Daemon, error) {
 			if d.single != nil {
 				d.single.Release()
 			}
+			d.running.Release()
 			return nil, err
 		}
 		d.ln = ln
@@ -508,6 +521,9 @@ func (d *Daemon) Close() {
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()
+	}
+	if d.running != nil {
+		d.running.Release()
 	}
 	if d.db != nil {
 		d.db.Close()
