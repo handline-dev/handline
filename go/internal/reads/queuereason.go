@@ -26,7 +26,7 @@ type Delivery interface {
 //
 // Straight from _delivery_state, in its order. drops "no terminal", "terminal gone", "no session" -> nothing reaches it (terminal-only:
 // a structured agent has no terminal and its closed session is "closed, ..."); drops "closed, no daemon" -> this is the daemon;
-// drops "closed, starting" -> a structured wake holds an in-process lock, not the terminal lock file.
+// adds "switched with its terminal open" (a structured agent whose row still holds a terminal); drops "closed, starting" -> a structured wake holds an in-process lock, not the terminal lock file.
 func (e *Env) QueueReason(agent string, rid int64) (string, error) {
 	req, err := db.GetRequest(e.DB, rid)
 	if err != nil {
@@ -67,7 +67,11 @@ func (e *Env) deliveryState(agent, none string) (string, error) {
 	if row.State == states.Stalled {
 		return "stalled", nil
 	}
-	if row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+	closed := row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
+	if !closed && row.Terminal.String != "" && e.Structured != nil && e.Structured(agent) {
+		return "switched with its terminal open", nil
+	}
+	if closed {
 		return e.closedState(agent, row)
 	}
 	switch row.State {
