@@ -78,3 +78,25 @@ func Touch(db *sql.DB, agent, name string, now time.Time) error {
 	_, err := db.Exec("UPDATE input_holders SET last_typed = ? WHERE agent = ? AND name = ?", now.Unix(), agent, name)
 	return err
 }
+
+// Take holds agent's input as name: one statement that sets the row only when there is none or it is already name's, and says
+// whether it did, so two takes at once cannot both win. An idle hold is dropped first.
+func Take(db *sql.DB, home, agent, kind, name string, now time.Time) (bool, error) {
+	if _, err := Holder(db, home, agent, now); err != nil {
+		return false, err
+	}
+	res, err := db.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "+
+		"ON CONFLICT(agent) DO UPDATE SET last_typed = excluded.last_typed WHERE input_holders.name = excluded.name",
+		agent, kind, name, now.Unix(), now.Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// Release gives agent's input back to the daemon.
+func Release(db *sql.DB, agent string) error {
+	_, err := db.Exec("DELETE FROM input_holders WHERE agent = ?", agent)
+	return err
+}
