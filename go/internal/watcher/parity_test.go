@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	osexec "os/exec"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,7 @@ sys.path.insert(0, os.getcwd())
 from handline.daemon import stream
 con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
 state = {}
-stream.%s(con, state)
+stream.%s(con, state); con.commit()
 print("ready", flush=True)
 sys.stdin.readline()
 stream.%s(con, state); con.commit()
@@ -79,6 +80,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	script := fmt.Sprintf(pythonDetector, pyName, pyName)
 	cmd := osexec.Command("python3", "-I", "-c", script, filepath.Join(dir, "py.sqlite"))
 	cmd.Dir = root
+	cmd.Stderr = os.Stderr
 	in, _ := cmd.StdinPipe()
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
