@@ -115,3 +115,56 @@ describe('the transcript as a member', () => {
     m.store.stop();
   });
 });
+
+describe('the controls of a structured agent', () => {
+  it('shows Interrupt beside the working line only while a turn runs', async () => {
+    const m = await mount();
+    await open(m);
+    await until(() => $('transcript'), 'the transcript');
+    expect($('tr-interrupt')).toBeNull();
+    await act(async () => {
+      m.daemon.transcript.push(AUD, { kind: 'turn_start', turn: 'live', turn_start: { message: 'live', from: 'founder', text: 'go' } });
+      m.daemon.sessions.get(AUD)!.state = 'running';
+    });
+    await until(() => $('tr-interrupt'), 'the Interrupt button');
+    await press($('tr-interrupt'));
+    await until(() => m.daemon.sessions.get(AUD)!.state === 'idle', 'the daemon interrupted the turn');
+    m.store.stop();
+  });
+
+  it('never renders a terminal for a structured agent', async () => {
+    const m = await mount();
+    await open(m);
+    await until(() => $('transcript'), 'the transcript');
+    expect($('terminal')).toBeNull();
+    expect($('take')).toBeNull();
+    expect($('composer')).toBeNull();
+    m.store.stop();
+  });
+});
+
+describe('a structured agent’s prompt and its stored session', () => {
+  it('reaches the Chat tab as Allow and Deny from detail.prompt', async () => {
+    const m = await mount((s) => {
+      s.daemon.sessions.get(AUD)!.prompt = {
+        id: 'p9',
+        agent: AUD,
+        kind: 'permission',
+        tool: 'Bash',
+        command: 'git push',
+        reason: null,
+        lines: [],
+        since: '2026-10-09T00:00:00Z',
+        options: [
+          { key: '1', label: 'Yes', answer: 'yes' },
+          { key: '2', label: 'No', answer: 'no' },
+        ],
+      };
+    });
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => $('prompt-card'), 'the card on the Chat tab');
+    expect($('terminal')).toBeNull();
+    m.store.stop();
+  });
+});
