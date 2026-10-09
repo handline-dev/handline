@@ -2,10 +2,10 @@
 // it back if the daemon refuses; a decided write leaves the cache alone and is shown by its pending mark.
 import { useIsMutating, useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
-import type { CallParams, MethodName, Methods } from '@handline/client';
+import type { AgentDetail, AgentView, CallParams, MethodName, Methods } from '@handline/client';
 import { useData } from './provider.ts';
-import { reads, type Key, type NOT_QUERIES, type ReadMethod } from './reads.ts';
-import { writes, type NOT_FROM_UI, type PAIRING } from './writes.ts';
+import { qk, reads, type Key, type NOT_QUERIES, type ReadMethod } from './reads.ts';
+import { NOT_FOR_STRUCTURED, writes, type NOT_FROM_UI, type PAIRING } from './writes.ts';
 import type { WriteSpec } from './write-spec.ts';
 
 /** Every method the UI may write: the contract's methods that are in none of the other lists. */
@@ -33,7 +33,10 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
   return useMutation<Methods[M]['result'], unknown, CallParams<M>, { snapshot: Snapshot }>({
     mutationKey: writeKey(daemon, method),
     scope: target ? { id: `${daemon}:${target}` } : undefined,
-    mutationFn: (p) => store.client.call(method, p),
+    mutationFn: async (p) => {
+      refuseStructured(qc, daemon, method, (p as { agent?: string }).agent ?? target);
+      return store.client.call(method, p);
+    },
     onMutate: async (p) => {
       if (spec.kind !== 'authored') return { snapshot: [] };
       const keys = spec.touches?.(daemon, p as never) ?? [];
@@ -53,6 +56,14 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     },
     onSettled: (_r, _e, p) => settle(qc, daemon, spec, p as never),
   });
+}
+
+/** A structured agent has no terminal and no input to hold: a write that needs one never leaves the app. */
+function refuseStructured(qc: QueryClient, daemon: string, method: string, agent: string | undefined) {
+  if (!agent || !(NOT_FOR_STRUCTURED as readonly string[]).includes(method)) return;
+  const row = qc.getQueryData<{ agents: AgentView[] }>(qk.agents(daemon))?.agents.find((a) => a.name === agent);
+  const detail = qc.getQueryData<AgentDetail>(qk.agent(daemon, agent));
+  if (row?.structured || detail?.structured) throw new Error(`${method}: ${agent} is a structured agent and has no terminal`);
 }
 
 /**

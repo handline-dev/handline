@@ -25,3 +25,15 @@ test('builds each call from the verb', () => {
   assert.deepEqual(callOf(VERBS.restart_fresh, 'a.b'), { method: 'session.restart', params: { agent: 'a.b', fresh: true } });
   assert.deepEqual(callOf(VERBS.move, 'a.b', 'beta'), { method: 'agent.move', params: { agent: 'a.b', account: 'beta' } });
 });
+
+test('a structured agent lists interrupt only while a turn runs or waits', () => {
+  const of = (state: string, session_open: boolean) =>
+    verbsOf(row(state), { session_open, session_id: 's1', structured: true }).map((v) => v.id);
+  assert.deepEqual(of('running', true), ['interrupt', 'restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
+  assert.deepEqual(of('waiting', true), ['interrupt', 'restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
+  assert.deepEqual(of('idle', true), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
+  assert.deepEqual(of('parked', false), ['wake', 'move']);
+  assert.deepEqual(of('stalled', false), ['clear_stall', 'move']);
+  assert.deepEqual(ids('running', true, 's1'), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']); // a terminal agent has it in the stop menu
+  assert.deepEqual(callOf(VERBS.interrupt, 'a.b'), { method: 'session.interrupt', params: { agent: 'a.b' } });
+});

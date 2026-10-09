@@ -40,7 +40,7 @@ export function transcriptEvent({ qc, d }: Ctx, e: WireEvent): void {
 }
 
 export interface Transcript {
-  /** terminal: the read was refused as unsupported (a terminal agent, or a daemon without the transcript); views choose by AgentView.structured and keep this as the fallback. */
+  /** terminal: the read was refused as unsupported (a terminal agent, or a daemon without the transcript; never for a structured agent whose read fails); views choose by AgentView.structured and keep this as the fallback. */
   status: 'terminal' | 'loading' | 'error' | 'ready';
   error: unknown;
   /** Oldest first. */
@@ -56,8 +56,8 @@ export interface Transcript {
   refetch: () => void;
 }
 
-/** One agent's transcript. */
-export function useTranscript(agent: string): Transcript {
+/** One agent's transcript. A structured agent whose read is refused is an error to retry, never a terminal to fall back to. */
+export function useTranscript(agent: string, structured = false): Transcript {
   const store = useStore();
   const qc = useQueryClient();
   const { daemon } = useData();
@@ -106,7 +106,7 @@ export function useTranscript(agent: string): Transcript {
   const first = data?.log.events[0]?.seq ?? 0;
   const refused = q.isError && classify(q.error).kind === 'not_served';
   return {
-    status: !served || refused ? 'terminal' : data ? 'ready' : q.isError ? 'error' : 'loading',
+    status: !served || (refused && !structured) ? 'terminal' : data ? 'ready' : q.isError ? 'error' : 'loading',
     error: q.error,
     turns,
     running: turns.at(-1)?.running ?? false,
