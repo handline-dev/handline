@@ -1,7 +1,7 @@
 import type { AgentDetail, AgentView } from '@handline/client';
 import { STATE_WORDS } from '@handline/client';
 
-export type BadgeKind = 'dialog' | 'stalled' | 'you' | 'held' | 'no_terminal' | 'other';
+export type BadgeKind = 'dialog' | 'stalled' | 'you' | 'held' | 'no_terminal' | 'no_session' | 'other';
 export interface Badge {
   kind: BadgeKind;
   label: string;
@@ -33,7 +33,9 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
             tip: `${holder.name} holds the input${holder.since ? ` since ${holder.since}` : ''}`,
           },
     );
-  if (a.state === 'no_terminal' || detail.terminal === null)
+  if (a.structured) {
+    if (detail.session_open === false) out.push({ kind: 'no_session', label: 'no session', tip: 'Start or resume the agent to open one' });
+  } else if (a.state === 'no_terminal' || detail.terminal === null)
     out.push({ kind: 'no_terminal', label: 'no terminal', tip: 'Start or resume the agent to open one' });
   if (!(STATE_WORDS as readonly string[]).includes(a.state)) out.push({ kind: 'other', label: a.state, tip: `state: ${a.state}` });
   return out;

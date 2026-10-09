@@ -2,12 +2,12 @@
 // permission cards, what each turn cost, and errors. It follows the stream and stays at the end.
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { usePrompts, type Entry, type Transcript as TranscriptState, type Turn } from '@handline/app-data';
+import { usePrompts, useWrite, type Entry, type Transcript as TranscriptState, type Turn } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { PromptCard } from './PromptCard.tsx';
-import { Button } from './parts.tsx';
+import { Button, Row } from './parts.tsx';
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 80);
 const inputLine = (input: Record<string, unknown>) => {
@@ -98,6 +98,31 @@ function TurnView(props: { turn: Turn; agent: string; held: Set<string> }) {
   );
 }
 
+/** Working… with the way to end the turn; a refused interrupt says why. */
+function Working(props: { agent: string }) {
+  const c = usePalette();
+  const interrupt = useWrite('session.interrupt', props.agent);
+  const reason = interrupt.error ? ((interrupt.error as { reason?: string }).reason ?? (interrupt.error as Error).message) : '';
+  return (
+    <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <Text style={{ color: c.muted }}>Working…</Text>
+        <Button
+          testID="tr-interrupt"
+          label={interrupt.isPending ? 'Interrupting…' : 'Interrupt'}
+          disabled={interrupt.isPending}
+          onPress={() => interrupt.mutate({ agent: props.agent })}
+        />
+      </Row>
+      {!!reason && (
+        <Text testID="tr-interrupt-refused" style={{ color: c.wait, fontSize: 12 }}>
+          {reason}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export function Transcript(props: { agent: string; transcript: TranscriptState }) {
   const c = usePalette();
   const t = props.transcript;
@@ -123,7 +148,9 @@ export function Transcript(props: { agent: string; transcript: TranscriptState }
       skeleton="terminal"
       label="the transcript"
       empty=""
+      retryRefused
     >
+      {t.running && <Working agent={props.agent} />}
       <ScrollView
         ref={scroll}
         testID="transcript"

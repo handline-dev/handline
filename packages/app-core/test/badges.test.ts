@@ -31,3 +31,9 @@ test('a state word this client does not know is still said, and dialogs and stal
   assert.equal(needsAttention(badgesOf(view({ has_dialog: true }), 'me')), true);
   assert.equal(needsAttention(badgesOf(view({ state: 'blocked' }), 'me')), true);
 });
+
+test('a structured agent has no terminal to miss: a closed one says no session', () => {
+  const s = (over: Partial<AgentDetail>) => view({ structured: true, terminal: null, ...over });
+  assert.deepEqual(kinds(s({ session_open: true })), []);
+  assert.deepEqual(kinds(s({ session_open: false })), ['no_session']);
+});

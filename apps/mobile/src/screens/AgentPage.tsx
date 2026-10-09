@@ -20,7 +20,7 @@ import { AboveKeyboard, Button, Row } from './parts.tsx';
 function useAgentMark(agent: string): string | null {
   const mine = (xs: { agent: string }[]) => xs.some((p) => p.agent === agent);
   const start = usePending('session.start');
-  const resume = usePending('session.restart');
+  const resume = usePending('session.wake');
   const stop = usePending('session.stop');
   const interrupt = usePending('session.interrupt');
   return mine(start) ? 'Starting…' : mine(resume) ? 'Resuming…' : mine(stop) ? 'Stopping…' : mine(interrupt) ? 'Interrupting…' : null;
@@ -91,7 +91,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
-  const resume = useWrite('session.restart', name);
+  const resume = useWrite('session.wake', name);
   const stopMode = useWrite('session.stop', name);
   const interrupt = useWrite('session.interrupt', name);
   const stop = (mode: StopMode) => {
@@ -103,6 +103,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       ]);
     else run();
   };
+  // Starting new leaves the stored conversation behind.
+  const startNew = () =>
+    Alert.alert(`Start ${name} over?`, 'The stored conversation is not resumed.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Start new', style: 'destructive', onPress: () => start.mutate({ agent: name }) },
+    ]);
   const tab = (t: 'chat' | 'terminal', label: string) => (
     <Pressable
       testID={`tab-${t}`}
@@ -128,10 +134,10 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     <View style={{ flex: 1 }}>
       <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
         {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.resume && <Button label="Resume" disabled={busy} onPress={() => resume.mutate({ agent: name, fresh: false })} />}
-        {ctl.resume && <Button label="Start new" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.stop && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
-        {ctl.stop && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
+        {ctl.resume && <Button label="Resume" disabled={busy} onPress={() => resume.mutate({ agent: name })} />}
+        {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
+        {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
+        {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
         {ctl.stop && <Button label="Close" disabled={busy} onPress={() => stop('close')} />}
         {ctl.stop && <Button label="Kill" disabled={busy} onPress={() => stop('kill')} kind="no" />}
         {mark && (
@@ -153,18 +159,17 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   );
 }
 
-/** The transcript of a structured agent; a daemon that refuses it (no transcript at all) leaves the agent its terminal. */
+/** The transcript of a structured agent; it has no terminal to fall back to, so a refused read is an error to retry. */
 function TranscriptTab(props: { detail: AgentDetail }) {
-  const transcript = useTranscript(props.detail.name);
+  const transcript = useTranscript(props.detail.name, true);
   return (
     <>
       {/* a card the transcript cannot show (not ready) is still answerable */}
       {transcript.status !== 'ready' && <PromptSlot agent={props.detail.name} prompt={props.detail.prompt ?? null} />}
-      {transcript.status === 'terminal' ? (
-        <Terminal detail={props.detail} />
-      ) : (
-        <Transcript agent={props.detail.name} transcript={transcript} />
-      )}
+      <Transcript
+        agent={props.detail.name}
+        transcript={{ ...transcript, status: transcript.status === 'terminal' ? 'error' : transcript.status }}
+      />
     </>
   );
 }

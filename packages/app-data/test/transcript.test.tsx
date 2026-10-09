@@ -171,6 +171,13 @@ describe('useTranscript on the fake daemon', () => {
     await until(() => p.get().status === 'terminal', 'the unsupported answer');
   });
 
+  it("is an error to retry, not a terminal, when a structured agent's read is refused", async () => {
+    const { store } = await connected();
+    const p = probe(() => useTranscript('handline.term-build', true));
+    await mount(store, p.node);
+    await until(() => p.get().status === 'error', 'the refused read');
+  });
+
   it('marks a retention gap against the fake daemon that forgot events, and goes on from the first it keeps', async () => {
     const { store, daemon } = await connected();
     const qc = makeQueryClient();

@@ -8,7 +8,7 @@ import {
   railGroups,
   shortName,
   type Dot,
-  STOP_MODES,
+  stopModesOf,
   asks,
   verbsOf,
   type Verb,
@@ -263,7 +263,7 @@ function RowControls({
   const d = useAgentDetail(agent).data;
   const menu = useRef<HTMLDetailsElement>(null);
   const start = useWrite('session.start', agent);
-  const resume = useWrite('session.restart', agent);
+  const resume = useWrite('session.wake', agent);
   const stopWrite = useWrite('session.stop', agent);
   const interrupt = useWrite('session.interrupt', agent);
   const run = useVerbRun(agent);
@@ -332,17 +332,19 @@ function RowControls({
             <strong>Settings</strong>
           </button>
           {c.stop
-            ? STOP_MODES.filter((m) => m.mode !== 'close').map((m) => (
-                <button
-                  key={m.mode}
-                  className={`menu-item${m.mode === 'kill' ? ' danger' : ''}`}
-                  disabled={busy}
-                  onClick={() => stop(m.mode)}
-                >
-                  <strong>{m.label}</strong>
-                  <span className="muted"> {m.hint}</span>
-                </button>
-              ))
+            ? stopModesOf(d)
+                .filter((m) => m.mode !== 'close' && !(d.structured && m.mode === 'interrupt'))
+                .map((m) => (
+                  <button
+                    key={m.mode}
+                    className={`menu-item${m.mode === 'kill' ? ' danger' : ''}`}
+                    disabled={busy}
+                    onClick={() => stop(m.mode)}
+                  >
+                    <strong>{m.label}</strong>
+                    <span className="muted"> {m.hint}</span>
+                  </button>
+                ))
             : null}
         </div>
       </details>

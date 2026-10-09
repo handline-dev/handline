@@ -1,5 +1,6 @@
 import { act } from 'react';
-import { describe, expect, it } from 'vitest';
+import { Alert } from 'react-native';
+import { describe, expect, it, vi } from 'vitest';
 import { $, mount, press, text, until } from './harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
@@ -112,6 +113,122 @@ describe('the transcript as a member', () => {
     await until(() => $('prompt-card'), 'the card');
     await press($('answer-allow'));
     await until(() => $('prompt-card') === null && text().includes('Allowed by person'), 'the answer');
+    m.store.stop();
+  });
+});
+
+describe('the controls of a structured agent', () => {
+  it('shows Interrupt beside the working line only while a turn runs', async () => {
+    const m = await mount();
+    await open(m);
+    await until(() => $('transcript'), 'the transcript');
+    expect($('tr-interrupt')).toBeNull();
+    await act(async () => {
+      m.daemon.transcript.push(AUD, { kind: 'turn_start', turn: 'live', turn_start: { message: 'live', from: 'founder', text: 'go' } });
+      m.daemon.sessions.get(AUD)!.state = 'running';
+    });
+    await until(() => $('tr-interrupt'), 'the Interrupt button');
+    await press($('tr-interrupt'));
+    await until(() => m.daemon.sessions.get(AUD)!.state === 'idle', 'the daemon interrupted the turn');
+    m.store.stop();
+  });
+
+  it('never renders a terminal for a structured agent', async () => {
+    const m = await mount();
+    await open(m);
+    await until(() => $('transcript'), 'the transcript');
+    expect($('terminal')).toBeNull();
+    expect($('take')).toBeNull();
+    expect($('composer')).toBeNull();
+    m.store.stop();
+  });
+});
+
+describe('a structured agent’s prompt and its stored session', () => {
+  it('reaches the Chat tab as Yes and No from detail.prompt', async () => {
+    const m = await mount((s) => {
+      s.daemon.sessions.get(AUD)!.prompt = {
+        id: 'p9',
+        agent: AUD,
+        kind: 'permission',
+        tool: 'Bash',
+        command: 'git push',
+        reason: null,
+        lines: [],
+        since: '2026-10-09T00:00:00Z',
+        options: [
+          { key: '1', label: 'Yes', answer: 'yes' },
+          { key: '2', label: 'No', answer: 'no' },
+        ],
+      };
+    });
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => $('prompt-card'), 'the card on the Chat tab');
+    expect($('terminal')).toBeNull();
+    expect([...$('prompt-card')!.querySelectorAll<HTMLElement>('[data-testid^="answer-"]')].map((b) => b.textContent)).toEqual([
+      'Yes',
+      'No',
+    ]);
+    m.store.stop();
+  });
+});
+
+const buttons = () => [...document.querySelectorAll<HTMLElement>('[role="button"]')].map((b) => b.textContent);
+const button = (label: string) =>
+  [...document.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === label) ?? null;
+
+describe('the header row of a structured agent', () => {
+  it('lists Close and Kill while idle, with no Exit and no Interrupt', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => button('Close'), 'the header row');
+    expect(buttons()).toContain('Kill');
+    expect(buttons()).not.toContain('Exit');
+    expect(buttons()).not.toContain('Interrupt');
+    m.store.stop();
+  });
+
+  it('adds Interrupt while a turn runs', async () => {
+    const m = await mount((s) => {
+      s.daemon.sessions.get(AUD)!.state = 'running';
+      s.daemon.chat.setTurn(AUD, true);
+    });
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await until(() => button('Interrupt'), 'Interrupt');
+    expect(buttons()).not.toContain('Exit');
+    m.store.stop();
+  });
+
+  it('offers Resume and Start new for a closed one; Resume wakes it and Start new asks first', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
+    await press($(`agent-${AUD}`));
+    await until(() => button('Resume'), 'Resume');
+    const alert = vi.spyOn(Alert, 'alert');
+    await press(button('Start new'));
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining('over?'), expect.anything(), expect.anything());
+    expect(m.daemon.sessions.get(AUD)!.open).toBe(false);
+    alert.mockRestore();
+    await press(button('Resume'));
+    await until(() => m.daemon.sessions.get(AUD)!.open, 'the session woken');
+    m.store.stop();
+  });
+});
+
+describe('a refused transcript read of a structured agent', () => {
+  it('is an error with Retry, not "not served"', async () => {
+    const m = await mount((s) => s.daemon.knobs.refuse('transcript.events', 'unsupported', 'no transcript'));
+    await open(m);
+    await until(() => $('error'), 'the error block');
+    expect($('not-served')).toBeNull();
+    expect($('terminal')).toBeNull();
+    m.daemon.knobs.clear();
+    await press(button('Retry'));
+    await until(() => $('transcript'), 'the turns after Retry');
     m.store.stop();
   });
 });

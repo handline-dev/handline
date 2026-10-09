@@ -1,13 +1,21 @@
 // The agent verbs of the bridge's AGENT_KEYS (tui.py): which apply to a row, which ask first, and what each is called while it runs.
 import type { AgentDetail, AgentView } from '@handline/client';
 
-export type VerbId = 'wake' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall';
+export type VerbId = 'wake' | 'interrupt' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall';
 
 export interface Verb {
   id: VerbId;
   label: string;
   /** The daemon method behind it; a verb whose method the daemon does not list shows disabled. */
-  method: 'session.wake' | 'session.stop' | 'session.restart' | 'session.park' | 'agent.fold' | 'agent.move' | 'agent.unstall';
+  method:
+    | 'session.wake'
+    | 'session.interrupt'
+    | 'session.stop'
+    | 'session.restart'
+    | 'session.park'
+    | 'agent.fold'
+    | 'agent.move'
+    | 'agent.unstall';
   /** Shown while the write is in flight, in the state cell. */
   gerund: string;
   /** One sentence of consequence for the confirmation; absent when the verb asks nothing. */
@@ -21,6 +29,7 @@ const V = (id: VerbId, label: string, method: Verb['method'], gerund: string, as
 
 export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
   V('wake', 'Wake', 'session.wake', 'waking…'),
+  V('interrupt', 'Interrupt', 'session.interrupt', 'interrupting…'),
   V('close', 'Close', 'session.stop', 'closing…', 'Its session ends; the terminal, worktree and account stay.'),
   V('restart', 'Restart', 'session.restart', 'restarting…', 'Its session ends and starts again, resuming the conversation.'),
   V(
@@ -41,8 +50,10 @@ export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set(['close', 'restart', '
 export const needsAsk = (id: VerbId): boolean => CONFIRM_VERBS.has(id);
 
 /** The verbs that apply to this row now, in menu order. A verb that does not apply is absent, not greyed. */
-export function verbsOf(a: AgentView, d: Pick<AgentDetail, 'session_open' | 'session_id'>): Verb[] {
+export function verbsOf(a: AgentView, d: Pick<AgentDetail, 'session_open' | 'session_id' | 'structured'>): Verb[] {
   const ids: VerbId[] = [];
+  // Interrupt ends a running turn, so it is listed for a structured agent only while one runs (a terminal agent has it in the stop menu).
+  if (d.structured && d.session_open && (a.state === 'running' || a.state === 'waiting')) ids.push('interrupt');
   const stalled = a.state === 'stalled';
   if (stalled) ids.push('clear_stall');
   else if (!d.session_open && d.session_id) ids.push('wake');

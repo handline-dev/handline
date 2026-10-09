@@ -72,10 +72,24 @@ export interface Controls {
   take: boolean;
   release: boolean;
   typing: boolean;
+  /** A structured agent whose turn runs or waits; a terminal agent interrupts through the stop menu. */
+  interrupt: boolean;
 }
 
 /** Which header buttons apply to this agent and this viewer. */
 export function controlsOf(d: AgentDetail, me: string): Controls {
+  if (d.structured) {
+    // No terminal, so nobody holds its input: it is started, woken, stopped and interrupted, never typed to.
+    return {
+      start: !d.session_open && !d.session_id,
+      resume: !d.session_open && !!d.session_id,
+      stop: d.session_open,
+      take: false,
+      release: false,
+      typing: false,
+      interrupt: d.session_open && (d.state === 'running' || d.state === 'waiting'),
+    };
+  }
   const holder = d.input_holders?.[0];
   const iHold = !!holder && holder.kind !== 'daemon' && holder.name === me;
   return {
@@ -85,6 +99,7 @@ export function controlsOf(d: AgentDetail, me: string): Controls {
     take: d.session_open && !iHold && (!holder || holder.kind === 'daemon'),
     release: iHold,
     typing: d.session_open && iHold,
+    interrupt: false,
   };
 }
 
@@ -98,6 +113,13 @@ export const STOP_MODES: { mode: StopMode; label: string; hint: string }[] = [
   { mode: 'close', label: 'Close', hint: 'ends the session, keeps terminal, worktree and account' },
   { mode: 'kill', label: 'Kill', hint: 'kills the terminal' },
 ];
+/** The same modes for a structured agent, in session words: it has no terminal and Close and Exit end it the same way. */
+export const STRUCTURED_STOP_MODES: { mode: StopMode; label: string; hint: string }[] = [
+  { mode: 'interrupt', label: 'Interrupt', hint: 'ends the running turn' },
+  { mode: 'close', label: 'Close', hint: 'ends the session, keeps worktree and account' },
+  { mode: 'kill', label: 'Kill', hint: 'ends the session now, mid-turn' },
+];
+export const stopModesOf = (a: Pick<AgentView, 'structured'>) => (a.structured ? STRUCTURED_STOP_MODES : STOP_MODES);
 /** Kill always asks; Close asks when the agent is mid-turn or waiting on someone. */
 export const needsConfirm = (mode: StopMode, a: AgentView): boolean =>
   mode === 'kill' || (mode === 'close' && (a.state === 'running' || a.has_dialog));

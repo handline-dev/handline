@@ -3,7 +3,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
-import { qk, useAgents, useChat, useChatActions, usePending, useWrite, writes, type Key, type WriteMethod } from '../src/index.ts';
+import {
+  NOT_FOR_STRUCTURED,
+  makeQueryClient,
+  qk,
+  useAgents,
+  useChat,
+  useChatActions,
+  usePending,
+  useWrite,
+  writes,
+  type Key,
+  type WriteMethod,
+} from '../src/index.ts';
 import { DAEMON as D, mount, openStore, probe, refuse, sleep, stubClient, unmount, until } from './harness.tsx';
 
 afterEach(unmount);
@@ -218,6 +230,35 @@ describe('writes', () => {
     await until(() => w.get().isError, 'the failure');
     await sleep(50);
     expect(stub.count('inbox.mark_read')).toBe(1);
+  });
+
+  it('never sends a structured agent a terminal write: the five are refused before the wire, a terminal agent is not', async () => {
+    const stub = stubClient();
+    const qc = makeQueryClient();
+    const row = (name: string, structured: boolean) => ({ name, structured });
+    qc.setQueryData(qk.agents(D), { agents: [row('s.one', true), row('t.one', false)] });
+    const five = NOT_FOR_STRUCTURED;
+    expect(five).toEqual(['session.input', 'session.keys', 'session.type', 'input.take', 'input.release']);
+    const w = probe(() => ({
+      input: useWrite('session.input', 's.one'),
+      keys: useWrite('session.keys', 's.one'),
+      type: useWrite('session.type', 's.one'),
+      take: useWrite('input.take', 's.one'),
+      release: useWrite('input.release', 's.one'),
+      mine: useWrite('input.take', 't.one'),
+    }));
+    await mount(openStore(stub), w.node, qc);
+    act(() => {
+      w.get().input.mutate({ agent: 's.one', text: 'x' } as never);
+      w.get().keys.mutate({ agent: 's.one', keys: ['Esc'] } as never);
+      w.get().type.mutate({ agent: 's.one', text: 'x' } as never);
+      w.get().take.mutate({ agent: 's.one' } as never);
+      w.get().release.mutate({ agent: 's.one' } as never);
+      w.get().mine.mutate({ agent: 't.one' } as never);
+    });
+    await until(() => w.get().release.isError && w.get().mine.isSuccess, 'the guard');
+    for (const m of five) expect(stub.count(m)).toBe(m === 'input.take' ? 1 : 0); // the one take is the terminal agent's
+    expect(w.get().take.isError).toBe(true);
   });
 
   it('writes on one target run in order; writes on two targets do not wait for each other', async () => {
