@@ -134,7 +134,7 @@ def _world(ttl: int = WORLD_FRESH_S) -> tuple[dict | None, set | None]:
     return _WORLD["sessions"], _WORLD["handles"]
 
 
-def stuck(con) -> list[dict]:
+def stuck(con, world: tuple | None = None) -> list[dict]:
     """What is not moving, and what is in the way. (what, age_s, why)
 
     This is the panel that used to draw "in flight". Almost nothing ever is: a
@@ -152,6 +152,9 @@ def stuck(con) -> list[dict]:
     grace those reasons are given is not given: a request that is one minute
     old and waiting on a tick that will never come is stuck now, not in half
     an hour.
+
+    `world` is (sessions, handles) as `_world` reads them, for a caller that has them or means to ask neither: (None, None) leaves out
+    the findings that need the process table or Orca, as when they could not be read.
     """
     now = int(time.time())
     alive = bool(dmn_locks.running_elsewhere())
@@ -181,7 +184,7 @@ def stuck(con) -> list[dict]:
         "SELECT id, requester, target, ts, kind, send_now, typed_at, landed_at FROM requests WHERE state = 'queued' "
         f"AND NOT {db.LEFTOVER_DELIVERY} AND target != ? ORDER BY ts", (HUMAN,),
     ).fetchall()
-    sessions, handles = _world() if queued else (None, None)
+    sessions, handles = (_world() if world is None else world) if queued else (None, None)
     # An agent ocp has work for and cannot give it, with what is in the way read
     # off its screen: one row for it says so, where a row per request would each
     # give the state's guess ("mid-turn") and none of them the dialog.

@@ -5,6 +5,14 @@ account.set.a_cycle_end_that_is_not_a_date_is_bad_request
 account.set.a_label_that_is_not_one_plain_line_is_bad_request
 account.set.sets_the_fields_it_is_given
 agent.get.cwd_and_can
+agent.get.view_attention_alert
+agent.get.view_attention_ask
+agent.get.view_attention_fire_context
+agent.get.view_attention_no_fire
+agent.get.view_attention_running
+agent.get.view_attention_stuck
+agent.get.view_cache_ignored
+agent.get.view_config_error
 agent.get.view_fields_blocked
 agent.get.view_fields_busy
 agent.get.view_fields_ready

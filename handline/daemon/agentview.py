@@ -12,9 +12,9 @@ from .. import actions, db
 from ..infra import paths
 from ..infra.textsafe import oneline
 from ..infra.yamlcompat import ConfigError
-from ..session import blocked as blockedmod, launch, term
+from ..session import blocked as blockedmod, idle_close, launch, term, triggers
 from ..team import agents
-from ..usage import status
+from ..usage import load as loadmod, status
 from . import delivery, handoff_note, lifecycle
 from .screenstate import DETAIL_CAP, screen_state, wire_state
 
@@ -45,9 +45,36 @@ def screen_word(view: dict) -> tuple[str, str]:
 _READ = object()
 
 
-def _ctx_pct(name: str, account: str | None) -> int | None:
-    """The context the agent's own session has used, as the strip reads it; None with no account or an untrusted snapshot."""
-    return status.read_for_agent(name, account).trusted_ctx_pct if account else None
+def _stuck_by_agent(con) -> dict[str, dict]:
+    """`actions.stuck`'s rows by the agent each is about, the first of each, read once for every agent. The view is stored state, and the tick
+    reads the process table once for its own work: what only the table or Orca could say is left out, as when they cannot be read."""
+    out: dict[str, dict] = {}
+    for b in actions.stuck(con, world=(None, None)):
+        if b["agent"]:
+            out.setdefault(b["agent"], b)
+    return out
+
+
+def _attention(con, name: str, row, word: str, shown, wall: str | None, stuck: dict) -> str | None:
+    """What this agent alone asks of the founder, the most urgent of ask, alert, stuck and running: the screen's fold_urgency for one agent,
+    without the fold, which is the screen's."""
+    if con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? AND state = 'queued'", (name, actions.HUMAN)).fetchone():
+        return "ask"
+    if word in ("DIALOG", "FATAL") or shown:
+        return "alert"
+    if name in stuck or wall:
+        return "stuck"
+    return "running" if loadmod.is_running(row) else None
+
+
+def _fire(row, cfg: dict, st) -> str | None:
+    """The trigger the daemon would hand this agent off for at its next tick, as `supervise` evaluates it (both windows and the context);
+    None when its triggers do not apply or none has fired. The stored view is rewritten every tick, so this is as fresh as the tick."""
+    if not cfg or not lifecycle.triggers_apply(row):
+        return None
+    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, long_pct=st.long_trusted,
+                          ctx_limit=status.effective_context_limit(cfg, st.model_id))
+    return t.kind if t.fired else None
 
 
 def _wall(con, name: str, row, would_wake: bool) -> dict | None:
@@ -59,20 +86,24 @@ def _wall(con, name: str, row, would_wake: bool) -> dict | None:
     return {"account": w.account, "clock": None if w.full or not w.reset else int(w.reset), "assumed": bool(w.assumed)}
 
 
-def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ) -> dict:
-    """`table` and `counts` (open tasks per owner) are what the caller has read already (once for every agent)."""
+def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ, stuck=_READ) -> dict:
+    """`table`, `counts` (open tasks per owner) and `stuck` (the delivery findings by agent) are what the caller has read already (once for
+    every agent)."""
     now = int(time.time()) if now is None else now
     if table is _READ:
         table = actions.routing()
     if counts is _READ:
         counts = actions.open_task_counts(con, name)
+    if stuck is _READ:
+        stuck = _stuck_by_agent(con)
     row = db.get_agent_state(con, name)
     word, detail = screen_state(con, row, now)
     wire, detail = wire_state(con, row, word, detail)
+    config_error = None
     try:
         cfg = agents.read(name)
-    except (OSError, ConfigError):
-        cfg = {}
+    except (OSError, ConfigError) as e:
+        cfg, config_error = {}, oneline(str(e))
     _, model, effort = agents.parts(cfg) if cfg else (None, None, None)
     block = db.block_get(con, name)
     shown = block if block and now >= block["show_at"] else None
@@ -80,6 +111,8 @@ def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ) -
     task = db.current_task(con, name)
     task_row = db.get_task(con, task) if task is not None else None
     account = agents.current_account(name, con)
+    st = status.read_for_agent(name, account) if account else None
+    wall_reason = delivery.wall_reason(con, name, row)
     would_wake = bool(lifecycle.would_wake(con, row))
     ready = (task_row is not None and word == "IDLE" and actions.task_state(con, task_row) == "queued"
              and not db.task_blockers(con, task))
@@ -92,21 +125,25 @@ def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ) -
         "state_detail": detail,
         "state_since": _ts(row["updated"]) if row else None,
         "block": {"kind": shown["kind"], "since": _ts(shown["since"])} if shown else None,
-        "wall_reason": delivery.wall_reason(con, name, row),
+        "wall_reason": wall_reason,
         "background_since": _ts(delivery.bg_since(con, name)),
         "would_wake": would_wake,
         "blocker": oneline(blockedmod.headline(shown["kind"], shown["detail"]))[:DETAIL_CAP] if shown else None,
         "account": account,
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
         "cache_until": None if left is None else _ts(now + left),
-        "ctx_pct": _ctx_pct(name, account),
+        "ctx_pct": st.trusted_ctx_pct if st else None,
         "has_dialog": word == "DIALOG",
         "parent": actions.supervisor_of(table, name) if table else None,
         "task_count": counts.get(name, 0),
         "ready": ready,
         "wall": _wall(con, name, row, would_wake),
+        "fire": _fire(row, cfg, st) if st else None,
+        "attention": _attention(con, name, row, word, shown, wall_reason, stuck),
+        "cache_ignored": idle_close.ignore_cache_expiry(name),
+        "config_error": config_error,
     }
-    if cfg:
+    if config_error is None:
         view["kind"] = agents.kind(cfg)
     return view
 
@@ -117,10 +154,10 @@ def refresh(con, now: int | None = None, log=lambda m: None) -> None:
     names = paths.list_agents()
     driven = agents.driven()  # a structured agent's row is the Go daemon's: not written, and not dropped while the agent exists
     kept = {r["agent"]: r["view"] for r in con.execute("SELECT agent, view FROM agent_view")}
-    table, counts = actions.routing(), actions.open_task_counts(con)
+    table, counts, stuck = actions.routing(), actions.open_task_counts(con), _stuck_by_agent(con)
     for name in driven:
         try:
-            view = json.dumps(compute(con, name, now, table, counts), sort_keys=True)
+            view = json.dumps(compute(con, name, now, table, counts, stuck), sort_keys=True)
         except Exception as e:  # noqa: BLE001 - one agent's failure must not stale every agent after it
             log(f"  agent view: {name}: {type(e).__name__}: {e}")
             continue
