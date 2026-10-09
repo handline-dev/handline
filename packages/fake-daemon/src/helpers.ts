@@ -2,12 +2,8 @@ import { DaemonClient, memoryPair, type ClientOptions } from '@handline/client';
 import { FakeDaemon, type FakeDaemonOptions } from './daemon.ts';
 import type { Role } from '@handline/contract';
 
-export function setup(
-  opts: { daemon?: FakeDaemonOptions; role?: Role; client?: string; reconnect?: ClientOptions['reconnect']; structuredTerminal?: boolean } = {},
-) {
+export function setup(opts: { daemon?: FakeDaemonOptions; role?: Role; client?: string; reconnect?: ClientOptions['reconnect'] } = {}) {
   const daemon = new FakeDaemon(opts.daemon);
-  // The shape before a structured agent lost its terminal: a test whose app still needs one asks for it, and drops this when the app does not.
-  if (opts.structuredTerminal) for (const s of daemon.sessions.values()) if (s.structured) s.hasTerminal = true;
   const net = { down: false }; // while down, connecting fails like a refused socket
   return { daemon, net, client: second(daemon, net, opts) };
 }
