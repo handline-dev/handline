@@ -26,6 +26,10 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
   reopened by its asker. An auditor or merger never hands a review or merge task
   back: it finishes it.
+- Before you ask for a review, merge current main into the branch and run the
+  check the merger runs, `tools/land.sh --check <sha>`; the review request
+  carries its result line. The auditor sends a request without it back,
+  unreviewed.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `hl team` (a bare `auditor` for `<team>.auditor`) is refused with "unknown
