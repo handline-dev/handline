@@ -3,7 +3,7 @@
   {
    "name": "stats.outlook.agent_use_rows_carry_what_the_table_draws",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: Every agent_use row has the agent, its tokens, list-price cost, share of everyone's cost, est_pct (a number, or null with no reading) and fracs by account; with no agent asked for there is no overlay. Needs --var outlook_agent: an agent that used tokens in the range.",
+   "about": "Every agent_use row has the agent, its tokens, list-price cost, share of everyone's cost, est_pct (a number, or null with no reading) and fracs by account; with no agent asked for there is no overlay. Needs --var outlook_agent: an agent that used tokens in the range.",
    "as": "founder",
    "steps": [
     {
@@ -72,7 +72,7 @@
   {
    "name": "stats.outlook.an_agent_asked_for_has_an_overlay",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: Asking for an agent that used tokens gives its row in agent_use and an overlay of numbers (one per past entry). Needs --var outlook_agent: an agent that used tokens in the range.",
+   "about": "Asking for an agent that used tokens gives its row in agent_use and an overlay of numbers (one per past entry). Needs --var outlook_agent: an agent that used tokens in the range.",
    "as": "founder",
    "steps": [
     {
@@ -142,7 +142,7 @@
   {
    "name": "stats.outlook.a_group_pick_has_an_overlay",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: grp:<name> asks for the curve of the whole group. Needs --var outlook_group: the first dotted part of the names of agents that used tokens in the range.",
+   "about": "grp:<name> asks for the curve of the whole group. Needs --var outlook_group: the first dotted part of the names of agents that used tokens in the range.",
    "as": "founder",
    "steps": [
     {
@@ -185,7 +185,7 @@
   {
    "name": "stats.outlook.a_pick_that_is_nobody_has_an_empty_overlay",
    "spec": "stats.outlook",
-   "about": "NOT_YET_IN_PYTHON: A name that is no agent and no group is not an error: the overlay is empty. Needs --var outlook_group: the daemon is seeded with agents.",
+   "about": "A name that is no agent and no group is not an error: the overlay is empty. Needs --var outlook_group: the daemon is seeded with agents.",
    "as": "founder",
    "steps": [
     {
