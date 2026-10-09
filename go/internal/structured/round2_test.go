@@ -127,11 +127,11 @@ func TestAWriteErrorGivesBackTheCountsAndLeavesTheMessageUnknown(t *testing.T) {
 }
 
 func TestAnAnswerAfterTheTimeoutIsRefusedAndReportsNothing(t *testing.T) {
-	b, p, ev := broker(t)
+	b, _, ev := broker(t)
 	b.Timeout = 100 * time.Millisecond
 	done := make(chan Decision, 1)
 	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); done <- d }()
-	fp := waitOpen(t, p)
+	fp := bash("ls").ToolUse // the prompt's id is its call's: no poll for a row that a short timeout may close before it is seen
 	if d := <-done; d.Allow {
 		t.Fatalf("%+v", d)
 	}
