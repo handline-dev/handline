@@ -24,6 +24,7 @@ import (
 // The login states the accounts topic reports.
 const (
 	Waiting   = "waiting"
+	CodeSent  = "code_sent"
 	Done      = "done"
 	Failed    = "failed"
 	Cancelled = "cancelled"
@@ -70,6 +71,7 @@ type run struct {
 	id, account string
 	state, url  string
 	cmd         *exec.Cmd
+	stdin       io.Writer     // the child's, kept open for the code and closed when the child is reaped
 	pid         int           // the child's, once started; it leads its own process group
 	reaped      bool          // the child has been waited for: its number is free and is never signalled again
 	ended       chan struct{} // closed once the child is reaped
@@ -139,7 +141,7 @@ func (m *Manager) Start(account string) (Login, error) {
 	case u, open := <-urls:
 		if open && u != "" {
 			m.mu.Lock()
-			waiting := r.active() // a child that printed its URL and died at once, or was cancelled, is not waiting
+			waiting := r.state == Waiting // a child that printed its URL and died at once, was cancelled, or was sent a code is not waiting
 			if waiting {
 				r.url = u
 			}
@@ -162,9 +164,13 @@ func (m *Manager) Start(account string) (Login, error) {
 
 // launch starts the child and the goroutines that read it. urls gets the first URL on stdout, and is closed without one when stdout ends.
 func (m *Manager) launch(r *run) (<-chan string, error) {
-	if _, err := r.cmd.StdinPipe(); err != nil { // kept open for the code; Wait closes it when the child is reaped
+	stdin, err := r.cmd.StdinPipe() // kept open for the code; Wait closes it when the child is reaped
+	if err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
+	r.stdin = stdin
+	m.mu.Unlock()
 	stdout, err := r.cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -254,7 +260,8 @@ func (m *Manager) end(r *run, state string) {
 	}
 }
 
-func (r *run) active() bool { return r.state == Waiting }
+// active is a login that has not ended: it waits for the code or has been given it.
+func (r *run) active() bool { return r.state == Waiting || r.state == CodeSent }
 
 func (m *Manager) changed(account string) {
 	if m.Changed != nil {
@@ -290,6 +297,40 @@ func (m *Manager) Cancel(id string) error {
 	}
 	m.end(r, Cancelled)
 	m.kill(r)
+	return nil
+}
+
+// codeMax is the longest code a login takes; the CLI's are a few dozen characters.
+const codeMax = 4096
+
+// ErrBadCode is a code that cannot be one line on the child's stdin.
+var ErrBadCode = errors.New("the code is not one line of text")
+
+// SendCode writes the one-time code and a newline to the child's stdin, once. The login moves to code_sent before the write, so a second
+// code finds it not waiting. The code is written to that pipe and nowhere else: it is not kept, logged or put in any error.
+func (m *Manager) SendCode(id, code string) error {
+	if code == "" || len(code) > codeMax || strings.ContainsFunc(code, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return ErrBadCode
+	}
+	m.mu.Lock()
+	r := m.byID[id]
+	if r == nil {
+		m.mu.Unlock()
+		return ErrUnknown
+	}
+	if r.state != Waiting || r.url == "" || r.stdin == nil || r.reaped { // no URL handed out yet: the person has nothing to take a code from
+		m.mu.Unlock()
+		return &Refusal{"the login is not waiting for a code"}
+	}
+	r.state, r.url = CodeSent, ""
+	stdin := r.stdin
+	m.mu.Unlock()
+	m.changed(r.account)
+	if _, err := io.WriteString(stdin, code+"\n"); err != nil {
+		m.end(r, Failed)
+		m.kill(r)
+		return &Refusal{"the code could not be handed to the login"}
+	}
 	return nil
 }
 

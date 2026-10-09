@@ -32,6 +32,7 @@ func Register(s *rpc.Server, e *Env) {
 	if e.Logins != nil {
 		s.Register("account.login", rpc.Method{Role: "founder", Write: true, Handler: e.accountLogin, Refresh: e.refreshLogin})
 		s.Register("account.login_cancel", rpc.Method{Role: "founder", Write: true, Handler: e.accountLoginCancel})
+		s.Register("account.login_code", rpc.Method{Role: "founder", Write: true, Unkept: true, Handler: e.accountLoginCode})
 	}
 }
 
