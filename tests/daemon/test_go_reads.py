@@ -431,10 +431,25 @@ def test_go_outlook_agent_use_and_overlay_equal_python(home: Path) -> None:
     _seed_outlook(home)
     cases = [(rng, pick) for rng in ("24h", "7d") for pick in (None, "orca.ui", "grp:orca", "solo", "free", "orca.nobody", "grp:nobody")]
 
-    def parts(reply: dict) -> dict:
-        res = reply.get("result") or reply
+    def answered(reply: dict, who: str, rng: str, pick: str | None) -> dict | None:
+        """The result of a reply, or None after saying which daemon failed which case and how: an error on both sides must not compare equal."""
+        res = reply.get("result")
+        ok = isinstance(res, dict) and "error" not in reply
+        check(f"go outlook: {who} answers {rng} agent {pick!r} with a result", ok, f"error: {json.dumps(reply.get('error', reply), sort_keys=True)[:600]}")
+        return res if ok else None
+
+    def parts(res: dict) -> dict:
         return {k: res.get(k, "<absent>") for k in ("accounts", "agent_use", "overlay")}
-    want = {(r, p): parts(_python("stats.outlook", {"range": r, **({"agent": p} if p else {})}, None)) for r, p in cases}
+    asked = {(r, p): _python("stats.outlook", {"range": r, **({"agent": p} if p else {})}, None) for r, p in cases}
+    results = {c: answered(asked[c], "Python", *c) for c in cases}
+    if not all(results.values()):
+        return
+    want = {c: parts(res) for c, res in results.items()}
+    check("go outlook: setup: every case lists the agents that spent (the table does not depend on the pick), so none compares nothing",
+          all(len(w["agent_use"]) == 5 and w["accounts"] == 2 for w in want.values()), str({c: len(w["agent_use"]) for c, w in want.items()}))
+    check("go outlook: setup: the overlay is empty only for a pick that names nobody, and absent only with no pick",
+          all((w["overlay"] == "<absent>") == (c[1] is None) and (w["overlay"] == []) == (c[1] in ("orca.nobody", "grp:nobody"))
+              for c, w in want.items()), str({c: w["overlay"] for c, w in want.items() if c[0] == "7d"}))
     rows = want[("24h", None)]["agent_use"]
     check("go outlook: setup: five agents, largest cost first, one with no spend at 0 on its account, a rise averaged over two accounts",
           [u["agent"] for u in rows] == ["orca", "solo", "orca.ui", "orca.db", "free"] and rows[-1]["fracs"] == {"beta": 0.0}
@@ -452,7 +467,10 @@ def test_go_outlook_agent_use_and_overlay_equal_python(home: Path) -> None:
         try:
             for rng, pick in cases:
                 _forget_sessions()
-                got = parts(go.call("stats.outlook", {"range": rng, **({"agent": pick} if pick else {})}, _hp()))
+                res = answered(go.call("stats.outlook", {"range": rng, **({"agent": pick} if pick else {})}, _hp()), "Go", rng, pick)
+                if res is None:
+                    continue
+                got = parts(res)
                 check(f"go outlook: {rng} agent {pick!r} answers as the Python daemon does", got == want[(rng, pick)],
                       f"\n go:     {json.dumps(got, sort_keys=True)[:1800]}\n python: {json.dumps(want[(rng, pick)], sort_keys=True)[:1800]}")
         finally:
