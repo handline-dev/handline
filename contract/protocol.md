@@ -155,7 +155,8 @@ A method marked write takes a required `request_id`.
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
 | `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
 | `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
-| `accounts.list` | agent |  | `roster?` | `{accounts}` | `bad_request` |  |
+| `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
+| `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {login_id, state, url}` | `refused`, `not_found` | role, state |
 | `account.login_cancel` | founder | yes | `login_id`, `request_id` | `Accepted` | `refused`, `not_found` | role |
@@ -554,6 +555,10 @@ Approve or reject a proposal; approving an apply_failed one applies it again. Re
 
 Accounts with login state, use, cap, agents, recent moves.
 
+### `status.pick`
+
+Which account the next agent would be placed on, each account's reason, and what one more agent costs by kind.
+
 ### `account.set`
 
 The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
@@ -701,7 +706,7 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl trust remove` | `trust.remove` |
 | `hl team` | `team.get` |
 | `hl ps` | `agents.list` |
-| `hl status` | `accounts.list` |
+| `hl status` | `status.pick` |
 | `hl events` | `events.feed` |
 | `hl triggers` | `agent.triggers` |
 | `hl schedule (show)` | `schedules.list` |

@@ -17,7 +17,9 @@ from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
 from handline.daemon import rpc_schedules, rpc_team  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.team import agents, hr  # noqa: E402
+from handline.infra import paths  # noqa: E402
+from handline.team import accounts, agents, hr  # noqa: E402
+from handline.usage import load as loadmod, status  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
@@ -95,7 +97,7 @@ def test_every_list_answers_in_the_schema_the_spec_gives_it(home: Path) -> None:
     _world(home)
     hr.propose("unlink", "manager", "manager", "no longer", to="worker")
     actions.schedule_add("worker", "0 9 * * *", "check the board")
-    for method, params in (("accounts.list", {}), ("team.get", {}), ("schedules.list", {}),
+    for method, params in (("accounts.list", {}), ("accounts.list", {"usage": True, "roster": True}), ("status.pick", {}), ("team.get", {}), ("schedules.list", {}),
                            ("stats.get", {"window": "24h"}), ("stats.get", {"window": "7d"}), ("settings.get", {}),
                            ("settings.get", {"agent": "worker"})):
         r = _call(method, params)
@@ -105,7 +107,7 @@ def test_every_list_answers_in_the_schema_the_spec_gives_it(home: Path) -> None:
 
 def test_roles_decide_who_reads_what(home: Path) -> None:
     _world(home)
-    for method in ("accounts.list", "team.get", "schedules.list"):
+    for method in ("accounts.list", "status.pick", "team.get", "schedules.list"):
         check(f"{method}: an agent session may read it", "result" in _call(method, as_agent="worker"))
     for method, params in (("stats.get", {"window": "24h"}), ("settings.get", {})):
         r = _call(method, params, as_agent="worker")
@@ -129,6 +131,31 @@ def test_accounts_say_what_the_account_page_shows(home: Path) -> None:
     acct = next(a for a in _call("accounts.list")["result"]["accounts"] if a["name"] == "alpha")
     check("accounts.list: what account.set wrote is what it reads", acct["cap"] == 3 and acct["cap_effective"] == 3 and acct["label"] == "main"
           and acct["recover"] is True, str(acct))
+
+
+def test_accounts_usage_is_what_hl_account_list_prints(home: Path) -> None:
+    _world(home)
+    plain = _call("accounts.list")["result"]["accounts"][0]
+    check("accounts.list: the usage fields are only there when asked for", not {"plan", "windows", "runway", "assignable"} & set(plain), str(plain))
+    got = {a["name"]: a for a in _call("accounts.list", {"usage": True})["result"]["accounts"]}
+    loads = loadmod.read_all()
+    for name, a in got.items():
+        st = status.read(name)
+        allowed, why = status.can_start(st, loads.get(name))
+        check(f"accounts.list usage {name}: the windows, age and context are the status read's", a["windows"] == st.window_report()
+              and a["ctx_pct"] == st.ctx_pct and a["plan"] == accounts.subscription_type(name), str(a))
+        check(f"accounts.list usage {name}: whether one more agent may start, and why", a["assignable"] is allowed and a["assign_reason"] == why, str(a))
+        check(f"accounts.list usage {name}: the runway is in words", a["runway"] == status.describe_runway(status.runway(st, status.read_burn(name), None, loads.get(name))), str(a))
+    check("accounts.list: a usage that is not a boolean is bad_request", _code(_call("accounts.list", {"usage": "yes"})) == "bad_request")
+
+
+def test_status_pick_is_the_pick_hl_status_prints(home: Path) -> None:
+    _world(home)
+    picked, reasons = status.pick_account()
+    got = _call("status.pick")["result"]
+    check("status.pick: the account picked and every account's reason", got["picked"] == picked
+          and got["candidates"] == [{"account": a, "reason": w} for a, w in reasons], str(got))
+    check("status.pick: what one more agent costs, by kind", got["agent_costs"] == loadmod.costs().by_kind(paths.list_agents()), str(got))
 
 
 def test_team_names_each_agent_its_parent_and_files_and_the_edges(home: Path) -> None:
@@ -248,7 +275,7 @@ def test_the_list_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every list fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 10, str(bad))
+    check("fixtures: every list fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 15, str(bad))
 
 
 def main() -> int:
@@ -256,6 +283,8 @@ def main() -> int:
         run(lambda: test_every_list_answers_in_the_schema_the_spec_gives_it(Path(td) / "l1"))
         run(lambda: test_roles_decide_who_reads_what(Path(td) / "l2"))
         run(lambda: test_accounts_say_what_the_account_page_shows(Path(td) / "l3"))
+        run(lambda: test_accounts_usage_is_what_hl_account_list_prints(Path(td) / "l12"))
+        run(lambda: test_status_pick_is_the_pick_hl_status_prints(Path(td) / "l13"))
         run(lambda: test_team_names_each_agent_its_parent_and_files_and_the_edges(Path(td) / "l4"))
         run(lambda: test_schedules_carry_the_id_the_write_methods_use_and_when_they_run(Path(td) / "l6"))
         run(lambda: test_schedules_list_says_a_bad_value_and_not_none(Path(td) / "l11"))

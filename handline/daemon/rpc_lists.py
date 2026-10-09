@@ -249,7 +249,7 @@ def _pick(ctx, params) -> dict:
 
 
 rpc.METHODS["accounts.list"] = rpc.Method(_accounts, "agent")
-rpc.METHODS["status.pick"] = rpc.Method(_pick, "founder")
+rpc.METHODS["status.pick"] = rpc.Method(_pick, "agent")
 rpc.METHODS["team.get"] = rpc.Method(_team, "agent")
 rpc.METHODS["schedules.list"] = rpc.Method(_schedules, "agent")
 rpc.METHODS["stats.get"] = rpc.Method(_stats, "member")
