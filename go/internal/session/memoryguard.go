@@ -37,7 +37,7 @@ func memoryRel(home, agent string, input map[string]any) (string, bool) {
 	if path == "" {
 		return "", false
 	}
-	root, target := realpath(memoryDir(home, agent)), realpath(path)
+	root, target := paths.Realpath(memoryDir(home, agent)), paths.Realpath(path)
 	if !strings.HasPrefix(target, root+"/") {
 		return "", false
 	}

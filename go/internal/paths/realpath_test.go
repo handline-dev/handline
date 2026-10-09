@@ -1,4 +1,4 @@
-package session
+package paths
 
 import (
 	"os"
@@ -29,7 +29,7 @@ func TestRealpathFollowsALinkBeforeItsDotDot(t *testing.T) {
 		dir + "/loop/x":            dir + "/loop/x",
 		"/..":                      "/",
 	} {
-		if got := realpath(in); got != want {
+		if got := Realpath(in); got != want {
 			t.Errorf("%s: %s, want %s", in, got, want)
 		}
 	}

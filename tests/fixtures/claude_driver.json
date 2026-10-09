@@ -1,0 +1,267 @@
+{
+ "wanted": [
+  "PermissionRequest",
+  "PostCompact",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PreToolUse",
+  "SessionEnd",
+  "SessionStart",
+  "Stop",
+  "StopFailure",
+  "SubagentStop",
+  "TeammateIdle",
+  "UserPromptSubmit"
+ ],
+ "launch": [
+  {
+   "name": "plain",
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome"
+   ]
+  },
+  {
+   "name": "model_and_chrome",
+   "model": "opus",
+   "chrome": true,
+   "preamble": "You are a.one.\nBe brief: \u00e9",
+   "argv": [
+    "/bin/claude",
+    "--model",
+    "opus",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--chrome",
+    "--append-system-prompt",
+    "You are a.one.\nBe brief: \u00e9"
+   ]
+  },
+  {
+   "name": "mcp_and_extra_dirs",
+   "mcp": [
+    "--mcp-config",
+    "/m.json",
+    "--strict-mcp-config"
+   ],
+   "extra_dirs": [
+    "/w/two",
+    "/w/three"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--mcp-config",
+    "/m.json",
+    "--strict-mcp-config",
+    "--add-dir",
+    "/w/two",
+    "/w/three",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/w/two\", \"/w/three\"]}}}"
+   ]
+  },
+  {
+   "name": "confined",
+   "hide": [
+    "/h/tokens/",
+    "/h/keys"
+   ],
+   "no_write": [
+    "/h/db.sqlite"
+   ],
+   "memory_dir": "/h/agents/a/memory",
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--settings",
+    "{\"autoMemoryDirectory\": \"/h/agents/a/memory\", \"sandbox\": {\"filesystem\": {\"denyRead\": [\"/h/tokens/\", \"/h/keys\"], \"denyWrite\": [\"/h/db.sqlite\"]}}, \"permissions\": {\"deny\": [\"Read(//h/tokens/**)\", \"Read(//h/keys/**)\", \"Edit(//h/db.sqlite)\"]}}"
+   ]
+  },
+  {
+   "name": "unsandboxed_alone",
+   "sandbox": false,
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--settings",
+    "{\"sandbox\": {\"enabled\": false}}"
+   ]
+  },
+  {
+   "name": "unsandboxed_confined",
+   "sandbox": false,
+   "hide": [
+    "/x"
+   ],
+   "extra_dirs": [
+    "/w/2"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--add-dir",
+    "/w/2",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"denyRead\": [\"/x\"], \"allowWrite\": [\"/w/2\"]}, \"enabled\": false}, \"permissions\": {\"deny\": [\"Read(//x/**)\"]}}"
+   ]
+  },
+  {
+   "name": "trusted_and_approved",
+   "trusted": [
+    "Source control: github.com/acme",
+    "\"quoted\""
+   ],
+   "mcp_approved": [
+    "a",
+    "b"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--settings",
+    "{\"autoMode\": {\"environment\": [\"$defaults\", \"Source control: github.com/acme\", \"\\\"quoted\\\"\"]}, \"enabledMcpjsonServers\": [\"a\", \"b\"]}"
+   ]
+  },
+  {
+   "name": "empty_lists_are_none",
+   "hide": [],
+   "no_write": [],
+   "trusted": [],
+   "mcp_approved": [],
+   "extra_dirs": [],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome"
+   ]
+  },
+  {
+   "name": "everything",
+   "model": "sonnet",
+   "preamble": "p",
+   "hide": [
+    "/a/"
+   ],
+   "no_write": [
+    "/b"
+   ],
+   "memory_dir": "/m",
+   "trusted": [
+    "t"
+   ],
+   "chrome": true,
+   "sandbox": false,
+   "mcp_approved": [
+    "s"
+   ],
+   "extra_dirs": [
+    "/e"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--model",
+    "sonnet",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--chrome",
+    "--add-dir",
+    "/e",
+    "--append-system-prompt",
+    "p",
+    "--settings",
+    "{\"autoMemoryDirectory\": \"/m\", \"sandbox\": {\"filesystem\": {\"denyRead\": [\"/a/\"], \"denyWrite\": [\"/b\"], \"allowWrite\": [\"/e\"]}, \"enabled\": false}, \"permissions\": {\"deny\": [\"Read(//a/**)\", \"Edit(//b)\"]}, \"autoMode\": {\"environment\": [\"$defaults\", \"t\"]}, \"enabledMcpjsonServers\": [\"s\"]}"
+   ]
+  }
+ ],
+ "settings": [
+  {
+   "name": "no_file",
+   "before": null,
+   "missing": true,
+   "after": "{\n  \"autoContinueAtUsageLimit\": false,\n  \"inputNeededNotifEnabled\": false,\n  \"agentPushNotifEnabled\": false,\n  \"hooks\": {\n    \"PermissionRequest\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PermissionRequest\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostCompact\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostCompact\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUseFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUseFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Write|Edit|MultiEdit|NotebookEdit|Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PreToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionEnd\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionEnd\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionStart\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook Stop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"StopFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook StopFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SubagentStop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"TeammateIdle\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook TeammateIdle\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook UserPromptSubmit\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"sandbox\": {\n    \"network\": {\n      \"allowUnixSockets\": [\n        \"{home}/daemon.sock\"\n      ]\n    }\n  }\n}\n",
+   "statusline_kept": false
+  },
+  {
+   "name": "empty_object",
+   "before": "{}",
+   "missing": true,
+   "after": "{\n  \"autoContinueAtUsageLimit\": false,\n  \"inputNeededNotifEnabled\": false,\n  \"agentPushNotifEnabled\": false,\n  \"hooks\": {\n    \"PermissionRequest\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PermissionRequest\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostCompact\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostCompact\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUseFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUseFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Write|Edit|MultiEdit|NotebookEdit|Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PreToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionEnd\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionEnd\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionStart\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook Stop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"StopFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook StopFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SubagentStop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"TeammateIdle\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook TeammateIdle\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook UserPromptSubmit\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"sandbox\": {\n    \"network\": {\n      \"allowUnixSockets\": [\n        \"{home}/daemon.sock\"\n      ]\n    }\n  }\n}\n",
+   "statusline_kept": false
+  },
+  {
+   "name": "founders_own",
+   "before": "{\n    \"model\": \"opus\",\n    \"permissions\": {\n        \"allow\": [\n            \"Bash(ls:*)\"\n        ]\n    },\n    \"statusLine\": {\n        \"type\": \"command\",\n        \"command\": \"{home}/shared/.claude/statusline.sh\"\n    },\n    \"hooks\": {\n        \"Stop\": [\n            {\n                \"hooks\": [\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"/usr/local/bin/hl hook Stop\",\n                        \"timeout\": 10\n                    },\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"~/.orca/agent-hooks/stop.sh\"\n                    }\n                ],\n                \"matcher\": \"\"\n            }\n        ],\n        \"PreToolUse\": [\n            {\n                \"hooks\": [\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"ocp hook PreToolUse\"\n                    }\n                ]\n            },\n            {\n                \"matcher\": \"Bash\",\n                \"hooks\": [\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"/x/hl hook PreToolUse\"\n                    },\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"my-linter\"\n                    }\n                ]\n            }\n        ],\n        \"Notification\": [\n            {\n                \"hooks\": [\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"say hi\"\n                    }\n                ]\n            }\n        ],\n        \"Custom\": [\n            {\n                \"hooks\": [\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"hl hook Custom\"\n                    },\n                    {\n                        \"type\": \"command\",\n                        \"command\": \"hl hook Custom\"\n                    }\n                ]\n            }\n        ]\n    },\n    \"env\": {\n        \"A\": \"\u00fcnicode\",\n        \"N\": 1.5,\n        \"Z\": 0\n    },\n    \"sandbox\": {\n        \"enabled\": true,\n        \"network\": {\n            \"allowUnixSockets\": \"not a list\"\n        }\n    }\n}",
+   "missing": true,
+   "after": "{\n  \"model\": \"opus\",\n  \"permissions\": {\n    \"allow\": [\n      \"Bash(ls:*)\"\n    ]\n  },\n  \"hooks\": {\n    \"Stop\": [\n      {\n        \"matcher\": \"\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/usr/local/bin/hl hook Stop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"ocp hook PreToolUse\"\n          }\n        ],\n        \"matcher\": \"Write|Edit|MultiEdit|NotebookEdit|Bash\"\n      },\n      {\n        \"matcher\": \"Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"my-linter\"\n          }\n        ]\n      }\n    ],\n    \"Notification\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"say hi\"\n          }\n        ]\n      }\n    ],\n    \"Custom\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"hl hook Custom\"\n          },\n          {\n            \"type\": \"command\",\n            \"command\": \"hl hook Custom\"\n          }\n        ]\n      }\n    ],\n    \"PermissionRequest\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PermissionRequest\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostCompact\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostCompact\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUseFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUseFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionEnd\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionEnd\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionStart\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"StopFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook StopFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SubagentStop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"TeammateIdle\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook TeammateIdle\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook UserPromptSubmit\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"env\": {\n    \"A\": \"\u00fcnicode\",\n    \"N\": 1.5,\n    \"Z\": 0\n  },\n  \"sandbox\": {\n    \"enabled\": true,\n    \"network\": {\n      \"allowUnixSockets\": [\n        \"{home}/daemon.sock\"\n      ]\n    }\n  },\n  \"autoContinueAtUsageLimit\": false,\n  \"inputNeededNotifEnabled\": false,\n  \"agentPushNotifEnabled\": false\n}\n",
+   "statusline_kept": false
+  },
+  {
+   "name": "only_orca",
+   "before": "{\"x\": 1, \"hooks\": {\"Stop\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"orca-hook stop\"}]}]}}",
+   "missing": true,
+   "after": "{\n  \"x\": 1,\n  \"autoContinueAtUsageLimit\": false,\n  \"inputNeededNotifEnabled\": false,\n  \"agentPushNotifEnabled\": false,\n  \"hooks\": {\n    \"PermissionRequest\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PermissionRequest\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostCompact\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostCompact\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUseFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUseFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Write|Edit|MultiEdit|NotebookEdit|Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PreToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionEnd\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionEnd\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionStart\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook Stop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"StopFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook StopFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SubagentStop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"TeammateIdle\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook TeammateIdle\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook UserPromptSubmit\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  },\n  \"sandbox\": {\n    \"network\": {\n      \"allowUnixSockets\": [\n        \"{home}/daemon.sock\"\n      ]\n    }\n  }\n}\n",
+   "statusline_kept": false
+  },
+  {
+   "name": "socket_by_its_real_path",
+   "before": "{\"sandbox\": {\"network\": {\"allowUnixSockets\": [\"{realhome}/daemon.sock\"]}}}",
+   "missing": true,
+   "after": "{\n  \"sandbox\": {\n    \"network\": {\n      \"allowUnixSockets\": [\n        \"{realhome}/daemon.sock\"\n      ]\n    }\n  },\n  \"autoContinueAtUsageLimit\": false,\n  \"inputNeededNotifEnabled\": false,\n  \"agentPushNotifEnabled\": false,\n  \"hooks\": {\n    \"PermissionRequest\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PermissionRequest\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostCompact\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostCompact\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PostToolUseFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PostToolUseFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Write|Edit|MultiEdit|NotebookEdit|Bash\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook PreToolUse\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionEnd\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionEnd\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SessionStart\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook Stop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"StopFailure\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook StopFailure\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"SubagentStop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook SubagentStop\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"TeammateIdle\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook TeammateIdle\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ],\n    \"UserPromptSubmit\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/opt/bin/hl hook UserPromptSubmit\",\n            \"timeout\": 10\n          }\n        ]\n      }\n    ]\n  }\n}\n",
+   "statusline_kept": false
+  },
+  {
+   "name": "not_json",
+   "before": "{nope",
+   "ensure_refused": true,
+   "after": "{nope",
+   "statusline_kept": true
+  },
+  {
+   "name": "not_an_object",
+   "before": "[1, 2]",
+   "ensure_refused": true,
+   "after": "[1, 2]",
+   "statusline_kept": true
+  }
+ ],
+ "is_resume": {
+  "--resume abc": true,
+  "--resume=abc": true,
+  "-r": true,
+  "--resumex": false,
+  "": false
+ },
+ "transcript_dir": "/c/projects/-Users-x-my-repo-v2"
+}

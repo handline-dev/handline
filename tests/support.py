@@ -1434,6 +1434,102 @@ def _check_hook_guard_fixture(root: Path) -> None:
           {c["deny"] is None for c in got} == {True, False})
 
 
+CLAUDE_DRIVER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "claude_driver.json"
+
+# Launch lines (vendors/claude.Claude.launch_argv), each the defaults below with its own changes.
+_LAUNCH_BASE = {"exe": "/bin/claude", "model": None, "effort": "high", "disallowed": "Task", "mcp": [], "preamble": None,
+                "hide": None, "no_write": None, "memory_dir": None, "trusted": None, "chrome": False, "sandbox": True,
+                "mcp_approved": None, "extra_dirs": None}
+CLAUDE_LAUNCH_CASES = [
+    {"name": "plain"},
+    {"name": "model_and_chrome", "model": "opus", "chrome": True, "preamble": "You are a.one.\nBe brief: é"},
+    {"name": "mcp_and_extra_dirs", "mcp": ["--mcp-config", "/m.json", "--strict-mcp-config"], "extra_dirs": ["/w/two", "/w/three"]},
+    {"name": "confined", "hide": ["/h/tokens/", "/h/keys"], "no_write": ["/h/db.sqlite"], "memory_dir": "/h/agents/a/memory"},
+    {"name": "unsandboxed_alone", "sandbox": False},
+    {"name": "unsandboxed_confined", "sandbox": False, "hide": ["/x"], "extra_dirs": ["/w/2"]},
+    {"name": "trusted_and_approved", "trusted": ["Source control: github.com/acme", "\"quoted\""], "mcp_approved": ["a", "b"]},
+    {"name": "empty_lists_are_none", "hide": [], "no_write": [], "trusted": [], "mcp_approved": [], "extra_dirs": []},
+    {"name": "everything", "model": "sonnet", "preamble": "p", "hide": ["/a/"], "no_write": ["/b"], "memory_dir": "/m",
+     "trusted": ["t"], "chrome": True, "sandbox": False, "mcp_approved": ["s"], "extra_dirs": ["/e"]},
+]
+
+# The shared settings file before a launch keeps it current, in {home} for the home; None for no file.
+_FOUNDERS = {"model": "opus", "permissions": {"allow": ["Bash(ls:*)"]}, "statusLine": {"type": "command", "command": "{home}/shared/.claude/statusline.sh"},
+             "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "/usr/local/bin/hl hook Stop", "timeout": 10},
+                                           {"type": "command", "command": "~/.orca/agent-hooks/stop.sh"}], "matcher": ""}],
+                       "PreToolUse": [{"hooks": [{"type": "command", "command": "ocp hook PreToolUse"}]},
+                                      {"matcher": "Bash", "hooks": [{"type": "command", "command": "/x/hl hook PreToolUse"},
+                                                                    {"type": "command", "command": "my-linter"}]}],
+                       "Notification": [{"hooks": [{"type": "command", "command": "say hi"}]}],
+                       "Custom": [{"hooks": [{"type": "command", "command": "hl hook Custom"}, {"type": "command", "command": "hl hook Custom"}]}]},
+             "env": {"A": "ünicode", "N": 1.5, "Z": 0}, "sandbox": {"enabled": True, "network": {"allowUnixSockets": "not a list"}}}
+CLAUDE_SETTINGS_CASES = [
+    {"name": "no_file", "before": None},
+    {"name": "empty_object", "before": "{}"},
+    {"name": "founders_own", "before": json.dumps(_FOUNDERS, indent=4, ensure_ascii=False)},
+    {"name": "only_orca", "before": json.dumps({"x": 1, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "orca-hook stop"}]}]}})},
+    {"name": "socket_by_its_real_path", "before": json.dumps({"sandbox": {"network": {"allowUnixSockets": ["{realhome}/daemon.sock"]}}})},
+    {"name": "not_json", "before": "{nope"},
+    {"name": "not_an_object", "before": "[1, 2]"},
+]
+
+
+def claude_driver_cases(root: Path) -> dict:
+    """What the Python Claude driver writes: each launch case's argv, and for each settings case what a launch's
+    keeping-current (ensure_shared, then missing, install if any is, allow_home_socket) leaves in the file."""
+    from handline.vendors import claude as claudemod, claude_hooks
+    drv = claudemod.Claude()
+    launches = []
+    for case in CLAUDE_LAUNCH_CASES:
+        args = {**_LAUNCH_BASE, **{k: v for k, v in case.items() if k != "name"}}
+        launches.append({**case, "argv": drv.launch_argv(args["exe"], args["model"], args["effort"], args["disallowed"],
+                                                          args["mcp"], args["preamble"], hide=args["hide"],
+                                                          no_write=args["no_write"],
+                                                          memory_dir=Path(args["memory_dir"]) if args["memory_dir"] else None,
+                                                          trusted=args["trusted"], chrome=args["chrome"], sandbox=args["sandbox"],
+                                                          mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
+    wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
+    settings = []
+    for case in CLAUDE_SETTINGS_CASES:
+        home = root / case["name"]
+        restore_world()
+        os.environ["OCP_HOME"] = str(home)
+        target = home / "shared" / ".claude" / "settings.json"
+        fill = lambda s: s.replace("{home}", str(home)).replace("{realhome}", os.path.realpath(home))  # noqa: E731
+        if case["before"] is not None:
+            target.parent.mkdir(parents=True)
+            target.write_text(fill(case["before"]))
+            (target.parent / "statusline.sh").write_text("old")
+        out = {**case}
+        try:
+            claude_hooks.ensure_shared()
+        except ValueError:
+            out["ensure_refused"] = True
+        else:
+            out["missing"] = bool(claude_hooks.missing(wanted))
+            if out["missing"]:
+                claude_hooks.install("/opt/bin/hl", wanted)
+            claude_hooks.allow_home_socket()
+        after = target.read_text() if target.exists() else None
+        out["after"] = after.replace(os.path.realpath(home), "{realhome}").replace(str(home), "{home}") if after else after
+        out["statusline_kept"] = (target.parent / "statusline.sh").exists()
+        settings.append(out)
+    resumes = {" ".join(x): drv.is_resume(x) for x in (["--resume", "abc"], ["--resume=abc"], ["-r"], ["--resumex"], [])}
+    return {"wanted": sorted(wanted), "launch": launches, "settings": settings, "is_resume": resumes,
+            "transcript_dir": str(drv.transcript_dir(Path("/c"), "/Users/x/my repo.v2"))}
+
+
+def _check_claude_driver_fixture(root: Path) -> None:
+    """The fixture the Go Claude driver is held to is still what the Python driver writes."""
+    if not CLAUDE_DRIVER_FIXTURE.exists():
+        check("claude driver: the fixture is there", False, "run tests/fixtures/regen_claude_driver.py")
+        return
+    kept, got = json.loads(CLAUDE_DRIVER_FIXTURE.read_text()), claude_driver_cases(root)
+    differ = [k for k in got if got[k] != kept.get(k)]
+    check("claude driver: the fixture is what the Python driver writes", not differ,
+          f"differ: {differ}; run tests/fixtures/regen_claude_driver.py")
+
+
 def _parsed(src: str):
     """What the bundled parser reads, or "<refused>" where it raises."""
     try:
@@ -2515,6 +2611,9 @@ __all__ = [
     'HOOK_GUARD_CASES',
     'hook_guard_verdicts',
     '_check_hook_guard_fixture',
+    'CLAUDE_DRIVER_FIXTURE',
+    'claude_driver_cases',
+    '_check_claude_driver_fixture',
     '_parsed',
     '_roundtrip',
     '_refused',
