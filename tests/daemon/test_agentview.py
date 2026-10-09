@@ -520,6 +520,25 @@ def test_a_database_made_before_the_view_gets_it_from_a_plain_connect(home: Path
     con.close()
 
 
+def test_a_name_no_agent_has_gets_no_state_row_and_a_stale_one_is_swept(home: Path) -> None:
+    """hl ps drew a row '1685' that was no agent: an answer to a request it had sent queued its requester with no check that the name was
+    one. The answer writes nothing for it now, and the sweep drops a row such a write left before."""
+    from handline.daemon import reconciler
+    support._daemon_home(home, 20)
+    con = db.connect()
+    try:
+        rid = db.add_request(con, "1685", "backend", "hello", None, None, "async", "ask", 0, None)
+        askmod.resolve(rid, "ok", state="done", notify=False)
+        check("a request resolved for a name no agent has writes no state row for it", db.get_agent_state(con, "1685") is None)
+        db.set_agent_state(con, "1685", dmn_states.IDLE, detail="request 1958 resolved: done; no requests waiting")
+        db.set_agent_state(con, "backend", dmn_states.IDLE)
+        reconciler.sweep(con, lambda m: None, [])
+        check("the sweep drops the row of a name with no agent directory", db.get_agent_state(con, "1685") is None)
+        check("and leaves a registered agent's", db.get_agent_state(con, "backend") is not None)
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_stored_view_does_not_drift_from_what_the_screens_work_out(Path(td) / "a1"))
@@ -535,6 +554,7 @@ def main() -> int:
         run(lambda: test_the_methods_serve_the_view_and_the_agents_detail(Path(td) / "a4"))
         run(lambda: test_agents_list_with_status_adds_what_hl_team_draws(Path(td) / "a7"))
         run(lambda: test_an_agent_reads_the_view_and_hl_ps_still_works_from_its_session(Path(td) / "a5"))
+        run(lambda: test_a_name_no_agent_has_gets_no_state_row_and_a_stale_one_is_swept(Path(td) / "a10"))
         run(lambda: test_a_database_made_before_the_view_gets_it_from_a_plain_connect(Path(td) / "a6"))
     return run_area(tests)
 

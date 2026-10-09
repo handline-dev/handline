@@ -791,7 +791,8 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     # there to prevent.
     from ..daemon import delivery as dmn_delivery, evaluate as dmn_evaluate
 
-    if row["response"] == "async" and row["requester"] != HUMAN \
+    # A requester no agent directory backs has no state to queue: the write made `hl ps` list it as an agent.
+    if row["response"] == "async" and row["requester"] != HUMAN and row["requester"] in paths.list_agents() \
             and not _terminal(con, row["requester"]) \
             and not dmn_delivery.wall_reason(con, row["requester"]):
         outstanding = con.execute(
