@@ -1,0 +1,407 @@
+{
+ "cases": [
+  {
+   "name": "memory.write_small",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n"
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.write_over_bytes",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "deny": "Your memory index would be 2049/2048 bytes and 0/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.write_at_bytes",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.write_over_entries",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n"
+   },
+   "deny": "Your memory index would be 579/2048 bytes and 21/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.entries_split_by_cr",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "- [Note 0](n0.md) - why 0\r- [Note 1](n1.md) - why 1\r- [Note 2](n2.md) - why 2\r- [Note 3](n3.md) - why 3\r- [Note 4](n4.md) - why 4\r- [Note 5](n5.md) - why 5\r- [Note 6](n6.md) - why 6\r- [Note 7](n7.md) - why 7\r- [Note 8](n8.md) - why 8\r- [Note 9](n9.md) - why 9\r- [Note 10](n10.md) - why 10\r- [Note 11](n11.md) - why 11\r- [Note 12](n12.md) - why 12\r- [Note 13](n13.md) - why 13\r- [Note 14](n14.md) - why 14\r- [Note 15](n15.md) - why 15\r- [Note 16](n16.md) - why 16\r- [Note 17](n17.md) - why 17\r- [Note 18](n18.md) - why 18\r- [Note 19](n19.md) - why 19\r- [Note 20](n20.md) - why 20\n"
+   },
+   "deny": "Your memory index would be 579/2048 bytes and 21/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.entries_split_by_u2028",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "- [Note 0](n0.md) - why 0\u2028- [Note 1](n1.md) - why 1\u2028- [Note 2](n2.md) - why 2\u2028- [Note 3](n3.md) - why 3\u2028- [Note 4](n4.md) - why 4\u2028- [Note 5](n5.md) - why 5\u2028- [Note 6](n6.md) - why 6\u2028- [Note 7](n7.md) - why 7\u2028- [Note 8](n8.md) - why 8\u2028- [Note 9](n9.md) - why 9\u2028- [Note 10](n10.md) - why 10\u2028- [Note 11](n11.md) - why 11\u2028- [Note 12](n12.md) - why 12\u2028- [Note 13](n13.md) - why 13\u2028- [Note 14](n14.md) - why 14\u2028- [Note 15](n15.md) - why 15\u2028- [Note 16](n16.md) - why 16\u2028- [Note 17](n17.md) - why 17\u2028- [Note 18](n18.md) - why 18\u2028- [Note 19](n19.md) - why 19\u2028- [Note 20](n20.md) - why 20\n"
+   },
+   "deny": "Your memory index would be 619/2048 bytes and 21/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.shrinking_while_over",
+   "tool": "Edit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n- [Note 21](n21.md) - why 21\n- [Note 22](n22.md) - why 22\n- [Note 23](n23.md) - why 23\n- [Note 24](n24.md) - why 24\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "old_string": "- [Note 3](n3.md) - why 3\n",
+    "new_string": ""
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.growing_past_entries",
+   "tool": "Edit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "old_string": "- [Note 3](n3.md) - why 3\n",
+    "new_string": "- [Note 3](n3.md) - why 3\n- [Extra](x.md) - more\n"
+   },
+   "deny": "Your memory index would be 573/2048 bytes and 21/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.old_string_not_there",
+   "tool": "Edit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n- [Note 21](n21.md) - why 21\n- [Note 22](n22.md) - why 22\n- [Note 23](n23.md) - why 23\n- [Note 24](n24.md) - why 24\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "old_string": "nowhere",
+    "new_string": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n"
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.replace_all_grows",
+   "tool": "Edit",
+   "index": "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "old_string": "ab",
+    "new_string": "abcd",
+    "replace_all": true
+   },
+   "deny": "Your memory index would be 3000/2048 bytes and 0/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.replace_one_stays_under",
+   "tool": "Edit",
+   "index": "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "old_string": "ab",
+    "new_string": "abcd"
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.multiedit_grows",
+   "tool": "MultiEdit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "edits": [
+     {
+      "old_string": "why 1\n",
+      "new_string": "why 1\n- [A](a.md) - a\n"
+     },
+     {
+      "old_string": "why 2\n",
+      "new_string": "why 2\n- [B](b.md) - b\n"
+     }
+    ]
+   },
+   "deny": "Your memory index would be 553/2048 bytes and 21/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.multiedit_one_misses",
+   "tool": "MultiEdit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "edits": [
+     {
+      "old_string": "why 1\n",
+      "new_string": "why 1\n- [A](a.md) - a\n- [B](b.md) - b\n"
+     },
+     {
+      "old_string": "missing",
+      "new_string": "x"
+     }
+    ]
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.multiedit_no_edits",
+   "tool": "MultiEdit",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n- [Note 21](n21.md) - why 21\n- [Note 22](n22.md) - why 22\n- [Note 23](n23.md) - why 23\n- [Note 24](n24.md) - why 24\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "edits": []
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.names_the_stale_files",
+   "tool": "Write",
+   "stale": [
+    "old.md",
+    "sub/older.md"
+   ],
+   "fresh": [
+    "new.md"
+   ],
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n- [Note 21](n21.md) - why 21\n"
+   },
+   "deny": "Your memory index would be 608/2048 bytes and 22/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed. Not used for 28+ days: old.md, sub/older.md."
+  },
+  {
+   "name": "memory.through_dotdot",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/sub/../MEMORY.md",
+    "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "deny": "Your memory index would be 3000/2048 bytes and 0/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  },
+  {
+   "name": "memory.a_topic_file_is_not_the_index",
+   "tool": "Write",
+   "input": {
+    "file_path": "{memory}/topic.md",
+    "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "deny": null
+  },
+  {
+   "name": "memory.read_is_not_looked_at",
+   "tool": "Read",
+   "index": "- [Note 0](n0.md) - why 0\n- [Note 1](n1.md) - why 1\n- [Note 2](n2.md) - why 2\n- [Note 3](n3.md) - why 3\n- [Note 4](n4.md) - why 4\n- [Note 5](n5.md) - why 5\n- [Note 6](n6.md) - why 6\n- [Note 7](n7.md) - why 7\n- [Note 8](n8.md) - why 8\n- [Note 9](n9.md) - why 9\n- [Note 10](n10.md) - why 10\n- [Note 11](n11.md) - why 11\n- [Note 12](n12.md) - why 12\n- [Note 13](n13.md) - why 13\n- [Note 14](n14.md) - why 14\n- [Note 15](n15.md) - why 15\n- [Note 16](n16.md) - why 16\n- [Note 17](n17.md) - why 17\n- [Note 18](n18.md) - why 18\n- [Note 19](n19.md) - why 19\n- [Note 20](n20.md) - why 20\n- [Note 21](n21.md) - why 21\n- [Note 22](n22.md) - why 22\n- [Note 23](n23.md) - why 23\n- [Note 24](n24.md) - why 24\n",
+   "input": {
+    "file_path": "{memory}/MEMORY.md"
+   },
+   "deny": null
+  },
+  {
+   "name": "shell.substitution",
+   "tool": "Bash",
+   "input": {
+    "command": "hl say worker \"`whoami`\""
+   },
+   "deny": "Refused: nothing in this command ran, including any heredoc or file write in it. A backtick or $( inside double quotes is shell substitution. Resend the body in single quotes, or written to a file first in a separate step and passed with --file PATH (hl say, hl task new, hl task handoff, hl task memo add), or on stdin with - through a quoted heredoc (<<'EOF')."
+  },
+  {
+   "name": "shell.single_quoted",
+   "tool": "Bash",
+   "input": {
+    "command": "hl say worker 'a $(b)'"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.no_task_owned",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{repo}/f.py",
+    "content": "x"
+   },
+   "deny": "Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`."
+  },
+  {
+   "name": "edit.one_task_owned",
+   "tool": "Edit",
+   "current": null,
+   "tasks": [
+    {
+     "title": "Fix the thing",
+     "priority": 2
+    }
+   ],
+   "input": {
+    "file_path": "{repo}/f.py",
+    "old_string": "a",
+    "new_string": "b"
+   },
+   "deny": "Edit refused: a.one holds no current task, and every change must belong to one (T295). Run `hl task start T1` to make your task \"Fix the thing\" current, then retry."
+  },
+  {
+   "name": "edit.several_owned",
+   "tool": "Write",
+   "current": null,
+   "tasks": [
+    {
+     "title": "Low",
+     "priority": 3
+    },
+    {
+     "title": "Someone else's",
+     "priority": 1,
+     "owner": "b.two"
+    },
+    {
+     "title": "A title that runs on well past the sixty characters the refusal quotes",
+     "priority": 1
+    },
+    {
+     "title": "Mid",
+     "priority": 2
+    },
+    {
+     "title": "Also mid",
+     "priority": 2
+    },
+    {
+     "title": "Done",
+     "priority": 1,
+     "done": true
+    }
+   ],
+   "input": {
+    "file_path": "{repo}/f.py",
+    "content": "x"
+   },
+   "deny": "Write refused: a.one holds no current task, and every change must belong to one (T295). Run `hl task start T3` to make your task \"A title that runs on well past the sixty characters the refu\" current (or another of yours: T4, T5, T1), then retry."
+  },
+  {
+   "name": "edit.gate_off",
+   "tool": "Write",
+   "current": null,
+   "gate_off": true,
+   "input": {
+    "file_path": "{repo}/f.py",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.memory_exempt",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{memory}/topic.md",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.tmpdir_exempt",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{tmp}/scratch.txt",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.tmpdir_name_prefix_is_not",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{tmp}x/f",
+    "content": "x"
+   },
+   "deny": "Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`."
+  },
+  {
+   "name": "edit.plans_exempt",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{plans}/plan.md",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.note_exempt",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{note}",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.note_sibling_is_not",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{note}.bak",
+    "content": "x"
+   },
+   "deny": "Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`."
+  },
+  {
+   "name": "edit.note_as_a_link_is_not",
+   "tool": "Write",
+   "current": null,
+   "note_link": true,
+   "input": {
+    "file_path": "{note}",
+    "content": "x"
+   },
+   "deny": "Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`."
+  },
+  {
+   "name": "edit.notebook",
+   "tool": "NotebookEdit",
+   "current": null,
+   "input": {
+    "notebook_path": "{repo}/n.ipynb"
+   },
+   "deny": "NotebookEdit refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the founder just told you to do this, run `hl task begin \"<title>\"` to open one; otherwise ask whoever gave you the work: `hl say <them> \"please open a task for <this work>\"`."
+  },
+  {
+   "name": "edit.read_is_not_looked_at",
+   "tool": "Read",
+   "current": null,
+   "input": {
+    "file_path": "{repo}/f.py"
+   },
+   "deny": null
+  },
+  {
+   "name": "edit.the_founder_is_exempt",
+   "agent": "human",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{repo}/f.py",
+    "content": "x"
+   },
+   "deny": null
+  },
+  {
+   "name": "both.memory_speaks_first",
+   "tool": "Write",
+   "current": null,
+   "input": {
+    "file_path": "{memory}/MEMORY.md",
+    "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "deny": "Your memory index would be 3000/2048 bytes and 0/20 entries, over its budget, so this write is refused. Merge or delete entries first; an edit that shrinks the index is allowed."
+  }
+ ]
+}

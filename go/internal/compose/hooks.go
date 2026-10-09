@@ -81,9 +81,9 @@ func HooksSettings(shared []byte) (map[string]any, error) {
 	return map[string]any{"hooks": out}, nil
 }
 
-// WriteHooksSettings writes agent's hooks-only settings file under home and returns its path. The file is the daemon's: mode 0600 in a
-// directory of 0700, replaced in one step.
-func WriteHooksSettings(home, agent string) (string, error) {
+// WriteSettings writes agent's settings file under home and returns its path: the hooks of ours and the sandbox the session runs in. One
+// file, because a second --settings would replace the first. The file is the daemon's: mode 0600 in a directory of 0700, replaced in one step.
+func WriteSettings(home, agent string, c Confinement) (string, error) {
 	shared, err := os.ReadFile(filepath.Join(home, "shared", ".claude", "settings.json"))
 	if err != nil {
 		return "", fmt.Errorf("the shared settings cannot be read: %w", err)
@@ -91,6 +91,9 @@ func WriteHooksSettings(home, agent string) (string, error) {
 	settings, err := HooksSettings(shared)
 	if err != nil {
 		return "", err
+	}
+	for k, v := range SandboxSettings(shared, c) {
+		settings[k] = v
 	}
 	b, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {

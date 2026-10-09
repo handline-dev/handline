@@ -90,19 +90,24 @@ type Proc interface {
 }
 
 type execProc struct {
-	cmd *exec.Cmd
-	in  io.WriteCloser
-	out io.ReadCloser
+	cmd    *exec.Cmd
+	in     io.WriteCloser
+	out    io.ReadCloser
+	closed sync.Once
 }
 
 func (p *execProc) Read(b []byte) (int, error)  { return p.out.Read(b) }
 func (p *execProc) Write(b []byte) (int, error) { return p.in.Write(b) }
+
+// Close ends the client once: Stop and the reader reaching its end both close it, and a second cmd.Wait races the first.
 func (p *execProc) Close() error {
-	p.in.Close()
-	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
-	}
-	go p.cmd.Wait()
+	p.closed.Do(func() {
+		p.in.Close()
+		if p.cmd.Process != nil {
+			p.cmd.Process.Kill()
+		}
+		go p.cmd.Wait()
+	})
 	return nil
 }
 
@@ -121,7 +126,7 @@ func SpawnCommand(argv []string) func() (Proc, error) {
 		if err := cmd.Start(); err != nil {
 			return nil, err
 		}
-		return &execProc{cmd, in, out}, nil
+		return &execProc{cmd: cmd, in: in, out: out}, nil
 	}
 }
 

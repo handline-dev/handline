@@ -564,6 +564,9 @@ func (r *Reconciler) sweepStructured(agent string, row *db.AgentState, actions *
 		}
 		*actions = append(*actions, agent+": a session is running; the closed mark was wrong")
 		r.logf("  %s: running again; cleared the closed mark", agent)
+	case !alive && !closed && row.Terminal.String != "":
+		// A terminal session still holds the record, the one the agent had before it was switched: not ours to call gone, and recording it
+		// closed would have the next wake resume its session id beside it. Closing it in the Python daemon is what hands the agent over.
 	case !alive && !closed && row.Worktree.String != "":
 		sid := row.ResumeSession.String
 		if err := db.SetClosed(r.Q, agent, sid); err != nil {

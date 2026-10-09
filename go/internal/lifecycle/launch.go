@@ -565,9 +565,27 @@ func (l *Launcher) TrustedEnvironment(worktree string) []string {
 	return lines
 }
 
+// Transcripts is where a vendor keeps the transcripts of the sessions run in a worktree.
+type Transcripts interface {
+	Name() string
+	TranscriptDir(configDir, worktree string) (string, bool)
+}
+
+// Confinement is what a session of agent may not read (hide) and may not write (noWrite) beyond the sandbox's own limits: other agents'
+// transcripts and memories and the key folders, and the files that move the main branch or say who the agents are. worktree is where
+// the session runs.
+func (l *Launcher) Confinement(agent, worktree string, tr Transcripts) (hide, noWrite []string, err error) {
+	hide, err = l.HiddenTranscripts(agent, tr)
+	if err != nil {
+		return nil, nil, err
+	}
+	hide = append(append(hide, l.HiddenMemories(agent)...), l.Tokens.HiddenFolders()...)
+	return hide, append(l.MainRefFiles(worktree), l.RosterFiles()...), nil
+}
+
 // HiddenTranscripts are the transcript folders agent may not read: every other agent's except its own and its reports', in every
 // account of this vendor, since an agent moves between accounts. Only agents with a worktree on record can be named.
-func (l *Launcher) HiddenTranscripts(agent string, drv Driver) ([]string, error) {
+func (l *Launcher) HiddenTranscripts(agent string, drv Transcripts) ([]string, error) {
 	var tm *team.Team
 	if l.Ports.Routing != nil {
 		tm = l.Ports.Routing()

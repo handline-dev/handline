@@ -237,6 +237,7 @@ def main() -> int:
         run(lambda: test_the_edit_gate_enforce_switch_is_the_founders_to_flip(Path(td) / 'et3'))
         run(lambda: test_record_from_stdin_denies_through_claudes_own_format(Path(td) / 'et4'))
         run(lambda: test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(Path(td) / 'et6'))
+        run(lambda: _check_hook_guard_fixture(Path(td) / 'et7'))
     return run_area(tests)
 
 

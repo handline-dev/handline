@@ -19,10 +19,11 @@ const (
 	Deny                 // a guard refuses it
 )
 
-// Policy is the step before a person is asked: the guard that refuses a tool call, then the tools the agent may always use. The
-// rule that matched is returned and recorded in the event.
+// Policy is the step before a person is asked: the guard that refuses a tool call, the tools never allowed, then the tools the agent may
+// always use. The rule that matched is returned and recorded in the event.
 type Policy struct {
 	Guard func(tool string, input any) string // a reason to refuse, or ""; the shell guard
+	Deny  []string                            // tool names refused outright, whatever Allow says
 	Allow []string                            // tool names allowed without asking
 }
 
@@ -30,6 +31,11 @@ func (p Policy) Decide(r ToolRequest) (v Verdict, rule, reason string) {
 	if p.Guard != nil {
 		if why := p.Guard(r.ToolName, r.Input); why != "" {
 			return Deny, "guard", why
+		}
+	}
+	for _, t := range p.Deny {
+		if t == r.ToolName {
+			return Deny, "deny:" + t, t + " is denied in the settings"
 		}
 	}
 	for _, t := range p.Allow {

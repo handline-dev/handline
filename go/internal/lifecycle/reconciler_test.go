@@ -283,6 +283,23 @@ func TestOnlyAnAgentsOwnFailureStallsItAndTheDaemonsPropagates(t *testing.T) {
 	}
 }
 
+func TestAStructuredAgentThatStillHoldsATerminalIsNotRecordedClosed(t *testing.T) {
+	r, _ := newRec(t, nil)
+	r.Ports.Run = newRunner()
+	db.SetTerminal(r.Q, "a", "term1", "/wt")
+	var acts []string
+	if err := r.Sweep(&acts); err != nil || len(acts) != 0 {
+		t.Fatalf("%v %v", acts, err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.ClosedAt.Valid || row.Terminal.String != "term1" {
+		t.Fatalf("%+v", row)
+	}
+	db.SetTerminal(r.Q, "a", "", "/wt")
+	if err := r.Sweep(&acts); err != nil || len(acts) != 1 {
+		t.Fatalf("with no terminal the missing process is still recorded: %v %v", acts, err)
+	}
+}
+
 func TestASweepDropsTheStateRowOfANameNoAgentHasButNotARegisteredAgentsOrOneWithATerminal(t *testing.T) {
 	r, _ := newRec(t, nil)
 	db.SetAgentState(r.Q, "a", states.Idle, 0, "registered")

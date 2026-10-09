@@ -1284,6 +1284,156 @@ def _check_yaml_differential() -> None:
                                 for v, t, o, p in unread[:3]))
 
 
+HOOK_GUARDS_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "hook_guards.json"
+
+
+def _entries(n: int, sep: str = "\n") -> str:
+    return sep.join(f"- [Note {i}](n{i}.md) - why {i}" for i in range(n)) + "\n"
+
+
+# The PreToolUse hook's verdict on one tool call, as the Go hook must give it too (go/internal/session/pretooluse_test.go).
+# A case is the agent's world - its memory index and files, its tasks and which it holds, the edit gate - and the call.
+# In a path {memory} is the agent's memory folder, {tmp} $TMPDIR, {plans} $CLAUDE_CONFIG_DIR/plans, {note} its handoff
+# note and {repo} a folder that is none of them. Unless it says otherwise the agent holds a current task.
+HOOK_GUARD_CASES = [
+    {"name": "memory.write_small", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(3)}},
+    {"name": "memory.write_over_bytes", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 2049}},
+    {"name": "memory.write_at_bytes", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 2048}},
+    {"name": "memory.write_over_entries", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21)}},
+    {"name": "memory.entries_split_by_cr", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21, "\r")}},
+    {"name": "memory.entries_split_by_u2028", "tool": "Write",
+     "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21, " ")}},
+    {"name": "memory.shrinking_while_over", "tool": "Edit", "index": _entries(25),
+     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "- [Note 3](n3.md) - why 3\n", "new_string": ""}},
+    {"name": "memory.growing_past_entries", "tool": "Edit", "index": _entries(20),
+     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "- [Note 3](n3.md) - why 3\n",
+               "new_string": "- [Note 3](n3.md) - why 3\n- [Extra](x.md) - more\n"}},
+    {"name": "memory.old_string_not_there", "tool": "Edit", "index": _entries(25),
+     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "nowhere", "new_string": _entries(5)}},
+    {"name": "memory.replace_all_grows", "tool": "Edit", "index": "ab " * 600,
+     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "ab", "new_string": "abcd", "replace_all": True}},
+    {"name": "memory.replace_one_stays_under", "tool": "Edit", "index": "ab " * 600,
+     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "ab", "new_string": "abcd"}},
+    {"name": "memory.multiedit_grows", "tool": "MultiEdit", "index": _entries(19),
+     "input": {"file_path": "{memory}/MEMORY.md", "edits": [
+         {"old_string": "why 1\n", "new_string": "why 1\n- [A](a.md) - a\n"},
+         {"old_string": "why 2\n", "new_string": "why 2\n- [B](b.md) - b\n"}]}},
+    {"name": "memory.multiedit_one_misses", "tool": "MultiEdit", "index": _entries(19),
+     "input": {"file_path": "{memory}/MEMORY.md", "edits": [
+         {"old_string": "why 1\n", "new_string": "why 1\n- [A](a.md) - a\n- [B](b.md) - b\n"},
+         {"old_string": "missing", "new_string": "x"}]}},
+    {"name": "memory.multiedit_no_edits", "tool": "MultiEdit", "index": _entries(25),
+     "input": {"file_path": "{memory}/MEMORY.md", "edits": []}},
+    {"name": "memory.names_the_stale_files", "tool": "Write", "stale": ["old.md", "sub/older.md"], "fresh": ["new.md"],
+     "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(22)}},
+    {"name": "memory.through_dotdot", "tool": "Write", "input": {"file_path": "{memory}/sub/../MEMORY.md", "content": "x" * 3000}},
+    {"name": "memory.a_topic_file_is_not_the_index", "tool": "Write", "input": {"file_path": "{memory}/topic.md", "content": "x" * 3000}},
+    {"name": "memory.read_is_not_looked_at", "tool": "Read", "index": _entries(25), "input": {"file_path": "{memory}/MEMORY.md"}},
+    {"name": "shell.substitution", "tool": "Bash", "input": {"command": 'hl say worker "`whoami`"'}},
+    {"name": "shell.single_quoted", "tool": "Bash", "input": {"command": "hl say worker 'a $(b)'"}},
+    {"name": "edit.no_task_owned", "tool": "Write", "current": None, "input": {"file_path": "{repo}/f.py", "content": "x"}},
+    {"name": "edit.one_task_owned", "tool": "Edit", "current": None, "tasks": [{"title": "Fix the thing", "priority": 2}],
+     "input": {"file_path": "{repo}/f.py", "old_string": "a", "new_string": "b"}},
+    {"name": "edit.several_owned", "tool": "Write", "current": None,
+     "tasks": [{"title": "Low", "priority": 3}, {"title": "Someone else's", "priority": 1, "owner": "b.two"},
+               {"title": "A title that runs on well past the sixty characters the refusal quotes", "priority": 1},
+               {"title": "Mid", "priority": 2}, {"title": "Also mid", "priority": 2}, {"title": "Done", "priority": 1, "done": True}],
+     "input": {"file_path": "{repo}/f.py", "content": "x"}},
+    {"name": "edit.gate_off", "tool": "Write", "current": None, "gate_off": True, "input": {"file_path": "{repo}/f.py", "content": "x"}},
+    {"name": "edit.memory_exempt", "tool": "Write", "current": None, "input": {"file_path": "{memory}/topic.md", "content": "x"}},
+    {"name": "edit.tmpdir_exempt", "tool": "Write", "current": None, "input": {"file_path": "{tmp}/scratch.txt", "content": "x"}},
+    {"name": "edit.tmpdir_name_prefix_is_not", "tool": "Write", "current": None, "input": {"file_path": "{tmp}x/f", "content": "x"}},
+    {"name": "edit.plans_exempt", "tool": "Write", "current": None, "input": {"file_path": "{plans}/plan.md", "content": "x"}},
+    {"name": "edit.note_exempt", "tool": "Write", "current": None, "input": {"file_path": "{note}", "content": "x"}},
+    {"name": "edit.note_sibling_is_not", "tool": "Write", "current": None, "input": {"file_path": "{note}.bak", "content": "x"}},
+    {"name": "edit.note_as_a_link_is_not", "tool": "Write", "current": None, "note_link": True,
+     "input": {"file_path": "{note}", "content": "x"}},
+    {"name": "edit.notebook", "tool": "NotebookEdit", "current": None, "input": {"notebook_path": "{repo}/n.ipynb"}},
+    {"name": "edit.read_is_not_looked_at", "tool": "Read", "current": None, "input": {"file_path": "{repo}/f.py"}},
+    {"name": "edit.the_founder_is_exempt", "agent": "human", "tool": "Write", "current": None,
+     "input": {"file_path": "{repo}/f.py", "content": "x"}},
+    {"name": "both.memory_speaks_first", "tool": "Write", "current": None,
+     "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 3000}},
+]
+
+
+def hook_guard_verdicts(root: Path) -> list[dict]:
+    """Each HOOK_GUARD_CASES case with `deny`: the reason the PreToolUse hook refuses its call with, or None. Each case
+    gets its own home under `root`."""
+    from handline.session import edittask
+    from handline.team import memory as memorymod
+    out = []
+    for case in HOOK_GUARD_CASES:
+        agent, home = case.get("agent", "a.one"), root / case["name"]
+        restore_world()
+        os.environ["OCP_HOME"] = str(home)
+        home.mkdir(parents=True)
+        env = {"TMPDIR": str(root / f"{case['name']}.tmp"), "CLAUDE_CONFIG_DIR": str(root / f"{case['name']}.cfg"),
+               "OCP_AGENT": agent}
+        if case.get("gate_off"):
+            edittask.set_enforced(False)       # the founder's, so before the agent is named
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        mem, note = memorymod.memory_dir(agent), paths.handoff_note_file(agent)
+        mem.mkdir(parents=True)
+        if "index" in case:
+            (mem / memorymod.INDEX).write_text(case["index"])
+        for rel, age in [(r, 40) for r in case.get("stale", [])] + [(r, 0) for r in case.get("fresh", [])]:
+            (mem / rel).parent.mkdir(parents=True, exist_ok=True)
+            (mem / rel).write_text("x")
+            then = time.time() - age * 86400
+            os.utime(mem / rel, (then, then))
+        if case.get("note_link"):
+            (home / "elsewhere.md").write_text("x")
+            note.symlink_to(home / "elsewhere.md")
+        con = db.connect()
+        try:
+            tids = [db.new_task(con, t["title"], t.get("owner", agent), "x", priority=t["priority"])
+                    for t in case.get("tasks", [])]
+            for t, tid in zip(case.get("tasks", []), tids):
+                if t.get("done"):
+                    con.execute("UPDATE tasks SET done_evidence = 'abc' WHERE id = ?", (tid,))
+            if case.get("current", "held") == "held":
+                db.set_current_task(con, agent, db.new_task(con, "held", agent, "x"))
+            con.commit()
+        finally:
+            con.close()
+        fill = {"{memory}": str(mem), "{tmp}": env["TMPDIR"], "{plans}": env["CLAUDE_CONFIG_DIR"] + "/plans",
+                "{note}": str(note), "{repo}": str(home / "repo")}
+        tool_input = json.loads(re.sub("|".join(re.escape(k) for k in fill), lambda m: fill[m.group(0)],
+                                       json.dumps(case["input"])))
+        real_in, said = sys.stdin, io.StringIO()
+        sys.stdin = io.StringIO(json.dumps({"hook_event_name": "PreToolUse", "session_id": "s",
+                                            "tool_name": case["tool"], "tool_input": tool_input}))
+        try:
+            with contextlib.redirect_stdout(said):
+                evmod.record_from_stdin(["PreToolUse"])
+        finally:
+            sys.stdin = real_in
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        verdict = json.loads(said.getvalue()).get("hookSpecificOutput", {})
+        out.append({**case, "deny": verdict.get("permissionDecisionReason")})
+    return out
+
+
+def _check_hook_guard_fixture(root: Path) -> None:
+    """The fixture the Go hook is held to is still what the Python hook decides."""
+    if not HOOK_GUARDS_FIXTURE.exists():
+        check("hook guards: the fixture is there", False, "run tests/fixtures/regen_hook_guards.py")
+        return
+    kept = json.loads(HOOK_GUARDS_FIXTURE.read_text())["cases"]
+    got = hook_guard_verdicts(root)
+    stale = [g["name"] for g, k in zip(got, kept) if g != k] + [c["name"] for c in got[len(kept):]]
+    check("hook guards: the fixture is what the Python hook decides", not stale and len(kept) == len(got),
+          f"differ: {stale[:5]}; run tests/fixtures/regen_hook_guards.py")
+    check("hook guards: the cases refuse and let through alike",
+          {c["deny"] is None for c in got} == {True, False})
+
+
 def _parsed(src: str):
     """What the bundled parser reads, or "<refused>" where it raises."""
     try:
@@ -2361,6 +2511,10 @@ __all__ = [
     'pyyaml_expected',
     'yaml_dump_texts',
     'PYYAML_FIXTURE',
+    'HOOK_GUARDS_FIXTURE',
+    'HOOK_GUARD_CASES',
+    'hook_guard_verdicts',
+    '_check_hook_guard_fixture',
     '_parsed',
     '_roundtrip',
     '_refused',

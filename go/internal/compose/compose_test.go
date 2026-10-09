@@ -56,8 +56,12 @@ func fakeClaude() {
 		case "control_request":
 			answer := map[string]any{}
 			if req, _ := m["request"].(map[string]any); req["subtype"] == "get_usage" {
-				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{
-					"five_hour": map[string]any{"utilization": 40.0}, "seven_day": map[string]any{"utilization": 10.0}}}
+				five, seven := map[string]any{"utilization": 40.0}, map[string]any{"utilization": 10.0}
+				var r5, r7 int64
+				if n, _ := fmt.Sscanf(os.Getenv("FAKE_USAGE_RESETS"), "%d,%d", &r5, &r7); n == 2 { // when the windows end, unix seconds
+					five["resets_at"], seven["resets_at"] = r5, r7
+				}
+				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{"five_hour": five, "seven_day": seven}}
 			}
 			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": answer}})
 		case "user":
@@ -103,12 +107,14 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 func TestAClaudeOtherThanThePinIsRefusedUnlessTheConfigAcceptsItsVersion(t *testing.T) {
 	spec := lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}
 	t.Setenv("FAKE_CLAUDE_VERSION", "9.9.9") // the version check runs the CLI from the daemon's own environment
-	p, _ := rig(t)
+	p, home := rig(t)
+	withLifecycle(p, home)
 	err := p.Run.Open(spec)
 	if err == nil || !strings.Contains(err.Error(), "9.9.9") {
 		t.Fatalf("a claude that is not the pinned version started: %v", err)
 	}
-	p, _ = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
+	p, home = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
+	withLifecycle(p, home)
 	if err := p.Run.Open(spec); err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +131,17 @@ func TestTheKindOfAnAgentIsItsModeInAgentYAML(t *testing.T) {
 	}
 }
 
+// withLifecycle builds the lifecycle over a bound rig: a session is not opened without it, since it says what the session is kept out of.
+func withLifecycle(p *Parts, home string) {
+	env := &supervisor.Env{DB: p.Sink.DB, Home: home, Log: func(string, ...any) {}}
+	p.Lifecycle(p.Run.cfg, LifecycleConfig{Env: env})
+}
+
 func TestAStructuredSessionStartsTakesAMessageAndStopsThroughTheRealWiring(t *testing.T) {
-	p, _ := rig(t)
+	p, home := rig(t)
+	p.Bind(p.Sink.DB, &tells{})
+	p.Run.cfg.DB = p.Sink.DB
+	withLifecycle(p, home)
 	var kinds []string
 	var mu sync.Mutex
 	p.Sink.Publish = func(e transcript.Event) { mu.Lock(); kinds = append(kinds, e.Kind); mu.Unlock() }
@@ -196,9 +211,11 @@ func (t *tells) SessionLost(_ db.Q, agent string) error {
 }
 
 func TestTheSupervisorIsToldOfAnEchoAndOfTheEndOfTheSession(t *testing.T) {
-	p, _ := rig(t)
+	p, home := rig(t)
 	tl := &tells{}
 	p.Bind(p.Sink.DB, tl)
+	p.Run.cfg.DB = p.Sink.DB
+	withLifecycle(p, home)
 	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}); err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +329,7 @@ const sharedSettings = `{
 func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) {
 	p, home := rig(t)
 	os.MkdirAll(filepath.Join(home, "structured", "alice"), 0o755) // a directory that was there with the wrong mode
-	path, err := WriteHooksSettings(home, "alice")
+	path, err := WriteSettings(home, "alice", Confinement{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,11 +344,11 @@ func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) 
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"hooks": map[string]any{
+	want := map[string]any{
 		"Stop":       []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": float64(10)}}}},
 		"PreToolUse": []any{map[string]any{"matcher": "Write|Edit|Bash", "hooks": []any{map[string]any{"type": "command", "command": "ocp hook PreToolUse", "timeout": float64(10)}}}},
-	}}
-	if !reflect.DeepEqual(got, want) {
+	}
+	if !reflect.DeepEqual(got["hooks"], want) {
 		t.Fatalf("%s", b)
 	}
 	_ = p
