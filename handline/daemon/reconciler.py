@@ -226,6 +226,12 @@ def sweep(con, log, actions: list[str]) -> None:
     process is not running. Where the only evidence is a probe, it wants two
     witnesses before it moves.
     """
+    registered = set(paths.list_agents())
+    for row in db.all_agent_states(con):
+        if row["agent"] not in registered and not row["terminal"]:
+            # No agent directory backs it, and a retired agent's row goes with it (hr._retire): this was written for a name that never was one.
+            con.execute("DELETE FROM agent_state WHERE agent = ?", (row["agent"],))
+            actions.append(f"{row['agent']}: no such agent; its state row is dropped")
     agent_names = agents.driven()
     terminals = {a: db.get_terminal(con, a) for a in agent_names}
     seen = obs.observe(agent_names, terminals)
