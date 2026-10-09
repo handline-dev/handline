@@ -342,6 +342,12 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
     import tempfile
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     import test_ocp as runner
+    # A file's limit runs from the spawn, so it has to outlast an interpreter starting up: on a loaded machine that alone took
+    # longer than a fixed second or two, and the files that must finish were killed before they wrote a line. Sized from a start
+    # measured now.
+    began = time.time()
+    subprocess.run([sys.executable, "-c", "pass"], check=True)
+    limit = max(2, round(10 * (time.time() - began)))
     with tempfile.TemporaryDirectory() as td:
         hang, nomod, fine = (Path(td) / n for n in ("test_hang.py", "test_nomod.py", "test_fine.py"))
         hang.write_text("import time\ntime.sleep(60)\n")
@@ -390,7 +396,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
                        "print('started', flush=True); sys.stderr.write('stderr so far\\n'); sys.stderr.flush()\n"
                        "time.sleep(600)\n")
         began = time.time()
-        _, code, out = runner._run_one(kid, [], timeout=2)
+        _, code, out = runner._run_one(kid, [], timeout=limit)
         took = time.time() - began
         time.sleep(0.5)
         child = int(pidfile.read_text())
@@ -407,7 +413,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
               f"code={code} alive={alive} took={took:.1f}s")
 
         saved = (runner.area_files, runner.FILE_TIMEOUT_S, runner._python_with_textual)
-        runner.area_files, runner.FILE_TIMEOUT_S = (lambda: [hang, nomod, fine]), 1
+        runner.area_files, runner.FILE_TIMEOUT_S = (lambda: [hang, nomod, fine]), limit
         runner._python_with_textual = lambda: None
         buf = io.StringIO()
         try:
@@ -420,7 +426,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
               "SKIPPED  test_nomod.py: it needs the module surely_not_installed_anywhere" in said
               and "test_nomod.py did not finish" not in said, said)
         check("runner: the hang is a failure that names the file and the limit",
-              rc == 1 and "test_hang.py timed out (limit 1s" in said, said)
+              rc == 1 and f"test_hang.py timed out (limit {limit}s" in said, said)
         check("runner: the file that ran is still counted", "1 passed, 0 failed" in said, said)
 
 
