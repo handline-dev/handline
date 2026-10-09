@@ -1138,6 +1138,13 @@ def _pick_reason(st: "AccountStatus", ld, lasts: float | None, picked: bool,
     return base + tag
 
 
+def can_start(st: "AccountStatus", ld) -> tuple[bool, str]:
+    """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
+    ok, why = st.takes_work(ld.active if ld else 0)
+    bad = unfit(st, ld) if ok else None
+    return (False, bad) if bad else (ok, why)
+
+
 def pick_account(candidates: list[str] | None = None, bootstrap: bool = False,
                  exclude: dict[str, str] | None = None,
                  load: dict | None = None,
