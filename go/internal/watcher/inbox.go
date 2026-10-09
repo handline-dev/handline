@@ -110,7 +110,7 @@ func requestOf(q *sql.DB, id int64) (*requestRow, error) {
 
 func (n *Inbox) begin(q *sql.DB) error {
 	now := n.now()
-	n.since, n.floorAt, n.seen, n.begun = now.Unix(), now, map[int64]string{}, true
+	n.since, n.floorAt, n.seen = now.Unix(), now, map[int64]string{}
 	var err error
 	if n.cursors, err = forYouCursors(q); err != nil {
 		return err
@@ -148,6 +148,7 @@ func (n *Inbox) begin(q *sql.DB) error {
 			}
 		}
 	}
+	n.begun = true // only a first look that read everything is a first look done: one that failed is taken again
 	return nil
 }
 

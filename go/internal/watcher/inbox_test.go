@@ -3,10 +3,12 @@ package watcher
 import (
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/handline/handline/go/internal/reads"
+	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 )
 
@@ -89,6 +91,27 @@ func TestTheInboxIsToldWhenAnItemArrivesChangesOrLeavesAndTheFirstLookSaysNothin
 	json.Unmarshal(last.Data, &item)
 	if len(got) != 9 || last.Type != "inbox.changed" || item["id"] != float64(5) || item["read"] != true || item["answered"] != false {
 		t.Fatalf("%d rows: %+v %s", len(got), last, last.Data)
+	}
+}
+
+func TestAFirstLookThatFailsIsTakenAgainAndStillSaysNothing(t *testing.T) {
+	d, l := rig(t)
+	for i := int64(1); i <= 50; i++ {
+		request(t, d, i, t0-100, "amy", "bob", "old")
+	}
+	request(t, d, 51, t0-100, "amy", "human", "old for you")
+	in := &Inbox{Reads: &reads.Env{DB: d}, Now: func() time.Time { return time.Unix(t0, 0) }}
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	dead, err := store.Open(filepath.Join(t.TempDir(), "dead.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead.Close()
+	if err := in.Scan(dead, emit); err == nil {
+		t.Fatal("a first look on a closed database succeeded")
+	}
+	if err := in.Scan(d, emit); err != nil || len(inboxRows(t, l)) != 0 {
+		t.Fatalf("the retried first look said something: %v %d rows", err, len(inboxRows(t, l)))
 	}
 }
 
