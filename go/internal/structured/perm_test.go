@@ -3,6 +3,7 @@ package structured
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,10 +57,12 @@ func openRows(t *testing.T, p *DBPrompts) (n int, fp string) {
 	return
 }
 
-func waitOpen(t *testing.T, p *DBPrompts) string {
+// waitOpen waits for the one open prompt that is not one of the answered ones (a closed prompt's row stays open until its call returns).
+// It polls, so a generous bound costs nothing when the prompt comes at once.
+func waitOpen(t *testing.T, p *DBPrompts, answered ...string) string {
 	t.Helper()
-	for i := 0; i < 200; i++ {
-		if n, fp := openRows(t, p); n == 1 {
+	for i := 0; i < 1000; i++ {
+		if n, fp := openRows(t, p); n == 1 && !slices.Contains(answered, fp) {
 			return fp
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -91,9 +94,6 @@ func TestAPromptIsAnsweredByPromptAnswer(t *testing.T) {
 	got := make(chan Decision, 1)
 	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); got <- d }()
 	fp := waitOpen(t, p)
-	for i := 0; i < 200 && !b.Has("a"); i++ { // the row is written just before the broker lists the prompt
-		time.Sleep(10 * time.Millisecond)
-	}
 	if !b.Has("a") {
 		t.Fatal("the broker does not know the prompt")
 	}
@@ -125,16 +125,18 @@ func TestAPromptIsAnsweredByPromptAnswer(t *testing.T) {
 
 func TestAWaitingPromptStaysFreshAndNoAnswerIsADeny(t *testing.T) {
 	b, p, _ := broker(t)
-	b.Timeout = 300 * time.Millisecond
+	b.Timeout = time.Second
 	got := make(chan Decision, 1)
 	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); got <- d }()
 	waitOpen(t, p)
 	var first, last int64
 	p.DB.QueryRow("SELECT first_seen, last_seen FROM prompt_blocks").Scan(&first, &last)
 	skew.Store(100)
-	time.Sleep(100 * time.Millisecond)
 	var after int64
-	p.DB.QueryRow("SELECT last_seen FROM prompt_blocks").Scan(&after)
+	for i := 0; i < 500 && after < last+100; i++ { // the next beat refreshes it
+		time.Sleep(10 * time.Millisecond)
+		p.DB.QueryRow("SELECT last_seen FROM prompt_blocks").Scan(&after)
+	}
 	if after < last+100 {
 		t.Fatalf("the waiting prompt was not refreshed: %d", after)
 	}
@@ -172,12 +174,44 @@ func TestOnePromptPerAgentAtATime(t *testing.T) {
 	for _, c := range []string{"one", "two"} {
 		go func() { d, _ := b.CanUseTool("a")(context.Background(), bash(c)); res <- d.Allow }()
 	}
+	var answered []string
 	for i := 0; i < 2; i++ {
-		fp := waitOpen(t, p)
+		fp := waitOpen(t, p, answered...)
 		if err := b.Answer("a", fp, true, "", "casey"); err != nil {
 			t.Fatal(err)
 		}
+		answered = append(answered, fp)
 		<-res
+	}
+}
+
+// openGate records a prompt's row, then holds Open until released.
+type openGate struct {
+	PromptStore
+	recorded, release chan struct{}
+}
+
+func (g openGate) Open(agent string, p PromptRow) (int64, error) {
+	id, err := g.PromptStore.Open(agent, p)
+	close(g.recorded)
+	<-g.release
+	return id, err
+}
+
+func TestAPromptWhoseRowIsVisibleCanBeAnswered(t *testing.T) {
+	b, p, _ := broker(t)
+	g := openGate{PromptStore: p, recorded: make(chan struct{}), release: make(chan struct{})}
+	b.Store = g
+	res := make(chan bool, 1)
+	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("one")); res <- d.Allow }()
+	<-g.recorded
+	fp := waitOpen(t, p)
+	if err := b.Answer("a", fp, true, "", "casey"); err != nil {
+		t.Fatalf("the row is open and the answer is refused: %v", err)
+	}
+	close(g.release)
+	if !<-res {
+		t.Fatal("the answer was lost")
 	}
 }
 

@@ -152,10 +152,7 @@ func (b *Broker) decide(ctx context.Context, agent string, r ToolRequest) (Decis
 	}
 	row := PromptRow{Fingerprint: fp, Title: "Allow " + r.ToolName + "?", Lines: lines(r), Detail: map[string]any{
 		"agent": agent, "vendor": "claude", "structured": true, "tool": r.ToolName, "input": r.Input, "reason": r.Reason, "command": command(r)}}
-	id, err := b.Store.Open(agent, row)
-	if err != nil {
-		return Decision{}, fmt.Errorf("record the prompt: %w", err)
-	}
+	// The prompt is on the table before its row is: a person who sees the row can always answer it.
 	p := &pending{fingerprint: fp, toolUse: r.ToolUse, answer: make(chan Decision, 1)}
 	b.mu.Lock()
 	if b.waiting == nil {
@@ -163,6 +160,13 @@ func (b *Broker) decide(ctx context.Context, agent string, r ToolRequest) (Decis
 	}
 	b.waiting[agent] = p
 	b.mu.Unlock()
+	id, err := b.Store.Open(agent, row)
+	if err != nil {
+		b.mu.Lock()
+		delete(b.waiting, agent)
+		b.mu.Unlock()
+		return Decision{}, fmt.Errorf("record the prompt: %w", err)
+	}
 	b.emit(agent, "permission_request", map[string]any{"prompt": fp, "block": id, "tool_use": r.ToolUse, "tool": r.ToolName, "input": r.Input, "reason": r.Reason})
 
 	timeout, beat := b.Timeout, b.Beat
