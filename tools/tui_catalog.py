@@ -407,7 +407,7 @@ async def modals(pilot) -> None:
                 "modal-dialog", "An agent's blocked menu prompt: pick its number, or tick always to keep the pick as a rule.")
     await modal(pilot, HandoffModal("session 2 of backend", "\n".join(f"line {i} of the handoff: what was done, what is left" for i in range(60))),
                 "modal-handoff", "A session's handoff, whole and scrollable (enter on the session marker in chat).")
-    await modal(pilot, OutputModal("$ ls -la", [f"-rw-r--r--  1 ron  staff  {i * 100}  file{i}.txt" for i in range(80)], 12),
+    await modal(pilot, OutputModal("$ ls -la", [f"-rw-r--r--  1 user  staff  {i * 100}  file{i}.txt" for i in range(80)], 12),
                 "modal-output", "Everything a shell command printed (Show all on a shell card), with how many early lines were let go.")
     await modal(pilot, Confirm("Restart backend's session?", "Its terminal is closed and started again.", yes="Restart"),
                 "modal-confirm-restart", "A confirm before a restart (f5 in chat).", )
