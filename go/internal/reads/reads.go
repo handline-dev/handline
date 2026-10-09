@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/handline/handline/go/internal/weblogin"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +36,8 @@ type Env struct {
 	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
 	// reads this where a terminal agent's row says it.
 	SessionOpen func(agent string) bool
+	// Login is an account's latest web login, nil for none; nil is no logins.
+	Login func(account string) *weblogin.Login
 }
 
 // Register adds the read methods to the server's table.

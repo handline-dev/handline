@@ -8,6 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/usage"
+	"github.com/handline/handline/go/internal/weblogin"
 )
 
 const movesShown = 20
@@ -104,14 +105,34 @@ func (e *Env) accountsList(_ *rpc.Conn, _ map[string]any) (any, error) {
 		if d := cfg.EndDate(e.Home, a, now); d != "" {
 			end = d
 		}
-		accts = append(accts, map[string]any{
+		acct := map[string]any{
 			"name": a, "login_state": loginWord(in, known), "five_hour": windowView(st.Short), "weekly": windowView(st.Long),
 			"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": ue.CapNow(a),
 			"recover": cfg.RecoverEnabled(a),
-			"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}})
+			"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}}
+		if l := e.loginOf(a); l != nil {
+			acct["login"] = l
+		}
+		accts = append(accts, acct)
 	}
 	if accts == nil {
 		accts = []any{}
 	}
 	return map[string]any{"accounts": accts}, nil
+}
+
+// loginOf is the account's latest web login as the accounts topic shows it, nil when none was started.
+func (e *Env) loginOf(acct string) map[string]any {
+	if e.Login == nil {
+		return nil
+	}
+	l := e.Login(acct)
+	if l == nil {
+		return nil
+	}
+	out := map[string]any{"login_id": l.ID, "state": l.State}
+	if l.State == weblogin.Waiting && l.URL != "" {
+		out["url"] = l.URL
+	}
+	return out
 }

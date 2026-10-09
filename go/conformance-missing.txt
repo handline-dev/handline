@@ -3,6 +3,7 @@
 account.login
 account.login_cancel
 account.login_code
+account.login_code
 account.remove
 agent.strip
 agent.unstall
