@@ -105,7 +105,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	if err := json.Unmarshal([]byte(line), &py); err != nil {
 		t.Fatalf("%q: %v", line, err)
 	}
-	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications"}, "", 100)
+	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "inbox"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
