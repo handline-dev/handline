@@ -329,13 +329,23 @@ def _fakes(*roles: str, mutate=None, **kw) -> dict:
 VIEW_FIELDS = {
     "a.v.ready": {"state": "idle", "kind": "opus high", "task_count": 2, "ready": True, "wall": None},
     "a.v.blocked": {"state": "idle", "kind": "opus high", "task_count": 1, "ready": False, "wall": None},
-    "a.v.busy": {"state": "running", "kind": "codex gpt-5 mid", "task_count": 1, "ready": False, "wall": None},
+    "a.v.busy": {"state": "running", "kind": "codex gpt-5 mid", "task_count": 1, "ready": False, "wall": None,
+                  "attention": "running"},
     "a.v.walled": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False,
                    "wall": {"account": "acct.one", "clock": 1_790_000_000, "assumed": True}},
-    "a.v.plain": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False, "wall": None},
+    "a.v.plain": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False, "wall": None,
+                  "fire": None, "attention": None, "cache_ignored": False, "config_error": None},
+    "a.v.fire": {"state": "idle", "kind": "opus high", "fire": "context"},
+    "a.v.ask": {"state": "idle", "kind": "opus high", "attention": "ask"},
+    "a.v.alert": {"state": "idle", "kind": "opus high", "attention": "alert"},
+    "a.v.stuck": {"state": "idle", "kind": "opus high", "attention": "stuck"},
+    "a.v.ignored": {"state": "idle", "kind": "opus high", "cache_ignored": True},
+    "a.v.broken": {"state": "closed", "config_error": "agent.yaml: invalid YAML"},
 }
 VIEW_VARS = {"view_ready_agent": "a.v.ready", "view_blocked_agent": "a.v.blocked", "view_busy_agent": "a.v.busy",
-             "view_walled_agent": "a.v.walled", "view_plain_agent": "a.v.plain"}
+             "view_walled_agent": "a.v.walled", "view_plain_agent": "a.v.plain",
+             "view_fire_agent": "a.v.fire", "view_ask_agent": "a.v.ask", "view_alert_agent": "a.v.alert",
+             "view_stuck_agent": "a.v.stuck", "view_ignored_agent": "a.v.ignored", "view_broken_agent": "a.v.broken"}
 
 LIST_VARS = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.timed", "tasks_overdue_owner": "a.t.overdue", "tasks_done_owner": "a.t.done"}
 

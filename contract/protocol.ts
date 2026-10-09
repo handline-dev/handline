@@ -160,6 +160,14 @@ export type AgentView = {
     /** The account is a guess (nothing has confirmed the one the resume is tied to), not the account itself. */
     assumed: boolean;
   } | null;
+  /** A trigger about to fire (the home row's warning cell): the daemon would hand this agent off at its next tick. `usage` is the shortest window at the wall, `usage_7d` the longest, `context` the context at its limit. Null when none, and for an agent whose triggers do not apply (closed, no terminal, parked, throttled or degraded). Needs a live evaluate over the agent's current usage and context readings, not a stored value. Absent from a daemon that does not serve it yet. */
+  fire?: ("usage" | "usage_7d" | "context") | null;
+  /** What this agent alone asks of the founder, the most urgent of: `ask` (an open ask to the founder), `alert` (the screen word needs a human, or a delivery block the founder has been told of), `stuck` (a delivery that is not moving, or a usage limit), `running` (a turn is going on), in that order. Null when none. The daemon says nothing of folds, which are the screen's: a screen that hides some of an agent's reports (found through `parent`, all the way down) takes the most urgent `attention` among them, counts those that share it and colours the mark red if any is `alert`. Read from stored state, no live evaluate. Absent from a daemon that does not serve it yet. */
+  attention?: ("ask" | "alert" | "stuck" | "running") | null;
+  /** The agent's resume reuses its session whatever the prompt cache did (its own ignore_cache_expiry, else the global one), so a countdown from cache_until means nothing. Read from configuration. Absent means false. */
+  cache_ignored?: boolean;
+  /** Why the agent's configuration cannot be read, as one line; null when it can. When set, `kind` is absent (and the model, effort and the other fields that come from the configuration are null or absent). Absent from a daemon that does not serve it yet. */
+  config_error?: string | null;
 };
 
 export type AgentDetail = AgentView & {

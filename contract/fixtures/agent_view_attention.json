@@ -1,0 +1,428 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.get.view_attention_fire_context",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent whose triggers apply and whose context is at its limit: fire is `context`, in agent.get and in agents.list. Needs --var view_fire_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_fire_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_fire_agent}}",
+      "fire": "context"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_fire_agent}}",
+        "fire": "context"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_attention_no_fire",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: A closed agent, whose triggers do not apply: fire is null whatever its readings, attention is null, cache_ignored is false and there is no config error. Needs --var view_plain_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_plain_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_plain_agent}}",
+      "fire": null,
+      "attention": null,
+      "cache_ignored": false,
+      "config_error": null
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_plain_agent}}",
+        "fire": null,
+        "attention": null,
+        "cache_ignored": false,
+        "config_error": null
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_attention_ask",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent with an open ask to the founder: attention is `ask`, the first of its reasons. Needs --var view_ask_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_ask_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_ask_agent}}",
+      "attention": "ask"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_ask_agent}}",
+        "attention": "ask"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_attention_alert",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent whose screen word needs a human (a dialog): attention is `alert`. Needs --var view_alert_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_alert_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_alert_agent}}",
+      "attention": "alert"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_alert_agent}}",
+        "attention": "alert"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_attention_stuck",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent with a delivery that is not moving, or held by a usage limit, and nothing worse: attention is `stuck`. Needs --var view_stuck_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_stuck_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_stuck_agent}}",
+      "attention": "stuck"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_stuck_agent}}",
+        "attention": "stuck"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_attention_running",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: A running agent with nothing worse: attention is `running`. Needs --var view_busy_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_busy_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_busy_agent}}",
+      "attention": "running"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_busy_agent}}",
+        "attention": "running"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_cache_ignored",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent whose resume ignores cache expiry: cache_ignored is true. Needs --var view_ignored_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_ignored_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_ignored_agent}}",
+      "cache_ignored": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_ignored_agent}}",
+        "cache_ignored": true
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.view_config_error",
+   "spec": "agent.get",
+   "about": "NOT_YET_IN_PYTHON: An agent whose configuration cannot be read: config_error is a line saying why, and kind is absent. Needs --var view_broken_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_broken_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_broken_agent}}",
+      "config_error": {
+       "$type": "string"
+      },
+      "kind": {
+       "$absent": true
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{view_broken_agent}}",
+        "config_error": {
+         "$type": "string"
+        },
+        "kind": {
+         "$absent": true
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
