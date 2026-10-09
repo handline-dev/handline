@@ -22,7 +22,7 @@ sys.path.insert(0, os.getcwd())
 from handline.daemon import stream
 con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
 state = {}
-stream.%s(con, state)
+stream.%s(con, state); con.commit()
 print("ready", flush=True)
 sys.stdin.readline()
 stream.%s(con, state); con.commit()
@@ -103,7 +103,7 @@ func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup,
 	if err := json.Unmarshal([]byte(line), &py); err != nil {
 		t.Fatalf("%q: %v", line, err)
 	}
-	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications"}, "", 100)
+	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "chat"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +185,36 @@ func TestGoAndPythonWriteTheSameRowsForTheSameAgentChanges(t *testing.T) {
 			run("INSERT INTO agent_view(agent, view, updated) VALUES('dan', ?, 0)", v("dan", "stalled"))
 		})
 	if len(py) != len(events) || len(py) != 6 {
+		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
+	}
+	for i, e := range events {
+		sameRow(t, i, py[i], e)
+		if !same(py[i]["data"], e.Data) {
+			t.Errorf("row %d data: python %v, go %s", i, py[i]["data"], e.Data)
+		}
+	}
+}
+
+func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
+	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind, settles) VALUES(?, ?, ?, ?, ?, ?, 'say', ?)"
+	pb := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, ?, ?)"
+	py, events := parity(t, "_chat", func(d *sql.DB) Detector { return &Chat{Reads: &reads.Env{DB: d}} },
+		func(run func(string, ...any)) {
+			run("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'bob', 'human', 1)")
+			run("INSERT INTO agent_view(agent, view, updated) VALUES('bob', ?, 0), ('amy', ?, 0)", `{"name":"bob","state":"idle"}`, `{"name":"amy","state":"idle"}`)
+			run(pb, "amy", 1, 1)
+		},
+		func(run func(string, ...any)) {
+			run(ins, 1, 100, "human", "bob", "question", "landed", nil)
+			run(ins, 2, 150, "bob", "human", "the answer", "landed", 1)
+			run(ins, 3, 200, "amy", "bob", "hello", "landed", nil)
+			run("UPDATE requests SET delivered_at = 205, typed_at = 206, landed_at = 210 WHERE id = 3") // landed, so no sending reason (the reads give a simpler one than Python)
+			run("INSERT INTO events(ts, agent, kind, payload) VALUES(5, 'bob', 'task_begin', '{\"task_id\":1}')")
+			run(pb, "bob", 6, 6)
+			run("UPDATE prompt_blocks SET gone_at = 9 WHERE id = 1")
+			run("UPDATE agent_view SET view = ? WHERE agent = 'bob'", `{"name":"bob","state":"running","state_since":"x","blocker":"b"}`)
+		})
+	if len(py) != len(events) || len(py) < 8 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
 	for i, e := range events {
