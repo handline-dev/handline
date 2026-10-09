@@ -49,8 +49,18 @@ def ensure_cwd() -> None:
         os.chdir(repo_root())
 
 
+def _agreed_home_setting() -> str | None:
+    """HANDLINE_HOME / OCP_HOME as set. Both set to different folders is an error, not a pick of the first: the one a run
+    meant to use as scratch lost to the one that is the real home (T2916)."""
+    new, old = os.environ.get(names.NEW + "HOME"), os.environ.get(names.OLD + "HOME")
+    if new is not None and old is not None and new.strip() and old.strip() \
+            and Path(new).expanduser().resolve() != Path(old).expanduser().resolve():
+        raise SystemExit(f"{names.NEW}HOME={new} and {names.OLD}HOME={old} name different homes: set one, or both to the same folder")
+    return names.getenv("OCP_HOME")
+
+
 def home() -> Path:
-    raw = names.getenv("OCP_HOME")
+    raw = _agreed_home_setting()
     if raw is not None and not raw.strip():
         # Path("") is the current directory: `hl init` would set up wherever it was run.
         raise SystemExit("HANDLINE_HOME (or OCP_HOME) is set but empty: unset it to use the default home, or give it a folder")
