@@ -39,6 +39,9 @@
 .older {
   align-self: center;
 }
+.stream.col > .anim-item {
+  max-width: 100%;
+}
 .stream.col > .anim-item:has(> .msg.person) {
   align-self: flex-end;
 }
@@ -51,7 +54,8 @@
   border-radius: 10px;
   background: var(--panel);
   border: 1px solid var(--line);
-  overflow-wrap: anywhere;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .msg.person {
   align-self: flex-end;
