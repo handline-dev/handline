@@ -196,7 +196,11 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	}
 	args := r.cfg.Args
 	if !r.cfg.NoHooks {
-		path, err := WriteHooksSettings(r.cfg.Home, spec.Agent)
+		conf, err := r.confinementOf(spec.Agent, spec.Worktree)
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.Agent, err)
+		}
+		path, err := WriteSettings(r.cfg.Home, spec.Agent, conf)
 		if err != nil {
 			return fmt.Errorf("%s: %w", spec.Agent, err)
 		}
