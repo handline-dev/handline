@@ -33,7 +33,7 @@ func TestOutlookStatesTheRunwayTheCostAndKeepsTheFutureApart(t *testing.T) {
 	e.DB.Exec(`INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking)
 		VALUES('full','s','r',?, 'claude-sonnet-5', '/nowhere', 0, 1234567, 0, 0, 0, 0)`, now-60)
 
-	got, err := e.outlookAt("24h", 24, clock)
+	got, err := e.outlookAt("24h", 24, clock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +109,76 @@ func TestAccountsListShowsTheCapShrunkByTheWeeklyPace(t *testing.T) {
 	json.Unmarshal(b, &out)
 	if len(out.Accounts) != 2 || out.Accounts[0].Name != "ahead" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 2 {
 		t.Fatalf("an account ahead of its week takes no new agent; one behind keeps the configured cap: %s", b)
+	}
+}
+
+// outlookWithUse seeds two accounts whose week rose by 20 and 10 points, and two agents of the group grp who spent on them: grp.one $6 of
+// a's $8 and $2 of b's $2, grp.two $2 of a's $8.
+func outlookWithUse(t *testing.T) (*Env, time.Time) {
+	t.Helper()
+	e := testEnv(t)
+	clock := time.Date(2026, 10, 8, 15, 0, 0, 0, time.Local)
+	now := clock.Unix()
+	for acct, rise := range map[string]int{"a": 20, "b": 10} {
+		for i := 0; i < 3; i++ {
+			ts := now - int64(3-i)*1800
+			w := fmt.Sprintf(`[{"minutes":10080,"used_percent":%d,"resets_at":%d}]`, 10+rise*i/2, now+86400)
+			run(t, e, "INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)", acct, ts, w)
+		}
+	}
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, worktree) VALUES('grp.one', 'IDLE', 0, '/w/one'), ('grp.two', 'IDLE', 0, '/w/two')")
+	call := func(acct, cwd string, tokens int) {
+		run(t, e, `INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking)
+			VALUES(?, 's', ?, ?, 'claude-sonnet-5', ?, 0, ?, 0, 0, 0, 0)`, acct, acct+cwd, now-60, cwd, tokens)
+	}
+	call("a", "/w/one", 3_000_000)
+	call("a", "/w/two", 1_000_000)
+	call("b", "/w/one", 1_000_000)
+	return e, clock
+}
+
+func TestOutlookGivesWhatEachAgentUsedAndTheEstimateOfTheWeek(t *testing.T) {
+	e, clock := outlookWithUse(t)
+	got, err := e.outlookAt("24h", 24, clock, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := got.(map[string]any)
+	if _, has := res["overlay"]; has {
+		t.Fatal("no agent asked for, no overlay")
+	}
+	uses := res["agent_use"].([]any)
+	one, two := uses[0].(map[string]any), uses[1].(map[string]any)
+	fr := one["fracs"].(map[string]any)
+	if len(uses) != 2 || one["agent"] != "grp.one" || two["agent"] != "grp.two" || one["tokens"] != int64(4_000_000) ||
+		one["cost"] != 8.0 || one["share"] != 0.8 || two["share"] != 0.2 || fr["a"] != 0.75 || fr["b"] != 1.0 {
+		t.Fatalf("%v", uses)
+	}
+	// grp.one: 3/4 of a's 20 points and all of b's 10, over two accounts; grp.two: 1/4 of a's.
+	if one["est_pct"] != 12.5 || two["est_pct"] != 2.5 {
+		t.Fatalf("%v %v", one["est_pct"], two["est_pct"])
+	}
+}
+
+func TestOutlookOverlayIsThePicksCurveAgainstPast(t *testing.T) {
+	e, clock := outlookWithUse(t)
+	for pick, nonEmpty := range map[string]bool{"grp.one": true, "grp:grp": true, "grp.nobody": false, "nobody": false} {
+		got, err := e.outlookAt("24h", 24, clock, &pick)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := got.(map[string]any)
+		overlay := res["overlay"].([]any)
+		if nonEmpty != (len(overlay) > 0) || (nonEmpty && len(overlay) != len(res["past"].([]any))) {
+			t.Fatalf("%s: %d overlay entries for %d past", pick, len(overlay), len(res["past"].([]any)))
+		}
+		for i := 1; i < len(overlay); i++ {
+			if overlay[i].(float64) < overlay[i-1].(float64) {
+				t.Fatalf("%s: the points used only grow: %v", pick, overlay)
+			}
+		}
+		if nonEmpty && overlay[len(overlay)-1].(float64) <= 0 {
+			t.Fatalf("%s: %v", pick, overlay)
+		}
 	}
 }
