@@ -402,7 +402,7 @@ One task with body, delivery history and linked events.
 
 ### `task.new`
 
-Create a task.
+Create a task. The founder or a member device opens one for an agent only, and it opens queued.
 
 ### `task.handoff`
 
