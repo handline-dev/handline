@@ -19,6 +19,7 @@ import (
 	"github.com/handline/handline/go/internal/daemon"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/version"
 )
@@ -88,6 +89,7 @@ func main() {
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	ownPrompts := flag.Bool("own-prompts", false, "run the screen watch that writes prompt_blocks: this daemon is then the only writer, so it takes the daemon singleton and does not start beside a Python daemon, and is refused with -gateway")
 	structuredCLI := flag.String("structured-cli", "", "the claude binary structured sessions run: with it the daemon builds the structured manager and serves the transcript for the agents whose agent.yaml says structured: true; empty runs none")
+	claudeVersion := flag.String("claude-version", "", "with -structured-cli: the claude version a structured start accepts instead of the one the control types were read against ("+structured.PinnedCLI+"); a newer claude is run on trust until the types are read against it")
 	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only. The tick also reads every account's usage and token log, so the Python daemon must not tick beside it on the same home")
 	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
@@ -104,7 +106,7 @@ func main() {
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
-		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, Args: []string{"--setting-sources", "project"}}
+		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}}
 		parts := compose.New(ccfg)
 		cfg.Watch = *structuredTick && *cutover
 		cfg.Delivery = parts.Delivery()
