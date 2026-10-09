@@ -35,6 +35,8 @@ type Env struct {
 	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
 	// reads this where a terminal agent's row says it.
 	SessionOpen func(agent string) bool
+	// Delivery is what the supervisor knows of why a queued line waits; nil leaves out the reasons that need it.
+	Delivery Delivery
 }
 
 // Register adds the read methods to the server's table.
