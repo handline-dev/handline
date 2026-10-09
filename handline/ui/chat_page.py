@@ -1712,12 +1712,18 @@ class ChatPage(JobsAware, Screen):
 
     def refresh_agent_strip(self) -> None:
         self.query_one(SandboxBanner).refresh_state(self.agent, True)
+        self._off_loop("strip", self._read_strip, self._apply_strip)
+
+    def _read_strip(self) -> dict | None:
         try:
-            got = read_strip(self.agent)
+            return read_strip(self.agent)
         except (client.RpcError, client.DaemonDown, OSError):
-            return
-        self.query_one(AgentStrip).show(got)
-        self._set_agent_state((got["screen_word"] or "IDLE", got["screen_detail"]))
+            return None
+
+    def _apply_strip(self, got: dict | None) -> None:
+        if got is not None:
+            self.query_one(AgentStrip).show(got)
+            self._set_agent_state((got["screen_word"] or "IDLE", got["screen_detail"]))
 
     def refresh_view(self) -> None:
         self.refresh_agent_strip()
@@ -1816,8 +1822,7 @@ class ChatPage(JobsAware, Screen):
             # What is drawn is seen: it leaves FOR YOU. An answer counts by its own row.
             seen = max((max(m["id"], (m["answer"] or {}).get("id") or 0) for m in asks), default=0)
             if seen > self._seen:      # a write only when something new is drawn
-                if api.write("chat.seen", {"agent": self.agent, "up_to": seen})[0]:
-                    self._seen = seen      # a refused write is sent again on the next refresh
+                self._mark_seen(seen)
             why = wait_reason(con, self.agent, msgs, self.agent_state[0] == "RUNNING")
         finally:
             con.close()
@@ -1868,6 +1873,12 @@ class ChatPage(JobsAware, Screen):
                 self.reply_to(picked)
                 self.call_after_refresh(picked.scroll_visible)
                 self._focus = None if self._tabbed else self._focus
+
+    def _mark_seen(self, seen: int) -> None:
+        def write() -> None:
+            if api.write("chat.seen", {"agent": self.agent, "up_to": seen})[0]:
+                self._seen = max(self._seen, seen)      # a refused write is sent again on the next refresh
+        self.run_worker(write, thread=True, group="seen", exit_on_error=False)
 
     def _rebuilt(self) -> None:
         self._rebuilding = False
