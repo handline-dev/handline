@@ -6054,7 +6054,11 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`."
+   "description": "No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`.",
+   "x-gates": [
+    "role",
+    "state"
+   ]
   },
   {
    "name": "account.login_cancel",
@@ -6093,7 +6097,10 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "Idempotent: a login already ended answers accepted. An id the daemon never issued is not_found. The login's whole process group is killed, since the CLI ignores SIGTERM for a second."
+   "description": "Idempotent: a login already ended answers accepted. An id the daemon never issued is not_found. The login's whole process group is killed, since the CLI ignores SIGTERM for a second.",
+   "x-gates": [
+    "role"
+   ]
   },
   {
    "name": "account.login_code",
@@ -6144,7 +6151,11 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The code is never echoed back, never in an event, a log or the request record. Refused with gate `state` when the login is not waiting for a code. An id the daemon never issued is not_found."
+   "description": "The code is never echoed back, never in an event, a log or the request record. Refused with gate `state` when the login is not waiting for a code. An id the daemon never issued is not_found.",
+   "x-gates": [
+    "role",
+    "state"
+   ]
   },
   {
    "name": "account.remove",

@@ -280,7 +280,7 @@
   {
    "name": "account.login_cancel.unknown_login_is_not_found",
    "spec": "account.login_cancel",
-   "about": "A login id the daemon never issued is not_found.",
+   "about": "NOT_YET_IN_PYTHON: A login id the daemon never issued is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -319,7 +319,7 @@
   {
    "name": "account.login_cancel.is_refused_to_an_agent_session",
    "spec": "account.login_cancel",
-   "about": "Below the method's role: refused, gate role, nothing written.",
+   "about": "NOT_YET_IN_PYTHON: Below the method's role: refused, gate role, nothing written.",
    "as": "agent",
    "steps": [
     {
@@ -357,7 +357,7 @@
   {
    "name": "account.login_code.unknown_login_is_not_found",
    "spec": "account.login_code",
-   "about": "A login id the daemon never issued is not_found; the code is not echoed in the error.",
+   "about": "NOT_YET_IN_PYTHON: A login id the daemon never issued is not_found; the code is not echoed in the error.",
    "as": "founder",
    "steps": [
     {
@@ -397,7 +397,7 @@
   {
    "name": "account.login_code.is_refused_to_an_agent_session",
    "spec": "account.login_code",
-   "about": "Below the method's role: refused, gate role, nothing written.",
+   "about": "NOT_YET_IN_PYTHON: Below the method's role: refused, gate role, nothing written.",
    "as": "agent",
    "steps": [
     {

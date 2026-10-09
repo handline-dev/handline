@@ -18,7 +18,7 @@ def _bad(field):
     return "fail", err(-32602, "bad_request", field=field)
 
 
-@fake("account.set", "account.login", "account.remove", "hr.decide", "schedule.add", "schedule.edit", "schedule.remove", "settings.set")
+@fake("account.set", "account.login", "account.login_cancel", "account.login_code", "account.remove", "hr.decide", "schedule.add", "schedule.edit", "schedule.remove", "settings.set")
 def admin(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
@@ -31,12 +31,14 @@ def admin(role, method, params):
         if method == "account.set" and isinstance(params.get("cycle_end"), str) and params["cycle_end"] == "2026-13-45":
             return _bad("cycle_end")
         if method == "account.login":
-            return "ok", {**ok, "terminal": "t-login"}
+            return "ok", {**ok, "login_id": "l-1", "state": "waiting", "url": "https://claude.com/cai/oauth/authorize?fake"}
         if method == "account.remove":
             if params.get("dry_run") is True:
                 return "ok", {**ok, "would_remove": True, "plan": ["would remove account"]}
             return _refused() if params.get("confirm") == params["account"] else _bad("confirm")
         return "ok", ok
+    if method in ("account.login_cancel", "account.login_code"):
+        return _not_found("login")
     if method == "hr.decide":
         if params.get("decision") not in ("approve", "reject"):
             return _bad("decision")
