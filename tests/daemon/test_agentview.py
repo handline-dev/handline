@@ -17,7 +17,9 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.session import term  # noqa: E402
+from handline.session import idle_close, term  # noqa: E402
+from handline.team import ask as askmod  # noqa: E402
+from handline.ui.components import agent_rows  # noqa: E402
 from handline.view import tui  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -47,6 +49,14 @@ def _drift(con, label: str, now: int) -> None:
           f"{view['kind']} {view['task_count']} {view['ready']} vs {ui.kind} {ui.tasks} {ui.ready}")
     check(f"{label}: wall is the screen's wall cell", (view["wall"] is None) == (ui.wall is None) and (
         ui.wall is None or (view["wall"]["account"], view["wall"]["assumed"]) == (ui.wall.account, ui.wall.mark == "?")), str(view["wall"]))
+    stuck = agent_rows._stuck_by_agent(con)
+    glyph, _, colour = agent_rows.fold_urgency(con, ["backend"], stuck) or (None, 0, None)
+    want = None if glyph is None else {"✉": "ask", "▶": "running"}.get(glyph) or ("alert" if colour == tui.RED else "stuck")
+    check(f"{label}: attention is the screen's fold urgency for the agent alone", view["attention"] == want, f"{view['attention']} vs {glyph} {colour}")
+    check(f"{label}: the trigger about to fire is the screen's warning cell", (view["fire"] in ("usage", "context")) == bool(ui.fire)
+          or view["fire"] == "usage_7d", f"{view['fire']} vs {ui.fire!r}")
+    check(f"{label}: cache_ignored and config_error", view["cache_ignored"] is idle_close.ignore_cache_expiry("backend")
+          and view["config_error"] is None, str(view))
     check(f"{label}: account, task and parent", view["account"] == agents.current_account("backend", con)
           and (view["task"] or {}).get("id") == db.current_task(con, "backend")
           and view["parent"] == actions.supervisor_of(actions.routing(), "backend"), str(view))
@@ -176,6 +186,93 @@ def test_the_view_says_what_kind_how_many_tasks_ready_and_walled(home: Path) -> 
         check("task_count: the same draft counts once it is the current task", agentview.stored(con, "a.plain")["task_count"] == 1)
     finally:
         con.close()
+
+
+def _seed_attention_fields(home: Path, con, now: int) -> dict:
+    """One agent for each case of agent_view_attention.json; the account is quiet, so only the case's own reading is at a limit."""
+    for n in ("a.fire", "a.ask", "a.alert", "a.stuck", "a.ignored", "a.broken", "a.plain", "a.busy"):
+        agents.register(n)
+        db.set_account(con, n, "alpha")
+    write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+    for n in ("a.fire", "a.ask", "a.alert", "a.stuck", "a.ignored"):
+        db.set_terminal(con, n, f"t-{n}", f"/w/{n}")
+        db.set_agent_state(con, n, dmn_states.IDLE)
+    db.set_agent_state(con, "a.busy", dmn_states.RUNNING)
+    db.set_closed(con, "a.plain", "sess")
+    db.set_agent_state(con, "a.plain", dmn_states.IDLE)
+    write_agent_status("a.fire", "alpha", ctx_pct=99, ctx_used=50_000_000, session_id="s1")
+    askmod.ask("human", "which one?", requester="a.ask")
+    db.block_open(con, "a.alert", term.MODAL, "pick one", "", now, now - 1)
+    db.add_event(con, "a.stuck", "StopFailure", {"limit": "five-hour limit"})
+    idle_close.set_agent_ignore_cache_expiry("a.ignored", True)
+    (paths.agent_dir("a.broken") / "agent.yaml").write_text("model: [unclosed\n")
+    return {"view_fire_agent": "a.fire", "view_ask_agent": "a.ask", "view_alert_agent": "a.alert", "view_stuck_agent": "a.stuck",
+            "view_ignored_agent": "a.ignored", "view_broken_agent": "a.broken", "view_plain_agent": "a.plain", "view_busy_agent": "a.busy"}
+
+
+def test_the_view_says_which_trigger_fires_what_it_asks_of_the_founder_and_why_a_config_fails(home: Path) -> None:
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        v = _seed_attention_fields(home, con, now)
+        agentview.refresh(con, now)
+        got = {n: agentview.stored(con, n) for n in v.values()}
+        check("fire: the context at its limit, for an agent whose triggers apply", got["a.fire"]["fire"] == "context", str(got["a.fire"]))
+        check("fire: null for a closed agent whatever its readings", got["a.plain"]["fire"] is None and got["a.plain"]["attention"] is None)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=now + 1800)
+        agentview.refresh(con, now)
+        check("fire: the shortest window at the wall is `usage`, before the context", agentview.stored(con, "a.fire")["fire"] == "usage")
+        write_status(home, "alpha", pct_5h=20, pct_7d=100, ctx_pct=5, reset_5h=now + 1800)
+        agentview.refresh(con, now)
+        check("fire: the longest window at the wall is `usage_7d`", agentview.stored(con, "a.fire")["fire"] == "usage_7d")
+        check("fire: null once a parked agent is past its wall", (db.set_agent_state(con, "a.fire", dmn_states.PARKED, wake_at=now + 60),
+                                                                  agentview.refresh(con, now), agentview.stored(con, "a.fire")["fire"])[2] is None)
+        check("attention: an open ask to the founder", got["a.ask"]["attention"] == "ask")
+        check("attention: a dialog needs a human", got["a.alert"]["attention"] == "alert")
+        db.block_open(con, "a.plain", "no session", "its process is gone", "", now, now - 1)
+        agentview.refresh(con, now)
+        check("attention: a delivery block the founder has been told of is an alert though no dialog is up",
+              (v := agentview.stored(con, "a.plain"))["attention"] == "alert" and v["state"] != "waiting", str(v))
+        check("attention: a usage limit is stuck", got["a.stuck"]["attention"] == "stuck", str(got["a.stuck"]))
+        check("attention: a running turn", got["a.busy"]["attention"] == "running")
+        askmod.ask("human", "and this?", requester="a.alert")
+        agentview.refresh(con, now)
+        check("attention: the most urgent wins (an ask beats a dialog)", agentview.stored(con, "a.alert")["attention"] == "ask")
+        check("cache_ignored: its own switch, else the global one", got["a.ignored"]["cache_ignored"] is True and got["a.plain"]["cache_ignored"] is False)
+        broken = got["a.broken"]
+        check("config_error: a line saying why, and no kind", isinstance(broken["config_error"], str) and broken["config_error"]
+              and "\n" not in broken["config_error"] and "kind" not in broken and broken["model"] is None, str(broken))
+        check("config_error: null, with a kind, when it reads", got["a.plain"]["config_error"] is None and got["a.plain"]["kind"])
+    finally:
+        con.close()
+
+
+def test_the_attention_fixtures_pass_against_this_daemon(home: Path) -> None:
+    import json
+    import socket
+    import threading
+    from handline.daemon import socket_server
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
+    import conformance
+    support._daemon_home(home, 20)
+    now = int(time.time())
+    con = db.connect()
+    try:
+        variables = _seed_attention_fields(home, con, now)
+        agentview.refresh(con, now)
+    finally:
+        con.close()
+
+    def connect():
+        a, b = socket.socketpair()
+        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
+        return a
+    doc = json.loads(Path("contract/fixtures/agent_view_attention.json").read_text())
+    results = conformance.run_all([Path("contract/fixtures/agent_view_attention.json")], {"founder": connect},
+                                  {"founder_key": _hp()["key"], **variables})
+    bad = [(n, why) for st, why, n in results if st != "pass"]
+    check("fixtures: every AgentView attention fixture passes against this daemon", len(results) == len(doc["fixtures"]) and not bad, str(bad))
 
 
 def test_the_view_field_fixtures_pass_against_this_daemon(home: Path) -> None:
@@ -430,6 +527,8 @@ def main() -> int:
         run(lambda: test_the_view_carries_the_context_the_strip_reads(Path(td) / "a2c"))
         run(lambda: test_the_view_says_what_kind_how_many_tasks_ready_and_walled(Path(td) / "a2d"))
         run(lambda: test_the_view_field_fixtures_pass_against_this_daemon(Path(td) / "a2e"))
+        run(lambda: test_the_view_says_which_trigger_fires_what_it_asks_of_the_founder_and_why_a_config_fails(Path(td) / "a2f"))
+        run(lambda: test_the_attention_fixtures_pass_against_this_daemon(Path(td) / "a2g"))
         run(lambda: test_one_agents_failure_does_not_stale_the_others(Path(td) / "a2b"))
         run(lambda: test_refresh_writes_only_what_changed_and_forgets_a_gone_agent(Path(td) / "a2"))
         run(lambda: test_the_tick_stores_every_agents_view(Path(td) / "a3"))

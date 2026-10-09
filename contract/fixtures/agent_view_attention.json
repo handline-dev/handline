@@ -3,7 +3,7 @@
   {
    "name": "agent.get.view_attention_fire_context",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent whose triggers apply and whose context is at its limit: fire is `context`, in agent.get and in agents.list. Needs --var view_fire_agent.",
+   "about": "An agent whose triggers apply and whose context is at its limit: fire is `context`, in agent.get and in agents.list. Needs --var view_fire_agent.",
    "as": "founder",
    "steps": [
     {
@@ -54,7 +54,7 @@
   {
    "name": "agent.get.view_attention_no_fire",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: A closed agent, whose triggers do not apply: fire is null whatever its readings, attention is null, cache_ignored is false and there is no config error. Needs --var view_plain_agent.",
+   "about": "A closed agent, whose triggers do not apply: fire is null whatever its readings, attention is null, cache_ignored is false and there is no config error. Needs --var view_plain_agent.",
    "as": "founder",
    "steps": [
     {
@@ -111,7 +111,7 @@
   {
    "name": "agent.get.view_attention_ask",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent with an open ask to the founder: attention is `ask`, the first of its reasons. Needs --var view_ask_agent.",
+   "about": "An agent with an open ask to the founder: attention is `ask`, the first of its reasons. Needs --var view_ask_agent.",
    "as": "founder",
    "steps": [
     {
@@ -162,7 +162,7 @@
   {
    "name": "agent.get.view_attention_alert",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent whose screen word needs a human (a dialog): attention is `alert`. Needs --var view_alert_agent.",
+   "about": "An agent whose screen word needs a human (a dialog): attention is `alert`. Needs --var view_alert_agent.",
    "as": "founder",
    "steps": [
     {
@@ -213,7 +213,7 @@
   {
    "name": "agent.get.view_attention_stuck",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent with a delivery that is not moving, or held by a usage limit, and nothing worse: attention is `stuck`. Needs --var view_stuck_agent.",
+   "about": "An agent with a delivery that is not moving, or held by a usage limit, and nothing worse: attention is `stuck`. Needs --var view_stuck_agent.",
    "as": "founder",
    "steps": [
     {
@@ -264,7 +264,7 @@
   {
    "name": "agent.get.view_attention_running",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: A running agent with nothing worse: attention is `running`. Needs --var view_busy_agent.",
+   "about": "A running agent with nothing worse: attention is `running`. Needs --var view_busy_agent.",
    "as": "founder",
    "steps": [
     {
@@ -315,7 +315,7 @@
   {
    "name": "agent.get.view_cache_ignored",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent whose resume ignores cache expiry: cache_ignored is true. Needs --var view_ignored_agent.",
+   "about": "An agent whose resume ignores cache expiry: cache_ignored is true. Needs --var view_ignored_agent.",
    "as": "founder",
    "steps": [
     {
@@ -366,7 +366,7 @@
   {
    "name": "agent.get.view_config_error",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: An agent whose configuration cannot be read: config_error is a line saying why, and kind is absent. Needs --var view_broken_agent.",
+   "about": "An agent whose configuration cannot be read: config_error is a line saying why, and kind is absent. Needs --var view_broken_agent.",
    "as": "founder",
    "steps": [
     {

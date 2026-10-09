@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from .. import actions, db
 from ..infra import gitrun, paths, textsafe
+from ..infra.yamlcompat import ConfigError
 from ..session import launch, promptparse
 from ..team import agents
 from . import agentview, inputhold, lifecycle, rpc, taskholds
@@ -120,7 +121,10 @@ def _agent_get(ctx, params) -> dict:
         if path:
             rc, out, _ = gitrun.run(path, "rev-parse", "--abbrev-ref", "HEAD")
             branch = textsafe.oneline(out) if rc == 0 else None
-        account = launch.find_room(name)
+        try:
+            account = launch.find_room(name)
+        except (OSError, ConfigError):      # an unreadable configuration is a finding of the view (config_error), not a failed read
+            account = None
         return {**_view(con, name),
                 "worktree": {"path": path, "branch": branch or ""} if path else None,
                 "terminal": row["terminal"] if row else None,
@@ -129,7 +133,7 @@ def _agent_get(ctx, params) -> dict:
                 "input_holders": inputhold.view(con, name),
                 "account_pick": {"account": account,
                                  "reason": "the account a session start would be placed on" if account
-                                 else "no account can take work"},
+                                 else "no account can take work, or the configuration cannot be read"},
                 "prompt": _prompt(con, name),
                 "cwd": actions.cwd_for(con, name),
                 "can": _can(con, name)}
