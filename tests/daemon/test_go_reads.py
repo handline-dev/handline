@@ -73,7 +73,8 @@ def _seed_view_fields(home: Path, con) -> None:
     background-work and a no-terminal agent, each with a queued current task (so ready is asked of each), a walled wake, a doing task in
     time, one past its deadline with a notice behind it and one past it with none. Every time is fixed, so the two daemons asked minutes apart agree."""
     now = int(time.time())
-    for name in ("view_done", "view_parked", "view_bg", "view_term", "view_walled", "view_timed", "view_over", "view_late"):
+    for name in ("view_done", "view_parked", "view_bg", "view_term", "view_walled", "view_timed", "view_over", "view_late",
+                 "view_fire", "view_ask", "view_alert", "view_stuck", "view_broken"):
         agents.register(name)
 
     def task(agent: str, doing: int | None = None, timeout_at: int | None = None) -> int:
@@ -100,6 +101,16 @@ def _seed_view_fields(home: Path, con) -> None:
     over = task("view_over", doing=now - 8000, timeout_at=now - 500), row("view_over", "RUNNING", "t-8")
     db.add_event(con, "manager", "task_timeout_exceeded", {"task_id": over[0], "timeout_s": 3600, "text": "late", "deadline": now - 4100, "next": now - 500})
     task("view_late", doing=now - 8000, timeout_at=now - 500), row("view_late", "RUNNING", "t-9")
+    # fire: an agent whose account is at the wall; ask: an open ask to the founder; alert: a delivery block the founder has been told of;
+    # config_error: an agent.yaml that is not a map. cache_ignored is asked of the worker (its own switch off) and the rest (the global one).
+    task("view_fire"), row("view_fire", "IDLE", "t-10", account="zeta")
+    task("view_ask"), row("view_ask", "IDLE", "t-11")
+    db.add_request(con, "view_ask", db.HUMAN, "may I?", None, "subordinate", "async", "ask", 0, None)
+    task("view_alert"), row("view_alert", "IDLE", "t-12")
+    db.block_open(con, "view_alert", "dialog", "a permission dialog", "a task", now - 100, now - 50)
+    task("view_stuck"), row("view_stuck", "DEGRADED", "t-15", wake_at=now + 3600)      # a finding of actions.stuck about it
+    task("view_broken"), row("view_broken", "IDLE", "t-14")
+    support.hand_edit_agent("view_broken", "- not a map\n")
 
 
 def _seed(home: Path) -> dict:
@@ -190,7 +201,7 @@ def _seed(home: Path) -> dict:
     db.set_cursor(con, stream.PRUNED, 2)
     protected.put("trust", "roots.json", json.dumps([{"root": "/srv/repo", "why": "w", "added_by": "human", "added_at": 1}]))
     protected.put("dialog_rules", "rules.json", json.dumps([{"vendor": "claude", "title": "Trust this folder?", "label": "Yes"}, {"vendor": "", "title": "t", "label": "l"}]))
-    agentview.refresh(con, int(time.time()))
+    agentview.refresh(con, int(time.time()), print)
     con.close()
     return {"tasks": [a, b, c, done], "ask": ask, "card": card}
 
@@ -409,6 +420,12 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
           and clock("view_over")["told"] == 1 and clock("view_over")["overdue_since"] != clock("view_late")["overdue_since"]
           and clock("view_late")["told"] == 0 and clock("view_late")["overdue_since"] is not None and timed["finished"]["time"] is None,
           str({n: (v["ready"], v["wall"], v["task_count"]) for n, v in views.items()}))
+    check("go reads: setup: the rows fire, attention, cache_ignored and config_error are asked of are in the states they are meant to be",
+          views["view_fire"]["fire"] == "usage" and views["view_done"]["fire"] is None and views["view_ask"]["attention"] == "ask"
+          and views["view_alert"]["attention"] == "alert" and views["view_timed"]["attention"] == "running" and views["view_done"]["attention"] is None
+          and views["view_stuck"]["attention"] == "stuck" and views["view_done"]["cache_ignored"] and not views["worker"]["cache_ignored"]
+          and views["view_broken"]["config_error"] and "kind" not in views["view_broken"] and views["view_done"]["config_error"] is None,
+          str({n: (v["fire"], v["attention"], v["cache_ignored"], v["config_error"]) for n, v in views.items()}))
     check("go reads: setup: the worker has a branch, an open session, a person holding the input and a permission prompt",
           worker["worktree"]["branch"] == "feature" and worker["session_open"] and worker["input_holders"][0]["kind"] == "person"
           and worker["prompt"]["kind"] == "permission" and len(worker["prompt"]["options"]) == 3, str(worker))

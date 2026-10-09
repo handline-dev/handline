@@ -2,7 +2,11 @@ package reads
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 )
@@ -103,5 +107,155 @@ func TestAStoredWallStandsWhereNoLifecycleCanSayOtherwise(t *testing.T) {
 	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle","wall":{"account":"acct","clock":null,"assumed":false}}', 0)`)
 	if w, _ := viewOfAgent(t, e, "bob")["wall"].(map[string]any); w["account"] != "acct" {
 		t.Fatalf("%v", w)
+	}
+}
+
+func TestAgentViewServesCacheIgnoredAndConfigError(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	v := viewOfAgent(t, e, "bob")
+	if v["cache_ignored"] != false || v["config_error"] != nil || v["kind"] == nil {
+		t.Fatalf("%v", v)
+	}
+	// The agent's own switch wins over the global one; a configuration that cannot be read is a finding and takes the kind with it.
+	os.WriteFile(filepath.Join(e.Home, "config.yaml"), []byte("ignore_cache_expiry: true\n"), 0o644)
+	if v = viewOfAgent(t, e, "bob"); v["cache_ignored"] != true {
+		t.Fatalf("global switch: %v", v)
+	}
+	os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("ignore_cache_expiry: false\n"), 0o644)
+	if v = viewOfAgent(t, e, "bob"); v["cache_ignored"] != false {
+		t.Fatalf("own switch: %v", v)
+	}
+	os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("- not a map\n"), 0o644)
+	v = viewOfAgent(t, e, "bob")
+	if msg, _ := v["config_error"].(string); msg == "" || strings.Contains(msg, "\n") {
+		t.Fatalf("config_error %v", v["config_error"])
+	}
+	if _, has := v["kind"]; has {
+		t.Fatalf("kind with an unreadable configuration: %v", v)
+	}
+}
+
+func TestAgentViewAttentionIsTheMostUrgentOfAskAlertStuckRunning(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	e.Delivery = fakeDelivery{}
+	view := func(json string) {
+		run(t, e, "INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES('bob', ?, 0)", json)
+	}
+	row := func(st string, closedAt any) {
+		run(t, e, "INSERT OR REPLACE INTO agent_state(agent, state, updated, closed_at, terminal) VALUES('bob', ?, 0, ?, 't')", st, closedAt)
+	}
+	attention := func() any { return viewOfAgent(t, e, "bob")["attention"] }
+	want := func(label string, got any, w any) {
+		t.Helper()
+		if got != w {
+			t.Fatalf("%s: attention %v, want %v", label, got, w)
+		}
+	}
+
+	view(`{"name":"bob","state":"idle"}`)
+	row("IDLE", nil)
+	want("nothing", attention(), nil)
+	row("RUNNING", nil)
+	want("running", attention(), "running")
+	row("RUNNING", 5)
+	want("a closed session still carrying RUNNING", attention(), nil)
+	row("IDLE", nil)
+
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle","wall_reason":"zeta is at 100%"}'`)
+	want("wall", attention(), "stuck")
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"waiting","wall_reason":"zeta is at 100%"}'`)
+	want("a dialog outranks a wall", attention(), "alert")
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle","block":{"kind":"x","since":"t"}}'`)
+	want("a block shown", attention(), "alert")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 1, 'bob', 'human', 'may I?', 'queued', 'ask', 1)")
+	want("an open ask outranks all", attention(), "ask")
+}
+
+func TestAgentViewAttentionStuckFindingsAboutTheAgent(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle"}', 0)`)
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, terminal) VALUES('bob', 'IDLE', 0, 't')")
+	attention := func(d fakeDelivery) any {
+		e.Delivery = d
+		return viewOfAgent(t, e, "bob")["attention"]
+	}
+	queueAt := func(id, ts int64) {
+		run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(?, ?, 'amy', 'bob', 'b', 'queued', 'ask', 1)", id, ts)
+	}
+
+	if got := attention(fakeDelivery{}); got != nil {
+		t.Fatalf("nothing queued: %v", got)
+	}
+	// A request a daemon can deliver is a queue working until it has gone on longer than the longest healthy turn.
+	queueAt(2, time.Now().Unix()-60)
+	if got := attention(fakeDelivery{}); got != nil {
+		t.Fatalf("a fresh request: %v", got)
+	}
+	run(t, e, "UPDATE requests SET ts = ?", time.Now().Unix()-4000)
+	if got := attention(fakeDelivery{}); got != "stuck" {
+		t.Fatalf("an old request nothing is holding: %v", got)
+	}
+	// Told, and the agent's own wall holds it: it clears itself, so a told request is not stuck however old.
+	run(t, e, "INSERT INTO cursors(name, row_id, updated) VALUES('notify:bob', 2, 0)")
+	if got := attention(fakeDelivery{wall: "zeta is at 100%"}); got != nil {
+		t.Fatalf("told and self-clearing: %v", got)
+	}
+	// A reason that does not clear itself counts at once.
+	run(t, e, "UPDATE requests SET ts = ?", time.Now().Unix()-10)
+	run(t, e, "UPDATE agent_state SET state = 'IDLE', closed_at = 5")
+	if got := attention(fakeDelivery{full: true}); got != "stuck" {
+		t.Fatalf("closed, account full: %v", got)
+	}
+	// Quiet states need no one to act.
+	if got := attention(fakeDelivery{}); got != nil {
+		t.Fatalf("closed, nothing to wake it: %v", got)
+	}
+	run(t, e, "UPDATE agent_state SET closed_at = NULL")
+	run(t, e, "DELETE FROM requests")
+
+	run(t, e, "UPDATE agent_state SET state = 'STALLED'")
+	if got := attention(fakeDelivery{}); got != "stuck" {
+		t.Fatalf("a FATAL row: %v", got)
+	}
+	run(t, e, "UPDATE agent_state SET state = 'IDLE'")
+	run(t, e, "INSERT INTO handoff(id, agent, step, state, updated, deadline) VALUES('h1', 'bob', 'x', 'in_flight', 0, 0)")
+	if got := attention(fakeDelivery{}); got != "stuck" {
+		t.Fatalf("a handoff in flight: %v", got)
+	}
+	run(t, e, "DELETE FROM handoff")
+	// A resolve nobody wrote counts once the nudge it was given is the one for that request and it has sat for half an hour.
+	if got := attention(fakeDelivery{forgotten: 1800}); got != nil {
+		t.Fatalf("not nudged for it: %v", got)
+	}
+	run(t, e, "INSERT OR REPLACE INTO cursors(name, row_id, updated) VALUES('nudge:bob', 7, 0)")
+	if got := attention(fakeDelivery{forgotten: 1799}); got != nil {
+		t.Fatalf("not idle long enough: %v", got)
+	}
+	if got := attention(fakeDelivery{forgotten: 1800}); got != "stuck" {
+		t.Fatalf("forgotten: %v", got)
+	}
+}
+
+func TestAgentViewFireIsWhatTheLifecycleSaysForTheAgentsAccount(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle","account":"zeta"}', 0)`)
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, terminal) VALUES('bob', 'IDLE', 0, 't')")
+	e.Delivery = fakeDelivery{fire: "usage_7d"}
+	if got := viewOfAgent(t, e, "bob")["fire"]; got != "usage_7d" {
+		t.Fatalf("%v", got)
+	}
+	// With no account there is nothing to read a trigger from; with no lifecycle the stored one stands.
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle"}'`)
+	if got := viewOfAgent(t, e, "bob")["fire"]; got != nil {
+		t.Fatalf("%v", got)
+	}
+	e.Delivery = nil
+	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle","fire":"context","attention":"alert"}'`)
+	if v := viewOfAgent(t, e, "bob"); v["fire"] != "context" || v["attention"] != "alert" {
+		t.Fatalf("%v", v)
 	}
 }

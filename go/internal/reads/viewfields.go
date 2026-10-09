@@ -2,6 +2,7 @@ package reads
 
 import (
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -14,7 +15,7 @@ type Wall struct {
 }
 
 // viewFields are the fields of an agent's view that are read from the board, the team files and the lifecycle, not stored with it
-// (AgentView kind, task_count, ready, wall). One builder for agents.list, agent.get and the working line.
+// (AgentView kind, task_count, ready, wall, fire, attention, cache_ignored, config_error). One builder for agents.list, agent.get and the working line.
 type viewFields struct {
 	taskCount map[string]int
 	// ready is the agents whose current task is queued and held by no open blocker.
@@ -68,23 +69,48 @@ func (e *Env) viewCtx() (*viewCtx, error) {
 
 // addFields puts the fields on a decoded view.
 func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
-	if cfg, err := x.roster.Read(name); err == nil {
+	cfg, cfgErr := x.roster.Read(name)
+	view["config_error"] = nil
+	if cfgErr != nil {
+		view["config_error"] = oneline(cfgErr.Error())
+	} else {
 		view["kind"] = team.Kind(cfg)
 	}
+	view["cache_ignored"] = (&lifecycle.Settings{Home: e.Home, Roster: x.roster}).IgnoreCacheExpiry(name)
 	view["task_count"] = x.taskCount[name]
 	view["ready"] = x.ready[name] && screenIdle(view["state"])
 	if e.Delivery == nil {
-		// No lifecycle here to say: the wall the stored view holds (the Python tick writes one) stands.
-		if _, has := view["wall"]; !has {
-			view["wall"] = nil
+		// No lifecycle here to say: the wall, fire and attention the stored view holds (the Python tick writes them) stand.
+		for _, k := range []string{"wall", "fire", "attention"} {
+			if _, has := view[k]; !has {
+				view[k] = nil
+			}
 		}
 		return nil
 	}
-	view["wall"] = nil
+	view["wall"], view["fire"] = nil, nil
 	row, err := db.GetAgentState(e.DB, name)
-	if err != nil || row == nil {
+	if err != nil {
 		return err
 	}
+	if row != nil {
+		if err := e.addWall(name, view, row); err != nil {
+			return err
+		}
+		if account, _ := view["account"].(string); account != "" && cfgErr == nil {
+			if fire, err := e.Delivery.Fire(e.DB, name, row, account); err != nil {
+				return err
+			} else if fire != "" {
+				view["fire"] = fire
+			}
+		}
+	}
+	view["attention"], err = e.attention(name, view, row)
+	return err
+}
+
+// addWall puts what holds back a wake that is due on a view.
+func (e *Env) addWall(name string, view map[string]any, row *db.AgentState) error {
 	w, err := e.Delivery.Wall(e.DB, name, row)
 	if err != nil || w == nil {
 		return err
