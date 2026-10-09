@@ -7611,7 +7611,7 @@
      "task_count": {
       "type": "integer",
       "minimum": 0,
-      "description": "The tasks the agent owns that are not done: the current one and those waiting. Absent from a daemon that does not serve it yet."
+      "description": "The tasks the agent owns that are not done: the current one and those waiting (queued or doing). A draft that is not the current task is not counted, as it is not approved yet; one the agent picked up and made current is. Absent from a daemon that does not serve it yet."
      },
      "ready": {
       "type": "boolean",
@@ -11277,7 +11277,7 @@
          "additionalProperties": {
           "type": "number"
          },
-         "description": "Its cost share of each account in the span, by account name (a fraction, 0 to 1); an account it spent nothing on is absent."
+         "description": "Its cost share of each account in the span, by account name (a fraction, 0 to 1). An account on which nothing at all was spent is absent; one on which others spent but none of this agent's tokens was priced is 0."
         }
        },
        "required": [

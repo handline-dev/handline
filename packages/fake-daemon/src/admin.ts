@@ -123,7 +123,7 @@ export class FakeAdmin {
       ],
       cost_per_day,
       agent_use: AGENT_USE.map((u) => ({ ...u, fracs: { ...u.fracs } })),
-      ...(pick !== undefined && { overlay: (OVERLAYS[pick] ?? []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length) }),
+      ...(pick !== undefined && { overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length) }),
     };
   }
 
