@@ -97,7 +97,7 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 		if err := e.addWall(name, view, row); err != nil {
 			return err
 		}
-		if account, _ := view["account"].(string); account != "" && cfgErr == nil {
+		if account, _ := view["account"].(string); account != "" && cfgErr == nil && len(cfg) > 0 {
 			if fire, err := e.Delivery.Fire(e.DB, name, row, account); err != nil {
 				return err
 			} else if fire != "" {

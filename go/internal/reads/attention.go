@@ -21,7 +21,7 @@ func (e *Env) attention(name string, view map[string]any, row *db.AgentState) (a
 		return "alert", nil
 	}
 	stuck := view["wall_reason"] != nil
-	if !stuck && row != nil {
+	if !stuck {
 		var err error
 		if stuck, err = e.stuckAbout(name, row); err != nil {
 			return nil, err
@@ -50,16 +50,19 @@ func (e *Env) stuckAbout(name string, row *db.AgentState) (bool, error) {
 	if b, err := db.BlockGet(e.DB, name); err != nil || b != nil {
 		return true, err
 	}
-	if row.State == states.Stalled || row.State == states.Degraded {
-		return true, nil
-	}
-	head, idle, found, err := e.Delivery.ForgottenResolve(e.DB, name, row, now)
-	if err != nil {
-		return false, err
-	}
-	if found && idle >= states.StuckRunningS {
-		if nudged, err := db.Cursor(e.DB, "nudge:"+name); err != nil || nudged == head {
-			return true, err
+	// An agent never started has no state row, and its queued requests are the finding below.
+	if row != nil {
+		if row.State == states.Stalled || row.State == states.Degraded {
+			return true, nil
+		}
+		head, idle, found, err := e.Delivery.ForgottenResolve(e.DB, name, row, now)
+		if err != nil {
+			return false, err
+		}
+		if found && idle >= states.StuckRunningS {
+			if nudged, err := db.Cursor(e.DB, "nudge:"+name); err != nil || nudged == head {
+				return true, err
+			}
 		}
 	}
 	queued, err := db.QueuedAwaiting(e.DB, name)

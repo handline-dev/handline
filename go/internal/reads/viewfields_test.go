@@ -242,6 +242,7 @@ func TestAgentViewAttentionStuckFindingsAboutTheAgent(t *testing.T) {
 func TestAgentViewFireIsWhatTheLifecycleSaysForTheAgentsAccount(t *testing.T) {
 	e := testEnv(t)
 	addAgent(t, e, "bob", "")
+	os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
 	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle","account":"zeta"}', 0)`)
 	run(t, e, "INSERT INTO agent_state(agent, state, updated, terminal) VALUES('bob', 'IDLE', 0, 't')")
 	e.Delivery = fakeDelivery{fire: "usage_7d"}
@@ -257,5 +258,33 @@ func TestAgentViewFireIsWhatTheLifecycleSaysForTheAgentsAccount(t *testing.T) {
 	run(t, e, `UPDATE agent_view SET view = '{"name":"bob","state":"idle","fire":"context","attention":"alert"}'`)
 	if v := viewOfAgent(t, e, "bob"); v["fire"] != "context" || v["attention"] != "alert" {
 		t.Fatalf("%v", v)
+	}
+}
+
+// An agent registered and handed work before its first start has no agent_state row; what it is owed is not self-clearing, so it counts at
+// once (actions.stuck: "has never been started").
+func TestAgentViewAttentionIsStuckForAnAgentNeverStartedWithWorkQueued(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "fresh", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('fresh', '{"name":"fresh","state":"closed"}', 0)`)
+	e.Delivery = fakeDelivery{}
+	if got := viewOfAgent(t, e, "fresh")["attention"]; got != nil {
+		t.Fatalf("nothing queued: %v", got)
+	}
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, ?, 'manager', 'fresh', 'b', 'queued', 'ask', 1)", time.Now().Unix())
+	if got := viewOfAgent(t, e, "fresh")["attention"]; got != "stuck" {
+		t.Fatalf("never started, work queued: %v", got)
+	}
+}
+
+// Python's _fire is None when agent.yaml reads as an empty map.
+func TestAgentViewFireIsNullWhenTheAgentConfigIsEmpty(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, `INSERT INTO agent_view(agent, view, updated) VALUES('bob', '{"name":"bob","state":"idle","account":"zeta"}', 0)`)
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, terminal) VALUES('bob', 'IDLE', 0, 't')")
+	e.Delivery = fakeDelivery{fire: "usage_7d"}
+	if got := viewOfAgent(t, e, "bob")["fire"]; got != nil { // addAgent writes an empty agent.yaml
+		t.Fatalf("%v", got)
 	}
 }
