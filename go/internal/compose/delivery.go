@@ -4,6 +4,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
 )
 
@@ -70,4 +71,30 @@ func (d delivery) Wall(q db.Q, agent string, row *db.AgentState) (*reads.Wall, e
 		out.Clock = w.Reset
 	}
 	return out, nil
+}
+
+// ForgottenResolve is the supervisor's: the head request told and still open, with how long the agent has sat idle on it.
+func (d delivery) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (int64, int64, bool, error) {
+	if d.p.LC == nil {
+		return 0, 0, false, nil
+	}
+	f, err := d.p.LC.Env.ForgottenResolve(q, agent, row, now)
+	if err != nil || f == nil {
+		return 0, 0, false, err
+	}
+	return f.Head.ID, f.IdleS, true, nil
+}
+
+// Fire is the trigger the policy tick would hand the agent off for: the same reading, context limit and Evaluate it judges by.
+func (d delivery) Fire(q db.Q, agent string, row *db.AgentState, account string) (string, error) {
+	if d.p.LC == nil || !d.p.LC.Manager.TriggersApplyTo(agent, row) {
+		return "", nil
+	}
+	tu := tickUsage{p: d.p, u: d.p.LC.usage, roster: d.p.LC.roster}
+	st := tu.ReadForAgent(agent, account)
+	t := tick.Evaluate(st.ShortTrusted, st.TrustedCtxUsed, st.LongTrusted, tu.ContextLimit(agent, st.ModelID))
+	if !t.Fired {
+		return "", nil
+	}
+	return t.Kind, nil
 }

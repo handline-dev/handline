@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/transcript"
 )
 
-// TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it answers --version and every control request, echoes each
+// TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it answers --version and every control request (get_usage with limits), echoes each
 // user message and runs a turn that ends at once.
 func TestMain(m *testing.M) {
 	if os.Getenv("FAKE_CLAUDE") == "1" {
@@ -33,7 +34,11 @@ func TestMain(m *testing.M) {
 
 func fakeClaude() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println(structured.PinnedCLI + " (Claude Code)")
+		v := os.Getenv("FAKE_CLAUDE_VERSION")
+		if v == "" {
+			v = structured.PinnedCLI
+		}
+		fmt.Println(v + " (Claude Code)")
 		return
 	}
 	out := json.NewEncoder(os.Stdout)
@@ -49,7 +54,12 @@ func fakeClaude() {
 		json.Unmarshal(sc.Bytes(), &m)
 		switch m["type"] {
 		case "control_request":
-			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": map[string]any{}}})
+			answer := map[string]any{}
+			if req, _ := m["request"].(map[string]any); req["subtype"] == "get_usage" {
+				answer = map[string]any{"rate_limits_available": true, "rate_limits": map[string]any{
+					"five_hour": map[string]any{"utilization": 40.0}, "seven_day": map[string]any{"utilization": 10.0}}}
+			}
+			emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": m["request_id"], "response": answer}})
 		case "user":
 			msg := m["message"].(map[string]any)
 			go func(uid, text string) {
@@ -63,7 +73,10 @@ func fakeClaude() {
 	}
 }
 
-func rig(t *testing.T) (*Parts, string) {
+func rig(t *testing.T) (*Parts, string) { return rigWith(t, func(*Config) {}) }
+
+// rigWith is rig with the config edited before the parts are built.
+func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	t.Helper()
 	t.Setenv("FAKE_CLAUDE", "1")
 	home := t.TempDir()
@@ -79,10 +92,27 @@ func rig(t *testing.T) (*Parts, string) {
 	}
 	t.Cleanup(func() { d.Close() })
 	exe, _ := os.Executable()
-	p := New(Config{DB: d, Home: home, CLI: exe, Env: []string{"FAKE_CLAUDE=1"}, ConfigDir: func(string) string { return t.TempDir() }, Log: func(string, ...any) {}})
+	cfg := Config{DB: d, Home: home, CLI: exe, Env: []string{"FAKE_CLAUDE=1"}, ConfigDir: func(string) string { return t.TempDir() }, Log: func(string, ...any) {}}
+	edit(&cfg)
+	p := New(cfg)
 	p.Sink.DB = d
 	p.Sink.Err = func(agent string, err error) { t.Error(agent, err) }
 	return p, home
+}
+
+func TestAClaudeOtherThanThePinIsRefusedUnlessTheConfigAcceptsItsVersion(t *testing.T) {
+	spec := lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}
+	t.Setenv("FAKE_CLAUDE_VERSION", "9.9.9") // the version check runs the CLI from the daemon's own environment
+	p, _ := rig(t)
+	err := p.Run.Open(spec)
+	if err == nil || !strings.Contains(err.Error(), "9.9.9") {
+		t.Fatalf("a claude that is not the pinned version started: %v", err)
+	}
+	p, _ = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
+	if err := p.Run.Open(spec); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Run.Close("alice")
 }
 
 func TestTheKindOfAnAgentIsItsModeInAgentYAML(t *testing.T) {
