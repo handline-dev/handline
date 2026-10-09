@@ -184,6 +184,14 @@ def _block(agent: str, kind: str, detail: dict, panel=("a panel",), fingerprint=
     con.close()
 
 
+def _watch_sees(agent: str) -> None:
+    """The screen watch refreshing the open prompt: a row not refreshed for STALE_S is no prompt on screen, and a test that ran past that
+    between opening it and answering it (the daemon calls in between are slow on a loaded machine) found none."""
+    con = db.connect()
+    db.prompt_seen(con, db.open_prompt(con, agent)["id"], int(time.time()))
+    con.close()
+
+
 class Answers:
     """`prompt_blocks.answer` replaced by a recorder."""
 
@@ -287,6 +295,7 @@ def test_prompt_answer_passes_the_role_lock_and_holder_gates_first(home: Path) -
         inputhold.release(con, "worker")
         con.close()
         _hold("worker", ME, ago=100)
+        _watch_sees("worker")
         _call("prompt.answer", {**ask, "request_id": "g4"})
         con = db.connect()
         row = con.execute("SELECT last_typed FROM input_holders WHERE agent = 'worker'").fetchone()
@@ -295,6 +304,7 @@ def test_prompt_answer_passes_the_role_lock_and_holder_gates_first(home: Path) -
         con = db.connect()
         inputhold.release(con, "worker")
         con.close()
+        _watch_sees("worker")
         r = _call("prompt.answer", {**ask, "request_id": "g5"})
         check("prompt.answer: with the daemon holding, anyone may answer", "result" in r, str(r))
         check("prompt.answer: before hello is refused like any call", _code(Wire().call("prompt.answer", ask)) == "bad_request")

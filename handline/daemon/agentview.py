@@ -47,9 +47,10 @@ _READ = object()
 
 def _stuck_by_agent(con) -> dict[str, dict]:
     """`actions.stuck`'s rows by the agent each is about, the first of each, read once for every agent. The view is stored state, and the tick
-    reads the process table once for its own work: what only the table or Orca could say is left out, as when they cannot be read."""
+    reads the process table once for its own work, which is what `actions.stuck` is handed, so the view says what the screen does; a tick
+    with no reading fresh leaves out what only the table or Orca could say, as when they cannot be read."""
     out: dict[str, dict] = {}
-    for b in actions.stuck(con, world=(None, None)):
+    for b in actions.stuck(con, world=delivery.seen_world(con)):
         if b["agent"]:
             out.setdefault(b["agent"], b)
     return out
