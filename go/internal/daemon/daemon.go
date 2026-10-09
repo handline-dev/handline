@@ -78,6 +78,8 @@ type Config struct {
 	Transcript *transcript.Sink
 	// Structured says whether an agent runs as a structured session.
 	Structured func(agent string) bool
+	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
+	SessionOpen func(agent string) bool
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
 	// serves none of them.
 	Session func() *sessionrpc.Env
@@ -285,7 +287,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	stream.Register(s, d.hub)
 	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()}
 	if d.transcripts() {
-		renv.Structured = d.cfg.Structured
+		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
 	reads.Register(s, renv)

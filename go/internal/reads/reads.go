@@ -32,6 +32,9 @@ type Env struct {
 	Schema  int
 	// Structured says whether the daemon runs the agent as a structured session; nil is none. transcript.events is served for those only.
 	Structured func(agent string) bool
+	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
+	// reads this where a terminal agent's row says it.
+	SessionOpen func(agent string) bool
 }
 
 // Register adds the read methods to the server's table.

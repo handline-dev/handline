@@ -198,3 +198,35 @@ func TestAStructuredAgentSaysSoInItsViewAndATerminalAgentDoesNot(t *testing.T) {
 		t.Fatalf("the stored view's numbers are kept exactly: %s", b)
 	}
 }
+
+func TestSessionOpenOfAStructuredAgentIsItsRunningProcessNotATerminal(t *testing.T) {
+	e := testEnv(t)
+	for _, n := range []string{"live", "parked", "term"} {
+		addAgent(t, e, n, "")
+		var terminal any
+		if n == "term" {
+			terminal = "t1"
+		}
+		if _, err := e.DB.Exec(`INSERT INTO agent_state(agent, state, updated, terminal) VALUES(?, 'idle', 0, ?)`, n, terminal); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.Structured = func(agent string) bool { return agent != "term" }
+	e.SessionOpen = func(agent string) bool { return agent == "live" }
+	for agent, want := range map[string]bool{"live": true, "parked": false, "term": true} {
+		got, err := e.agentGet(nil, map[string]any{"agent": agent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := got.(map[string]any)
+		if m["session_open"] != want {
+			t.Fatalf("%s: session_open %v, want %v", agent, m["session_open"], want)
+		}
+		if holders := m["input_holders"].([]any); (agent != "term") != (len(holders) == 0) {
+			t.Fatalf("%s: input_holders %v", agent, holders)
+		}
+		if (agent == "term") != (m["terminal"] != nil) {
+			t.Fatalf("%s: terminal %v", agent, m["terminal"])
+		}
+	}
+}
