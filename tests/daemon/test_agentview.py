@@ -17,7 +17,8 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.session import idle_close, term  # noqa: E402
+from handline.daemon import states as dmn_states  # noqa: E402
+from handline.session import idle_close, observe as obs, term  # noqa: E402
 from handline.team import ask as askmod  # noqa: E402
 from handline.ui.components import agent_rows  # noqa: E402
 from handline.view import tui  # noqa: E402
@@ -539,6 +540,47 @@ def test_a_name_no_agent_has_gets_no_state_row_and_a_stale_one_is_swept(home: Pa
         con.close()
 
 
+def test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_screen(home: Path) -> None:
+    """The view is built from the tick's reading of the process table, not from none: queued work for a RUNNING agent with no session
+    in its terminal is a stuck delivery on the screen, and the view says the same, before the sweep has reconciled the row."""
+    support._daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        db.set_terminal(con, "backend", "h1", None)
+        db.add_request(con, "manager", "backend", "do it", None, None, None, None, 0, None)
+        sessions_are()  # the process table is read and lists no session
+        sees = lambda alive: delivery._seen.update(
+            {"backend": obs.Observed(terminal_alive=alive, session_pid=None, session_seen=True)}) or delivery._seen_at.update(t=time.time())
+        sees(True)
+        agentview.refresh(con, int(time.time()))
+        want = agent_rows._stuck_by_agent(con).get("backend")
+        check("the screen finds the delivery stuck: no session", want is not None and want["what"] and "no session" in want["why"], str(want))
+        check("the view's attention is the screen's", agentview.stored(con, "backend")["attention"] == "stuck", str(agentview.stored(con, "backend")))
+        delivery._seen_at["t"] = 0.0
+        agentview.refresh(con, int(time.time()))
+        check("with no reading from this tick the view leaves out what only the table could say",
+              agentview.stored(con, "backend")["attention"] == "running", str(agentview.stored(con, "backend")))
+    finally:
+        con.close()
+
+
+def test_the_view_reads_the_process_table_no_more_than_the_tick_did(home: Path) -> None:
+    support._daemon_home(home, 20)
+    con = db.connect()
+    try:
+        db.set_agent_state(con, "backend", dmn_states.RUNNING)
+        db.add_request(con, "manager", "backend", "do it", None, None, None, None, 0, None)
+        listed = []
+        obs.live_sessions = lambda: listed.append(1) or {}
+        delivery._seen.update({"backend": obs.Observed(session_seen=True)})
+        delivery._seen_at["t"] = time.time()
+        agentview.refresh(con, int(time.time()))
+        check("a refresh with the tick's reading lists the process table not at all", not listed, str(listed))
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_stored_view_does_not_drift_from_what_the_screens_work_out(Path(td) / "a1"))
@@ -555,6 +597,8 @@ def main() -> int:
         run(lambda: test_agents_list_with_status_adds_what_hl_team_draws(Path(td) / "a7"))
         run(lambda: test_an_agent_reads_the_view_and_hl_ps_still_works_from_its_session(Path(td) / "a5"))
         run(lambda: test_a_name_no_agent_has_gets_no_state_row_and_a_stale_one_is_swept(Path(td) / "a10"))
+        run(lambda: test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_screen(Path(td) / "a8"))
+        run(lambda: test_the_view_reads_the_process_table_no_more_than_the_tick_did(Path(td) / "a9"))
         run(lambda: test_a_database_made_before_the_view_gets_it_from_a_plain_connect(Path(td) / "a6"))
     return run_area(tests)
 

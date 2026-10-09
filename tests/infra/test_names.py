@@ -53,8 +53,10 @@ def test_the_home_is_found_under_either_name_and_an_existing_dot_handline() -> N
     try:
         os.environ["OCP_TEST_ROOT"] = "/nonexistent-root"
         check("home: OCP_HOME alone", (os.environ.__setitem__("OCP_HOME", "/tmp/a") or paths.home()) == Path("/tmp/a"))
+        os.environ.pop("OCP_HOME")
         os.environ["HANDLINE_HOME"] = "/tmp/b"
-        check("home: HANDLINE_HOME wins over OCP_HOME", paths.home() == Path("/tmp/b"))
+        check("home: HANDLINE_HOME alone", paths.home() == Path("/tmp/b"))
+        os.environ["OCP_HOME"] = "/tmp/b"
         os.environ["HANDLINE_HOME"] = " "
         try:
             paths.home()
@@ -64,6 +66,31 @@ def test_the_home_is_found_under_either_name_and_an_existing_dot_handline() -> N
         check("home: an empty HANDLINE_HOME is refused too", "set but empty" in said, said)
         os.environ.pop("HANDLINE_HOME")
         os.environ.pop("OCP_HOME")
+    finally:
+        _restore(saved)
+
+
+def test_two_names_for_different_homes_are_an_error_and_a_scratch_run_refuses_the_real_home(home: Path) -> None:
+    saved = _set(HANDLINE_HOME=None, OCP_HOME=None, OCP_TEST_ROOT=None, HANDLINE_TEST_ROOT=None)
+    try:
+        os.environ["HANDLINE_HOME"], os.environ["OCP_HOME"] = str(home / "a"), str(home / "b")
+        try:
+            paths.home()
+            said = ""
+        except SystemExit as e:
+            said = str(e)
+        check("home: HANDLINE_HOME and OCP_HOME naming different folders is refused", "different homes" in said, said)
+        os.environ["OCP_HOME"] = str(home / "a")
+        check("home: the same folder under both names is fine", paths.home() == home / "a")
+        os.environ["OCP_TEST_ROOT"] = str(home)
+        real = paths._real_user_home() / ".handline"
+        os.environ["HANDLINE_HOME"] = os.environ["OCP_HOME"] = str(real)
+        try:
+            paths.home()
+            refused = False
+        except paths.RealHomeInTest:
+            refused = True
+        check("home: a scratch run (a test root) refuses the real ~/.handline", refused)
     finally:
         _restore(saved)
 
@@ -104,7 +131,7 @@ def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Pa
     inside it must carry the new identity under both spellings, not the parent's."""
     use_home(home)
     accounts.register("alpha")
-    saved = _set(HANDLINE_AGENT="parent.agent", HANDLINE_ACCOUNT="omega", HANDLINE_HOME="/parent/home",
+    saved = _set(HANDLINE_AGENT="parent.agent", HANDLINE_ACCOUNT="omega",
                  OCP_AGENT="parent.agent", OCP_ACCOUNT="omega")
     try:
         env = accounts.env_for("alpha", "child.agent")
@@ -202,6 +229,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_a_setting_is_read_under_both_names_new_first())
         run(lambda: test_the_home_is_found_under_either_name_and_an_existing_dot_handline())
+        run(lambda: test_two_names_for_different_homes_are_an_error_and_a_scratch_run_refuses_the_real_home(Path(td) / "twonames"))
         run(lambda: test_the_default_home_is_dot_handline_only_once_it_exists(Path(td) / "dflt"))
         run(lambda: test_what_a_session_is_started_with_carries_both_names(Path(td) / "envboth"))
         run(lambda: test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(Path(td) / "childenv"))

@@ -10,7 +10,7 @@ from .. import db
 from ..infra import gitrun
 from ..infra import lock
 from ..infra import paths
-from ..infra import service, sessiontoken
+from ..infra import scratch, service, sessiontoken
 from ..infra import textsafe
 from ..session import observe as obs, triggers
 from ..team import ask as askmod
@@ -96,6 +96,7 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
         con = db.connect(migrating=True)
         samples: dict = {}
         dev_state: dict = {"fp": None, "warned": None}
+        scratch_state: dict = {}
         if not sessiontoken.ensure_founder_key():
             log("founder key: could not make one - the socket will serve no founder call")
         srv = socket_server.SocketServer(log)
@@ -142,6 +143,13 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
                     service.rotate_logs()
                 except OSError as e:
                     log(f"log rotation failed: {e}")
+                # Agents' repo copies in the shared scratch root filled the disk. Not in a bounded run:
+                # a test's daemon must not delete from the machine's real scratch.
+                if not once and not max_ticks:
+                    try:
+                        scratch.maybe_sweep(scratch_state, log)
+                    except RuntimeError as e:    # no thread to start it on; the next hour tries again
+                        log(f"scratch sweep failed: {e}")
                 # Same reasoning as rotate_logs above: a tree mid-checkout
                 # (a merge in the main checkout unlinks and rewrites files
                 # while this is exactly what runs) must degrade dev mode,

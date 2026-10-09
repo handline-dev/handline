@@ -73,8 +73,31 @@ func newRig(t *testing.T, script string) *rig {
 	r := &rig{t: t, home: home, timer: &timers{}}
 	r.m = &Manager{Home: home, Wait: r.timer.wait, Lookup: func(string) (string, error) { return bin, nil },
 		Changed: func(a string) { r.mu.Lock(); r.moved = append(r.moved, a); r.mu.Unlock() }}
+	t.Cleanup(r.noneSurvive) // cleanups run last first: this one runs after Close
 	t.Cleanup(r.m.Close)
 	return r
+}
+
+// noneSurvive kills every login's process group until it is empty, whatever Signal a test stubbed in: a group killed while the script
+// forks can miss the new child. A group still there after three seconds fails the test.
+func (r *rig) noneSurvive() {
+	r.m.mu.Lock()
+	var pids []int
+	for _, run := range r.m.byID {
+		if run.pid > 0 {
+			pids = append(pids, run.pid)
+		}
+	}
+	r.m.mu.Unlock()
+	for _, pid := range pids {
+		for i := 0; i < 300 && syscall.Kill(-pid, 0) == nil; i++ {
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+			time.Sleep(10 * time.Millisecond)
+		}
+		if syscall.Kill(-pid, 0) == nil {
+			r.t.Errorf("process group %d outlived the test", pid)
+		}
+	}
 }
 
 func (r *rig) state(account string) string {
@@ -110,7 +133,7 @@ func (r *rig) settles(account, want string) {
 // waitsOnStdin is a login that prints its URL, starts a grandchild that records its pid and then waits on stdin.
 const waitsOnStdin = `echo "Open: ` + fakeURL + `"
 echo "Paste code here if prompted >"
-sleep 300 &
+sleep 30 &
 echo $! > "$CLAUDE_CONFIG_DIR/grandchild"
 env | cut -d= -f1 | sort > "$CLAUDE_CONFIG_DIR/env"
 cat > /dev/null
@@ -202,7 +225,7 @@ func TestCancelKillsTheGroupAndIsIdempotent(t *testing.T) {
 }
 
 func TestNoURLWithinTwentySecondsKillsTheChild(t *testing.T) {
-	r := newRig(t, "echo $$ > \"$CLAUDE_CONFIG_DIR/pid\"\nsleep 300\n")
+	r := newRig(t, "echo $$ > \"$CLAUDE_CONFIG_DIR/pid\"\nsleep 30\n")
 	errc := make(chan error, 1)
 	go func() { _, err := r.m.Start("main"); errc <- err }()
 	// Fire only once the manager asked for the URL timer.
@@ -357,10 +380,6 @@ func TestTheCapEndsTheLoginAtOnceEvenWhileAGrandchildHoldsStdout(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.grandchild("main")
-	r.m.mu.Lock()
-	pid := r.m.byAcct["main"].pid
-	r.m.mu.Unlock()
-	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // the stub lost the kill, so the test makes it
 	r.timer.fire(MaxRun)
 	r.settles("main", Failed)
 	for i := 0; i < 200; i++ {

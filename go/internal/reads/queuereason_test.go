@@ -9,12 +9,20 @@ import (
 type fakeDelivery struct {
 	wall, cause string
 	full        bool
+	// fire is the trigger Fire says; forgotten is the idle seconds of a resolve nobody wrote (head 7), 0 for none.
+	fire      string
+	forgotten int64
 }
 
 func (f fakeDelivery) WallReason(db.Q, string, *db.AgentState) (string, error) { return f.wall, nil }
 func (f fakeDelivery) ClosedWakeCause(string, *db.AgentState) (string, error)  { return f.cause, nil }
 func (f fakeDelivery) Wall(db.Q, string, *db.AgentState) (*Wall, error)        { return nil, nil }
 func (f fakeDelivery) AccountFull(string) (string, int, bool)                  { return "acct", 95, f.full }
+
+func (f fakeDelivery) ForgottenResolve(db.Q, string, *db.AgentState, int64) (int64, int64, bool, error) {
+	return 7, f.forgotten, f.forgotten != 0, nil
+}
+func (f fakeDelivery) Fire(db.Q, string, *db.AgentState, string) (string, error) { return f.fire, nil }
 
 func run(t *testing.T, e *Env, q string, args ...any) {
 	t.Helper()
