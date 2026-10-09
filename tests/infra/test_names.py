@@ -53,8 +53,16 @@ def test_the_home_is_found_under_either_name_and_an_existing_dot_handline() -> N
     try:
         os.environ["OCP_TEST_ROOT"] = "/nonexistent-root"
         check("home: OCP_HOME alone", (os.environ.__setitem__("OCP_HOME", "/tmp/a") or paths.home()) == Path("/tmp/a"))
+        os.environ["HANDLINE_HOME"] = "/tmp/a/"
+        check("home: HANDLINE_HOME and OCP_HOME naming one home agree", paths.home() == Path("/tmp/a"))
         os.environ["HANDLINE_HOME"] = "/tmp/b"
-        check("home: HANDLINE_HOME wins over OCP_HOME", paths.home() == Path("/tmp/b"))
+        try:
+            paths.home()
+            said = ""
+        except SystemExit as e:
+            said = str(e)
+        check("home: HANDLINE_HOME and OCP_HOME naming two homes is refused, naming both",
+              "/tmp/b" in said and "/tmp/a" in said and "different homes" in said, said)
         os.environ["HANDLINE_HOME"] = " "
         try:
             paths.home()
@@ -104,7 +112,7 @@ def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Pa
     inside it must carry the new identity under both spellings, not the parent's."""
     use_home(home)
     accounts.register("alpha")
-    saved = _set(HANDLINE_AGENT="parent.agent", HANDLINE_ACCOUNT="omega", HANDLINE_HOME="/parent/home",
+    saved = _set(HANDLINE_AGENT="parent.agent", HANDLINE_ACCOUNT="omega", HANDLINE_HOME=os.environ["OCP_HOME"],
                  OCP_AGENT="parent.agent", OCP_ACCOUNT="omega")
     try:
         env = accounts.env_for("alpha", "child.agent")
@@ -121,6 +129,45 @@ def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Pa
         _restore(saved)
         for k in ("HANDLINE_HOME",):
             os.environ.pop(k, None)
+
+
+def test_code_from_another_checkout_cannot_reach_the_live_home(home: Path) -> None:
+    """A worktree's or a clone's code - a test run by hand, a scratch script - pointed at the live home is refused,
+    unless HANDLINE_ALLOW_LIVE=1 says it is meant; the checkout the installed hl runs is not, nor is any other home."""
+    real = home / "realuser"
+    (real / ".handline").mkdir(parents=True)
+    other = home / "clone" / "bin" / "hl"
+    other.parent.mkdir(parents=True)
+    other.write_text("#!/bin/sh\n")
+    saved = _set(OCP_TEST_ROOT=None, HANDLINE_TEST_ROOT=None, HANDLINE_HOME=None, OCP_HOME=str(real / ".handline"),
+                 HANDLINE_BIN=None, OCP_BIN=str(other), HANDLINE_ALLOW_LIVE=None, OCP_ALLOW_LIVE=None)
+    old = paths._real_user_home
+    paths._real_user_home = lambda: real
+
+    def said() -> str:
+        try:
+            paths.home()
+            return ""
+        except SystemExit as e:
+            return str(e)
+    try:
+        msg = said()
+        check("guard: another checkout's code is refused the live home, saying what to do",
+              "not the checkout the installed hl runs" in msg and "HANDLINE_ALLOW_LIVE=1" in msg, msg)
+        os.environ["OCP_HOME"] = str(real / ".handline" / "sub")
+        check("guard: a folder inside the live home is the live home", bool(said()))
+        os.environ["HANDLINE_ALLOW_LIVE"] = "1"
+        check("guard: HANDLINE_ALLOW_LIVE=1 lets it through", not said(), said())
+        os.environ.pop("HANDLINE_ALLOW_LIVE")
+        os.environ["OCP_BIN"] = str(paths.repo_root() / "bin" / "hl")
+        os.environ["OCP_HOME"] = str(real / ".handline")
+        check("guard: the installed checkout reaches the live home", not said(), said())
+        os.environ["OCP_BIN"] = str(other)
+        os.environ["OCP_HOME"] = str(home / "scratch")
+        check("guard: another checkout reaches any other home", not said(), said())
+    finally:
+        paths._real_user_home = old
+        _restore(saved)
 
 
 def test_a_test_reaching_either_real_home_is_caught(home: Path) -> None:
@@ -205,6 +252,7 @@ def main() -> int:
         run(lambda: test_the_default_home_is_dot_handline_only_once_it_exists(Path(td) / "dflt"))
         run(lambda: test_what_a_session_is_started_with_carries_both_names(Path(td) / "envboth"))
         run(lambda: test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(Path(td) / "childenv"))
+        run(lambda: test_code_from_another_checkout_cannot_reach_the_live_home(Path(td) / "liveguard"))
         run(lambda: test_a_test_reaching_either_real_home_is_caught(Path(td) / "guard"))
         run(lambda: test_the_session_scan_reads_either_name_of_a_process_environment())
         run(lambda: test_the_handline_command_runs_the_same_program_as_ocp(Path(td) / "cmd"))
