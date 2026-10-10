@@ -396,6 +396,10 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		}
 		trig = Trigger{true, kind, fmt.Sprintf("turn ended on its usage limit: %s (read from %s)", atWall.Text, src)}
 	}
+	// Between tasks an agent that starts fresh after each one is handed off the way a full context is.
+	if !trig.Fired && t.Cost.FreshDue(t, agent, row) {
+		trig = Trigger{true, FreshKind, "its task is done and it starts a fresh session after each"}
+	}
 	if trig.Fired {
 		ok := t.Handoff.PerformHandoff(q, agent, trig, "")
 		suffix := ""
