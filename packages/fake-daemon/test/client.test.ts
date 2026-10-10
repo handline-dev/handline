@@ -36,7 +36,7 @@ test('errors carry a stable code, a readable sentence and the gate', async () =>
     (e: RpcError) => e.code === 'refused' && e.gate === 'state' && /no open session/.test(e.message),
   );
   await assert.rejects(client.sendKeys('handline.architect', 'f13'), (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'keys');
-  await assert.rejects(client.call('repos.list', {}), (e: RpcError) => e.code === 'refused' && e.gate === 'unsupported');
+  await assert.rejects(client.call('status.pick', {}), (e: RpcError) => e.code === 'refused' && e.gate === 'unsupported');
   client.close();
 });
 
@@ -373,4 +373,43 @@ test('close settles a call waiting for the connection to come back', async () =>
   const waiting = client.call('daemon.status', {});
   client.close();
   await assert.rejects(waiting, (e: RpcError) => e.code === 'transport');
+});
+
+test('repos.list and worktrees.list serve the repos and the worktrees, filtered by repo and owner, and refuse a repo that is not a string', async () => {
+  const { client } = setup();
+  await client.start();
+  const { repos } = await client.call('repos.list', {});
+  assert.deepEqual(
+    repos.map((r) => [r.name, r.default_branch]),
+    [
+      ['handline', 'main'],
+      ['docs-site', 'master'],
+    ],
+  );
+  const all = (await client.call('worktrees.list', {})).worktrees;
+  assert.equal(all.length, 5);
+  assert.equal(all.find((w) => w.path === '/work/spare')?.owner, null);
+  assert.deepEqual(
+    (await client.call('worktrees.list', { repo: 'docs-site' })).worktrees.map((w) => w.path),
+    ['/work/docs-site.writer'],
+  );
+  assert.deepEqual(
+    (await client.call('worktrees.list', { owner: 'handline.architect' })).worktrees.map((w) => w.path),
+    ['/work/handline.architect'],
+  );
+  await assert.rejects(
+    client.call('worktrees.list', { repo: 3 as unknown as string }),
+    (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'repo',
+  );
+  client.close();
+});
+
+test('a daemon built without the admin surface lists neither repos nor worktrees', async () => {
+  const { client } = setup({ daemon: { admin: false } });
+  const h = await client.start();
+  assert.equal(
+    h.methods.some((m) => m.name === 'worktrees.list' || m.name === 'repos.list'),
+    false,
+  );
+  client.close();
 });
