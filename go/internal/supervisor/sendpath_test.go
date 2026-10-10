@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -245,17 +246,23 @@ func TestHeldAnswersAreAnnouncedWhenTheEchoComes(t *testing.T) {
 func TestOneStuckSessionDoesNotBlockAnotherAgentsSend(t *testing.T) {
 	r, fa := structuredRig(t)
 	fa.live["alice"] = true
-	release, entered := make(chan struct{}), make(chan struct{})
+	// entered is buffered: an unbuffered send behind a default is dropped whenever the write gets there before this test waits, and the
+	// wait below then never ends.
+	release, entered := make(chan struct{}), make(chan struct{}, 1)
+	var first atomic.Bool // only bob's write waits; sync.Once would hold alice's behind it
 	fa.onSend = func() {
-		select {
-		case entered <- struct{}{}:
+		if first.CompareAndSwap(false, true) {
+			entered <- struct{}{}
 			<-release
-		default:
 		}
 	}
 	stuck := make(chan struct{})
 	go func() { r.sendOnce(r.DB, "bob", "op1", "stuck", structured.Now); close(stuck) }()
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("bob's write never started")
+	}
 	done := make(chan struct{})
 	go func() { r.sendOnce(r.DB, "alice", "op2", "free", structured.Now); close(done) }()
 	select {
