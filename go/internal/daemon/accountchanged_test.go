@@ -74,9 +74,18 @@ func awaitStates(t *testing.T, d *Daemon, n int) []string {
 }
 
 func TestALoginSaysWaitingThenDoneOnTheAccountsTopic(t *testing.T) {
-	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\nsleep 0.3\ntouch \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n")
+	// The login holds until the test has seen waiting: a login that finishes first would make the waiting event read the state it has
+	// by then, and the topic would say done twice.
+	release := filepath.Join(t.TempDir(), "release")
+	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\nwhile [ ! -e '"+release+"' ]; do sleep 0.02; done\ntouch \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n")
 	t.Setenv("SANDBOX_RUNTIME", "")
 	if _, err := d.logins.Start("main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := awaitStates(t, d, 1); got[0] != "waiting" {
+		t.Fatalf("%v", got)
+	}
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got := awaitStates(t, d, 2)
