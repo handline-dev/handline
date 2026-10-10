@@ -5585,17 +5585,20 @@ def test_the_daemon_feeds_the_estimate_each_tick(home: Path) -> None:
 
 def test_the_plan_question_a_tick_starts_logs_to_the_tick_and_not_to_the_burn_check(home: Path) -> None:
     """The cause of a flaky burn check: a tick starts the hourly plan question on a thread, and with no
-    plan to read it logs a line, whenever the machine schedules it. Slowed here so it always lands after
-    the tick returns, which is the order a loaded machine produces: the line is the tick's, it arrives
-    once the thread is joined, and a log the test keeps for the burn estimate never holds it."""
+    plan to read it logs a line, whenever the machine schedules it. Held here until the tick and the burn
+    check are over, which is the order a loaded machine produces: the line is the tick's, it arrives
+    once the thread is joined, and a log the test keeps for the burn estimate never holds it. A sleep
+    instead of the hold lost the race on a loaded machine."""
+    import threading
     _daemon_home(home, 20)
     con = db.connect()
     real = subscriptions.accounts.subscription_type
+    answer = threading.Event()
     try:
-        def slow_none(acct, refresh=False):
-            time.sleep(0.2)
+        def held_none(acct, refresh=False):
+            answer.wait(10)
             return None
-        subscriptions.accounts.subscription_type = slow_none
+        subscriptions.accounts.subscription_type = held_none
         subscriptions._asking = None
         db.set_cursor(con, "plan_checked:alpha", 0)
         ticked: list[str] = []
@@ -5603,11 +5606,13 @@ def test_the_plan_question_a_tick_starts_logs_to_the_tick_and_not_to_the_burn_ch
         burn_log: list[str] = []
         dmn_evaluate.observe_burn(con, burn_log.append)
         check("plan thread: the tick returns before the question is answered", not any("no plan recorded" in m for m in ticked), str(ticked))
+        answer.set()
         subscriptions.wait_for_plan_ask()
         check("plan thread: its line is the tick's, once the thread is joined",
               any("alpha: no plan recorded" in m for m in ticked), str(ticked))
         check("plan thread: and the burn estimate's own log never holds it", not burn_log, str(burn_log))
     finally:
+        answer.set()
         subscriptions.wait_for_plan_ask()
         subscriptions.accounts.subscription_type = real
         con.close()
