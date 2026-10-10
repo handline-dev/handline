@@ -5,7 +5,7 @@ import argparse
 import sys
 
 from .. import actions
-from ..infra import names, timefmt
+from ..infra import names, service, timefmt
 from ..team import ask as askmod
 from ..team import agents
 from ..team import team
@@ -23,7 +23,7 @@ from .hr import cmd_hr, cmd_trust
 from .land import cmd_land
 from .schedule import cmd_schedule
 from .idle import cmd_auto_accept, cmd_notice_digest, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
-from .service import cmd_service_install, cmd_service_logs, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
+from .service import cmd_service_install, cmd_service_logs, cmd_service_use, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
 from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_restart, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
@@ -408,7 +408,11 @@ def build_parser() -> argparse.ArgumentParser:
     sv = sub.add_parser("service", help="run the daemon as a launchd LaunchAgent").add_subparsers(
         dest="sub", required=True)
     p = sv.add_parser("install", help="write the plist and load it into launchd")
+    p.add_argument("--allow-live-home", action="store_true", help="with the Go daemon chosen, install it on the live home too")
     p.set_defaults(fn=cmd_service_install)
+    p = sv.add_parser("use", help="choose the daemon the service runs; `hl service install` applies it")
+    p.add_argument("impl", choices=service.IMPLS)
+    p.set_defaults(fn=cmd_service_use)
     p = sv.add_parser("uninstall", help="unload the job and remove the plist")
     p.set_defaults(fn=cmd_service_uninstall)
     p = sv.add_parser("status", help="installed / loaded / pid / crash-looping")

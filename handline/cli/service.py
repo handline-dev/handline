@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..daemon import locks as dmn_locks
 from ..infra import service
+from ..usage import load
 from ..infra import textsafe
 from ..infra import venv as venvmod
 
@@ -14,9 +15,19 @@ def cmd_service_install(args) -> int:
     if pid and pid != service.status()["pid"]:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
               f"refuse to start (it cannot have the daemon lock) until it exits")
-    ok, msg = service.install()
+    ok, msg = service.install(allow_live_home=bool(getattr(args, "allow_live_home", False)))
     print(msg)
     return 0 if ok else 1
+
+
+def cmd_service_use(args) -> int:
+    """Choose which daemon the service runs. Only the setting changes: the plist is rewritten by `hl service install`, so the
+    switch and the rollback are each this and one install."""
+    cfg = load.config_for_write()
+    cfg[service.IMPL_KEY] = args.impl
+    load.write_config(cfg)
+    print(f"daemon_impl is {args.impl}; run `hl service install` to apply it")
+    return 0
 
 
 def cmd_service_uninstall(args) -> int:
@@ -27,9 +38,10 @@ def cmd_service_uninstall(args) -> int:
 
 def cmd_service_status(args) -> int:
     st = service.status()
-    print(f"label:       {service.LABEL}")
+    print(f"label:       {service.label()}")
     print(f"plist:       {service.plist_path()}")
     print(f"installed:   {st['installed']}")
+    print(f"daemon:      {service.daemon_impl()}")
     print(f"loaded:      {st['loaded']}")
     print(f"pid:         {st['pid'] or '-'}")
     print(f"last exit:   {st['last_exit_code'] or '-'}")

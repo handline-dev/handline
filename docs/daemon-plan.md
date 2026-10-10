@@ -358,6 +358,27 @@ daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen a
 (x-dialogs); `prompt.list` stays, as a read of the `prompt_blocks` rows. The daemon
 singleton it takes becomes unconditional (startup row above).
 
+#### Switching the service
+
+The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
+`hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
+The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
+`-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
+other; the job's PATH holds python3's directory (the land verbs run `tools/localrefs.py`) and its environment carries
+`OCP_LAND_REPO`. `-terminal-tick` is not a flag of the binary yet; add it to `service.go_arguments` when it lands.
+`hl service install` reads the setting once, so a change takes effect at the next install and not before.
+
+Rehearsal, on a scratch home and never the live service: `OCP_SERVICE_LABEL=dev.orcapipe.rehearsal OCP_HOME=<scratch>
+hl service use go`, then the same environment with `hl service install`, `hl ps`, `hl service status`. The label keeps the
+rehearsal's job and plist apart from the live ones; the Go daemon is refused on a home that is not live under the live
+label, and on the live home without `hl service install --allow-live-home`. Crash-loop detection reads the Go daemon's own
+start line (stderr log) when it is chosen.
+
+Rollback is `hl service use python` and `hl service install`: the same plist as before the switch, the schema untouched.
+The Go daemon's start line and the singleton lock are the only things the two share on disk besides the database, so
+stopping the one and starting the other is the whole swap. The founder approves the live switch (task 24); nothing here
+flips it.
+
 ## Tasks for the sub-team
 
 Three reports under this daemon: `api` (the Python server side), `contract` (the spec, the
