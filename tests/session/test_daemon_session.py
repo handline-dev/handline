@@ -1891,6 +1891,16 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
         service.go_executable, paths.live_homes, service.shutil.which, service.names.getenv = real
 
 
+def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:
+    import argparse
+    from handline.cli import service as cli_service
+    use_home(home)
+    check("service use: python before anything is set", service.daemon_impl() == "python")
+    for impl in ("go", "python"):
+        rc = cli_service.cmd_service_use(argparse.Namespace(impl=impl))
+        check(f"service use: {impl} is the setting afterwards", rc == 0 and service.daemon_impl() == impl)
+
+
 def test_service_crash_loop_reads_the_go_daemons_start_line(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     log = service.err_log(home)
@@ -5818,6 +5828,7 @@ def main() -> int:
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
         run(lambda: test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_word(Path(td) / 'svc6'))
         run(lambda: test_service_crash_loop_reads_the_go_daemons_start_line(Path(td) / 'svc7'))
+        run(lambda: test_service_use_sets_the_daemon_the_next_install_runs(Path(td) / 'svc8'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))
