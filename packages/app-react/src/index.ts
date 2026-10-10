@@ -1,5 +1,5 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
-import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, createElement, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 
@@ -59,3 +59,21 @@ export function useSelector<T>(select: (s: Store) => T): T {
 
 export const useConnection = () => useSelector((s) => s.conn);
 export const useError = () => useSelector((s) => s.error);
+
+/** Runs one async job at a time: a call while it runs does nothing. `going` is true meanwhile, for the buttons to disable. */
+export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => Promise<void>] {
+  const [going, setGoing] = useState(false);
+  const busy = useRef(false);
+  const once = async (job: () => Promise<void>) => {
+    if (busy.current) return;
+    busy.current = true;
+    setGoing(true);
+    try {
+      await job();
+    } finally {
+      busy.current = false;
+      setGoing(false);
+    }
+  };
+  return [going, once];
+}

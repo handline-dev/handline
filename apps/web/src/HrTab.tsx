@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { askedLines, cutError, diffLines, kindOf, isWaiting, ordered, stateWord, textSafe, waitingCount } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
 import { goSettings } from './route.ts';
@@ -39,39 +39,42 @@ export function HrTab({ focus }: { focus: number | null }) {
   const decide = useWrite('hr.decide');
   const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
   const [why, setWhy] = useState('');
+  const [going, once] = useOnce();
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
   const decider = founder && !narrow;
-  const approveAll = async () => {
-    const todo = waiting;
-    let ok = 0;
-    for (const p of todo) {
-      try {
-        await decide.mutateAsync({ proposal: p.id, decision: 'approve', subject: p.subject });
-        ok++;
-      } catch {
-        // the card shows its own refusal; the others go on
+  const approveAll = () =>
+    once(async () => {
+      const todo = waiting;
+      let ok = 0;
+      for (const p of todo) {
+        try {
+          await decide.mutateAsync({ proposal: p.id, decision: 'approve', subject: p.subject });
+          ok++;
+        } catch {
+          // the card shows its own refusal; the others go on
+        }
       }
-    }
-    setAll(ok === todo.length ? null : `${ok} of ${todo.length} approved`);
-    void q.refetch();
-  };
-  const rejectAll = async () => {
-    const todo = waiting;
-    const note = why.trim();
-    let ok = 0;
-    for (const p of todo) {
-      try {
-        await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
-        ok++;
-      } catch {
-        // the card shows its own refusal; the others go on
+      setAll(ok === todo.length ? null : `${ok} of ${todo.length} approved`);
+      void q.refetch();
+    });
+  const rejectAll = () =>
+    once(async () => {
+      const todo = waiting;
+      const note = why.trim();
+      let ok = 0;
+      for (const p of todo) {
+        try {
+          await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
+          ok++;
+        } catch {
+          // the card shows its own refusal; the others go on
+        }
       }
-    }
-    setWhy('');
-    setAll(ok === todo.length ? null : `${ok} of ${todo.length} rejected`);
-    void q.refetch();
-  };
+      setWhy('');
+      setAll(ok === todo.length ? null : `${ok} of ${todo.length} rejected`);
+      void q.refetch();
+    });
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
       <div className="hr">
@@ -93,10 +96,10 @@ export function HrTab({ focus }: { focus: number | null }) {
             <strong>Approve all {waiting.length}?</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
             <span className="verb-sheet-actions">
-              <button className="btn primary" onClick={() => void approveAll()}>
+              <button className="btn primary" disabled={going} onClick={() => void approveAll()}>
                 Approve all
               </button>
-              <button className="btn" onClick={() => setAll(null)}>
+              <button className="btn" disabled={going} onClick={() => setAll(null)}>
                 Cancel
               </button>
             </span>
@@ -106,10 +109,10 @@ export function HrTab({ focus }: { focus: number | null }) {
             <strong>Reject all {waiting.length}?</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
             <span className="verb-sheet-actions">
-              <button className="btn primary" disabled={!why.trim()} onClick={() => void rejectAll()}>
+              <button className="btn primary" disabled={going || !why.trim()} onClick={() => void rejectAll()}>
                 Reject all
               </button>
-              <button className="btn" onClick={() => setAll(null)}>
+              <button className="btn" disabled={going} onClick={() => setAll(null)}>
                 Cancel
               </button>
             </span>

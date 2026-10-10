@@ -2,7 +2,7 @@
 // follows the hr topic; a proposal that changed or settled under the click sends nothing more and the card says so.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import type { FakeHr } from '../../../packages/fake-daemon/src/hr.ts';
@@ -167,6 +167,24 @@ describe('U15 HR', () => {
     await until(() => a.state === 'approved' && c.state === 'approved' && b.state === 'apply_failed', 'all decided');
     await until(() => text(card(2)).includes('could not write the file'), 'the failure shows');
     expect(btn(card(2), 'Retry')).toBeTruthy();
+  });
+
+  it('a second tap on Approve all while it runs sends nothing', async () => {
+    const s = setup();
+    raise(s, 1);
+    raise(s, 2);
+    raise(s, 3);
+    await open(s);
+    await until(() => $$('.hr-card').length === 3, 'three cards');
+    await click($$('button').find((x) => text(x) === 'Approve all')!);
+    const find = vi.spyOn(hrOf(s), 'find');
+    const go = $$('.verb-sheet button').find((x) => text(x) === 'Approve all') as HTMLButtonElement;
+    await act(async () => {
+      go.click();
+      go.click();
+    });
+    await until(() => find.mock.calls.length >= 3, 'the decisions');
+    expect(find).toHaveBeenCalledTimes(3);
   });
 
   it('Reject all needs a reason, then rejects every waiting proposal with it', async () => {

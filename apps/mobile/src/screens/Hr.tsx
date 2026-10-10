@@ -20,7 +20,7 @@ import {
   waitingCount,
 } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgentDetail, useAgents, useHr, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -39,36 +39,25 @@ export function Hr() {
   const decide = useWrite('hr.decide');
   const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
   const [why, setWhy] = useState('');
+  const [going, once] = useOnce();
   const list = query.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
-  const approveAll = async () => {
-    let ok = 0;
-    for (const p of waiting) {
-      try {
-        await decide.mutateAsync({ proposal: p.id, decision: 'approve', subject: p.subject });
-        ok++;
-      } catch {
-        // the card shows its own refusal; the others go on
+  const decideAll = (decision: 'approve' | 'reject') =>
+    once(async () => {
+      const note = decision === 'reject' ? why.trim() : undefined;
+      let ok = 0;
+      for (const p of waiting) {
+        try {
+          await decide.mutateAsync({ proposal: p.id, decision, note, subject: p.subject });
+          ok++;
+        } catch {
+          // the card shows its own refusal; the others go on
+        }
       }
-    }
-    setAll(ok === waiting.length ? null : `${ok} of ${waiting.length} approved`);
-    void query.refetch();
-  };
-  const rejectAll = async () => {
-    const note = why.trim();
-    let ok = 0;
-    for (const p of waiting) {
-      try {
-        await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
-        ok++;
-      } catch {
-        // the card shows its own refusal; the others go on
-      }
-    }
-    setWhy('');
-    setAll(ok === waiting.length ? null : `${ok} of ${waiting.length} rejected`);
-    void query.refetch();
-  };
+      setWhy('');
+      setAll(ok === waiting.length ? null : `${ok} of ${waiting.length} ${decision}d`);
+      void query.refetch();
+    });
   return (
     <Loadable query={query} served={served} isEmpty={list.length === 0} skeleton="inbox" label="HR proposals" empty="Nothing to decide.">
       <ScrollView testID="hr-list" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
@@ -89,8 +78,15 @@ export function Hr() {
             <Text style={{ color: c.ink, fontWeight: '600' }}>Approve all {waiting.length}?</Text>
             <Text style={{ color: c.muted }}>Each is applied as its card shows it; one that fails stays waiting.</Text>
             <View style={{ flexDirection: 'row', gap: space.sm }}>
-              <Button testID="hr-all-go" kind="yes" label="Approve all" onPress={() => void approveAll()} style={{ flex: 1 }} />
-              <Button testID="hr-all-cancel" label="Cancel" onPress={() => setAll(null)} />
+              <Button
+                testID="hr-all-go"
+                kind="yes"
+                label="Approve all"
+                disabled={going}
+                onPress={() => void decideAll('approve')}
+                style={{ flex: 1 }}
+              />
+              <Button testID="hr-all-cancel" label="Cancel" disabled={going} onPress={() => setAll(null)} />
             </View>
           </View>
         ) : all === 'reject' ? (
@@ -113,11 +109,11 @@ export function Hr() {
                 testID="hr-reject-all-go"
                 kind="no"
                 label="Reject all"
-                disabled={!why.trim()}
-                onPress={() => void rejectAll()}
+                disabled={going || !why.trim()}
+                onPress={() => void decideAll('reject')}
                 style={{ flex: 1 }}
               />
-              <Button testID="hr-reject-all-cancel" label="Cancel" onPress={() => setAll(null)} />
+              <Button testID="hr-reject-all-cancel" label="Cancel" disabled={going} onPress={() => setAll(null)} />
             </View>
           </View>
         ) : all ? (
