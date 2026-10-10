@@ -319,9 +319,13 @@ NOT_YET = "NOT_YET_IN_PYTHON"      # a fixture whose `about` starts with this is
 
 
 
+SPEC_ONLY = {"terminal.open"}      # pinned by NOT_YET_IN_PYTHON fixtures; no daemon in Python serves it, so the fake does not either
+
+
 def _fakes(*roles: str, mutate=None, **kw) -> dict:
     from fake_methods import devices
     devices.reset()
+    kw["lacks"] = SPEC_ONLY | set(kw.get("lacks", ()))
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
@@ -334,10 +338,11 @@ VIEW_FIELDS = {
     "a.v.walled": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False,
                    "wall": {"account": "acct.one", "clock": 1_790_000_000, "assumed": True}},
     "a.v.plain": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False, "wall": None,
-                  "fire": None, "attention": None, "cache_ignored": False, "config_error": None},
+                  "fire": None, "attention": None, "cache_ignored": False, "config_error": None, "needs_you": None},
     "a.v.fire": {"state": "idle", "kind": "opus high", "fire": "context"},
     "a.v.ask": {"state": "idle", "kind": "opus high", "attention": "ask"},
-    "a.v.alert": {"state": "idle", "kind": "opus high", "attention": "alert"},
+    "a.v.alert": {"state": "waiting", "kind": "opus high", "attention": "alert", "has_dialog": True,
+                  "needs_you": {"kind": "permission", "since": "2026-01-01T00:00:00Z", "text": "Bash: ls", "source": "hook"}},
     "a.v.stuck": {"state": "idle", "kind": "opus high", "attention": "stuck"},
     "a.v.ignored": {"state": "idle", "kind": "opus high", "cache_ignored": True},
     "a.v.broken": {"state": "closed", "config_error": "agent.yaml: invalid YAML"},

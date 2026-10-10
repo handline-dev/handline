@@ -168,6 +168,8 @@ export type AgentView = {
   cache_ignored?: boolean;
   /** Why the agent's configuration cannot be read, as one line; null when it can. When set, `kind` is absent (and the model, effort and the other fields that come from the configuration are null or absent). Absent from a daemon that does not serve it yet. */
   config_error?: string | null;
+  /** Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file's needs and tempo, never by reading the screen; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it). */
+  needs_you?: NeedsYou | null;
 };
 
 export type AgentDetail = AgentView & {
@@ -894,7 +896,7 @@ export type SettingsValues = {
   park_timeout_s?: number;
   /** Agents write a note for the next session before a close or move. */
   handoff_note?: boolean;
-  /** Answer dialogs by the standing rules by itself. */
+  /** Answer dialogs by the standing rules by itself. Retired in a daemon that answers no dialog (x-dialogs): ignored. */
   auto_accept_dialogs?: boolean;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. */
   ignore_cache_expiry?: boolean;
@@ -928,7 +930,7 @@ export type SettingsChanges = {
   park_timeout_s?: number | null;
   /** Agents write a note for the next session before a close or move. null removes the key (back to the default). */
   handoff_note?: boolean | null;
-  /** Answer dialogs by the standing rules by itself. null removes the key (back to the default). */
+  /** Answer dialogs by the standing rules by itself. null removes the key (back to the default). Retired in a daemon that answers no dialog (x-dialogs): ignored. */
   auto_accept_dialogs?: boolean | null;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default). */
   ignore_cache_expiry?: boolean | null;
@@ -1178,6 +1180,29 @@ export type Receipt = {
   uuid: string;
   /** The seq of the transcript event that carries this uuid, when there is one; absent otherwise (a message that joined a running turn has no turn_start of its own). Best effort; a client does not wait for it. */
   seq?: number;
+};
+
+export type TerminalOpening = {
+  agent: AgentName;
+  /** The terminal handle, as terminal.attach takes it. */
+  terminal: string;
+  /** tmux or orca; open set. */
+  host: string;
+  attach: {
+    argv: string[];
+  } | null;
+  focused: boolean;
+  local: boolean;
+};
+
+export type NeedsYou = {
+  /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other, and any the daemon does not know: unknown is a person. */
+  kind: "permission" | "question" | "usage" | "dialog";
+  since: Timestamp;
+  /** One line, from the hook or the session file; never read from the screen. */
+  text: string | null;
+  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json needs, tempo). */
+  source: "hook" | "session";
 };
 
 export interface Methods {
@@ -1535,6 +1560,9 @@ export interface Methods {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "terminal.open": { params: {
+  agent: AgentName;
+}; result: TerminalOpening };
   "terminal.detach": { params: {
   terminal: string;
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
@@ -2105,6 +2133,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.resize": { role: "member", callers: null, write: true, since: 1 },
   "terminal.input": { role: "member", callers: null, write: true, since: 1 },
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
+  "terminal.open": { role: "member", callers: null, write: false, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },

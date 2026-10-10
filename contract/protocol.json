@@ -263,6 +263,52 @@
   },
   "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
  },
+ "x-dialogs": {
+  "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the two launch screens, which the launch reads once.",
+  "dialogs": {
+   "folder_trust": {
+    "class": "routine",
+    "when": "launch",
+    "answered_by": "the folder is inside a declared trust root (standing consent, trust.*)",
+    "else": "human, kind permission"
+   },
+   "bypass_warning": {
+    "class": "routine",
+    "when": "launch",
+    "answered_by": "the agent's mode is bypass and the founder granted it",
+    "else": "human, kind permission"
+   },
+   "tool_permission": {
+    "class": "human",
+    "kind": "permission",
+    "reported_by": "PermissionRequest hook; Notification permission_prompt; the session file needs"
+   },
+   "question": {
+    "class": "human",
+    "kind": "question",
+    "reported_by": "Notification elicitation_dialog; the session file needs"
+   },
+   "usage_limit_choice": {
+    "class": "human",
+    "kind": "usage",
+    "reported_by": "the session file needs; Stop with a limit"
+   },
+   "exit_confirm": {
+    "class": "not raised",
+    "note": "The daemon ends a session by stopping its process, never by typing /exit, so the dialog does not arise; if one is there anyway it is human, kind dialog."
+   },
+   "startup_notice": {
+    "class": "unknown",
+    "kind": "dialog",
+    "note": "Any other screen a launch stops at (new MCP servers, an update, a login). Not answered; the launch reports needs_you."
+   },
+   "any_other": {
+    "class": "unknown",
+    "kind": "dialog"
+   }
+  },
+  "retired": "Dialog rules (answer.add with vendor, title and label; the `dialog` entries of answers.list; the auto_accept_dialogs setting) answered a dialog by matching its screen. A daemon that never answers a dialog and reads no screen refuses to save one (gate unsupported), lists none and ignores the setting; the Python daemon, which still runs agents, keeps serving them until the cutover. Trust roots are not rules and stay."
+ },
  "x-notifications": {
   "event": {
    "params": "Event",
@@ -3278,6 +3324,45 @@
     "input_holder",
     "state"
    ]
+  },
+  {
+   "name": "terminal.open",
+   "summary": "Where an agent's terminal is and how to attach to it, for the one button that opens it when the agent needs you.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/TerminalOpening"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "unsupported"
+   ],
+   "description": "Answers where the agent's own terminal is: the host (`tmux` or `orca`), its handle, and `attach`, the command a client on the daemon's machine runs to see and answer it (`argv`, null when the host has no command: Orca is opened by its own app, the client then uses `host` and `terminal`). It types nothing and answers nothing; the person at the terminal answers the dialog, which is the point (see x-dialogs). `focused` is true when the host was also asked to bring the terminal to the front (tmux select-window; best effort, false when it could not). Callers: the founder and a paired device (member); an agent is refused, gate role. An agent that is not registered is not_found (agent); one with no terminal, a structured agent among them, is not_found (terminal). A device on another machine than the daemon's gets the same answer; `attach` names a local socket, so it is useful only where the daemon runs, and `local` says whether the caller is there (true for the unix socket, false over the network)."
   },
   {
    "name": "terminal.detach",
@@ -6847,7 +6932,8 @@
    },
    "x-role": "founder",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "A daemon that answers no dialog lists no dialog rules (x-dialogs)."
   },
   {
    "name": "answer.add",
@@ -6910,7 +6996,10 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs."
+   "description": "Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs. A dialog rule (vendor, title, label) is retired in a daemon that answers no dialog (x-dialogs): refused, gate unsupported, nothing saved; a folder is saved as before.",
+   "x-gates": [
+    "unsupported"
+   ]
   },
   {
    "name": "answer.remove",
@@ -7799,6 +7888,17 @@
        }
       ],
       "description": "Why the agent's configuration cannot be read, as one line; null when it can. When set, `kind` is absent (and the model, effort and the other fields that come from the configuration are null or absent). Absent from a daemon that does not serve it yet."
+     },
+     "needs_you": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/NeedsYou"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file's needs and tempo, never by reading the screen; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it)."
      }
     },
     "required": [
@@ -11027,7 +11127,7 @@
      "auto_accept_dialogs": {
       "type": "boolean",
       "default": false,
-      "description": "Answer dialogs by the standing rules by itself."
+      "description": "Answer dialogs by the standing rules by itself. Retired in a daemon that answers no dialog (x-dialogs): ignored."
      },
      "ignore_cache_expiry": {
       "type": "boolean",
@@ -11146,7 +11246,7 @@
         "type": "null"
        }
       ],
-      "description": "Answer dialogs by the standing rules by itself. null removes the key (back to the default)."
+      "description": "Answer dialogs by the standing rules by itself. null removes the key (back to the default). Retired in a daemon that answers no dialog (x-dialogs): ignored."
      },
      "ignore_cache_expiry": {
       "oneOf": [
@@ -12139,6 +12239,100 @@
      "uuid"
     ],
     "description": "Where a message to a structured agent is on its way into the CLI. Only for an agent whose AgentView.structured is true; see x-delivery."
+   },
+   "TerminalOpening": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "terminal": {
+      "type": "string",
+      "description": "The terminal handle, as terminal.attach takes it."
+     },
+     "host": {
+      "type": "string",
+      "description": "tmux or orca; open set."
+     },
+     "attach": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "argv": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "argv"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "focused": {
+      "type": "boolean"
+     },
+     "local": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "agent",
+     "terminal",
+     "host",
+     "attach",
+     "focused",
+     "local"
+    ]
+   },
+   "NeedsYou": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "permission",
+       "question",
+       "usage",
+       "dialog"
+      ],
+      "description": "permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other, and any the daemon does not know: unknown is a person."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "One line, from the hook or the session file; never read from the screen."
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "hook",
+       "session"
+      ],
+      "description": "hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json needs, tempo)."
+     }
+    },
+    "required": [
+     "kind",
+     "since",
+     "text",
+     "source"
+    ]
    }
   },
   "errors": {

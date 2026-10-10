@@ -345,6 +345,9 @@
  "terminal.input": {
   "role": "member"
  },
+ "terminal.open": {
+  "role": "member"
+ },
  "terminal.resize": {
   "role": "member"
  },
