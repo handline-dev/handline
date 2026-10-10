@@ -16,6 +16,7 @@ from ...usage import load as loadmod
 from ...infra import textsafe
 from ...view import viewdata
 from ...daemon import delivery as dmn_delivery, handoff_note
+from ...daemon.screenstate import DETAIL_CAP
 
 
 class Extra(NamedTuple):
@@ -144,7 +145,7 @@ def collect(con, rows: list[viewdata.AgentRow]) -> dict[str, Extra]:
         except (OSError, ConfigError):
             cfg = {}
         fb = founder_block(con, r.name)
-        block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:viewdata.DETAIL_CAP] if fb else ""
+        block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:DETAIL_CAP] if fb else ""
         limit = dmn_delivery.wall_reason(con, r.name, db.get_agent_state(con, r.name))
         why = textsafe.oneline(stuck[r.name]["why"] if r.name in stuck else limit or "")
         asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "

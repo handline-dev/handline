@@ -165,8 +165,8 @@ class AgentRow(NamedTuple):
     kind: str = ""
     ctx: str = ""                # ANSI: yellow at its context limit
     inbox: int = 0
-    tasks: int = 0                # owned and not done: waiting plus current (T317)
-    ready: bool = False           # IDLE with a queued task no open blocker holds (T300)
+    tasks: int = 0                # owned and not done: waiting plus current
+    ready: bool = False           # IDLE with a queued task no open blocker holds
     fire: str = ""               # ANSI: a trigger about to fire
     wall: WallCell | None = None
 
