@@ -1,0 +1,99 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.transcript.a_tool_item_carries_its_output",
+   "spec": "chat.transcript",
+   "about": "NOT_YET_IN_PYTHON: a tool item holds the text the tool printed in output; dropped_lines counts the lines the store cut, and is 0 or absent when none were; an item with no output has neither.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{output_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "tool",
+        "tool": "Bash",
+        "text": "printf 'a\\nb\\n'",
+        "output": "a\nb\n",
+        "dropped_lines": {
+         "$oneOf": [
+          0,
+          {
+           "$absent": true
+          }
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{output_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "tool",
+        "tool": "Bash",
+        "text": "seq 1 10",
+        "output": "9\n10\n",
+        "dropped_lines": 8
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{output_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "tool",
+        "tool": "Bash",
+        "text": "true",
+        "output": {
+         "$absent": true
+        },
+        "dropped_lines": {
+         "$absent": true
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
