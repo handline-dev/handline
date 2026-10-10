@@ -13,7 +13,6 @@ from ..infra import textsafe
 from ..session import waiting
 
 from ..daemon import client as dmn_client, delivery as dmn_delivery
-from .bridge import _bridge_textual_module
 
 
 def _refused_listing(target: str | None) -> bool:
@@ -173,16 +172,6 @@ def cmd_inbox(args) -> int:
             return 0  # nothing new is an outcome, not a failure
 
     if agent == actions.HUMAN:
-        # The human's mailbox is a place you read *and answer* things, and that
-        # is the screen: two places to do it is two places to keep in step, and
-        # the one you are not looking at is the one holding the decision. A
-        # pipe still gets text - a script asking for the list is not a human
-        # asking for somewhere to sit. It opens on the same screen `cmd_bridge`
-        # does.
-        if sys.stdout.isatty() and not args.all and not args.wait:
-            bridge_textual = _bridge_textual_module()
-            if bridge_textual:
-                return bridge_textual.run()
         return _human_inbox(args.all)
     if args.all:
         rows = askmod.inbox(agent, unread_only=False)
