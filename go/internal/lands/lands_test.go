@@ -18,6 +18,11 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
+// teamName is the team the merger belongs to; the other agents of the tests are its members.
+var teamName = strings.TrimSuffix(Merger, ".merger")
+
+const core = "x.core"
+
 type fakeTokens struct {
 	sessions map[string]int // agent -> the pid of its session
 	keys     map[string]string
@@ -65,7 +70,7 @@ func newRig(t *testing.T) *rig {
 	git(t, repo, "add", ".")
 	git(t, repo, "commit", "-q", "-m", "second")
 	r := &rig{repo: repo, sha: git(t, repo, "rev-parse", "HEAD"), tree: git(t, repo, "rev-parse", "HEAD^{tree}"),
-		merger: Merger, auditor: "orcapipe.auditor"}
+		merger: Merger, auditor: teamName + ".auditor"}
 	git(t, repo, "checkout", "-q", "main")
 	d, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
@@ -74,8 +79,8 @@ func newRig(t *testing.T) *rig {
 	t.Cleanup(func() { d.Close() })
 	now := time.Unix(1000, 0)
 	r.s = &Service{DB: d, Repo: repo, Now: func() time.Time { return now },
-		Tokens: fakeTokens{sessions: map[string]int{r.merger: 10, r.auditor: 20, "orcapipe.core": 30},
-			keys: map[string]string{r.merger: "mk", r.auditor: "ak", "orcapipe.core": "ck"}},
+		Tokens: fakeTokens{sessions: map[string]int{r.merger: 10, r.auditor: 20, core: 30},
+			keys: map[string]string{r.merger: "mk", r.auditor: "ak", core: "ck"}},
 		Tell: func(to, body string) {
 			r.mu.Lock()
 			defer r.mu.Unlock()
@@ -85,7 +90,7 @@ func newRig(t *testing.T) *rig {
 }
 
 func (r *rig) vouch(verb, sha, agent string) map[string]any {
-	key := map[string]string{r.merger: "mk", r.auditor: "ak", "orcapipe.core": "ck"}[agent]
+	key := map[string]string{r.merger: "mk", r.auditor: "ak", core: "ck"}[agent]
 	return r.s.Legacy(map[string]any{"verb": "land_authorize", "agent": agent, "land_verb": verb, "sha": sha, "key": key}, 0)
 }
 
@@ -154,22 +159,22 @@ func TestALandVerbNeedsTheSessionAndItsOwnVouch(t *testing.T) {
 
 func TestOnlyAnAuditorPassesAndOnlyTheMergerLands(t *testing.T) {
 	r := newRig(t)
-	r.vouch("land_pass", r.sha, "orcapipe.core")
-	if got := r.s.Legacy(map[string]any{"verb": "land_pass", "agent": "orcapipe.core", "sha": r.sha}, 30); got["ok"] != false ||
+	r.vouch("land_pass", r.sha, core)
+	if got := r.s.Legacy(map[string]any{"verb": "land_pass", "agent": core, "sha": r.sha}, 30); got["ok"] != false ||
 		!strings.Contains(got["said"].(string), "may not record a PASS") {
 		t.Fatalf("%v", got)
 	}
-	r.vouch("land", r.sha, "orcapipe.core")
-	got := r.s.Legacy(map[string]any{"verb": "land", "agent": "orcapipe.core", "sha": r.sha, "message": "m", "tree": r.tree}, 30)
+	r.vouch("land", r.sha, core)
+	got := r.s.Legacy(map[string]any{"verb": "land", "agent": core, "sha": r.sha, "message": "m", "tree": r.tree}, 30)
 	if got["ok"] != false || !strings.Contains(got["said"].(string), "may not land a branch; the merger does") {
 		t.Fatalf("%v", got)
 	}
-	for _, name := range []string{"orcapipe.auditor", "x.auditor2", "a.b.auditor"} {
+	for _, name := range []string{teamName + ".auditor", "x.auditor2", "a.b.auditor"} {
 		if !IsAuditor(name) {
 			t.Errorf("%s is an auditor", name)
 		}
 	}
-	for _, name := range []string{"auditor", "orcapipe.merger", "orcapipe.auditorx", "orcapipe.auditor.go", ""} {
+	for _, name := range []string{"auditor", Merger, teamName + ".auditorx", teamName + ".auditor.go", ""} {
 		if IsAuditor(name) {
 			t.Errorf("%s is not", name)
 		}
@@ -246,7 +251,7 @@ func TestAGoHookVouchIsAcceptedByTheGoDaemon(t *testing.T) {
 	if !v.Authorize(r.auditor, "Bash", map[string]any{"command": "hl land --pass " + r.sha}) {
 		t.Fatal("the daemon took the vouch of the Go hook")
 	}
-	if v.Authorize("orcapipe.core", "Bash", map[string]any{"command": "hl land --pass " + r.sha}) {
+	if v.Authorize(core, "Bash", map[string]any{"command": "hl land --pass " + r.sha}) {
 		t.Fatal("an agent with no key held vouches for nothing")
 	}
 	if v.Authorize(r.auditor, "Bash", map[string]any{"command": "hl land --pass " + r.sha + "; rm -rf x"}) {
@@ -342,13 +347,13 @@ func TestTheJSONRPCMethodsTakeTheSameRulesAsTheLegacyVerbs(t *testing.T) {
 	if g := gate(call(2, "land.pass", fmt.Sprintf(pass, "p1"))); g != "session_token" {
 		t.Fatalf("no vouch: gate %q", g)
 	}
-	if g := gate(call(3, "land.authorize", `{"agent":"orcapipe.merger","land_verb":"land_pass","sha":"`+r.sha+`","key":"ak","request_id":"a0"}`)); g != "not_self" {
+	if g := gate(call(3, "land.authorize", `{"agent":"`+Merger+`","land_verb":"land_pass","sha":"`+r.sha+`","key":"ak","request_id":"a0"}`)); g != "not_self" {
 		t.Fatalf("another agent's name: gate %q", g)
 	}
-	if g := gate(call(4, "land.authorize", `{"agent":"orcapipe.auditor","land_verb":"land_pass","sha":"`+r.sha+`","key":"wrong","request_id":"a1"}`)); g != "session_token" {
+	if g := gate(call(4, "land.authorize", `{"agent":"`+r.auditor+`","land_verb":"land_pass","sha":"`+r.sha+`","key":"wrong","request_id":"a1"}`)); g != "session_token" {
 		t.Fatalf("a wrong key: gate %q", g)
 	}
-	if m := call(5, "land.authorize", `{"agent":"orcapipe.auditor","land_verb":"land_pass","sha":"`+r.sha+`","key":"ak","request_id":"a2"}`); m["error"] != nil {
+	if m := call(5, "land.authorize", `{"agent":"`+r.auditor+`","land_verb":"land_pass","sha":"`+r.sha+`","key":"ak","request_id":"a2"}`); m["error"] != nil {
 		t.Fatalf("%v", m)
 	}
 	m := call(6, "land.pass", fmt.Sprintf(pass, "p2"))

@@ -39,7 +39,7 @@ const (
 	// Requester is who a land's result is said to the merger from.
 	Requester = "land"
 	// Merger is the one agent that may land a branch.
-	Merger = "orcapipe.merger"
+	Merger = "orcapipe.merger" // local-ref-ok: the merger is the one agent of the repo's own team that lands
 
 	auditorRole = "auditor"
 	outputKept  = 1500
