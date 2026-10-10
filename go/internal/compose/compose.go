@@ -45,6 +45,8 @@ type Config struct {
 	Policy func(agent string) structured.Policy
 	// Kind says whether an agent runs structured; nil reads agent.yaml's mode (KindFromYAML).
 	Kind func(agent string) bool
+	// Peer says whether a terminal agent's messages go through its session's peer inbox; nil reads agent.yaml's peer_inbox (PeerFromYAML).
+	Peer func(agent string) bool
 	// ConfirmTimeout is how long a send waits for the CLI to echo it; zero is 30 s.
 	ConfirmTimeout time.Duration
 	// Term is the terminal host agents run in; nil is the one config.yaml names (tmux by default). Tests give a fake one.
@@ -60,6 +62,7 @@ type Parts struct {
 	Agents  *AgentsPort
 	Locks   *lifecycle.AgentLocks
 	Kind    func(agent string) bool
+	Peer    func(agent string) bool
 	// LC is the lifecycle, once Lifecycle has built it.
 	LC *Lifecycle
 
@@ -138,7 +141,11 @@ func New(cfg Config) *Parts {
 	}
 	run := &Runner{cfg: cfg, kind: kind}
 	sink := &transcript.Sink{Now: cfg.Now}
-	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, log: cfg.Log, home: cfg.Home}
+	peer := cfg.Peer
+	if peer == nil {
+		peer = PeerFromYAML(cfg.Home)
+	}
+	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, Peer: peer, log: cfg.Log, home: cfg.Home}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
 	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now, CLIVersion: cfg.CLIVersion}
 	run.mgr, run.parts = mgr, p
@@ -161,14 +168,17 @@ func (p *Parts) Bind(db *sql.DB, tell Telling) {
 }
 
 // KindFromYAML reads an agent's kind from its agent.yaml: a top-level `structured: true`. Any other value, or none, is a terminal agent. (Not `mode`, which is the permission mode a person sets.)
-func KindFromYAML(home string) func(agent string) bool {
+func KindFromYAML(home string) func(agent string) bool { return yamlFlag(home, "structured") }
+
+// yamlFlag reads a top-level `key: true` of an agent's agent.yaml; any other value, or none, is false.
+func yamlFlag(home, key string) func(agent string) bool {
 	return func(agent string) bool {
 		b, err := os.ReadFile(filepath.Join(paths.AgentsDir(home), agent, "agent.yaml"))
 		if err != nil {
 			return false
 		}
 		for _, line := range strings.Split(string(b), "\n") {
-			if v, ok := strings.CutPrefix(line, "structured:"); ok {
+			if v, ok := strings.CutPrefix(line, key+":"); ok {
 				v, _, _ = strings.Cut(v, "#")
 				return strings.EqualFold(strings.Trim(strings.TrimSpace(v), `"'`), "true")
 			}

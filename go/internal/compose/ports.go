@@ -17,8 +17,9 @@ import (
 // sets them on the Env.
 func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 	set := lc.Manager.Settings
+	p.settlePeerSends()
 	return supervisor.Ports{
-		Agents:    p.Agents,
+		Agents:    p.agentsPort(),
 		Terminal:  termPort{lc.term},
 		Observer:  liveSessions{p: p},
 		Dialogs:   noDialogs{},
@@ -209,3 +210,37 @@ func asInt(v any) (int64, bool) {
 type stuck struct{}
 
 func (stuck) DeliveryBlock(db.Q, string) (string, bool) { return "", false }
+
+// agentsPort is the supervisor's Agents: the structured sessions, and the peer inbox for the terminal agents whose agent.yaml says
+// peer_inbox. The peer's outcomes go to whatever Bind gave as the telling.
+func (p *Parts) agentsPort() supervisor.Agents {
+	if p.Peer == nil {
+		return p.Agents
+	}
+	peer := NewPeerPort(p.home, p.db, p.Peer, peerTell{p}, p.log)
+	return mixedAgents{structured: p.Agents, peer: peer, isPeer: func(a string) bool { return !p.Kind(a) && p.Peer(a) }}
+}
+
+// peerTell hands the peer port's outcomes to the telling that Bind set, when there is one.
+type peerTell struct{ p *Parts }
+
+func (t peerTell) SessionConfirmed(q db.Q, agent, op string) error {
+	if d, ok := t.p.tell.(peerDelivery); ok {
+		return d.SessionConfirmed(q, agent, op)
+	}
+	return nil
+}
+
+func (t peerTell) SessionNotDelivered(agent, op, why string, written bool) error {
+	if d, ok := t.p.tell.(peerDelivery); ok {
+		return d.SessionNotDelivered(agent, op, why, written)
+	}
+	return nil
+}
+
+func (t peerTell) SessionLost(q db.Q, agent string) error {
+	if d, ok := t.p.tell.(peerDelivery); ok {
+		return d.SessionLost(q, agent)
+	}
+	return nil
+}
