@@ -272,7 +272,7 @@
   {
    "name": "answer.add.a_dialog_rule_is_unsupported",
    "spec": "answer.add",
-   "about": "NOT_YET_IN_PYTHON A daemon that answers no dialog refuses to save a dialog rule: refused, gate unsupported (the Python daemon keeps saving them until the cutover).",
+   "about": "NOT_YET_IN_PYTHON A daemon that answers no dialog refuses to save a dialog rule: refused, gate unsupported Needs --var dialogs_retired=1: a daemon that answers no dialog (the var only names that it is one). (the Python daemon keeps saving them until the cutover).",
    "as": "founder",
    "steps": [
     {
@@ -281,7 +281,7 @@
       "id": 1,
       "method": "hello",
       "params": {
-       "client": "conformance/1",
+       "client": "conformance/1 {{dialogs_retired}}",
        "protocol": 1,
        "key": "{{founder_key}}"
       }
