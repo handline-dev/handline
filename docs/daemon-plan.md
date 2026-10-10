@@ -324,8 +324,9 @@ deleted, so no migration may drop or reshape a column, and rollback is swapping 
 
 **Cutover checklist: what the Python daemon does and where Go does it.** Status: *done* is wired in the
 daemon or tick and tested; *unwired* is ported and tested but nothing calls it; *gap* has no Go; *dropped*
-is cut by the structured-only plan, the founder's rule that new work goes only in Go, or the founder's
-rule against dialog auto-answers. The tick runs only with `-structured-tick -cutover`, and only over structured agents.
+is cut by the founder's rule that new work goes only in Go or the founder's rule against dialog
+auto-answers. Agents stay terminal Claude Code sessions and the Go daemon supervises them; structured
+work is paused, not the plan.
 
 | Duty (Python) | Go file | Test | Status |
 |---|---|---|---|
@@ -349,12 +350,12 @@ rule against dialog auto-answers. The tick runs only with `-structured-tick -cut
 | Schedules runner (cron messages typed at agents) | writes only: `adminwrites/schedules.go` | none for running | gap |
 | Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
-| Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers, structured-only) |
-| Supervising terminal agents | none | | dropped (structured-only): at the switch terminal agents are not ticked |
+| Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
+| Supervising terminal agents | `compose/termport.go`, `term/host.go` (the port, landed T3073) | | gap, in progress: the terminal tick (T3076, `-terminal-tick`), peer-inbox delivery (T3075), needs-you and `terminal.open` (S4, from the T3074 spec) |
 
 After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
-daemon. `-own-prompts` starts the screen watch, which reads terminal screens that no structured session
-has; `prompt.list` stays, as a read of the `prompt_blocks` rows. The daemon
+daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen and answers no dialog
+(x-dialogs); `prompt.list` stays, as a read of the `prompt_blocks` rows. The daemon
 singleton it takes becomes unconditional (startup row above).
 
 ## Tasks for the sub-team
