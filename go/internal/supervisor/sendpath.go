@@ -238,6 +238,7 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 	}
 	check(rows.Err())
 	rows.Close()
+	var tell []func()
 	for _, l := range ops {
 		key := ledgerKey(agent, l.op)
 		if l.v == sendHeld {
@@ -248,24 +249,40 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 			continue
 		}
 		check(db.SetCursor(q, key, sendUnknown))
-		e.deliveryUnknown(q, agent, l.op, "the session ended before it confirmed it")
+		tell = append(tell, e.deliveryUnknown(q, agent, l.op, "was written to its session, and the session ended before it confirmed it: it may or may not have been read",
+			"ask "+agent+" whether it saw it, or send it again")...)
+	}
+	for _, f := range tell {
+		f()
 	}
 	return nil
 }
 
-// SessionNotDelivered is what a terminal agent's peer inbox calls when a message was written and its transcript never showed it, after the
-// resend. Like a message lost with its session it is unknown and not written again (the sender is told), and the agent needs a person:
-// the event is the IDE's cue. Nothing is typed at its terminal.
-func (e *Env) SessionNotDelivered(q db.Q, agent, op, why string) (err error) {
+// SessionNotDelivered is what a terminal agent's peer inbox calls when a message is not in its transcript after the resend (written: it
+// was written at least once; else nothing was, the session having no inbox to write to). Like a message lost with its session it is
+// unknown and not written again (the sender is told), and the agent needs a person: the event is the IDE's cue. Nothing is typed at its
+// terminal. The ledger, the event and the sender's note are one transaction; the telling follows the commit.
+func (e *Env) SessionNotDelivered(agent, op, why string, written bool) (err error) {
 	defer Catch(&err)
+	var tell []func()
+	tx := must(e.DB.Begin())
+	defer tx.Rollback()
 	key := ledgerKey(agent, op)
-	was := must(db.Cursor(q, key))
-	check(moveLedger(q, key, sendWritten, sendUnknown))
-	if was != sendWritten || must(db.Cursor(q, key)) != sendUnknown {
+	if must(db.Cursor(tx, key)) != sendWritten { // not a message that was out and unconfirmed: nothing to settle
 		return nil
 	}
-	must(db.AddEvent(q, agent, "needs_you", db.KV{K: "reason", V: "a message was not delivered: " + why}, db.KV{K: "op", V: op}))
-	e.deliveryUnknown(q, agent, op, "its transcript never showed it ("+why+")")
+	check(moveLedger(tx, key, sendWritten, sendUnknown))
+	must(db.AddEvent(tx, agent, "needs_you", db.KV{K: "reason", V: "a message was not delivered: " + why}, db.KV{K: "op", V: op}))
+	if written {
+		tell = e.deliveryUnknown(tx, agent, op, "was written to its session, and its transcript never showed it ("+why+"): it may or may not have been read",
+			"ask "+agent+" whether it saw it, or send it again")
+	} else {
+		tell = e.deliveryUnknown(tx, agent, op, "was not written to its session ("+why+"): it was not read", "send it again")
+	}
+	check(tx.Commit())
+	for _, f := range tell {
+		f()
+	}
 	return nil
 }
 
@@ -273,8 +290,9 @@ func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-// deliveryUnknown records that a write may or may not have run, and tells the sender of each request in it (ops with no request name no one).
-func (e *Env) deliveryUnknown(q db.Q, agent, op, how string) {
+// deliveryUnknown records that a write may or may not have run, and tells the sender of each request in it (ops with no request name no one):
+// "#N to <agent> <outcome>. It is not sent again; <advice>." The telling of an agent sender is returned, for after the commit.
+func (e *Env) deliveryUnknown(q db.Q, agent, op, outcome, advice string) (tell []func()) {
 	must(db.AddEvent(q, agent, "delivery_unknown", db.KV{K: "op", V: op}))
 	told := map[string]bool{}
 	for _, rid := range ridsOfOp(op) {
@@ -283,14 +301,15 @@ func (e *Env) deliveryUnknown(q db.Q, agent, op, how string) {
 			continue
 		}
 		told[row.Requester] = true
-		text := fmt.Sprintf("#%d to %s was written to its session, and %s: it may or may not have been read. "+
-			"It is not sent again; ask %s whether it saw it, or send it again.", rid, agent, how, agent)
+		text := fmt.Sprintf("#%d to %s %s. It is not sent again; %s.", rid, agent, outcome, advice)
 		if row.Requester == db.Human {
 			must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
 			continue
 		}
-		e.typeSay(q, row.Requester, text, "delivery unknown")
+		sender, said := row.Requester, e.queueSay(q, row.Requester, text, "delivery unknown")
+		tell = append(tell, func() { e.Push(e.DB, sender, said) })
 	}
+	return tell
 }
 
 // hasSession says whether the agent has a running session: a structured agent's is open, a terminal agent's is in its terminal.

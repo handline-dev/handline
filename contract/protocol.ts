@@ -1779,6 +1779,10 @@ export interface Methods {
   sha: string;
   message: string;
   tree?: string;
+  /** The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS. */
+  fix?: { [key: string]: string };
+  /** Main gets one commit carrying `message`, not the merge. */
+  squash?: boolean;
   request_id: RequestId;
 }; result: Accepted };
   "land.pass": { params: {

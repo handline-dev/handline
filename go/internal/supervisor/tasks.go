@@ -334,12 +334,17 @@ func (e *Env) releaseOne(tid int64, how string) (waiting []int64, err error) {
 
 // TypeSay writes a say from the task board to owner, typed at once.
 func (e *Env) typeSay(q db.Q, owner, body, why string) {
+	e.Push(q, owner, e.queueSay(q, owner, body, why))
+}
+
+// queueSay writes the say and its inbox file, and does not tell the owner: that is Push's, which a caller in a transaction runs after the commit.
+func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: body, Response: "fire_and_forget", Kind: "say"}))
 	must(db.MarkSendNow(q, rid))
 	if err := e.deliver(rid, db.NoticeRequester, owner, body, "", team.Decision{Allowed: true, Reason: why, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
 		e.log("  #%d: the inbox file for %s was not written: %v", rid, owner, err)
 	}
-	e.Push(q, owner, rid)
+	return rid
 }
 
 // TellMemoHolder: a memo changing on a task that is doing is told to its holder at once, typed like a say; on any other task, or when the

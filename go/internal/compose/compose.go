@@ -19,6 +19,7 @@ import (
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -48,6 +49,8 @@ type Config struct {
 	Peer func(agent string) bool
 	// ConfirmTimeout is how long a send waits for the CLI to echo it; zero is 30 s.
 	ConfirmTimeout time.Duration
+	// Term is the terminal host agents run in; nil is the one config.yaml names (tmux by default). Tests give a fake one.
+	Term *term.Term
 }
 
 // Parts is what New builds. Sink goes to daemon.Config.Transcript, Kind to daemon.Config.Structured, Run to lifecycle.Manager.Run, Agents to

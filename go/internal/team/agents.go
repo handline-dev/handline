@@ -24,7 +24,7 @@ const (
 	// DefaultEffort is a cost lever as real as the model: each agent declares its own.
 	DefaultEffort = "medium"
 	// ContextTokens is the default context-handoff threshold (session/triggers.py).
-	ContextTokens = 200_000
+	ContextTokens = 150_000
 
 	MaxExtraWorktrees  = 2
 	BrowserServer      = "browser"

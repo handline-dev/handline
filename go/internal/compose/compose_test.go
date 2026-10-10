@@ -89,7 +89,7 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	os.MkdirAll(filepath.Join(home, "shared", ".claude"), 0o755)
 	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte(sharedSettings), 0o644)
 	os.MkdirAll(filepath.Join(home, "agents", "bob"), 0o755)
-	os.WriteFile(filepath.Join(home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
+	os.WriteFile(filepath.Join(home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+t.TempDir()+"\n"), 0o644) // a folder that is no repository: a spawn here makes nothing
 	d, err := store.Open(filepath.Join(home, "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -98,6 +98,9 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	exe, _ := os.Executable()
 	cfg := Config{DB: d, Home: home, CLI: exe, Env: []string{"FAKE_CLAUDE=1"}, ConfigDir: func(string) string { return t.TempDir() }, Log: func(string, ...any) {}}
 	edit(&cfg)
+	if cfg.Term == nil {
+		cfg.Term = newFakeTerminals().term() // no test reaches a real tmux
+	}
 	p := New(cfg)
 	p.Sink.DB = d
 	p.Sink.Err = func(agent string, err error) { t.Error(agent, err) }
@@ -259,6 +262,11 @@ func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
 
 // wired builds the lifecycle manager over the real parts, with a closed structured agent that has a worktree.
 func wired(t *testing.T) (*Parts, *Lifecycle, *supervisor.Env, string) {
+	return wiredWith(t, newFakeTerminals())
+}
+
+// wiredWith is wired over the given terminals: no test reaches a real tmux.
+func wiredWith(t *testing.T, ft *fakeTerminals) (*Parts, *Lifecycle, *supervisor.Env, string) {
 	t.Helper()
 	p, home := rig(t)
 	dir, err := team.AccountConfigDir(home, "a1")
@@ -279,7 +287,7 @@ func wired(t *testing.T) (*Parts, *Lifecycle, *supervisor.Env, string) {
 		t.Fatal(err) // what a closed agent is woken for
 	}
 	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
-	cfg := Config{DB: d, Home: home, CLI: p.Run.cfg.CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}}
+	cfg := Config{DB: d, Home: home, CLI: p.Run.cfg.CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}, Term: ft.term()}
 	p.Run.cfg = cfg
 	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})
 	env.Ports = p.SupervisorPorts(lc)
@@ -371,11 +379,10 @@ func TestASessionIsNotStartedWithoutTheShellGuardOrWithUnreadableSettings(t *tes
 func TestAStartTheDaemonCannotDoIsNotCountedAgainstTheAgent(t *testing.T) {
 	p, lc, _, _ := wired(t)
 	d := p.Sink.DB
-	// bob is a terminal agent and carol a structured one with no worktree: neither can be started here, and neither may be stalled for it.
+	// carol is a structured agent with no worktree: she cannot be started here, and may not be stalled for it.
 	os.MkdirAll(filepath.Join(p.home, "agents", "carol"), 0o755)
 	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nstructured: true\nrepo: "+t.TempDir()+"\n"), 0o644)
-	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+t.TempDir()+"\n"), 0o644)
-	for _, agent := range []string{"bob", "carol"} {
+	for _, agent := range []string{"carol"} {
 		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: agent, Body: "begin", Response: "async", Kind: "ask"}); err != nil {
 			t.Fatal(err)
 		}

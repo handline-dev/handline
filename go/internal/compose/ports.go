@@ -10,16 +10,17 @@ import (
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
-	"github.com/handline/handline/go/internal/term"
 )
 
-// SupervisorPorts are the supervisor's ports for a daemon that runs structured agents: the lifecycle, the transcript and the handoff are
-// real; the terminal, the screen reads and the dialogs answer as a terminal that is not there. The caller sets them on the Env.
+// SupervisorPorts are the supervisor's ports for a daemon that runs structured agents and terminal ones: the lifecycle, the transcript, the
+// handoff and the terminal (its launch, its screen reads) are real; typing at a terminal session and the dialogs are not served. The caller
+// sets them on the Env.
 func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 	set := lc.Manager.Settings
+	p.settlePeerSends()
 	return supervisor.Ports{
 		Agents:    p.agentsPort(),
-		Terminal:  noScreen{},
+		Terminal:  termPort{lc.term},
 		Observer:  liveSessions{p: p},
 		Dialogs:   noDialogs{},
 		Waits:     waits{p: p},
@@ -33,31 +34,13 @@ func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 	}
 }
 
-// noScreen is supervisor.Terminal when there is no terminal to type at.
-type noScreen struct{}
-
-var _ supervisor.Terminal = noScreen{}
-
-func (noScreen) Available() bool                             { return false }
-func (noScreen) Missing() string                             { return notServed }
-func (noScreen) Alive(string) bool                           { return false }
-func (noScreen) TypeableNow(string) bool                     { return false }
-func (noScreen) ScreenBlocker(string) *term.Blocker          { return nil }
-func (noScreen) SessionOnScreen(string) (bool, bool)         { return false, false }
-func (noScreen) ComposerOnScreen(string) (string, bool)      { return "", false }
-func (noScreen) IsTextTyped(string, string) bool             { return false }
-func (noScreen) BackgroundWork(string) (string, bool)        { return "", false }
-func (noScreen) LastTail(string) []string                    { return nil }
-func (noScreen) Send(string, string, bool) (bool, string)    { return false, notServed }
-func (noScreen) SendToSession(string, string) (bool, string) { return false, notServed }
-func (noScreen) SendCtrlC(string)                            {}
-func (noScreen) ClearContext(string) (bool, string)          { return false, notServed }
-func (noScreen) ClearCommand(string) string                  { return "" }
-
 type liveSessions struct{ p *Parts }
 
 func (o liveSessions) LiveSessions() (map[string]bool, bool) {
 	out := map[string]bool{}
+	for agent := range o.p.terminalSessions() {
+		out[agent] = true
+	}
 	for agent := range o.p.Manager.Live() {
 		out[agent] = true
 	}
@@ -248,9 +231,16 @@ func (t peerTell) SessionConfirmed(q db.Q, agent, op string) error {
 	return nil
 }
 
-func (t peerTell) SessionNotDelivered(q db.Q, agent, op, why string) error {
+func (t peerTell) SessionNotDelivered(agent, op, why string, written bool) error {
 	if d, ok := t.p.tell.(peerDelivery); ok {
-		return d.SessionNotDelivered(q, agent, op, why)
+		return d.SessionNotDelivered(agent, op, why, written)
+	}
+	return nil
+}
+
+func (t peerTell) SessionLost(q db.Q, agent string) error {
+	if d, ok := t.p.tell.(peerDelivery); ok {
+		return d.SessionLost(q, agent)
 	}
 	return nil
 }

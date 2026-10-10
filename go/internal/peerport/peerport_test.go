@@ -46,7 +46,9 @@ func rigOf(in *fakeInbox, ev *events) *Port {
 		Find:        func(a string) (peerinbox.Session, error) { return peerinbox.Session{PID: 1}, nil },
 		Sender:      in,
 		OnDelivered: func(a, op string) { ev.add("delivered " + a + " " + op) },
-		OnFailed:    func(a, op, why string) { ev.add("failed " + a + " " + op + ": " + why) },
+		OnFailed: func(a, op, why string, written bool) {
+			ev.add("failed " + a + " " + op + ": " + why + map[bool]string{true: "", false: " (not written)"}[written])
+		},
 	}
 }
 

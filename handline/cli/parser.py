@@ -531,12 +531,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],
-                       help="the screen the team is run from")
-    p.add_argument("--once", action="store_true", help="print the screen as text and exit")
+                       help="the text screen of the team")
+    p.add_argument("--once", action="store_true", help="accepted and does nothing: the screen is always printed as text")
     p.add_argument("--textual", action="store_true",
-                   help="accepted and does nothing: Textual is the only screen")
-    p.add_argument("--pid", action="store_true",
-                   help="print the pid of the running screen (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
+                   help="accepted and does nothing")
     p.add_argument("--dev-mode", action="store_true",
                    help="turn dev mode on first (as `hl dev-mode on`); without it dev mode is left as it is")
     p.set_defaults(fn=cmd_bridge)
@@ -738,7 +736,7 @@ def _mutates(args) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
-    if not argv or argv[0] in ("--once", "--textual", "--pid", "--dev-mode"):
+    if not argv or argv[0] in ("--once", "--textual", "--dev-mode"):
         argv = ["bridge", *argv]            # `hl` alone is the screen; "bridge" is only its code name
     args = build_parser().parse_args(argv)
     agent = names.getenv("OCP_AGENT")

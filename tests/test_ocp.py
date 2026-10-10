@@ -6,10 +6,7 @@ Run: python3 tests/test_ocp.py            (all areas)
      python3 tests/test_ocp.py --diff-labels before.txt after.txt
      python3 tests/test_ocp.py -j 2       (at most two areas at once)
 
-The tests live in tests/<group>/test_<area>.py over the shared tests/support.py, which
-this module also re-exports for tests/ui/test_bridge_textual.py. That file needs
-`textual`; the suite does not run it for now (BRIDGE_SKIPPED) and says so in its output.
-`python3 tests/ui/test_bridge_textual.py` still runs it by hand.
+The tests live in tests/<group>/test_<area>.py over the shared tests/support.py.
 """
 from __future__ import annotations
 
@@ -30,10 +27,7 @@ from support import *  # noqa: E402,F401,F403
 from support import diff_labels  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-NOT_AREAS = {"test_ocp.py", "test_bridge_textual.py"}
-BRIDGE = HERE / "ui" / "test_bridge_textual.py"
-# The bridge is being replaced; its file stays, and the suite does not run it until that is settled.
-BRIDGE_SKIPPED = "the bridge is being replaced, so its tests are out of the suite for now"
+NOT_AREAS = {"test_ocp.py"}
 
 
 def area_files() -> list[Path]:
@@ -118,7 +112,6 @@ def run_all(argv: list[str]) -> int:
         jobs = [(p, child_args(p), None) for p in files]
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
             results = list(pool.map(lambda j: _run_one(*j), jobs))
-        skipped = f"SKIPPED  {BRIDGE.name}: {BRIDGE_SKIPPED}"
         if args.write_labels:
             with open(args.write_labels, "w") as out:
                 for p in files:
@@ -150,8 +143,6 @@ def run_all(argv: list[str]) -> int:
             failures.append(f"{path.name} exited {code} after reporting no failure")
         failures += re.findall(r"^  FAILED: (.*)$", output, re.M)
         skips += re.findall(r"^(SKIPPED  test_.*)$", output, re.M)
-    if skipped:
-        print(skipped)
     for line in skips:
         print(line)
     print("\nslowest files: " + ", ".join(f"{n} {t:.0f}s" for n, t in

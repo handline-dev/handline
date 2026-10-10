@@ -17,9 +17,8 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// This file builds the lifecycle manager over the structured sessions. A terminal agent is not served here: the terminal-shaped ports
-// (the pane, the screen reads, the dialogs) answer as a terminal that is not there, and the Python daemon keeps those agents until the
-// cutover. Everything a structured agent's start, wake, close and restart touch is real.
+// This file builds the lifecycle manager over the structured sessions and the terminal host (termport.go). A terminal agent is launched,
+// ended and woken through the host; what is typed at a running terminal session is not served here (messages go in through its inbox).
 
 // Lifecycle is the lifecycle manager and what is built beside it.
 type Lifecycle struct {
@@ -33,6 +32,7 @@ type Lifecycle struct {
 
 	usage  *usage.Env
 	roster *team.Roster
+	term   *term.Term
 }
 
 // LifecycleConfig is what only the daemon main knows beyond Config.
@@ -78,7 +78,11 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		}}
 	settings := &lifecycle.Settings{Home: home, Roster: roster}
 	ho.Note = handoff.NoteEnv{Settings: noteSettings{settings, roster}, Telling: lc.Env, Log: cfg.Log}
-	spawns := &lifecycle.Spawns{Q: q, Host: noHost{}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
+	tm := cfg.Term
+	if tm == nil {
+		tm = newTerm(home)
+	}
+	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
 		Run: p.Run, Locks: p.Locks}
 	waiting := func(q db.Q, agent string) bool {
 		head, err := lc.Env.EffectiveHead(q, agent)
@@ -90,10 +94,10 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	launcher.Ports.WaitingFor = waiting
 	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
-		Delivery: lc.Env, Handoff: hp, Term: noTerminal{}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
+		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
 		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, Locks: p.Locks}
-	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster}
+	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
 	return p.LC
@@ -285,7 +289,7 @@ type observer struct{ p *Parts }
 var _ lifecycle.Observer = observer{}
 
 func (o observer) LiveSessions() (map[string]int, bool) {
-	out := map[string]int{}
+	out := o.p.terminalSessions()
 	for agent, pid := range o.p.Manager.Live() {
 		out[agent] = pid
 	}
@@ -336,38 +340,10 @@ func (noBlocked) StopWorkAndExit(db.Q, string) bool      { return false }
 func (noBlocked) AnswerByRule(db.Q, string, string) bool { return false }
 func (noBlocked) AutoAcceptEnabled() bool                { return false }
 
-// noHost is lifecycle.Host for a structured agent: there is no terminal to open and no worktree to make.
-type noHost struct{}
-
-var _ lifecycle.Host = noHost{}
-
-func (noHost) Available() bool { return true }
-func (noHost) Missing() string { return "" }
-
-// CreateWorktree: a worktree is made through Orca, which the Go daemon does not drive; an agent that has one is woken in it, and a new
-// one is the Python daemon's to spawn.
-func (noHost) CreateWorktree(string, string, string) (string, string) {
-	return "", "making a worktree is not served by this daemon yet"
-}
-
 // errNoWorktree is a start with nowhere to run: not counted against the agent.
-var errNoWorktree = errors.New("making a worktree is not served by this daemon yet")
+var errNoWorktree = errors.New("making a worktree for a structured agent is not served by this daemon yet")
 
-func (noHost) OpenTerminal(string, string, string) (string, string) { return "", notServed }
-func (noHost) Manual(wt, repo, name, baseRef, command string) string {
-	return fmt.Sprintf("git -C %s worktree add -b %s %s %s", repo, name, wt, baseRef)
-}
-func (noHost) WaitIdle(string, int) bool              { return false }
-func (noHost) Submit(string, string, int)             {}
-func (noHost) HasRuns() bool                          { return false }
-func (noHost) RunCurrent() string                     { return "" }
-func (noHost) RunExists(string) bool                  { return false }
-func (noHost) RunUse(string)                          {}
-func (noHost) RunCreate(string) string                { return "" }
-func (noHost) TaskCreate(_, _, _, _, _ string) string { return "" }
-func (noHost) Dispatch(_, _, _ string) string         { return "" }
-
-// spawner is lifecycle.Spawner for what this daemon can start. A start it cannot do - a terminal agent, or a structured one with no
+// spawner is lifecycle.Spawner for what this daemon can start. A start it cannot do - a structured agent with no
 // worktree yet - is an error, which the lifecycle does not count against the agent: it is not a failed start, it was never tried.
 type spawner struct {
 	inner *lifecycle.Spawns
@@ -379,17 +355,14 @@ var _ lifecycle.Spawner = spawner{}
 func (s spawner) WorktreePath(worktree string) string { return s.inner.WorktreePath(worktree) }
 
 func (s spawner) StartIn(agent, worktree, cmd string) (bool, string, error) {
-	if !s.kind(agent) {
-		return false, "", fmt.Errorf("%s: %s", agent, notServed)
-	}
 	return s.inner.StartIn(agent, worktree, cmd)
 }
 
 func (s spawner) Spawn(agent, repo string) (bool, string, error) {
 	if !s.kind(agent) {
-		return false, "", fmt.Errorf("%s: %s", agent, notServed)
+		return s.inner.Spawn(agent, repo)
 	}
-	// Spawn is for an agent with no worktree, and making one is Orca's.
+	// A structured agent with no worktree yet is not started here.
 	return false, "", fmt.Errorf("%s: %w", agent, errNoWorktree)
 }
 

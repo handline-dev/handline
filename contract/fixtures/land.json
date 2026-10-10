@@ -1,0 +1,232 @@
+{
+ "fixtures": [
+  {
+   "name": "land.authorize.names_another_agent_is_refused",
+   "spec": "land.authorize",
+   "as": "agent",
+   "about": "NOT_YET_IN_PYTHON A vouch acts as the caller's own session: an agent that is not the caller is refused, gate not_self.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "land.authorize",
+      "params": {
+       "agent": "nobody.else",
+       "land_verb": "land",
+       "sha": "abc",
+       "key": "k",
+       "request_id": "land-auth-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "not_self",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "land.authorize.a_verb_that_is_not_a_land_verb_is_bad_request",
+   "spec": "land.authorize",
+   "as": "agent",
+   "about": "NOT_YET_IN_PYTHON land_verb is land or land_pass.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "land.authorize",
+      "params": {
+       "agent": "nobody.else",
+       "land_verb": "wake",
+       "sha": "abc",
+       "key": "k",
+       "request_id": "land-auth-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "land_verb"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "land.pass.is_refused_without_the_vouch_of_the_sessions_own_command",
+   "spec": "land.pass",
+   "as": "agent",
+   "about": "NOT_YET_IN_PYTHON land.pass is accepted only once the session's own `hl land --pass` command vouched for exactly that sha: code a session runs (a test run, a script) is refused, gate session_token.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "land.pass",
+      "params": {
+       "sha": "0000000000000000000000000000000000000000",
+       "request_id": "land-pass-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "session_token",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "land.is_refused_without_the_vouch_of_the_sessions_own_command",
+   "spec": "land",
+   "as": "agent",
+   "about": "NOT_YET_IN_PYTHON land is accepted only once the session's own `hl land` command vouched for exactly that sha: refused, gate session_token.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "land",
+      "params": {
+       "sha": "0000000000000000000000000000000000000000",
+       "message": "m",
+       "tree": "t",
+       "request_id": "land-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "session_token",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "land.is_for_an_agent_session_only",
+   "spec": "land",
+   "as": "founder",
+   "about": "NOT_YET_IN_PYTHON The founder does not land: refused, gate role.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "land",
+      "params": {
+       "sha": "0000000000000000000000000000000000000000",
+       "message": "m",
+       "tree": "t",
+       "request_id": "land-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

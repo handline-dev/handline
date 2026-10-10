@@ -41,8 +41,8 @@ func peerRig(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
 				t.Error(err)
 			}
 		},
-		OnFailed: func(a, op, why string) {
-			if err := r.SessionNotDelivered(r.DB, a, op, why); err != nil {
+		OnFailed: func(a, op, why string, written bool) {
+			if err := r.SessionNotDelivered(a, op, why, written); err != nil {
 				t.Error(err)
 			}
 		},
@@ -118,5 +118,44 @@ func TestATerminalAgentWithNoInboxIsQueuedNotTold(t *testing.T) {
 	got, err := r.TellNow(r.DB, rid)
 	if err != nil || got == "sent" || in.count() != 0 {
 		t.Fatalf("%q %v %d", got, err, in.count())
+	}
+}
+
+func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t *testing.T) {
+	for _, written := range []bool{false, true} {
+		r, _ := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+		rid := r.ask("alice", "bob", "psst", "say")
+		op := requestOp(rid)
+		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+			t.Fatal(state)
+		}
+		r.must(r.SessionNotDelivered("bob", op, "no inbox", written))
+		var n int
+		pattern := "%was not written to its session (no inbox): it was not read. It is not sent again; send it again.%"
+		if written {
+			pattern = "%transcript never showed it (no inbox): it may or may not have been read. It is not sent again; ask bob whether it saw it%"
+		}
+		r.must(r.DB.QueryRow("SELECT count(*) FROM requests WHERE target = 'alice' AND body LIKE ?", pattern).Scan(&n))
+		if n != 1 {
+			t.Fatalf("written=%v: the sender was told %d times", written, n)
+		}
+		r.must(r.SessionNotDelivered("bob", op, "no inbox", written)) // settled once
+		r.must(r.DB.QueryRow("SELECT count(*) FROM events WHERE agent = 'bob' AND kind = 'needs_you'").Scan(&n))
+		if n != 1 {
+			t.Fatalf("needs-you events: %d", n)
+		}
+	}
+}
+
+func TestAMessageTheLastDaemonLeftWrittenIsUnknownWhenTheNextSettlesIt(t *testing.T) {
+	r, _ := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+	rid := r.ask("alice", "bob", "psst", "say")
+	op := requestOp(rid)
+	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+		t.Fatal(state)
+	}
+	r.must(r.SessionLost(r.DB, "bob")) // what the daemon does at its start for each peer agent
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != sendUnknown {
+		t.Fatalf("ledger %d", v)
 	}
 }

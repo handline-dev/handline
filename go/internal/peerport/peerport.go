@@ -29,9 +29,9 @@ type Port struct {
 	Find   func(agent string) (peerinbox.Session, error)
 	Sender Deliverer
 	// OnDelivered is called once the transcript shows op. OnFailed is called when it did not, after the resend, or the session has no
-	// inbox any more; why carries nothing from the connection or the key.
+	// inbox any more; why carries nothing from the connection or the key, and written says whether the message was written at all.
 	OnDelivered func(agent, op string)
-	OnFailed    func(agent, op, why string)
+	OnFailed    func(agent, op, why string, written bool)
 	Ctx         context.Context
 
 	mu    sync.Mutex
@@ -109,7 +109,7 @@ func (p *Port) drain(agent string, l *line) {
 func (p *Port) deliver(ctx context.Context, agent string, j job) {
 	sess, err := p.Find(agent)
 	if err != nil {
-		p.failed(agent, j.op, err.Error())
+		p.failed(agent, j.op, err.Error(), false)
 		return
 	}
 	res := p.Sender.Deliver(ctx, sess, j.text)
@@ -119,11 +119,11 @@ func (p *Port) deliver(ctx context.Context, agent string, j job) {
 		}
 		return
 	}
-	p.failed(agent, j.op, res.Why)
+	p.failed(agent, j.op, res.Why, res.Kind != peerinbox.NoSocket)
 }
 
-func (p *Port) failed(agent, op, why string) {
+func (p *Port) failed(agent, op, why string, written bool) {
 	if p.OnFailed != nil {
-		p.OnFailed(agent, op, why)
+		p.OnFailed(agent, op, why, written)
 	}
 }
