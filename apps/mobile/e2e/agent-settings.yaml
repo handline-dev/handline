@@ -20,6 +20,7 @@ appId: dev.handline.mobile
     id: effort-max
 - assertVisible:
     id: effort-max
+    selected: true
 - scrollUntilVisible:
     element:
       id: skip_permissions-switch
@@ -29,6 +30,11 @@ appId: dev.handline.mobile
     id: skip_permissions-ask
 - tapOn:
     id: skip_permissions-cancel
+- assertNotVisible:
+    id: skip_permissions-ask
+- assertVisible:
+    id: skip_permissions-switch
+    checked: false
 - tapOn:
     id: settings-back
 - assertVisible:
