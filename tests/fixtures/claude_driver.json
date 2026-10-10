@@ -22,7 +22,9 @@
     "Task",
     "--effort",
     "high",
-    "--no-chrome"
+    "--no-chrome",
+    "--settings",
+    "{\"sandbox\": {\"enabled\": true}}"
    ]
   },
   {
@@ -40,7 +42,9 @@
     "high",
     "--chrome",
     "--append-system-prompt",
-    "You are a.one.\nBe brief: \u00e9"
+    "You are a.one.\nBe brief: \u00e9",
+    "--settings",
+    "{\"sandbox\": {\"enabled\": true}}"
    ]
   },
   {
@@ -68,7 +72,7 @@
     "/w/two",
     "/w/three",
     "--settings",
-    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/w/two\", \"/w/three\"]}}}"
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/w/two\", \"/w/three\"]}, \"enabled\": true}}"
    ]
   },
   {
@@ -89,7 +93,7 @@
     "high",
     "--no-chrome",
     "--settings",
-    "{\"autoMemoryDirectory\": \"/h/agents/a/memory\", \"sandbox\": {\"filesystem\": {\"denyRead\": [\"/h/tokens/\", \"/h/keys\"], \"denyWrite\": [\"/h/db.sqlite\"]}}, \"permissions\": {\"deny\": [\"Read(//h/tokens/**)\", \"Read(//h/keys/**)\", \"Edit(//h/db.sqlite)\"]}}"
+    "{\"autoMemoryDirectory\": \"/h/agents/a/memory\", \"sandbox\": {\"filesystem\": {\"denyRead\": [\"/h/tokens/\", \"/h/keys\"], \"denyWrite\": [\"/h/db.sqlite\"]}, \"enabled\": true}, \"permissions\": {\"deny\": [\"Read(//h/tokens/**)\", \"Read(//h/keys/**)\", \"Edit(//h/db.sqlite)\"]}}"
    ]
   },
   {
@@ -146,7 +150,7 @@
     "high",
     "--no-chrome",
     "--settings",
-    "{\"autoMode\": {\"environment\": [\"$defaults\", \"Source control: github.com/acme\", \"\\\"quoted\\\"\"]}, \"enabledMcpjsonServers\": [\"a\", \"b\"]}"
+    "{\"sandbox\": {\"enabled\": true}, \"autoMode\": {\"environment\": [\"$defaults\", \"Source control: github.com/acme\", \"\\\"quoted\\\"\"]}, \"enabledMcpjsonServers\": [\"a\", \"b\"]}"
    ]
   },
   {
@@ -162,7 +166,9 @@
     "Task",
     "--effort",
     "high",
-    "--no-chrome"
+    "--no-chrome",
+    "--settings",
+    "{\"sandbox\": {\"enabled\": true}}"
    ]
   },
   {

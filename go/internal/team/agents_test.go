@@ -109,14 +109,19 @@ func TestOnlyTheFoundersSessionRegistersAndGrants(t *testing.T) {
 	if r.SkipPermissionsGranted("worker") || r.ModeOf("worker", cfg) != "plan" {
 		t.Fatalf("a mode other than bypass turns the switch off: %v", cfg)
 	}
-	off := false
+	if r.SandboxOn("worker", cfg) {
+		t.Fatal("the sandbox is off unless the file turns it on")
+	}
+	on, off := true, false
+	r.Register("worker", RegisterOpts{Sandbox: &on})
+	cfg, _ = r.Read("worker")
+	if !r.SandboxOn("worker", cfg) || cfg["sandbox"] != true {
+		t.Fatalf("sandbox on is sandbox: true in the file: %v", cfg)
+	}
 	r.Register("worker", RegisterOpts{Sandbox: &off})
 	cfg, _ = r.Read("worker")
-	if r.SandboxOn("worker", cfg) || !r.SandboxOffGranted("worker") {
-		t.Fatal("sandbox off is the file and the grant")
-	}
-	if !r.SandboxOn("other", cfg) {
-		t.Fatal("sandbox: false with no grant is still on")
+	if _, has := cfg["sandbox"]; has || r.SandboxOn("worker", cfg) {
+		t.Fatalf("sandbox off takes the key out: %v", cfg)
 	}
 }
 

@@ -73,14 +73,15 @@ def test_the_claude_driver_points_one_settings_object_at_the_agents_memory(home:
     argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, memory_dir=mem)
     settings = [json.loads(a) for i, a in enumerate(argv) if argv[i - 1] == "--settings"]
     check("memory: the folder is passed as autoMemoryDirectory, an absolute path",
-          settings == [{"autoMemoryDirectory": str(mem)}], str(argv))
+          len(settings) == 1 and settings[0]["autoMemoryDirectory"] == str(mem), str(argv))
     argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None, hide=["/a"], memory_dir=mem)
     settings = [json.loads(a) for i, a in enumerate(argv) if argv[i - 1] == "--settings"]
     check("memory: with hidden paths it is still ONE --settings object carrying both",
           len(settings) == 1 and settings[0]["autoMemoryDirectory"] == str(mem)
           and settings[0]["sandbox"]["filesystem"]["denyRead"] == ["/a"], str(argv))
-    check("memory: no folder and nothing hidden adds no --settings",
-          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+    argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None)
+    check("memory: no folder adds no autoMemoryDirectory",
+          "autoMemoryDirectory" not in json.loads(argv[argv.index("--settings") + 1]), str(argv))
     check("memory: a vendor with no auto-memory has no setting for it", Opencode().memory_settings(mem) == {})
 
 

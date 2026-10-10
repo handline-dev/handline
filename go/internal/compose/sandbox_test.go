@@ -52,7 +52,7 @@ func TestTheSandboxSettingsCarryTheSharedSandboxAndTheHideListsAsATerminalAgentG
 }
 
 // What the CLI is started with is what a terminal session of the agent would be kept out of.
-func TestAStructuredSessionIsStartedInTheSandboxWithTheOtherAgentsHidden(t *testing.T) {
+func TestAStructuredSessionHidesTheOtherAgentsWithTheSandboxOffByDefault(t *testing.T) {
 	p, _, _, _ := wired(t)
 	home := p.home
 	os.MkdirAll(filepath.Join(home, "agents", "bob", "memory"), 0o755)
@@ -74,7 +74,7 @@ func TestAStructuredSessionIsStartedInTheSandboxWithTheOtherAgentsHidden(t *test
 		t.Fatal(err)
 	}
 	bobMemory := filepath.Join(home, "agents", "bob", "memory")
-	if !got.Sandbox.Enabled || !slices.Contains(got.Sandbox.Filesystem.DenyRead, bobMemory) ||
+	if got.Sandbox.Enabled || !slices.Contains(got.Sandbox.Filesystem.DenyRead, bobMemory) ||
 		!slices.Contains(got.Permissions.Deny, "Read(/"+bobMemory+"/**)") {
 		t.Fatalf("another agent's memory is not hidden: %s", b)
 	}

@@ -1668,7 +1668,7 @@ class SecondVendor:
     def is_resume(self, extra):
         return "--resume" in (extra or [])
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, no_write=None,
-                    memory_dir=None, trusted=None, chrome=False):
+                    memory_dir=None, trusted=None, chrome=False, sandbox=False):
         return [exe]
     def skip_permissions_argv(self):
         return ["--yolo"]
