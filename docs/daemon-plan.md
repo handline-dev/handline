@@ -324,8 +324,8 @@ deleted, so no migration may drop or reshape a column, and rollback is swapping 
 
 **Cutover checklist: what the Python daemon does and where Go does it.** Status: *done* is wired in the
 daemon or tick and tested; *unwired* is ported and tested but nothing calls it; *gap* has no Go; *dropped*
-is cut by the structured-only plan (memo 1264), #26096 (new work only in Go) or #26177 (no dialog
-auto-answers). The tick runs only with `-structured-tick -cutover`, and only over structured agents.
+is cut by the structured-only plan, the founder's rule that new work goes only in Go, or the founder's
+rule against dialog auto-answers. The tick runs only with `-structured-tick -cutover`, and only over structured agents.
 
 | Duty (Python) | Go file | Test | Status |
 |---|---|---|---|
@@ -349,8 +349,8 @@ auto-answers). The tick runs only with `-structured-tick -cutover`, and only ove
 | Schedules runner (cron messages typed at agents) | writes only: `adminwrites/schedules.go` | none for running | gap |
 | Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
-| Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (#26177, structured-only) |
-| Supervising terminal agents | none | | dropped (memo 1264): at the switch terminal agents are not ticked |
+| Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers, structured-only) |
+| Supervising terminal agents | none | | dropped (structured-only): at the switch terminal agents are not ticked |
 
 After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
 daemon. `-own-prompts` starts the screen watch, which reads terminal screens that no structured session
