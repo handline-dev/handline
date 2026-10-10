@@ -261,8 +261,8 @@ def test_rollover(home: Path) -> None:
 # ---------------------------------------------------------------- triggers
 def test_triggers() -> None:
     T = triggers
-    check("trigger: the default context-handoff limit is 200,000 tokens (#1898)",
-          T.CONTEXT_TOKENS == 200_000)
+    check("trigger: the default context-handoff limit is 150,000 tokens (#1898)",
+          T.CONTEXT_TOKENS == 150_000)
     check("trigger: quiet agent does not fire", not T.evaluate(10, 10).fired)
     check("trigger: context at the default fires",
           T.evaluate(10, T.CONTEXT_TOKENS).kind == "context")

@@ -4681,11 +4681,11 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
         db.add_event(con, "backend", "ask", {})
         dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
-        told = dmn_delivery.CLEAR_NOTICE.format(context="? of 200,000", minutes=5)
+        told = dmn_delivery.CLEAR_NOTICE.format(context="? of 150,000", minutes=5)
         check("owed (b): the agent is told, in the founder's words, and nothing is cleared yet",
               sent == [told] and not cleared and dmn_delivery.clear_owed(con, "backend"), f"{sent} {cleared}")
         check("owed (b): the wording is the founder's: what happens and when, no reply needed, the one command",
-              told.startswith("ocp: your context is full (? of 200,000), so this session will be cleared in 5 minutes. "
+              told.startswith("ocp: your context is full (? of 150,000), so this session will be cleared in 5 minutes. "
                               "No reply is needed. Before then: 1. Stop your background shells. Anything still running "
                               "at that time is cut off. 2. If you were waiting on a result, write what was running and "
                               'what is left in: hl progress "done: ... left: ..." - the next session starts from that '

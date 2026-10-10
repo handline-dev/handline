@@ -166,6 +166,9 @@ func TestConfigReaders(t *testing.T) {
 		ContextTokensOf(Config{"context_tokens": "9"}) != ContextTokens {
 		t.Error("context_tokens")
 	}
+	if ContextTokens != 150_000 {
+		t.Errorf("the default context-handoff limit is 150,000 tokens (the Python one, session/triggers.py), not %d", ContextTokens)
+	}
 	if ExtraWorktrees(Config{"extra_worktrees": int64(9)}) != 2 || ExtraWorktrees(Config{"extra_worktrees": true}) != 0 ||
 		ExtraWorktrees(Config{"extra_worktrees": int64(1)}) != 1 {
 		t.Error("extra_worktrees")
