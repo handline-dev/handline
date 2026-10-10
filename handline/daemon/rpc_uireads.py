@@ -1,7 +1,7 @@
 """agent.strip and chat.refs: the two reads a chat page makes against the db beyond the chat methods.
 
 agent.strip is the line under an agent's chat header: model, account, context used and its limit, the life left in the prompt cache
-(`cache_left_s`, negative once it has lapsed), and the agent's state as the six screen words (`screen_word`, `tui.screen_state`'s and
+(`cache_left_s`, negative once it has lapsed), and the agent's state as the six screen words (`screen_word`, `screen_state`'s and
 not the wire `state`) with the text drawn beside it. chat.refs is what a `#` in the composer can point at: the agent's newest requests,
 sent or received, that were not withdrawn or turned away; its tasks are `tasks.list` (owner or from). A request that no chat shows
 is read with `chat.locate`, whose not_found carries its from, to and body."""

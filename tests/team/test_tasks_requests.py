@@ -2720,11 +2720,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               len(found) == 1 and found[0]["who"] == "backend" and found[0]["red"]
               and found[0]["what"].startswith("Bash: git push origin main"), str(found))
 
-        frame = _snap(120, 40)
-        plain = [viewdata._ANSI.sub("", ln) for ln in frame.split("\n")]
-        first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
-        check("bridge: the block is pinned above the accounts",
-              first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
+        plain = [viewdata._ANSI.sub("", ln) for ln in _snap(120, 40).split("\n")]
         check("bridge: it names the command",
               any("git push origin main" in ln for ln in plain), str(plain[:6]))
         check("bridge: and the agent's own row reads DIALOG, not RUNNING",

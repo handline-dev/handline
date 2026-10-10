@@ -1,6 +1,6 @@
 """The one word an agent's row shows and what is said beside it (`screen_state`): the daemon stores it in the
 agent's view (`agentview.py`), and `hl ps` and the UI read it through here, so no two screens can disagree
-about a row. It lived in `view/tui.py`; that module re-exports it."""
+about a row."""
 from __future__ import annotations
 
 import time

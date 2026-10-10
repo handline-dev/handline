@@ -11,7 +11,7 @@ from ..session import launch, triggers
 from ..usage import load as loadmod, status
 from ..infra import paths
 from ..infra import timefmt
-from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, states as dmn_states
+from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
 from ..daemon.screenstate import screen_state
 from ..infra.textsafe import cwidth, oneline
 
@@ -34,24 +34,6 @@ STATE_COLOR = {
 # SCREEN_WORDS: it is the pinned block's own heading, never a row's state cell
 # (that says DIALOG - see screen_state()).
 WAITING_ON_YOU = "WAITING ON YOU"
-
-# `wake` is not here - see _needs_confirm(): it asks only when the row is
-# FATAL, which is the one case unstall used to ask for on its own key
-# (founder #1620/#1631, u removed).
-CONFIRM = {"close", "restart", "park", "fold", "cancel"}
-
-def _needs_confirm(con, name: str, label: str) -> bool:
-    """Whether pressing `label` on `name` needs a yes first.
-
-    Static for everything but `wake`: waking a park or a closed session is
-    the ordinary case and asks nothing, same as before, but a FATAL row is
-    now reached through the same key, and clearing a stall keeps the
-    confirmation it always had under its old name, unstall.
-    """
-    if label == "wake":
-        row = db.get_agent_state(con, name)
-        return bool(row and row["state"] == dmn_states.STALLED)
-    return label in CONFIRM
 
 def vlen(s: str) -> int:
     """Visible width, ignoring the escape sequences."""
@@ -366,17 +348,19 @@ def shown_names(drawn: list[tuple[str, int, list[str]]]) -> dict[str, str]:
             and len(name) > len(prefix) else name
     return out
 
-# Whether an account has credentials, asked at most this often. The check runs
-# `security`, which is a subprocess with a ten-second timeout, and the screen
-# redraws every two seconds and on every keypress - a slow keychain froze the
-# dashboard. Logging in is a thing a person does by hand, so a minute-old
-# answer is current.
-LOGIN_TTL_S = 60
-
-_LOGIN: dict[str, tuple[float, bool]] = {}
-
 # The states a person has to do something about. Kept as an alias of
 # SCREEN_WORDS' own two red words, for the one caller (hidden_urgency, on a
 # folded row) that still needs to ask "does this need a person" about a state
 # it does not otherwise draw.
 NEEDS_A_HUMAN = ("DIALOG", "FATAL")
+
+
+def fold_suffix(under: int, urgency: tuple[str, int, str] | None) -> str:
+    """` +3` and its most urgent report, as `fold_marker` draws them with room."""
+    if not under:
+        return ""
+    count = f"{DIM} +{under}{R}"
+    if urgency:
+        glyph, n, colour = urgency
+        return f"{count} {colour}{glyph}{n}{R}"
+    return count

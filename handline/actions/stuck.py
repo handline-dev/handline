@@ -267,7 +267,7 @@ def stuck(con, world: tuple | None = None) -> list[dict]:
         if row["state"] in (dmn_states.STALLED, dmn_states.DEGRADED) \
                 and not (row["agent"] in blks and blks[row["agent"]]["kind"] == blocked.STALLED):
             # FATAL, not the internal name STALLED - the agents panel below
-            # reads the same row through tui.screen_state and must not disagree.
+            # reads the same row through screen_state and must not disagree.
             word = "FATAL" if row["state"] == dmn_states.STALLED else row["state"]
             add(f"{row['agent']} is {word}", now - int(row["updated"]),
                 row["detail"] or "", row["agent"])

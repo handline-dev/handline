@@ -2748,16 +2748,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         frame = _snap(120, 40)
         check("closed: top does not warn about it", "usage_unknown" not in frame,
               [ln for ln in frame.splitlines() if "backend" in ln])
-        check("closed: and says why instead", "closed" in frame,
-              [ln for ln in frame.splitlines() if "backend" in ln])
 
-        # The screen answers the founder's questions, not the operator's: no
-        # snapshot age (its only news is the reason beside it), no cost column
-        # (a sum over the sessions we can see is not the account's spend), no
-        # model or effort (configuration, and on the agent's own page), no pid.
-        plain = [viewdata._ANSI.sub("", ln) for ln in frame.split(chr(10))]
-        check("screen: the daemon is reported as running, not as a pid",
-              "pid" not in plain[0], plain[0])
         # The daemon's own note is not news. It is on every row, it is never
         # something a human acts on - "woke from PARKED at reconciliation" -
         # and a column that is always full of something unactionable is one a

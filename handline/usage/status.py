@@ -129,7 +129,7 @@ def effective_context_limit(cfg: dict, model_id: str | None) -> int:
     window to take a fraction of, so the configured-or-default figure stands
     alone.
 
-    Lives here, not in agents.py: every caller (cli, daemon, tui) already
+    Lives here, not in agents.py: every caller (cli, daemon) already
     imports status, and agents.py stays a leaf - it must not reach up into
     collect or vendors just to resolve a limit its own callers can resolve
     themselves (#1784, orcapipe/auditor).

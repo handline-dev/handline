@@ -72,7 +72,7 @@ from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
 from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
-from handline.view import tui, viewdata  # noqa: E402
+from handline.view import viewdata  # noqa: E402
 from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
                         locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
@@ -91,7 +91,7 @@ dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 # handler the socket serves, on this process, and the notice is typed inline.
 import types as _types  # noqa: E402
 from handline.cli import ask as _cli_ask  # noqa: E402
-from handline.daemon import sends as _dmn_sends  # noqa: E402
+from handline.daemon import screenstate, sends as _dmn_sends  # noqa: E402
 _dmn_sends.RUN_INLINE = True
 _cli_ask.dmn_client = _types.SimpleNamespace(
     send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
@@ -375,22 +375,30 @@ def restore_world() -> None:
     actions._WORLD["at"] = 0.0
 
 
-def _page_text(page: dict, width: int) -> str:
-    """Everything an opened page draws at `width`: a conversation page is one
-    stack of sections, any other has a tab for each and is read tab by tab."""
-    if page.get("stacked"):
-        return "\n".join(tui.lines_of(page, width))
-    out: list[str] = []
-    for i in range(len(tui._tab_stems(page))):
-        page["tab"] = i
-        out += tui.lines_of(page, width)
-    return "\n".join(out)
-
-
 def _snap(*_geometry, **_cursor) -> str:
-    """The bridge's `--once` text. Screen geometry and cursor arguments are
-    accepted and ignored: what the tests read is what it shows, not how."""
-    return tui.snapshot()
+    """The team as plain text, for tests that read what a row says: what waits on
+    the founder, then one line per agent, from the same data the app's rows use."""
+    plain = lambda cell: viewdata._ANSI.sub("", cell)  # noqa: E731
+    con = db.connect()
+    try:
+        waits = actions.founder_waits(con)
+        rows, notes = viewdata.agents_data(con)
+    finally:
+        con.close()
+    out = ["Handline"]
+    if waits:
+        out.append(f"{viewdata.WAITING_ON_YOU} ({len(waits)})")
+        out += [f"  {w['who']} · {w['what']}" for w in waits]
+    out += ["", "AGENTS"]
+    for r in rows:
+        if r.error:
+            out.append(f"  {plain(r.twig)}{r.shown}  config error: {r.error}")
+            continue
+        wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
+        out.append(f"  {plain(r.twig)}{r.shown}{plain(viewdata.fold_suffix(r.under, r.urgency))}  {r.acct}  "
+                   f"{r.kind}  {plain(viewdata.state_cell(r.state, r.until))}  {plain(r.ctx)}  "
+                   f"{r.inbox or '·'}  {r.tasks or '·'}{'  ' + plain(r.fire) if r.fire else ''}{wall}")
+    return "\n".join(out + [f"  {n}" for n in notes])
 
 
 def upgrade(path: Path | None = None):
@@ -2487,7 +2495,7 @@ __all__ = [
     'triggers',
     'tmuxbackend',
     'trustmod',
-    'tui',
+    'screenstate',
     'viewdata',
     'usage_api',
     'claudemeter',
@@ -2512,7 +2520,6 @@ __all__ = [
     '_REAL_POPEN_INIT',
     '_guarded_popen_init',
     'restore_world',
-    '_page_text',
     '_snap',
     '_set_request_state',
     'relaunching_send',
