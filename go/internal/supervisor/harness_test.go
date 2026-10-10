@@ -201,7 +201,7 @@ type sessionAgents struct {
 }
 
 func (a *sessionAgents) Structured(agent string) bool { return !a.noPeer[agent] }
-func (a *sessionAgents) Live(agent string) bool { return a.live[agent] }
+func (a *sessionAgents) Live(agent string) bool       { return a.live[agent] }
 func (a *sessionAgents) Send(_, _, text string, _ structured.Delivery) (structured.Receipt, error) {
 	a.r.term.mu.Lock()
 	defer a.r.term.mu.Unlock()

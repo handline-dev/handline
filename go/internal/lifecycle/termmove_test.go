@@ -15,10 +15,12 @@ type fakeTermRun struct {
 	status   string
 	survives bool
 	told     []string
+	started  int64 // the start time of the process now at pid; 0 reads as unknown
 }
 
 func (f *fakeTermRun) Session(string) (int, string) { return f.pid, f.status }
 func (f *fakeTermRun) PidGone(int) bool             { return f.status == "" }
+func (f *fakeTermRun) PidStart(int) int64           { return f.started }
 func (f *fakeTermRun) Tell(a, op, text string) error {
 	f.told = append(f.told, a+"|"+op+"|"+text)
 	return nil
@@ -207,5 +209,65 @@ func TestASessionThatOutlivedItsPaneIsRecordedClosedOnceItsPidIsGoneAndThenRelau
 	g.m.Q.Exec("UPDATE agent_state SET wake_at = ? WHERE agent = 'a'", g.m.now()) // the park's backoff has run out
 	if ok, said, _ := g.m.WakeAgent("a", WakeOpts{}); !ok || len(g.sp.startedIn) != 1 {
 		t.Fatalf("%v %q %v", ok, said, g.sp.startedIn)
+	}
+}
+
+func TestAReusedPidReadsAsTheSessionHavingEnded(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.run.survives, g.run.started = true, 100
+	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
+	g.v.SettleOwedClear("a")
+	if isClosed(g.row(t)) {
+		t.Fatal("closed over a live session")
+	}
+	g.run.started = 200 // another process has the number now; the status still reads running
+	g.v.SettleOwedClear("a")
+	if !isClosed(g.row(t)) {
+		t.Fatalf("%+v", g.row(t))
+	}
+}
+
+func TestASessionStillThereAfterTheBoundIsReportedOnceAndNeverStartedOver(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.run.survives = true
+	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
+	db.SetCursor(g.m.Q, orphanKey("a")+":since", g.m.now()-OrphanGiveUpS-1)
+	for i := 0; i < 3; i++ {
+		g.v.SettleOwedClear("a")
+	}
+	var n int
+	g.m.Q.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'a' AND kind = 'needs_you'").Scan(&n)
+	if n != 1 || isClosed(g.row(t)) || len(g.sp.startedIn) != 0 {
+		t.Fatalf("needs_you %d, closed %v, started %v", n, isClosed(g.row(t)), g.sp.startedIn)
+	}
+	g.run.status = "" // a person ended it after all
+	g.v.SettleOwedClear("a")
+	if !isClosed(g.row(t)) {
+		t.Fatal("not recorded closed once it ended")
+	}
+}
+
+func TestAnOwedClearWhoseOrphanExitsEndsLikeANormalClear(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.bg = "npm test"
+	g.run.survives = true
+	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
+	db.SetCursor(g.m.Q, "clear_owed:a", g.m.now()-ClearWaitS-1)
+	g.v.SettleOwedClear("a") // times out: the pane closes, the session stays
+	if row := g.row(t); isClosed(row) || row.State == states.Parked {
+		t.Fatalf("%+v", row)
+	}
+	g.v.SettleOwedClear("a") // still there: nothing is closed twice
+	g.run.status = ""
+	g.v.SettleOwedClear("a")
+	row := g.row(t)
+	if !isClosed(row) || row.State != states.Parked || row.WakeAt.Int64 == 0 || row.WakeAt.Int64 > g.m.now() {
+		t.Fatalf("%+v", row)
+	}
+	if h, _ := db.GetHandoff(g.m.Q, "a"); !strings.Contains(h, "Cut off by the clear") || !strings.Contains(h, "npm test") {
+		t.Fatalf("record %q", h)
+	}
+	if g.v.clearOwed("a") != 0 {
+		t.Fatal("still owed")
 	}
 }

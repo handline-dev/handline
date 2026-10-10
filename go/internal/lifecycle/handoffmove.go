@@ -381,7 +381,7 @@ func (v *Mover) reclaim(agent string) (bool, string) {
 	}
 	v.log("  %s: %d min are up with background work still running (%s) - closing", agent, ClearWaitS/60, running)
 	ok, why := v.closeNow(agent)
-	if ok {
+	if ok || must(db.Cursor(m.Q, orphanKey(agent))) != 0 { // a session that outlives its pane is cut off when it ends
 		rec := must(db.GetHandoff(m.Q, agent))
 		check(db.SetHandoff(m.Q, agent, fmt.Sprintf("%s\n\n## Cut off by the clear\nThis session was cleared with background work still running (%s); it was told %s earlier and asked to stop it. That work is gone - rerun it if it still matters.\n", rec, running, timefmt.Ago(now-since))))
 	}
@@ -408,12 +408,23 @@ func (v *Mover) closeNow(agent string) (bool, string) {
 func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 	defer catch(&err)
 	m := v.M
+	var ended bool
 	func() {
 		defer m.lockAgent(agent)()
-		m.SettleOrphanedClose(agent)
+		ended = m.SettleOrphanedClose(agent)
 	}()
 	if v.clearOwed(agent) == 0 {
 		return false, nil
+	}
+	if ended {
+		// The close this clear was owed ran past the pane; it ends like the one that went at once: parked, to wake now.
+		check(db.ClearCursor(m.Q, "clear_owed:"+agent))
+		defer m.lockAgent(agent)()
+		v.parkOwed(agent)
+		return true, nil
+	}
+	if must(db.Cursor(m.Q, orphanKey(agent))) != 0 {
+		return true, nil // the close went and its session is still ending: nothing is closed twice
 	}
 	row := must(db.GetAgentState(m.Q, agent))
 	if row == nil || isClosed(row) || !m.sessionAlive(agent) {
@@ -429,6 +440,13 @@ func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 		v.log("  %s: its clear is owed and holds all it is told - %s", agent, ifTrue(why != "", why)+ifTrue(why == "", "the close did not go"))
 		return true, nil
 	}
+	v.parkOwed(agent)
+	return true, nil
+}
+
+// parkOwed parks an agent whose owed clear has closed its session.
+func (v *Mover) parkOwed(agent string) {
+	m := v.M
 	kind, ok := "context", false
 	if h := must(db.LastHandoffTrigger(m.Q, agent)); h != "" {
 		kind = h
@@ -441,7 +459,6 @@ func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 		check(db.ResetCounter(m.Q, agent, "throttle_count"))
 	}
 	v.park(agent, HandoffTrigger{Kind: kind, Reason: "clear owed"}, "", ok, true, false)
-	return true, nil
 }
 
 // park is where a handoff that reached its close ends: parked until it may be woken. hid is "" for a close that was owed and came later.

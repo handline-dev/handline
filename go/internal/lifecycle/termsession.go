@@ -17,6 +17,9 @@ type TermSessions interface {
 	Session(agent string) (pid int, status string)
 	// PidGone is whether no process of pid runs.
 	PidGone(pid int) bool
+	// PidStart is when the process of pid started, in unix seconds; 0 when it cannot be read. A pid that runs with another start time is
+	// not the process that was meant: the number was reused.
+	PidStart(pid int) int64
 	// Tell delivers text to the running session as a message; an error is not delivered.
 	Tell(agent, op, text string) error
 }
@@ -112,9 +115,11 @@ func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (boo
 	if !gone {
 		// The pid is kept: with the pane gone nothing else finds the session, and SettleOrphanedClose looks again every tick.
 		check(db.SetCursor(m.Q, orphanKey(agent), int64(pid)))
+		check(db.SetCursor(m.Q, orphanKey(agent)+":start", m.TermRun.PidStart(pid)))
+		check(db.SetCursor(m.Q, orphanKey(agent)+":since", m.now()))
 		return fail(fmt.Sprintf("its terminal was closed but the session is still running (pid %d) after %ds; not marked closed", pid, supervisor.EndWaitS), pid)
 	}
-	check(db.ClearCursor(m.Q, orphanKey(agent)))
+	clearOrphan(m, agent)
 	m.recordClosed(agent, resume, st)
 	return true, agent + ": session ended, terminal closed"
 }
@@ -130,21 +135,50 @@ func (m *Manager) endForMove(agent string, st SessionStatus) (bool, string) {
 
 func orphanKey(agent string) string { return "close_pending:" + agent }
 
+// OrphanGiveUpS is how long a session that outlived its pane is waited for: past it the agent is reported as needing a person, and the
+// session is still never started over.
+const OrphanGiveUpS = 6 * 3600
+
+func clearOrphan(m *Manager, agent string) {
+	for _, k := range []string{orphanKey(agent), orphanKey(agent) + ":start", orphanKey(agent) + ":since", orphanKey(agent) + ":told"} {
+		check(db.ClearCursor(m.Q, k))
+	}
+}
+
+// orphanEnded is whether the session that outlived its pane is over: its pid is gone, or a process of that number started at another time
+// (the number was reused).
+func (m *Manager) orphanEnded(agent string, pid int) bool {
+	if m.TermRun.PidGone(pid) {
+		return true
+	}
+	start := must(db.Cursor(m.Q, orphanKey(agent)+":start"))
+	now := m.TermRun.PidStart(pid)
+	return start != 0 && now != 0 && now != start
+}
+
 // SettleOrphanedClose records the close of a terminal session that outlived its pane once its pid is gone, so the wake that follows starts
-// a new one. True when it recorded the close. The pid is read from the database each tick: a restart loses nothing.
+// a new one. True when it recorded the close. The pid is read from the database each tick: a restart loses nothing. A session still there
+// after OrphanGiveUpS is reported once as needing a person, and left alone.
 func (m *Manager) SettleOrphanedClose(agent string) bool {
 	pid := int(must(db.Cursor(m.Q, orphanKey(agent))))
 	if pid == 0 || m.TermRun == nil {
 		return false
 	}
 	if row := must(db.GetAgentState(m.Q, agent)); row == nil || isClosed(row) {
-		check(db.ClearCursor(m.Q, orphanKey(agent)))
+		clearOrphan(m, agent)
 		return false
 	}
-	if !m.TermRun.PidGone(pid) {
+	if !m.orphanEnded(agent, pid) {
+		since := must(db.Cursor(m.Q, orphanKey(agent)+":since"))
+		if since != 0 && m.now()-since >= OrphanGiveUpS && must(db.Cursor(m.Q, orphanKey(agent)+":told")) == 0 {
+			check(db.SetCursor(m.Q, orphanKey(agent)+":told", m.now()))
+			why := fmt.Sprintf("its session (pid %d) has run %dh past its closed terminal; end it by hand, then the agent can be started", pid, (m.now()-since)/3600)
+			must(db.AddEvent(m.Q, agent, "needs_you", db.KV{K: "reason", V: why}, db.KV{K: "pid", V: pid}))
+			m.Log("  %s: %s", agent, why)
+		}
 		return false
 	}
-	check(db.ClearCursor(m.Q, orphanKey(agent)))
+	clearOrphan(m, agent)
 	m.recordClosed(agent, "", m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent)))
 	m.afterFreshClose(agent)
 	m.Log("  %s: the session that outlived its terminal has ended (pid %d)", agent, pid)
