@@ -6,6 +6,7 @@ import { Store } from '@handline/app-core';
 import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
 import { setup } from '@handline/fake-daemon/helpers';
+import type { FakeDaemonOptions } from '@handline/fake-daemon/daemon';
 import { Home } from '../src/screens/Home.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,7 +32,7 @@ export const press = (el: HTMLElement | null) => act(async () => void el?.click(
 /** `role` is the caller's; `screen` replaces Home for a screen that Home does not reach yet. */
 export async function mount(
   prepare: (s: ReturnType<typeof setup>) => void = () => {},
-  daemon?: { bytes?: boolean; admin?: boolean },
+  daemon?: FakeDaemonOptions,
   client?: string,
   as: { role?: NonNullable<Parameters<typeof setup>[0]>['role']; screen?: (store: Store) => ReactNode } = {},
 ) {

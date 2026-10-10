@@ -11,8 +11,8 @@ export function DaemonDown() {
       <div>
         <strong>Daemon not running</strong>
         <p className="muted">
-          {conn === 'reconnecting' ? 'Reconnecting… ' : ''}What you see is the last it told this window. To start it, run <code>hl service install</code> in a terminal on the
-          host; this page reconnects by itself.
+          {conn === 'reconnecting' ? 'Reconnecting… ' : ''}What you see is the last it told this window. To start it, run{' '}
+          <code>hl service install</code> in a terminal on the host; this page reconnects by itself.
         </p>
       </div>
     </section>
