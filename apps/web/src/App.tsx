@@ -16,6 +16,7 @@ import { TeamPage } from './TeamPage.tsx';
 import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
+import { DaemonDown } from './DaemonDown.tsx';
 import { StatusBar } from './StatusBar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -108,6 +109,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           </button>
         )}
         <main className="main" aria-label="Agent workspace">
+          <DaemonDown />
           {team ? (
             <TeamPage />
           ) : inbox.open ? (

@@ -244,6 +244,49 @@ export function Message(props: {
   );
 }
 
+/** A tool line: the command, and what it printed, in full, behind a button. */
+function ToolLine({ i }: { i: TranscriptItem }) {
+  const [open, setOpen] = useState(false);
+  const cut = i.dropped_lines ?? 0;
+  return (
+    <div className="line tool" data-kind="tool">
+      <Icon name="tool" size={14} label={i.tool ?? 'Tool'} />
+      <span className="mono"> {i.tool}</span>
+      {i.text ? <span className="muted"> {i.text}</span> : null}
+      {i.output ? (
+        <Button variant="outline" size="sm" label="Output" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
+          {open ? 'Hide output' : 'Show all'}
+        </Button>
+      ) : null}
+      {open ? (
+        <>
+          <pre className="lines tool-output">{i.output}</pre>
+          {cut ? <span className="muted">{cut} more line{cut === 1 ? '' : 's'} let go</span> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** A session marker: the handoff's first line, and the whole of it, scrollable, behind a button. */
+function SessionCard({ i }: { i: TranscriptItem }) {
+  const [open, setOpen] = useState(false);
+  const handoff = i.session?.handoff;
+  return (
+    <div className="card card-session" data-kind="session">
+      <Icon name="session" />
+      <span className="card-what muted">{handoff ? `Handoff: ${handoff}` : null}</span>
+      {handoff ? (
+        <Button variant="outline" size="sm" label="Whole handoff" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Whole handoff'}
+        </Button>
+      ) : null}
+      <span className="muted card-time">{clock(i.at)}</span>
+      {open ? <pre className="lines handoff-full">{handoff}</pre> : null}
+    </div>
+  );
+}
+
 const TASK_EVENT: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 const TASK_EVENT_WORD: Record<string, string> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 
@@ -258,13 +301,7 @@ export function Item({ i }: { i: TranscriptItem }) {
       </div>
     );
   if (i.kind === 'tool')
-    return (
-      <div className="line tool" data-kind="tool">
-        <Icon name="tool" size={14} label={i.tool ?? 'Tool'} />
-        <span className="mono"> {i.tool}</span>
-        {i.text ? <span className="muted"> {i.text}</span> : null}
-      </div>
-    );
+    return <ToolLine i={i} />;
   if (i.kind === 'prompt') {
     const p = i.prompt;
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
@@ -285,11 +322,7 @@ export function Item({ i }: { i: TranscriptItem }) {
   }
   if (i.kind === 'session')
     return (
-      <div className="card card-session" data-kind="session">
-        <Icon name="session" />
-        <span className="card-what muted">{i.session?.handoff ? `Handoff: ${i.session.handoff}` : null}</span>
-        <span className="muted card-time">{clock(i.at)}</span>
-      </div>
+      <SessionCard i={i} />
     );
   const e = i.task_event;
   const ev = e?.event ?? 'changed';

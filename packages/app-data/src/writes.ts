@@ -70,6 +70,12 @@ const newTask = (c: Ctx, p: never): Task => {
   };
 };
 
+// A task's memos live in the memo list and in the task's detail; a memo write changes both.
+const memoKeys = (d: string, p: never) => [qk.memos(d, as<{ task: number }>(p).task), qk.task(d, as<{ task: number }>(p).task)];
+const changeMemos = (c: Ctx, task: number, f: (l: Memo[]) => Memo[]) => {
+  for (const key of memoKeys(c.d, { task } as never)) edit<List<'memos', Memo>>(c.qc, key, listOf('memos', f));
+};
+
 const tasks: Record<string, WriteSpec> = {
   'task.new': {
     kind: 'authored',
@@ -114,48 +120,31 @@ const tasks: Record<string, WriteSpec> = {
   'task.memo.add': {
     kind: 'authored',
     label: 'add memo',
-    touches: (d, p) => [qk.memos(d, as<{ task: number }>(p).task)],
+    touches: memoKeys,
     patch: (c, p) => {
       const { task, text } = as<{ task: number; text: string }>(p);
       const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text };
-      edit<List<'memos', Memo>>(
-        c.qc,
-        qk.memos(c.d, task),
-        listOf('memos', (l) => [...l, memo]),
-      );
+      changeMemos(c, task, (l) => [...l, memo]);
     },
-    reconcile: (c, p, r) => {
-      edit<List<'memos', Memo>>(
-        c.qc,
-        qk.memos(c.d, as<{ task: number }>(p).task),
-        listOf('memos', (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
-      );
-    },
+    reconcile: (c, p, r) =>
+      changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
   },
   'task.memo.edit': {
     kind: 'authored',
     label: 'edit memo',
-    touches: (d, p) => [qk.memos(d, as<{ task: number }>(p).task)],
+    touches: memoKeys,
     patch: (c, p) => {
       const { task, memo, text } = as<{ task: number; memo: number; text: string }>(p);
-      edit<List<'memos', Memo>>(
-        c.qc,
-        qk.memos(c.d, task),
-        listOf('memos', (l) => l.map((m) => (m.id === memo ? { ...m, text } : m))),
-      );
+      changeMemos(c, task, (l) => l.map((m) => (m.id === memo ? { ...m, text } : m)));
     },
   },
   'task.memo.delete': {
     kind: 'authored',
     label: 'delete memo',
-    touches: (d, p) => [qk.memos(d, as<{ task: number }>(p).task)],
+    touches: memoKeys,
     patch: (c, p) => {
       const { task, memo } = as<{ task: number; memo: number }>(p);
-      edit<List<'memos', Memo>>(
-        c.qc,
-        qk.memos(c.d, task),
-        listOf('memos', (l) => l.filter((m) => m.id !== memo)),
-      );
+      changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
 };

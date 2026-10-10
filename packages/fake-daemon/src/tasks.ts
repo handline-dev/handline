@@ -1,6 +1,6 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
-import type { Task, TaskClock, TaskDetail } from '@handline/contract';
+import type { Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { refused, storeFailure } from './errors.ts';
 
@@ -17,7 +17,7 @@ interface Host {
   emit(topic: 'tasks', type: string, f: { data: Record<string, unknown> }): void;
   sessions: Map<string, unknown>;
 }
-type Row = Task & { body: string; blockers: { task: number; reason: string }[]; clock?: TaskClock | null };
+type Row = Task & { body: string; memos?: Memo[]; blockers: { task: number; reason: string }[]; clock?: TaskClock | null };
 
 export class FakeTasks {
   private held: Row[] | null = null;
@@ -103,6 +103,21 @@ export class FakeTasks {
     return { items: rows.slice(0, limit).map((r) => this.view(r)), more: rows.length > limit };
   }
 
+  memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string): number {
+    const t = this.find(p.task);
+    const memos = (t.memos ??= []);
+    if (op === 'add') {
+      const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
+      memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text) });
+      return id;
+    }
+    const i = memos.findIndex((m) => m.id === p.memo);
+    if (i < 0) throw new TaskFailure('refused', `memo ${String(p.memo)} does not exist`);
+    if (op === 'edit') memos[i] = { ...memos[i]!, text: String(p.text) };
+    else memos.splice(i, 1);
+    return memos[i]?.id ?? 0;
+  }
+
   get(p: Record<string, unknown>): TaskDetail {
     const t = this.find(p.task);
     return {
@@ -110,7 +125,7 @@ export class FakeTasks {
       body: t.body,
       deliveries: t.delivered ? [{ at: t.delivered, how: 'typed', outcome: 'delivered' }] : [],
       events: [{ topic: 'tasks', type: 'task.opened', at: t.created, actor: null, agent: t.to, title: t.title, target: null, data: {} }],
-      memos: [],
+      memos: t.memos ?? [],
       blockers: t.blockers.map((b) => {
         const held = this.rows.find((r) => r.id === b.task);
         return { ...b, owner: held?.to ?? '', title: held?.title ?? '' };
@@ -206,7 +221,7 @@ export class FakeTasks {
 
 // The task methods the fake serves; the rest (memos, release, handoff) are refused as `unsupported`.
 const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
-const VERBS = new Set(['task.done', 'task.reopen', 'task.queue', 'task.draft', 'task.discard', 'task.merge']);
+const VERBS = new Set(['task.done', 'task.reopen', 'task.queue', 'task.draft', 'task.discard', 'task.merge', 'task.memo.add', 'task.memo.edit', 'task.memo.delete']);
 
 /** Answers one task method, turning the store's refusals into the daemon's errors. */
 export function taskCall(
@@ -243,6 +258,12 @@ export function taskCall(
         return (tasks.discard(p), ok('Task discarded.'));
       case 'task.merge':
         return (tasks.merge(p), ok('Tasks folded.'));
+      case 'task.memo.add':
+        return ok('Memo added.', { memo: tasks.memo(p, 'add', person) });
+      case 'task.memo.edit':
+        return (tasks.memo(p, 'edit', person), ok('Memo changed.'));
+      case 'task.memo.delete':
+        return (tasks.memo(p, 'delete', person), ok('Memo deleted.'));
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
