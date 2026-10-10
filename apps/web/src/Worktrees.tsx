@@ -104,7 +104,7 @@ export function Worktrees({ path }: { path: string | null }) {
       </header>
       <View q={q} served={served} shape="worktrees" what="worktrees">
         <div className={`wt-body${path ? ' with-panel' : ''}`}>
-          {all.length === 0 ? (
+          {!q.data ? null : all.length === 0 ? (
             <Empty icon="worktrees" name="No worktrees yet." hint="A worktree appears when an agent is started in a repo." />
           ) : shown.length === 0 ? (
             <div className="wt-none">

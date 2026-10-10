@@ -1,8 +1,5 @@
 // One worktree beside the list: where it is, who owns it, how it relates to others, and the files it changed.
-import { useState } from 'react';
 import type { Worktree } from '@handline/client';
-import { useWorktreeDiff } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
 import { Button } from './ui/index.ts';
 import { goAgent, goWorktrees } from './route.ts';
 import { Owner, Status, sums } from './Worktrees.tsx';
@@ -18,8 +15,6 @@ export function WorktreePanel({
   all: Worktree[];
   onClose: () => void;
 }) {
-  const review = !!useStore().client.hello?.capabilities.review;
-  const [tab, setTab] = useState<'files' | 'changes'>('files');
   if (!w)
     return (
       <aside className="wt-panel" aria-label="Worktree">
@@ -69,18 +64,7 @@ export function WorktreePanel({
         ) : null}
       </dl>
       {w.owner ? <Button variant="solid" label="Open agent" onClick={() => goAgent(w.owner!)} /> : null}
-      {review ? (
-        <div role="tablist" aria-label="Worktree views" className="wt-tabs">
-          {(['files', 'changes'] as const).map((t) => (
-            <button key={t} role="tab" aria-selected={tab === t} className={`chat-tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>
-              {t === 'files' ? 'Files' : 'Changes'}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {review && tab === 'changes' ? (
-        <Changes path={w.path} />
-      ) : w.changed.length ? (
+      {w.changed.length ? (
         <table className="wt-files" aria-label="Changed files">
           <caption className="muted">
             {w.changed.length} changed +{added} −{deleted}
@@ -101,10 +85,4 @@ export function WorktreePanel({
       )}
     </aside>
   );
-}
-
-function Changes({ path }: { path: string }) {
-  const q = useWorktreeDiff(path);
-  if (q.isError) return <p className="muted">The diff could not be read.</p>;
-  return <pre className="wt-diff">{q.data ? q.data.diff || 'No changes.' : 'Loading…'}</pre>;
 }

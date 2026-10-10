@@ -137,6 +137,17 @@ describe('X1 Worktrees', () => {
     await until(() => text($('.worktrees')).includes('No worktrees yet.'), 'the empty state');
   });
 
+  it('shows the refusal with Retry and not "No worktrees yet." when the list is refused', async () => {
+    const s = setup();
+    s.daemon.knobs.refuse('worktrees.list', 'state', 'the worktree scan failed');
+    await mount('#/worktrees', s);
+    await until(() => $('.worktrees .banner'), 'the banner');
+    expect(text($('.worktrees .banner'))).toContain('the worktree scan failed');
+    expect(text($('.worktrees .banner'))).toContain('Retry');
+    expect(text($('.worktrees'))).not.toContain('No worktrees yet.');
+    expect(rows()).toHaveLength(0);
+  });
+
   it('says so when the daemon does not serve worktrees, and has no rail entry', async () => {
     await mount('#/worktrees', setup({ daemon: { admin: false } }));
     await until(() => text($('.worktrees')).includes('This daemon does not serve worktrees.'), 'the note');
