@@ -351,7 +351,7 @@ work is paused, not the plan.
 | Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
-| Supervising terminal agents | `compose/termport.go`, `term/host.go` (the port, landed T3073) | | gap, in progress: the terminal tick (T3076, `-terminal-tick`), peer-inbox delivery (T3075), needs-you and `terminal.open` (S4, from the T3074 spec) |
+| Supervising terminal agents | `compose/termport.go`, `term/host.go` (the terminal port, landed) | | gap, in progress: the terminal tick (`-terminal-tick`), peer-inbox delivery, needs-you and `terminal.open` (from the needs-you spec) |
 
 After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
 daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen and answers no dialog
