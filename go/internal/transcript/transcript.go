@@ -6,6 +6,7 @@ package transcript
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -152,16 +153,31 @@ type Tool struct {
 	Dropped int64
 }
 
-// Tools are agent's tool_use events paired by tool_use_id with their tool_result, newest first up to limit. A call with no
-// result yet is an item with no output.
-func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
-	rows, err := db.Query("SELECT seq, at, body FROM transcript_events WHERE agent = ? AND kind = 'tool_use' ORDER BY seq DESC LIMIT ?", agent, limit)
+// ToolWindow is which of an agent's tool calls a page needs: at most Limit of them, the newest at or before second Before, or with
+// Since the oldest from second Since on. A zero second is no bound.
+type ToolWindow struct {
+	Before, Since int64
+	Limit         int
+}
+
+// Tools are agent's tool_use events in the window paired by tool_use_id with their tool_result, oldest first. A call with no result yet
+// is an item with no output. Only the results of the calls read are read.
+func Tools(db *sql.DB, agent string, w ToolWindow) ([]Tool, error) {
+	query, args := "SELECT seq, at, body FROM transcript_events WHERE agent = ? AND kind = 'tool_use'", []any{agent}
+	order := "DESC"
+	if w.Since > 0 {
+		query, args, order = query+" AND at >= ?", append(args, w.Since), "ASC"
+	} else if w.Before > 0 {
+		query, args = query+" AND at <= ?", append(args, w.Before)
+	}
+	rows, err := db.Query(query+" ORDER BY seq "+order+" LIMIT ?", append(args, w.Limit)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []Tool
 	byUse := map[string]int{}
+	var ids []any
 	oldest := int64(0)
 	for rows.Next() {
 		var seq, at int64
@@ -178,13 +194,17 @@ func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
 		}
 		json.Unmarshal([]byte(body), &b)
 		byUse[b.Use.ID] = len(out)
+		ids = append(ids, b.Use.ID)
 		out = append(out, Tool{ID: ItemID(at, ItemTool, seq), At: at, Name: b.Use.Tool, Text: toolText(b.Use.Input)})
-		oldest = seq
+		if oldest == 0 || seq < oldest {
+			oldest = seq
+		}
 	}
 	if err := rows.Err(); err != nil || len(out) == 0 {
 		return out, err
 	}
-	res, err := db.Query("SELECT body FROM transcript_events WHERE agent = ? AND kind = 'tool_result' AND seq > ? ORDER BY seq", agent, oldest)
+	res, err := db.Query("SELECT body FROM transcript_events WHERE agent = ? AND kind = 'tool_result' AND seq > ? AND json_extract(body, '$.tool_result.tool_use_id') IN ("+
+		strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+") ORDER BY seq", append([]any{agent, oldest}, ids...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +231,24 @@ func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
 			}
 		}
 	}
-	return out, res.Err()
+	if err := res.Err(); err != nil {
+		return nil, err
+	}
+	if w.Since == 0 { // read newest first: oldest first, as every other source
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+	return out, nil
+}
+
+// FitOutput is text cut to at most max bytes at a character boundary, and the lines the cut left out (0 when nothing was).
+func FitOutput(text string, max int) (string, int64) {
+	kept, cut := cutText(text, max)
+	if !cut {
+		return text, 0
+	}
+	return kept, int64(linesIn(text[len(kept):]))
 }
 
 // toolText is what a tool call was asked to do, in one string: the command, else the path, pattern, address or description.

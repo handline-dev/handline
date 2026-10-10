@@ -279,11 +279,11 @@ func TestToolsPairACallWithItsResultAndCountTheLinesTheCutTook(t *testing.T) {
 	big := strings.Repeat("x", ToolResultMax-1) + "\n\n\nend\n" // the first newline is the last byte kept; the three after it are cut
 	emit(s, "bob", "tool_result", map[string]any{"tool_use_id": "b", "content": big})
 	emit(s, "bob", "tool_use", map[string]any{"id": "c", "name": "Bash", "input": map[string]any{"command": "true"}})
-	tools, err := Tools(s.DB, "bob", 10)
+	tools, err := Tools(s.DB, "bob", ToolWindow{Limit: 10})
 	if err != nil || len(tools) != 3 {
 		t.Fatalf("%v %v", tools, err)
 	}
-	c, b, a := tools[0], tools[1], tools[2] // newest first
+	a, b, c := tools[0], tools[1], tools[2] // oldest first
 	if c.Text != "true" || c.Output != nil {
 		t.Errorf("unpaired call: %+v", c)
 	}
@@ -311,14 +311,43 @@ func TestACutThatLeavesNoNewlineStillCountsALineAndAnOldCutRowReadsAsCut(t *test
 		`{"tool_result":{"tool_use_id":"b","ok":true,"text":"cut","truncated":true}}`); err != nil {
 		t.Fatal(err)
 	}
-	tools, err := Tools(s.DB, "bob", 10)
+	tools, err := Tools(s.DB, "bob", ToolWindow{Limit: 10})
 	if err != nil || len(tools) != 2 {
 		t.Fatalf("%v %v", tools, err)
 	}
-	if tools[0].Output == nil || tools[0].Dropped != 1 {
-		t.Errorf("a row from before the count was kept reads as cut: %+v", tools[0])
+	if tools[1].Output == nil || tools[1].Dropped != 1 {
+		t.Errorf("a row from before the count was kept reads as cut: %+v", tools[1])
 	}
-	if tools[1].Dropped != 1 || len(*tools[1].Output) != ToolResultMax {
-		t.Errorf("%+v", tools[1])
+	if tools[0].Dropped != 1 || len(*tools[0].Output) != ToolResultMax {
+		t.Errorf("%+v", tools[0])
+	}
+}
+
+func TestToolsReadOnlyTheCallsTheWindowNeedsAndFitOutputSaysWhatItCut(t *testing.T) {
+	s, _ := newSink(t) // the clock ticks a second per event: a call and its result are two seconds
+	for _, id := range []string{"a", "b", "c", "d"} {
+		emit(s, "bob", "tool_use", map[string]any{"id": id, "name": "Bash", "input": map[string]any{"command": id}})
+		emit(s, "bob", "tool_result", map[string]any{"tool_use_id": id, "content": "out-" + id})
+	}
+	newest, _ := Tools(s.DB, "bob", ToolWindow{Limit: 2})
+	if len(newest) != 2 || newest[0].Text != "c" || newest[1].Text != "d" || *newest[1].Output != "out-d" {
+		t.Fatalf("the newest two, oldest first: %+v", newest)
+	}
+	from, _ := Tools(s.DB, "bob", ToolWindow{Since: newest[0].At, Limit: 10})
+	if len(from) != 2 || from[0].Text != "c" {
+		t.Fatalf("from the second of c: %+v", from)
+	}
+	upTo, _ := Tools(s.DB, "bob", ToolWindow{Before: newest[0].At, Limit: 10})
+	if len(upTo) != 3 || upTo[2].Text != "c" {
+		t.Fatalf("up to the second of c: %+v", upTo)
+	}
+	if kept, dropped := FitOutput("1\n2\n3\n", 4); kept != "1\n2\n" || dropped != 1 {
+		t.Errorf("%q %d", kept, dropped)
+	}
+	if kept, dropped := FitOutput("1\n2\n", 0); kept != "" || dropped != 2 {
+		t.Errorf("%q %d", kept, dropped)
+	}
+	if kept, dropped := FitOutput("whole", 10); kept != "whole" || dropped != 0 {
+		t.Errorf("%q %d", kept, dropped)
 	}
 }

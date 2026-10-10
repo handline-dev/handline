@@ -965,7 +965,13 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	for _, t := range texts {
 		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
 	}
-	tools, err := transcript.Tools(e.DB, agent, perSource)
+	window := transcript.ToolWindow{Limit: limit + 1}
+	if since != nil {
+		window.Since = *since / 1_000_000
+	} else if before != nil {
+		window.Before = *before / 1_000_000
+	}
+	tools, err := transcript.Tools(e.DB, agent, window)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,6 +1033,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 		items = kept
 	}
+	fitToolOutput(items)
 	working, err := e.working(agent)
 	if err != nil {
 		return nil, err
@@ -1036,6 +1043,29 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		out[i] = it
 	}
 	return map[string]any{"items": out, "more": more, "working": working}, nil
+}
+
+// toolOutputBudget is the tool output, in bytes, one page carries between its items.
+const toolOutputBudget = 2 << 20
+
+// fitToolOutput holds a page's tool output to toolOutputBudget, newest item first: the one that crosses it is cut to what is left and
+// the ones older than that carry none, each with the lines left out added to dropped_lines, so a cut is always said.
+func fitToolOutput(items []map[string]any) {
+	left := toolOutputBudget
+	for i := len(items) - 1; i >= 0; i-- {
+		out, ok := items[i]["output"].(string)
+		if !ok {
+			continue
+		}
+		kept, dropped := transcript.FitOutput(out, left)
+		left -= len(kept)
+		if dropped == 0 {
+			continue
+		}
+		items[i]["output"] = kept
+		was, _ := items[i]["dropped_lines"].(int64)
+		items[i]["dropped_lines"] = was + dropped
+	}
 }
 
 // working is the spec's Working: whether the agent's turn is running, and the line that says why it is held up.

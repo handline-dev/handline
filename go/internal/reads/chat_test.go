@@ -2,6 +2,7 @@ package reads
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,31 @@ func TestChatTranscriptServesAToolCallWithItsOutput(t *testing.T) {
 	}
 	if _, has := tools[1]["dropped_lines"]; has {
 		t.Fatalf("%v", tools[1])
+	}
+}
+
+func TestAPageCarriesAtMostTheOutputBudgetAndSaysWhatItCut(t *testing.T) {
+	big := strings.Repeat("x", 800<<10) + "\n"
+	items := []map[string]any{
+		{"id": int64(1), "output": big + "tail\n", "dropped_lines": int64(3)},
+		{"id": int64(2), "output": big},
+		{"id": int64(3), "output": big},
+		{"id": int64(4), "kind": "reply"},
+	}
+	fitToolOutput(items)
+	total := 0
+	for _, it := range items {
+		if o, ok := it["output"].(string); ok {
+			total += len(o)
+		}
+	}
+	if total > toolOutputBudget {
+		t.Fatalf("%d bytes", total)
+	}
+	if items[2]["output"] != big || items[1]["output"] != big || items[1]["dropped_lines"] != nil {
+		t.Fatal("the newest items keep what fits")
+	}
+	if o := items[0]["output"].(string); len(o) != toolOutputBudget-2*len(big) || items[0]["dropped_lines"] != int64(3+2) {
+		t.Fatalf("the oldest is cut to what is left, and the count it came with grows by the lines left out: %d %v", len(o), items[0]["dropped_lines"])
 	}
 }
