@@ -107,7 +107,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         def run_it(argv: list[str], env: dict | None = None, key: str | None = None) -> None:
             buf, err = io.StringIO(), io.StringIO()
             if env is None and argv[0] in ("inbox", "events"):
-                env = {"OCP_AGENT": "human"}  # listings refuse a caller with no name (T39)
+                env = {"OCP_AGENT": "human"}  # listings refuse a caller with no name
             saved = {k: os.environ.get(k) for k in (env or {})}
             os.environ.update(env or {})
             try:
@@ -216,14 +216,14 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "restart": "ends a session through Orca and starts it again; driven in test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal, not this scene",
         "close": "an agent's session is ended through Orca; the task half is driven by test_closing_a_task_needs_no_open_child_and_only_the_asker",
         "task new": "writes a row; prints its id and an owner already checked against the registry",
-        "task start": "T292: writes agent_state.current_task; driven in "
+        "task start": "writes agent_state.current_task; driven in "
                       "test_task_new_is_its_own_delivery, not this scene",
         "task note": "hidden alias of `task memo T add`; driven in test_task_memo_verbs, not this scene",
-        "task memo": "T493: writes and reads task_memos rows; driven in test_task_memo_verbs "
+        "task memo": "writes and reads task_memos rows; driven in test_task_memo_verbs "
                      "(tests/team/test_tasks_requests.py), not this scene",
-        "task begin": "T297: opens the caller's own task on a founder message; driven in "
+        "task begin": "opens the caller's own task on a founder message; driven in "
                       "test_a_founder_message_lets_the_agent_begin_its_own_task, not this scene",
-        "task handoff": "T377: changes a task's owner and delivers a note; driven in "
+        "task handoff": "changes a task's owner and delivers a note; driven in "
                         "test_a_task_is_handed_over_with_a_note_along_the_fixed_chain, not this scene",
         "task done": "writes a row; driven in test_marking_a_task_done_needs_evidence_and_only_the_owner_or_a_linked_target, not this scene",
         "task discard": "writes a row; driven in test_task_discard, not this scene",
@@ -231,7 +231,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task draft": "writes a row; driven in test_a_task_is_a_draft_until_queued_and_delivered_when_its_turn_comes, not this scene",
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
-        "task release": "writes a row; driven in test_release_takes_a_doing_task_back_to_queued (T286), not this scene",
+        "task release": "writes a row; driven in test_release_takes_a_doing_task_back_to_queued, not this scene",
         "task edit": "writes a row; driven in "
                      "test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent, "
                      "not this scene",
@@ -258,7 +258,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "land": "queues a branch for the daemon to land on main; driven in "
                 "test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code, not this scene",
         "venv install": "creates a real venv and pip installs into it",
-        "say": "T293: opens and delivers a say (send_now, never a head), or --needs-task "
+        "say": "opens and delivers a say (send_now, never a head), or --needs-task "
                "replies to the sender; driven in tests/team/test_say.py, not this scene",
     }
     have = set(driven_now := scene.driven) | set(skipped)
