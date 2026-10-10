@@ -102,6 +102,17 @@ describe('the Chat tab', () => {
     await until(() => msg('Review is done'), 'the all tab');
   });
 
+  it('a session marker shows the whole handoff on request', async () => {
+    const t = setup();
+    t.daemon.chat.seedItem(ARCH, { kind: 'session', session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two' } });
+    await mount(ARCH, t);
+    await until(() => $$('[data-kind="session"]').some((c) => /Whole handoff/.test(text(c))), 'the marker');
+    const card = $$('[data-kind="session"]').find((c) => /Whole handoff/.test(text(c)))!;
+    expect(card.querySelector('.handoff-full')).toBeNull();
+    await click([...card.querySelectorAll('button')].find((b) => /Whole handoff/.test(text(b)))!);
+    expect(card.querySelector('.handoff-full')?.textContent).toBe('line one\nline two');
+  });
+
   it('sends with Enter, shows the message landing, and keeps an unsent draft across a reload', async () => {
     const storage = memory();
     const t = await mount(ARCH, setup(), storage);

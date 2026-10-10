@@ -244,6 +244,25 @@ export function Message(props: {
   );
 }
 
+/** A session marker: the handoff's first line, and the whole of it, scrollable, behind a button. */
+function SessionCard({ i }: { i: TranscriptItem }) {
+  const [open, setOpen] = useState(false);
+  const handoff = i.session?.handoff;
+  return (
+    <div className="card card-session" data-kind="session">
+      <Icon name="session" />
+      <span className="card-what muted">{handoff ? `Handoff: ${handoff}` : null}</span>
+      {handoff ? (
+        <Button variant="outline" size="sm" label="Whole handoff" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Whole handoff'}
+        </Button>
+      ) : null}
+      <span className="muted card-time">{clock(i.at)}</span>
+      {open ? <pre className="lines handoff-full">{handoff}</pre> : null}
+    </div>
+  );
+}
+
 const TASK_EVENT: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 const TASK_EVENT_WORD: Record<string, string> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 
@@ -285,11 +304,7 @@ export function Item({ i }: { i: TranscriptItem }) {
   }
   if (i.kind === 'session')
     return (
-      <div className="card card-session" data-kind="session">
-        <Icon name="session" />
-        <span className="card-what muted">{i.session?.handoff ? `Handoff: ${i.session.handoff}` : null}</span>
-        <span className="muted card-time">{clock(i.at)}</span>
-      </div>
+      <SessionCard i={i} />
     );
   const e = i.task_event;
   const ev = e?.event ?? 'changed';
