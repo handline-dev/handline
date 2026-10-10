@@ -64,25 +64,17 @@ func (m *Manager) interruptSession(agent string) error {
 	return errors.New("a terminal's turn cannot be interrupted without typing")
 }
 
+// waitSessionIdle waits for the running turn to end. A terminal's turn is never interrupted, so there is nothing to wait for.
 func (m *Manager) waitSessionIdle(agent string, timeout time.Duration) bool {
 	if m.structured(agent) {
 		return m.Run.WaitIdle(agent, timeout)
 	}
-	poll := supervisor.EndPollS * time.Second
-	for waited := time.Duration(0); ; waited += poll {
-		if !m.sessionBusy(agent) {
-			return m.sessionAlive(agent)
-		}
-		if waited >= timeout {
-			return false
-		}
-		m.sleep(poll)
-	}
+	return false
 }
 
 // endTerminalByPane ends a terminal agent's session by closing its pane: the relaunch opens a new terminal, so the old one must not stay.
 // The end is proved by the session's pid, which the pane close alone does not show; a session still running after EndWaitS is reported
-// and the agent left as it was, never relaunched over.
+// and never relaunched over. The pane is gone by then, so the row no longer names it; the sweep records the close if the session ends later.
 func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (bool, string) {
 	fail := func(why string, pid int) (bool, string) {
 		var pv any

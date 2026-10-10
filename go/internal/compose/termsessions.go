@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -181,7 +182,9 @@ func (t termRun) Tell(agent, _, text string) error {
 	if err != nil {
 		return err
 	}
-	if res := peerinbox.New().Deliver(context.Background(), sess, text); res.Kind != peerinbox.Delivered {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // the agent's lock is held
+	defer cancel()
+	if res := peerinbox.New().Deliver(ctx, sess, text); res.Kind != peerinbox.Delivered {
 		return errors.New(res.Why)
 	}
 	return nil
