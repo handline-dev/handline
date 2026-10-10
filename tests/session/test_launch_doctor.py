@@ -1131,6 +1131,67 @@ def test_doctor_checks_team_yaml_and_that_its_agents_are_registered(home: Path) 
           any(lvl == doctor.FAIL and "team.yaml" in msg for lvl, msg, _d in rows), str(rows)[:300])
 
 
+def test_an_agent_is_told_its_team_from_team_yaml(home: Path) -> None:
+    """A role file that named its colleagues by hand kept naming them after they left, so the
+    team part of the prompt is read from the routing table."""
+    use_home(home)
+    hand_edit_team("""
+teams:
+  dev: [marina, keeper]
+
+agents:
+  manager: {}
+  marina:  {}
+  keeper:  {}
+  scout:   {}
+
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+""")
+    for name in ("manager", "marina", "keeper", "scout"):
+        agents.register(name)
+    mgr, dev, scout = launch.context_for("manager"), launch.context_for("marina"), launch.context_for("scout")
+    check("team: a supervisor is told who its reports are, and that it hands them work",
+          "`marina`" in mgr and "`keeper`" in mgr and "hl task new --owner <name>" in mgr, mgr)
+    check("team: a supervisor is given the manager rules, a report is not",
+          all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
+          and "--blocked-by" not in dev, mgr)
+    check("team: a supervisor is told finding the bottleneck is its job, a report without reports is not",
+          "Finding the bottleneck is your job" in mgr and "bottleneck" not in dev, mgr)
+    check("team: a report is told who it reports to",
+          "You report to `manager`" in dev and "Your reports" not in dev, dev)
+    check("team: an agent nobody supervises reports to the founder", "You report to `human`" in scout)
+    check("team: every agent is told not to schedule its own wakeup to wait",
+          all("Never schedule your own wakeup" in c for c in (mgr, dev, scout)))
+    # What to do on finishing a task is one instruction, and it is the report-to line.
+    for who, ctx in (("manager", mgr), ("marina", dev), ("scout", scout)):
+        line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
+        check(f"team: {who}'s report-to line says a handed task ends with task done, and that it is the report",
+              "`hl task done T<n>" in line and "that is your report" in line, line)
+        boss_is_human = "You report to `human`" in line
+        check(f"team: and {who} sends its boss only done or a blocker, no progress notes - "
+              "and the founder is not asked to clear a status report",
+              "when you finish" not in ctx
+              and ("no progress or FYI messages" in line) != boss_is_human
+              and (not boss_is_human or "hl task new --owner human" not in line)
+              and "a task of theirs: `hl task new --owner human" in ctx, line)
+        check(f"team: and task done is said once, in that line, not again after it",
+              ctx.count("hl task done T<n>") == 1, ctx)
+    # The texts an agent reads name the message model - a task for what needs an answer or a
+    # result, a say for the rest - and neither of the old verbs.
+    from handline.team import guide as guidemod
+    root = Path(launch.__file__).resolve().parent.parent.parent
+    for label, text in (("the manager's prompt", mgr), ("a report's prompt", dev),
+                        ("the guide's work topic", guidemod.TOPICS["work"]),
+                        ("AGENTS.md", (root / "AGENTS.md").read_text()),
+                        ("SKILL.md", (root / "skill" / "SKILL.md").read_text())):
+        check(f"guidance: {label} names task and say, not `ocp ask` or `ocp resolve`",
+              "ocp ask" not in text and "ocp resolve" not in text and "hl withdraw" not in text
+              and "hl task" in text, text[:200])
+
+
 def test_doctor_says_one_thing_per_account(home: Path) -> None:
     """doctor's whole job is to say why assignment is refused, so it must not
     warn that a reading was lost and then report "rate_limits present" about the
@@ -2547,6 +2608,7 @@ def main() -> int:
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
+        run(lambda: test_an_agent_is_told_its_team_from_team_yaml(Path(td) / 'teamprompt'))
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))

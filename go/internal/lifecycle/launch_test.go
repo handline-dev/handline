@@ -12,6 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 type fakeDriver struct{ vendor string }
@@ -531,5 +532,65 @@ func TestAnOpenAgentsMoveDoesNotTakeTheSlotAnOlderClosedWaiterHolds(t *testing.T
 	}
 	if why := r.l.RoomOn(q, "ann", row, "b"); why == "" {
 		t.Fatal("a forced move to b was allowed past the waiter")
+	}
+}
+
+func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
+	r := newLaunchRig(t)
+	v, err := yamlcompat.ParseOrdered(`
+teams:
+  dev: [marina, keeper]
+agents:
+  manager: {}
+  marina: {}
+  keeper: {}
+  scout: {}
+edges:
+  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human", kind: task }
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm, err := team.NewTeam(v.(*yamlcompat.OMap))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.l.Ports.Routing = func() *team.Team { return tm }
+	for _, n := range []string{"manager", "marina", "keeper", "scout"} {
+		os.MkdirAll(filepath.Dir(r.l.Roster.AgentFile(n)), 0o755)
+		os.WriteFile(r.l.Roster.AgentFile(n), []byte("vendor: claude\n"), 0o644)
+	}
+	reportLine := func(text string) string {
+		for _, ln := range strings.Split(text, "\n") {
+			if strings.HasPrefix(ln, "You report to") {
+				return ln
+			}
+		}
+		return ""
+	}
+	mgr, dev, scout := r.l.yourTeam("manager"), r.l.yourTeam("marina"), r.l.yourTeam("scout")
+	if !strings.Contains(mgr, "Your reports: `keeper`, `marina`.") {
+		t.Errorf("a supervisor is not told its reports:\n%s", mgr)
+	}
+	if !strings.Contains(mgr, "Finding the bottleneck is your job") || strings.Contains(dev, "Your reports") || strings.Contains(dev, "bottleneck") {
+		t.Errorf("the manager rules are not the supervisor's alone:\n%s\n---\n%s", mgr, dev)
+	}
+	for who, text := range map[string]string{"manager": mgr, "marina": dev, "scout": scout} {
+		line := reportLine(text)
+		bossIsHuman := strings.HasPrefix(line, "You report to `human`")
+		if !strings.Contains(line, "`hl task done T<n>") || !strings.Contains(line, "that is your report") {
+			t.Errorf("%s: the report-to line does not say task done is the report: %s", who, line)
+		}
+		if strings.Contains(line, "no progress or FYI messages") == bossIsHuman || strings.Contains(line, "hl say") {
+			t.Errorf("%s: an agent with a boss must be told to send it only done or a blocker, and no say: %s", who, line)
+		}
+		if !strings.Contains(text, "a task of theirs: `hl task new --owner human") || !strings.Contains(text, "Never schedule your own wakeup") {
+			t.Errorf("%s: the founder and wakeup lines are missing:\n%s", who, text)
+		}
+	}
+	if !strings.HasPrefix(reportLine(dev), "You report to `manager`") || !strings.HasPrefix(reportLine(scout), "You report to `human`") {
+		t.Errorf("wrong boss:\n%s\n---\n%s", dev, scout)
 	}
 }
