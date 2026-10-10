@@ -5,30 +5,30 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"os"
-	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/pairsock"
 )
 
 // hangUp is an answer that closes the connection instead.
 const hangUp = "hang up"
 
-// daemon serves one socket: each connection's lines are kept, and answer says what to send back for each.
+// daemon serves socketpairs, so no socket file is bound: each connection's lines are kept, and answer says what to
+// send back for each. dial is a client's way to it.
 type daemon struct {
 	ln    net.Listener
 	mu    sync.Mutex
 	lines []map[string]any
 }
 
-func serve(t *testing.T, answer func(msg map[string]any) string) (*daemon, string) {
+type dial = func() (net.Conn, error)
+
+func serve(t *testing.T, answer func(msg map[string]any) string) (*daemon, dial) {
 	t.Helper()
-	sock := sockPath(t)
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := pairsock.NewListener()
 	d := &daemon{ln: ln}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
@@ -57,7 +57,7 @@ func serve(t *testing.T, answer func(msg map[string]any) string) (*daemon, strin
 			}()
 		}
 	}()
-	return d, sock
+	return d, ln.Dial
 }
 
 func ok(m map[string]any, result string) string {
@@ -65,19 +65,19 @@ func ok(m map[string]any, result string) string {
 	return `{"jsonrpc":"2.0","id":` + string(b) + `,"result":` + result + `}`
 }
 
-func client(sock string) *Client {
-	return &Client{Home: "/nowhere", Dial: func() (net.Conn, error) { return net.Dial("unix", sock) },
+func client(dial dial) *Client {
+	return &Client{Home: "/nowhere", Dial: dial,
 		Kick: func() error { return errors.New("no service is loaded to start it (`hl service install`)") }, Wait: time.Second}
 }
 
 func TestCallSaysHelloWithTheKeyAndAnswersTheResult(t *testing.T) {
-	d, sock := serve(t, func(m map[string]any) string {
+	d, to := serve(t, func(m map[string]any) string {
 		if m["method"] == "hello" {
 			return ok(m, `{"protocol":1}`)
 		}
 		return ok(m, `{"note":"half done"}`)
 	})
-	c := client(sock)
+	c := client(to)
 	c.Key = "k1"
 	got, err := c.Call("progress.get", nil)
 	if err != nil || got["note"] != "half done" {
@@ -95,8 +95,8 @@ func TestCallSaysHelloWithTheKeyAndAnswersTheResult(t *testing.T) {
 }
 
 func TestHelloCarriesNoKeyWhenNoneIsHeld(t *testing.T) {
-	d, sock := serve(t, func(m map[string]any) string { return ok(m, `{}`) })
-	if _, err := client(sock).Call("whoami", nil); err != nil {
+	d, to := serve(t, func(m map[string]any) string { return ok(m, `{}`) })
+	if _, err := client(to).Call("whoami", nil); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
@@ -107,25 +107,25 @@ func TestHelloCarriesNoKeyWhenNoneIsHeld(t *testing.T) {
 }
 
 func TestARefusalIsTypedAndAWriteSaysIt(t *testing.T) {
-	_, sock := serve(t, func(m map[string]any) string {
+	_, to := serve(t, func(m map[string]any) string {
 		if m["method"] == "hello" {
 			return ok(m, `{}`)
 		}
 		return `{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"no task in progress","data":{"code":"refused"}}}`
 	})
-	_, err := client(sock).Call("task.progress", nil)
+	_, err := client(to).Call("task.progress", nil)
 	var r *RPCError
 	if !errors.As(err, &r) || r.Code != "refused" || r.Error() != "no task in progress" {
 		t.Fatalf("got %v", err)
 	}
-	if done, said := client(sock).Write("task.progress", map[string]any{"note": "x"}); done || said != "no task in progress" {
+	if done, said := client(to).Write("task.progress", map[string]any{"note": "x"}); done || said != "no task in progress" {
 		t.Fatalf("write: %v %q", done, said)
 	}
 }
 
 func TestAWriteCarriesAFreshRequestID(t *testing.T) {
-	d, sock := serve(t, func(m map[string]any) string { return ok(m, `{"said":"kept"}`) })
-	c := client(sock)
+	d, to := serve(t, func(m map[string]any) string { return ok(m, `{"said":"kept"}`) })
+	c := client(to)
 	for i := 0; i < 2; i++ {
 		if done, said := c.Write("task.progress", map[string]any{"note": "x"}); !done || said != "kept" {
 			t.Fatalf("write: %v %q", done, said)
@@ -140,13 +140,13 @@ func TestAWriteCarriesAFreshRequestID(t *testing.T) {
 }
 
 func TestAHangUpBeforeTheReplyIsNotAResult(t *testing.T) {
-	_, sock := serve(t, func(m map[string]any) string {
+	_, to := serve(t, func(m map[string]any) string {
 		if m["method"] == "hello" {
 			return ok(m, `{}`)
 		}
 		return hangUp
 	})
-	c := client(sock)
+	c := client(to)
 	if _, err := c.Call("x", nil); err == nil || err.Error() != "the daemon closed the connection before it replied" {
 		t.Fatalf("got %v", err)
 	}
@@ -157,18 +157,21 @@ func TestAHangUpBeforeTheReplyIsNotAResult(t *testing.T) {
 }
 
 func TestNoDaemonAsksLaunchdAndWaitsForIt(t *testing.T) {
-	sock := sockPath(t)
-	c := client(sock)
+	ln := pairsock.NewListener()
+	t.Cleanup(func() { ln.Close() })
+	var up atomic.Bool
+	c := client(func() (net.Conn, error) {
+		if !up.Load() {
+			return nil, errNoDaemon
+		}
+		return ln.Dial()
+	})
 	kicked := 0
 	c.Kick = func() error {
 		kicked++
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			ln, err := net.Listen("unix", sock)
-			if err != nil {
-				return
-			}
-			t.Cleanup(func() { ln.Close() })
+			up.Store(true)
 			conn, _ := ln.Accept()
 			sc := bufio.NewScanner(conn)
 			for i := 1; i <= 2 && sc.Scan(); i++ {
@@ -184,7 +187,7 @@ func TestNoDaemonAsksLaunchdAndWaitsForIt(t *testing.T) {
 }
 
 func TestADaemonThatCannotBeStartedIsDownAndNothingIsDone(t *testing.T) {
-	c := client(sockPath(t))
+	c := client(func() (net.Conn, error) { return nil, errNoDaemon })
 	c.Home = "/h"
 	_, err := c.Call("x", nil)
 	var down *DaemonDown
@@ -200,12 +203,5 @@ func TestADaemonThatCannotBeStartedIsDownAndNothingIsDone(t *testing.T) {
 	}
 }
 
-// sockPath is a socket path short enough for a unix socket: t.TempDir's carries the test's long name.
-func sockPath(t *testing.T) string {
-	dir, err := os.MkdirTemp("", "hl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return filepath.Join(dir, "d.sock")
-}
+// errNoDaemon is a dial that finds nothing listening.
+var errNoDaemon = errors.New("connect: no such file or directory")

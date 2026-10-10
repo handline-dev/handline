@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -105,7 +104,7 @@ func record(c *hlclient.Client, agent, event string, raw map[string]any) {
 		raw = map[string]any{}
 	}
 	rid, at := newRequestID(), time.Now().Unix()
-	quick := &hlclient.Client{Home: c.Home, Dial: func() (net.Conn, error) { return net.DialTimeout("unix", paths.SocketFile(c.Home), 2*time.Second) },
+	quick := &hlclient.Client{Home: c.Home, Dial: hlclient.Dialer(c.Home, 2*time.Second),
 		Kick: func() error { return errors.New("a hook starts no daemon") }, As: "hook", Deadline: 2 * time.Second}
 	if _, err := quick.Call("hook.record", map[string]any{"agent": agent, "kind": event, "at": at, "data": raw, "request_id": rid}); err != nil {
 		_ = hooks.AppendSpool(c.Home, agent, event, raw, rid, at)

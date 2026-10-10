@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,13 +12,16 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/handline/handline/go/internal/pairsock"
 )
 
-// rig is a built hl at <root>/go/hl beside <root>/bin, a fake python that prints what it was run with, and a home
-// short enough to hold a socket.
+// rig is a built hl at <root>/go/hl beside <root>/bin, a fake python that prints what it was run with, and a home.
+// ctl, once daemon serves, is the socket each run inherits to reach it.
 type rig struct {
 	t                  *testing.T
 	root, home, hl, py string
+	ctl                *os.File
 }
 
 var built struct {
@@ -80,6 +82,10 @@ func (r *rig) runIn(stdin string, env []string, args ...string) (string, string,
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HANDLINE_TEST_ROOT=" + r.root, "HANDLINE_HOME=" + r.home,
 		"HANDLINE_HL_PYTHON=" + r.py, "TZ=UTC"}, env...)
+	if r.ctl != nil {
+		cmd.ExtraFiles = []*os.File{r.ctl}
+		cmd.Env = append(cmd.Env, "HANDLINE_DAEMON_FD=3")
+	}
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -116,14 +122,17 @@ func TestProgressNamesNoOneWithoutAnAgent(t *testing.T) {
 	}
 }
 
-// daemon serves the rig's socket: each method answers its result (an object, `{}` when none is given), or its error
-// when the result starts with "error:". calls is every message received, hello included.
+// daemon answers the rig's runs over socketpairs, no socket file being bound: each method answers its result (an
+// object, `{}` when none is given), or its error when the result starts with "error:". calls is every message
+// received, hello included.
 func (r *rig) daemon(results map[string]string) (calls func() []map[string]any) {
-	ln, err := net.Listen("unix", filepath.Join(r.home, "daemon.sock"))
+	ln := pairsock.NewListener()
+	r.t.Cleanup(func() { ln.Close() })
+	ctl, err := ln.Control()
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	r.t.Cleanup(func() { ln.Close() })
+	r.ctl = ctl
 	var mu sync.Mutex
 	var got []map[string]any
 	go func() {

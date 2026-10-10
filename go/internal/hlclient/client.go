@@ -16,9 +16,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/pairsock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
 )
@@ -70,14 +72,28 @@ type Client struct {
 func New() *Client {
 	home := paths.Home()
 	key, _ := protected.New(home).Get(founderNS, "key")
-	sock := paths.SocketFile(home)
 	return &Client{
 		Home: home,
 		Key:  strings.TrimSpace(key),
-		Dial: func() (net.Conn, error) { return net.DialTimeout("unix", sock, 5*time.Second) },
+		Dial: Dialer(home, 5*time.Second),
 		Kick: kickstart,
 		Wait: startWait,
 	}
+}
+
+// Dialer connects to home's daemon socket within timeout. Under a test root, HANDLINE_DAEMON_FD names an inherited
+// unix socket (pairsock.Listener.Control) that each dial sends its connection over instead, so the rig binds no file.
+func Dialer(home string, timeout time.Duration) func() (net.Conn, error) {
+	root, _ := paths.Getenv("TEST_ROOT")
+	v, _ := paths.Getenv("DAEMON_FD")
+	if fd, err := strconv.Atoi(v); root != "" && err == nil {
+		c, err := net.FileConn(os.NewFile(uintptr(fd), "daemon-fd"))
+		if uc, ok := c.(*net.UnixConn); err == nil && ok {
+			return pairsock.DialOver(uc)
+		}
+	}
+	sock := paths.SocketFile(home)
+	return func() (net.Conn, error) { return net.DialTimeout("unix", sock, timeout) }
 }
 
 // kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.
