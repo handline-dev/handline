@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -118,6 +119,57 @@ func TestViewOfAStructuredAgentFollowsItsSession(t *testing.T) {
 		if v["state"] != c.state || v["state_detail"] != c.detail || v["has_dialog"] != c.dialog {
 			t.Errorf("%s: state %v / %q, dialog %v; want %s / %q, %v", c.agent, v["state"], v["state_detail"], v["has_dialog"], c.state, c.detail, c.dialog)
 		}
+	}
+}
+
+func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t *testing.T) {
+	r := newRig(t, "needy", "plain", "noline")
+	for _, a := range []string{"needy", "plain", "noline"} {
+		r.state(t, a, states.Idle, "")
+		r.sess.alive[a] = true
+	}
+	r.env.NeedsYou = func(a string) *NeedsYou {
+		switch a {
+		case "needy":
+			return &NeedsYou{Kind: "permission", Source: "hook", Text: "Bash: ls", Since: 4000}
+		case "noline":
+			return &NeedsYou{Kind: "dialog", Source: "session", Since: 4100}
+		}
+		return nil
+	}
+	for _, a := range []string{"needy", "plain", "noline"} {
+		r.env.RefreshOne(a)
+	}
+	v := r.stored(t, "needy")
+	n, _ := v["needs_you"].(map[string]any)
+	if v["state"] != "waiting" || v["has_dialog"] != true || v["state_detail"] != "Bash: ls" || n["kind"] != "permission" || n["source"] != "hook" ||
+		n["text"] != "Bash: ls" || n["since"] != "1970-01-01T01:06:40Z" {
+		t.Errorf("needy: %v", v)
+	}
+	if n := r.stored(t, "noline")["needs_you"].(map[string]any); n["text"] != nil || n["kind"] != "dialog" {
+		t.Errorf("a need with no text says null: %v", n)
+	}
+	if v := r.stored(t, "plain"); v["needs_you"] != nil || v["state"] != "idle" || v["has_dialog"] != false {
+		t.Errorf("plain: %v", v)
+	}
+}
+
+func TestNeedsYouIsReadOnceAndNeverForAnAgentWithNoRow(t *testing.T) {
+	r := newRig(t, "norow", "long")
+	r.state(t, "long", states.Running, "")
+	reads := 0
+	r.env.NeedsYou = func(a string) *NeedsYou {
+		reads++
+		return &NeedsYou{Kind: "dialog", Source: "session", Text: "line one\nline two " + strings.Repeat("x", 300), Since: 4000}
+	}
+	r.env.RefreshOne("norow")
+	if v := r.stored(t, "norow"); v["needs_you"] != nil || v["has_dialog"] != false || v["state"] != "no_terminal" || reads != 0 {
+		t.Errorf("an agent with no row waits for nobody: %v (read %d times)", v, reads)
+	}
+	r.env.RefreshOne("long")
+	n := r.stored(t, "long")["needs_you"].(map[string]any)
+	if reads != 1 || strings.Contains(n["text"].(string), "\n") || len([]rune(n["text"].(string))) != needsTextCap {
+		t.Errorf("read %d times; text %q", reads, n["text"])
 	}
 }
 

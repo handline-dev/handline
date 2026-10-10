@@ -232,7 +232,7 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string) Result 
 }
 
 func blockedWord(s Session) string {
-	for _, w := range []string{s.Detail, s.State, s.Status, s.Tempo} {
+	for _, w := range []string{s.WaitingFor, s.Detail, s.State, s.Status} {
 		if w != "" {
 			return w
 		}

@@ -20,6 +20,7 @@ func (p *Parts) agentView(cfg Config, cutover bool, tu tickUsage) *agentview.Env
 		Background: lc.Env,
 		Wakes:      lc.Manager,
 		Prompts:    &prompts.Env{DB: p.db, Home: home, Now: nowOf(cfg.Now)},
+		NeedsYou:   needsYou(home, q),
 		Agents:     p.structuredAgents,
 		Registered: func() []string { return paths.ListAgents(home) },
 		Config: func(agent string) (string, string, bool) {

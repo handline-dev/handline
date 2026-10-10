@@ -33,13 +33,13 @@ type Session struct {
 	Cwd       string
 	Version   string
 	Socket    string
-	// State, Detail, Tempo and Needs are how the session says whether it is busy, idle or blocked on a person.
-	Status string
-	State  string
-	Detail string
-	Tempo  string
-	Needs  any
-	Config string // the account config dir the record came from
+	// Status, WaitingFor, State and Detail are how the session says whether it is busy, idle or blocked on a person: a session at a
+	// permission prompt says Status "waiting" and WaitingFor "permission prompt" (measured on 2.1.296; it has no needs or tempo key).
+	Status     string
+	WaitingFor string
+	State      string
+	Detail     string
+	Config     string // the account config dir the record came from
 	// UpdatedAt is the record's own clock, in ms.
 	UpdatedAt int64
 
@@ -61,8 +61,7 @@ type record struct {
 	Status       string `json:"status"`
 	State        string `json:"state"`
 	Detail       string `json:"detail"`
-	Tempo        string `json:"tempo"`
-	Needs        any    `json:"needs"`
+	WaitingFor   string `json:"waitingFor"`
 	UpdatedAt    int64  `json:"updatedAt"`
 }
 
@@ -93,7 +92,7 @@ func ByPID(config string, pid int) (Session, error) {
 	}
 	return Session{
 		PID: pid, SessionID: r.SessionID, Cwd: r.Cwd, Version: r.Version, Socket: r.Socket,
-		Status: r.Status, State: r.State, Detail: r.Detail, Tempo: r.Tempo, Needs: r.Needs,
+		Status: r.Status, WaitingFor: r.WaitingFor, State: r.State, Detail: r.Detail,
 		Config: config, UpdatedAt: r.UpdatedAt, keyPath: keys[0],
 	}, nil
 }
@@ -125,10 +124,23 @@ func ByCwd(config, cwd string, alive func(pid int) bool) (Session, error) {
 	return best, err
 }
 
-// Blocked says the session waits on a person (a permission prompt, a usage choice): its record says waiting or blocked, or names what it
-// needs. A message sent to it is only queued until the prompt is answered, and the answer is a keypress, not the inbox.
-func (s Session) Blocked() bool {
-	return s.Status == "waiting" || s.State == "waiting" || s.Tempo == "blocked" || (s.Needs != nil && s.Needs != "" && s.Needs != false)
+// Blocked says the session waits on a person (a permission prompt, a usage choice): its record says status waiting. A message sent to it
+// is only queued until the prompt is answered, and the answer is a keypress, not the inbox.
+func (s Session) Blocked() bool { return s.Status == "waiting" }
+
+// NeedsKind is what the blocked session waits for, as the spec's needs_you kind: permission for the permission prompt, question for a
+// question put to the person, usage for the session limit's choice, and dialog for any other (and any it does not know: unknown is a person).
+func (s Session) NeedsKind() string {
+	w := strings.ToLower(s.WaitingFor)
+	switch {
+	case strings.Contains(w, "permission"):
+		return "permission"
+	case strings.Contains(w, "question") || strings.Contains(w, "elicitation"):
+		return "question"
+	case strings.Contains(w, "limit") || strings.Contains(w, "usage"):
+		return "usage"
+	}
+	return "dialog"
 }
 
 // readKey returns the key, trimmed of its line end. The caller zeroes it.

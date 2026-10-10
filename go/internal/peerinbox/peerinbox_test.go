@@ -69,7 +69,7 @@ func writeSession(t *testing.T, config string, pid int, rec map[string]any, with
 func goodRecord(pid int) map[string]any {
 	return map[string]any{
 		"pid": pid, "sessionId": testSID, "cwd": "/work/a", "version": "2.1.296", "peerProtocol": 1,
-		"messagingSocketPath": "/tmp/cc-socks/x.sock", "status": "busy", "tempo": "active", "updatedAt": 5,
+		"messagingSocketPath": "/tmp/cc-socks/x.sock", "status": "busy", "updatedAt": 5,
 	}
 }
 
@@ -292,7 +292,7 @@ func TestByCwdTakesTheNewestLiveOne(t *testing.T) {
 	if _, err := ByCwd(config, "/work/none", alive); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("err %v", err)
 	}
-	if s.Status != "busy" || s.Tempo != "active" {
+	if s.Status != "busy" {
 		t.Fatalf("state not exposed: %+v", s)
 	}
 }
@@ -341,9 +341,30 @@ func TestNoResendWhileTheSessionWaitsOnAPerson(t *testing.T) {
 }
 
 func TestBlocked(t *testing.T) {
-	for s, want := range map[Session]bool{{}: false, {Status: "busy"}: false, {Status: "waiting"}: true, {Tempo: "blocked"}: true, {Needs: "permission"}: true, {Needs: ""}: false} {
+	// The file of a session at a permission prompt says status waiting and waitingFor; it has no tempo or needs key to read.
+	for s, want := range map[Session]bool{{}: false, {Status: "busy"}: false, {Status: "waiting"}: true, {Status: "waiting", WaitingFor: "permission prompt"}: true} {
 		if got := s.Blocked(); got != want {
 			t.Errorf("%+v: %v", s, got)
 		}
+	}
+}
+
+func TestNeedsKind(t *testing.T) {
+	for waitingFor, want := range map[string]string{"permission prompt": "permission", "question": "question", "usage limit": "usage", "": "dialog", "something new": "dialog"} {
+		if got := (Session{Status: "waiting", WaitingFor: waitingFor}).NeedsKind(); got != want {
+			t.Errorf("%q: %q, want %q", waitingFor, got, want)
+		}
+	}
+}
+
+func TestAWaitingRecordIsReadFromTheFile(t *testing.T) {
+	cfg := t.TempDir()
+	dir := filepath.Join(cfg, "sessions")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "7.json"), []byte(`{"pid":7,"sessionId":"s","cwd":"/w","version":"2.1.296","peerProtocol":1,"messagingSocketPath":"/tmp/x.sock","status":"waiting","waitingFor":"permission prompt","updatedAt":9}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "7.k.key"), []byte("k"), 0o600)
+	s, err := ByPID(cfg, 7)
+	if err != nil || !s.Blocked() || s.WaitingFor != "permission prompt" || s.NeedsKind() != "permission" {
+		t.Fatalf("%+v %v", s, err)
 	}
 }
