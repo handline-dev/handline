@@ -28,6 +28,25 @@ def cmd_hooks_gate(args) -> int:
     return 0
 
 
+# The parts of the Go hl the founder switches on one at a time (go/cmd/hl): each reads its entry and acts only on "on".
+GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks"),
+            "launch": ("go_launch", "the Go hl starts a Claude agent under tmux")}
+
+
+def cmd_go(args) -> int:
+    """Show or set one part's switch: on, the Go hl does it; off (the default), Python does."""
+    name, what = GO_PARTS[args.part]
+    if args.state is not None:
+        try:
+            protected.put("switches", name, args.state)
+        except protected.NotTheFounder as e:
+            print(e, file=sys.stderr)
+            return 1
+    on = (protected.get("switches", name) or "").strip() == "on"
+    print(f"go {args.part}: {'on - ' + what if on else 'off - Python does it'}")
+    return 0
+
+
 def cmd_hook(args) -> int:
     if args.event == "install":
         print("`hl hook` records one event from stdin. To add ocp's hooks to the "
