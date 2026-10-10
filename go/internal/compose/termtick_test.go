@@ -117,3 +117,33 @@ func TestATerminalAgentWithNoStatuslineHasItsSessionAndContextFromItsFileAndTran
 		t.Fatalf("%+v", st)
 	}
 }
+
+func TestASessionFileThatCannotBeReadUnderALivePidIsUnknownNotAbsent(t *testing.T) {
+	for name, body := range map[string]string{"empty": "", "invalid json": `{"cwd": "`} {
+		t.Run(name, func(t *testing.T) {
+			p, _, _ := termTickRig(t)
+			d := p.Sink.DB
+			writeSession(t, p, "a1", os.Getpid(), body) // being written as the tick looks
+			host := tickHost{p: p, terminals: true}
+			if !host.SessionAlive("bob") || host.SessionIdle("bob") {
+				t.Fatal("a process runs and what it says cannot be read: alive, not idle")
+			}
+			tk := p.Tick(p.Run.cfg, TickConfig{Terminals: true})
+			actions := []string{}
+			tk.Tick.Reconcile.Sweep(d, &actions)
+			if row, _ := dbpkg.GetAgentState(d, "bob"); row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
+				t.Fatalf("a live agent was recorded closed: %v", actions)
+			}
+		})
+	}
+}
+
+func TestOfSeveralSessionFilesInTheWorktreeTheNewestByUpdatedAtIsTheSession(t *testing.T) {
+	p, _, wt := termTickRig(t)
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"old","status":"idle","updatedAt":100}`)
+	writeSession(t, p, "a1", os.Getppid(), `{"cwd":"`+wt+`","sessionId":"new","status":"busy","updatedAt":200}`)
+	rec, _, found := p.terminalSession("bob", map[string]bool{"%1": true})
+	if found != sessionFound || rec.SessionID != "new" {
+		t.Fatalf("%v %+v", found, rec)
+	}
+}

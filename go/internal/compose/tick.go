@@ -232,7 +232,7 @@ func (h tickHost) SessionIdle(agent string) bool {
 func (h tickHost) RunningAccount(agent string) string {
 	if h.terminals && !h.p.Kind(agent) {
 		if p := h.p; p.LC != nil {
-			if _, acct, ok := p.terminalSession(agent, p.LC.term.LiveTerminals()); ok {
+			if _, acct, found := p.terminalSession(agent, p.LC.term.LiveTerminals()); found == sessionFound {
 				return acct
 			}
 		}
@@ -262,12 +262,12 @@ func (p *Parts) sessionStatus(agent string) string {
 	if p.LC == nil {
 		return ""
 	}
-	rec, _, ok := p.terminalSession(agent, p.LC.term.LiveTerminals())
-	if !ok {
+	rec, _, found := p.terminalSession(agent, p.LC.term.LiveTerminals())
+	switch {
+	case found == sessionNone:
 		return ""
-	}
-	if rec.Status == "" {
-		return "unknown"
+	case found == sessionUnknown || rec.Status == "":
+		return "unknown" // a process runs, and what it says of itself cannot be read: alive, not idle
 	}
 	return rec.Status
 }
@@ -295,9 +295,12 @@ func (p *Parts) observeTerminals(names []string, terminals map[string]string) ma
 		}
 		alive := live[terminals[a]]
 		o := session.Observed{TerminalAlive: &alive, SessionSeen: true}
-		if rec, _, ok := p.terminalSession(a, live); ok {
+		switch rec, _, found := p.terminalSession(a, live); found {
+		case sessionFound:
 			pid := rec.Pid
 			o.SessionPID = &pid
+		case sessionUnknown:
+			o.SessionSeen = false // could not look: not "no session"
 		}
 		out[a] = o
 	}
@@ -365,7 +368,7 @@ func (t tickUsage) ReadForAgent(agent, acct string) tick.Status {
 // id, and the context the newest reply says the window holds.
 func (t tickUsage) fillFromSession(agent, acct string, st *tick.Status) {
 	if st.SessionID == "" {
-		if rec, _, ok := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); ok {
+		if rec, _, found := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); found == sessionFound {
 			st.SessionID = rec.SessionID
 		}
 	}
