@@ -391,6 +391,10 @@ func person(name string) *rpc.Conn {
 	return &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "person", "name": name}}}
 }
 
+func device(name string) *rpc.Conn {
+	return &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "device", "name": name, "device": "d1"}}}
+}
+
 func gate(t *testing.T, err error) string {
 	t.Helper()
 	e, ok := err.(*rpc.Error)

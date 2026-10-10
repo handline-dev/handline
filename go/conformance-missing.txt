@@ -9,7 +9,6 @@ session.keys
 session.type
 terminal.close
 terminal.input
-terminal.open
 terminal.resize
 trust.list
 trust.propose

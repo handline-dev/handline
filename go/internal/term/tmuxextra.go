@@ -56,13 +56,36 @@ type ControlSpawner interface {
 func (Tmux) ServesBytes() bool  { return true }
 func (Tmux) ServesStyled() bool { return true }
 
+func tmuxSocketName() string {
+	if sock := getenv("TMUX_SOCKET"); sock != "" {
+		return sock
+	}
+	return tmuxSocket
+}
+
 // ControlCommand is the program, with its arguments, that gives the daemon a control-mode window onto the tmux server.
 func (Tmux) ControlCommand() []string {
-	sock := getenv("TMUX_SOCKET")
-	if sock == "" {
-		sock = tmuxSocket
+	return []string{"tmux", "-L", tmuxSocketName(), "-C", "attach-session", "-t", tmuxSession}
+}
+
+// Attacher is a host that has a command a person runs on the daemon's machine to see and answer its terminals.
+type Attacher interface{ AttachCommand() []string }
+
+// Focuser is a host that can bring a terminal to the front; false when it could not.
+type Focuser interface{ Focus(handle string) bool }
+
+// AttachCommand is the program a person runs to be in the tmux session the agents' windows are in.
+func (Tmux) AttachCommand() []string {
+	return []string{"tmux", "-L", tmuxSocketName(), "attach-session", "-t", tmuxSession}
+}
+
+// Focus selects the pane's window, which is what a client attached to the session then shows (handline/session/backends/tmux.py focus).
+func (t Tmux) Focus(handle string) bool {
+	if !paneRE.MatchString(handle) {
+		return false
 	}
-	return []string{"tmux", "-L", sock, "-C", "attach-session", "-t", tmuxSession}
+	code, _, _ := t.tmux(tmuxTimeout, "", "select-window", "-t", handle)
+	return code == 0
 }
 
 const tmuxSession = "ocp"
