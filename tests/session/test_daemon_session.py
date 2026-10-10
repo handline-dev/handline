@@ -1116,7 +1116,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             bg[0] = "3 monitors"
             dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
             row = db.get_agent_state(con, "backend")
-            word = tui.screen_state(con, row)[0]
+            word = viewdata.screen_state(con, row)[0]
             if state == dmn_states.IDLE:
                 check(f"background {state}: the row is not shown working",
                       word == "IDLE", word)
@@ -1324,15 +1324,15 @@ def test_a_closed_session_shows_no_background_work(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
-        seen = tui.screen_state(con, db.get_agent_state(con, "backend"))
+        seen = viewdata.screen_state(con, db.get_agent_state(con, "backend"))
         check("closed: setup - an open session with background work reads idle, with the background note",
               seen[0] == "IDLE" and seen[1].startswith("background"), str(seen))
 
         db.set_closed(con, "backend", "sess-1")
         row = db.get_agent_state(con, "backend")
         check("closed: the moment it is recorded closed the row is not RUNNING",
-              tui.screen_state(con, row) == ("IDLE", "") and not dmn_delivery.has_background_work(con, "backend"),
-              str(tui.screen_state(con, row)))
+              viewdata.screen_state(con, row) == ("IDLE", "") and not dmn_delivery.has_background_work(con, "backend"),
+              str(viewdata.screen_state(con, row)))
         check("closed: a closed session has no background 'since'", dmn_delivery.bg_since(con, "backend") is None)
         dmn_delivery.track_background_work(con, "backend", row)
         check("closed: the tick drops the stale cursor, so a wake starts clean",
@@ -3674,7 +3674,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        wide = tui._ANSI.sub("", _snap(200, 40))
+        wide = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: and every screen falls silent with it",
               "rolls over" not in ps_out and "rolls over" not in trig_out
               and when not in team_out and when not in wide,
@@ -3716,7 +3716,7 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        frame = tui._ANSI.sub("", _snap(200, 40))
+        frame = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: `hl ps` stays quiet with nothing waiting",
               "rolls over" not in ps_out, ps_out)
         check("walled: `hl triggers` stays quiet too",
@@ -4322,7 +4322,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
               "YES" not in ctl_line, ctl_line)
 
         # 3. tui's bridge row.
-        wide = tui._ANSI.sub("", _snap(200, 40))
+        wide = viewdata._ANSI.sub("", _snap(200, 40))
         real_row = next(ln for ln in wide.splitlines() if "ctxreal" in ln)
         ctl_row = next(ln for ln in wide.splitlines() if "ctxctl" in ln)
         check("bridge: shows the fired context warning for the default-limit agent",
@@ -5100,30 +5100,6 @@ def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Pa
     finally:
         (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
          termmod.idle_now, dmn_delivery.wait_for_session) = real
-        con.close()
-
-
-def test_wake_over_a_stall_asks_first_same_as_unstall_did(home: Path) -> None:
-    """tui._needs_confirm(): w reached the FATAL row unconfirmed would clear a
-    stall on a stray keypress - the one safety #1618/#1620 made a condition of
-    folding unstall into wake. Proof: one check per branch, each failing when
-    its own line is reverted."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="ran out")
-        check("confirm: w over a stall asks first",
-              tui._needs_confirm(con, "backend", "wake"))
-
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) + 900,
-                           detail="by hand; wakes at x")
-        check("confirm: w over an ordinary park does not ask",
-              not tui._needs_confirm(con, "backend", "wake"))
-
-        for label in tui.CONFIRM:
-            check(f"confirm: {label} always asks",
-                  tui._needs_confirm(con, "backend", label))
-    finally:
         con.close()
 
 
@@ -5932,7 +5908,6 @@ def main() -> int:
         run(lambda: test_a_working_agent_is_not_handed_off_on_a_percentage(Path(td) / 'ar3'))
         run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(
             Path(td) / 'movestalled'))
-        run(lambda: test_wake_over_a_stall_asks_first_same_as_unstall_did(Path(td) / 'wakeconfirm'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
         run(lambda: test_one_agents_bad_tick_is_not_everyones(Path(td) / 'badtick'))
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))

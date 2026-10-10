@@ -417,10 +417,10 @@ def test_forgotten_background_work_is_told_to_finish_then_may_be_stopped(home: P
               and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'background_prompted'").fetchone()[0] == 1)
         timebox.sweep(con, lambda _m: None, now + 5)
         check("forgotten: told once while the stretch goes on", len(sent) == 1, str(sent))
-        from handline.view import tui
+        from handline.daemon import screenstate
         check("forgotten: the screen says it was told, so a stop is not a surprise",
-              "told to finish or stop it" in tui._background_detail(con, "marina"),
-              tui._background_detail(con, "marina"))
+              "told to finish or stop it" in screenstate._background_detail(con, "marina"),
+              screenstate._background_detail(con, "marina"))
         row = db.get_agent_state(con, "marina")
         check("forgotten: until the second window is over the work is held and the session not closed",
               not dmn_delivery.bg_may_stop(con, "marina", now + V - 1)
@@ -976,11 +976,11 @@ def test_the_row_says_how_long_and_when_stale(home: Path) -> None:
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
         _stale_bg(con, "marina", 60)
         con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (int(time.time()) - 720,))
-        word, detail = tui.screen_state(con, db.get_agent_state(con, "marina"))
+        word, detail = viewdata.screen_state(con, db.get_agent_state(con, "marina"))
         check("row: idle, background and how long", (word, detail) == ("IDLE", "background 12m"),
               str((word, detail)))
         _stale_bg(con, "marina", dmn_delivery.STALE_BG_S + 5)
-        word, detail = tui.screen_state(con, db.get_agent_state(con, "marina"))
+        word, detail = viewdata.screen_state(con, db.get_agent_state(con, "marina"))
         check("row: and stale once the agent has shown nothing that long",
               word == "IDLE" and detail == "background 3h, stale", detail)
     finally:

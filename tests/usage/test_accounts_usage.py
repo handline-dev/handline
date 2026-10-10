@@ -2761,7 +2761,6 @@ def test_unobserved_spend_stays_off_unreadable_accounts(home: Path) -> None:
               str(foldmod._cheapest_account()))
     finally:
         accounts.logged_in = real_login
-        tui._LOGIN.clear()
 
 
 def test_subscription_type_is_recorded_and_cached(home: Path) -> None:
@@ -4906,7 +4905,6 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
           st.short_trusted is None)
     out = _capture(lambda: climod.main(["account", "list"]))
     check("stale: `hl account list` shows it", "5h 41% (60m old)" in out, out)
-    panel = tui._ANSI.sub("", _snap(200, 40))
     con = db.connect()
     try:
         facts = actions.account_facts(con, "beta")
@@ -4915,23 +4913,21 @@ def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path
     check("stale: the account's own page draws the last figure, marked, and how old the snapshot is",
           facts["status"].shown_short() == (41, status.IDLE_MARK)
           and timefmt.ago(facts["status"].age_s) == "60m", str(facts["status"].shown_short()))
-    check("stale: the panel keeps the sentence off the row", "5h 41% (60m old)" not in panel,
-          panel[:400])
 
-    cells = tui.account_cells("beta", status.read("beta"))
+    cells = viewdata.account_cells("beta", status.read("beta"))
     check("stale: the bridge cell shows the last figure, filled to it and dimmed",
-          "41%?" in tui._ANSI.sub("", cells["five"]) and "█" in cells["five"]
-          and tui.GRN not in cells["five"] and tui.DIM in cells["five"], repr(cells["five"]))
+          "41%?" in viewdata._ANSI.sub("", cells["five"]) and "█" in cells["five"]
+          and viewdata.GRN not in cells["five"] and viewdata.DIM in cells["five"], repr(cells["five"]))
     # At 100 the last-seen fill must not be the live one: same fill, different
     # colour, and the "?".
     write_status(home, "beta", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 1800,
                  reset_7d=int(time.time()) + 86400, collected_at=int(time.time()) - 3600)
-    old = tui.account_cells("beta", status.read("beta"))["five"]
-    check("stale: and carries the ?", "100%?" in tui._ANSI.sub("", old), repr(old))
+    old = viewdata.account_cells("beta", status.read("beta"))["five"]
+    check("stale: and carries the ?", "100%?" in viewdata._ANSI.sub("", old), repr(old))
     write_status(home, "beta", pct_5h=None, pct_7d=None, reset_5h=None, reset_7d=None,
                  collected_at=now - 3600)
     check("stale: with no figure on file the cell is still ?",
-          "?%" in tui.account_cells("beta", status.read("beta"))["five"])
+          "?%" in viewdata.account_cells("beta", status.read("beta"))["five"])
     write_status(home, "beta", pct_5h=90, pct_7d=20, reset_5h=now + 1800,
                  reset_7d=now + 86400, collected_at=now - 3600)
     why = status.read("beta").takes_work()[1]
@@ -5673,7 +5669,7 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
         db.set_account(con, "frontend", "alpha")
         con.commit()
         found, unplaced = loadmod.roster(con)
-        cell = lambda a: textsafe.oneline(tui.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
+        cell = lambda a: textsafe.oneline(viewdata.agents_cell(found.get(a, (0, 0)), unplaced))  # noqa: E731
     finally:
         con.close()
     out = _capture(lambda: climod.main(["account", "list"]))

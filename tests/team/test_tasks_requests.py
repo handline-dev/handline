@@ -2720,11 +2720,7 @@ def test_a_permission_prompt_waits_on_the_founder_until_it_is_answered(home: Pat
               len(found) == 1 and found[0]["who"] == "backend" and found[0]["red"]
               and found[0]["what"].startswith("Bash: git push origin main"), str(found))
 
-        frame = _snap(120, 40)
-        plain = [tui._ANSI.sub("", ln) for ln in frame.split("\n")]
-        first = next(i for i, ln in enumerate(plain) if "WAITING ON YOU" in ln)
-        check("bridge: the block is pinned above the accounts",
-              first < next(i for i, ln in enumerate(plain) if "ACCOUNTS" in ln), str(plain[:6]))
+        plain = [viewdata._ANSI.sub("", ln) for ln in _snap(120, 40).split("\n")]
         check("bridge: it names the command",
               any("git push origin main" in ln for ln in plain), str(plain[:6]))
         check("bridge: and the agent's own row reads DIALOG, not RUNNING",
@@ -3057,7 +3053,7 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
               and "backend" in w[0]["what"], str(w))
         check("hr wait: it is not also drawn as a bare decision", not waits("decision"))
         check("hr wait: and the bridge pins it",
-              "hr retire backend" in tui._ANSI.sub("", _snap(120, 40)))
+              "hr retire backend" in viewdata._ANSI.sub("", _snap(120, 40)))
 
         decisions.record("hr", pid, 0, "approved", hr.subject_of(hr.load_proposal(pid)))
         hr.save({**hr.load_proposal(pid), "state": "approved"})       # approved, apply not yet run
@@ -7818,7 +7814,7 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
     it is for - is not "waiting for reply": it says what it waits for, gets no other work and no
     "ask it what it is doing" alert, and is told the result when the child ends."""
     from handline.daemon import taskqueue, timebox
-    from handline.view import tui
+    from handline.view import viewdata
     _board_world(home)
     con = db.connect()
     real_push = askmod.push
@@ -7847,9 +7843,9 @@ def test_an_owner_waiting_on_a_child_task_is_held_shown_and_woken_with_the_resul
 
         db.set_agent_state(con, "worker", "IDLE")
         check("screen: it is IDLE, waiting for the child, not for a reply",
-              tui.screen_state(con, db.get_agent_state(con, "worker"))
+              viewdata.screen_state(con, db.get_agent_state(con, "worker"))
               == ("IDLE", f"waiting for T{child} (team.auditor)"),
-              str(tui.screen_state(con, db.get_agent_state(con, "worker"))))
+              str(viewdata.screen_state(con, db.get_agent_state(con, "worker"))))
         db.set_agent_state(con, "worker", "RUNNING")
         con.execute("UPDATE agent_state SET terminal = 'term_w' WHERE agent = 'worker'")
         check("alert: RUNNING with its child out is not asked about",

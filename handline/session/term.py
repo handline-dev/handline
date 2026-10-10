@@ -883,7 +883,7 @@ def screen_blocker(handle: str) -> Blocker | None:
 # How often a redraw or a recheck may reuse the same screen read, so a caller
 # on a short cycle - the dashboard's own redraw, a block's RECHECK_S - does
 # not reissue the read every time it asks. A `security` subprocess on that
-# same cycle once froze the dashboard for its whole TTL (tui.LOGIN_TTL_S);
+# same cycle once froze the dashboard for its whole TTL;
 # this is that fix's shape, for this call. Callers that act on the read right
 # now - a key press, a one-off report - use screen_blocker itself instead,
 # which this wraps but never replaces.

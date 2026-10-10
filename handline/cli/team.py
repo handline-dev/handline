@@ -9,7 +9,7 @@ from .. import db
 from ..session import launch
 from ..infra import paths, sealed
 from ..team import team
-from ..view import tui
+from ..view import viewdata
 from ..session import waiting
 
 from .ask import _who_refusal
@@ -91,7 +91,7 @@ def _doing(con, agent: str) -> str:
         return f"never started - no repo (`hl agent register {agent} --repo <path>`)"
     if not row:
         return "never started"
-    word, extra = tui.screen_state(con, row)
+    word, extra = viewdata.screen_state(con, row)
     state = word + (f" {extra}" if extra else "")
     waiting = db.unreached_count(con, agent)
     if waiting:

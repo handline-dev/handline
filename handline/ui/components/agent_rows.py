@@ -1,4 +1,4 @@
-"""What the home page's AGENTS rows say beyond `tui.agents_data`: the short model, the
+"""What the home page's AGENTS rows say beyond `viewdata.agents_data`: the short model, the
 prompt-cache time left, and every reason the founder should look at the agent - a
 dialog or block, a delivery that is not moving, a usage limit, an open ask - said on
 the agent's own row, and rolled up onto the fold that hides it."""
@@ -14,8 +14,9 @@ from ...team import agents
 from ...session import blocked, idle_close
 from ...usage import load as loadmod
 from ...infra import textsafe
-from ...view import tui
+from ...view import viewdata
 from ...daemon import delivery as dmn_delivery, handoff_note
+from ...daemon.screenstate import DETAIL_CAP
 
 
 class Extra(NamedTuple):
@@ -60,14 +61,14 @@ def cache_cell(left: int | None, ignored: bool = False) -> str:
     the cache has lapsed or with nothing to measure from; `ignored` when the agent
     resumes its session whatever the cache did."""
     if ignored:
-        return f"{tui.DIM}ignored{tui.R}"
+        return f"{viewdata.DIM}ignored{viewdata.R}"
     if left is None:
-        return f"{tui.DIM}-{tui.R}"
+        return f"{viewdata.DIM}-{viewdata.R}"
     if left <= 0:
-        return f"{tui.DIM}-{tui.R}"
+        return f"{viewdata.DIM}-{viewdata.R}"
     if left >= 600:
         return f"{left // 60}m"
-    return f"{tui.YEL}{left // 60}:{left % 60:02d}{tui.R}"
+    return f"{viewdata.YEL}{left // 60}:{left % 60:02d}{viewdata.R}"
 
 
 def founder_block(con, agent: str, now: float | None = None):
@@ -95,21 +96,21 @@ def fold_urgency(con, names: list[str], stuck: dict) -> tuple[str, int, str] | N
         row = db.get_agent_state(con, name)
         if con.execute("SELECT 1 FROM requests WHERE requester = ? AND target = ? "
                        "AND state = 'queued'", (name, actions.HUMAN)).fetchone():
-            found.setdefault(0, []).append(tui.YEL)
+            found.setdefault(0, []).append(viewdata.YEL)
             continue
-        word, _ = tui.screen_state(con, row)
-        if word in tui.NEEDS_A_HUMAN or founder_block(con, name):
-            found.setdefault(1, []).append(tui.RED)
+        word, _ = viewdata.screen_state(con, row)
+        if word in viewdata.NEEDS_A_HUMAN or founder_block(con, name):
+            found.setdefault(1, []).append(viewdata.RED)
         elif name in stuck or dmn_delivery.wall_reason(con, name, row):
-            found.setdefault(1, []).append(tui.YEL)
+            found.setdefault(1, []).append(viewdata.YEL)
         elif loadmod.is_running(row):
-            found.setdefault(2, []).append(tui.STATE_COLOR["RUNNING"])
+            found.setdefault(2, []).append(viewdata.STATE_COLOR["RUNNING"])
     if not found:
         return None
     worst = min(found)
     colours = found[worst]
     return ("▶" if worst == 2 else "✉" if worst == 0 else "!"), len(colours), \
-        tui.RED if tui.RED in colours else colours[0]
+        viewdata.RED if viewdata.RED in colours else colours[0]
 
 
 # What a reason says after its point is made: the row it sits on already shows the agent and the key that fixes it.
@@ -131,10 +132,10 @@ def agent_note(name: str, why: str) -> str:
     return why
 
 
-def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
+def collect(con, rows: list[viewdata.AgentRow]) -> dict[str, Extra]:
     """The extras for each row that has cells, by agent name."""
     stuck = _stuck_by_agent(con)
-    hidden = {n: h for n, _depth, h in tui._walk_tree()}
+    hidden = {n: h for n, _depth, h in viewdata._walk_tree()}
     out: dict[str, Extra] = {}
     for r in rows:
         if r.error:
@@ -144,7 +145,7 @@ def collect(con, rows: list[tui.AgentRow]) -> dict[str, Extra]:
         except (OSError, ConfigError):
             cfg = {}
         fb = founder_block(con, r.name)
-        block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:tui.DETAIL_CAP] if fb else ""
+        block = textsafe.oneline(blocked.headline(fb["kind"], fb["detail"]))[:DETAIL_CAP] if fb else ""
         limit = dmn_delivery.wall_reason(con, r.name, db.get_agent_state(con, r.name))
         why = textsafe.oneline(stuck[r.name]["why"] if r.name in stuck else limit or "")
         asks = con.execute("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = ? "

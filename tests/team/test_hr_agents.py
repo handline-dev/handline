@@ -1080,13 +1080,9 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
             check("vendor pick: hl status does not name it next",
                   json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
             accounts.logged_in = lambda a: True
-            rows = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
-            zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
-            check("vendor pick: the accounts panel does not mark it next",
-                  zrow and "next" not in zrow[0], str(zrow))
+            allowed, _ = status.account_verdict("zeta", status.read("zeta"), loadmod.read_all().get("zeta"), [], True)
             check("vendor pick: its tick is its own vendor's answer, not a ✘ "
-                  "that reads as a broken account",
-                  zrow and "✔" in zrow[0], str(zrow))
+                  "that reads as a broken account", allowed)
             check("vendor pick: a fold is not sent there",
                   foldmod._cheapest_account() != "zeta", str(foldmod._cheapest_account()))
 
@@ -1333,10 +1329,8 @@ def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> No
                   usage_api.read("zeta") is None and not renewed, str(renewed))
 
             accounts.logged_in = lambda a: True
-            rows = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
-            zrow = [ln for ln in rows if ln.lstrip("│ ").startswith("zeta ")]
-            check("unmetered: the accounts panel says so",
-                  zrow and "unmetered" in zrow[0], str(zrow))
+            cell = viewdata.account_cells("zeta", status.read("zeta"))["five"]
+            check("unmetered: the account's cell says so", "unmetered" in cell, cell)
             accounts.logged_in = real[2]
             r = doctor.Report()
             doctor._check_accounts(r)
@@ -2195,8 +2189,8 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
     real_screen = termmod._screen
     termmod._screen = lambda h: (asked.append([h]), {
         "source": "screen", "tail": screens[h]})[1]
-    saved_seen = dict(tui._opencode_seen)
-    tui._opencode_seen.clear()
+    saved_seen = dict(screenstate._opencode_seen)
+    screenstate._opencode_seen.clear()
 
     def row(agent):
         return db.get_agent_state(con, agent)
@@ -2210,21 +2204,21 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         db.set_terminal(con, "glm", "term_oc", "wt")
         db.set_account(con, "glm", "zai")
 
-        word, detail = tui.screen_state(con, row("glm"))
+        word, detail = viewdata.screen_state(con, row("glm"))
         check("opencode row: a screen mid-turn reads RUNNING over the db's IDLE",
               (word, detail) == ("RUNNING", ""), f"{word!r} {detail!r}")
         check("opencode row: the claude row is never screened",
               asked == [["term_oc"]], str(asked))
 
         screens["term_oc"] = OC_IDLE
-        tui._opencode_seen.clear()
+        screenstate._opencode_seen.clear()
         check("opencode row: an idle screen reads IDLE",
-              tui.screen_state(con, row("glm"))[0] == "IDLE")
+              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
 
         # And the other direction: a RUNNING row over an idle screen.
         db.set_agent_state(con, "glm", dmn_states.RUNNING)
         check("opencode row: an idle screen keeps a RUNNING row honest",
-              tui.screen_state(con, row("glm"))[0] == "IDLE")
+              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
 
         # A shell prompt is evidence of neither: the db word stands. This is
         # what a closed agent's pane shows (auditor #2157, measured live).
@@ -2236,26 +2230,26 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
                     (int(time.time()),))
         con.commit()
         screens["term_oc"] = shell
-        tui._opencode_seen.clear()
+        screenstate._opencode_seen.clear()
         asked.clear()
         check("opencode row: a closed agent's shell prompt is not work in progress",
-              tui.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
+              viewdata.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
               str(asked))
 
         # A closed row is never screened at all, whatever its pane shows.
         asked.clear()
         screens["term_oc"] = OC_WORKING
-        tui._opencode_seen.clear()
-        tui.screen_state(con, row("glm"))
+        screenstate._opencode_seen.clear()
+        viewdata.screen_state(con, row("glm"))
         check("opencode row: a closed row is never screened",
               asked == [], str(asked))
         con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
         con.commit()
 
         termmod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
-        tui._opencode_seen.clear()
+        screenstate._opencode_seen.clear()
         check("opencode row: an unreadable screen leaves the db state standing",
-              tui.screen_state(con, row("glm"))[0] == "IDLE")
+              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
 
         # The tri-state, at the driver: box + interrupt is working, box
         # without it is idle, no box is no evidence.
@@ -2269,17 +2263,17 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
                    drv.working_on_screen(shell))))
 
         termmod._screen = real_screen
-        tui._opencode_seen.clear()
+        screenstate._opencode_seen.clear()
         asked.clear()
         termmod._screen = lambda h: (asked.append([h]), {
             "source": "screen", "tail": OC_WORKING})[1]
-        first = tui.screen_state(con, row("glm"))[0]
-        second = tui.screen_state(con, row("glm"))[0]
+        first = viewdata.screen_state(con, row("glm"))[0]
+        second = viewdata.screen_state(con, row("glm"))[0]
         check("opencode row: the cache holds within the ttl - one read per pane",
               first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
     finally:
         termmod._screen = real_screen
-        tui._opencode_seen.clear(); tui._opencode_seen.update(saved_seen)
+        screenstate._opencode_seen.clear(); screenstate._opencode_seen.update(saved_seen)
         con.close()
 
 

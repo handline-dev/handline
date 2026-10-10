@@ -35,7 +35,7 @@ WAKER = {
 }
 
 # The marker a QUEUED or PARKED row's `detail` starts with when it is the
-# move/placement machinery waiting, not a usage wall - tui.screen_state draws
+# move/placement machinery waiting, not a usage wall - screen_state draws
 # MOVING, not PENDING.
 MOVING_MARK = "moving"
 # A PARKED row's own mark for the one reason `w` is worth pressing on it - a

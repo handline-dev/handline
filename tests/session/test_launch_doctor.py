@@ -1840,7 +1840,7 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     """`state_hooks()` is the one fact hooks, init, doctor and the state word
     ask: claude has them, opencode and a second vendor do not, and a vendor
     without them is one whose row state is read off its screen."""
-    from handline.view import tui
+    from handline.daemon import screenstate
     use_home(home)
     check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
     check("state hooks: opencode has none - its screen is the witness",
@@ -1851,11 +1851,11 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     accounts.register("clacct")
     accounts.register("ocacct", vendor="opencode")
     check("state hooks: a claude account's state comes from its hooks",
-          tui._state_from_screen("clacct") is False)
+          screenstate._state_from_screen("clacct") is False)
     check("state hooks: an opencode account's is read off its screen",
-          tui._state_from_screen("ocacct") is True)
+          screenstate._state_from_screen("ocacct") is True)
     check("state hooks: an account whose vendor has no driver is neither",
-          tui._state_from_screen("nosuch") is False)
+          screenstate._state_from_screen("nosuch") is False)
 
 
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
