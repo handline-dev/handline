@@ -1,11 +1,11 @@
-"""`hl`: the text snapshot of the bridge."""
+"""`hl`: the team's status, printed as text."""
 from __future__ import annotations
 
 import sys
 
 from ..daemon import devmode
 from ..infra.yamlcompat import ConfigError
-from ..view import tui
+from .health import cmd_status
 
 
 def cmd_bridge(args) -> int:
@@ -15,5 +15,6 @@ def cmd_bridge(args) -> int:
         except ConfigError as e:
             print(e, file=sys.stderr)
             return 1
-    print(tui.snapshot())
+    args.json = False
+    cmd_status(args)                # its exit code says whether an account may take work; the screen only shows it
     return 0

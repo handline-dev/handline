@@ -537,8 +537,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],
-                       help="the text screen of the team")
-    p.add_argument("--once", action="store_true", help="accepted and does nothing: the screen is always printed as text")
+                       help="the team's status as text (same as `hl status`)")
+    p.add_argument("--once", action="store_true", help="accepted and does nothing")
     p.add_argument("--textual", action="store_true",
                    help="accepted and does nothing")
     p.add_argument("--dev-mode", action="store_true",
@@ -743,7 +743,7 @@ def _mutates(args) -> bool:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if not argv or argv[0] in ("--once", "--textual", "--dev-mode"):
-        argv = ["bridge", *argv]            # `hl` alone is the screen; "bridge" is only its code name
+        argv = ["bridge", *argv]            # `hl` alone prints the status; "bridge" is only its code name
     args = build_parser().parse_args(argv)
     agent = names.getenv("OCP_AGENT")
     if agent and _mutates(args):

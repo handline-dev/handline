@@ -260,8 +260,8 @@ def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> 
     env["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET      # the suite's tmux, never the live one
     env["HANDLINE_HOME"] = str(home)
     r = subprocess.run([str(ROOT / "bin" / "hl")], capture_output=True, text=True, env=env, timeout=60)
-    check("command: hl alone opens the screen (its text snapshot when piped), not a usage error",
-          r.returncode == 0 and "usage:" not in r.stderr and "bridge" not in r.stdout.lower(), r.stdout[-200:] + r.stderr[-200:])
+    check("command: hl alone prints the status, not a usage error",
+          r.returncode == 0 and "usage:" not in r.stderr and "picked:" in r.stdout, r.stdout[-200:] + r.stderr[-200:])
 
 
 def main() -> int:
