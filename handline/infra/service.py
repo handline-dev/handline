@@ -119,7 +119,7 @@ def go_arguments(home: Path, allow_live_home: bool = False) -> list[str]:
     if live and not allow_live_home:
         raise ServiceError(f"{home} is the live home: the Go daemon is installed there only with --allow-live-home")
     return [str(exe), "-allow-real-home" if live else "-home", *([] if live else [str(home)]),
-            "-structured-cli", claude, "-structured-tick", "-cutover", "-land-repo", land_repo()]
+            "-structured-cli", claude, "-structured-tick", "-terminal-tick", "-cutover", "-land-repo", land_repo()]
 
 
 def _path_with_python3() -> str:

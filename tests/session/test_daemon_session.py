@@ -1860,7 +1860,7 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
         args = go["ProgramArguments"]
         check("service: python is the default program", py["ProgramArguments"][1:] == ["daemon"] and service.daemon_impl() == "python", str(py))
         check("service: the Go daemon runs on the scratch home with the production flags",
-              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-cutover", "-land-repo", "/repo/main"], str(args))
+              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-terminal-tick", "-cutover", "-land-repo", "/repo/main"], str(args))
         check("service: the Go job carries OCP_LAND_REPO and a PATH that holds python3's directory",
               go["EnvironmentVariables"]["OCP_LAND_REPO"] == "/repo/main" and "/opt" in go["EnvironmentVariables"]["PATH"].split(":"), str(go["EnvironmentVariables"]))
         try:
