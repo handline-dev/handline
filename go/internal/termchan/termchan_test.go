@@ -29,7 +29,7 @@ type fakeHost struct {
 
 func (h *fakeHost) Name() string                                   { return "fake" }
 func (h *fakeHost) Available() bool                                { return true }
-func (h *fakeHost) ListTerminals() map[string]bool                 { return map[string]bool{} }
+func (h *fakeHost) ListTerminals() map[string]bool                 { return map[string]bool{"%1": true} }
 func (h *fakeHost) Send(string, string, bool) (bool, string)       { return true, "" }
 func (h *fakeHost) WaitIdle(string, int, func([]string) bool) bool { return true }
 func (h *fakeHost) ReadScreen(string, int) *term.Screen {

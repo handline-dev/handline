@@ -22,22 +22,32 @@ func movedOn(q db.Q, agent string, w map[string]any) bool {
 	return err == nil && found && last > after
 }
 
-// needsYou is where an agent's need of a person comes from, never the screen: the session's own file saying status waiting, and the wait
-// file the PermissionRequest hook writes. An agent that is not there to wait (no row, closed, or no live session) needs nobody; a live
-// session that says it is not waiting is past the prompt whatever a wait file still says, since the file is taken away only by the call
-// that ran or a hook that ends the turn, and the call may run for minutes. The hook's file counts for an agent whose row is running
-// (session.WaitOf): a session at a prompt sends no Stop, so its row stays running, and one that died there leaves the file behind.
-func needsYou(home string, q db.Q) func(agent string) *agentview.NeedsYou {
+// liveTerminals is the terminals the host lists, nil when it could not say (or there is no host).
+func (p *Parts) liveTerminals() map[string]bool {
+	if p.LC == nil || p.LC.term == nil {
+		return nil
+	}
+	return p.LC.term.LiveTerminals()
+}
+
+// needsYou is where an agent's need of a person comes from, never the screen: the session's own file saying status waiting (read through
+// terminalSession, the one reader of a terminal agent's session), and the wait file the PermissionRequest hook writes. An agent that is not
+// there to wait (no row, closed, or no live session) needs nobody; a live session that says it is not waiting is past the prompt whatever a
+// wait file still says, since the file is taken away only by the call that ran or a hook that ends the turn, and the call may run for
+// minutes. The hook's file counts for an agent whose row is running (session.WaitOf): a session at a prompt sends no Stop, so its row stays
+// running, and one that died there leaves the file behind.
+func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
+	home, q := p.home, p.db
 	return func(agent string) *agentview.NeedsYou {
 		row, err := db.GetAgentState(q, agent)
 		if err != nil || row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
 			return nil
 		}
-		var sess *peerinbox.Session
-		if s, err := agentSession(home, q, agent); err == nil {
-			sess = &s
+		var sess *sessionRec
+		if rec, _, found := p.terminalSession(agent, p.liveTerminals()); found == sessionFound {
+			sess = &rec
 		}
-		if sess != nil && !sess.Blocked() {
+		if sess != nil && sess.Status != "waiting" {
 			return nil
 		}
 		if w := hooks.ReadWait(home, agent); w != nil && row.State == states.Running && !movedOn(q, agent, w) {
@@ -51,7 +61,8 @@ func needsYou(home string, q db.Q) func(agent string) *agentview.NeedsYou {
 			return &agentview.NeedsYou{Kind: kind, Source: "hook", Since: int64(since), Text: strings.TrimSpace(tool + ": " + command)}
 		}
 		if sess != nil {
-			return &agentview.NeedsYou{Kind: sess.NeedsKind(), Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
+			s := peerinbox.Session{Status: sess.Status, WaitingFor: sess.WaitingFor}
+			return &agentview.NeedsYou{Kind: s.NeedsKind(), Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
 		}
 		return nil
 	}

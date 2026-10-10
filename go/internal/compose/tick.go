@@ -68,7 +68,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	now := func() int64 { return nowOf(cfg.Now)().Unix() }
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
-	view := p.agentView(cfg, tc.Cutover, tu)
+	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
 	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
 		Agents:     agents,

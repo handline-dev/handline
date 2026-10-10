@@ -14,7 +14,9 @@ type attachingHost struct {
 	focused []string
 }
 
-func (a *attachingHost) AttachCommand() []string { return []string{"tmux", "-L", "x", "attach-session", "-t", "ocp"} }
+func (a *attachingHost) AttachCommand() []string {
+	return []string{"tmux", "-L", "x", "attach-session", "-t", "ocp"}
+}
 func (a *attachingHost) Focus(handle string) bool {
 	a.focused = append(a.focused, handle)
 	return true
@@ -57,6 +59,18 @@ func TestOpenRefusesWhatIsNotAnAgentWithATerminal(t *testing.T) {
 	}
 	if _, err := r.e.open(person("casey"), map[string]any{"agent": "nobody.here"}); err == nil {
 		t.Fatal("an agent nobody registered")
+	}
+	if _, err := r.e.DB.Exec("UPDATE agent_state SET closed_at = 5 WHERE agent = 'ann'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.open(person("casey"), map[string]any{"agent": "ann"}); err == nil {
+		t.Fatal("a closed agent keeps its handle, but its terminal is not somewhere to go")
+	}
+	if _, err := r.e.DB.Exec("UPDATE agent_state SET closed_at = NULL, terminal = '%9' WHERE agent = 'ann'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.open(person("casey"), map[string]any{"agent": "ann"}); err == nil {
+		t.Fatal("a terminal the host does not list is gone")
 	}
 	if _, err := r.e.DB.Exec("UPDATE agent_state SET terminal = NULL WHERE agent = 'ann'"); err != nil {
 		t.Fatal(err)

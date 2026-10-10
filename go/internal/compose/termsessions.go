@@ -31,6 +31,7 @@ type sessionRec struct {
 	SessionID  string
 	Status     string
 	WaitingFor string
+	UpdatedAt  int64 // the record's own clock, in ms
 }
 
 // lookup is what looking for a session says. Unknown is not none: a file that cannot be read or parsed under a live pid may be the session
@@ -131,7 +132,7 @@ func sessionIn(dir, wt string) (sessionRec, lookup) {
 			continue
 		}
 		if best.Pid == 0 || rec.UpdatedAt > bestAt {
-			best, bestAt = sessionRec{Pid: pid, SessionID: rec.SessionID, Status: rec.Status, WaitingFor: rec.WaitingFor}, rec.UpdatedAt
+			best, bestAt = sessionRec{Pid: pid, SessionID: rec.SessionID, Status: rec.Status, WaitingFor: rec.WaitingFor, UpdatedAt: rec.UpdatedAt}, rec.UpdatedAt
 		}
 	}
 	switch {

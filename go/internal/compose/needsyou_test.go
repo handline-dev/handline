@@ -18,7 +18,7 @@ func TestNeedsYouComesFromTheWaitFileAndTheSessionFileAndStopsWhenTheTurnMovedOn
 		t.Fatal(err)
 	}
 	defer d.Close()
-	needs := needsYou(home, d)
+	needs := (&Parts{db: d, home: home}).needsYou()
 	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated) VALUES('worker', 'RUNNING', 1)"); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestASessionFileSayingWaitingNeedsAPersonAndOneSayingBusyDoesNot(t *testing
 		t.Fatal(err)
 	}
 	wt := t.TempDir()
-	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree) VALUES('worker', 'RUNNING', 1, 'acct', ?)", wt); err != nil {
+	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree, terminal) VALUES('worker', 'RUNNING', 1, 'acct', ?, '%1')", wt); err != nil {
 		t.Fatal(err)
 	}
 	pid := os.Getpid() // a live process
@@ -74,11 +74,11 @@ func TestASessionFileSayingWaitingNeedsAPersonAndOneSayingBusyDoesNot(t *testing
 		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".k.key"), []byte("k"), 0o600)
 	}
 	put("busy", "")
-	if n := needsYou(home, d)("worker"); n != nil {
+	if n := (&Parts{db: d, home: home}).needsYou()("worker"); n != nil {
 		t.Fatalf("a busy session needs nobody: %+v", n)
 	}
 	put("waiting", "permission prompt")
-	n := needsYou(home, d)("worker")
+	n := (&Parts{db: d, home: home}).needsYou()("worker")
 	if n == nil || n.Kind != "permission" || n.Source != "session" || n.Text != "permission prompt" || n.Since != 5000 {
 		t.Fatalf("%+v", n)
 	}
@@ -94,7 +94,7 @@ func TestAWaitFileDoesNotOutliveItsSession(t *testing.T) {
 	defer d.Close()
 	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)
 	os.WriteFile(filepath.Join(home, "waiting", "worker.json"), []byte(`{"tool":"Bash","command":"rm -rf build","since":1700}`), 0o644)
-	needs := needsYou(home, d)
+	needs := (&Parts{db: d, home: home}).needsYou()
 	if needs("worker") != nil {
 		t.Fatal("no row: nobody is waiting")
 	}
@@ -131,7 +131,7 @@ func TestALiveSessionThatIsBusyEndsTheNeedTheWaitFileStillSays(t *testing.T) {
 		t.Fatal(err)
 	}
 	wt := t.TempDir()
-	d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree) VALUES('worker', 'RUNNING', 1, 'acct', ?)", wt)
+	d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree, terminal) VALUES('worker', 'RUNNING', 1, 'acct', ?, '%1')", wt)
 	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)
 	os.WriteFile(filepath.Join(home, "waiting", "worker.json"), []byte(`{"tool":"Bash","command":"tools/suite.sh","since":1700}`), 0o644)
 	put := func(status, waitingFor string) {
@@ -143,7 +143,7 @@ func TestALiveSessionThatIsBusyEndsTheNeedTheWaitFileStillSays(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".json"), rec, 0o644)
 		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".k.key"), []byte("k"), 0o600)
 	}
-	needs := needsYou(home, d)
+	needs := (&Parts{db: d, home: home}).needsYou()
 	put("waiting", "permission prompt")
 	if n := needs("worker"); n == nil || n.Source != "hook" {
 		t.Fatalf("a session at its prompt: %+v", n)
@@ -167,7 +167,7 @@ func TestNeedsYouFindsTheSessionOfAWorktreeRecordedAsRepoAndPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	wt := t.TempDir()
-	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree) VALUES('worker', 'RUNNING', 1, 'acct', ?)", "repo-id::"+wt); err != nil {
+	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree, terminal) VALUES('worker', 'RUNNING', 1, 'acct', ?, '%1')", "repo-id::"+wt); err != nil {
 		t.Fatal(err)
 	}
 	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)
@@ -181,7 +181,7 @@ func TestNeedsYouFindsTheSessionOfAWorktreeRecordedAsRepoAndPath(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".json"), rec, 0o644)
 		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".k.key"), []byte("k"), 0o600)
 	}
-	needs := needsYou(home, d)
+	needs := (&Parts{db: d, home: home}).needsYou()
 	put("busy", "")
 	if n := needs("worker"); n != nil {
 		t.Fatalf("a live session that is not waiting clears the stale wait file: %+v", n)

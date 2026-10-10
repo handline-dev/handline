@@ -341,7 +341,15 @@ func (e *Env) open(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A closed agent keeps the handle of the terminal it had, and a terminal the host no longer lists is gone: neither is somewhere to go.
+	var closed sql.NullInt64
+	if err := e.DB.QueryRow("SELECT closed_at FROM agent_state WHERE agent = ?", agent).Scan(&closed); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
 	b := e.Backend()
+	if live := b.ListTerminals(); (closed.Valid && closed.Int64 != 0) || (live != nil && !live[handle]) {
+		return nil, notFound(agent+" has no terminal open", "terminal", agent)
+	}
 	var attach any
 	if a, ok := b.(term.Attacher); ok {
 		attach = map[string]any{"argv": a.AttachCommand()}
