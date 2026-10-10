@@ -99,8 +99,6 @@ func (wiredPorts) WakeAgent(db.Q, string) (bool, string)                        
 func (wiredPorts) QueuedOrIdle(db.Q, string, string) error                           { return nil }
 func (wiredPorts) Marker(db.Q, string, string, map[string]any)                       {}
 func (wiredPorts) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
-func (wiredPorts) HeldByOther(db.Q, string) string                                   { return "" }
-func (wiredPorts) HeldWhy(a, h string) string                                        { return a + " held by " + h }
 func (wiredPorts) OpenProposalOf(int64) string                                       { return "" }
 func (wiredPorts) Answered(db.Q, string, *db.Request, string) string                 { return "" }
 func (wiredPorts) DeliveryBlock(db.Q, string) (string, bool)                         { return "", false }

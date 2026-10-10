@@ -139,8 +139,6 @@ func (f fakeObserve) LiveSessions() (map[string]int, bool) { return f.sessions, 
 type fakeTyping struct{}
 
 func (fakeTyping) TakeTerminal(string) (func(), bool) { return func() {}, true }
-func (fakeTyping) HeldByOther(db.Q, string) string    { return "" }
-func (fakeTyping) HeldWhy(string, string) string      { return "" }
 
 func newManager(t *testing.T) (*Manager, *fakeDelivery, *fakeTerm) {
 	t.Helper()

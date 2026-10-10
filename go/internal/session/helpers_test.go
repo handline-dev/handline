@@ -253,7 +253,3 @@ func (r fakeRules) Match(vendor, title string, numbers []int, labels []string) i
 	}
 	return 0
 }
-
-type fakeHeld map[string]string
-
-func (h fakeHeld) HeldByOther(a string) string { return h[a] }

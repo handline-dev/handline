@@ -158,12 +158,10 @@ type Observer interface {
 	LiveSessions() (map[string]int, bool)
 }
 
-// Typing is the terminal lock and the hold another controller takes on an agent's input.
+// Typing is the terminal lock.
 type Typing interface {
 	// TakeTerminal is the right to type at agent, nil-release false when someone else holds it.
 	TakeTerminal(agent string) (release func(), ok bool)
-	HeldByOther(q db.Q, agent string) string
-	HeldWhy(agent, holder string) string
 }
 
 // Manager is daemon/lifecycle.py: closing and waking an agent's session, and the folder-trust prompt a wake can meet.

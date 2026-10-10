@@ -10,14 +10,13 @@ import (
 type acceptFixture struct {
 	*fixture
 	cfg   *fakeConfig
-	held  fakeHeld
 	rules fakeRules
 }
 
 func newAcceptFixture(t *testing.T) *acceptFixture {
 	f := newFixture(t)
-	a := &acceptFixture{fixture: f, cfg: &fakeConfig{map[string]bool{}}, held: fakeHeld{}, rules: fakeRules{}}
-	f.Config, f.Held, f.Rules = a.cfg, a.held, a.rules
+	a := &acceptFixture{fixture: f, cfg: &fakeConfig{map[string]bool{}}, rules: fakeRules{}}
+	f.Config, f.Rules = a.cfg, a.rules
 	f.Agents = func() []string { return []string{"worker"} }
 	f.agent("worker", Running, "h1")
 	return a
@@ -104,15 +103,12 @@ func TestAnAcceptedPromptIsOnTheRecord(t *testing.T) {
 	}
 }
 
-func TestNothingIsAcceptedWhenTheSettingIsOffTheToolIsNotTakenOrTheTerminalIsHeld(t *testing.T) {
+func TestNothingIsAcceptedWhenTheSettingIsOffTheToolIsNotTaken(t *testing.T) {
 	a := newAcceptFixture(t)
 	a.waitFor("Browser")
 	a.term.press["h1"] = [3]string{term.Cleared, "Run it?", ""}
 	a.sweep() // the vendor takes no tool
 	a.term.accepts["Browser"] = true
-	a.held["worker"] = "the founder"
-	a.sweep()
-	a.held["worker"] = ""
 	a.cfg.flags[AutoAcceptKey] = false
 	a.sweep()
 	a.cfg.flags[AutoAcceptKey] = true

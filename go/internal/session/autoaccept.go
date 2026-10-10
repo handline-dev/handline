@@ -78,7 +78,7 @@ func (e *Env) accept(agent string, row *AgentRow, now int64) (bool, error) {
 		return false, nil
 	}
 	stuck, err := e.acceptStuck(agent, now)
-	if err != nil || stuck || e.Held.HeldByOther(agent) != "" { // nothing is pressed at a held terminal
+	if err != nil || stuck {
 		return false, err
 	}
 	if !e.Term.AcceptsTool(row.Terminal, tool) {
