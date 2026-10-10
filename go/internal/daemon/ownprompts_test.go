@@ -71,22 +71,27 @@ func goneAt(d *Daemon) (gone any) {
 	return gone
 }
 
-// A daemon started the way tests/daemon/test_go_reads.py starts one, beside a Python daemon's database, writes nothing to
-// prompt_blocks: it neither watches screens nor holds the daemon singleton. The control is the same setup with -own-prompts, where
-// the watch's first pass reads the blank screen and closes the row, so a daemon that watched anyway would fail the second half.
-func TestADaemonStartedWithoutOwnPromptsNeitherWatchesNorTakesTheSingleton(t *testing.T) {
+// Every daemon but a gateway takes the daemon singleton, so none starts beside a Python daemon and a second one is refused; without
+// -own-prompts it writes nothing to prompt_blocks. The control is the same setup with -own-prompts, where the watch's first pass reads
+// the blank screen and closes the row, so a daemon that watched anyway would fail the second half.
+func TestADaemonStartedWithoutOwnPromptsTakesTheSingletonButDoesNotWatch(t *testing.T) {
 	dir := homeDir(t)
 	python := lock.TakeSingleton(dir, daemonLock) // the Python daemon is up
-	defer python.Release()
+	if _, err := startAt(t, dir, false); err == nil || !strings.Contains(err.Error(), "another daemon holds this home") {
+		t.Fatalf("it started beside a daemon that holds the home: %v", err)
+	}
+	python.Release()
 	d, err := startAt(t, dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.single != nil {
-		t.Fatal("it took the singleton")
+	if d.single == nil {
+		t.Fatal("it took no singleton")
+	}
+	if _, err := startAt(t, dir, false); err == nil {
+		t.Fatal("two daemons on one home")
 	}
 	d.Close()
-	python.Release()
 
 	seedOpenPrompt(t, dir)
 	control := startWithScreens(t, dir, true, &blankScreens{})
@@ -163,4 +168,17 @@ func TestASecondDaemonRunningStructuredSessionsOnTheHomeIsRefused(t *testing.T) 
 		t.Fatalf("the hold outlived its daemon: %v", err)
 	}
 	second.Close()
+}
+
+func TestADaemonMakesTheFounderKeyBeforeItServes(t *testing.T) {
+	dir := homeDir(t)
+	made := false
+	d, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Auth: fakeAuth{}, EnsureFounderKey: func() bool { made = true; return true }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if !made {
+		t.Fatal("no founder key was made")
+	}
 }

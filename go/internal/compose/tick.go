@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -30,6 +31,9 @@ type Tick struct {
 
 	dev       *tick.DevMode
 	restarted bool
+	// Startup is loop.py's start, run once before the first tick: reconcile, bring up the agents with work waiting, settle old messages,
+	// and try every pending one.
+	Startup func()
 }
 
 // Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
@@ -133,7 +137,43 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			return false
 		}
 	}}
-	return &Tick{Tick: t, Loop: loop, dev: dev}
+	startup := func() {
+		runStartup(logLine, startPorts{Reconcile: reconciler.Reconcile, StartWaiting: t.StartWaiting,
+			Migrate: func() error { return env.MigrateOldMessages(q) }, Reload: func() error { return env.ReloadPending(q) }})
+	}
+	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
+}
+
+// startPorts are the steps of the daemon's start.
+type startPorts struct {
+	Reconcile    func() ([]string, error)
+	StartWaiting func() []string
+	Migrate      func() error
+	Reload       func() error
+}
+
+// runStartup is loop.py's start, in its order: reconcile; settle what could not be typed before the restart (an old say, a request told but
+// never marked typed) so that it goes first, to agents already free; start the agents with work waiting and no session; retry every pending
+// message. A reconcile that fails ends the start: starting agents on state it did not settle would act on a wrong picture.
+func runStartup(log func(string), s startPorts) {
+	log("daemon starting - reconciling")
+	actions, err := s.Reconcile()
+	for _, a := range actions {
+		log("  " + a)
+	}
+	if err != nil {
+		log(fmt.Sprintf("  reconcile: %v - the rest of the start is skipped", err))
+		return
+	}
+	if err := s.Migrate(); err != nil {
+		log(fmt.Sprintf("  migrate old messages: %v", err))
+	}
+	for _, a := range s.StartWaiting() {
+		log("  " + a)
+	}
+	if err := s.Reload(); err != nil {
+		log(fmt.Sprintf("  reload pending: %v", err))
+	}
 }
 
 // Start runs the loop until Stop closes and returns a channel that closes when the tick in hand has finished. The daemon closes the
@@ -142,6 +182,9 @@ func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
 	go func() {
 		defer close(d)
+		if t.Startup != nil {
+			t.Startup()
+		}
 		t.restarted = t.Loop.Run(nil)
 	}()
 	return d

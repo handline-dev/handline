@@ -20,6 +20,7 @@ import (
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
+	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/version"
@@ -146,7 +147,7 @@ func main() {
 		log.Fatalf("handlined: %v", err)
 	}
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
-		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts,
+		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts, EnsureFounderKey: sessiontoken.New(homeDir).EnsureFounderKey,
 		LandRepo: *landRepo, LandSweep: *structuredTick && *cutover}
 	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
