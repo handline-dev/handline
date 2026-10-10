@@ -9306,7 +9306,9 @@ limits:
         con.close()
 
 
-def test_siblings_give_each_other_work_and_their_manager_is_told(home: Path) -> None:
+def test_siblings_give_each_other_work_and_their_manager_hears_only_its_own(home: Path) -> None:
+    """The founder's rule: the manager is not the team's message hub. Siblings passing work tell it nothing;
+    it hears of a task it only passed along when the result is a problem."""
     use_home(home)
     hand_edit_team("agents:\n  shop: {}\n  shop.a: {}\n  shop.b: {}\n  other: {}\n  other.c: {}\n")
     for n in ("shop", "shop.a", "shop.b", "other", "other.c"):
@@ -9317,19 +9319,28 @@ def test_siblings_give_each_other_work_and_their_manager_is_told(home: Path) -> 
         check("sibling: a report opens a task for its sibling", ok, msg)
         ok, msg = actions.task_handoff(con, "shop.b", tid, "shop.a", "reviewed, yours again")
         check("sibling: and the sibling hands it back", ok, msg)
-        told = [r["body"] for r in db.pending_notices(con, "shop")]
-        check("sibling: the manager gets a notice of each move",
-              told == [f"T{tid} opened by shop.a for shop.b: review it", f"T{tid} handed by shop.b to shop.a: review it"],
-              str(told))
-        check("sibling: a notice, not a request for the manager to act",
-              not con.execute("SELECT 1 FROM requests WHERE target = 'shop' AND state = 'queued'").fetchone())
+        check("sibling: the manager is told nothing of either move", db.pending_notices(con, "shop") == [],
+              str([r["body"] for r in db.pending_notices(con, "shop")]))
         ok, msg, _ = actions.task_new("shop.a", "other.c", "x", "work for another team")
         check("sibling: an agent of another team is still refused a task", not ok, msg)
         ok, msg = actions.task_handoff(con, "shop.a", tid, "other.c", "yours")
         check("sibling: and a handoff to it", not ok and db.get_task(con, tid)["owner"] == "shop.a", msg)
         ok, msg = actions.task_handoff(con, "shop.a", tid, "shop", "back to you")
-        check("sibling: a move to the manager itself is no sibling move",
-              ok and len(db.pending_notices(con, "shop")) == 2, msg)
+        ok2, msg2 = actions.task_handoff(con, "shop", tid, "shop.b", "finish it")
+        check("sibling: the manager passes it on", ok and ok2, msg + msg2)
+
+        def told(to: str) -> list[str]:
+            return [r["body"] for r in con.execute(
+                "SELECT body FROM requests WHERE target = ? AND requester = 'task-board' AND body LIKE ?",
+                (to, f"T{tid} done by%"))]
+        ok, msg = actions.mark_task_done(con, tid, "shop.b", reason="shipped it")
+        check("done: the opener is told", ok and told("shop.a") == [f"T{tid} done by shop.b: shipped it"],
+              f"{msg} {told('shop.a')}")
+        check("done: the manager that only passed it along is not", told("shop") == [], str(told("shop")))
+        ok, msg = actions.reopen_task(con, tid, "shop.a", "again")
+        ok2, msg2 = actions.mark_task_done(con, tid, "shop.b", reason="FAIL: the build is red")
+        check("done: a result that is a problem reaches it", ok and ok2 and told("shop")[-1:]
+              == [f"T{tid} done by shop.b: FAIL: the build is red"], f"{msg} {msg2} {told('shop')}")
     finally:
         con.close()
 
@@ -9341,7 +9352,7 @@ def main() -> int:
         run(lambda: test_the_quota_request_never_follows_a_redirect(Path(td) / 'zairedir'))
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
-        run(lambda: test_siblings_give_each_other_work_and_their_manager_is_told(Path(td) / 'siblings'))
+        run(lambda: test_siblings_give_each_other_work_and_their_manager_hears_only_its_own(Path(td) / 'siblings'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
         run(lambda: test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(Path(td) / 'resume'))

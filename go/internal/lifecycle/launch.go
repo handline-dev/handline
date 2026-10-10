@@ -742,7 +742,7 @@ func (l *Launcher) yourTeam(agent string) string {
 	report := "You report to `" + boss + "`. A task you were handed ends with `hl task done T<n> \"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your report, even a deferral: the next task arrives only then, and an answer typed in chat reaches no one."
 	if boss != db.Human {
 		// A decision for the human is a task of theirs, so it is named once, below, for the decisions that are theirs.
-		report += " `hl say " + boss + " \"...\"` is a message that needs no answer. Being blocked, a decision only they can make, or work nobody handed you is a task for them: `hl task new --owner " + boss + " -t <time> \"<title>\" \"<body>\"`."
+		report += " Send `" + boss + "` no progress or FYI messages: it hears from you only when a task is done or you are blocked. Being blocked, a decision only they can make, or work nobody handed you is a task for them: `hl task new --owner " + boss + " -t <time> \"<title>\" \"<body>\"`."
 	}
 	lines := []string{"# Your team", report,
 		"Talk to people only through ocp; what you write in your terminal reaches no one. Keep it short. Reply when a message asks you something or you owe a result; a message that only informs needs no reply, except the founder's."}

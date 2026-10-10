@@ -164,9 +164,6 @@ func (f *fakeTeller) HandedOver(h Handover) string {
 	f.handed = append(f.handed, h)
 	return "pushed"
 }
-func (f *fakeTeller) Opened(tid int64, by, owner, title string) {
-	f.opened = append(f.opened, fmt.Sprintf("T%d %s %s %s", tid, by, owner, title))
-}
 func (f *fakeTeller) Edited(ed Edited) { f.edited = append(f.edited, ed) }
 func (f *fakeTeller) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*Asked, error) {
 	if f.deny != "" {

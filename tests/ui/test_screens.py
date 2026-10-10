@@ -1675,7 +1675,7 @@ edges:
             check(f"team: and {who} is told to ask its boss for blocks and decisions, not "
                   "to finish - and the founder is not asked to clear a status report",
                   "when you finish" not in ctx
-                  and ("is a message that needs no answer" in line) != boss_is_human
+                  and ("no progress or FYI messages" in line) != boss_is_human
                   and (not boss_is_human or "hl task new --owner human" not in line)
                   and "a task of theirs: `hl task new --owner human" in ctx, line)
             check(f"team: and task done is said once, in that line, not again after it",
