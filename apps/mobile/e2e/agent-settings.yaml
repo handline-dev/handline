@@ -1,0 +1,35 @@
+# On the agent page of a paired phone, on a fresh `pnpm fake-listener` (pair-and-page.yaml first): the agent's settings from the ⋯ menu, a choice that saves on a tap, a switch that asks first, back.  maestro test e2e/agent-settings.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- tapOn:
+    id: nav-agents
+- tapOn:
+    id: agent-handline.architect
+- tapOn:
+    id: verbs-open
+- tapOn:
+    id: verb-settings
+- assertVisible:
+    id: agent-settings
+- assertVisible:
+    id: session-account
+- tapOn:
+    id: effort-max
+- assertVisible:
+    id: effort-max
+- scrollUntilVisible:
+    element:
+      id: skip_permissions-switch
+- tapOn:
+    id: skip_permissions-switch
+- assertVisible:
+    id: skip_permissions-ask
+- tapOn:
+    id: skip_permissions-cancel
+- tapOn:
+    id: settings-back
+- assertVisible:
+    id: verbs-open

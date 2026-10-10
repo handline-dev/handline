@@ -1,0 +1,38 @@
+# After pair-and-page.yaml, on a fresh `pnpm fake-listener --founder-phone` (Settings are the founder's): the Stats tab, a window and the week left, then Settings, the cap saved.  maestro test e2e/stats-settings.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- tapOn:
+    id: nav-stats
+- assertVisible:
+    id: tile-tasks_done
+- tapOn:
+    id: window-7d
+- assertVisible:
+    id: tile-blocks
+- assertVisible:
+    id: outlook-left
+- scrollUntilVisible:
+    element:
+      id: runway-beta
+- tapOn:
+    id: page-settings
+- assertVisible:
+    id: cap-input
+- tapOn:
+    id: cap-input
+- eraseText: 5
+- inputText: '2'
+- tapOn:
+    id: cap-save
+- tapOn:
+    id: page-stats
+- assertVisible:
+    id: tile-tasks_done
+- tapOn:
+    id: page-settings
+- assertVisible:
+    id: cap-input
+    text: '2'
