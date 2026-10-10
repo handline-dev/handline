@@ -123,7 +123,9 @@ func TestFireIsTheTriggerTheTickWouldHandTheAgentOffFor(t *testing.T) {
 		t.Fatalf("a closed agent's triggers do not apply: %q", got)
 	}
 	at(10)
-	// alice is a structured agent: its triggers apply once its session is a live process.
+	// alice is a structured agent: its triggers apply once its session is a live process. Her wake runs on in the background; the database
+	// must outlive it (cleanups run last-in first).
+	t.Cleanup(func() { p.Run.WaitIdle("alice", 10*time.Second) })
 	if ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{}); err != nil || !ok {
 		t.Fatalf("wake: %v %q %v", ok, said, err)
 	}
