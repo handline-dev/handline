@@ -227,9 +227,9 @@ func urgent(result string) bool {
 	return len(rest) == 0 || !(unicode.IsLetter(rest[0]) || unicode.IsDigit(rest[0]) || rest[0] == '_')
 }
 
-// endTask is _end_task: the task's queued deliveries close quietly, and whoever opened it, whoever asked through a linked delivery, and
-// `also` are told `text` in one say each, written in this transaction. The opener's say is typed at once; the others' are notices for the
-// digest unless the result is urgent (a done task that says it failed).
+// endTask is _end_task: the task's queued deliveries close quietly, and whoever opened it and `also` are told `text` in one say each,
+// written in this transaction. The opener's say is typed at once; also's are notices for the digest unless the result is urgent (a done
+// task that says it failed). Whoever only passed the task along (a linked delivery's asker) hears only an urgent result.
 func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string, urgentResult bool, also []string) ([]told, []db.InboxFile, error) {
 	reqs, err := taskRequests(tx, tid)
 	if err != nil {
@@ -268,6 +268,10 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 		}
 	}
 	who = append(who, also...)
+	isAlso := map[string]bool{}
+	for _, a := range also {
+		isAlso[a] = true
+	}
 	var out []told
 	seen := map[string]bool{}
 	for _, to := range who {
@@ -275,7 +279,7 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 			continue
 		}
 		seen[to] = true
-		if skip[to] || !known[to] {
+		if skip[to] || !known[to] || (to != t.OpenedBy && !isAlso[to] && !urgentResult) {
 			continue
 		}
 		rid, err := addSay(tx, noticeFrom, to, text, to != t.OpenedBy && !urgentResult)

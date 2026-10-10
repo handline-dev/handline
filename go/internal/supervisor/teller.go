@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/taskwrites"
-	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
@@ -207,40 +205,7 @@ func (e *Env) HandedOver(h taskwrites.Handover) (out string) {
 	if h.To != db.Human { // the founder holds no current task and is not typed at
 		add(e.Push(e.DB, h.To, h.RID))
 	}
-	e.tellParentOfSiblingMove(h.By, h.To, fmt.Sprintf("T%d handed by %s to %s: %s", h.Task, h.By, h.To, h.Title))
 	return strings.Join(lines, "\n")
-}
-
-// tellParentOfSiblingMove: siblings give each other work without their manager in between; the manager is told as a notice, which rides on its
-// next delivery and asks nothing of it.
-func (e *Env) tellParentOfSiblingMove(me, to, text string) {
-	mgr := team.ParentName(me)
-	if mgr == "" || to == db.Human || team.ParentName(to) != mgr {
-		return
-	}
-	known := false
-	for _, a := range paths.ListAgents(e.Home) {
-		known = known || a == mgr
-	}
-	if !known {
-		return
-	}
-	rid, err := db.AddRequest(e.DB, db.NewRequest{Requester: db.NoticeRequester, Target: mgr, Body: text, Response: "fire_and_forget", Kind: "say", Notice: true})
-	if err != nil {
-		e.log("  telling %s of a move between siblings failed: %v", mgr, err)
-		return
-	}
-	d := team.Decision{Allowed: true, Reason: "sibling move", Kind: ptr("say"), Response: "fire_and_forget"}
-	if err := e.deliver(rid, db.NoticeRequester, mgr, text, "", d); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, mgr, err)
-	}
-}
-
-// Opened is what task.new does after it commits: a manager is told when siblings pass work.
-func (e *Env) Opened(tid int64, by, owner, title string) {
-	var out string
-	defer e.guard("telling after a task was opened", &out)
-	e.tellParentOfSiblingMove(by, owner, fmt.Sprintf("T%d opened by %s for %s: %s", tid, by, owner, title))
 }
 
 // Edited is what an edit does after it commits (rpc_tasks._edit): a changed body told to the holder, a task that changed hands sent on, and an

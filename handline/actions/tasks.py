@@ -1125,11 +1125,12 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
               also: list[str] = ()) -> list[tuple[int, str, str]]:
     """T776: what a task's end does to its requests, inside the transaction that ended it. Every
     delivery still queued on it is closed quietly (a landed one as read, the rest withdrawn) and
-    never answered with a verdict; whoever opened it, whoever asked through a linked delivery, and
-    `also` are told in one say each, from the task board - "T<n> done by <by>: <evidence>" - as rows
-    written in this same transaction, so a crash or a tick between the end and the notice cannot
-    lose it. The opener is the one waiting, so its say is typed at once; the others' is a notice
-    for the digest. Not the closer; not the owner of a parent task, which hears of a child from
+    never answered with a verdict; whoever opened it and `also` are told in one say each, from the
+    task board - "T<n> done by <by>: <evidence>" - as rows written in this same transaction, so a
+    crash or a tick between the end and the notice cannot lose it. The opener is the one waiting, so
+    its say is typed at once; `also`'s is a notice for the digest. Whoever only passed the task along
+    (a linked delivery's asker, a manager) hears only a result that is a problem: a manager is no
+    message hub. Not the closer; not the owner of a parent task, which hears of a child from
     `_child_result_notice`. The caller delivers the returned `(rid, to, text)` after COMMIT
     (`_deliver_unblocked`). The notices are not linked to the task: a task that ended must not read
     as sent because of a say."""
@@ -1150,6 +1151,8 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
     told = []
     for to in dict.fromkeys(who):
         if to in skip or to not in known:
+            continue
+        if to != row["opened_by"] and to not in also and not urgent_result(done_text):
             continue
         rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
                              notice=to != row["opened_by"] and not urgent_result(done_text))
@@ -1216,11 +1219,6 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     if not ok:
         return False, msg, None
     tid = opened[0]
-    con = db.connect()
-    try:
-        _tell_parent_of_sibling_move(con, me, owner, f"T{tid} opened by {me} for {owner}: {title}")
-    finally:
-        con.close()
     limit = f", timeout {timefmt.span(timeout_s)}" if timeout_s else ""
     return True, (f"task T{tid} opened for {owner} ({priority_ref(priority)}, "
                   f"expects {expects}{limit}): {msg}"), tid
@@ -1438,20 +1436,7 @@ def task_handoff(con, me: str, tid: int, to: str, note: str) -> tuple[bool, str]
         if db.current_task(con, to) is None:
             db.set_current_task(con, to, tid)
         askmod.push(con, to, rid)
-    _tell_parent_of_sibling_move(con, me, to, f"T{tid} handed by {me} to {to}: {row['title']}")
     return True, f"T{tid} handed to {to}: {msg}"
-
-
-def _tell_parent_of_sibling_move(con, me: str, to: str, text: str) -> None:
-    """Siblings give each other work without their manager in between; the manager is told as a notice,
-    which rides on its next delivery and asks nothing of it."""
-    mgr = team.parent_name(me)
-    if mgr is None or to == HUMAN or team.parent_name(to) != mgr or mgr not in paths.list_agents():
-        return
-    rid = db.add_request(con, _UNBLOCK_REQUESTER, mgr, text, None, None, "fire_and_forget", "say", 0, None,
-                         notice=True)
-    askmod.deliver(rid, _UNBLOCK_REQUESTER, mgr, text, None,
-                   team.Decision(True, "sibling move", kind="say", response="fire_and_forget", chain_depth=0))
 
 
 PRIORITIES = (1, 2, 3)

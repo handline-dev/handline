@@ -47,11 +47,9 @@ type Teller interface {
 	// HandoffRetire closes a request of the old owner's quietly (done, nobody told, the decision task it is the card of not settled), in the
 	// transaction of the move. told, nil when the request was already closed, runs after the commit.
 	HandoffRetire(tx *sql.Tx, rid int64, verdict string) (told func(), err error)
-	// HandedOver is what a committed handoff leaves: the requests it closed told, the old owner moved on, the new owner typed the task, the
-	// old owner's manager told of a move between siblings. It answers the lines the reply adds.
+	// HandedOver is what a committed handoff leaves: the requests it closed told, the old owner moved on, the new owner typed the task. It
+	// answers the lines the reply adds.
 	HandedOver(h Handover) string
-	// Opened is what a committed task.new leaves: the opener's manager told when siblings pass work.
-	Opened(tid int64, by, owner, title string)
 	// Edited is what a committed task.edit leaves: a changed body told to the holder of a doing task, a task that changed hands sent on to its new
 	// owner, an owner whose last blocker cleared moved on.
 	Edited(ed Edited)

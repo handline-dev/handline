@@ -645,9 +645,10 @@ def _your_team(agent: str) -> str:
     if boss != actions.HUMAN:
         # A decision for the human is a task of theirs, so it is named once,
         # below, for the decisions that are theirs.
-        report += (f" `hl say {boss} \"...\"` is a message that needs no answer. Being "
-                   f"blocked, a decision only they can make, or work nobody handed you is a task "
-                   f"for them: `hl task new --owner {boss} -t <time> \"<title>\" \"<body>\"`.")
+        report += (f" Send `{boss}` no progress or FYI messages: it hears from you only when a task is "
+                   f"done or you are blocked. Being blocked, a decision only they can make, or work "
+                   f"nobody handed you is a task for them: `hl task new --owner {boss} -t <time> "
+                   f"\"<title>\" \"<body>\"`.")
     lines = ["# Your team", report,
              "Talk to people only through ocp; what you write in your terminal reaches no one. "
              "Keep it short. Reply when a message asks you something or you owe a result; a "

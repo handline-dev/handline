@@ -452,14 +452,12 @@ func (w *writes) sendTask(c *rpc.Conn, agent, body string, task any) (any, error
 	if err != nil {
 		return nil, err
 	}
-	clean := strings.TrimSpace(textsafe.Oneline(title))
 	msg := asked.Msg
 	if asked.After != nil {
 		if extra := guarded(w.e, fmt.Sprintf("telling after T%d opened", tid), func() (string, error) { return asked.After(), nil }); extra != "" {
 			msg += "\n" + extra
 		}
 	}
-	guarded(w.e, fmt.Sprintf("telling the manager after T%d opened", tid), func() (string, error) { w.tell.Opened(tid, me, agent, clean); return "", nil })
 	out["said"] = msg
 	return out, nil
 }

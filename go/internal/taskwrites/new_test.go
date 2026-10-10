@@ -31,8 +31,8 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	if res["task"].(float64) != 4 || res["said"] != "task T4 opened for worker (P1, expects sha, timeout 2h00m): queued as #1 for worker" {
 		t.Fatalf("%v", r[0])
 	}
-	if r[1]["result"].(map[string]any)["replayed"] != true || len(f.opened) != 1 || f.opened[0] != "T4 manager worker build  it" && f.opened[0] != "T4 manager worker build it" {
-		t.Fatalf("a retry replays and opens nothing twice: %v %v", r[1], f.opened)
+	if r[1]["result"].(map[string]any)["replayed"] != true || count(t, db, "SELECT COUNT(*) FROM tasks WHERE opened_by = 'manager' AND title LIKE 'build%'") != 1 {
+		t.Fatalf("a retry replays and opens nothing twice: %v", r[1])
 	}
 	wants := []string{"refused", "bad_request", "bad_request", "not_found", "refused", "not_found", "bad_request"}
 	for i, w := range wants {
@@ -63,7 +63,7 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	}
 	f = &fakeTeller{deny: "no edge"}
 	r = call(t, mk("manager", f), line(2, base, "d1"))
-	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 || len(f.opened) != 0 {
+	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
 	}
 }

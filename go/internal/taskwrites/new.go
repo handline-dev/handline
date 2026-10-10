@@ -145,7 +145,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
-		tell.Opened(tid, me, owner, clean)
 		limit := ""
 		if secs != 0 {
 			limit = ", timeout " + timefmt.Span(secs, false)
