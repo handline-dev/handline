@@ -88,7 +88,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		},
 		QueuedOrIdle:     func(q db.Q, agent, why string) (string, error) { return queuedOrIdle(q, agent, why) },
 		RefreshView:      func(_ db.Q, agent string) { view.RefreshOne(agent) },
-		LiftLogin:        func(db.Q, string, *db.AgentState, *[]string) {},
+		LiftLogin:        liftLogin(team.Accounts{Home: home}),
 		StillDrawn:       func(string) bool { return false },
 		ResumableSession: func(q db.Q, agent string) string { return p.resumableSession(q, agent, tu) },
 		Resolve: func(id int64, why string) error {
@@ -116,6 +116,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Messaging: tickMessaging{env: env},
 		Lifecycle: tickLifecycle{m: lc.Manager},
 		Handoff:   tickHandoff{ho: lc.Handoff, mv: lc.Mover},
+		Login:     loginPorts(team.Accounts{Home: home}, nowOf(cfg.Now)),
 		Reconcile: tickReconciler{r: reconciler},
 		Sweeps: tick.Sweeps{
 			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none

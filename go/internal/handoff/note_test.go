@@ -393,3 +393,23 @@ func TestEachBadByteIsOneReplacementCharacter(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestAuthFailedIsALoginTheLastTurnWasRefusedOnByTheCLIsOwnError(t *testing.T) {
+	w := newWorld(t)
+	if _, _, ok, err := AuthFailed(w.DB, "a"); ok || err != nil {
+		t.Fatalf("no events: %v %v", ok, err)
+	}
+	w.event("a", "StopFailure", `{"error": "rate_limit"}`)
+	if _, _, ok, _ := AuthFailed(w.DB, "a"); ok {
+		t.Error("a usage limit is not a refused login")
+	}
+	w.event("a", "StopFailure", `{"error": "authentication_failed", "error_details": "401"}`)
+	id, details, ok, _ := AuthFailed(w.DB, "a")
+	if !ok || id == 0 || details != "401" {
+		t.Fatalf("%v %v %v", id, details, ok)
+	}
+	w.event("a", "UserPromptSubmit", "")
+	if _, _, ok, _ := AuthFailed(w.DB, "a"); ok {
+		t.Error("a prompt after the failure means it works again")
+	}
+}
