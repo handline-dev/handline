@@ -2,7 +2,6 @@ package compose
 
 import (
 	"strings"
-	"syscall"
 
 	"github.com/handline/handline/go/internal/agentview"
 	"github.com/handline/handline/go/internal/db"
@@ -10,7 +9,6 @@ import (
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/team"
 )
 
 // movedOn is whether the agent's own turn went on past the prompt the wait file names (session.WaitOf's second path): it asked, reported or
@@ -36,12 +34,8 @@ func needsYou(home string, q db.Q) func(agent string) *agentview.NeedsYou {
 			return nil
 		}
 		var sess *peerinbox.Session
-		if row.Account.Valid && row.Worktree.Valid && row.Worktree.String != "" {
-			if config, err := team.AccountConfigDir(home, row.Account.String); err == nil {
-				if s, err := peerinbox.ByCwd(config, row.Worktree.String, func(pid int) bool { return syscall.Kill(pid, 0) == nil }); err == nil {
-					sess = &s
-				}
-			}
+		if s, err := agentSession(home, q, agent); err == nil {
+			sess = &s
 		}
 		if sess != nil && !sess.Blocked() {
 			return nil

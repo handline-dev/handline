@@ -87,7 +87,12 @@ func findSession(home string, d *sql.DB, agent string) (peerinbox.Session, error
 	if d == nil { // the daemon's database is not open yet
 		return peerinbox.Session{}, peerinbox.ErrNoSession
 	}
-	st, err := db.GetAgentState(d, agent)
+	return agentSession(home, d, agent)
+}
+
+// agentSession is the live session of an agent, found through its row's account and worktree.
+func agentSession(home string, q db.Q, agent string) (peerinbox.Session, error) {
+	st, err := db.GetAgentState(q, agent)
 	if err != nil {
 		return peerinbox.Session{}, err
 	}
