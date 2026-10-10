@@ -15,7 +15,7 @@ from ..session import term
 from ..infra import gitrun, paths, protected, service
 from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
-from ..view import tui
+from ..view import viewdata
 
 from .health import _name_col
 
@@ -56,7 +56,7 @@ def _print_waits() -> None:
     if not waits:
         return
     now = time.time()
-    print(f"{tui.WAITING_ON_YOU} ({len(waits)})")
+    print(f"{viewdata.WAITING_ON_YOU} ({len(waits)})")
     for w in waits:
         print(f"  {textsafe.oneline(w['who'])} · {textsafe.oneline(w['what'])} · {timefmt.ago(now - w['since'])}")
     print()
@@ -97,9 +97,9 @@ def cmd_daemon_status(args) -> int:
             print("no agent state recorded yet")
         else:
             w = _name_col([r["agent"] for r in rows], 14)
-            # `tui.screen_state` too - the one function - so this list and the
+            # `viewdata.screen_state` too - the one function - so this list and the
             # bridge cannot show two different words for the same row.
-            words = {r["agent"]: tui.screen_state(con, r) for r in rows}
+            words = {r["agent"]: viewdata.screen_state(con, r) for r in rows}
             sw = max([len("state")] + [len(word) + (1 + len(extra) if extra else 0)
                                        for word, extra in words.values()]) + 1
             print(f"\n{'AGENT':<{w}}{'ACCT':<8}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")

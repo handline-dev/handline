@@ -18,7 +18,7 @@ from ..infra import paths
 from ..usage import recover as recovermod
 from ..usage import status
 from ..infra import textsafe
-from ..view import tui
+from ..view import viewdata
 from .. import vendors
 from ..infra.yamlcompat import ConfigError
 
@@ -233,8 +233,8 @@ def cmd_account_list(args) -> int:
         print(json.dumps(out, indent=2))
         return 0
 
-    aw = tui.ACCT_W["agents"]
-    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{tui.ACCT_HEAD['agents'].upper():<{aw}}{'5h':>5}{'7d':>5}  "
+    aw = viewdata.ACCT_W["agents"]
+    print(f"{'ACCOUNT':<14}{'LOGIN':<8}{'PLAN':<6}{viewdata.ACCT_HEAD['agents'].upper():<{aw}}{'5h':>5}{'7d':>5}  "
           f"{'7d resets':<12}{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
@@ -247,7 +247,7 @@ def cmd_account_list(args) -> int:
         shown, src = st.shown_short()
         five = f"{cell(shown)}{src}"
         # The bridge's cell, in words only: one definition, one format.
-        agents_ = textsafe.oneline(tui.agents_cell(roster.get(a, (0, 0)), unplaced))
+        agents_ = textsafe.oneline(viewdata.agents_cell(roster.get(a, (0, 0)), unplaced))
         print(f"{a:<14}{accounts.login_word(accounts.login_state(a), short=True):<8}{plan:<6}{agents_:<{aw}}"
               f"{five:>5}{cell(st.long.pct):>5}  {resets:<12}{cell(st.ctx_pct):>6}{age:>8}  "
               f"{status.describe_runway(status.runway(st, status.read_burn(a), None, loads.get(a))):<16}"

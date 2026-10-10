@@ -72,7 +72,7 @@ from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
 from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
-from handline.view import tui  # noqa: E402
+from handline.view import tui, viewdata  # noqa: E402
 from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
                         locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
@@ -1919,8 +1919,8 @@ def _leaks(dirty: dict[str, str], clean: dict[str, str], skip_counts: tuple = ()
     a byte that is none of our own codes is a stray; and if our code emitted a
     different NUMBER of any of our own codes, the hostile text added or ended one
     - an injected reset or DIM that subtracting our codes would have called clean."""
-    own = sorted({v for v in vars(tui).values() if isinstance(v, str) and v.startswith("\033")
-                  and len(v) <= 12} | set(tui.STATE_COLOR.values()), key=len, reverse=True)
+    own = sorted({v for v in vars(viewdata).values() if isinstance(v, str) and v.startswith("\033")
+                  and len(v) <= 12} | set(viewdata.STATE_COLOR.values()), key=len, reverse=True)
     found = []
     for label, text in dirty.items():
         rest = text
@@ -2005,7 +2005,7 @@ def _imports_textsafe(tree) -> bool:
 
 def _ANSI_TEXT_OK(s: str) -> bool:
     """Once the whole escape sequences are removed, no ESC is left."""
-    return "\033" not in tui._ANSI.sub("", s)
+    return "\033" not in viewdata._ANSI.sub("", s)
 
 
 # A real `orca terminal read --screen --json` capture (auditor's #339
@@ -2488,6 +2488,7 @@ __all__ = [
     'tmuxbackend',
     'trustmod',
     'tui',
+    'viewdata',
     'usage_api',
     'claudemeter',
     'claude_collect',

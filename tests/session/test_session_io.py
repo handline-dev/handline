@@ -1428,7 +1428,7 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
     every tick: tried again (with a pause after a launch that started nothing), FATAL with the reason
     after three, shown as PENDING meanwhile."""
     from handline.actions import control
-    from handline.view import tui
+    from handline.view import viewdata
     _daemon_home(home, 20)
     con = db.connect()
     sent: list[str] = []
@@ -1499,7 +1499,7 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
         check("retry: and nothing waiting is no reason to leave it: the tick's cause is the restart",
               dmn_lifecycle.closed_wake_cause(con, "backend", row)[0] == "restart"
               and dmn_lifecycle.start_or_wake_needed(con, "backend", row) == ("wake", "a restart that has not started it again"))
-        word, detail = tui.screen_state(con, row)
+        word, detail = viewdata.screen_state(con, row)
         check("shown: it reads PENDING and says it is down and why", word == "PENDING"
               and detail.startswith("down: the process table"), f"{word} {detail}")
         ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
@@ -1524,7 +1524,7 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
         db.clear_cursor(con, "typed_at:backend")
         ok, said = control.restart_result(con, "backend")
         row = db.get_agent_state(con, "backend")
-        word, detail = tui.screen_state(con, row)
+        word, detail = viewdata.screen_state(con, row)
         check("retry: a launch that started nothing leaves the restart owed, counted once",
               not ok and dmn_lifecycle.restart_owed(con, "backend", row) and row["wake_failures"] == 1, f"{said} {dict(row)}")
         check("shown: it says it is down, why, and which try is next",
@@ -1539,7 +1539,7 @@ def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_
         age_the_failures()
         ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
         row = db.get_agent_state(con, "backend")
-        word, detail = tui.screen_state(con, row)
+        word, detail = viewdata.screen_state(con, row)
         check("retry: the third failure stalls it with the reason, never silently idle",
               row["state"] == dmn_states.STALLED and "claude did not start" in row["detail"]
               and word == "FATAL" and "no session: claude" in detail, f"{dict(row)} {word} {detail}")
@@ -2755,7 +2755,7 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         # snapshot age (its only news is the reason beside it), no cost column
         # (a sum over the sessions we can see is not the account's spend), no
         # model or effort (configuration, and on the agent's own page), no pid.
-        plain = [tui._ANSI.sub("", ln) for ln in frame.split(chr(10))]
+        plain = [viewdata._ANSI.sub("", ln) for ln in frame.split(chr(10))]
         check("screen: the daemon is reported as running, not as a pid",
               "pid" not in plain[0], plain[0])
         # The daemon's own note is not news. It is on every row, it is never
@@ -2763,12 +2763,12 @@ def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
         # and a column that is always full of something unactionable is one a
         # reader learns to skip. The states that do need a human still say so.
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="woke at reconciliation")
-        quiet = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
+        quiet = [viewdata._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         check("screen: the daemon's bookkeeping is not on the team list",
               not any("backend" in ln and "reconciliation" in ln for ln in quiet),
               str([ln for ln in quiet if "backend" in ln])[:160])
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="three failed wakes")
-        loud = [tui._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
+        loud = [viewdata._ANSI.sub("", ln) for ln in _snap(120, 40).split(chr(10))]
         check("screen: but what needs a human is, with its reason",
               any("backend" in ln and "three failed wakes" in ln for ln in loud),
               str([ln for ln in loud if "backend" in ln])[:160])
@@ -3159,7 +3159,7 @@ def test_a_stalled_closed_agent_keeps_its_marker_when_walled(home: Path) -> None
         check("stalled+walled: both conditions actually hold here",
               dmn_lifecycle.would_wake(con, row) and launch.wake_wait("backend", row, con),
               dict(row))
-        frame = tui._ANSI.sub("", _snap(200, 40))
+        frame = viewdata._ANSI.sub("", _snap(200, 40))
         line = next((ln for ln in frame.splitlines() if "backend" in ln), "")
         check("stalled+walled: the state cell says FATAL with its own detail",
               "FATAL" in line and "ran out of attempts" in line, line)
