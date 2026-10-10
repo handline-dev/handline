@@ -8,6 +8,9 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/subscriptions"
+	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/reads"
+	"github.com/handline/handline/go/internal/schedules"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
@@ -24,6 +27,13 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	apply := &tick.ApplySettings{Ports: settingsPorts{launcher: lc.Launch}}
 	subs := &subscriptions.Env{DB: lc.Env.DB, Home: cfg.Home, Asker: founderAsker{lc.Env}, Tasks: founderCloser{lc.Env, cfg.Home},
 		Plans: vendorPlans{cfg.Home}, Now: cfg.Now, Log: cfg.Log}
+	// Until the cutover the Python daemon sweeps every agent's schedules; two sweeps over one cursor would send twice.
+	schedAgents := p.structuredAgents
+	if cutover {
+		schedAgents = func() []string { return paths.ListAgents(cfg.Home) }
+	}
+	sched := &schedules.Runner{Q: p.db, Agents: schedAgents, Schedules: (&reads.Env{DB: p.db, Home: cfg.Home}).SchedulesOf,
+		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
@@ -31,6 +41,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "task-holds", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) })},
 		{Name: "subscriptions", Run: fromCutover(cutover, func(q db.Q, now int64) error { return subs.Sweep() })},
 		{Name: "wait-for", Run: fromCutover(cutover, func(q db.Q, now int64) error { return wait.Sweep(q, now) })},
+		{Name: "schedules", Run: func(q db.Q, now int64) error { return sched.Sweep(now) }},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 	}
 }

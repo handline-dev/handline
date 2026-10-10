@@ -205,7 +205,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if len(tk.Tick.Passes) != 8 {
+	if len(tk.Tick.Passes) != 9 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -218,7 +218,7 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 		}
 	}
 	for _, l := range logs {
-		if strings.Contains(l, "timebox:") || strings.Contains(l, "notice-digest:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
+		if strings.Contains(l, "timebox:") || strings.Contains(l, "schedules:") || strings.Contains(l, "notice-digest:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
 			t.Fatalf("a pass failed: %s", l)
 		}
 	}
@@ -504,4 +504,37 @@ func TestAReconcileThatFailsEndsTheStartBeforeAnyAgentIsStarted(t *testing.T) {
 	if all := strings.Join(logs, "\n"); !strings.Contains(all, "database is locked") || !strings.Contains(all, "x: resumed") {
 		t.Fatalf("%q", logs)
 	}
+}
+
+func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
+		[]byte("vendor: claude\nstructured: true\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	var run func(q dbpkg.Q, now int64) error
+	for _, s := range tk.Tick.Passes {
+		if s.Name == "schedules" {
+			run = s.Run
+		}
+	}
+	if run == nil {
+		t.Fatal("the tick has no schedules pass")
+	}
+	t0 := time.Now().Unix()
+	t0 -= t0 % 60
+	if err := run(d, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(d, t0+120); err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	if err := d.QueryRow("SELECT body FROM requests WHERE requester = 'schedule' AND target = 'alice'").Scan(&body); err != nil || body != "[schedule * * * * *] check the queue" {
+		t.Fatalf("%q %v", body, err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); !p.Run.Alive("alice") && time.Now().Before(deadline); { // the telling wakes her in the background
+		time.Sleep(20 * time.Millisecond)
+	}
+	p.Run.WaitIdle("alice", 10*time.Second)
 }
