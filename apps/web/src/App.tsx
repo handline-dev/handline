@@ -127,7 +127,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           {team ? (
             <TeamPage />
           ) : worktrees.open ? (
-            <Worktrees path={worktrees.path} />
+            <Worktrees path={worktrees.path} storage={storage} />
           ) : inbox.open ? (
             <InboxPage item={inbox.item} />
           ) : accounts.open ? (

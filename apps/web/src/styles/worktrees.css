@@ -138,3 +138,51 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.wt-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(200px, 1fr);
+  gap: var(--sp-5);
+  overflow-x: auto;
+  align-items: start;
+}
+.wt-col {
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  min-height: 120px;
+  align-content: start;
+}
+.wt-col h3 {
+  margin: 0;
+  font: var(--t-label);
+  color: var(--ink-2);
+}
+.wt-card {
+  position: relative;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+.wt-card.on {
+  border-color: var(--line-strong);
+}
+.wt-menu {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-card);
+  background: var(--bg-1);
+}
+.wt-moving {
+  color: var(--wait);
+}
+.wt-error {
+  color: var(--block);
+}

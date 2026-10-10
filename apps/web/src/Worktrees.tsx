@@ -1,10 +1,13 @@
 // The Worktrees page: every worktree the daemon knows, with repo and owner filters (client-side) and a search, and a side panel for one.
-// Read only: a worktree is made by starting an agent, and its status is a label only the daemon sets.
+// A worktree is made by starting an agent; its status label is changed by a decided write (the row moves when the refetch shows it).
 import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { Worktree } from '@handline/client';
-import { useRepos, useServes, useWorktrees } from '@handline/app-data';
-import { Button, Empty, Select } from './ui/index.ts';
+import { classify, sentence, useRepos, useServes, useWorktrees, useWrite } from '@handline/app-data';
+import { Button, Empty, Segmented, Select } from './ui/index.ts';
+import { setting } from './daemon.ts';
+import type { KV } from '@handline/app-core';
+import { WorktreeBoard, type Moves } from './WorktreeBoard.tsx';
 import { goAgent, goWorktrees } from './route.ts';
 import { View } from './View.tsx';
 import { WorktreePanel } from './WorktreePanel.tsx';
@@ -42,8 +45,31 @@ function useNow(ms = 5000): number {
   return now;
 }
 
-export function Worktrees({ path }: { path: string | null }) {
+/** The status writes of this page: each is asked once, shown as pending until the refetch has read the new status, and refused with the daemon's reason. */
+function useMoves(refetch: () => Promise<unknown>): Moves {
+  const set = useWrite('worktree.set_status');
+  const { served } = useServes('worktree.set_status');
+  const [moving, setMoving] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const without = (r: Record<string, string>, k: string) => Object.fromEntries(Object.entries(r).filter(([p]) => p !== k));
+  const move = (path: string, status: string) => {
+    if (moving[path]) return;
+    setMoving((m) => ({ ...m, [path]: status }));
+    setErrors((e) => without(e, path));
+    set
+      .mutateAsync({ path, status })
+      .then(() => refetch())
+      .catch((e) => setErrors((x) => ({ ...x, [path]: sentence(classify(e)) })))
+      .finally(() => setMoving((m) => without(m, path)));
+  };
+  return { enabled: served, moving, errors, move };
+}
+
+export function Worktrees({ path, storage }: { path: string | null; storage: KV | null }) {
   const q = useWorktrees();
+  const moves = useMoves(q.refetch);
+  const view = setting(storage, 'worktreesView', 'list');
+  const [board, setBoard] = useState(view.value === 'board');
   const repos = useRepos();
   const { served } = useServes('worktrees.list');
   const [repo, setRepo] = useState('');
@@ -85,6 +111,15 @@ export function Worktrees({ path }: { path: string | null }) {
             ...owners.map((o) => ({ value: o, label: o })),
           ]}
         />
+        <Segmented
+          label="View"
+          value={board ? 'board' : 'list'}
+          onChange={(v) => (setBoard(v === 'board'), view.save(v))}
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'board', label: 'Board' },
+          ]}
+        />
         <input
           className="search"
           type="search"
@@ -111,6 +146,8 @@ export function Worktrees({ path }: { path: string | null }) {
               <Empty icon="filter" name="No worktree matches" />
               <Button variant="outline" label="Clear filters" onClick={clear} />
             </div>
+          ) : board ? (
+            <WorktreeBoard rows={shown} path={path} moves={moves} />
           ) : (
             <table className="wt-table">
               <thead>
@@ -154,7 +191,7 @@ export function Worktrees({ path }: { path: string | null }) {
               </tbody>
             </table>
           )}
-          {path ? <WorktreePanel worktree={open} path={path} all={all} onClose={() => goWorktrees()} /> : null}
+          {path ? <WorktreePanel worktree={open} path={path} all={all} moves={moves} onClose={() => goWorktrees()} /> : null}
         </div>
       </View>
     </section>
