@@ -147,3 +147,22 @@ func TestOfSeveralSessionFilesInTheWorktreeTheNewestByUpdatedAtIsTheSession(t *t
 		t.Fatalf("%v %+v", found, rec)
 	}
 }
+
+func TestAHandoffReadsATerminalAgentsSessionAndItsPidFromTheSessionFile(t *testing.T) {
+	p, _, wt := termTickRig(t)
+	run := termRun{p}
+	if pid, status := run.Session("bob"); pid != 0 || status != "" {
+		t.Fatalf("no file, no session: %d %q", pid, status)
+	}
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"idle"}`)
+	if pid, status := run.Session("bob"); pid != os.Getpid() || status != "idle" {
+		t.Fatalf("%d %q", pid, status)
+	}
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd": "`)
+	if pid, status := run.Session("bob"); pid != 0 || status != "unknown" {
+		t.Fatalf("a file that cannot be read has no pid to prove an end by: %d %q", pid, status)
+	}
+	if run.PidGone(os.Getpid()) || !run.PidGone(1<<30) {
+		t.Fatal("a pid is gone when no process has it")
+	}
+}

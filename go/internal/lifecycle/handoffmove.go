@@ -57,9 +57,9 @@ type MoveEnv struct {
 	WakeAfter  func(kind string, shortReset, longReset, now int64) int64
 }
 
-// Mover is daemon/handoff.py for structured sessions: the handoff, the move to another account and the clear that is owed. When each
-// happens is Python's; how is not: nothing is typed, a close is proven by the process group, and a cleared context is a closed session
-// whose next start is fresh from the record.
+// Mover is daemon/handoff.py: the handoff, the move to another account and the clear that is owed. When each happens is Python's; how is
+// not: nothing is typed, a close is proven by the process group (a terminal's by its pane and the session's pid), and a cleared context is
+// a closed session whose next start is fresh from the record.
 type Mover struct {
 	M *Manager
 	E MoveEnv
@@ -153,7 +153,7 @@ func (v *Mover) closeFresh(agent string) (bool, string) {
 	m := v.M
 	here := m.Agents.CurrentAccount(m.Q, agent)
 	st := m.Status.ReadForAgent(agent, here)
-	ok, why := m.endStructured(agent, "", st)
+	ok, why := m.endForMove(agent, st)
 	if ok {
 		check(db.ForgetResume(m.Q, agent))
 		check(db.SetCursor(m.Q, RecordOwedKey(agent), m.now()))
@@ -182,7 +182,7 @@ func (v *Mover) moveToRoom(agent string, t HandoffTrigger, dest string) (moved, 
 		v.log("  %s: staying on %s - %s", agent, here, why)
 		return false, false
 	}
-	if !m.Run.Alive(agent) {
+	if !m.sessionAlive(agent) {
 		return false, true
 	}
 	if ok, why := v.closeFresh(agent); !ok {
@@ -233,7 +233,7 @@ func clip(s string, n int) string {
 func (v *Mover) MoveToRoom(agent string, t HandoffTrigger) (moved bool, err error) {
 	defer catch(&err)
 	defer v.M.lockAgent(agent)()
-	if v.M.Run.Busy(agent) {
+	if v.M.sessionBusy(agent) {
 		return false, nil
 	}
 	moved, _ = v.moveToRoom(agent, t, "")
@@ -258,7 +258,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 		v.log("  %s: %s fired again %ds after the last handoff - too soon, skipping", agent, t.Kind, now-*last)
 		return true, nil
 	}
-	if !m.Run.Alive(agent) {
+	if !m.sessionAlive(agent) {
 		v.log("  %s: %s fired but no session is running - not handing off", agent, t.Kind)
 		return true, nil
 	}
@@ -266,15 +266,18 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 	// once. Sooner than that a person or the agent may be mid-turn.
 	stoppedAt, stopped := v.E.AtLimit(m.Q, agent)
 	settled := t.Kind == LoginTrigger || (stopped && now-stoppedAt >= states.LimitSettleS)
-	if !settled && m.Run.Busy(agent) {
+	if !settled && m.sessionBusy(agent) {
 		if t.Kind != "forced" {
 			v.log("  %s: %s fired but the agent is mid-turn - deferring", agent, t.Kind)
 			return true, nil
 		}
 		// A person's order does not wait for a turn that may never end on its own, an open permission prompt included: the interrupt
 		// denies it, and the act goes on once the turn is over.
-		check(m.Run.Interrupt(agent))
-		if !m.Run.WaitIdle(agent, StructuredIdleWait) {
+		if err := m.interruptSession(agent); err != nil {
+			v.log("  %s: forced move fired but %v - not handing off", agent, err)
+			return true, nil
+		}
+		if !m.waitSessionIdle(agent, StructuredIdleWait) {
 			v.log("  %s: forced move fired but the turn did not end - not handing off", agent)
 			return true, nil
 		}
@@ -351,7 +354,7 @@ const ClearNotice = "ocp: your context is full (%s), so this session will be cle
 // up.
 func (v *Mover) reclaim(agent string) (bool, string) {
 	m := v.M
-	if !m.Run.Alive(agent) {
+	if !m.sessionAlive(agent) {
 		return false, "no session process; nothing to close"
 	}
 	running := v.E.BackgroundWork(m.Q, agent)
@@ -371,7 +374,7 @@ func (v *Mover) reclaim(agent string) (bool, string) {
 		if used >= 0 {
 			usedText = fmt.Sprint(used)
 		}
-		err := m.Run.Send(agent, "clear_notice:"+fmt.Sprint(now), fmt.Sprintf(ClearNotice, usedText+" of "+fmt.Sprint(limit), ClearWaitS/60))
+		err := m.tellSession(agent, "clear_notice:"+fmt.Sprint(now), fmt.Sprintf(ClearNotice, usedText+" of "+fmt.Sprint(limit), ClearWaitS/60))
 		check(db.SetCursor(m.Q, "clear_owed:"+agent, now)) // owed even if the notice did not go
 		v.log("  %s: background work is running (%s); told it will be cleared in %d min%s", agent, running, ClearWaitS/60, ifTrue(err != nil, " (the notice failed)"))
 		return false, owed
@@ -412,12 +415,12 @@ func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 		return false, nil
 	}
 	row := must(db.GetAgentState(m.Q, agent))
-	if row == nil || isClosed(row) || !m.Run.Alive(agent) {
+	if row == nil || isClosed(row) || !m.sessionAlive(agent) {
 		check(db.ClearCursor(m.Q, "clear_owed:"+agent))
 		return false, nil
 	}
 	defer m.lockAgent(agent)()
-	if m.Run.Busy(agent) {
+	if m.sessionBusy(agent) {
 		return true, nil
 	}
 	cleared, why := v.reclaim(agent)

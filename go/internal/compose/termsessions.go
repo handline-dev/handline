@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -149,4 +151,38 @@ func sameDir(a, b string) bool {
 		return filepath.Clean(a) == filepath.Clean(b)
 	}
 	return ra == rb
+}
+
+// termRun is lifecycle.TermSessions over the session files: what a handoff reads of a terminal agent, and the message it tells one by.
+type termRun struct{ p *Parts }
+
+var _ lifecycle.TermSessions = termRun{}
+
+func (t termRun) Session(agent string) (int, string) {
+	if t.p.Kind(agent) {
+		return 0, ""
+	}
+	switch rec, _, found := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); {
+	case found == sessionNone:
+		return 0, ""
+	case found == sessionUnknown:
+		return 0, "unknown"
+	case rec.Status == "":
+		return rec.Pid, "unknown"
+	default:
+		return rec.Pid, rec.Status
+	}
+}
+
+func (termRun) PidGone(pid int) bool { return !alive(pid) }
+
+func (t termRun) Tell(agent, _, text string) error {
+	sess, err := findSession(t.p.home, t.p.db, agent)
+	if err != nil {
+		return err
+	}
+	if res := peerinbox.New().Deliver(context.Background(), sess, text); res.Kind != peerinbox.Delivered {
+		return errors.New(res.Why)
+	}
+	return nil
 }

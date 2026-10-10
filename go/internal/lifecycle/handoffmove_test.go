@@ -41,7 +41,14 @@ func newMoveRig(t *testing.T) *moveRig {
 	db.SetTerminal(m.Q, "a", "", "/wt")
 	db.SetResumeSession(m.Q, "a", "sess-1")
 	r.alive["a"] = true
-	rig := &moveRig{m: m, r: r, l: l}
+	rig := newMoveRigOn(m, l)
+	rig.r = r
+	return rig
+}
+
+// newMoveRigOn is the mover over a manager that is already set up.
+func newMoveRigOn(m *Manager, l *moveLaunch) *moveRig {
+	rig := &moveRig{m: m, l: l}
 	rig.v = &Mover{M: m, E: MoveEnv{
 		Reading:        func(db.Q, string) (string, string, bool) { return "acct", "recorded", true },
 		Windows:        func(string) Windows { return Windows{} },
