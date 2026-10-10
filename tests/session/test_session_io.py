@@ -2075,15 +2075,16 @@ def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) ->
         check("close: three ticks over a session that will not die type /exit once",
               typed.count("/exit") == 1, str(typed))
         check("close: and wait for it once", len(waits) == 1, str(waits))
-        check("close: the failure is on the record",
-              db.last_event_ts(con, "backend", "close_failed") is not None)
+        failed = db.last_event_ts(con, "backend", "close_failed")
+        check("close: the failure is on the record", failed is not None)
         row = db.get_agent_state(con, "backend")
         check("close: and the row is not marked closed", row["closed_at"] is None)
         check("close: a failed close is not activity - it does not restart the idle clock",
               db.last_activity(con, "backend") == now - dmn_states.IDLE_CLOSE_S - 60)
 
-        # One idle window later it is tried again.
-        later = now + dmn_states.IDLE_CLOSE_S + 1
+        # One idle window after the failure it is tried again. The failure is
+        # stamped by the real clock, which a loaded run moves well past `now`.
+        later = failed + dmn_states.IDLE_CLOSE_S
         check("close: after a full idle window it is due again",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, later, st))
     finally:
