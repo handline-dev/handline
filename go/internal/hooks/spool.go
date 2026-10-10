@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/handline/handline/go/internal/rpc"
 )
 
 // The hook spool: where a hook leaves an event when the daemon is down (handline/daemon/spool.py). The daemon reads
@@ -163,4 +165,21 @@ func keep(work string, rest []string) error {
 		return err
 	}
 	return os.Rename(tmp, work)
+}
+
+// AppendSpool leaves one event in the spool for the daemon (spool.append): one line, written whole under an exclusive
+// lock, so lines from hooks running at once never mix.
+func AppendSpool(home, agent, kind string, data map[string]any, requestID string, at int64) error {
+	line := fmt.Sprintf(`{"agent": %s, "kind": %s, "at": %d, "data": %s, "request_id": %s}`+"\n",
+		rpc.PyJSON(agent, false, true), rpc.PyJSON(kind, false, true), at, rpc.PyJSON(data, false, true), rpc.PyJSON(requestID, false, true))
+	f, err := os.OpenFile(spoolPath(home), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	_, err = f.WriteString(line)
+	return err
 }

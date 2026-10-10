@@ -37,3 +37,59 @@ func TestTheAccountsViewNeverCarriesTheAuthorizeURL(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountsListUsageIsOptInAndSaysWhyAnAccountCannotStart(t *testing.T) {
+	e := testEnv(t)
+	dir := filepath.Join(e.Home, "accounts", "main")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "subscription.json"), []byte(`{"subscriptionType":"max"}`), 0o644)
+	plain, _ := e.accountsList(nil, nil)
+	if _, has := plain.(map[string]any)["accounts"].([]any)[0].(map[string]any)["assignable"]; has {
+		t.Fatal("the usage fields are only there when asked for")
+	}
+	got, err := e.accountsList(nil, map[string]any{"usage": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := got.(map[string]any)["accounts"].([]any)[0].(map[string]any)
+	if a["plan"] != "max" || a["assignable"] != false || !strings.Contains(a["assign_reason"].(string), "no status.json") || a["runway"] != "" || a["ctx_pct"] != nil {
+		t.Fatalf("%v", a)
+	}
+	if _, err := e.accountsList(nil, map[string]any{"usage": "yes"}); err == nil {
+		t.Fatal("a usage that is not a boolean is refused")
+	}
+}
+
+func TestStatusPickNamesNoAccountThatIsNotLoggedIn(t *testing.T) {
+	e := testEnv(t)
+	if err := os.MkdirAll(filepath.Join(e.Home, "accounts", "main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.statusPick(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	if m["picked"] != nil || len(m["candidates"].([]any)) != 0 || len(m["agent_costs"].([]string)) != 0 {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestStatusPickNamesAnAccountThatIsLoggedIn(t *testing.T) {
+	e := testEnv(t)
+	dir := filepath.Join(e.Home, "accounts", "main")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{}`), 0o600)
+	got, err := e.statusPick(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	if len(m["candidates"].([]any)) != 1 {
+		t.Fatalf("%v", m)
+	}
+}

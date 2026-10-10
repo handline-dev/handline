@@ -3,6 +3,11 @@
 One binary, built from `go/`. Run it with `-home DIR`; on the default home it refuses to start unless `-allow-real-home` says so.
 `tools/test-go.sh` runs `go test -race`, a cgo-free build and the contract fixtures against the built binary.
 
+## The `hl` command (`go/cmd/hl`)
+
+`tools/build-hl.sh` builds `go/hl`; `bin/hl` then runs it, and it hands every command it has not ported to the Python
+`hl` with the same arguments. `HANDLINE_HL_GO=0` keeps everything on Python.
+
 ## Network listener
 
 `-listen ADDR:PORT` opens an encrypted WebSocket (a gateway without `-cert` is plain, see Tailscale mode) (`/rpc`) for paired devices; nothing listens without it. `ADDR` must be an IP of this

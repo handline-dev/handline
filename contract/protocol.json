@@ -117,7 +117,7 @@
   "hl trust list|proposals": "trust.list",
   "hl team": "team.get",
   "hl ps": "agents.list",
-  "hl status": "accounts.list",
+  "hl status": "status.pick",
   "hl events": "events.feed",
   "hl triggers": "agent.triggers",
   "hl schedule (show)": "schedules.list",
@@ -149,6 +149,7 @@
    "hl launch",
    "hl doctor",
    "hl hooks",
+   "hl go",
    "hl install-hooks",
    "hl daemon",
    "hl backup",
@@ -5905,6 +5906,14 @@
       "type": "boolean",
       "description": "Add each account's agents_assigned, agents_running and agents_unplaced. Default false."
      }
+    },
+    {
+     "name": "usage",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Add each account's plan, windows, ctx_pct, age_s, runway, assignable and assign_reason: what `hl account list` prints beside the windows. Default false."
+     }
     }
    ],
    "result": {
@@ -5932,6 +5941,64 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "status.pick",
+   "summary": "Which account the next agent would be placed on, each account's reason, and what one more agent costs by kind.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "picked",
+      "candidates",
+      "agent_costs"
+     ],
+     "properties": {
+      "picked": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The account to place the next agent on; null when none may take work (fail-closed)."
+      },
+      "candidates": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "account",
+         "reason"
+        ],
+        "properties": {
+         "account": {
+          "type": "string"
+         },
+         "reason": {
+          "type": "string"
+         }
+        }
+       }
+      },
+      "agent_costs": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "description": "One line per agent kind: its price per minute of the 5h window and what the price rests on."
+      }
+     }
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
   },
   {
    "name": "account.set",
@@ -9151,6 +9218,111 @@
        }
       ],
       "description": "The login in progress or the last one to end; null when none was started. Reported on the accounts topic as account.changed. Never carries the authorize URL: only the founder's account.login reply has it."
+     },
+     "plan": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with accounts.list `usage: true`. The plan claude reports (`max`, `pro`), null when not recorded."
+     },
+     "windows": {
+      "type": "array",
+      "description": "Only with accounts.list `usage: true`. The shortest and, when the vendor has one, the longest window: the figure read, the one that may be acted on, and where it came from.",
+      "items": {
+       "type": "object",
+       "required": [
+        "window",
+        "minutes",
+        "pct",
+        "effective",
+        "source",
+        "reset"
+       ],
+       "properties": {
+        "window": {
+         "type": "string"
+        },
+        "minutes": {
+         "type": "integer"
+        },
+        "pct": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The figure as read."
+        },
+        "effective": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The figure the daemon acts on."
+        },
+        "source": {
+         "type": "string",
+         "description": "Where the figure comes from, or why it is not trusted."
+        },
+        "reset": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Unix seconds the window resets."
+        }
+       }
+      }
+     },
+     "ctx_pct": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with accounts.list `usage: true`. Context used by the account's last session, percent."
+     },
+     "age_s": {
+      "oneOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with accounts.list `usage: true`. Seconds since the usage was read."
+     },
+     "runway": {
+      "type": "string",
+      "description": "Only with accounts.list `usage: true`. How long the account lasts at its recent burn, in words (`~10m to wall`), as `hl account list` prints it."
+     },
+     "assignable": {
+      "type": "boolean",
+      "description": "Only with accounts.list `usage: true`. Whether one more agent may start on it."
+     },
+     "assign_reason": {
+      "type": "string",
+      "description": "Only with accounts.list `usage: true`. Why assignable is what it is."
      }
     },
     "required": [

@@ -81,11 +81,30 @@ func loginWord(in, known bool) string {
 }
 
 // accountsList is accounts.list: every account with its login, usage windows, agents, recent moves, label, caps and cycle.
-func (e *Env) accountsList(_ *rpc.Conn, _ map[string]any) (any, error) {
+func (e *Env) accountsList(_ *rpc.Conn, params map[string]any) (any, error) {
+	withUsage := false
+	if u, given := params["usage"]; given {
+		b, ok := u.(bool)
+		if !ok {
+			return nil, badParam("usage is true or false", "usage")
+		}
+		withUsage = b
+	}
 	v := e.accountView()
+	var loads map[string]*usage.Load
+	if withUsage {
+		var err error
+		if loads, err = v.ue.ReadAll(e.DB, ""); err != nil {
+			return nil, err
+		}
+	}
 	var accts []any
 	for _, a := range paths.ListAccounts(e.Home) {
-		accts = append(accts, v.of(a))
+		acct := v.of(a)
+		if withUsage {
+			v.addUsage(acct, a, loads[a])
+		}
+		accts = append(accts, acct)
 	}
 	if accts == nil {
 		accts = []any{}
@@ -114,14 +133,14 @@ type accountView struct {
 
 func (e *Env) accountView() *accountView {
 	cfg := usage.LoadConfig(e.Home)
-	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, Config: func() usage.Config { return cfg }},
+	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, LoginState: e.LoginState, Config: func() usage.Config { return cfg }},
 		names: paths.ListAgents(e.Home), now: time.Now()}
 }
 
 func (v *accountView) of(a string) map[string]any {
 	e, cfg := v.e, v.cfg
 	st := usage.ReadStatus(e.Home, a)
-	in, known := team.Accounts{Home: e.Home}.LoginState(a)
+	in, known := e.loginState(a)
 	on := []any{}
 	for _, n := range v.names {
 		if e.currentAccount(n) == a {
@@ -147,6 +166,40 @@ func (v *accountView) of(a string) map[string]any {
 	return acct
 }
 
+// addUsage adds what `hl account list` shows beside the windows: the plan, the windows' report, the context figure, the age of the
+// read, the runway in words, and whether one more agent may start and why. The plan is the one recorded: no read asks claude.
+func (v *accountView) addUsage(acct map[string]any, a string, ld *usage.Load) {
+	st := v.ue.Read(a)
+	active := 0
+	if ld != nil {
+		active = ld.Active
+	}
+	allowed, why := st.TakesWork(active)
+	if allowed {
+		if bad := usage.Unfit(st, ld, ""); bad != "" {
+			allowed, why = false, bad
+		}
+	}
+	var burn *float64
+	if b, ok := v.ue.ReadBurn(a); ok {
+		burn = &b
+	}
+	var plan any
+	if p, _ := (team.Accounts{Home: v.e.Home}).RecordedSubscriptionType(a); p != "" {
+		plan = p
+	}
+	var ctx, age any
+	if st.CtxPct != nil {
+		ctx = *st.CtxPct
+	}
+	if s := st.AgeS(); s != nil {
+		age = *s
+	}
+	acct["plan"], acct["windows"], acct["ctx_pct"], acct["age_s"] = plan, st.WindowReport(), ctx, age
+	acct["runway"] = usage.RunwayOf(st, burn, st.NowS(), ld).Describe()
+	acct["assignable"], acct["assign_reason"] = allowed, why
+}
+
 // loginOf is the account's latest web login as the accounts topic shows it, nil when none was started. It never has the authorize URL: only the founder's account.login reply does.
 func (e *Env) loginOf(acct string) map[string]any {
 	if e.Login == nil {
@@ -157,4 +210,27 @@ func (e *Env) loginOf(acct string) map[string]any {
 		return nil
 	}
 	return map[string]any{"login_id": l.ID, "state": l.State}
+}
+
+// statusPick is status.pick: the account the next agent would be placed on (null when none may take work), every candidate's reason,
+// and what one more agent costs by kind: what `hl status` prints.
+func (e *Env) statusPick(_ *rpc.Conn, _ map[string]any) (any, error) {
+	v := e.accountView()
+	picked, reasons, err := v.ue.Pick(e.DB, usage.PickOpts{})
+	if err != nil {
+		return nil, err
+	}
+	candidates := []any{}
+	for _, r := range reasons {
+		candidates = append(candidates, map[string]any{"account": r.Account, "reason": r.Why})
+	}
+	costs, err := v.ue.LoadCosts(e.DB)
+	if err != nil {
+		return nil, err
+	}
+	var pick any
+	if picked != "" {
+		pick = picked
+	}
+	return map[string]any{"picked": pick, "candidates": candidates, "agent_costs": costs.ByKind(paths.ListAgents(e.Home))}, nil
 }

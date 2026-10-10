@@ -461,6 +461,31 @@ export type Account = {
     login_id: string;
     state: "waiting" | "code_sent" | "done" | "failed" | "cancelled";
   } | null;
+  /** Only with accounts.list `usage: true`. The plan claude reports (`max`, `pro`), null when not recorded. */
+  plan?: string | null;
+  /** Only with accounts.list `usage: true`. The shortest and, when the vendor has one, the longest window: the figure read, the one that may be acted on, and where it came from. */
+  windows?: {
+    window: string;
+    minutes: number;
+    /** The figure as read. */
+    pct: number | null;
+    /** The figure the daemon acts on. */
+    effective: number | null;
+    /** Where the figure comes from, or why it is not trusted. */
+    source: string;
+    /** Unix seconds the window resets. */
+    reset: number | null;
+  }[];
+  /** Only with accounts.list `usage: true`. Context used by the account's last session, percent. */
+  ctx_pct?: number | null;
+  /** Only with accounts.list `usage: true`. Seconds since the usage was read. */
+  age_s?: number | null;
+  /** Only with accounts.list `usage: true`. How long the account lasts at its recent burn, in words (`~10m to wall`), as `hl account list` prints it. */
+  runway?: string;
+  /** Only with accounts.list `usage: true`. Whether one more agent may start on it. */
+  assignable?: boolean;
+  /** Only with accounts.list `usage: true`. Why assignable is what it is. */
+  assign_reason?: string;
 };
 
 export type DaemonStatus = {
@@ -1861,8 +1886,20 @@ export interface Methods {
   "accounts.list": { params: {
   /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
   roster?: boolean;
+  /** Add each account's plan, windows, ctx_pct, age_s, runway, assignable and assign_reason: what `hl account list` prints beside the windows. Default false. */
+  usage?: boolean;
 }; result: {
     accounts: Account[];
+  } };
+  "status.pick": { params: { [key: string]: unknown }; result: {
+    /** The account to place the next agent on; null when none may take work (fail-closed). */
+    picked: string | null;
+    candidates: {
+      account: string;
+      reason: string;
+    }[];
+    /** One line per agent kind: its price per minute of the 5h window and what the price rests on. */
+    agent_costs: string[];
   } };
   "account.set": { params: {
   account: string;
@@ -2114,6 +2151,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "hr.list": { role: "agent", callers: null, write: false, since: 1 },
   "hr.decide": { role: "founder", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
+  "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },

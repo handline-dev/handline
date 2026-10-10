@@ -15,7 +15,7 @@ import (
 const (
 	// ContextTokens replaces the cache-expiry trigger: an absolute figure, so it means the same on every model. An agent's own
 	// context_tokens overrides it, and ContextClampFraction holds a small-window model down to its share.
-	ContextTokens = 200_000
+	ContextTokens = 150_000
 	// ContextClampFraction is the ceiling of last resort for a model whose window is known.
 	ContextClampFraction = 0.60
 	// WallPct is where both windows are spent to their own ceiling.

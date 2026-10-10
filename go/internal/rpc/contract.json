@@ -249,6 +249,9 @@
  "stats.outlook": {
   "role": "member"
  },
+ "status.pick": {
+  "role": "agent"
+ },
  "subscribe": {
   "role": "agent"
  },

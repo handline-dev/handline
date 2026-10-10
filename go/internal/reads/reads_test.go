@@ -19,7 +19,12 @@ func testEnv(t *testing.T) *Env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &Env{DB: db, Home: home, Started: time.Now()}
+	// The login check never asks the machine's keychain: an account is logged in when its directory has a .credentials.json.
+	login := func(acct string) (bool, bool) {
+		_, err := os.Stat(filepath.Join(home, "accounts", acct, ".credentials.json"))
+		return err == nil, true
+	}
+	return &Env{DB: db, Home: home, Started: time.Now(), LoginState: login}
 }
 
 func addAgent(t *testing.T, e *Env, name, role string) {
