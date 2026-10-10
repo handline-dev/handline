@@ -141,7 +141,7 @@ A method marked write takes a required `request_id`.
 | `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
+| `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `fix?`, `squash?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
@@ -497,15 +497,15 @@ A message typed at once; needs no answer, starts no work.
 
 ### `land`
 
-Request a land; accepted only from the session's own hl land (session token and peer pid, as today).
+Request a land; accepted only from the session's own hl land (session token and peer pid, as today). Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
 
 ### `land.pass`
 
-Record a land pass.
+Record a land pass. Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
 
 ### `land.authorize`
 
-The session's hl land vouches for the next land verb (legacy land_authorize).
+The session's hl land vouches for the next land verb (legacy land_authorize). The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}.
 
 ### `hook.record`
 

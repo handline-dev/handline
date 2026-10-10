@@ -17,12 +17,14 @@ import (
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
+	"github.com/handline/handline/go/internal/lands"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/sessionrpc"
+	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -71,6 +73,12 @@ type Config struct {
 	OwnPrompts bool
 	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
 
+	// LandRepo is the repository main is checked out in, for the land verbs; empty reads OCP_LAND_REPO and refuses a land with none.
+	LandRepo string
+	// LandSweep makes this daemon merge the lands that are queued: on only where the Python daemon no longer ticks, since two
+	// sweeps over one home would race for the same row.
+	LandSweep bool
+
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
 	// layer. Nil is the Env's own telling once its ports are all wired (OnOpen sets them), and tells nothing before that.
 	Teller taskwrites.Teller
@@ -110,6 +118,7 @@ type Daemon struct {
 	cfg     Config
 	db      *sql.DB
 	hooks   *hooks.Recorder
+	lands   *lands.Service    // the land verbs; nil on a gateway
 	logins  *weblogin.Manager // the web logins; nil in a gateway
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
@@ -179,6 +188,12 @@ func Start(cfg Config) (*Daemon, error) {
 		d.tchan.Structured = cfg.Structured
 		d.prompts.HoldersChanged = d.tchan.HoldersChanged
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
+		d.lands = &lands.Service{DB: db, Repo: cfg.LandRepo, Tokens: sessiontoken.New(cfg.Home), Log: cfg.Log,
+			Tell: func(to, body string) {
+				if err := d.env().SystemSay(lands.Requester, to, body); err != nil {
+					cfg.Log("  land: telling %s: %v", to, err)
+				}
+			}}
 	}
 	if cfg.Gateway {
 		pid, err := takePidFile(cfg.PidFile)
@@ -245,6 +260,10 @@ func Start(cfg Config) (*Daemon, error) {
 	if d.hooks != nil {
 		d.wg.Add(1)
 		go d.spoolLoop()
+	}
+	if d.lands != nil && cfg.LandSweep {
+		d.wg.Add(1)
+		go d.landLoop()
 	}
 	d.wg.Add(1)
 	go func() {
@@ -358,6 +377,10 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if transport == "network" {
 		s.Net = d.dev
 	}
+	if d.lands != nil && transport == "local" {
+		s.Legacy = d.lands.Legacy
+		lands.Register(s, d.lands)
+	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
 	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion(), Delivery: d.cfg.Delivery}
@@ -381,6 +404,26 @@ func (d *Daemon) ingestSpool() {
 		d.cfg.Log("  spool: %v", err)
 	}
 }
+
+// landLoop starts the oldest queued land every LandEvery, the work the Python daemon does each tick.
+func (d *Daemon) landLoop() {
+	defer d.wg.Done()
+	t := time.NewTicker(landEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-d.stop:
+			return
+		case <-t.C:
+			if err := d.lands.Sweep(); err != nil {
+				d.cfg.Log("  lands: %v", err)
+			}
+		}
+	}
+}
+
+// landEvery is how often a queued land is looked for.
+const landEvery = 2 * time.Second
 
 // spoolLoop reads the hook spool every SpoolEvery, the work the Python daemon does each tick.
 func (d *Daemon) spoolLoop() {
