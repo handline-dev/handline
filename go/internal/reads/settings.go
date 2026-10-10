@@ -121,7 +121,7 @@ func (e *Env) settingsValues() map[string]any {
 		"unasked_running_s":    s.ConfigSeconds("unasked_running_s", unaskedRunningS),
 		"stop_wait_backstop_s": s.ConfigSeconds("stop_wait_backstop_s", stopWaitBackstopS),
 		"stale_background_s":   s.ConfigSeconds("stale_background_s", staleBackgroundS), "token_prices": prices,
-		"input_hold_idle_s": s.ConfigSeconds("input_hold_idle_s", 600),
+		"input_hold_idle_s": s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
 	}
 }
 

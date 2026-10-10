@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -183,17 +184,19 @@ func branchOf(path string) string {
 	return oneline(string(out))
 }
 
+// defaultHoldIdleS is how long a holder may go without typing when config.yaml's input_hold_idle_s does not say.
 const defaultHoldIdleS = 600
 
 // inputHolders is the spec's InputHolder list: whoever holds the input, else the daemon. A hold idle past the limit
-// no longer counts; reading does not delete it, as the Python daemon does.
+// (config.yaml's input_hold_idle_s, else 600 seconds) no longer counts; reading does not delete it, as the Python daemon does.
 func (e *Env) inputHolders(name string) ([]any, error) {
 	daemon := []any{map[string]any{"kind": "daemon", "name": "daemon", "since": nil}}
 	r, err := queryOne(e.DB, "SELECT kind, name, since, last_typed FROM input_holders WHERE agent = ?", name)
 	if err != nil || r == nil {
 		return daemon, err
 	}
-	if time.Now().Unix()-r.i("last_typed") >= defaultHoldIdleS {
+	idle := (&lifecycle.Settings{Home: e.Home}).ConfigSeconds("input_hold_idle_s", defaultHoldIdleS)
+	if time.Now().Unix()-r.i("last_typed") >= idle {
 		return daemon, nil
 	}
 	return []any{map[string]any{"kind": r.str("kind"), "name": r.str("name"), "since": ts(r["since"])}}, nil
