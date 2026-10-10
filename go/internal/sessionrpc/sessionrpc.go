@@ -65,6 +65,8 @@ type Env struct {
 	// Terminal agents only (frozen): the terminal's close, and whether a session still runs in it.
 	CloseTerminal  func(handle string) (ok bool, why string)
 	SessionPresent func(agent string) (bool, error)
+	// Fold is control.fold: fold the day's events into the agent's digest, the one model call, run as `hl fold`. nil serves no agent.fold.
+	Fold func(agent string) (ok bool, said string)
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
 	Marker func(agent, kind string, actor map[string]any, text string)
 	Now    func() time.Time
@@ -78,6 +80,9 @@ func Register(s *rpc.Server, e *Env) {
 		s.Register("session.restart", rpc.Method{Role: "agent", Write: true, Handler: e.restart})
 		s.Register("session.park", rpc.Method{Role: "agent", Write: true, Handler: e.park})
 		s.Register("session.stop", rpc.Method{Role: "agent", Write: true, Handler: e.stop})
+	}
+	if e.Fold != nil {
+		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
 	}
 	if e.Procs != nil {
 		s.Register("session.interrupt", rpc.Method{Role: "member", Write: true, Handler: e.interrupt})
@@ -256,6 +261,13 @@ func (e *Env) restart(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	return e.run(c, "session.restart", params, false, func(call Call, agent string) (map[string]any, error) {
 		return done(e.Controls.Restart(call, agent, fresh, force))
+	})
+}
+
+func (e *Env) fold(c *rpc.Conn, params map[string]any) (any, error) {
+	return e.run(c, "agent.fold", params, false, func(_ Call, agent string) (map[string]any, error) {
+		ok, said := e.Fold(agent)
+		return done(ok, said, nil)
 	})
 }
 

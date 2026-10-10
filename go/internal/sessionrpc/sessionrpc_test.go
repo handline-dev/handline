@@ -274,6 +274,30 @@ func TestInterruptIsAControlRequestForAStructuredSessionAndRecordedOnce(t *testi
 	}
 }
 
+func TestFoldRunsOnceForARequestIdAndARejectedFoldIsRefused(t *testing.T) {
+	r := newRig(t)
+	var folded []string
+	ok, said := true, "ann: folded"
+	r.e.Fold = func(a string) (bool, string) { folded = append(folded, a); return ok, said }
+	c := r.dial(false)
+	got := result(t, c.call("agent.fold", map[string]any{"agent": "ann", "request_id": rid("1")}))
+	again := result(t, c.call("agent.fold", map[string]any{"agent": "ann", "request_id": rid("1")}))
+	if got["said"] != "ann: folded" || again["replayed"] != true || len(folded) != 1 {
+		t.Fatalf("%v %v %v", got, again, folded)
+	}
+	ok, said = false, "ann: fold rejected - no events to fold"
+	if g := refused(c.call("agent.fold", map[string]any{"agent": "ann", "request_id": rid("2")})); g != "state" {
+		t.Fatalf("a rejected fold is a refusal: %q", g)
+	}
+	if m := c.call("agent.fold", map[string]any{"agent": "nobody.here", "request_id": rid("3")}); m["error"] == nil || len(folded) != 2 {
+		t.Fatalf("an unknown agent is not folded: %v %v", m, folded)
+	}
+	r.e.Fold = nil
+	if r.dialHas(r.dial(false), "agent.fold") {
+		t.Fatal("with no fold port the method is not served")
+	}
+}
+
 func TestTerminalCloseNeedsAStoppedSessionAndRefusesWhileTyping(t *testing.T) {
 	r := newRig(t)
 	c := r.dial(false)

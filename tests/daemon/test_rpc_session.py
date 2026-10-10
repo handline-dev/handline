@@ -350,7 +350,7 @@ def test_the_session_fixtures_pass_against_this_daemon(home: Path) -> None:
                 sessiontoken.agent_of = (lambda pid: "manager") if role == "agent" else (lambda pid: None)
                 results += [(*r, role) for r in conformance.run_all([Path("contract/fixtures/session.json"), Path("contract/fixtures/session_stop.json")], {role: connector()},
                                                                      {"founder_key": _hp()["key"], "running_agent": "worker",
-                                                                      "locked_agent": "manager"}) if r[0] != "skip"]
+                                                                      "locked_agent": "manager"}) if r[0] != "skip" and not r[2].startswith("agent.fold.")]  # agent.fold is Go-only: Python folds through hl fold
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
