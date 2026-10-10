@@ -102,7 +102,7 @@ describe('the transcript of a structured agent', () => {
     s.daemon.knobs.refuse('transcript.events', 'busy', 'try later', undefined, 1);
     await mount(AUD, s);
     await until(() => $('.tr .skeleton'), 'the skeleton');
-    expect($('.term-bar')).toBeNull(); // no terminal is attached while it is not known to be one
+    expect($('.terminal-tab')).toBeNull(); // no terminal is attached while it is not known to be one
     await until(() => text($('.tr')).includes('could not be read'), 'the error');
     s.daemon.knobs.latency(0);
     await click([...$$('.tr button')].find((b) => text(b) === 'Retry')!);

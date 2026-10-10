@@ -103,15 +103,6 @@ kbd {
   padding: 8px 10px;
   overflow: hidden;
 }
-.take-confirm {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: var(--wait);
-  border-bottom: 1px solid var(--line);
-}
 .xterm-host > div {
   height: 100%;
 }
@@ -151,17 +142,6 @@ kbd {
 .xterm-pane.dim .xterm-host {
   opacity: 0.55;
 }
-.grid-input {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  resize: none;
-}
 .grid-status {
   color: var(--wait);
   font-size: 12px;
@@ -169,20 +149,6 @@ kbd {
 }
 .grid-status:empty {
   display: none;
-}
-.chips {
-  position: relative;
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--sp-2) var(--sp-4);
-  border-top: 1px solid var(--line);
-}
-.chips-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
-  max-width: 260px;
 }
 .chip {
   padding: var(--sp-1) var(--sp-4);
@@ -214,11 +180,4 @@ kbd {
   background: var(--ink);
   color: var(--bg);
   box-shadow: var(--shadow-pop);
-}
-
-/* the key chips are for a touch screen; a keyboard has the keys */
-@media (min-width: 640px) and (pointer: fine) {
-  .chips {
-    display: none;
-  }
 }

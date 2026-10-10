@@ -178,7 +178,7 @@ describe('the workspace', () => {
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
     expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
-    expect($('.term-bar')).toBeNull(); // not shown
+    expect($('.terminal-tab')).toBeNull(); // not shown
     vi.stubGlobal('confirm', () => false);
     await click($(`${termTab} .x`)!);
     expect($(termTab)).not.toBeNull(); // refused at the confirm
@@ -319,20 +319,14 @@ describe('the sidebar', () => {
     await until(() => $$('.row-actions .btn').some((b) => text(b).includes('Resume')), 'Resume after close');
   });
 
-  it('keeps the selected row short (no model, account or detail block there), and the holder icon takes and gives back the input in the terminal tab', async () => {
+  it('keeps the selected row short (no model, account or detail block there)', async () => {
     await mount(ARCH);
     await until(() => $('.row-wrap.on'), 'the selected row');
     expect($('.row-detail')).toBeNull();
     const r = text($('.row-wrap.on'));
     expect(r).not.toMatch(/opus|alpha|buddyron/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
-    await until(() => $('.term-bar'), 'terminal tab bar');
-    const held = (who: string) => !!$('.term-bar .holder')?.getAttribute('aria-label')?.startsWith(`Input: ${who}`);
-    expect(held('daemon')).toBe(true);
-    await click($('.term-bar .holder')!);
-    await until(() => held('YOU'), 'holding the input');
-    await click($('.term-bar .holder')!);
-    await until(() => held('daemon'), 'released');
+    await until(() => $('.terminal-tab'), 'terminal tab');
     expect($('.row-actions .btn.primary')).toBeNull();
   });
 

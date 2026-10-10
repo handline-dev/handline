@@ -138,7 +138,6 @@ describe('the controls of a structured agent', () => {
     await open(m);
     await until(() => $('transcript'), 'the transcript');
     expect($('terminal')).toBeNull();
-    expect($('take')).toBeNull();
     expect($('composer')).toBeNull();
     m.store.stop();
   });

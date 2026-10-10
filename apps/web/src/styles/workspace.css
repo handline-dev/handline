@@ -261,25 +261,6 @@
   flex-direction: column;
   min-height: 0;
 }
-.term-bar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-}
-.holder {
-  background: none;
-  color: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-1) var(--sp-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  margin-right: auto;
-  font: var(--t-mono);
-}
 .chat {
   display: flex;
   flex-direction: column;
@@ -341,12 +322,6 @@
 }
 .dz.root.over {
   outline-width: 3px;
-}
-
-button.holder {
-  background: none;
-  color: inherit;
-  cursor: pointer;
 }
 
 /* a workspace of one pane fills the window */
