@@ -17,6 +17,8 @@ def standing_answers(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
     if method == "answer.add":
+        if all(isinstance(params.get(k), str) and params[k].strip() for k in ("vendor", "title", "label")):
+            return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "gate": "unsupported", "reason": "this daemon answers no dialog"}}
         if not any(isinstance(params.get(k), str) and params[k].strip() for k in ("folder", "vendor", "title", "label")):
             return "fail", err(-32602, "bad_request", field="folder")
         return "fail", {"code": -32002, "message": "refused", "data": {"code": "refused", "reason": "not a folder"}}

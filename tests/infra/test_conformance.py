@@ -319,9 +319,13 @@ NOT_YET = "NOT_YET_IN_PYTHON"      # a fixture whose `about` starts with this is
 
 
 
+SPEC_ONLY = {"terminal.open"}      # pinned by NOT_YET_IN_PYTHON fixtures; no daemon in Python serves it, so the fake does not either
+
+
 def _fakes(*roles: str, mutate=None, **kw) -> dict:
     from fake_methods import devices
     devices.reset()
+    kw["lacks"] = SPEC_ONLY | set(kw.get("lacks", ()))
     return {r: (FakeNetwork() if r == "unpaired" else FakeDaemon(r, mutate, **kw)).connect for r in roles}
 
 
@@ -334,10 +338,11 @@ VIEW_FIELDS = {
     "a.v.walled": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False,
                    "wall": {"account": "acct.one", "clock": 1_790_000_000, "assumed": True}},
     "a.v.plain": {"state": "closed", "kind": "opus max", "task_count": 0, "ready": False, "wall": None,
-                  "fire": None, "attention": None, "cache_ignored": False, "config_error": None},
+                  "fire": None, "attention": None, "cache_ignored": False, "config_error": None, "needs_you": None},
     "a.v.fire": {"state": "idle", "kind": "opus high", "fire": "context"},
     "a.v.ask": {"state": "idle", "kind": "opus high", "attention": "ask"},
-    "a.v.alert": {"state": "idle", "kind": "opus high", "attention": "alert"},
+    "a.v.alert": {"state": "waiting", "kind": "opus high", "attention": "alert", "has_dialog": True,
+                  "needs_you": {"kind": "permission", "since": "2026-01-01T00:00:00Z", "text": "Bash: ls", "source": "hook"}},
     "a.v.stuck": {"state": "idle", "kind": "opus high", "attention": "stuck"},
     "a.v.ignored": {"state": "idle", "kind": "opus high", "cache_ignored": True},
     "a.v.broken": {"state": "closed", "config_error": "agent.yaml: invalid YAML"},
@@ -352,10 +357,10 @@ LIST_VARS = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.tim
 OUTLOOK_VARS = {"outlook_agent": "grp.one", "outlook_group": "grp"}
 
 KEY = {"founder_key": "k", **VIEW_VARS, **LIST_VARS, **OUTLOOK_VARS, **{f"state_{w}": f"a.s.{w}" for w in STATE_WORDS}, "running_agent": "a.running", "locked_agent": "a.locked", "terminal_agent": "a.term", "bytes_agent": "a.bytes", "styled_agent": "a.bytes", "text_only_agent": "a.orca", "terminal_handle": "t-a.term",
-       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "hr_seeded": "1", "task_owner": "a.two", "page_agent": "a.s.idle", "transcript_agent": "a.transcript", "working_agent": "a.working", "crashed_agent": "a.crashed"}
+       "held_agent": "a.held", "walled_agent": "a.walled", "dialog_agent": "a.dialog", "shell_agent": "a.shell", "account": "acct.one", "schedule_agent": "a.sched", "hr_seeded": "1", "dialogs_retired": "1", "task_owner": "a.two", "page_agent": "a.s.idle", "transcript_agent": "a.transcript", "working_agent": "a.working", "crashed_agent": "a.crashed"}
 KEYARG = ["--var", "founder_key=k", *(x for k, v in {**VIEW_VARS, **LIST_VARS, **OUTLOOK_VARS}.items() for x in ("--var", f"{k}={v}")), *(x for w in STATE_WORDS for x in ("--var", f"state_{w}=a.s.{w}")), "--var", "running_agent=a.running", "--var", "locked_agent=a.locked", "--var", "terminal_agent=a.term", "--var", "bytes_agent=a.bytes", "--var", "styled_agent=a.bytes", "--var", "text_only_agent=a.orca", "--var", "terminal_handle=t-a.term",
           "--var", "held_agent=a.held", "--var", "walled_agent=a.walled", "--var", "dialog_agent=a.dialog", "--var", "shell_agent=a.shell", "--var", "account=acct.one",
-          "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript", "--var", "working_agent=a.working", "--var", "crashed_agent=a.crashed"]
+          "--var", "schedule_agent=a.sched", "--var", "hr_seeded=1", "--var", "dialogs_retired=1", "--var", "task_owner=a.two", "--var", "page_agent=a.s.idle", "--var", "transcript_agent=a.transcript", "--var", "working_agent=a.working", "--var", "crashed_agent=a.crashed"]
 
 def _ready() -> tuple[list[Path], list]:
     """FILES less the NOT_YET_IN_PYTHON fixtures the fake lacks the method for or KEY cannot seed, and the fake's results for
