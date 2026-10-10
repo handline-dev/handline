@@ -59,7 +59,7 @@ def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
     """Three Bash calls as the store holds them, for transcript_output.json: output only, output with eight lines cut, no result."""
     now = int(time.time())
     calls = [("printf 'a\\nb\\n'", {"text": "a\nb\n", "truncated": False}),
-             ("seq 1 10", {"text": "9\n10\n", "truncated": True, "dropped_lines": 8}),
+             ("seq 1 10", {"text": "1\n2\n", "truncated": True, "dropped_lines": 8}),
              ("true", None)]
     seq = 0
     for i, (command, result) in enumerate(calls):

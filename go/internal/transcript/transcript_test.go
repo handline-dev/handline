@@ -297,3 +297,28 @@ func TestToolsPairACallWithItsResultAndCountTheLinesTheCutTook(t *testing.T) {
 		t.Errorf("ids not in call order: %d %d %d", a.ID, b.ID, c.ID)
 	}
 }
+
+func TestACutThatLeavesNoNewlineStillCountsALineAndAnOldCutRowReadsAsCut(t *testing.T) {
+	s, got := newSink(t)
+	emit(s, "bob", "tool_use", map[string]any{"id": "a", "name": "Bash", "input": map[string]any{"command": "yes | tr -d '\\n'"}})
+	emit(s, "bob", "tool_result", map[string]any{"tool_use_id": "a", "content": strings.Repeat("x", ToolResultMax+5000)}) // one line, no newline
+	r := (*got)[1].Body["tool_result"].(map[string]any)
+	if r["truncated"] != true || r["dropped_lines"] != 1 {
+		t.Fatalf("%v", r)
+	}
+	emit(s, "bob", "tool_use", map[string]any{"id": "b", "name": "Bash", "input": map[string]any{"command": "old"}})
+	if _, err := s.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', 99, 's', NULL, 1000000, 'tool_result', NULL, ?)`,
+		`{"tool_result":{"tool_use_id":"b","ok":true,"text":"cut","truncated":true}}`); err != nil {
+		t.Fatal(err)
+	}
+	tools, err := Tools(s.DB, "bob", 10)
+	if err != nil || len(tools) != 2 {
+		t.Fatalf("%v %v", tools, err)
+	}
+	if tools[0].Output == nil || tools[0].Dropped != 1 {
+		t.Errorf("a row from before the count was kept reads as cut: %+v", tools[0])
+	}
+	if tools[1].Dropped != 1 || len(*tools[1].Output) != ToolResultMax {
+		t.Errorf("%+v", tools[1])
+	}
+}

@@ -62,7 +62,7 @@
         "kind": "tool",
         "tool": "Bash",
         "text": "seq 1 10",
-        "output": "9\n10\n",
+        "output": "1\n2\n",
         "dropped_lines": 8
        }
       }

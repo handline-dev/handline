@@ -150,7 +150,7 @@ func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 		ok, _ := d["is_error"].(bool)
 		result := map[string]any{"tool_use_id": d["tool_use_id"], "ok": !ok, "text": text, "truncated": cut}
 		if cut {
-			result["dropped_lines"] = strings.Count(full[len(text):], "\n")
+			result["dropped_lines"] = linesIn(full[len(text):])
 		}
 		return []Event{{Turn: turn, Kind: "tool_result", Body: map[string]any{"tool_result": result}}}
 	case "permission_request":
@@ -328,4 +328,13 @@ func cutText(s string, max int) (string, bool) {
 		s = s[:len(s)-1]
 	}
 	return s, true
+}
+
+// linesIn is how many lines s holds, a last one with no newline included: a cut that leaves anything out cuts at least one.
+func linesIn(s string) int {
+	n := strings.Count(s, "\n")
+	if s != "" && !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
 }

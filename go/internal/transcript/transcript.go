@@ -198,6 +198,7 @@ func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
 			Result struct {
 				ID      string `json:"tool_use_id"`
 				Text    string `json:"text"`
+				Cut     bool   `json:"truncated"`
 				Dropped int64  `json:"dropped_lines"`
 			} `json:"tool_result"`
 		}
@@ -205,6 +206,9 @@ func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
 		if i, ok := byUse[b.Result.ID]; ok && out[i].Output == nil {
 			text := b.Result.Text
 			out[i].Output, out[i].Dropped = &text, b.Result.Dropped
+			if b.Result.Cut && out[i].Dropped < 1 {
+				out[i].Dropped = 1 // a row written before the count was kept: a cut output never reads as whole
+			}
 		}
 	}
 	return out, res.Err()
