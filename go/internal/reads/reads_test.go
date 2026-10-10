@@ -349,3 +349,34 @@ func TestAgentStripAccountIsTheRowsNotAStoredViewsThatLags(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
+
+func TestAnInputHoldIsLostAfterTheConfiguredIdleTime(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "held", "")
+	typed := time.Now().Unix() - 700
+	if _, err := e.DB.Exec(`INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('held', 'person', 'someone', ?, ?)`, typed, typed); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		config string
+		held   bool
+	}{
+		{"", false},                          // unset: 600 s, and it was 700 ago
+		{"input_hold_idle_s: 1000\n", true},  // longer than the default
+		{"input_hold_idle_s: 60\n", false},   // shorter
+		{"input_hold_idle_s: soon\n", false}, // not a number: the default
+		{"input_hold_idle_s: 0\n", false},    // not positive: the default
+		{"input_hold_idle_s: -5\n", false},
+	} {
+		if err := os.WriteFile(filepath.Join(e.Home, "config.yaml"), []byte(c.config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := e.inputHolders("held")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if holder := got[0].(map[string]any)["kind"] == "person"; holder != c.held {
+			t.Errorf("config %q: holder kept %v, want %v (%v)", c.config, holder, c.held, got)
+		}
+	}
+}
