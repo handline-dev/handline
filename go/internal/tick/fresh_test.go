@@ -75,3 +75,37 @@ func startedHandoff(tk *Tick, agent string, at int64) error {
 	_, err := tk.Q.Exec("INSERT INTO handoff(id, agent, session_id, step, state, trigger_kind, updated, deadline) VALUES('h1', ?, 's', 'released', 'done', 'context', ?, ?)", agent, at, at+300)
 	return err
 }
+
+func handedOn(t *testing.T, tk *Tick, from string, at int64) {
+	t.Helper()
+	if _, err := tk.Q.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'task_handoff', json_object('from', ?, 'to', 'someone.else'))", at, from, from); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnAgentThatHandsItsOnlyTaskOnIsHandedOffButNotWhileItHoldsAnother(t *testing.T) {
+	tk, w := newWorld(t)
+	w.cfg = map[string]any{FreshKey: true}
+	w.performOK = true
+	handedOn(t, tk, "a", 9_000) // the task now belongs to someone else: no done_evidence, no row of a's
+	if supervise(tk, "a"); !w.did("handoff a task_done") {
+		t.Fatalf("a review ended by a handoff is a finished task: %v", w.calls)
+	}
+
+	tk, w = newWorld(t)
+	w.cfg = map[string]any{FreshKey: true}
+	w.performOK = true
+	handedOn(t, tk, "a", 9_000)
+	taskOf(t, tk, "a", 0)
+	if supervise(tk, "a"); w.did("handoff a task_done") {
+		t.Fatal("it holds another open task")
+	}
+
+	tk, w = newWorld(t)
+	w.cfg = map[string]any{FreshKey: true}
+	w.performOK = true
+	handedOn(t, tk, "b", 9_000) // another agent's handoff is not this one's
+	if supervise(tk, "a"); w.did("handoff a task_done") {
+		t.Fatal("handed off for another agent's task")
+	}
+}

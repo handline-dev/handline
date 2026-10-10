@@ -228,16 +228,17 @@ func (c *CostPilot) Fold(t *Tick, agent string, now int64, st Status) (bool, str
 	return ok, why
 }
 
-// FreshDue is whether this agent is owed a fresh session: its switch is on, its session is open, it finished a task since its last
-// session began or was handed off, and it holds no other open task. Mid-turn is the handoff's own concern: it defers to the turn's end
+// FreshDue is whether this agent is owed a fresh session: its switch is on, its session is open, it finished a task (done, or handed on
+// to another owner) since its last session began or was handed off, and it holds no other open task. Mid-turn is the handoff's own concern: it defers to the turn's end
 // and asks for the note first, as it does for a full context. A level read from the record, never an edge: it is due on every tick until a
 // handoff or a new session is recorded after the task was done.
 func (c *CostPilot) FreshDue(t *Tick, agent string, row *db.AgentState) bool {
 	if !c.flag(t, agent, FreshKey) || closedAt(row) {
 		return false
 	}
-	var doneAt sql.NullInt64
-	check(t.Q.QueryRow("SELECT MAX(done_at) FROM tasks WHERE owner = ? AND done_evidence IS NOT NULL", agent).Scan(&doneAt))
+	var doneAt sql.NullInt64 // the later of its last done task and the last task it handed on
+	check(t.Q.QueryRow("SELECT MAX(at) FROM (SELECT MAX(done_at) AS at FROM tasks WHERE owner = ? AND done_evidence IS NOT NULL "+
+		"UNION ALL SELECT MAX(ts) FROM events WHERE kind = 'task_handoff' AND json_extract(payload, '$.from') = ?)", agent, agent).Scan(&doneAt))
 	if !doneAt.Valid {
 		return false
 	}
