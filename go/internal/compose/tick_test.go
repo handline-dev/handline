@@ -204,7 +204,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if len(tk.Tick.Passes) != 6 {
+	if len(tk.Tick.Passes) != 7 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -217,7 +217,7 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 		}
 	}
 	for _, l := range logs {
-		if strings.Contains(l, "timebox:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
+		if strings.Contains(l, "timebox:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
 			t.Fatalf("a pass failed: %s", l)
 		}
 	}
