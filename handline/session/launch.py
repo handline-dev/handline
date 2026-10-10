@@ -505,13 +505,9 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
-                           **({} if agents.sandbox_on(agent, cfg) else {"sandbox": False}),
+                           sandbox=agents.sandbox_on(agent, cfg),
                            **({"mcp_approved": approved} if approved else {}),
                            **({"extra_dirs": extra_dirs} if extra_dirs else {}))
-    if cfg.get("sandbox") is False and not agents.sandbox_off_granted(agent):
-        print(f"warning: agent '{agent}' has sandbox off in its agent.yaml, but the founder never "
-              f"turned it off (`hl agent set {agent} sandbox=off`, from a terminal) - ignoring it",
-              file=sys.stderr)
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):

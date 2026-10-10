@@ -152,9 +152,6 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 		SandboxOff:  !l.Roster.SandboxOn(agent, cfg),
 		MCPApproved: approved, ExtraDirs: extraDirs,
 	})
-	if v, ok := cfg["sandbox"].(bool); ok && !v && !l.Roster.SandboxOffGranted(agent) {
-		l.warn("warning: agent '%s' has sandbox off in its agent.yaml, but the founder never turned it off (`hl agent set %s sandbox=off`, from a terminal) - ignoring it", agent, agent)
-	}
 	// The pair goes whole or not at all: a caller's own mode wins, and a lone value left behind would be read as the opening prompt.
 	if len(mode) > 0 {
 		own := false

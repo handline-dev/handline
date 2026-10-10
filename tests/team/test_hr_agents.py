@@ -3274,7 +3274,9 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
           and agents.browser_origins(cfg) == ["https://a.com", "https://b.org"] and cfg["model"] == "sonnet", said)
     ok, said = agent_settings.set_values("worker", {"browser": "off"})
     check("settings: the founder changes any setting directly", ok and agents.browser_mode(agents.read("worker")) == "off", said)
-    # The sandbox and the permission mode are the founder's alone, like skip_permissions.
+    # The sandbox and the permission mode are the founder's alone, like skip_permissions: an agent whose
+    # sandbox is on cannot take it off itself.
+    agent_settings.set_values("worker", {"sandbox": "on"})
     real_send = dmn_client.send
     dmn_client.send = daemon_send
     try:
@@ -3293,9 +3295,8 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
         dmn_client.send = real_send
     ok, said = agent_settings.set_values("worker", {"sandbox": "off", "mode": "acceptEdits"})
     cfg = agents.read("worker")
-    check("settings: the founder sets both directly, and the grant is theirs",
-          ok and cfg["sandbox"] is False and cfg["mode"] == "acceptEdits"
-          and agents.sandbox_off_granted("worker") and not agents.sandbox_on("worker", cfg), said)
+    check("settings: the founder sets both directly",
+          ok and "sandbox" not in cfg and cfg["mode"] == "acceptEdits" and not agents.sandbox_on("worker", cfg), said)
     shown = agent_settings.settings_of("worker")
     check("settings: and the settings read back as off and acceptEdits",
           shown["sandbox"] == "off" and shown["mode"] == "acceptEdits", str(shown))

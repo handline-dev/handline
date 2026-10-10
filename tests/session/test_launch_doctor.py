@@ -2473,8 +2473,9 @@ edges:
           settings["sandbox"]["filesystem"]["denyRead"] == ["/a", "/b"], argv)
     check("transcripts: and the Read tool is denied the same folders",
           settings["permissions"]["deny"] == ["Read(//a/**)", "Read(//b/**)"], argv)
-    check("transcripts: nothing to hide adds no --settings",
-          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+    argv = drv.launch_argv("/x/claude", None, "high", "Agent", [], None)
+    check("transcripts: nothing to hide adds no filesystem rule",
+          "filesystem" not in json.loads(argv[argv.index("--settings") + 1])["sandbox"], argv)
 
 
 def test_launch_argv_always_carries_no_chrome(home: Path) -> None:

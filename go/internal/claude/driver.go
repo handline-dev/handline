@@ -100,11 +100,9 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 		sb.Set("filesystem", fs)
 		settings.Set("sandbox", sb)
 	}
-	if o.SandboxOff {
-		// The founder's choice for this agent: commands run unsandboxed. The Read/Edit denies below are permissions, not the
-		// sandbox, and stay.
-		settings.setDefault("sandbox", NewObject()).(*Object).Set("enabled", false)
-	}
+	// Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the Read/Edit denies below
+	// are permissions, not the sandbox, and stay.
+	settings.setDefault("sandbox", NewObject()).(*Object).Set("enabled", !o.SandboxOff)
 	var deny []string
 	for _, p := range o.Hide {
 		deny = append(deny, "Read(/"+strings.TrimRight(p, "/")+"/**)") // denyRead binds Bash; the Read tool is a permission

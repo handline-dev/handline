@@ -233,7 +233,7 @@ class Driver(Protocol):
                     no_write: list[str] | None = None,
                     memory_dir: Path | None = None,
                     trusted: list[str] | None = None,
-                    chrome: bool = False, sandbox: bool = True,
+                    chrome: bool = False, sandbox: bool = False,
                     mcp_approved: list[str] | None = None,
                     extra_dirs: list[str] | None = None) -> list[str]:
         """argv for one session, before any caller-supplied extras. `hide` is

@@ -394,9 +394,10 @@ func (r *Roster) SandboxOffGranted(agent string) bool {
 	return ok && v != ""
 }
 
-// SandboxOn is whether the sandbox is on: off only with `sandbox: false` in agent.yaml and the founder's grant.
+// SandboxOn is whether the sandbox is on: only with `sandbox: true` in agent.yaml. Off is the default, so the file
+// needs no grant: an agent that writes it only confines itself.
 func (r *Roster) SandboxOn(agent string, cfg Config) bool {
-	return !(cfg["sandbox"] == false && r.SandboxOffGranted(agent))
+	return cfg["sandbox"] == true
 }
 
 // AgentFile is the path of an agent's agent.yaml.
@@ -560,15 +561,6 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 			return "", err
 		}
 	}
-	if o.Sandbox != nil && !*o.Sandbox {
-		if err := r.Store.Put(sandboxNS, name, SandboxOffGrant); err != nil {
-			return "", err
-		}
-	} else if o.Sandbox != nil {
-		if err := r.Store.Delete(sandboxNS, name); err != nil {
-			return "", err
-		}
-	}
 	d := paths.AgentDir(r.Home, name)
 	f := r.AgentFile(name)
 	var text string
@@ -594,8 +586,8 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 		if o.Mode != nil && *o.Mode != "bypass" && *o.Mode != DefaultMode {
 			pairs = append(pairs, yamlcompat.Pair{Key: "mode", Val: *o.Mode})
 		}
-		if o.Sandbox != nil && !*o.Sandbox {
-			pairs = append(pairs, yamlcompat.Pair{Key: "sandbox", Val: false})
+		if o.Sandbox != nil && *o.Sandbox {
+			pairs = append(pairs, yamlcompat.Pair{Key: "sandbox", Val: true})
 		}
 		if o.Chrome != nil && *o.Chrome {
 			pairs = append(pairs, yamlcompat.Pair{Key: "chrome", Val: true})
@@ -728,9 +720,9 @@ func (r *Roster) update(name, f string, o RegisterOpts, skip *bool) error {
 	}
 	if o.Sandbox != nil {
 		if *o.Sandbox {
-			cfg = pairsPop(cfg, "sandbox")
+			cfg = pairsSet(cfg, "sandbox", true)
 		} else {
-			cfg = pairsSet(cfg, "sandbox", false)
+			cfg = pairsPop(cfg, "sandbox")
 		}
 	}
 	if o.Chrome != nil {

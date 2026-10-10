@@ -33,10 +33,10 @@ def test_the_claude_driver_asks_for_auto_mode_and_names_what_is_trusted(home: Pa
           and got[0]["sandbox"]["filesystem"]["denyRead"] == ["/a"], str(got))
     check("auto: the environment keeps the built-in entries and adds ours after them",
           got[0]["autoMode"] == {"environment": ["$defaults", "one", "two"]}, str(got))
-    check("auto: the sandbox is left as configured, never switched here",
-          "enabled" not in got[0]["sandbox"], str(got))
+    check("auto: the sandbox is said either way, off unless asked for",
+          got[0]["sandbox"]["enabled"] is False, str(got))
     check("auto: nothing trusted adds no autoMode",
-          "--settings" not in drv.launch_argv("/x/claude", None, "high", "Agent", [], None))
+          "autoMode" not in _settings(drv.launch_argv("/x/claude", None, "high", "Agent", [], None))[0])
 
 
 def test_the_trusted_environment_names_the_worktree_its_repo_and_its_github_remotes(home: Path) -> None:
@@ -140,39 +140,33 @@ def test_an_agent_starts_in_the_mode_it_is_set_to(home: Path) -> None:
           agents.mode_of("backend", agents.read("backend")) == "auto")
 
 
-def test_the_sandbox_is_off_only_where_the_founder_turned_it_off(home: Path) -> None:
+def test_the_sandbox_is_on_only_where_agent_yaml_turns_it_on(home: Path) -> None:
     _launch_world(home)
-    argv = launchmod.build("backend")[0]
-    check("sandbox: on by default, the launch never says enabled", all("enabled" not in x.get("sandbox", {}) for x in _settings(argv)))
-    agents.register("backend", sandbox=False)
-    argv = launchmod.build("backend")[0]
-    got = _settings(argv)
-    check("sandbox: off writes enabled false into the one --settings object",
+    got = _settings(launchmod.build("backend")[0])
+    check("sandbox: off by default, and the launch says so in the one --settings object",
           len(got) == 1 and got[0]["sandbox"]["enabled"] is False, str(got))
     check("sandbox: and the read/edit denies stay", got[0].get("permissions", {}).get("deny"), str(got))
-    check("sandbox: it reads back off", agents.read("backend")["sandbox"] is False
-          and not agents.sandbox_on("backend", agents.read("backend")))
-    check("sandbox: a changed sandbox is a changed launch",
-          "sandbox" in launchmod.fingerprint_parts("backend"))
-    off = launchmod.fingerprint
+    off = launchmod.fingerprint("backend")
     agents.register("backend", sandbox=True)
-    check("sandbox: on again removes the key and the grant", "sandbox" not in agents.read("backend")
+    got = _settings(launchmod.build("backend")[0])
+    check("sandbox: on writes enabled true", got[0]["sandbox"]["enabled"] is True, str(got))
+    check("sandbox: it reads back on", agents.read("backend")["sandbox"] is True
           and agents.sandbox_on("backend", agents.read("backend")))
-    check("sandbox: and the fingerprint is the old one", launchmod.fingerprint("backend") != "")
+    check("sandbox: a changed sandbox is a changed launch", launchmod.fingerprint("backend") != off)
+    agents.register("backend", sandbox=False)
+    check("sandbox: off again takes the key out", "sandbox" not in agents.read("backend")
+          and not agents.sandbox_on("backend", agents.read("backend")))
+    check("sandbox: and the fingerprint is the old one", launchmod.fingerprint("backend") == off)
     cfg = agents.read("backend")
     cfg["sandbox"] = False
     agents.write("backend", cfg)
-    check("sandbox: a hand-written off with no grant is still on", agents.sandbox_on("backend", agents.read("backend")))
-    argv = launchmod.build("backend")[0]
-    check("sandbox: and that launch leaves it on", all("enabled" not in x.get("sandbox", {}) for x in _settings(argv)))
+    check("sandbox: a hand-written false is off too", not agents.sandbox_on("backend", agents.read("backend")))
     check("sandbox: a vendor without the switch is passed nothing it would not take",
           Opencode().launch_argv("/x/o", None, "high", "A", [], None, sandbox=False) == ["/x/o"])
 
 
-def test_the_sandbox_stays_off_across_sessions_until_turned_on(home: Path) -> None:
+def test_the_sandbox_setting_holds_across_sessions_until_it_is_changed(home: Path) -> None:
     import importlib.util
-    from handline import actions
-    from handline.infra import protected
     from handline.team import agent_settings
     _launch_world(home)
     con = db.connect()
@@ -184,41 +178,33 @@ def test_the_sandbox_stays_off_across_sessions_until_turned_on(home: Path) -> No
         if db.get_agent_state(con, "backend")["closed_at"]:
             db.clear_closed(con, "backend")
 
-    def unsandboxed() -> bool:
-        return any(x.get("sandbox", {}).get("enabled") is False for x in _settings(launchmod.build("backend")[0]))
+    def sandboxed() -> bool:
+        return any(x.get("sandbox", {}).get("enabled") is True for x in _settings(launchmod.build("backend")[0]))
+
+    def recorded() -> str:
+        return json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"]
     try:
-        check("off: nothing in the daemon ends it with a session any more",
+        check("nothing in the daemon ends it with a session",
               importlib.util.find_spec("handline.daemon.sandboxlease") is None)
-        agents.register("backend", sandbox=False)
+        agents.register("backend", sandbox=True)
         record_launch()
-        check("off: a session launched with it is without the sandbox", unsandboxed()
-              and launchmod.fingerprint_parts("backend")["sandbox"] == launchmod.SANDBOX_OFF_PART)
+        check("on: a session launched with it is sandboxed", sandboxed())
         db.set_closed(con, "backend", "sess-1")
-        check("off: the session ends and the next launch is still without it",
-              unsandboxed() and agents.read("backend")["sandbox"] is False and agents.sandbox_off_granted("backend"))
+        check("on: the session ends and the next launch is still sandboxed",
+              sandboxed() and agents.read("backend")["sandbox"] is True)
         record_launch()                      # the wake
         db.set_closed(con, "backend", "sess-2")
         db.clear_closed(con, "backend")
-        check("off: and so is every one after, with the same recipe",
-              unsandboxed() and launchmod.fingerprint_parts("backend")["sandbox"] == launchmod.SANDBOX_OFF_PART
-              and json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"] == launchmod.SANDBOX_OFF_PART)
-        protected.put("sandbox_off", "backend", "active:1700000000.0")    # a store written by the one-session lease
-        check("off: a grant from the one-session lease keeps it off", not agents.sandbox_on("backend", agents.read("backend")))
-        ok, msg = actions.sandbox_back_on("backend")
-        check("on: the button's call turns it on at once: key and grant gone",
-              ok and not agents.sandbox_off_granted("backend") and "sandbox" not in agents.read("backend")
-              and not unsandboxed(), msg)
-        ok, msg = actions.sandbox_back_on("backend")
-        check("on: and asking again says it is already on", ok and "already on" in msg, msg)
-        check("on: the running session's recipe now differs, so an idle sweep restarts it sandboxed",
-              launchmod.fingerprint_parts("backend")["sandbox"] != launchmod.SANDBOX_OFF_PART)
-        agents.register("backend", sandbox=False)
-        ok, msg = agent_settings.set_values("backend", {"sandbox": "on"})
-        check("on: the agent settings switch turns it on too", ok and agents.sandbox_on("backend", agents.read("backend"))
-              and not agents.sandbox_off_granted("backend"), msg)
-        agents.register("backend", sandbox=False)
+        check("on: and so is every one after, with the same recipe",
+              sandboxed() and launchmod.fingerprint_parts("backend")["sandbox"] == recorded())
+        ok, msg = agent_settings.set_values("backend", {"sandbox": "off"})
+        check("off: the agent settings switch turns it off", ok and not sandboxed()
+              and not agents.sandbox_on("backend", agents.read("backend")), msg)
+        check("off: the running session's recipe now differs, so an idle sweep restarts it",
+              launchmod.fingerprint_parts("backend")["sandbox"] != recorded())
         db.set_closed(con, "backend", "sess-3")
-        check("off: given to a closed agent it is off for the launch that wakes it", unsandboxed())
+        ok, msg = agent_settings.set_values("backend", {"sandbox": "on"})
+        check("on: given to a closed agent it is on for the launch that wakes it", ok and sandboxed(), msg)
     finally:
         con.close()
 
@@ -235,9 +221,9 @@ def test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(
         (d / ".mcp.json").write_text(json.dumps({"mcpServers": entries}))
     check("mcp: a driver given servers names them in --settings",
           _settings(Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=["b", "a"]))
-          == [{"enabledMcpjsonServers": ["b", "a"]}])
-    check("mcp: and given none passes no settings for it",
-          "--settings" not in Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=[]))
+          == [{"enabledMcpjsonServers": ["b", "a"], "sandbox": {"enabled": False}}])
+    check("mcp: and given none passes no setting for it", "enabledMcpjsonServers" not in
+          _settings(Claude().launch_argv("/x/claude", None, "high", "A", [], None, mcp_approved=[]))[0])
     protected.put("trust", "roots.json", json.dumps([{"root": str(declared)}]))
     check("mcp: a declared folder whose servers nobody approved enables none: claude still asks",
           trust.mcp_approved(declared) == [] and trust.mcp_unapproved(declared) == ["gsc", "supabase"])
@@ -278,9 +264,9 @@ def test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(
 def main() -> int:
     def tests(td):
         run(lambda: test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(Path(td) / 'a6'))
-        run(lambda: test_the_sandbox_stays_off_across_sessions_until_turned_on(Path(td) / 'a5'))
+        run(lambda: test_the_sandbox_setting_holds_across_sessions_until_it_is_changed(Path(td) / 'a5'))
         run(lambda: test_an_agent_starts_in_the_mode_it_is_set_to(Path(td) / 'a3'))
-        run(lambda: test_the_sandbox_is_off_only_where_the_founder_turned_it_off(Path(td) / 'a4'))
+        run(lambda: test_the_sandbox_is_on_only_where_agent_yaml_turns_it_on(Path(td) / 'a4'))
         run(lambda: test_the_claude_driver_asks_for_auto_mode_and_names_what_is_trusted(Path(td) / 'a0'))
         run(lambda: test_the_trusted_environment_names_the_worktree_its_repo_and_its_github_remotes(Path(td) / 'a1'))
         run(lambda: test_a_launch_starts_in_auto_mode_unless_the_agent_skips_permissions(Path(td) / 'a2'))

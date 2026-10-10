@@ -234,8 +234,9 @@ def sandbox_off_granted(agent: str) -> bool:
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:
-    """Whether the sandbox is on: off only with `sandbox: false` in agent.yaml and the founder's grant."""
-    return not (cfg.get("sandbox") is False and sandbox_off_granted(agent))
+    """Whether the sandbox is on: only with `sandbox: true` in agent.yaml. Off is the default, as in Claude
+    Code itself, so the file needs no grant: an agent that writes it only confines itself."""
+    return cfg.get("sandbox") is True
 
 
 def kind(cfg: dict) -> str:
@@ -353,10 +354,6 @@ def register(name: str, role: str = "", model: str | None = None,
         protected.put(_SKIP_NS, name, "granted")
     elif skip_permissions is not None:
         protected.delete(_SKIP_NS, name)
-    if sandbox is False:
-        protected.put(_SANDBOX_NS, name, SANDBOX_OFF_GRANT)
-    elif sandbox is not None:
-        protected.delete(_SANDBOX_NS, name)
     d = paths.agent_dir(name)
     f = agent_file(name)
     text = None
@@ -370,7 +367,7 @@ def register(name: str, role: str = "", model: str | None = None,
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
                      **({"skip_permissions": True} if skip_permissions else {}),
                      **({"mode": mode} if mode not in (None, "bypass", DEFAULT_MODE) else {}),
-                     **({"sandbox": False} if sandbox is False else {}),
+                     **({"sandbox": True} if sandbox else {}),
                      **({"chrome": True} if chrome else {}),
                      **({"extra_worktrees": min(extra_worktrees, MAX_EXTRA_WORKTREES)} if extra_worktrees and extra_worktrees > 0 else {}),
                      **({"mcp_config": mcp_config_text(mcp_config)} if mcp_config else {})})
@@ -417,9 +414,9 @@ def register(name: str, role: str = "", model: str | None = None,
                 cfg["mode"] = mode
         if sandbox is not None:
             if sandbox:
-                cfg.pop("sandbox", None)
+                cfg["sandbox"] = True
             else:
-                cfg["sandbox"] = False
+                cfg.pop("sandbox", None)
         if chrome is not None:
             if chrome:
                 cfg["chrome"] = True
