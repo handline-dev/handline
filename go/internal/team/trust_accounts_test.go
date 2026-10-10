@@ -189,7 +189,7 @@ func TestAnExpiredLoginIsMarkedAndGoesWithANewerCredential(t *testing.T) {
 		t.Fatalf("%v %v", at, ok)
 	}
 	modifiedMu.Lock()
-	delete(modified, "alpha")
+	delete(modified, modifiedKey{home, "alpha"})
 	modifiedMu.Unlock()
 	os.Chtimes(cred, time.Now().Add(time.Minute), time.Now().Add(time.Minute)) // a login writes it anew
 	if a.LoginExpired("alpha") != nil {

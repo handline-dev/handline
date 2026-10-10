@@ -25,9 +25,12 @@ type Accounts struct{ Home string }
 // a marked account, so a login is seen within this long.
 const ModifiedTTLS = 5
 
+// modifiedKey is one account of one home: two homes in a process (a test's, or the daemon's and a probe's) never share a stamp.
+type modifiedKey struct{ home, acct string }
+
 var (
 	modifiedMu sync.Mutex
-	modified   = map[string]struct {
+	modified   = map[modifiedKey]struct {
 		at    time.Time
 		stamp *float64
 	}{}
@@ -41,7 +44,7 @@ func (a Accounts) expiredFile(acct string) string {
 // credentialModified is when the credential last changed, as epoch seconds, never its content; nil when this vendor or process cannot tell.
 func (a Accounts) credentialModified(acct string) *float64 {
 	modifiedMu.Lock()
-	seen, ok := modified[acct]
+	seen, ok := modified[modifiedKey{a.Home, acct}]
 	modifiedMu.Unlock()
 	if ok && time.Since(seen.at) < ModifiedTTLS*time.Second {
 		return seen.stamp
@@ -51,7 +54,7 @@ func (a Accounts) credentialModified(acct string) *float64 {
 		stamp = claudeCredentialModified(dir)
 	}
 	modifiedMu.Lock()
-	modified[acct] = struct {
+	modified[modifiedKey{a.Home, acct}] = struct {
 		at    time.Time
 		stamp *float64
 	}{time.Now(), stamp}
