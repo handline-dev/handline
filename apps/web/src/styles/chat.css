@@ -334,3 +334,16 @@
   margin: 0;
   white-space: pre-wrap;
 }
+.daemon-down {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--s-bad);
+  border-radius: var(--r-card);
+  background: var(--panel);
+}
+.daemon-down p {
+  margin: 2px 0 0;
+}

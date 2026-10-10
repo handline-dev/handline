@@ -178,7 +178,7 @@ describe('U15 HR', () => {
     await click($$('button').find((x) => text(x) === 'Reject all')!);
     const go = $$('.verb-sheet button').find((x) => text(x) === 'Reject all') as HTMLButtonElement;
     expect(go.disabled).toBe(true);
-    await typeInto($('.verb-sheet input'), 'not this quarter');
+    await typeInto($('.verb-sheet input')!, 'not this quarter');
     await click($$('.verb-sheet button').find((x) => text(x) === 'Reject all')!);
     await until(() => a.state === 'rejected' && b.state === 'rejected', 'both rejected');
   });

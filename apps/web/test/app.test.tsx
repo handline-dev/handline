@@ -361,3 +361,17 @@ describe('badges', () => {
     expect($(`${termTab} .unread-dot`)).toBeNull(); // showing it clears the dot
   });
 });
+
+describe('the daemon-down notice', () => {
+  it('says the daemon is not running while the connection is lost, and goes when it is back', async () => {
+    const m = await mount(ARCH);
+    await until(() => $('.main'), 'the page');
+    expect($('.daemon-down')).toBeNull();
+    m.net.down = true;
+    m.daemon.dropConnections();
+    await until(() => $('.daemon-down'), 'the notice');
+    expect(text($('.daemon-down'))).toContain('hl service install');
+    m.net.down = false;
+    await until(() => !$('.daemon-down'), 'the notice gone');
+  });
+});
