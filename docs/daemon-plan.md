@@ -354,6 +354,29 @@ work is paused, not the plan.
 | Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
 | Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | gap, in progress: terminal rows of the agent view (slice 2b, not landed); the terminal tick, peer-inbox delivery, needs-you and `terminal.open` are on main |
 
+**Login expiry for terminal agents, without a screen.** The Python detector reads "Login expired" off
+the terminal because its docstring says no hook fires; the live record says otherwise. Each of the 7
+`login_expired` marks in the database has, a few seconds to three minutes before it and on the same agent
+and account, a `StopFailure` hook event whose `error` is `authentication_failed` (33 such events, all from
+terminal agents). Recommendation: that event is the witness, the same one the structured half uses
+(`handoff.AuthFailed` counts it only on the account it happened on and ends at the next
+`UserPromptSubmit`). It is the CLI's own word, arrives through the hook spool every terminal session already
+writes, and needs no screen, no transcript parse and no model call. The detector has no structured-only
+condition, so the work is not a second detector:
+
+- Land the login-expiry branch (`tick/login.go`, `compose/login.go`, the lift cursor). That is the whole
+  detector and the level-triggered move for a terminal agent as well.
+- The move of a terminal agent rides the terminal port, as the rate-limit move does; it is done when that
+  row is.
+- Tests: a conformance case that a `StopFailure` with `authentication_failed` on a terminal agent's
+  account marks it and moves the agent; one that the same failure left on the account it was moved from
+  marks nothing; one that a later `UserPromptSubmit` clears it (the Python screen guards for a young
+  session and a lifted stall map to these two).
+- Not chosen: the transcript tail (the same fact, later, parsed) and the hourly `claude auth status`
+  (an hour late, and it would mark accounts nobody is running on).
+- Known difference: a turn never refused (an idle agent on a dead login) shows neither a screen line nor a
+  hook, so Python and Go both see nothing until the next prompt.
+
 **What must hold at the cutover, in order.**
 
 1. Every row above is *done* or *dropped*; none is *gap* or *unwired*.
