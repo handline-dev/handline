@@ -71,7 +71,7 @@ func (e *Env) agentOptions(_ *rpc.Conn, _ map[string]any) (any, error) {
 	}
 	accts := []any{}
 	for _, a := range paths.ListAccounts(e.Home) {
-		in, known := team.Accounts{Home: e.Home}.LoginState(a)
+		in, known := e.loginState(a)
 		accts = append(accts, map[string]any{"name": a, "login_state": loginName(in, known)})
 	}
 	return map[string]any{"repos": e.repos(), "roles": roles, "models": strs(knownModels), "efforts": strs(validEfforts),

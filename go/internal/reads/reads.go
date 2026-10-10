@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 )
 
 const (
@@ -43,6 +44,9 @@ type Env struct {
 	Login func(account string) *weblogin.Login
 	// Delivery is what the supervisor knows of why a queued line waits; nil leaves out the reasons that need it.
 	Delivery Delivery
+	// LoginState is whether an account has credentials, known false when this process cannot tell; nil asks the machine
+	// (team.Accounts).
+	LoginState func(account string) (loggedIn, known bool)
 }
 
 // Register adds the read methods to the server's table.
@@ -273,4 +277,12 @@ func decodeObject(s string) map[string]any {
 		return map[string]any{}
 	}
 	return m
+}
+
+// loginState is an account's login as the daemon's login check answers it.
+func (e *Env) loginState(account string) (loggedIn, known bool) {
+	if e.LoginState != nil {
+		return e.LoginState(account)
+	}
+	return team.Accounts{Home: e.Home}.LoginState(account)
 }

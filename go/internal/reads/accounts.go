@@ -133,14 +133,14 @@ type accountView struct {
 
 func (e *Env) accountView() *accountView {
 	cfg := usage.LoadConfig(e.Home)
-	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, Config: func() usage.Config { return cfg }},
+	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, LoginState: e.LoginState, Config: func() usage.Config { return cfg }},
 		names: paths.ListAgents(e.Home), now: time.Now()}
 }
 
 func (v *accountView) of(a string) map[string]any {
 	e, cfg := v.e, v.cfg
 	st := usage.ReadStatus(e.Home, a)
-	in, known := team.Accounts{Home: e.Home}.LoginState(a)
+	in, known := e.loginState(a)
 	on := []any{}
 	for _, n := range v.names {
 		if e.currentAccount(n) == a {

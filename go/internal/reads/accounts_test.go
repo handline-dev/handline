@@ -76,3 +76,20 @@ func TestStatusPickNamesNoAccountThatIsNotLoggedIn(t *testing.T) {
 		t.Fatalf("%v", m)
 	}
 }
+
+func TestStatusPickNamesAnAccountThatIsLoggedIn(t *testing.T) {
+	e := testEnv(t)
+	dir := filepath.Join(e.Home, "accounts", "main")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte(`{}`), 0o600)
+	got, err := e.statusPick(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	if len(m["candidates"].([]any)) != 1 {
+		t.Fatalf("%v", m)
+	}
+}
