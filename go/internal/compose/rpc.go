@@ -30,9 +30,6 @@ func (c controls) status(agent string) lifecycle.SessionStatus {
 // Start is control.start_result: an agent with a worktree is started in it. Making a worktree is Orca's, which this daemon does not drive.
 func (c controls) Start(_ sessionrpc.Call, agent, repo, base string) (bool, string, error) {
 	m := c.lc.Manager
-	if !c.p.Kind(agent) {
-		return false, fmt.Sprintf("%s: %s", agent, notServed), nil
-	}
 	if c.p.Run.Alive(agent) {
 		return false, agent + ": already has a running session - wake it instead", nil
 	}
@@ -46,6 +43,9 @@ func (c controls) Start(_ sessionrpc.Call, agent, repo, base string) (bool, stri
 	}
 	if !m.Launch.ChooseAccount(m.Q, agent) {
 		return false, fmt.Sprintf("%s: not started - %s", agent, m.Launch.NoRoom(agent)), nil
+	}
+	if repo == "" { // the agent's own repository, never the folder the daemon happens to run in
+		repo = c.lc.roster.RepoOf(agent)
 	}
 	return c.lc.Spawns.SpawnWith(agent, repo, lifecycle.SpawnOpts{Base: base})
 }
