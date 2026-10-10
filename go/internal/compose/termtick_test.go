@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/team"
@@ -294,5 +295,47 @@ func TestAPromptAfterARefusalClearsItForATerminalAgent(t *testing.T) {
 	}
 	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
 		t.Fatal("a turn that began after the refusal marked the account")
+	}
+}
+
+func TestARefusalOlderThanTheAccountsLastLoginMarksNothing(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	authFailed(t, p, "a1")
+	cred := filepath.Join(p.home, "accounts", "a1", ".claude", ".credentials.json")
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(cred, later, later); err != nil { // logged in again since the refusal, which no prompt has followed
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
+		t.Fatal("a refusal from before the login marked the account")
+	}
+}
+
+func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	d := p.Sink.DB
+	authFailed(t, p, "a1")
+	// Python's lift keeps a session row id under this name and sets it when it lifts: only the time it was written can be compared here.
+	if err := dbpkg.SetCursor(d, "login_lifted:bob", 77); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	acc := team.Accounts{Home: p.home}
+	if acc.LoginExpired("a1") != nil {
+		t.Fatal("the refusal that daemon lifted marked the account")
+	}
+	if _, err := d.Exec("UPDATE cursors SET updated = updated - 100 WHERE name = 'login_lifted:bob'"); err != nil { // a lift from before the refusal
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	if acc.LoginExpired("a1") == nil {
+		t.Fatal("a refusal after the last lift is the account's")
 	}
 }

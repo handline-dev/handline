@@ -15,8 +15,8 @@ func loginWorld(t *testing.T, marked, failed bool) (*Tick, *world, *[]string) {
 	var marks []string
 	tk.Login = Login{
 		Expired:    func(string) (string, bool) { return "was marked", marked },
-		AuthFailed: func(db.Q, string, string) (string, bool) { return ": 401", failed },
-		Mark:       func(_ db.Q, agent, acct, why string) bool { marks = append(marks, acct+" "+why); return true },
+		AuthFailed: func(db.Q, string, string) (string, int64, bool) { return ": 401", 1000, failed },
+		Mark:       func(_ db.Q, agent, acct, why string, _ int64) bool { marks = append(marks, acct+" "+why); return true },
 	}
 	return tk, w, &marks
 }

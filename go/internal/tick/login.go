@@ -17,9 +17,10 @@ type Login struct {
 	Expired func(acct string) (why string, ok bool)
 	// AuthFailed is the agent's newest authentication_failed turn on acct that no lift has passed: its text, and ok when the agent's
 	// last turn ended on one there.
-	AuthFailed func(q db.Q, agent, acct string) (why string, ok bool)
-	// Mark records the expiry on the account and the event for it; false when the account is already marked (the first sighting stands).
-	Mark func(q db.Q, agent, acct, why string) bool
+	AuthFailed func(q db.Q, agent, acct string) (why string, at int64, ok bool)
+	// Mark records the expiry on the account and the event for it, stamped at (the second of the refusal, so a login made since drops it);
+	// false when the account is already marked (the first sighting stands).
+	Mark func(q db.Q, agent, acct, why string, at int64) bool
 }
 
 // loginExpired is login_expired.check: an agent with a live session on an account whose login expired leaves it, level-triggered on the account's mark.
@@ -32,12 +33,12 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 	}
 	why, marked := l.Expired(acct)
 	if !marked {
-		text, failed := l.AuthFailed(t.Q, agent, acct)
+		text, at, failed := l.AuthFailed(t.Q, agent, acct)
 		if !failed {
 			return false
 		}
 		why = fmt.Sprintf("%s's turn ended on authentication_failed%s", agent, text)
-		if l.Mark(t.Q, agent, acct, why) {
+		if l.Mark(t.Q, agent, acct, why, at) {
 			t.logf("  %s: login expired (%s) - marked logged out, no launch lands on it", acct, why)
 		}
 	}
