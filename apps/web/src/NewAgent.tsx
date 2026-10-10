@@ -58,7 +58,8 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         <p>This daemon cannot create agents.</p>
       </Dialog>
     );
-  if (route.operation) return <NewAgentProgress operation={route.operation} fields={f} onClose={onClose} />;
+  if (route.operation)
+    return <NewAgentProgress operation={route.operation} fields={f} onClose={onClose} onAnother={() => (setF(EMPTY), goNew())} />;
   const list = repos.data?.repos ?? [];
   const repo = list.find((r) => r.path === f.repo);
   const prefix = f.parent ? `${f.parent}.` : '';

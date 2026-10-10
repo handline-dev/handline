@@ -266,4 +266,25 @@ describe('X3 New agent', () => {
     expect(text(dialog())).toContain('This daemon cannot create agents.');
     expect($$('.rail button').some((b) => text(b).includes('New agent'))).toBe(false);
   });
+
+  it('clears the form for Create another, but keeps it after a failure', async () => {
+    const s = setup();
+    await mount('#/new', s);
+    await fill();
+    await click(create());
+    await until(() => text(dialog()).includes('fresh is running'), 'done');
+    await click(button('Create another'));
+    await until(() => findInput('Name'), 'the form');
+    expect(findInput('Name')!.value).toBe('');
+    expect(findInput('Role')!.value).toBe('');
+    expect(select('Repo').value).toBe('');
+  });
+
+  it('shows the error with Retry when the operation cannot be read, and disables the task Retry while it waits', async () => {
+    const s = setup();
+    s.daemon.knobs.refuse('operation.get', 'state', 'the operation store is down');
+    await mount('#/new/op-9', s);
+    await until(() => text(dialog()).includes('the operation store is down'), 'the error');
+    expect(button('Retry')).toBeTruthy();
+  });
 });

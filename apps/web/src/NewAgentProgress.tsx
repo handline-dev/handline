@@ -1,12 +1,22 @@
 // The progress of one agent.create, from the operations topic: the step the daemon sent (none invented), then done or failed. A failed
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { useEffect, useRef, useState } from 'react';
-import { classify, sentence, useOperation, useWrite } from '@handline/app-data';
+import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
 import { Button, Dialog, Icon } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import type { Fields } from './NewAgent.tsx';
 
-export function NewAgentProgress({ operation, fields, onClose }: { operation: string; fields: Fields; onClose: () => void }) {
+export function NewAgentProgress({
+  operation,
+  fields,
+  onClose,
+  onAnother,
+}: {
+  operation: string;
+  fields: Fields;
+  onClose: () => void;
+  onAnother: () => void;
+}) {
   const q = useOperation(operation);
   const op = q.data;
   const ask = useWrite('task.new');
@@ -29,9 +39,14 @@ export function NewAgentProgress({ operation, fields, onClose }: { operation: st
   if (!op)
     return (
       <Dialog title="New agent" onClose={onClose}>
-        <p className="muted" role="status">
-          {q.isError ? sentence(classify(q.error)) : 'Waiting for the daemon…'}
-        </p>
+        {q.isError ? (
+          <p className="ui-note bad" role="alert">
+            <Icon name="failed" size={14} label="Error" />
+            {sentence(classify(q.error))} <Button variant="outline" label="Retry" onClick={() => void q.refetch()} />
+          </p>
+        ) : (
+          <Skeleton shape="agentDetail" loading label="the new agent" />
+        )}
       </Dialog>
     );
   if (op.state === 'running')
@@ -80,12 +95,12 @@ export function NewAgentProgress({ operation, fields, onClose }: { operation: st
             {sentence(classify(ask.error))}
           </p>
           <textarea className="ui-textarea" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
-          <Button variant="outline" label="Retry" onClick={send} />
+          <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
       <div className="na-actions">
         {agent ? <Button variant="solid" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
-        <Button label="Create another" onClick={() => goNew()} />
+        <Button label="Create another" onClick={onAnother} />
       </div>
     </Dialog>
   );
