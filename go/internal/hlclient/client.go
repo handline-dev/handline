@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/handline/handline/go/internal/pairsock"
@@ -84,16 +85,32 @@ func New() *Client {
 // Dialer connects to home's daemon socket within timeout. Under a test root, HANDLINE_DAEMON_FD names an inherited
 // unix socket (pairsock.Listener.Control) that each dial sends its connection over instead, so the rig binds no file.
 func Dialer(home string, timeout time.Duration) func() (net.Conn, error) {
-	root, _ := paths.Getenv("TEST_ROOT")
-	v, _ := paths.Getenv("DAEMON_FD")
-	if fd, err := strconv.Atoi(v); root != "" && err == nil {
-		c, err := net.FileConn(os.NewFile(uintptr(fd), "daemon-fd"))
-		if uc, ok := c.(*net.UnixConn); err == nil && ok {
-			return pairsock.DialOver(uc)
-		}
+	if over := rigConn(); over != nil {
+		return pairsock.DialOver(over)
 	}
 	sock := paths.SocketFile(home)
 	return func() (net.Conn, error) { return net.DialTimeout("unix", sock, timeout) }
+}
+
+// rigConn is the inherited HANDLINE_DAEMON_FD socket, taken once a process: a second os.File on the fd would close it
+// when collected.
+var rigConn = sync.OnceValue(takeRigConn)
+
+func takeRigConn() *net.UnixConn {
+	root, _ := paths.Getenv("TEST_ROOT")
+	v, _ := paths.Getenv("DAEMON_FD")
+	fd, err := strconv.Atoi(v)
+	if root == "" || err != nil {
+		return nil
+	}
+	f := os.NewFile(uintptr(fd), "daemon-fd")
+	defer f.Close()
+	c, err := net.FileConn(f)
+	uc, _ := c.(*net.UnixConn)
+	if err != nil {
+		return nil
+	}
+	return uc
 }
 
 // kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.

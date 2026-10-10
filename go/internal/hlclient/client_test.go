@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -205,3 +208,38 @@ func TestADaemonThatCannotBeStartedIsDownAndNothingIsDone(t *testing.T) {
 
 // errNoDaemon is a dial that finds nothing listening.
 var errNoDaemon = errors.New("connect: no such file or directory")
+
+func TestTheRigSocketOutlivesACollectionBetweenDialers(t *testing.T) {
+	ln := pairsock.NewListener()
+	t.Cleanup(func() { ln.Close() })
+	ctl, err := ln.Control()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
+	fd, err := syscall.Dup(int(ctl.Fd())) // as a child inherits it: its own descriptor, which it may close
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HANDLINE_DAEMON_FD", strconv.Itoa(fd))
+	rigConn = sync.OnceValue(takeRigConn) // taken once a process; a fresh one for this test
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	for i := 0; i < 2; i++ {
+		dial := Dialer("/nowhere", time.Second)
+		runtime.GC()
+		runtime.GC()
+		c, err := dial()
+		if err != nil {
+			t.Fatalf("dial %d: %v", i, err)
+		}
+		c.Close()
+	}
+}
