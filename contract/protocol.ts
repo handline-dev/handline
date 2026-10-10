@@ -780,6 +780,10 @@ export type TranscriptItem = {
   kind: "reply" | "tool" | "prompt" | "task_event" | "session";
   text?: string;
   tool?: string;
+  /** For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none. */
+  output?: string;
+  /** For kind tool: how many lines the store cut from the front or middle of the output. 0 or absent when nothing was cut. */
+  dropped_lines?: number;
   /** Prompt card; `open` says whether it can still be answered. */
   prompt?: Prompt;
   open?: boolean;

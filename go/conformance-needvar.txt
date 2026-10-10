@@ -31,6 +31,7 @@ chat.send.an_unknown_operation_stays_unknown
 chat.send.delivery_now_joins_the_running_turn
 chat.send.the_same_id_with_other_params_is_bad_request
 chat.send_now.writes_a_queued_operation
+chat.transcript.a_tool_item_carries_its_output
 devices.revoke_closes_a_terminal_attach
 hr.decide.a_proposal_changed_since_it_was_read_is_refused_with_it
 hr.decide.a_settled_proposal_is_refused_with_it
