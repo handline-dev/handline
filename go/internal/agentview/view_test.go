@@ -121,6 +121,38 @@ func TestViewOfAStructuredAgentFollowsItsSession(t *testing.T) {
 	}
 }
 
+func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t *testing.T) {
+	r := newRig(t, "needy", "plain", "noline")
+	for _, a := range []string{"needy", "plain", "noline"} {
+		r.state(t, a, states.Idle, "")
+		r.sess.alive[a] = true
+	}
+	r.env.NeedsYou = func(a string) *NeedsYou {
+		switch a {
+		case "needy":
+			return &NeedsYou{Kind: "permission", Source: "hook", Text: "Bash: ls", Since: 4000}
+		case "noline":
+			return &NeedsYou{Kind: "dialog", Source: "session", Since: 4100}
+		}
+		return nil
+	}
+	for _, a := range []string{"needy", "plain", "noline"} {
+		r.env.RefreshOne(a)
+	}
+	v := r.stored(t, "needy")
+	n, _ := v["needs_you"].(map[string]any)
+	if v["state"] != "waiting" || v["has_dialog"] != true || v["state_detail"] != "Bash: ls" || n["kind"] != "permission" || n["source"] != "hook" ||
+		n["text"] != "Bash: ls" || n["since"] != "1970-01-01T01:06:40Z" {
+		t.Errorf("needy: %v", v)
+	}
+	if n := r.stored(t, "noline")["needs_you"].(map[string]any); n["text"] != nil || n["kind"] != "dialog" {
+		t.Errorf("a need with no text says null: %v", n)
+	}
+	if v := r.stored(t, "plain"); v["needs_you"] != nil || v["state"] != "idle" || v["has_dialog"] != false {
+		t.Errorf("plain: %v", v)
+	}
+}
+
 func TestALiveTurnShowsRunningWhateverTheRowSays(t *testing.T) {
 	r := newRig(t, "a")
 	r.state(t, "a", states.Idle, "")

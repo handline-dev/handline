@@ -49,6 +49,13 @@ type Prompts interface {
 	OpenBlockOf(agent string) (*prompts.Block, error)
 }
 
+// NeedsYou is a decision only a person at the agent's terminal can make, as the spec's needs_you says it: what kind, since when, one line
+// of what it is, and which signal told (hook or session). It comes from the hooks and the session's own file, never from the screen.
+type NeedsYou struct {
+	Kind, Source, Text string
+	Since              int64
+}
+
 // Env is everything a view is made from. The function fields are the facts that live outside the database.
 type Env struct {
 	Q    db.Q
@@ -57,6 +64,8 @@ type Env struct {
 	Background
 	Wakes
 	Prompts
+	// NeedsYou is the decision an agent waits on, nil for none. Nil is no source: no agent needs anyone.
+	NeedsYou  func(agent string) *NeedsYou
 	Agents    func() []string
 	Config    func(agent string) (model, effort string, ok bool)
 	Account   func(agent string) (string, error)
@@ -156,6 +165,13 @@ func (e *Env) backgroundDetail(agent string, now int64) string {
 	return out
 }
 
+func (e *Env) needs(agent string) *NeedsYou {
+	if e.NeedsYou == nil {
+		return nil
+	}
+	return e.NeedsYou(agent)
+}
+
 // word is the state word the screens draw (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL) and its detail.
 func (e *Env) word(agent string, row *db.AgentState, now int64) (string, string) {
 	if row == nil {
@@ -163,6 +179,9 @@ func (e *Env) word(agent string, row *db.AgentState, now int64) (string, string)
 	}
 	if b := must(e.OpenBlockOf(agent)); b != nil {
 		return "DIALOG", clip(textsafe.Oneline(promptHeadline(b)), DetailCap)
+	}
+	if n := e.needs(agent); n != nil {
+		return "DIALOG", clip(textsafe.Oneline(n.Text), DetailCap)
 	}
 	state, detail := row.State, row.Detail.String
 	if state == states.Stalled {
@@ -318,8 +337,19 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent,
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(e.needs(agent)),
 	}, nil
+}
+
+func needsView(n *NeedsYou) any {
+	if n == nil {
+		return nil
+	}
+	var text any
+	if n.Text != "" {
+		text = n.Text
+	}
+	return map[string]any{"kind": n.Kind, "since": stamp(n.Since), "text": text, "source": n.Source}
 }
 
 const upsert = "INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, ?) " +
