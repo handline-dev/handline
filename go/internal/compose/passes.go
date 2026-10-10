@@ -14,7 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
-// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the notices, the stuck waits and
+// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits and
 // the settings a launch read. A structured session records no launch parts yet, so applying changed settings finds nothing recorded and
 // restarts nobody until it does.
 func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSweep {
@@ -26,6 +26,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Plans: vendorPlans{cfg.Home}, Now: cfg.Now, Log: cfg.Log}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
+		{Name: "notice-digest", Run: func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) }},
 		{Name: "task-queue", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) })},
 		{Name: "task-holds", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) })},
 		{Name: "subscriptions", Run: fromCutover(cutover, func(q db.Q, now int64) error { return subs.Sweep() })},

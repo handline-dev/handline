@@ -13,6 +13,7 @@ import (
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 )
@@ -204,7 +205,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if len(tk.Tick.Passes) != 7 {
+	if len(tk.Tick.Passes) != 8 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -217,7 +218,7 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 		}
 	}
 	for _, l := range logs {
-		if strings.Contains(l, "timebox:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
+		if strings.Contains(l, "timebox:") || strings.Contains(l, "notice-digest:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
 			t.Fatalf("a pass failed: %s", l)
 		}
 	}
@@ -357,5 +358,41 @@ func TestTheSubscriptionsPassRunsOnlyFromTheCutover(t *testing.T) {
 		if (n > 0) != cutover {
 			t.Fatalf("cutover=%v: %d plan cursors", cutover, n)
 		}
+	}
+}
+
+func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	key := "stopped_told:fatal:alice"
+	tick := func() {
+		t.Helper()
+		if _, err := p.Tick(p.Run.cfg, TickConfig{}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
+			t.Fatal(err)
+		}
+	}
+	if err := dbpkg.SetAgentState(d, "alice", states.Stalled, 0, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if v, _ := dbpkg.Cursor(d, key); v != 1 {
+		t.Fatalf("a FATAL agent is marked as told once the tick has run: %d", v)
+	}
+	var said int
+	count := func() {
+		d.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'notified'").Scan(&said)
+	}
+	count()
+	before := said
+	tick()
+	if count(); said != before {
+		t.Fatal("the same spell is told once, however many ticks follow")
+	}
+	if err := dbpkg.SetAgentState(d, "alice", states.Idle, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if v, _ := dbpkg.Cursor(d, key); v != 0 {
+		t.Fatalf("the mark ends with the spell: %d", v)
 	}
 }
