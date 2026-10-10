@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -24,7 +25,17 @@ import (
 type Tick struct {
 	Tick *tick.Tick
 	Loop *tick.Loop
+
+	dev       *tick.DevMode
+	restarted bool
 }
+
+// Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
+// calls Restart.
+func (t *Tick) Restarting() bool { return t.restarted }
+
+// Restart execs the daemon's own executable again; it returns only when that fails.
+func (t *Tick) Restart() error { return t.dev.Restart() }
 
 // TickConfig is what only the daemon main knows beyond Config.
 type TickConfig struct {
@@ -91,6 +102,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none
 			CollectSnapshot: func(db.Q) error { return nil }, // a structured session has no screen to read
 			PollUsage:       pollUsage,
+			RelinkAccounts:  func() (map[string][]string, error) { return team.RelinkAll(home, logLine), nil },
 			Rollover:        func(string) (bool, string) { return false, "" }, // folding the day is a model call that stays Python's
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
@@ -99,8 +111,18 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
 	t.Passes = append(p.passes(cfg, t, tc.Cutover), agentViewPass(view))
-	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
-	return &Tick{Tick: t, Loop: loop}
+	dev := &tick.DevMode{Enabled: func() bool { return lc.Manager.Settings.Flag("dev_mode", false) }, Log: logLine, Now: nowOf(cfg.Now)}
+	dev.Exe, _ = os.Executable()
+	dev.Baseline()
+	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Signalled: func() bool {
+		select {
+		case <-tc.Stop:
+			return true
+		default:
+			return false
+		}
+	}}
+	return &Tick{Tick: t, Loop: loop, dev: dev}
 }
 
 // Start runs the loop until Stop closes and returns a channel that closes when the tick in hand has finished. The daemon closes the
@@ -109,7 +131,7 @@ func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
 	go func() {
 		defer close(d)
-		t.Loop.Run(nil)
+		t.restarted = t.Loop.Run(nil)
 	}()
 	return d
 }
