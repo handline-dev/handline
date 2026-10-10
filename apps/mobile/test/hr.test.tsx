@@ -217,6 +217,26 @@ describe('the HR list', () => {
     m.store.stop();
   });
 
+  it('rejects all with one reason, asked for first', async () => {
+    const m = await mount((s) => {
+      raise(s, 1);
+      raise(s, 2);
+      raise(s, 3);
+    });
+    await openHr();
+    await until(() => $('hr-reject-all'), 'Reject all');
+    await press($('hr-reject-all'));
+    expect(text()).toContain('Reject all 3?');
+    expect(($('hr-reject-all-go') as unknown as HTMLButtonElement).disabled).toBe(true);
+    await press($('hr-reject-all-cancel'));
+    expect(stateOf(m, 1)).toBe('open');
+    await press($('hr-reject-all'));
+    await fill('hr-reject-all-why', 'not now');
+    await press($('hr-reject-all-go'));
+    await until(() => [1, 2, 3].every((id) => stateOf(m, id) === 'rejected'), 'the daemon');
+    m.store.stop();
+  });
+
   it('withdraws after its confirmation', async () => {
     const m = await mount((s) => raise(s, 1));
     await openHr();
