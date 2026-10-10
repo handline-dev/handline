@@ -13,6 +13,7 @@ import (
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 )
@@ -204,7 +205,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if len(tk.Tick.Passes) != 4 {
+	if len(tk.Tick.Passes) != 8 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -217,7 +218,7 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 		}
 	}
 	for _, l := range logs {
-		if strings.Contains(l, "timebox:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
+		if strings.Contains(l, "timebox:") || strings.Contains(l, "notice-digest:") || strings.Contains(l, "task-queue:") || strings.Contains(l, "task-holds:") || strings.Contains(l, "subscriptions:") || strings.Contains(l, "wait-for:") || strings.Contains(l, "apply-settings:") {
 			t.Fatalf("a pass failed: %s", l)
 		}
 	}
@@ -307,5 +308,117 @@ func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t 
 	defer mu.Unlock()
 	if !strings.Contains(strings.Join(logged, "\n"), "fds: ") {
 		t.Fatalf("no descriptor count: %q", logged)
+	}
+}
+
+// passRuns reports whether the named pass reaches the db: on a closed one it errors or panics, and a gated-off pass returns nil.
+func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
+	p, _, _, _ := wired(t)
+	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+	p.Sink.DB.Close()
+	for _, s := range tk.Tick.Passes {
+		if s.Name == name {
+			defer func() {
+				if recover() != nil {
+					ran = true
+				}
+			}()
+			return s.Run(p.Sink.DB, time.Now().Unix()) != nil
+		}
+	}
+	t.Fatalf("no pass %s", name)
+	return
+}
+
+func TestPassesPythonStillSweepsRunOnlyFromTheCutover(t *testing.T) {
+	for _, name := range []string{"task-queue", "task-holds", "subscriptions", "notice-digest", "wait-for"} {
+		if passRuns(t, false, name) {
+			t.Errorf("%s ran before the cutover", name)
+		}
+		if !passRuns(t, true, name) {
+			t.Errorf("%s did not run from the cutover", name)
+		}
+	}
+}
+
+func TestTheSubscriptionsPassRunsOnlyFromTheCutover(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _, _ := wired(t)
+		t.Setenv("PATH", t.TempDir()) // the plan question must not reach a real claude
+		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+		for _, s := range tk.Tick.Passes {
+			if s.Name == "subscriptions" {
+				if err := s.Run(p.Sink.DB, time.Now().Unix()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		var n int
+		p.Sink.DB.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'plan_checked:%'").Scan(&n)
+		if (n > 0) != cutover {
+			t.Fatalf("cutover=%v: %d plan cursors", cutover, n)
+		}
+	}
+}
+
+func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	key := "stopped_told:fatal:alice"
+	tick := func() {
+		t.Helper()
+		if _, err := p.Tick(p.Run.cfg, TickConfig{Cutover: true}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
+			t.Fatal(err)
+		}
+	}
+	if err := dbpkg.SetAgentState(d, "alice", states.Stalled, 0, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if v, _ := dbpkg.Cursor(d, key); v != 1 {
+		t.Fatalf("a FATAL agent is marked as told once the tick has run: %d", v)
+	}
+	var said int
+	count := func() {
+		d.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'notified'").Scan(&said)
+	}
+	count()
+	before := said
+	tick()
+	if count(); said != before {
+		t.Fatal("the same spell is told once, however many ticks follow")
+	}
+	if err := dbpkg.SetAgentState(d, "alice", states.Idle, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	if v, _ := dbpkg.Cursor(d, key); v != 0 {
+		t.Fatalf("the mark ends with the spell: %d", v)
+	}
+}
+
+func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _, _ := wired(t)
+		d := p.Sink.DB
+		t.Cleanup(func() { p.Run.WaitIdle("alice", 10*time.Second) }) // the telling may wake her in the background
+		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: dbpkg.NoticeRequester, Target: "alice", Body: "T3 done by bob: ok", Kind: "say", Notice: true}); err != nil {
+			t.Fatal(err)
+		}
+		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+		for _, s := range tk.Tick.Passes {
+			if s.Name == "notice-digest" {
+				if err := s.Run(d, time.Now().Unix()+86400); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		left, err := dbpkg.PendingNotices(d, "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cutover == (len(left) != 0) {
+			t.Fatalf("cutover=%v: %d notices left waiting", cutover, len(left))
+		}
 	}
 }

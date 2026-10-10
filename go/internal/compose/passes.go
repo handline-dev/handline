@@ -7,13 +7,14 @@ import (
 	"strconv"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/subscriptions"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
-// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the notices, the stuck waits and
+// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits and
 // the settings a launch read. A structured session records no launch parts yet, so applying changed settings finds nothing recorded and
 // restarts nobody until it does.
 func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSweep {
@@ -21,11 +22,26 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	timebox := &tick.Timebox{Ports: timeboxPorts{p: p, env: lc.Env, set: lc.Manager.Settings, home: cfg.Home}, Cutover: cutover}
 	wait := &tick.WaitFor{Decide: waitDecider{lc: lc}, Log: func(s string) { cfg.Log("%s", s) }}
 	apply := &tick.ApplySettings{Ports: settingsPorts{launcher: lc.Launch}}
+	subs := &subscriptions.Env{DB: lc.Env.DB, Home: cfg.Home, Asker: founderAsker{lc.Env}, Tasks: founderCloser{lc.Env, cfg.Home},
+		Plans: vendorPlans{cfg.Home}, Now: cfg.Now, Log: cfg.Log}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
-		{Name: "wait-for", Run: func(q db.Q, now int64) error { return wait.Sweep(q, now) }},
+		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
+		{Name: "task-queue", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) })},
+		{Name: "task-holds", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) })},
+		{Name: "subscriptions", Run: fromCutover(cutover, func(q db.Q, now int64) error { return subs.Sweep() })},
+		{Name: "wait-for", Run: fromCutover(cutover, func(q db.Q, now int64) error { return wait.Sweep(q, now) })},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 	}
+}
+
+// fromCutover runs a pass that reads and writes state Python's sweep of the same name also keeps, only once Python's is off: two daemons
+// over one cursor or meta key overwrite each other and tell the founder twice.
+func fromCutover(cutover bool, run func(q db.Q, now int64) error) func(q db.Q, now int64) error {
+	if cutover {
+		return run
+	}
+	return func(db.Q, int64) error { return nil }
 }
 
 // waitDecider raises a stuck wait to the founder as a decision.
