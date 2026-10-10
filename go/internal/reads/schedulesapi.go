@@ -24,6 +24,15 @@ func ScheduleID(agent string, s Schedule) int64 {
 // ScheduleSID is what identifies a schedule: editing its cron or its message makes it a new one.
 func ScheduleSID(s Schedule) string { return schedule{s.Cron, s.Message}.sid() }
 
+// NextCronAfter is the first minute after ts the cron expression names, false when it names none within eight years or does not parse.
+func NextCronAfter(expr string, ts int64) (int64, bool) {
+	c, err := parseCron(expr)
+	if err != nil {
+		return 0, false
+	}
+	return c.nextAfter(ts)
+}
+
 // LoadSchedules is an agent's schedules; a *ScheduleError says what is wrong with its value, any other error is an agent.yaml that cannot be read.
 func (e *Env) LoadSchedules(agent string) ([]Schedule, error) {
 	items, err := e.loadSchedules(agent)
