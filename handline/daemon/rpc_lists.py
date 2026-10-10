@@ -62,10 +62,26 @@ def _account(con, acct: str, names: list[str]) -> dict:
             "cycle": {"on": cycle.enabled(acct), "end": end.isoformat() if end else None, "end_is_default": cycle.end_is_default(acct)}}
 
 
+def _usage(acct: str, ld) -> dict:
+    """What `hl account list` shows beside the windows: the plan, the context figure, how old the read is, the runway, and
+    whether one more agent may start and why."""
+    st = status.read(acct)
+    allowed, why = status.can_start(st, ld)
+    return {"plan": accounts.subscription_type(acct), "windows": st.window_report(), "ctx_pct": st.ctx_pct, "age_s": st.age_s,
+            "runway": status.describe_runway(status.runway(st, status.read_burn(acct), None, ld)), "assignable": allowed,
+            "assign_reason": why}
+
+
+def _flag(params, key: str) -> bool:
+    v = params.get(key, False)
+    if not isinstance(v, bool):
+        raise rpc.bad_request(f"{key} is true or false", key, rpc.INVALID_PARAMS)
+    return v
+
+
 def _accounts(ctx, params) -> dict:
-    with_roster = params.get("roster", False)
-    if not isinstance(with_roster, bool):
-        raise rpc.bad_request("roster is true or false", "roster", rpc.INVALID_PARAMS)
+    with_roster, with_usage = _flag(params, "roster"), _flag(params, "usage")
+    loads = loadmod.read_all() if with_usage else {}
     con = db.connect()
     try:
         names = paths.list_agents()
@@ -76,6 +92,8 @@ def _accounts(ctx, params) -> dict:
             if with_roster:
                 assigned, running = roster.get(a, (0, 0))
                 acct.update(agents_assigned=assigned, agents_running=running, agents_unplaced=unplaced)
+            if with_usage:
+                acct.update(_usage(a, loads.get(a)))
             out.append(acct)
         return {"accounts": out}
     finally:
@@ -224,7 +242,14 @@ def _settings(ctx, params) -> dict:
     return out
 
 
+def _pick(ctx, params) -> dict:
+    picked, reasons = status.pick_account()
+    return {"picked": picked, "candidates": [{"account": a, "reason": w} for a, w in reasons],
+            "agent_costs": loadmod.costs().by_kind(paths.list_agents())}
+
+
 rpc.METHODS["accounts.list"] = rpc.Method(_accounts, "agent")
+rpc.METHODS["status.pick"] = rpc.Method(_pick, "agent")
 rpc.METHODS["team.get"] = rpc.Method(_team, "agent")
 rpc.METHODS["schedules.list"] = rpc.Method(_schedules, "agent")
 rpc.METHODS["stats.get"] = rpc.Method(_stats, "member")

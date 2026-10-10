@@ -204,13 +204,6 @@ def cmd_account_recover(args) -> int:
     return 0
 
 
-def _can_start(st, ld) -> tuple[bool, str]:
-    """takes_work, and what the pick adds to it: a slot and a stretch worth starting."""
-    ok, why = st.takes_work(ld.active if ld else 0)
-    bad = status.unfit(st, ld) if ok else None
-    return (False, bad) if bad else (ok, why)
-
-
 def cmd_account_list(args) -> int:
     names = paths.list_accounts()
     if not names:
@@ -226,7 +219,7 @@ def cmd_account_list(args) -> int:
         out = []
         for a in names:
             st = status.read(a)
-            allowed, why = _can_start(st, loads.get(a))
+            allowed, why = status.can_start(st, loads.get(a))
             assigned, running = roster.get(a, (0, 0))
             out.append({
                 "account": a, "logged_in": accounts.login_state(a),
@@ -245,7 +238,7 @@ def cmd_account_list(args) -> int:
           f"{'7d resets':<12}{'ctx':>6}{'AGE':>8}  {'RUNWAY (est.)':<16}ASSIGN")
     for a in names:
         st = status.read(a)
-        allowed, why = _can_start(st, loads.get(a))
+        allowed, why = status.can_start(st, loads.get(a))
         cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
         age = timefmt.ago(st.age_s)
         resets = "-" if not st.long.reset else timefmt.stamp(st.long.reset, timefmt.SHORT)

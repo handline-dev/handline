@@ -74,6 +74,261 @@
    ]
   },
   {
+   "name": "accounts.list.usage_fields",
+   "spec": "accounts.list",
+   "about": "With usage true, each account carries its plan, windows, ctx_pct, age_s, runway and whether one more agent may start.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list",
+      "params": {
+       "usage": true
+      }
+     },
+     "result": {
+      "accounts": {
+       "$each": {
+        "plan": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "windows": {
+         "$type": "array"
+        },
+        "ctx_pct": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "age_s": {
+         "$oneOf": [
+          {
+           "$type": "number"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "runway": {
+         "$type": "string"
+        },
+        "assignable": {
+         "$type": "boolean"
+        },
+        "assign_reason": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "accounts.list.usage_is_opt_in",
+   "spec": "accounts.list",
+   "about": "Without usage, an account has none of its usage fields.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list"
+     },
+     "result": {
+      "accounts": {
+       "$each": {
+        "assignable": {
+         "$absent": true
+        },
+        "runway": {
+         "$absent": true
+        },
+        "windows": {
+         "$absent": true
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "accounts.list.usage_is_a_boolean",
+   "spec": "accounts.list",
+   "about": "A usage that is not true or false is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list",
+      "params": {
+       "usage": "yes"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "usage"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "status.pick.shape",
+   "spec": "status.pick",
+   "about": "The account the next agent would go to (null when none may take work), every account's reason, and what one more agent costs by kind.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "status.pick"
+     },
+     "result": {
+      "picked": {
+       "$oneOf": [
+        {
+         "$type": "string"
+        },
+        {
+         "$type": "null"
+        }
+       ]
+      },
+      "candidates": {
+       "$each": {
+        "account": {
+         "$type": "string"
+        },
+        "reason": {
+         "$type": "string"
+        }
+       }
+      },
+      "agent_costs": {
+       "$each": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "status.pick.refused_by_role",
+   "spec": "status.pick",
+   "about": "A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "status.pick"
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "team.get.shape",
    "spec": "team.get",
    "about": "Agents with their parent and files, and the allowed edges.",

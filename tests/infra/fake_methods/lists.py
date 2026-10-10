@@ -1,11 +1,15 @@
-"""accounts.list, team.get, schedules.list, stats.get and settings.get: empty answers of the shape the spec gives, and the refusals the fixtures pin."""
+"""accounts.list, status.pick, team.get, schedules.list, stats.get and settings.get: empty answers of the shape the spec gives, and the refusals the fixtures pin."""
 from . import err, fake
 
 
-@fake("accounts.list", "team.get", "schedules.list", "stats.get", "settings.get")
+@fake("accounts.list", "status.pick", "team.get", "schedules.list", "stats.get", "settings.get")
 def lists(role, method, params):
     if method == "accounts.list":
+        if not isinstance(params.get("usage", False), bool):
+            return "fail", err(-32602, "bad_request", field="usage")
         return "ok", {"accounts": []}
+    if method == "status.pick":
+        return "ok", {"picked": None, "candidates": [], "agent_costs": []}
     if method == "team.get":
         return "ok", {"agents": [], "edges": []}
     if method == "schedules.list":
