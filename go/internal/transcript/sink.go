@@ -145,10 +145,14 @@ func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 		}
 		return []Event{{Turn: turn, Kind: "tool_use", Body: map[string]any{"tool_use": map[string]any{"id": d["id"], "tool": d["name"], "input": input}}}}
 	case "tool_result":
-		text, cut := cutText(flatten(d["content"]), ToolResultMax)
+		full := flatten(d["content"])
+		text, cut := cutText(full, ToolResultMax)
 		ok, _ := d["is_error"].(bool)
-		return []Event{{Turn: turn, Kind: "tool_result", Body: map[string]any{"tool_result": map[string]any{
-			"tool_use_id": d["tool_use_id"], "ok": !ok, "text": text, "truncated": cut}}}}
+		result := map[string]any{"tool_use_id": d["tool_use_id"], "ok": !ok, "text": text, "truncated": cut}
+		if cut {
+			result["dropped_lines"] = linesIn(full[len(text):])
+		}
+		return []Event{{Turn: turn, Kind: "tool_result", Body: map[string]any{"tool_result": result}}}
 	case "permission_request":
 		block, _ := d["block"].(int64)
 		if s.Prompt == nil {
@@ -324,4 +328,13 @@ func cutText(s string, max int) (string, bool) {
 		s = s[:len(s)-1]
 	}
 	return s, true
+}
+
+// linesIn is how many lines s holds, a last one with no newline included: a cut that leaves anything out cuts at least one.
+func linesIn(s string) int {
+	n := strings.Count(s, "\n")
+	if s != "" && !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
 }

@@ -55,3 +55,36 @@ func TestAMessageToAStructuredAgentCarriesItsReceiptAndLandsAsItSays(t *testing.
 		}
 	}
 }
+
+func TestChatTranscriptServesAToolCallWithItsOutput(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for i, ev := range []struct{ kind, body string }{
+		{"tool_use", `{"tool_use":{"id":"u1","tool":"Bash","input":{"command":"seq 1 10"}}}`},
+		{"tool_result", `{"tool_result":{"tool_use_id":"u1","ok":true,"text":"1\n2\n","truncated":true,"dropped_lines":8}}`},
+		{"tool_use", `{"tool_use":{"id":"u2","tool":"Bash","input":{"command":"true"}}}`},
+	} {
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, 1000, ?, NULL, ?)`, i+1, ev.kind, ev.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatTranscript(nil, map[string]any{"agent": "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tools []map[string]any
+	for _, it := range got.(map[string]any)["items"].([]any) {
+		if m := it.(map[string]any); m["kind"] == "tool" {
+			tools = append(tools, m)
+		}
+	}
+	if len(tools) != 2 || tools[0]["text"] != "seq 1 10" || tools[0]["output"] != "1\n2\n" || tools[0]["dropped_lines"] != int64(8) {
+		t.Fatalf("%v", tools)
+	}
+	if _, has := tools[1]["output"]; has || tools[1]["text"] != "true" {
+		t.Fatalf("a call with no result has no output: %v", tools[1])
+	}
+	if _, has := tools[1]["dropped_lines"]; has {
+		t.Fatalf("%v", tools[1])
+	}
+}
