@@ -28,6 +28,9 @@ appId: dev.handline.mobile
     id: skip_permissions-switch
 - assertVisible:
     id: skip_permissions-ask
+- scrollUntilVisible:
+    element:
+      id: skip_permissions-cancel
 - tapOn:
     id: skip_permissions-cancel
 - assertNotVisible:
