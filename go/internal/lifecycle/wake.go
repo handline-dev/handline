@@ -370,14 +370,14 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	session := row.ResumeSession.String
 	wait := m.Launch.WakeWait(m.Q, agent, row)
 	if wait != nil && wait.Slot {
-		// No wall, no slot. While the prompt cache is warm a resume is free, so it waits for a slot here; once the cache is cold a fresh
-		// start costs only the handoff, so it moves to the account furthest behind its week. With nowhere to go it waits.
-		cold := movedTo == "" && !warm && session != "" && m.cacheExpiredAt(agent, session, m.now())
+		// No wall, no slot. Waiting here has no end anyone can name, so the agent moves to an account with a free slot, the one furthest
+		// behind its week; a fresh start costs only the handoff. Only a restart asked to keep the conversation (warm) stays and waits,
+		// and with nowhere to go any wake waits.
 		to := ""
-		if cold {
+		if movedTo == "" && !warm && session != "" {
 			to = m.Launch.SlowestPaced(m.Q, agent, row, wait.Account)
 		}
-		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full and its cache is cold", wait.Account)) {
+		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full", wait.Account)) {
 			return false, m.Launch.DescribeWakeWait(wait)
 		}
 		session, movedTo, wait = "", to, nil

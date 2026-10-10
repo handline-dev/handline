@@ -166,19 +166,34 @@ func TestAResumeOntoAFullAccountWaitsAndHoldsNothing(t *testing.T) {
 	}
 }
 
-func TestAWarmResumeOntoAFullAccountWaitsEvenWhereAnotherHasRoom(t *testing.T) {
+func TestARecentlyActiveResumeOntoAFullAccountMovesToWhereAnotherHasRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
 	m.Launch = slowLaunch{}
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")
-	db.AddEvent(m.Q, "a", "Stop") // its cache is warm: the resume is free, so it waits for its slot
+	db.AddEvent(m.Q, "a", "Stop") // its cache is warm: it still does not wait on a full account while another has a slot
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
+	if err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "a" || p["to"] != "slow" {
+		t.Fatalf("%v %v", moved, p)
+	}
+}
+
+func TestARestartAskedToKeepTheConversationWaitsOnAFullAccountEvenWhereAnotherHasRoom(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = slowLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Warm: true})
 	if err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" || len(tm.relaunched) != 0 {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	if _, _, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
-		t.Fatal("a warm wake is not moved")
+		t.Fatal("a same-conversation restart is not moved")
 	}
 }
 
