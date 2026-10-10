@@ -3,10 +3,10 @@
 How to move one agent, `<agent>` (the first structured agent), from a terminal session to a structured one while the Python daemon keeps every other agent.
 Commands run from the repo root. `<home>` is the home, normally `~/.handline`.
 
-**Status: do not run this yet.** The scratch trial below works, but four gaps stop a real session:
-the installed claude is 2.1.295 and the Go daemon accepts only 2.1.294; there is no singleton, so two Go processes launch it twice;
+**Status: do not run this yet.** The scratch trial below works, but three gaps stop a real session:
+there is no singleton, so two Go processes launch it twice;
 nothing can start, stop, interrupt or answer a structured agent from `hl` or the apps; there is no permission policy, so every tool call waits for a person.
-Three smaller gaps (Python's hook record writes its state, the Go task clock covers every owner, closing while claude lives) are on the board. Fix the four, then follow this.
+Three smaller gaps (Python's hook record writes its state, the Go task clock covers every owner, closing while claude lives) are on the board. Fix the three, then follow this.
 
 ## The mixed mode
 
@@ -66,5 +66,5 @@ Checked, with the flags above and no `-cutover`: a task sent to it (`chat.send` 
 `--settings` carried the hooks of ours from the shared settings (PreToolUse guard and Stop; run on the real `shared/.claude/settings.json`, `HooksSettings` kept all 12 `ocp hook` events), with `--setting-sources project`;
 a terminal agent beside it kept its state and got no view row; `usage_samples`, `token_calls` and `stream_log` stayed empty; Python's skip tests leave it alone; two Go processes double-launch (a gap on the board).
 
-The fake cannot show: a real permission prompt stream (a gap), the 2.1.295 control types (a gap), context and cache clocks (the fake has no transcript file: the cold-wake note says `degraded`),
+The fake cannot show: a real permission prompt stream (a gap), the 2.1.296 control types (a gap), context and cache clocks (the fake has no transcript file: the cold-wake note says `degraded`),
 hooks reaching the Python daemon over its socket (a gap), a closed row that still holds a `terminal` handle, the real worktree and account choice, usage limits and handoff, resume of a real session id, and the Python daemon running beside it (it could not bind a socket here).

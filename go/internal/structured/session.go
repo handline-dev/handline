@@ -23,7 +23,7 @@ import (
 )
 
 // PinnedCLI is the Claude CLI version the control types here were read against.
-const PinnedCLI = "2.1.294"
+const PinnedCLI = "2.1.296"
 
 // Delivery says what a message does when a turn is running: Now steers it into the running turn (priority "now"); Queue holds it
 // until the turn ends.
