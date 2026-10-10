@@ -309,3 +309,34 @@ func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t 
 		t.Fatalf("no descriptor count: %q", logged)
 	}
 }
+
+
+// passRuns reports whether the named pass reaches the db: on a closed one it errors or panics, and a gated-off pass returns nil.
+func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
+	p, _, _, _ := wired(t)
+	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+	p.Sink.DB.Close()
+	for _, s := range tk.Tick.Passes {
+		if s.Name == name {
+			defer func() {
+				if recover() != nil {
+					ran = true
+				}
+			}()
+			return s.Run(p.Sink.DB, time.Now().Unix()) != nil
+		}
+	}
+	t.Fatalf("no pass %s", name)
+	return
+}
+
+func TestPassesPythonStillSweepsRunOnlyFromTheCutover(t *testing.T) {
+	for _, name := range []string{"task-queue", "task-holds"} {
+		if passRuns(t, false, name) {
+			t.Errorf("%s ran before the cutover", name)
+		}
+		if !passRuns(t, true, name) {
+			t.Errorf("%s did not run from the cutover", name)
+		}
+	}
+}

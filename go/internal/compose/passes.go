@@ -23,11 +23,20 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	apply := &tick.ApplySettings{Ports: settingsPorts{launcher: lc.Launch}}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
-		{Name: "task-queue", Run: func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) }},
-		{Name: "task-holds", Run: func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) }},
+		{Name: "task-queue", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) })},
+		{Name: "task-holds", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) })},
 		{Name: "wait-for", Run: func(q db.Q, now int64) error { return wait.Sweep(q, now) }},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 	}
+}
+
+// fromCutover runs a pass that reads and writes state Python's sweep of the same name also keeps, only once Python's is off: two daemons
+// over one cursor or meta key overwrite each other and tell the founder twice.
+func fromCutover(cutover bool, run func(q db.Q, now int64) error) func(q db.Q, now int64) error {
+	if cutover {
+		return run
+	}
+	return func(db.Q, int64) error { return nil }
 }
 
 // waitDecider raises a stuck wait to the founder as a decision.
