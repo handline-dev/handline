@@ -1901,6 +1901,36 @@ def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:
         check(f"service use: {impl} is the setting afterwards", rc == 0 and service.daemon_impl() == impl)
 
 
+def test_service_use_from_an_agent_session_is_a_proposal(home: Path) -> None:
+    import argparse, os
+    from handline.cli import service as cli_service
+    from handline.team import ask, hr
+    use_home(home)
+    got = []
+    real_propose, real_asking, saved = hr.propose, ask.asking_agent, os.environ.get("OCP_AGENT")
+    hr.propose = lambda kind, name, requester, why, sets: (got.append((kind, name, sets, why)) or (True, "proposed"))
+    ask.asking_agent = lambda: "worker"
+    os.environ["OCP_AGENT"] = "worker"
+    try:
+        rc = cli_service.cmd_service_use(argparse.Namespace(impl="go", why="the cutover"))
+        check("service use: an agent's session raises a global proposal with the value and why",
+              rc == 0 and got == [("global", "service-use", {"value": "go"}, "the cutover")], got)
+        check("service use: and changes nothing yet", service.daemon_impl() == "python")
+        check("service use: without --why it is refused",
+              cli_service.cmd_service_use(argparse.Namespace(impl="go", why=None)) == 1 and len(got) == 1)
+        hr._set_global("service-use", "go")
+        check("service use: approving the proposal sets daemon_impl", service.daemon_impl() == "go")
+        ok, said = real_propose("global", "service-use", requester="worker", why="x", sets={"value": "rust"})
+        check("service use: a daemon that does not exist is not proposed", not ok, said)
+    finally:
+        hr.propose, ask.asking_agent = real_propose, real_asking
+        hr._set_global("service-use", "python")
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+
+
 def test_service_crash_loop_reads_the_go_daemons_start_line(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     log = service.err_log(home)
@@ -1917,6 +1947,11 @@ def test_service_crash_loop_reads_the_go_daemons_start_line(home: Path) -> None:
         refusals = [line.replace('handlined abc1234 serving "/x/daemon.sock"', "handlined: another daemon holds the lock") for line in lines]
         log.write_text("\n".join(refusals) + "\n")
         check("service: four refusals of the Go daemon in a minute is a crash loop", service.crash_loop_detected(home, window_s=300, threshold=4))
+        quoted = [line.replace("handlined:", "caller said handlined: and") for line in refusals]
+        log.write_text("\n".join(quoted) + "\n")
+        check("service: a line that only contains ' handlined: ' is not a start", not service.crash_loop_detected(home, window_s=300, threshold=4))
+        log.write_text("\n".join("x " + line for line in refusals) + "\n")
+        check("service: nor is one that has something before the date", not service.crash_loop_detected(home, window_s=300, threshold=4))
     finally:
         service.daemon_impl = real
 
@@ -5832,6 +5867,7 @@ def main() -> int:
         run(lambda: test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_word(Path(td) / 'svc6'))
         run(lambda: test_service_crash_loop_reads_the_go_daemons_start_line(Path(td) / 'svc7'))
         run(lambda: test_service_use_sets_the_daemon_the_next_install_runs(Path(td) / 'svc8'))
+        run(lambda: test_service_use_from_an_agent_session_is_a_proposal(Path(td) / 'svc9'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))

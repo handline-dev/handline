@@ -16,6 +16,7 @@ from __future__ import annotations
 import gzip
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import time
@@ -342,6 +343,10 @@ def _tail_lines(path: Path, max_bytes: int = TAIL_SCAN_BYTES) -> list[str]:
     return lines
 
 
+# The Go daemon's start lines, from the beginning of the line: the log's date and time, then `handlined`.
+_GO_START_LINE = re.compile(r"\d{4}/\d\d/\d\d \d\d:\d\d:\d\d handlined(: | \S+ serving )")
+
+
 def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold: int = 4) -> bool:
     """A supervisor that respawns faster than it can do useful work is not
     supervising, it is thrashing. There is no launchd-exposed restart counter
@@ -361,7 +366,7 @@ def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold
         if go:
             # "2026/10/10 13:45:00 handlined <sha> serving ..." is its line for a start that got up; a start that
             # refuses (lock held, database, bad flag) dies with "2026/10/10 13:45:00 handlined: <why>" instead.
-            if not (" handlined: " in line or (" handlined " in line and " serving " in line)):
+            if not _GO_START_LINE.match(line):
                 continue
             clock = line[11:19]
         else:

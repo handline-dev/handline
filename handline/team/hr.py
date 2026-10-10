@@ -69,6 +69,13 @@ def _span(v: str) -> str:
     return v
 
 
+def _daemon_impl(v: str) -> str:
+    from ..infra import service
+    if v not in service.IMPLS:
+        raise ValueError(" or ".join(service.IMPLS))
+    return v
+
+
 def _set_global(switch: str, value: str) -> None:
     from ..session import autoaccept, idle_close
     from ..daemon import devmode
@@ -76,6 +83,12 @@ def _set_global(switch: str, value: str) -> None:
         idle_close.set_close_timeout(idle_close.NEVER if value == "never" else int(value))
     elif switch == "notice-digest":
         idle_close.set_notice_digest_s(timefmt.parse_span(value))
+    elif switch == "service-use":
+        from ..infra import service
+        from ..usage import load
+        cfg = load.config_for_write()
+        cfg[service.IMPL_KEY] = value
+        load.write_config(cfg)
     elif switch == "ignore-cache-expiry":
         idle_close.set_ignore_cache_expiry(value == "on")
     elif switch == "auto-accept":
@@ -92,6 +105,7 @@ GLOBAL_SWITCHES = {
     "ignore-cache-expiry": (_on_off, "whether a resume may reuse a session whose prompt cache has expired"),
     "auto-accept": (_on_off, "whether ocp answers the dialogs a working agent's standing rules cover"),
     "dev-mode": (_on_off, "whether the daemon reloads its own code when it changes"),
+    "service-use": (_daemon_impl, "which daemon the launchd service runs (applied by `hl service install`)"),
 }
 
 

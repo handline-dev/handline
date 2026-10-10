@@ -412,6 +412,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_service_install)
     p = sv.add_parser("use", help="choose the daemon the service runs; `hl service install` applies it")
     p.add_argument("impl", choices=service.IMPLS)
+    p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
+                   "for the founder: why")
     p.set_defaults(fn=cmd_service_use)
     p = sv.add_parser("uninstall", help="unload the job and remove the plist")
     p.set_defaults(fn=cmd_service_uninstall)
