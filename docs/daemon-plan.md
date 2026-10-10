@@ -352,7 +352,7 @@ work is paused, not the plan.
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap, drafted: the login-expiry detector (`tick/login.go`, `compose/login.go`) is on a branch, not on main; it covers terminal agents too (note below), and landing it is the open piece (held by a person) |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
 | Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
-| Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | gap, in progress: terminal rows of the agent view (slice 2b, not landed); the terminal tick, peer-inbox delivery, needs-you and `terminal.open` are on main |
+| Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | gap: `-terminal-tick` is not yet in `service.go_arguments`; the terminal tick, peer-inbox delivery, needs-you, the terminal agent view rows and `terminal.open` (none for a closed agent) are on main |
 
 **Login expiry for terminal agents, without a screen.** The Python detector reads "Login expired" off
 the terminal because its docstring says no hook fires; the live record says otherwise. Each of the 7
