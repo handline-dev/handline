@@ -23,19 +23,29 @@ type Runner struct {
 	Q         db.Q
 	Agents    func() []string
 	Schedules func(agent string) []reads.Schedule // reads.Env.SchedulesOf: none for an agent whose value cannot be read
-	// Say writes the message to the agent's inbox, calls recorded with its id, and tells the agent (supervisor.Env.SystemSayThen).
-	Say func(requester, target, body string, recorded func(rid int64)) error
+	// Say writes the message to the agent's inbox, calls recorded with its id and tells the agent only if recorded returns nil, so a cursor that
+	// was not written never leaves a message sent twice (supervisor.Env.SystemSayThen).
+	Say func(requester, target, body string, recorded func(rid int64) error) error
 	Log func(string)
 }
 
-// Sweep is schedules.sweep: one agent's schedule failing is not the tick's.
+// Sweep is schedules.sweep: one agent's schedule failing, by error or by panic, is not the tick's.
 func (r *Runner) Sweep(now int64) error {
 	for _, agent := range r.Agents() {
-		if err := r.agent(agent, r.Schedules(agent), now); err != nil {
+		if err := r.sweepAgent(agent, now); err != nil {
 			r.Log(fmt.Sprintf("  %s: schedule failed: %v", agent, err))
 		}
 	}
 	return nil
+}
+
+func (r *Runner) sweepAgent(agent string, now int64) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("%v", p)
+		}
+	}()
+	return r.agent(agent, r.Schedules(agent), now)
 }
 
 // ready is whether there is somewhere to type it now: a session that is not mid-turn, or none (started or woken to read it).
@@ -127,20 +137,19 @@ func (r *Runner) agent(agent string, items []reads.Schedule, now int64) error {
 			continue // due, and stays due until the agent stops
 		}
 		body := fmt.Sprintf("[schedule %s] %s", it.Cron, it.Message)
-		var recErr error
-		err = r.Say(Requester, agent, body, func(rid int64) {
-			if recErr = db.SetCursor(r.Q, at, minute); recErr != nil {
-				return
+		err = r.Say(Requester, agent, body, func(rid int64) error {
+			if err := db.SetCursor(r.Q, at, minute); err != nil {
+				return err
 			}
-			if recErr = db.SetCursor(r.Q, ridKey, rid); recErr != nil {
-				return
+			if err := db.SetCursor(r.Q, ridKey, rid); err != nil {
+				return err
 			}
-			_, recErr = db.AddEvent(r.Q, agent, "schedule_fired", db.KV{K: "cron", V: it.Cron}, db.KV{K: "request_id", V: rid})
+			if _, err := db.AddEvent(r.Q, agent, "schedule_fired", db.KV{K: "cron", V: it.Cron}, db.KV{K: "request_id", V: rid}); err != nil {
+				return err
+			}
 			r.Log(fmt.Sprintf("  %s: schedule '%s' is due - message #%d sent", agent, it.Cron, rid))
+			return nil
 		})
-		if err == nil {
-			err = recErr
-		}
 		if err != nil {
 			return err
 		}

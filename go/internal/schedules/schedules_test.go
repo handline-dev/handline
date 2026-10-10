@@ -28,14 +28,13 @@ func newRig(t *testing.T) *rig {
 	g := &rig{t: t, q: d, items: []reads.Schedule{{Cron: "* * * * *", Message: "check the queue"}}}
 	g.r = &Runner{Q: d, Agents: func() []string { return []string{"bob"} }, Schedules: func(string) []reads.Schedule { return g.items },
 		Log: func(string) {},
-		Say: func(requester, target, body string, recorded func(int64)) error {
+		Say: func(requester, target, body string, recorded func(int64) error) error {
 			rid, err := db.AddRequest(d, db.NewRequest{Requester: requester, Target: target, Body: body, Response: "fire_and_forget", Kind: "say"})
 			if err != nil {
 				return err
 			}
 			g.said = append(g.said, body)
-			recorded(rid)
-			return nil
+			return recorded(rid)
 		}}
 	return g
 }
@@ -137,5 +136,59 @@ func TestTheCursorsOfAScheduleTheAgentNoLongerHasAreForgotten(t *testing.T) {
 	g.sweep(t0 + 360)
 	if len(g.said) != 1 {
 		t.Fatalf("added back later it is new, so it counts from now: %q", g.said)
+	}
+}
+
+func TestACursorWrittenByThePythonDaemonIsContinuedNotResent(t *testing.T) {
+	g := newRig(t)
+	sid := reads.ScheduleSID(g.items[0]) // sha1 of cron and message, the same sid Python names its cursors by
+	if err := db.SetCursor(g.q, "schedule_at:bob:"+sid, t0); err != nil {
+		t.Fatal(err)
+	}
+	g.sweep(t0 + 30)
+	if len(g.said) != 0 || mustCursor(g.q, "schedule_at:bob:"+sid) != t0 {
+		t.Fatalf("no first-sight reset and nothing due yet: %q", g.said)
+	}
+	g.sweep(t0 + 90)
+	if len(g.said) != 1 {
+		t.Fatalf("the next due time after Python's cursor is sent once: %q", g.said)
+	}
+}
+
+func mustCursor(q db.Q, name string) int64 { c, _ := db.Cursor(q, name); return c }
+
+func TestAPanicInOneAgentDoesNotStopTheOthers(t *testing.T) {
+	g := newRig(t)
+	g.r.Agents = func() []string { return []string{"ann", "bob"} }
+	g.r.Schedules = func(a string) []reads.Schedule {
+		if a == "ann" {
+			panic("boom")
+		}
+		return g.items
+	}
+	g.sweep(t0)
+	g.sweep(t0 + 120)
+	if len(g.said) != 1 {
+		t.Fatalf("bob still gets his: %q", g.said)
+	}
+}
+
+func TestAMessageIsNotToldWhenItsCursorCannotBeRecorded(t *testing.T) {
+	g := newRig(t)
+	g.sweep(t0)
+	told := false
+	g.r.Say = func(requester, target, body string, recorded func(int64) error) error {
+		g.q.Exec("DROP TABLE cursors") // the write the recording needs fails
+		if err := recorded(1); err != nil {
+			return err
+		}
+		told = true
+		return nil
+	}
+	if err := g.r.Sweep(t0 + 120); err != nil {
+		t.Fatal(err)
+	}
+	if told {
+		t.Fatal("the agent was told with no cursor recorded: the next tick would send again")
 	}
 }

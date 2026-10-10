@@ -511,7 +511,7 @@ func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
 	d := p.Sink.DB
 	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
 		[]byte("vendor: claude\nstructured: true\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
-	tk := p.Tick(p.Run.cfg, TickConfig{})
+	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: true})
 	var run func(q dbpkg.Q, now int64) error
 	for _, s := range tk.Tick.Passes {
 		if s.Name == "schedules" {
@@ -537,4 +537,27 @@ func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	p.Run.WaitIdle("alice", 10*time.Second)
+}
+
+func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
+		[]byte("vendor: claude\nstructured: true\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	t0 := time.Now().Unix()
+	t0 -= t0 % 60
+	for _, s := range tk.Tick.Passes {
+		if s.Name == "schedules" {
+			s.Run(d, t0)
+			s.Run(d, t0+120)
+		}
+	}
+	var n int
+	d.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'schedule'").Scan(&n)
+	var c int
+	d.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'schedule_%'").Scan(&c)
+	if n != 0 || c != 0 {
+		t.Fatalf("Python still sweeps them: %d messages, %d cursors", n, c)
+	}
 }
