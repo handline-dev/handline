@@ -1,6 +1,8 @@
 package tick
 
 import (
+	"database/sql"
+
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
 )
@@ -22,6 +24,11 @@ import (
 const (
 	RenewalKey = "cache_renewal"
 	FoldKey    = "idle_fold"
+	// FreshKey (fresh_after_task: true) starts a new session after each finished task: the context handoff, once the agent holds no
+	// other task. Off until an agent's own agent.yaml turns it on; the auditors, whose every review is a fresh look, are who it is for.
+	FreshKey = "fresh_after_task"
+	// FreshKind is the kind a handoff for it carries: not a wall and not a full context, so it parks for no time and wakes at once.
+	FreshKind = "task_done"
 	// RenewLeadS: a renewal is asked in the last stretch of the cache's life, wide enough that one 30-second tick cannot step over it.
 	RenewLeadS   = 150
 	MaxRenewals  = 2
@@ -219,4 +226,29 @@ func (c *CostPilot) Fold(t *Tick, agent string, now int64, st Status) (bool, str
 		t.logf("  %s: folded - idle %dm at %s tokens, closed fresh%s", agent, idle/60, ctxText, noNote)
 	}
 	return ok, why
+}
+
+// FreshDue is whether this agent is owed a fresh session: its switch is on, its session is open, it finished a task (done, or handed on
+// to another owner) since its last session began or was handed off, and it holds no other open task. Mid-turn is the handoff's own concern: it defers to the turn's end
+// and asks for the note first, as it does for a full context. A level read from the record, never an edge: it is due on every tick until a
+// handoff or a new session is recorded after the task was done.
+func (c *CostPilot) FreshDue(t *Tick, agent string, row *db.AgentState) bool {
+	if !c.flag(t, agent, FreshKey) || closedAt(row) {
+		return false
+	}
+	var doneAt sql.NullInt64 // the later of its last done task and the last task it handed on
+	check(t.Q.QueryRow("SELECT MAX(at) FROM (SELECT MAX(done_at) AS at FROM tasks WHERE owner = ? AND done_evidence IS NOT NULL "+
+		"UNION ALL SELECT MAX(ts) FROM events WHERE kind = 'task_handoff' AND json_extract(payload, '$.from') = ?)", agent, agent).Scan(&doneAt))
+	if !doneAt.Valid {
+		return false
+	}
+	var open int
+	check(t.Q.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = ? AND "+db.OpenSQL, agent).Scan(&open))
+	if open > 0 {
+		return false
+	}
+	var began sql.NullInt64 // the later of the last handoff and the last session start
+	check(t.Q.QueryRow("SELECT MAX(at) FROM (SELECT MAX(updated) AS at FROM handoff WHERE agent = ? "+
+		"UNION ALL SELECT MAX(ts) FROM events WHERE agent = ? AND kind = 'SessionStart')", agent, agent).Scan(&began))
+	return !began.Valid || doneAt.Int64 > began.Int64
 }
