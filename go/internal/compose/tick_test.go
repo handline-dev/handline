@@ -396,3 +396,29 @@ func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
 		t.Fatalf("the mark ends with the spell: %d", v)
 	}
 }
+
+func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _, _ := wired(t)
+		d := p.Sink.DB
+		t.Cleanup(func() { p.Run.WaitIdle("alice", 10*time.Second) }) // the telling may wake her in the background
+		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: dbpkg.NoticeRequester, Target: "alice", Body: "T3 done by bob: ok", Kind: "say", Notice: true}); err != nil {
+			t.Fatal(err)
+		}
+		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+		for _, s := range tk.Tick.Passes {
+			if s.Name == "notice-digest" {
+				if err := s.Run(d, time.Now().Unix()+86400); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		left, err := dbpkg.PendingNotices(d, "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cutover == (len(left) != 0) {
+			t.Fatalf("cutover=%v: %d notices left waiting", cutover, len(left))
+		}
+	}
+}
