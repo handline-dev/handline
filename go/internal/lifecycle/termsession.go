@@ -74,7 +74,7 @@ func (m *Manager) waitSessionIdle(agent string, timeout time.Duration) bool {
 
 // endTerminalByPane ends a terminal agent's session by closing its pane: the relaunch opens a new terminal, so the old one must not stay.
 // The end is proved by the session's pid, which the pane close alone does not show; a session still running after EndWaitS is reported
-// and never relaunched over. The pane is gone by then, so the row no longer names it; the sweep records the close if the session ends later.
+// and never relaunched over. The pane is gone by then, so the row no longer names it; SettleOrphanedClose records the close once the pid is gone.
 func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (bool, string) {
 	fail := func(why string, pid int) (bool, string) {
 		var pv any
@@ -110,8 +110,11 @@ func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (boo
 		gone = m.TermRun.PidGone(pid)
 	}
 	if !gone {
+		// The pid is kept: with the pane gone nothing else finds the session, and SettleOrphanedClose looks again every tick.
+		check(db.SetCursor(m.Q, orphanKey(agent), int64(pid)))
 		return fail(fmt.Sprintf("its terminal was closed but the session is still running (pid %d) after %ds; not marked closed", pid, supervisor.EndWaitS), pid)
 	}
+	check(db.ClearCursor(m.Q, orphanKey(agent)))
 	m.recordClosed(agent, resume, st)
 	return true, agent + ": session ended, terminal closed"
 }
@@ -123,4 +126,34 @@ func (m *Manager) endForMove(agent string, st SessionStatus) (bool, string) {
 		return m.endStructured(agent, "", st)
 	}
 	return m.endTerminalByPane(agent, "", st)
+}
+
+func orphanKey(agent string) string { return "close_pending:" + agent }
+
+// SettleOrphanedClose records the close of a terminal session that outlived its pane once its pid is gone, so the wake that follows starts
+// a new one. True when it recorded the close. The pid is read from the database each tick: a restart loses nothing.
+func (m *Manager) SettleOrphanedClose(agent string) bool {
+	pid := int(must(db.Cursor(m.Q, orphanKey(agent))))
+	if pid == 0 || m.TermRun == nil {
+		return false
+	}
+	if row := must(db.GetAgentState(m.Q, agent)); row == nil || isClosed(row) {
+		check(db.ClearCursor(m.Q, orphanKey(agent)))
+		return false
+	}
+	if !m.TermRun.PidGone(pid) {
+		return false
+	}
+	check(db.ClearCursor(m.Q, orphanKey(agent)))
+	m.recordClosed(agent, "", m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent)))
+	m.afterFreshClose(agent)
+	m.Log("  %s: the session that outlived its terminal has ended (pid %d)", agent, pid)
+	return true
+}
+
+// afterFreshClose is what a close with no resume id leaves behind: nothing to resume, the record owed, the note spent.
+func (m *Manager) afterFreshClose(agent string) {
+	check(db.ForgetResume(m.Q, agent))
+	check(db.SetCursor(m.Q, RecordOwedKey(agent), m.now()))
+	m.Handoff.ClearNote(m.Q, agent)
 }

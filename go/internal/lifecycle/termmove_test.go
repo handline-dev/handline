@@ -140,8 +140,8 @@ func TestATerminalAgentMidTurnIsNotHandedOffAndAForcedOneIsNotInterrupted(t *tes
 		if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"usage", "wall"}, ""); !ok || err != nil {
 			t.Fatalf("%s: %v %v", status, ok, err)
 		}
-		if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"forced", "by hand"}, "beta"); !ok || err != nil {
-			t.Fatalf("forced %s: %v %v", status, ok, err)
+		if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"forced", "by hand"}, "beta"); ok || err == nil {
+			t.Fatalf("forced %s: a person is told it did not happen: %v %v", status, ok, err)
 		}
 		if len(g.pane.handles) != 0 || isClosed(g.row(t)) {
 			t.Fatalf("%s: closed %v", status, g.pane.handles)
@@ -183,3 +183,29 @@ func TestATerminalNoticeThatFailsStillLeavesTheClearOwed(t *testing.T) {
 type failingTell struct{ *fakeTermRun }
 
 func (failingTell) Tell(string, string, string) error { return errors.New("no socket") }
+
+func TestASessionThatOutlivedItsPaneIsRecordedClosedOnceItsPidIsGoneAndThenRelaunchedFresh(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.run.survives = true
+	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
+	if row := g.row(t); isClosed(row) || row.Terminal.String != "" {
+		t.Fatalf("%+v", row)
+	}
+	// still alive: every tick looks, nothing is closed and nothing is started over it
+	for i := 0; i < 3; i++ {
+		g.v.SettleOwedClear("a")
+	}
+	if isClosed(g.row(t)) || len(g.sp.startedIn) != 0 {
+		t.Fatal("closed or relaunched over a live session")
+	}
+	g.run.status = "" // the orphan exits
+	g.v.SettleOwedClear("a")
+	row := g.row(t)
+	if !isClosed(row) || row.ResumeSession.String != "" {
+		t.Fatalf("%+v", row)
+	}
+	g.m.Q.Exec("UPDATE agent_state SET wake_at = ? WHERE agent = 'a'", g.m.now()) // the park's backoff has run out
+	if ok, said, _ := g.m.WakeAgent("a", WakeOpts{}); !ok || len(g.sp.startedIn) != 1 {
+		t.Fatalf("%v %q %v", ok, said, g.sp.startedIn)
+	}
+}

@@ -155,9 +155,7 @@ func (v *Mover) closeFresh(agent string) (bool, string) {
 	st := m.Status.ReadForAgent(agent, here)
 	ok, why := m.endForMove(agent, st)
 	if ok {
-		check(db.ForgetResume(m.Q, agent))
-		check(db.SetCursor(m.Q, RecordOwedKey(agent), m.now()))
-		m.Handoff.ClearNote(m.Q, agent)
+		m.afterFreshClose(agent)
 	}
 	return ok, why
 }
@@ -274,8 +272,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 		// A person's order does not wait for a turn that may never end on its own, an open permission prompt included: the interrupt
 		// denies it, and the act goes on once the turn is over.
 		if err := m.interruptSession(agent); err != nil {
-			v.log("  %s: forced move fired but %v - not handing off", agent, err)
-			return true, nil
+			return false, fmt.Errorf("%s: the forced move did not happen: %v", agent, err)
 		}
 		if !m.waitSessionIdle(agent, StructuredIdleWait) {
 			v.log("  %s: forced move fired but the turn did not end - not handing off", agent)
@@ -411,6 +408,10 @@ func (v *Mover) closeNow(agent string) (bool, string) {
 func (v *Mover) SettleOwedClear(agent string) (owed bool, err error) {
 	defer catch(&err)
 	m := v.M
+	func() {
+		defer m.lockAgent(agent)()
+		m.SettleOrphanedClose(agent)
+	}()
 	if v.clearOwed(agent) == 0 {
 		return false, nil
 	}
