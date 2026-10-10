@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { KEY_STRIP, controlsOf, holderLabel, needsConfirm, type StopMode } from '@handline/app-core';
+import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
+import { controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { dotColor, usePalette } from '../theme.ts';
@@ -30,12 +30,10 @@ export function AgentPage() {
   const c = usePalette();
   const store = useStore();
   const page = useSelector((s) => s.page);
-  const me = useSelector((s) => s.me);
   const name = page?.agent ?? '';
   const detailQuery = useRead('agent.get', { agent: name }, { enabled: name !== '' });
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
-  const release = useWrite('input.release', name);
   const [settings, setSettings] = useState(false);
   const goBack = useRef<() => void>(() => void store.closeAgent());
   // The Android back button goes from the agent page to the list; the list leaves the app.
@@ -50,10 +48,7 @@ export function AgentPage() {
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
   const sub = detail ?? row;
-  const back = () => {
-    if (detail && controlsOf(detail, me).release) release.mutate({ agent: name });
-    void store.closeAgent();
-  };
+  const back = () => void store.closeAgent();
   goBack.current = back;
   return (
     <AboveKeyboard>
@@ -183,47 +178,11 @@ function Terminal(props: { detail: AgentDetail }) {
 function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
   const c = usePalette();
   const store = useStore();
-  const me = useSelector((s) => s.me);
   const view = props.view;
   const lines = view.lines();
   // An open session whose snapshot has not come yet.
   const waiting = props.detail.session_open && view.frame.length === 0 && view.history.length === 0;
-  const [text, setText] = useState('');
   const scroll = useRef<ScrollView>(null);
-  const d = props.detail;
-  const ctl = controlsOf(d, me);
-  const holder = d.input_holders?.[0];
-  const takeInput = useWrite('input.take', d.name);
-  const releaseInput = useWrite('input.release', d.name);
-  const sendInput = useWrite('session.input', d.name);
-  const sendBytes = useWrite('terminal.input', d.name);
-  const [refused, setRefused] = useState('');
-  const sendKeys = useWrite('session.keys', d.name);
-  const releasing = usePending('input.release').some((v) => v.agent === d.name);
-  const taking = usePending('input.take').some((v) => v.agent === d.name);
-  const take = () => {
-    // Taking the input from a person at another device asks first; the daemon's own hold is not a person's.
-    if (holder && holder.kind !== 'daemon' && holder.name !== me) {
-      Alert.alert(`Take control from ${holderLabel(holder, me)}?`, undefined, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Take', onPress: () => takeInput.mutate({ agent: d.name }) },
-      ]);
-    } else takeInput.mutate({ agent: d.name });
-  };
-  const submit = () => {
-    if (!text.trim()) return;
-    // session.input is refused while the screen is unread; the bytes path is not, so it is used whenever the daemon has one.
-    const sent =
-      view.terminal && store.client.typesBytes
-        ? sendBytes.mutateAsync(store.client.typedBytes(view.terminal, text, true))
-        : sendInput.mutateAsync({ agent: d.name, text, enter: true });
-    setRefused('');
-    setText('');
-    sent.catch((e) => {
-      setText((now) => now || text); // kept for a retry
-      setRefused((e as { reason?: string }).reason ?? (e as Error).message);
-    });
-  };
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
@@ -242,47 +201,6 @@ function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
           </Text>
         )}
       </ScrollView>
-      {d.session_open && (
-        <Row style={{ padding: space.sm, justifyContent: 'space-between' }}>
-          <Text testID="holder" style={{ color: c.muted, fontSize: 12 }}>
-            Input: {taking ? 'taking…' : releasing ? 'releasing…' : holderLabel(holder, me)}
-          </Text>
-          {ctl.take && <Button testID="take" label="Take control" disabled={taking} onPress={take} />}
-          {ctl.release && <Button label="Release" disabled={releasing} onPress={() => releaseInput.mutate({ agent: d.name })} />}
-        </Row>
-      )}
-      <Row style={{ paddingHorizontal: space.sm, gap: 4 }}>
-        {KEY_STRIP.map((k) => (
-          <Button
-            key={k.key}
-            testID={`key-${k.key}`}
-            label={k.label}
-            disabled={!ctl.typing}
-            onPress={() => sendKeys.mutate({ agent: d.name, keys: [k.key] })}
-            style={{ flex: 1, paddingHorizontal: 0, paddingVertical: space.sm }}
-          />
-        ))}
-      </Row>
-      <Row style={{ padding: space.sm }}>
-        <TextInput
-          testID="composer"
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={submit}
-          editable={ctl.typing}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder={ctl.typing ? 'Type to the terminal' : 'Take control to type'}
-          placeholderTextColor={c.muted}
-          style={{ flex: 1, color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.md }}
-        />
-        <Button label="Send" onPress={submit} disabled={!ctl.typing} />
-      </Row>
-      {!!refused && (
-        <Text testID="composer-refused" style={{ color: c.wait, fontSize: 12, paddingHorizontal: space.sm }}>
-          {refused}
-        </Text>
-      )}
     </View>
   );
 }

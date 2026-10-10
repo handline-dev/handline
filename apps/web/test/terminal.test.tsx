@@ -7,7 +7,6 @@ import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { IDLE_MS } from '../src/useInputHold.ts';
 import { BytesTab } from '../src/BytesTab.tsx';
 import { guard, paint, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
@@ -258,50 +257,6 @@ describe('the pane', () => {
     m.net.down = false;
     await until(() => rows(m.term()).some((l) => l.includes('typed while away')), 'the repaint after reconnect');
     expect(box.querySelector('.xterm-pane.dim')).toBeNull();
-  });
-
-  it("takes the input by itself on the first key, sends what was typed in order, and ignores the terminal's own reports", async () => {
-    const m = await mount();
-    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
-    await act(async () => m.term().input('\x1b[<0;5;5M\x1b[I')); // a mouse and a focus report are not typing
-    expect(m.daemon.sessions.get(ARCH)!.holder.kind).toBe('daemon');
-    expect(m.daemon.sessions.get(ARCH)!.received).toEqual([]);
-    await act(async () => m.term().input('x'));
-    await act(async () => m.term().input('y')); // typed while the take is still going through
-    await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
-    await until(
-      () =>
-        m.daemon.sessions
-          .get(ARCH)!
-          .received.map((r) => r.value)
-          .join('') === 'xy',
-      'both keys, in order',
-    );
-    expect(box.querySelector('.take-confirm')).toBeNull();
-    await act(async () => m.term().input('z'));
-    await until(() => m.daemon.sessions.get(ARCH)!.received.some((r) => r.value === 'z'), 'a key while holding');
-  });
-
-  it('a key chip takes the input and sends its key', async () => {
-    const m = await mount();
-    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
-    await act(async () => box.querySelector<HTMLElement>('.chips .chip')!.click());
-    await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
-    await until(() => m.daemon.sessions.get(ARCH)!.received.length > 0, 'the key');
-  });
-
-  it('gives the input back after a quiet spell', async () => {
-    const m = await mount();
-    await until(() => m.term() && rows(m.term()).length > 0, 'the screen');
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      await act(async () => m.term().input('x'));
-      await until(() => m.daemon.sessions.get(ARCH)!.holder.kind !== 'daemon', 'the hold');
-      await act(async () => void (await vi.advanceTimersByTimeAsync(IDLE_MS + 500)));
-      await until(() => m.daemon.sessions.get(ARCH)!.holder.kind === 'daemon', 'the input given back');
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('shows a skeleton of the screen while the first attach is pending, never a blank pane', async () => {

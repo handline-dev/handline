@@ -157,7 +157,7 @@ describe('terminal tab', () => {
   it('shows its skeleton while the terminal attaches, then the grid', async () => {
     const s = setup({ daemon: { transcript: false } }); // the auditor is a terminal agent here
     await mount(ARCH, s);
-    await until(() => $('.term-bar'), 'the terminal tab');
+    await until(() => $('.terminal-tab'), 'the terminal tab');
     s.daemon.knobs.latency(500);
     await act(async () => {
       location.hash = `#/agents/handline.auditor`;
@@ -168,42 +168,4 @@ describe('terminal tab', () => {
     expect($('.grid-skeleton .skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => text($('.grid')).includes('Claude Code') && !$('.grid-skeleton .skeleton'), 'the grid, the skeleton gone', 200);
   }, 15000);
-
-  const holder = () => $('.term-bar .holder');
-  const held = (who: string) => !!holder()?.getAttribute('aria-label')?.startsWith(`Input: ${who}`);
-
-  it('the holder icon takes and gives back the input as decided writes: it is busy meanwhile, then the holder changes', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => held('daemon') && !holder()!.hasAttribute('disabled'), 'the daemon holding, the icon ready');
-    const takes = s.daemon.knobs.hold('input.take'); // held open, so the pending mark does not depend on timing
-    await click(holder()!);
-    await until(() => holder()!.hasAttribute('disabled'), 'the pending mark');
-    expect(held('daemon')).toBe(true);
-    takes();
-    await until(() => held('YOU'), 'holding the input', 600);
-    await until(() => !holder()!.hasAttribute('disabled'), 'the icon free again', 600);
-    await click(holder()!);
-    await until(() => held('daemon'), 'released', 600);
-  });
-
-  it("a refused take shows the daemon's sentence and the icon is back", async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('input.take', 'input_holder', 'Someone else holds the keyboard', 'ask them to release');
-    await mount(ARCH, s);
-    await until(() => held('daemon') && !holder()!.hasAttribute('disabled'), 'the daemon holding, the icon ready');
-    await wait(200); // the first reads settle, so the click is not eaten by a re-render
-    await click(holder()!);
-    await until(() => $('.toast'), 'the toast');
-    expect(text($('.toast'))).toContain('Someone else holds the keyboard (ask them to release)');
-    expect(holder()!.hasAttribute('disabled')).toBe(false);
-  });
-
-  it('a key chip takes the keyboard first, then sends the key', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => $$('.chip').length && !$('.chip')!.hasAttribute('disabled'), 'chips on');
-    await click($$('.chip').find((b) => text(b) === 'Esc')!);
-    await until(() => held('YOU'), 'holding the input');
-  });
 });

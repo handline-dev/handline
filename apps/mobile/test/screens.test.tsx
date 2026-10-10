@@ -40,24 +40,6 @@ describe('the agent page', () => {
     await until(() => $('tab-terminal') && $('skeleton-agentDetail') === null, 'the page', 5000);
     m.store.stop();
   });
-
-  it('shows a pending mark at once for a decided write and drops it, with the reason, on a refusal', async () => {
-    const m = await mount();
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
-    await until(() => $('take'), 'Take control');
-    const before = $('holder')?.textContent;
-    m.daemon.knobs.latency(400);
-    m.daemon.knobs.refuse('input.take', 'input_holder', 'someone else holds the input', 'ask them to release');
-    await press($('take'));
-    await until(() => $('holder')?.textContent?.includes('taking…'), 'the pending mark', 300); // well before the daemon answers (400 ms)
-    await until(() => text().includes('someone else holds the input'), 'the reason', 3000);
-    await until(() => !$('holder')?.textContent?.includes('taking…'), 'the mark to go');
-    expect($('holder')?.textContent).toBe(before); // nothing was faked, so nothing to put back
-    m.store.stop();
-  });
 });
 
 describe('the permission card', () => {
@@ -67,9 +49,6 @@ describe('the permission card', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('tab-terminal'), 'the page');
     await press($('tab-terminal'));
-    await until(() => $('take'), 'Take control');
-    await press($('take'));
-    await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
     await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // the scripted turn: thinking, a line, then the prompt
     await until(() => $('prompt-card'), 'the card');
@@ -83,49 +62,6 @@ describe('the permission card', () => {
     expect($('answer-1')?.getAttribute('aria-disabled')).not.toBe('true');
     m.store.stop();
   }, 20000);
-});
-
-describe('typing in the terminal', () => {
-  const REFUSAL = 'its screen could not be read';
-  async function typing(m: Awaited<ReturnType<typeof mount>>) {
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
-    await until(() => $('take'), 'Take control');
-    await press($('take'));
-    await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
-    m.daemon.knobs.refuse('session.input', 'screen_blocker', REFUSAL, 'use session.keys or prompt.answer');
-    const composer = $('composer') as HTMLInputElement;
-    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    await act(async () => {
-      set.call(composer, 'run the tests');
-      composer.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await press([...box.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === 'Send') ?? null);
-    return composer;
-  }
-
-  it('types as bytes when the daemon serves them, so a refused session.input does not stop it', async () => {
-    const m = await mount();
-    const composer = await typing(m);
-    await until(
-      () => m.daemon.sessions.get(ARCH)!.received.some((r) => r.kind === 'text' && r.value === 'run the tests'),
-      'the typed line',
-    );
-    expect($('composer-refused')).toBeNull();
-    expect(composer.value).toBe('');
-    m.store.stop();
-  });
-
-  it('shows the daemon’s refusal where it typed and keeps the text when only session.input is offered', async () => {
-    const m = await mount(() => {}, { bytes: false });
-    const composer = await typing(m);
-    await until(() => $('composer-refused'), 'the refusal');
-    expect($('composer-refused')!.textContent).toContain(REFUSAL);
-    expect(composer.value).toBe('run the tests');
-    m.store.stop();
-  });
 });
 
 const tab = (name: string) => press($(`nav-${name}`));
@@ -258,9 +194,6 @@ describe('the styled terminal', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('tab-terminal'), 'the page');
     await press($('tab-terminal'));
-    await until(() => $('take'), 'Take control');
-    await press($('take'));
-    await until(() => $('holder')?.textContent?.includes('YOU'), 'the hold');
     await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick()));
     await until(() => $('terminal-text')?.textContent?.includes('> push the branch'), 'the typed line');
