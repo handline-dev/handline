@@ -54,7 +54,7 @@ export interface FakeDaemonOptions {
   now?: () => Date;
   accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
   transcript?: boolean; // serve the transcript stream (default); false is a daemon that does not yet
-  admin?: boolean; // serve stats, outlook, settings and standing answers (default); false is a daemon that does not yet
+  admin?: boolean; // serve stats, outlook, settings, standing answers, repos and worktrees (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
   bytes?: boolean; // offer the bytes terminal format (default); false is a daemon that serves text only
@@ -260,7 +260,7 @@ export class FakeDaemon {
     c.transport.send(JSON.stringify({ jsonrpc: '2.0', id, ...body }));
   }
   private fail(e: Failure): Body {
-    return { error: { code: RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
+    return { error: { code: e.rpc ?? RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
   }
 
   private onMessage(c: Conn, line: string) {

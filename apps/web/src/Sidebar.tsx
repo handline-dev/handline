@@ -27,7 +27,19 @@ import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
 import { useNow } from './Gauge.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { setting } from './daemon.ts';
-import { goAgent, goInbox, goSettings, goTasks, goTeam, useAccountsRoute, useInboxRoute, usePageRoute, useTeamRoute } from './route.ts';
+import {
+  goAgent,
+  goInbox,
+  goSettings,
+  goTasks,
+  goTeam,
+  goWorktrees,
+  useAccountsRoute,
+  useInboxRoute,
+  usePageRoute,
+  useTeamRoute,
+  useWorktreesRoute,
+} from './route.ts';
 import { View } from './View.tsx';
 
 export function Sidebar({
@@ -68,6 +80,8 @@ export function Sidebar({
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
   const onAccounts = useAccountsRoute().open;
+  const onWorktrees = useWorktreesRoute().open;
+  const worktreesServed = useServes('worktrees.list').served;
   const pageRoute = usePageRoute();
   const onPage = onAccounts ? 'accounts' : pageRoute;
   return (
@@ -92,6 +106,15 @@ export function Sidebar({
         <button className={`nav${onTeam ? ' on' : ''}`} onClick={() => goTeam(hr ? 'hr' : 'team')}>
           <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
         </button>
+        {worktreesServed ? (
+          <button
+            className={`nav${onWorktrees ? ' on' : ''}`}
+            aria-current={onWorktrees ? 'page' : undefined}
+            onClick={() => goWorktrees()}
+          >
+            <Icon name="worktrees" size={14} aria-hidden /> Worktrees
+          </button>
+        ) : null}
         <button className={`nav${onPage === 'accounts' ? ' on' : ''}`} onClick={() => void (location.hash = '#/accounts')}>
           <Icon name="accounts" size={14} aria-hidden /> Accounts
         </button>

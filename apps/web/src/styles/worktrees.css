@@ -1,0 +1,140 @@
+/* ---- Worktrees (docs/design/new-agent-worktrees.md §2) ---- */
+.worktrees {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--sp-5) var(--sp-7);
+}
+.wt-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5) 0;
+}
+.wt-head h2 {
+  margin: 0 var(--sp-4) 0 0;
+  font: var(--t-title);
+}
+.wt-old {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.wt-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+.wt-body.with-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+}
+.wt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.wt-table th {
+  text-align: left;
+  font: var(--t-label);
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+  padding: var(--sp-4);
+}
+.wt-table td {
+  height: var(--trow-h);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  font: var(--t-body);
+}
+.wt-table tr.on {
+  background: var(--panel);
+}
+.wt-status {
+  font: var(--t-label);
+  color: var(--ink-2);
+}
+.wt-status.s-in-progress {
+  color: var(--run);
+}
+.wt-status.s-in-review {
+  color: var(--wait);
+}
+.wt-status.s-blocked {
+  color: var(--block);
+}
+.wt-none {
+  display: grid;
+  justify-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-7) 0;
+}
+.wt-panel {
+  display: grid;
+  gap: var(--sp-5);
+  padding: var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--panel);
+  min-width: 0;
+}
+.wt-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.wt-panel dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-3) var(--sp-5);
+  margin: 0;
+}
+.wt-panel dt {
+  color: var(--ink-3);
+}
+.mono {
+  font-family: var(--mono);
+}
+.wt-panel dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wt-files {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--t-body);
+}
+.wt-files caption {
+  text-align: left;
+  padding-bottom: var(--sp-3);
+}
+.wt-files td {
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.wt-files .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.wt-letter {
+  font-weight: 600;
+  width: 1.5em;
+}
+.wt-diff {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  font: var(--t-mono);
+}
+@media (max-width: 760px) {
+  .wt-body.with-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
