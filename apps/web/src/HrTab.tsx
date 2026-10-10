@@ -37,7 +37,8 @@ export function HrTab({ focus }: { focus: number | null }) {
   const founder = store.client.hello?.role === 'founder';
   const narrow = useNarrow();
   const decide = useWrite('hr.decide');
-  const [all, setAll] = useState<'ask' | string | null>(null);
+  const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
+  const [why, setWhy] = useState('');
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
   const decider = founder && !narrow;
@@ -55,15 +56,36 @@ export function HrTab({ focus }: { focus: number | null }) {
     setAll(ok === todo.length ? null : `${ok} of ${todo.length} approved`);
     void q.refetch();
   };
+  const rejectAll = async () => {
+    const todo = waiting;
+    const note = why.trim();
+    let ok = 0;
+    for (const p of todo) {
+      try {
+        await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
+        ok++;
+      } catch {
+        // the card shows its own refusal; the others go on
+      }
+    }
+    setWhy('');
+    setAll(ok === todo.length ? null : `${ok} of ${todo.length} rejected`);
+    void q.refetch();
+  };
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
       <div className="hr">
         <div className="hr-head">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
-          {decider && waiting.length > 1 && all !== 'ask' ? (
-            <button className="btn" onClick={() => setAll('ask')}>
-              Approve all
-            </button>
+          {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
+            <span className="verb-sheet-actions">
+              <button className="btn" onClick={() => setAll('ask')}>
+                Approve all
+              </button>
+              <button className="btn" onClick={() => setAll('reject')}>
+                Reject all
+              </button>
+            </span>
           ) : null}
         </div>
         {all === 'ask' ? (
@@ -73,6 +95,19 @@ export function HrTab({ focus }: { focus: number | null }) {
             <span className="verb-sheet-actions">
               <button className="btn primary" onClick={() => void approveAll()}>
                 Approve all
+              </button>
+              <button className="btn" onClick={() => setAll(null)}>
+                Cancel
+              </button>
+            </span>
+          </div>
+        ) : all === 'reject' ? (
+          <div className="verb-sheet" role="alertdialog" aria-label="Reject all">
+            <strong>Reject all {waiting.length}?</strong>
+            <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
+            <span className="verb-sheet-actions">
+              <button className="btn primary" disabled={!why.trim()} onClick={() => void rejectAll()}>
+                Reject all
               </button>
               <button className="btn" onClick={() => setAll(null)}>
                 Cancel

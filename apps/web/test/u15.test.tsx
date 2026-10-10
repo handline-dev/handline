@@ -169,6 +169,20 @@ describe('U15 HR', () => {
     expect(btn(card(2), 'Retry')).toBeTruthy();
   });
 
+  it('Reject all needs a reason, then rejects every waiting proposal with it', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    const b = raise(s, 2);
+    await open(s);
+    await until(() => $$('.hr-card').length === 2, 'two cards');
+    await click($$('button').find((x) => text(x) === 'Reject all')!);
+    const go = $$('.verb-sheet button').find((x) => text(x) === 'Reject all') as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+    await typeInto($('.verb-sheet input'), 'not this quarter');
+    await click($$('.verb-sheet button').find((x) => text(x) === 'Reject all')!);
+    await until(() => a.state === 'rejected' && b.state === 'rejected', 'both rejected');
+  });
+
   it('Withdraw asks first, then takes the proposal back', async () => {
     const s = setup();
     const p = raise(s, 1);
