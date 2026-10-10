@@ -177,4 +177,14 @@ describe('X1 Worktrees', () => {
     await until(() => rows().length === 2, 'the fresh rows');
     expect($('.wt-old')).toBeNull();
   });
+
+  it('shows the refusal and not "No worktree at …" for a deep link when the list is refused', async () => {
+    const s = setup();
+    s.daemon.knobs.refuse('worktrees.list', 'state', 'the worktree scan failed');
+    await mount(`#/worktrees/${encodeURIComponent('/work/spare')}`, s);
+    await until(() => $('.worktrees .banner'), 'the banner');
+    expect(text($('.worktrees .banner'))).toContain('the worktree scan failed');
+    expect($('.wt-panel')).toBeNull();
+    expect(text($('.worktrees'))).not.toContain('No worktree at');
+  });
 });

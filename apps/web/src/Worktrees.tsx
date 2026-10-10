@@ -191,7 +191,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
               </tbody>
             </table>
           )}
-          {path ? <WorktreePanel worktree={open} path={path} all={all} moves={moves} onClose={() => goWorktrees()} /> : null}
+          {path && q.data ? <WorktreePanel worktree={open} path={path} all={all} moves={moves} onClose={() => goWorktrees()} /> : null}
         </div>
       </View>
     </section>

@@ -127,12 +127,6 @@
   font-weight: 600;
   width: 1.5em;
 }
-.wt-diff {
-  margin: 0;
-  max-height: 50vh;
-  overflow: auto;
-  font: var(--t-mono);
-}
 @media (max-width: 760px) {
   .wt-body.with-panel {
     grid-template-columns: minmax(0, 1fr);
