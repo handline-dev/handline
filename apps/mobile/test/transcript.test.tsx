@@ -2,6 +2,7 @@ import { act } from 'react';
 import { Alert } from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
 import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 const open = async (m: Awaited<ReturnType<typeof mount>>, agent = AUD) => {
@@ -233,7 +234,7 @@ describe('a refused transcript read of a structured agent', () => {
 });
 
 describe('tool output in the chat', () => {
-  const tool = (extra: object) => (s: { daemon: { chat: { seedItem: (a: string, i: object) => void } } }) =>
+  const tool = (extra: object) => (s: ReturnType<typeof setup>) =>
     s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'seq 1 10', ...extra });
   const chat = async (extra: object) => {
     const m = await mount(tool(extra), undefined, 'founder');
