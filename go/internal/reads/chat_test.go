@@ -2,6 +2,9 @@ package reads
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +89,82 @@ func TestChatTranscriptServesAToolCallWithItsOutput(t *testing.T) {
 	}
 	if _, has := tools[1]["dropped_lines"]; has {
 		t.Fatalf("%v", tools[1])
+	}
+}
+
+func TestAPageCarriesAtMostTheOutputBudgetAndSaysWhatItCut(t *testing.T) {
+	big := strings.Repeat("x", 800<<10) + "\n"
+	items := []map[string]any{
+		{"id": int64(1), "output": big + "tail\n", "dropped_lines": int64(3)},
+		{"id": int64(2), "output": big},
+		{"id": int64(3), "output": big},
+		{"id": int64(4), "kind": "reply"},
+	}
+	fitToolOutput(items)
+	total := 0
+	for _, it := range items {
+		if o, ok := it["output"].(string); ok {
+			total += len(o)
+		}
+	}
+	if total > toolOutputBudget {
+		t.Fatalf("%d bytes", total)
+	}
+	if items[2]["output"] != big || items[1]["output"] != big || items[1]["dropped_lines"] != nil {
+		t.Fatal("the newest items keep what fits")
+	}
+	if o := items[0]["output"].(string); len(o) != toolOutputBudget-2*len(big) || items[0]["dropped_lines"] != int64(3+2) {
+		t.Fatalf("the oldest is cut to what is left, and the count it came with grows by the lines left out: %d %v", len(o), items[0]["dropped_lines"])
+	}
+}
+
+func TestPagingBackThroughToolCallsThatShareASecondServesEachOnce(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for i, at := range []int{101, 102, 103, 104, 105, 105} { // parallel calls share a second
+		body := fmt.Sprintf(`{"tool_use":{"id":"u%d","tool":"Bash","input":{"command":"c%d"}}}`, i, i)
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, ?, 'tool_use', NULL, ?)`, i+1, at, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var seen []string
+	params := map[string]any{"agent": "bob", "limit": json.Number("2")}
+	for pages := 0; pages < 5; pages++ {
+		got, err := e.chatTranscript(nil, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page := got.(map[string]any)
+		items := page["items"].([]any)
+		var texts []string
+		for _, it := range items {
+			texts = append(texts, it.(map[string]any)["text"].(string))
+		}
+		seen = append(texts, seen...)
+		if page["more"] != true {
+			break
+		}
+		params = map[string]any{"agent": "bob", "limit": json.Number("2"), "before": json.Number(strconv.FormatInt(items[0].(map[string]any)["id"].(int64), 10))}
+	}
+	if strings.Join(seen, " ") != "c0 c1 c2 c3 c4 c5" {
+		t.Fatalf("%v", seen)
+	}
+}
+
+func TestSinceServesEveryToolCallFromItsSecondUpToWhatAPageKeeps(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for i := 0; i < 60; i++ { // more than a default page of 50 calls in one second
+		body := fmt.Sprintf(`{"tool_use":{"id":"u%d","tool":"Bash","input":{"command":"c%d"}}}`, i, i)
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, 500, 'tool_use', NULL, ?)`, i+1, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatTranscript(nil, map[string]any{"agent": "bob", "since": json.Number("500000000")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(got.(map[string]any)["items"].([]any)); n != 60 {
+		t.Fatalf("%d of 60 calls", n)
 	}
 }
