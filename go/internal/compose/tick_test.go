@@ -367,7 +367,7 @@ func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
 	key := "stopped_told:fatal:alice"
 	tick := func() {
 		t.Helper()
-		if _, err := p.Tick(p.Run.cfg, TickConfig{}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
+		if _, err := p.Tick(p.Run.cfg, TickConfig{Cutover: true}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
 			t.Fatal(err)
 		}
 	}
