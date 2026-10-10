@@ -38,7 +38,7 @@ import (
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
-// daemonLock is the name of the singleton the Python daemon holds (handline/daemon/locks.py DAEMON_LOCK).
+// daemonLock is the name of the singleton the Python daemon also holds (handline/daemon/locks.py DAEMON_LOCK).
 const daemonLock = "daemon"
 
 // structuredLock is the singleton of the process that runs the structured sessions of a home. The agent lock that keeps a session to one
@@ -69,10 +69,14 @@ type Config struct {
 	WebDir      string   // the built web UI the listener serves on its own origin; empty serves none
 	Advertise   string   // the host:port a pairing code names, when it differs from where the listener binds
 
-	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. It takes the daemon singleton the
-	// Python daemon holds, so it does not start beside one; without it the rows are the other daemon's and are only read.
+	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. Without it the rows are only read.
+	// Every daemon but a gateway takes the daemon singleton, so none starts beside a Python daemon.
 	OwnPrompts bool
 	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
+
+	// EnsureFounderKey makes the founder key when there is none and reports whether the store could be written (the daemon main sets it
+	// to the home's tokens: the store is outside the home, so a test leaves it nil).
+	EnsureFounderKey func() bool
 
 	// LandRepo is the repository main is checked out in, for the land verbs; empty reads OCP_LAND_REPO and refuses a land with none.
 	LandRepo string
@@ -123,7 +127,7 @@ type Daemon struct {
 	logins  *weblogin.Manager // the web logins; nil in a gateway
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
-	single  *lock.Hold        // the daemon singleton, held while this daemon watches screens
+	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
 	running *lock.Hold        // the structured singleton, held while this daemon runs structured sessions
 	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
@@ -204,10 +208,14 @@ func Start(cfg Config) (*Daemon, error) {
 		}
 		d.pidFile = pid
 	}
-	if cfg.OwnPrompts && d.prompts != nil {
+	if !cfg.Gateway {
 		if d.single = lock.TakeSingleton(cfg.Home, daemonLock); d.single == nil {
 			db.Close()
-			return nil, errors.New("another daemon holds this home: not starting a second screen watch")
+			return nil, errors.New("another daemon holds this home: not starting a second")
+		}
+		// Before the socket takes a call: without the founder key it would serve no founder call.
+		if cfg.EnsureFounderKey != nil && !cfg.EnsureFounderKey() {
+			cfg.Log("founder key: could not make one - the socket will serve no founder call")
 		}
 	}
 	if cfg.Structured != nil {
@@ -282,7 +290,7 @@ func Start(cfg Config) (*Daemon, error) {
 			w.Run(d.stop)
 		}()
 	}
-	if d.single != nil {
+	if cfg.OwnPrompts && d.prompts != nil {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()

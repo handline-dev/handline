@@ -18,7 +18,7 @@ One extra process beside the Python daemon, which keeps the socket, the gateway 
   (`compose/tick.go` `tickUsage.own`, `tickObserve.own`: burn file, `usage_samples`, token log). With it the Go tick owns the usage poll, every `agent_view` row and the stream rows, which Python also writes.
   The `-structured-tick` flag text ("the Python daemon must not tick beside it") is true only with `-cutover`.
 - **A socket of its own.** `daemon.sock` is Python's: Go refuses to start when something answers there (`daemon.listenUnix`). `hl` knows only `daemon.sock` (no route yet).
-- **No `-gateway`, no `-own-prompts`.** The second takes `locks/daemon.lock`, which Python holds.
+- **Not beside a running Python daemon.** Go takes `locks/daemon.lock` (a gateway excepted), which Python holds, and refuses to start without it.
 - **Same checkout for both.** Go migrates `db.sqlite` to its own latest schema (`store.Open`). Build it with `tools/build-go.sh` from the commit Python runs.
 - Python leaves the agent alone when `agent.yaml` has the top-level line `structured: true` (`team/agents.py is_structured`: tick, delivery, wake, close, handoff, view row, task clock; `tests/daemon/test_structured_skip.py`).
   The key is `structured`, not `mode` (that is the permission mode).

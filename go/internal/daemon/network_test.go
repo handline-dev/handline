@@ -245,7 +245,8 @@ func TestTheCertificateOutlivesARestartAndNothingListensByDefault(t *testing.T) 
 		t.Fatal("a restart changed the certificate a device pinned")
 	}
 	cfg.Listen = ""
-	off, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db2.sqlite")})
+	other := homeDir(t) // one daemon to a home
+	off, err := Start(Config{Home: other, DBFile: filepath.Join(other, "db.sqlite")})
 	if err != nil {
 		t.Fatal(err)
 	}

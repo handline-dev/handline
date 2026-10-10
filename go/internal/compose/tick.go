@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -29,6 +30,9 @@ type Tick struct {
 
 	dev       *tick.DevMode
 	restarted bool
+	// Startup is loop.py's start, run once before the first tick: reconcile, bring up the agents with work waiting, settle old messages,
+	// and try every pending one.
+	Startup func()
 }
 
 // Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
@@ -132,7 +136,26 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			return false
 		}
 	}}
-	return &Tick{Tick: t, Loop: loop, dev: dev}
+	startup := func() {
+		logLine("daemon starting - reconciling")
+		actions, err := reconciler.Reconcile()
+		for _, a := range actions {
+			logLine("  " + a)
+		}
+		if err != nil {
+			logLine(fmt.Sprintf("  reconcile: %v", err))
+		}
+		for _, a := range t.StartWaiting() {
+			logLine("  " + a)
+		}
+		if err := env.MigrateOldMessages(q); err != nil {
+			logLine(fmt.Sprintf("  migrate old messages: %v", err))
+		}
+		if err := env.ReloadPending(q); err != nil {
+			logLine(fmt.Sprintf("  reload pending: %v", err))
+		}
+	}
+	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
 }
 
 // Start runs the loop until Stop closes and returns a channel that closes when the tick in hand has finished. The daemon closes the
@@ -141,6 +164,9 @@ func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
 	go func() {
 		defer close(d)
+		if t.Startup != nil {
+			t.Startup()
+		}
 		t.restarted = t.Loop.Run(nil)
 	}()
 	return d
