@@ -342,17 +342,47 @@ work is paused, not the plan.
 | Hook spool ingest | `daemon/daemon.go` `spoolLoop`, `hooks/spool.go` | `hooks/hooks_test.go` | done |
 | Stream detectors (agents, notifications, chat, hr, tasks, inbox) | `watcher/*.go` | `watcher/*_test.go`, `watcher/parity_test.go` | done (with `-cutover`) |
 | Relay socket and `-gateway` | `daemon/gateway.go`, `daemon/network.go` | `daemon/gateway_test.go`, `daemon/network_test.go` | dropped: the Go daemon is the daemon and serves `-listen` itself |
-| Notice digest and stopped-agent notices | `supervisor/digest.go` `SweepNotices` | `supervisor/more_test.go` | unwired |
-| Task queue sweep, task holds sweep | `supervisor/queue.go`, `supervisor/holds.go` | `supervisor/tasks_test.go`, `supervisor/sweeps_test.go` | unwired |
-| Subscription endings and plan check | `subscriptions/subscriptions.go` `Sweep` | `subscriptions/subscriptions_test.go` | unwired |
-| Startup: `reconcile`, `migrate_old_messages`, `start_waiting`, `reload_pending`, founder key, daemon singleton | `lifecycle/reconciler.go`, `supervisor/messaging.go`, `tick/evaluate.go`, `sessiontoken` | the units only; `daemon/ownprompts_test.go` for the lock | unwired |
-| Loop extras: dev-mode restart, log rotation, fd check, scratch sweep, SIGUSR1 stack dump, account relink | `tick/devmode.go` (`Loop.Dev` unset), `Loop.Housekeeping` (empty), `Sweeps.RelinkAccounts` (nil) | `tick_test.go` `TestDevMode...` | unwired (rotation, fd check, scratch sweep, SIGUSR1: gap) |
-| Schedules runner (cron messages typed at agents) | writes only: `adminwrites/schedules.go` | none for running | gap |
-| Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
-| Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
+| Notice digest and stopped-agent notices | `supervisor/digest.go` `SweepNotices` | `supervisor/more_test.go`, `compose/tick_test.go` | done (with `-cutover`) |
+| Task queue sweep, task holds sweep | `supervisor/queue.go`, `supervisor/holds.go` | `supervisor/tasks_test.go`, `supervisor/sweeps_test.go` | done (with `-cutover`) |
+| Subscription endings and plan check | `subscriptions/subscriptions.go` `Sweep` | `subscriptions/subscriptions_test.go` | done (with `-cutover`) |
+| Startup: `reconcile`, `migrate_old_messages`, `start_waiting`, `reload_pending`, founder key, daemon singleton | `lifecycle/reconciler.go`, `supervisor/messaging.go`, `tick/evaluate.go`, `sessiontoken` | the units, `compose/tick_test.go` for the start order, `daemon/ownprompts_test.go` for the lock | done |
+| Loop extras: dev-mode restart, log rotation, fd check, scratch sweep, SIGUSR1 stack dump, account relink | `tick/devmode.go`, `housekeeping/` (log rotation, fd check, scratch sweep, SIGUSR1 stack dump), `Sweeps.RelinkAccounts` | `tick_test.go` `TestDevMode...`, the `housekeeping` tests | done |
+| Schedules runner (cron messages typed at agents) | `schedules/schedules.go`, `compose/passes.go`; writes in `adminwrites/schedules.go` | `schedules/schedules_test.go` | done |
+| Midnight rollover and `agent.fold` (the one model call) | `fold/fold.go`, `compose/tick.go` `Rollover`, `sessionrpc` `agent.fold` (shells to `hl fold`) | `fold/fold_test.go`, the `agent.fold` fixtures | done |
+| Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap, drafted: the login-expiry detector (`tick/login.go`, `compose/login.go`) is on a branch, not on main; it covers terminal agents too (note below), and landing it is the open piece (held by a person) |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
 | Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
-| Supervising terminal agents | `compose/termport.go`, `term/host.go` (the terminal port, landed) | | gap, in progress: the terminal tick (`-terminal-tick`), peer-inbox delivery, needs-you and `terminal.open` (from the needs-you spec) |
+| Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | gap, in progress: terminal rows of the agent view (slice 2b, not landed); the terminal tick, peer-inbox delivery, needs-you and `terminal.open` are on main |
+
+**Login expiry for terminal agents, without a screen.** The Python detector reads "Login expired" off
+the terminal because its docstring says no hook fires; the live record says otherwise. Each of the 7
+`login_expired` marks in the database has, a few seconds to three minutes before it and on the same agent
+and account, a `StopFailure` hook event whose `error` is `authentication_failed` (33 such events, all from
+terminal agents). Recommendation: that event is the witness, the same one the structured half uses
+(`handoff.AuthFailed` counts it only on the account it happened on and ends at the next
+`UserPromptSubmit`). It is the CLI's own word, arrives through the hook spool every terminal session already
+writes, and needs no screen, no transcript parse and no model call. The detector has no structured-only
+condition, so the work is not a second detector:
+
+- Land the login-expiry branch (`tick/login.go`, `compose/login.go`, the lift cursor). That is the whole
+  detector and the level-triggered move for a terminal agent as well.
+- The move of a terminal agent rides the terminal port, as the rate-limit move does; it is done when that
+  row is.
+- Tests: a conformance case that a `StopFailure` with `authentication_failed` on a terminal agent's
+  account marks it and moves the agent; one that the same failure left on the account it was moved from
+  marks nothing; one that a later `UserPromptSubmit` clears it (the Python screen guards for a young
+  session and a lifted stall map to these two).
+- Not chosen: the transcript tail (the same fact, later, parsed) and the hourly `claude auth status`
+  (an hour late, and it would mark accounts nobody is running on).
+- Known difference: a turn never refused (an idle agent on a dead login) shows neither a screen line nor a
+  hook, so Python and Go both see nothing until the next prompt.
+
+**What must hold at the cutover, in order.**
+
+1. Every row above is *done* or *dropped*; none is *gap* or *unwired*.
+2. The service swap and its rollback rehearsal have been run by a person outside the sandbox: Python
+   service off, Go service on, then back, with the database readable by both.
+3. The founder approves.
 
 After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
 daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen and answers no dialog
@@ -366,7 +396,7 @@ The service runs the daemon the `daemon_impl` setting names (`python`, the defau
 The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
 `-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
 other; the job's PATH holds python3's directory (the land verbs run `tools/localrefs.py`) and its environment carries
-`OCP_LAND_REPO`. `-terminal-tick` is not a flag of the binary yet; add it to `service.go_arguments` when it lands.
+`OCP_LAND_REPO`. `-terminal-tick` is a flag of the binary but is not yet in `service.go_arguments`; add it there before the swap.
 `hl service install` reads the setting once, so a change takes effect at the next install and not before.
 
 Rehearsal, on a scratch home and never the live service. The label keeps the rehearsal's job and plist apart from the live ones; the
