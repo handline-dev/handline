@@ -20,7 +20,7 @@ export function useWhyNot(method: string): string | null {
   return !open ? 'daemon not connected' : served ? null : `this daemon does not serve ${method}`;
 }
 
-function Input(props: {
+export function Input(props: {
   value: string;
   onChange: (v: string) => void;
   label: string;
@@ -284,39 +284,9 @@ export function useTaskPending(id: number): boolean {
     ...usePending('task.discard'),
     ...usePending('task.edit'),
     ...usePending('task.memo.add'),
+    ...usePending('task.memo.edit'),
+    ...usePending('task.memo.delete'),
   ].some(mine);
-}
-
-export function MemoBox({ id }: { id: number }) {
-  const c = usePalette();
-  const add = useWrite('task.memo.add', String(id));
-  const why = useWhyNot('task.memo.add');
-  const [text, setText] = useState('');
-  const send = () => {
-    if (!text.trim()) return;
-    // The text stays until the daemon accepts it.
-    add.mutateAsync({ task: id, text: text.trim() }).then(
-      () => setText(''),
-      () => {},
-    );
-  };
-  return (
-    <View style={{ gap: space.sm }}>
-      <TextInput
-        testID="memo-text"
-        accessibilityLabel="Memo"
-        placeholder="Add a memo"
-        placeholderTextColor={c.muted}
-        multiline
-        editable={!why}
-        value={text}
-        onChangeText={setText}
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 56 }}
-      />
-      <Button testID="memo-send" label="Add memo" disabled={!!why || !text.trim()} onPress={send} />
-      {why && <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text>}
-    </View>
-  );
 }
 
 /** New task: owner, title, body, time box, priority. The row shows in the list at once; a refusal leaves the text here with the reason. */

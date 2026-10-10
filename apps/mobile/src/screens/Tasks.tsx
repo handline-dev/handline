@@ -11,7 +11,8 @@ import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
-import { MemoBox, NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
+import { MemoBox, MemoRow } from './Memos.tsx';
+import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -209,7 +210,13 @@ function Body({ t }: { t: TaskDetail }) {
       {t.deliveries.length ? (
         <Section title="Delivery">{t.deliveries.map((d) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`))}</Section>
       ) : null}
-      {memos.length ? <Section title="Memos">{memos.map((m) => line(`${m.author} ${ago(m.at)}: ${m.text}`))}</Section> : null}
+      {memos.length ? (
+        <Section title="Memos">
+          {memos.map((m) => (
+            <MemoRow key={m.id} task={t.id} memo={m} when={ago(m.at)} />
+          ))}
+        </Section>
+      ) : null}
       <MemoBox id={t.id} />
       {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h) => line(`${h.from} → ${h.to}: ${h.note}`))}</Section> : null}
     </ScrollView>
