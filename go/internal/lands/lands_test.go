@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/store"
@@ -363,5 +365,26 @@ func TestTheJSONRPCMethodsTakeTheSameRulesAsTheLegacyVerbs(t *testing.T) {
 	}
 	if g := gate(call(7, "land.pass", fmt.Sprintf(pass, "p3"))); g != "session_token" {
 		t.Fatalf("the vouch is spent: gate %q", g)
+	}
+}
+
+func TestNoTransactionIsOpenWhileAMessageIsCheckedOrGitIsAsked(t *testing.T) {
+	r := newRig(t)
+	open := filepath.Join(t.TempDir(), "tx-open")
+	tools := filepath.Join(r.repo, "tools")
+	os.MkdirAll(tools, 0o755)
+	// main's localrefs.py, as the daemon runs it: it fails when the transaction's marker is there
+	script := "import os, sys\nsys.exit('a transaction is open' if os.path.exists(" + strconv.Quote(open) + ") else 0)\n"
+	os.WriteFile(filepath.Join(tools, "localrefs.py"), []byte(script), 0o644)
+	r.vouch("land_pass", r.sha, r.auditor)
+	r.s.Legacy(map[string]any{"verb": "land_pass", "agent": r.auditor, "sha": r.sha}, 20)
+	tx := func(fn func(db.Q) error) error {
+		os.WriteFile(open, nil, 0o644)
+		defer os.Remove(open)
+		return r.s.inTx(fn)
+	}
+	ok, said := r.s.run("land", map[string]any{"sha": r.sha, "message": "Merge the feature", "tree": r.tree}, r.merger, tx)
+	if !ok || !strings.Contains(said, "queued") {
+		t.Fatalf("%v %s", ok, said)
 	}
 }

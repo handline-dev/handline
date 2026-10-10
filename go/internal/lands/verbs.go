@@ -115,8 +115,12 @@ func (s *Service) authorize(payload map[string]any) map[string]any {
 // within runs fn in a transaction: one of its own, or the one a write call already holds.
 type within func(fn func(db.Q) error) error
 
-// run is a vouched verb of agent's own session.
-func (s *Service) run(verb string, p map[string]any, agent string, tx within) (bool, string) {
+// step is the part of a verb that reads and writes the database.
+type step func(q db.Q) (ok bool, said string, err error)
+
+// prepare is a vouched verb of agent's own session up to its transaction: every check that runs git or python, so that none runs with
+// the write lock held. The step is nil when the verb is refused, and said then says why.
+func (s *Service) prepare(verb string, p map[string]any, agent string) (do step, said string) {
 	need := func(keys ...string) (string, bool) {
 		for _, k := range keys {
 			if _, has := p[k]; !has {
@@ -127,45 +131,53 @@ func (s *Service) run(verb string, p map[string]any, agent string, tx within) (b
 	}
 	if verb == "land_pass" {
 		if said, ok := need("sha"); !ok {
-			return false, said
+			return nil, said
 		}
-		var ok bool
-		var said string
-		err := tx(func(q db.Q) (err error) {
-			ok, said, err = s.RecordPass(q, pyStr(p["sha"]), agent)
-			return err
-		})
-		if err != nil {
-			return false, verb + ": " + err.Error()
+		full, why := s.PreparePass(pyStr(p["sha"]), agent)
+		if full == "" {
+			return nil, why
 		}
-		return ok, said
+		return func(q db.Q) (bool, string, error) { return s.recordPass(q, full, agent) }, ""
 	}
 	if said, ok := need("sha", "message"); !ok {
-		return false, said
+		return nil, said
 	}
 	message, isText := p["message"].(string)
 	tree, treeText := p["tree"].(string)
 	if !isText || (p["tree"] != nil && !treeText) {
-		return false, verb + ": message and tree are text"
+		return nil, verb + ": message and tree are text"
 	}
-	in := RequestIn{Sha: pyStr(p["sha"]), Message: message, Tree: tree, Caller: agent, Fix: p["fix"], Squash: truthy(p["squash"])}
-	var queued *Queued
-	var why, said string
-	var err error
-	if err = tx(func(q db.Q) error {
-		queued, why, err = s.Check(q, in)
+	prepared, why := s.Prepare(RequestIn{Sha: pyStr(p["sha"]), Message: message, Tree: tree, Caller: agent, Fix: p["fix"], Squash: truthy(p["squash"])})
+	if prepared == nil {
+		return nil, why
+	}
+	return func(q db.Q) (bool, string, error) {
+		queued, why, err := s.Check(q, prepared)
 		if err != nil || queued == nil {
-			return err
+			return false, why, err
 		}
-		said, err = s.Queue(q, queued)
+		said, err := s.Queue(q, queued)
+		return err == nil, said, err
+	}, ""
+}
+
+// run is a vouched verb of agent's own session.
+func (s *Service) run(verb string, p map[string]any, agent string, tx within) (bool, string) {
+	do, said := s.prepare(verb, p, agent)
+	if do == nil {
+		return false, said
+	}
+	return s.finish(verb, do, tx)
+}
+
+func (s *Service) finish(verb string, do step, tx within) (ok bool, said string) {
+	if err := tx(func(q db.Q) (err error) {
+		ok, said, err = do(q)
 		return err
 	}); err != nil {
 		return false, verb + ": " + err.Error()
 	}
-	if queued == nil {
-		return false, why
-	}
-	return true, said
+	return ok, said
 }
 
 // inTx is a transaction of its own over the database.
@@ -265,12 +277,16 @@ func (s *Service) landCall(verb string) func(*rpc.Conn, map[string]any) (any, er
 				}
 			}
 		}
+		if !s.Grants.Take(agent, verb, sha) {
+			return nil, rpc.Refused(verb+" is accepted only from the session's own `hl land` command, not from other code it runs (a test run, a script)",
+				"session_token", "")
+		}
+		do, said := s.prepare(verb, payload, agent) // before the write transaction: git and python run in it
+		if do == nil {
+			return nil, rpc.Refused(said, "state", "")
+		}
 		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			if !s.Grants.Take(agent, verb, sha) {
-				return nil, rpc.Refused(verb+" is accepted only from the session's own `hl land` command, not from other code it runs (a test run, a script)",
-					"session_token", "")
-			}
-			ok, said := s.run(verb, payload, agent, func(fn func(db.Q) error) error { return fn(tx) })
+			ok, said := s.finish(verb, do, func(fn func(db.Q) error) error { return fn(tx) })
 			if !ok {
 				return nil, rpc.Refused(said, "state", "")
 			}

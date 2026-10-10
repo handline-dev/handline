@@ -101,6 +101,11 @@ func (s *Service) git(cwd string, args ...string) gitrun.Result {
 	return gitrun.RunTimeout(cwd, gitLimit, args...)
 }
 
+// scratchGit is git in the scratch worktree with no hooks: the daemon runs outside every sandbox, and a hook is code of the repository.
+func (s *Service) scratchGit(cwd string, args ...string) gitrun.Result {
+	return s.git(cwd, append([]string{"-c", "core.hooksPath=/dev/null"}, args...)...)
+}
+
 // commitOf is the full sha of the commit sha names in the repository, or why it is none.
 func (s *Service) commitOf(sha string) (full, why string) {
 	if sha == "" || strings.HasPrefix(sha, "-") { // a sha is not an option to rev-parse
@@ -174,19 +179,28 @@ func IsAuditor(agent string) bool {
 	return auditorName.MatchString(agent[strings.LastIndex(agent, ".")+1:])
 }
 
-// RecordPass is the auditor's PASS for sha, from the auditor of any team.
-func (s *Service) RecordPass(q db.Q, sha, caller string) (bool, string, error) {
+// PreparePass is the full sha an auditor's PASS names, or why the caller may not pass it: the part that needs no database.
+func (s *Service) PreparePass(sha, caller string) (full, why string) {
 	if !IsAuditor(caller) {
 		who := caller
 		if who == "" {
 			who = "someone else"
 		}
-		return false, who + " may not record a PASS; the auditor does", nil
+		return "", who + " may not record a PASS; the auditor does"
 	}
-	full, why := s.commitOf(sha)
+	return s.commitOf(sha)
+}
+
+// RecordPass is the auditor's PASS for sha, from the auditor of any team.
+func (s *Service) RecordPass(q db.Q, sha, caller string) (bool, string, error) {
+	full, why := s.PreparePass(sha, caller)
 	if full == "" {
 		return false, why, nil
 	}
+	return s.recordPass(q, full, caller)
+}
+
+func (s *Service) recordPass(q db.Q, full, caller string) (bool, string, error) {
 	if _, err := q.Exec("INSERT OR REPLACE INTO land_passes(sha, by, ts) VALUES(?, ?, ?)", full, caller, s.now().Unix()); err != nil {
 		return false, "", err
 	}
@@ -247,33 +261,51 @@ type Queued struct {
 	Files map[string]string
 }
 
-// Check is every refusal a land has, in Python's order. A nil *Queued comes with the why.
-func (s *Service) Check(q db.Q, in RequestIn) (*Queued, string, error) {
+// Prepared is a land that passed the checks that read no database: those run git and python, and the caller runs them before it opens
+// a write transaction, which they would otherwise hold open for as long as they take.
+type Prepared struct {
+	In     RequestIn
+	Full   string
+	Files  map[string]string
+	OnMain bool
+}
+
+// Prepare is the refusals a land has that need no database, in Python's order. A nil *Prepared comes with the why.
+func (s *Service) Prepare(in RequestIn) (*Prepared, string) {
 	if in.Caller != Merger {
 		who := in.Caller
 		if who == "" {
 			who = "someone else"
 		}
-		return nil, who + " may not land a branch; the merger does", nil
+		return nil, who + " may not land a branch; the merger does"
 	}
 	message := strings.TrimSpace(in.Message)
 	if message == "" || strings.TrimSpace(in.Tree) == "" {
-		return nil, "a land needs the merge message and the tree the test saw: use `hl land --check <sha>`, then `hl land <sha> <message> --tree <tree>`", nil
+		return nil, "a land needs the merge message and the tree the test saw: use `hl land --check <sha>`, then `hl land <sha> <message> --tree <tree>`"
 	}
 	if why := s.messageRefusal(message); why != "" {
-		return nil, "the merge message carries personal data or a local id: " + why, nil
+		return nil, "the merge message carries personal data or a local id: " + why
 	}
 	var files map[string]string
 	if in.Fix != nil {
 		var why string
 		if files, why = s.fixRefusal(in.Fix); why != "" {
-			return nil, why, nil
+			return nil, why
 		}
 	}
 	full, why := s.commitOf(in.Sha)
 	if full == "" {
-		return nil, why, nil
+		return nil, why
 	}
+	in.Message, in.Tree = message, strings.TrimSpace(in.Tree)
+	// Asked here, refused in Check after the PASS and the once-only rules, whose words say more about a sha already landed.
+	onMain := s.git("", "merge-base", "--is-ancestor", full, "main").RC == 0
+	return &Prepared{In: in, Full: full, Files: files, OnMain: onMain}, ""
+}
+
+// Check is the refusals of a prepared land that read the database. A nil *Queued comes with the why.
+func (s *Service) Check(q db.Q, p *Prepared) (*Queued, string, error) {
+	full := p.Full
 	var one int
 	switch err := q.QueryRow("SELECT 1 FROM land_passes WHERE sha = ?", full).Scan(&one); err {
 	case nil:
@@ -297,11 +329,10 @@ func (s *Service) Check(q db.Q, in RequestIn) (*Queued, string, error) {
 	default:
 		return nil, "", err
 	}
-	if s.git("", "merge-base", "--is-ancestor", full, "main").RC == 0 {
+	if p.OnMain {
 		return nil, short(full) + " is already on main", nil
 	}
-	in.Message, in.Tree = message, strings.TrimSpace(in.Tree)
-	return &Queued{In: in, Full: full, Files: files}, "", nil
+	return &Queued{In: p.In, Full: full, Files: p.Files}, "", nil
 }
 
 // Queue writes a checked land and its fix, as one write: the sweep never sees one without the other.
@@ -374,13 +405,13 @@ func (s *Service) merge(sha, message, tree string, fix map[string]string, squash
 		s.git(mainDir, "worktree", "remove", "--force", work)
 		os.RemoveAll(work)
 	}()
-	if s.git(mainDir, "worktree", "add", "--detach", work, "main").RC != 0 {
+	if s.scratchGit(mainDir, "worktree", "add", "--detach", work, "main").RC != 0 {
 		return false, "could not make a scratch worktree"
 	}
-	clean := s.git(work, "merge", "--no-ff", "-q", "-m", message, sha).RC == 0
+	clean := s.scratchGit(work, "merge", "--no-ff", "-q", "-m", message, sha).RC == 0
 	if !clean {
 		var unfixed []string
-		for _, p := range strings.Fields(s.git(work, "diff", "--name-only", "--diff-filter=U").Stdout) {
+		for _, p := range strings.Fields(s.scratchGit(work, "diff", "--name-only", "--diff-filter=U").Stdout) {
 			if _, ok := fix[p]; !ok {
 				unfixed = append(unfixed, p)
 			}
@@ -407,17 +438,17 @@ func (s *Service) merge(sha, message, tree string, fix map[string]string, squash
 			commit = []string{"--amend", "--no-edit"}
 		}
 		add := append([]string{"add", "--"}, sortedKeys(fix)...)
-		if s.git(work, add...).RC != 0 || s.git(work, append([]string{"commit", "-q", "--no-verify"}, commit...)...).RC != 0 {
+		if s.scratchGit(work, add...).RC != 0 || s.scratchGit(work, append([]string{"commit", "-q", "--no-verify"}, commit...)...).RC != 0 {
 			return false, "the housekeeping fix could not be committed over the merge"
 		}
 	}
-	got := strings.TrimSpace(s.git(work, "rev-parse", "HEAD^{tree}").Stdout)
+	got := strings.TrimSpace(s.scratchGit(work, "rev-parse", "HEAD^{tree}").Stdout)
 	if got != tree {
 		return false, "main moved since the merger's test: the merge is not the tree it tested; test again"
 	}
-	merged := strings.TrimSpace(s.git(work, "rev-parse", "HEAD").Stdout)
+	merged := strings.TrimSpace(s.scratchGit(work, "rev-parse", "HEAD").Stdout)
 	if squash {
-		r := s.git(work, "commit-tree", got, "-p", "HEAD^1", "-m", message)
+		r := s.scratchGit(work, "commit-tree", got, "-p", "HEAD^1", "-m", message)
 		if r.RC != 0 {
 			return false, "the squashed commit could not be made"
 		}
