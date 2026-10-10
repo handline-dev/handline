@@ -1,4 +1,3 @@
 # What $OCP_HOME/venv is installed from - the one place a dependency is
 # decided, read by both `ocp venv install` (handline/venv.py) and bin/ocp's own
 # staleness check.
-textual>=0.58

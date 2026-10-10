@@ -1,5 +1,5 @@
 """Tests: agent.strip and chat.refs (contract/protocol.md): each answers what its spec says, who may call it, and what a bad
-parameter says. The Textual chat page's strip and its `#` menu read them.
+parameter says. A chat page's strip and its `#` menu read them.
 
 Run on its own: python3 tests/daemon/test_rpc_uireads.py   (all areas: python3 tests/test_ocp.py)
 """

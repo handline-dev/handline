@@ -7219,46 +7219,6 @@ limits:
     check("board: the reason-gap line is shown", rc == 0 and "carry no reason" in out, out)
 
 
-def test_jobs_runs_the_real_actrun_and_answers_or_refuses(home: Path) -> None:
-    """`handline.ui.actrun` is the process `Jobs.start` hands a verb to: it runs through
-    `actions.perform` and answers as JSON, and refuses anything that is not one
-    of `actions.ASYNC_VERBS`. Every verb has something to say while it runs."""
-    _daemon_home(home, 20)
-    agents.register("reviewer")
-    check("jobs: every verb the screen may run has what it waits for and how long",
-          set(actions.ASYNC_VERBS) == set(actions.WAITS)
-          and all(isinstance(v[1], int) and v[1] > 0 for v in actions.WAITS.values()),
-          str(set(actions.ASYNC_VERBS) ^ set(actions.WAITS)))
-    check("jobs: the long ones say what they wait on, the writes to the record say nothing",
-          all(actions.WAITS[v][0] for v in ("wake", "close", "park", "move", "fold", "terminal",
-                                            "message", "answer", "cancel"))
-          and not actions.WAITS["dismiss"][0] and not actions.WAITS["unstall"][0])
-
-    def ask(request: dict) -> tuple[dict, int]:
-        r = subprocess.run([sys.executable, "-m", "handline.ui.actrun"], input=json.dumps(request),
-                           capture_output=True, text=True, cwd=str(ROOT), env=dict(os.environ),
-                           timeout=60)
-        return json.loads(r.stdout.strip().splitlines()[-1]), r.returncode
-
-    said, code = ask({"verb": "unstall", "args": ["reviewer"]})
-    check("jobs: a verb answers as the action does", said["ok"] and "not STALLED" in said["said"]
-          and code == 0, str(said))
-    said, code = ask({"verb": "dismiss", "args": [999], "kwargs": {"me": "human"}})
-    check("jobs: keyword arguments arrive", said["ok"] and "gone" in said["said"], str(said))
-    said, code = ask({"verb": "os.system", "args": ["true"]})
-    check("jobs: anything that is not an action is refused, and says so",
-          not said["ok"] and "not an action" in said["said"] and code == 1, str(said))
-
-    jobs = jobsmod.Jobs()
-    check("jobs: through Jobs itself, with the real runner, it starts",
-          jobs.start("unstall", "reviewer", "unstalling reviewer", ("reviewer",)) == "")
-    deadline, out = time.time() + 20, []
-    while time.time() < deadline and not out:
-        out = jobs.reap()
-        time.sleep(0.05)
-    check("jobs: and its answer comes back the same way", out and "not STALLED" in out[0][1], str(out))
-
-
 def test_bin_ocp_resolves_a_symlink(home: Path) -> None:
     """handline/cli/ and handline/infra/service.py both describe the installed `hl` as a
     symlink into the repo (~/.local/bin/ocp on the founder's own machine) -
@@ -9576,7 +9536,6 @@ def main() -> int:
         run(lambda: test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(Path(td) / 'taskshas'))
         run(lambda: test_replace_withdraw_and_dismiss_store_the_reason_typed(Path(td) / 'taskreason'))
         run(lambda: test_reason_gaps_count_from_the_shapes_the_verbs_write(Path(td) / 'reasongaps'))
-        run(lambda: test_jobs_runs_the_real_actrun_and_answers_or_refuses(Path(td) / 'jobsrun'))
         run(lambda: test_bin_ocp_resolves_a_symlink(Path(td) / 'symlinkhome'))
         run(lambda: test_bin_hl_runs_go_hl_only_while_it_is_built_from_this_go_source(Path(td) / 'gohlstamp'))
         run(lambda: test_a_task_waiting_on_a_decision_that_settles_is_released_like_on_any_close(Path(td) / 'decsettle'))

@@ -27,13 +27,13 @@ ln -s "$PWD/bin/hl" /usr/local/bin/hl
 If `/usr/local/bin` is not writable, link it into any directory on your PATH, or add the repo's
 `bin/` to PATH.
 
-Then install the one dependency, which the screen needs:
+Then create the virtual environment:
 
 ```bash
 hl venv install
 ```
 
-This creates a virtual environment at `~/.orcapipe/venv` and installs `textual` into it. Every
+This creates a virtual environment at `~/.orcapipe/venv` and installs what `requirements.txt` lists (nothing now). Every
 other command works without it. If it fails, read the `ERROR:` line it prints. A corporate proxy
 or a TLS error shows up there.
 

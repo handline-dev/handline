@@ -36,10 +36,6 @@ sys.path.insert(0, str(ROOT))
 
 from handline.infra import paths, sealed  # noqa: E402
 
-# The machine's venv, read once before the stand-in below hides the real home:
-# textual is only installed there (see _python_with_textual).
-MACHINE_VENV = paths.default_home() / "venv"
-
 # Before anything else imports ocp: this process and every child it starts
 # see a temp directory as the user's home, and paths.home() refuses the real
 # ~/.orcapipe. An agent's session exports OCP_HOME=~/.orcapipe; a test that
@@ -76,7 +72,6 @@ from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
 from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
-from handline.ui import jobs as jobsmod  # noqa: E402
 from handline.view import tui  # noqa: E402
 from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
@@ -2160,19 +2155,6 @@ def skip(one, reason: str) -> None:
         SKIPPED.append(f"{name}: {reason}")
 
 
-def _python_with_textual() -> str | None:
-    """A python3 that can import textual: the interpreter running the suite when
-    it can, else the real machine's venv (requirements.txt, handline/infra/venv.py) -
-    textual is only ever installed there, never assumed on whatever runs this
-    suite."""
-    candidates = [sys.executable, str(venvmod.venv_python(MACHINE_VENV))]
-    for py in candidates:
-        if py and Path(py).exists() and subprocess.run(
-                [py, "-c", "import textual"], capture_output=True).returncode == 0:
-            return py
-    return None
-
-
 def _board_world(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     os.environ["OCP_HOME"] = str(home)
@@ -2444,7 +2426,6 @@ __all__ = [
     'types',
     'Path',
     'ROOT',
-    'MACHINE_VENV',
     'TEST_ROOT',
     'accounts',
     'actions',
@@ -2486,7 +2467,6 @@ __all__ = [
     'foldmod',
     'handoffmod',
     'idle_close',
-    'jobsmod',
     'launch',
     'loadmod',
     'lock',
@@ -2655,7 +2635,6 @@ __all__ = [
     '_RUN_DEPTH',
     '_test_name',
     'run',
-    '_python_with_textual',
     '_board_world',
     '_cli',
     '_human_request',
