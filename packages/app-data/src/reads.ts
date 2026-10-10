@@ -64,7 +64,7 @@ export const NOT_QUERIES = [
   'terminal.attach',
   'terminal.history',
   'terminal.detach',
-  // Member reads no screen draws yet: the terminal's address and the next account pick.
+  // Reads no screen draws yet: the terminal's address (member) and the next account pick (agent).
   'terminal.open',
   'status.pick',
 ] as const;
