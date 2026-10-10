@@ -1914,6 +1914,9 @@ def test_service_crash_loop_reads_the_go_daemons_start_line(home: Path) -> None:
         check("service: four starts of the Go daemon in a minute is a crash loop", service.crash_loop_detected(home, window_s=300, threshold=4))
         log.write_text(lines[0] + "\n")
         check("service: one start is not", not service.crash_loop_detected(home, window_s=300, threshold=4))
+        refusals = [line.replace('handlined abc1234 serving "/x/daemon.sock"', "handlined: another daemon holds the lock") for line in lines]
+        log.write_text("\n".join(refusals) + "\n")
+        check("service: four refusals of the Go daemon in a minute is a crash loop", service.crash_loop_detected(home, window_s=300, threshold=4))
     finally:
         service.daemon_impl = real
 

@@ -382,7 +382,11 @@ checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
 
 The Go daemon takes the same singleton lock as the Python one and writes its pid into `locks/daemon.lock`
 (`lock.TakeSingleton`), so `hl ps`, `hl service install`'s note about a daemon started by hand and the lock holder read both alike.
-Crash-loop detection reads the Go daemon's own start line (stderr log) when it is chosen.
+That holds only because every start that is not a gateway takes the lock, with the service flags (no `-own-prompts`) too: the switch
+needs that change (`if !cfg.Gateway` around the singleton in `daemon.New`) on the branch it is installed from, or a Python daemon started by hand runs
+beside the Go one.
+Crash-loop detection reads the Go daemon's own stderr log when it is chosen: the `handlined <sha> serving` line of a start that got up,
+and the `handlined: <why>` line of one that refused (lock held, database, a bad flag), so a job respawning into a refusal is counted.
 
 Rollback is `hl service use python` and `hl service install`: the same plist as before the switch, the schema untouched.
 The Go daemon's start line and the singleton lock are the only things the two share on disk besides the database, so

@@ -359,8 +359,9 @@ def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold
     hits = 0
     for line in _tail_lines(p):
         if go:
-            # "2026/10/10 13:45:00 handlined <sha> serving ..." is its one line per start.
-            if " handlined " not in line or " serving " not in line:
+            # "2026/10/10 13:45:00 handlined <sha> serving ..." is its line for a start that got up; a start that
+            # refuses (lock held, database, bad flag) dies with "2026/10/10 13:45:00 handlined: <why>" instead.
+            if not (" handlined: " in line or (" handlined " in line and " serving " in line)):
                 continue
             clock = line[11:19]
         else:
