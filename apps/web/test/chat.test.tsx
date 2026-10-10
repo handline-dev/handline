@@ -102,6 +102,18 @@ describe('the Chat tab', () => {
     await until(() => msg('Review is done'), 'the all tab');
   });
 
+  it('a tool line shows what it printed on request, and how many lines were cut', async () => {
+    const t = setup();
+    t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: 'a\nb', dropped_lines: 3 });
+    await mount(ARCH, t);
+    await until(() => $$('[data-kind="tool"]').some((c) => /Show all/.test(text(c))), 'the tool line');
+    const row = $$('[data-kind="tool"]').find((c) => /Show all/.test(text(c)))!;
+    expect(row.querySelector('.tool-output')).toBeNull();
+    await click([...row.querySelectorAll('button')].find((b) => /Show all/.test(text(b)))!);
+    expect(row.querySelector('.tool-output')?.textContent).toBe('a\nb');
+    expect(text(row)).toContain('3 more lines let go');
+  });
+
   it('a session marker shows the whole handoff on request', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'session', session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two' } });

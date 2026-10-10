@@ -244,6 +244,30 @@ export function Message(props: {
   );
 }
 
+/** A tool line: the command, and what it printed, in full, behind a button. */
+function ToolLine({ i }: { i: TranscriptItem }) {
+  const [open, setOpen] = useState(false);
+  const cut = i.dropped_lines ?? 0;
+  return (
+    <div className="line tool" data-kind="tool">
+      <Icon name="tool" size={14} label={i.tool ?? 'Tool'} />
+      <span className="mono"> {i.tool}</span>
+      {i.text ? <span className="muted"> {i.text}</span> : null}
+      {i.output ? (
+        <Button variant="outline" size="sm" label="Output" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
+          {open ? 'Hide output' : 'Show all'}
+        </Button>
+      ) : null}
+      {open ? (
+        <>
+          <pre className="lines tool-output">{i.output}</pre>
+          {cut ? <span className="muted">{cut} more line{cut === 1 ? '' : 's'} let go</span> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** A session marker: the handoff's first line, and the whole of it, scrollable, behind a button. */
 function SessionCard({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
@@ -277,13 +301,7 @@ export function Item({ i }: { i: TranscriptItem }) {
       </div>
     );
   if (i.kind === 'tool')
-    return (
-      <div className="line tool" data-kind="tool">
-        <Icon name="tool" size={14} label={i.tool ?? 'Tool'} />
-        <span className="mono"> {i.tool}</span>
-        {i.text ? <span className="muted"> {i.text}</span> : null}
-      </div>
-    );
+    return <ToolLine i={i} />;
   if (i.kind === 'prompt') {
     const p = i.prompt;
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
