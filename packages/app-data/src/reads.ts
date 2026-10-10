@@ -64,6 +64,9 @@ export const NOT_QUERIES = [
   'terminal.attach',
   'terminal.history',
   'terminal.detach',
+  // Member reads no screen draws yet: the terminal's address and the next account pick.
+  'terminal.open',
+  'status.pick',
 ] as const;
 
 export type ReadMethod = keyof typeof reads;
