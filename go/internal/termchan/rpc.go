@@ -93,6 +93,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.attach", rpc.Method{Role: "member", Handler: e.attach})
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
+	s.Register("terminal.open", rpc.Method{Role: "member", Handler: e.open})
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
@@ -328,6 +329,28 @@ func (e *Env) attachBytes(c *rpc.Conn, handle string, history int, holders []map
 	out["terminal"], out["format"], out["seq"] = handle, "bytes", client.Seq
 	out["history"], out["holder"], out["holders"] = snap.history(), holder, holders
 	return out, nil
+}
+
+// open is where an agent's terminal is and how a person on this machine attaches to it, for the one button that opens it when the agent
+// needs them. It types nothing and answers nothing. An agent with no terminal (a structured one among them) is not_found (terminal).
+func (e *Env) open(c *rpc.Conn, params map[string]any) (any, error) {
+	if name, _ := params["agent"].(string); name == "" {
+		return nil, bad("agent is a name", "agent")
+	}
+	handle, agent, err := e.handleOf(map[string]any{"agent": params["agent"]})
+	if err != nil {
+		return nil, err
+	}
+	b := e.Backend()
+	var attach any
+	if a, ok := b.(term.Attacher); ok {
+		attach = map[string]any{"argv": a.AttachCommand()}
+	}
+	focused := false
+	if f, ok := b.(term.Focuser); ok {
+		focused = f.Focus(handle)
+	}
+	return map[string]any{"agent": agent, "terminal": handle, "host": b.Name(), "attach": attach, "focused": focused, "local": c.Remote == ""}, nil
 }
 
 func (e *Env) detach(c *rpc.Conn, params map[string]any) (any, error) {
