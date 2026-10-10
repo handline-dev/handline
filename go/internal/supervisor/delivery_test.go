@@ -88,6 +88,40 @@ func TestDeliverQueuedExplainsWhyItIsHolding(t *testing.T) {
 	}
 }
 
+func TestDeliverQueuedToATerminalAgentSaysWhyItHolds(t *testing.T) {
+	t.Run("a live session through the peer inbox: delivered", func(t *testing.T) {
+		r := newRig(t)
+		r.agentUp("bob") // peer on is the default: the port answers structured and live
+		r.task("bob", "alice", "job")
+		if sent, err := r.DeliverQueued(r.DB, "bob"); err != nil || !sent || len(r.term.typed) != 1 {
+			t.Fatalf("%v %v %v", sent, err, r.term.typed)
+		}
+	})
+	t.Run("peer_inbox off with a live session: the reason names it", func(t *testing.T) {
+		r := newRig(t)
+		r.agentUp("bob")
+		r.Agents.(*sessionAgents).noPeer["bob"] = true
+		r.task("bob", "alice", "job")
+		if sent, _ := r.DeliverQueued(r.DB, "bob"); sent || len(r.term.typed) != 0 {
+			t.Fatal("told an agent nothing reaches")
+		}
+		why, _, ok := r.HeldReason("bob", r.clock)
+		if !ok || why != "peer_inbox is off in agent.yaml; nothing types any more" {
+			t.Fatalf("%q %v", why, ok)
+		}
+	})
+	t.Run("no live session: no live session", func(t *testing.T) {
+		r := newRig(t)
+		r.agentUp("bob")
+		r.Agents.(*sessionAgents).live["bob"] = false
+		r.task("bob", "alice", "job")
+		r.DeliverQueued(r.DB, "bob")
+		if why, _, ok := r.HeldReason("bob", r.clock); !ok || why != "no live session" {
+			t.Fatalf("%q %v", why, ok)
+		}
+	})
+}
+
 type noSession struct{ *fakeTerm }
 
 func (noSession) SessionOnScreen(string) (bool, bool) { return false, true }

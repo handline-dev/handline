@@ -13,17 +13,20 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-func TestOnlyATerminalAgentWhoseYAMLSaysPeerInboxIsDeliveredThroughIt(t *testing.T) {
+func TestATerminalAgentIsDeliveredThroughThePeerInboxUnlessItsYAMLSaysOff(t *testing.T) {
 	home := t.TempDir()
-	for agent, yaml := range map[string]string{"term": "peer_inbox: true # inbox\n", "plain": "mode: auto\n", "strm": "structured: true\npeer_inbox: true\n"} {
+	for agent, yaml := range map[string]string{"term": "peer_inbox: true # inbox\n", "plain": "mode: auto\n", "off": "peer_inbox: false\n", "strm": "structured: true\npeer_inbox: true\n"} {
 		dir := filepath.Join(paths.AgentsDir(home), agent)
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(filepath.Join(dir, "agent.yaml"), []byte(yaml), 0o644)
 	}
 	p := New(Config{Home: home})
 	port := p.agentsPort()
-	if !port.Structured("term") || port.Structured("plain") || !port.Structured("strm") {
-		t.Fatal("term and strm are delivered by a send path; plain is typed at")
+	if !port.Structured("term") || !port.Structured("plain") || port.Structured("off") || !port.Structured("strm") {
+		t.Fatal("term, plain (no flag) and strm are delivered by a send path; off opted out")
+	}
+	if !PeerFromYAML(home)("no-such-agent") {
+		t.Fatal("an agent with no agent.yaml is on the peer inbox too")
 	}
 	// term goes to the peer port: it has no record to find, so nothing is written; strm goes to the (empty) structured manager
 	if _, err := port.Send("term", "op", "hi", structured.Now); err == nil {

@@ -351,6 +351,7 @@ work is paused, not the plan.
 | Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
+| Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
 | Supervising terminal agents | `compose/termport.go`, `term/host.go` (the terminal port, landed) | | gap, in progress: the terminal tick (`-terminal-tick`), peer-inbox delivery, needs-you and `terminal.open` (from the needs-you spec) |
 
 After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
@@ -359,7 +360,7 @@ daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen a
 singleton it takes becomes unconditional (startup row above).
 
 **Terminal agents after cutover.** The Go daemon types nothing at a running terminal session.
-- Delivery is the peer inbox only; an agent with no live session has its work held ("no live session") until a wake starts one.
+- Delivery is the peer inbox only, and it is on by default for a terminal agent; `peer_inbox: false` in its agent.yaml is the explicit opt-out. An agent with no live session has its work held ("no live session") until a wake starts one; one with a live session and the flag off is held with "peer_inbox is off in agent.yaml; nothing types any more".
 - A handoff, a move to another account and a clear that is owed close the session by closing its pane and start a new session in a new terminal in the same worktree, with no resume id and the handoff record as its first message. The close is proved by the session's pid; a session that outlives its pane is reported and never started over.
 - There is no in-place `/clear`, and `input.take` and `input.release` are gone: nobody holds a terminal's input. A person watching sees the pane close and a new one open.
 - A forced move of a busy terminal agent is refused with the reason, since a turn there cannot be interrupted without a key.

@@ -187,7 +187,7 @@ func newRig(t *testing.T) *rig {
 	t.Cleanup(func() { db.Now = func() int64 { return time.Now().Unix() } })
 	r.Env = &Env{DB: d, Home: home, Now: func() time.Time { return time.Unix(r.clock, 0) }, Sleep: func(d time.Duration) { r.clock += int64(d / time.Second) }}
 	r.Env.Log = func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }
-	r.Env.Ports = Ports{Agents: &sessionAgents{r: r, live: map[string]bool{}}, Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},
+	r.Env.Ports = Ports{Agents: &sessionAgents{r: r, live: map[string]bool{}, noPeer: map[string]bool{}}, Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},
 		Idle: fakeIdle{}, Sessions: r.sessions, Lifecycle: r.life, Evaluate: r.eval, Stuck: fakeStuck{}, Proposals: fakeProposals{}}
 	return r
 }
@@ -196,9 +196,11 @@ func newRig(t *testing.T) *rig {
 type sessionAgents struct {
 	r    *rig
 	live map[string]bool
+	// noPeer names the terminal agents whose peer_inbox is off: not structured, so nothing reaches them.
+	noPeer map[string]bool
 }
 
-func (a *sessionAgents) Structured(string) bool { return true }
+func (a *sessionAgents) Structured(agent string) bool { return !a.noPeer[agent] }
 func (a *sessionAgents) Live(agent string) bool { return a.live[agent] }
 func (a *sessionAgents) Send(_, _, text string, _ structured.Delivery) (structured.Receipt, error) {
 	a.r.term.mu.Lock()

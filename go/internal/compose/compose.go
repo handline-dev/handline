@@ -168,14 +168,14 @@ func (p *Parts) Bind(db *sql.DB, tell Telling) {
 }
 
 // KindFromYAML reads an agent's kind from its agent.yaml: a top-level `structured: true`. Any other value, or none, is a terminal agent. (Not `mode`, which is the permission mode a person sets.)
-func KindFromYAML(home string) func(agent string) bool { return yamlFlag(home, "structured") }
+func KindFromYAML(home string) func(agent string) bool { return yamlFlag(home, "structured", false) }
 
-// yamlFlag reads a top-level `key: true` of an agent's agent.yaml; any other value, or none, is false.
-func yamlFlag(home, key string) func(agent string) bool {
+// yamlFlag reads a top-level `key: true` of an agent's agent.yaml; no such line, or no file, is def, and any other value is false.
+func yamlFlag(home, key string, def bool) func(agent string) bool {
 	return func(agent string) bool {
 		b, err := os.ReadFile(filepath.Join(paths.AgentsDir(home), agent, "agent.yaml"))
 		if err != nil {
-			return false
+			return def
 		}
 		for _, line := range strings.Split(string(b), "\n") {
 			if v, ok := strings.CutPrefix(line, key+":"); ok {
@@ -183,7 +183,7 @@ func yamlFlag(home, key string) func(agent string) bool {
 				return strings.EqualFold(strings.Trim(strings.TrimSpace(v), `"'`), "true")
 			}
 		}
-		return false
+		return def
 	}
 }
 

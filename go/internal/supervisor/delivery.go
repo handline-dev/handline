@@ -234,7 +234,11 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 	}
 	// Only a structured or peer session takes a write; nothing is typed at a terminal.
 	if !e.structuredAgent(agent) || !e.Agents.Live(agent) {
-		return e.holdBack(agent, head, "no live session", false), nil
+		why := "no live session"
+		if !e.structuredAgent(agent) && e.openSession(agent, stateOf(q, agent)) {
+			why = "peer_inbox is off in agent.yaml; nothing types any more" // a terminal is up, but nothing here reaches it
+		}
+		return e.holdBack(agent, head, why, false), nil
 	}
 	depth := 0
 	for _, r := range must(db.QueuedFor(q, agent)) {
