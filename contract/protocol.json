@@ -115,7 +115,6 @@
   "hl hr list": "hr.list",
   "hl trust add": "trust.propose",
   "hl trust list|proposals": "trust.list",
-  "hl trust remove": "trust.remove",
   "hl team": "team.get",
   "hl ps": "agents.list",
   "hl status": "accounts.list",
@@ -132,7 +131,7 @@
    "hl unstall",
    "hl team seal",
    "hl hr approve|reject|apply|relabel|rehome|links",
-   "hl trust apply|mcp",
+   "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
    "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
    "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
@@ -5446,7 +5445,7 @@
   },
   {
    "name": "trust.propose",
-   "summary": "Propose declaring a folder ocp may answer Claude's trust prompt in (the founder's own call declares it).",
+   "summary": "Propose declaring a folder ocp may answer Claude's trust prompt in (hl trust add); the founder's own call declares it.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5458,7 +5457,7 @@
     },
     {
      "name": "why",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -5485,9 +5484,7 @@
          "type": "string"
         }
        },
-       "required": [
-        "proposal"
-       ]
+       "required": []
       }
      ]
     }
@@ -5499,11 +5496,12 @@
     {
      "$ref": "#/components/errors/refused"
     }
-   ]
+   ],
+   "description": "Called by an agent it raises a decision for the founder, `why` required, and answers the proposal's id; called by the founder it declares the root directly, `why` optional (default `added by the founder`), and answers no proposal. A root already inside a declared one, a missing why or a decision that could not be raised is refused with the store's words. A paired device is refused, gate role. `root` must be an absolute path (bad_request, field `root`): the daemon would read a relative one, or `~`, against its own folder and home, so the client resolves it against its own."
   },
   {
    "name": "trust.list",
-   "summary": "Declared trust roots and proposals.",
+   "summary": "Declared trust roots, and with proposals the proposals (hl trust list, hl trust proposals).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5538,6 +5536,13 @@
          },
          "state": {
           "type": "string"
+         },
+         "request": {
+          "type": "integer",
+          "description": "The decision request that asked the founder."
+         },
+         "requested_by": {
+          "type": "string"
          }
         },
         "required": [
@@ -5545,11 +5550,37 @@
          "root",
          "state"
         ]
-       }
+       },
+       "description": "Empty unless `proposals` is true. State is the store's word (proposed, applied, rejected...)."
+      },
+      "declared": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "root",
+         "why",
+         "added_by"
+        ],
+        "properties": {
+         "root": {
+          "type": "string"
+         },
+         "why": {
+          "type": "string"
+         },
+         "added_by": {
+          "type": "string",
+          "description": "An agent's name, or human."
+         }
+        }
+       },
+       "description": "The same roots as `roots`, in the same order, with why and who added each."
       }
      },
      "required": [
       "roots",
+      "declared",
       "proposals"
      ]
     }
@@ -5560,7 +5591,7 @@
   },
   {
    "name": "trust.remove",
-   "summary": "Drop a declared root; no gate, as today.",
+   "summary": "Drop a declared root (hl trust remove); needs no approval.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5584,14 +5615,15 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "agent",
+   "x-role": "founder",
    "x-write": true,
    "x-since": 1,
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
     }
-   ]
+   ],
+   "description": "The founder's: the declared roots live in the protected store, which an agent session cannot write, so an agent calling `hl trust remove` is refused today and by this method (gate role). A root that is not declared is not_found. `root` must be an absolute path, as for trust.propose (bad_request, field `root`)."
   },
   {
    "name": "agent.triggers",

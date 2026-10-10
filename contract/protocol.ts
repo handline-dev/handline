@@ -1788,19 +1788,30 @@ export interface Methods {
 }; result: Accepted };
   "trust.propose": { params: {
   root: string;
-  why: string;
+  why?: string;
   request_id: RequestId;
 }; result: Accepted & {
-    proposal: string;
+    proposal?: string;
   } };
   "trust.list": { params: {
   proposals?: boolean;
 }; result: {
     roots: string[];
+    /** Empty unless `proposals` is true. State is the store's word (proposed, applied, rejected...). */
     proposals: {
       id: string;
       root: string;
       state: string;
+      /** The decision request that asked the founder. */
+      request?: number;
+      requested_by?: string;
+    }[];
+    /** The same roots as `roots`, in the same order, with why and who added each. */
+    declared: {
+      root: string;
+      why: string;
+      /** An agent's name, or human. */
+      added_by: string;
     }[];
   } };
   "trust.remove": { params: {
@@ -2096,7 +2107,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "hr.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "trust.propose": { role: "agent", callers: null, write: true, since: 1 },
   "trust.list": { role: "agent", callers: null, write: false, since: 1 },
-  "trust.remove": { role: "agent", callers: null, write: true, since: 1 },
+  "trust.remove": { role: "founder", callers: null, write: true, since: 1 },
   "agent.triggers": { role: "agent", callers: null, write: false, since: 1 },
   "memory.status": { role: "agent", callers: null, write: false, since: 1 },
   "team.get": { role: "agent", callers: null, write: false, since: 1 },
