@@ -23,6 +23,8 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	apply := &tick.ApplySettings{Ports: settingsPorts{launcher: lc.Launch}}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
+		{Name: "task-queue", Run: func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) }},
+		{Name: "task-holds", Run: func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) }},
 		{Name: "wait-for", Run: func(q db.Q, now int64) error { return wait.Sweep(q, now) }},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 	}
