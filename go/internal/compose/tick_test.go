@@ -310,7 +310,6 @@ func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t 
 	}
 }
 
-
 // passRuns reports whether the named pass reaches the db: on a closed one it errors or panics, and a gated-off pass returns nil.
 func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
 	p, _, _, _ := wired(t)
@@ -337,6 +336,26 @@ func TestPassesPythonStillSweepsRunOnlyFromTheCutover(t *testing.T) {
 		}
 		if !passRuns(t, true, name) {
 			t.Errorf("%s did not run from the cutover", name)
+		}
+	}
+}
+
+func TestTheSubscriptionsPassRunsOnlyFromTheCutover(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _, _ := wired(t)
+		t.Setenv("PATH", t.TempDir()) // the plan question must not reach a real claude
+		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+		for _, s := range tk.Tick.Passes {
+			if s.Name == "subscriptions" {
+				if err := s.Run(p.Sink.DB, time.Now().Unix()); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		var n int
+		p.Sink.DB.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'plan_checked:%'").Scan(&n)
+		if (n > 0) != cutover {
+			t.Fatalf("cutover=%v: %d plan cursors", cutover, n)
 		}
 	}
 }
