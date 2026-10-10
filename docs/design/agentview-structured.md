@@ -1,8 +1,8 @@
 # The stored view of a structured agent
 
 `agent_view` holds one JSON row per agent, which `agents.list` and `agent.get` serve (contract `AgentView`). The Python tick writes it
-(`daemon/agentview.py`); nothing in Go does yet. The Go tick writes it for **structured** agents only (`Runner.Structured`). A terminal
-agent's stored view is never touched, so the two daemons can share the table while agents move over.
+(`daemon/agentview.py`); nothing in Go does yet. The Go tick writes it for **structured** agents only (`Runner.Structured`), and with `-terminal-tick` for terminal agents too
+(from their session file). Without that flag a terminal agent's stored view is never touched, so the two daemons can share the table while agents move over.
 
 Same table, same JSON, no schema step. The row is a read model: an agent whose view cannot be worked out keeps its last row, and the
 others go on.
@@ -44,7 +44,7 @@ The word is made in the order Python makes it, from the row, with the session as
 
 `Env.RefreshOne` is the reconciler's `RefreshView` port (after a sweep records a gone session, after a wake). `Env.Refresh` is one of
 the tick's guarded passes (`Tick.Passes`), placed where Python refreshes: after the blocked sweep and the spool, before auto-accept. It
-stores every structured agent's view. It deletes the row of an agent that is gone only at the cutover (`-cutover`, `Env.DropGone`): until the Python daemon stops it keeps the rows of terminal agents and the Go tick writes no row but a structured agent's, nor polls usage (`TickConfig.Cutover` is the one switch for both). The Python view pass leaves a structured agent's row alone in turn. Terminal agents are skipped by `RefreshOne`. The
+stores every structured agent's view. It deletes the row of an agent that is gone only at the cutover (`-cutover`, `Env.DropGone`): until the Python daemon stops it keeps the rows of terminal agents and, without `-terminal-tick`, the Go tick writes no row but a structured agent's; it does not poll usage either (`TickConfig.Cutover` is the one switch for both). The Python view pass leaves a structured agent's row alone in turn. Terminal agents are skipped by `RefreshOne`. The
 composition root wires both.
 
 ## Tests
