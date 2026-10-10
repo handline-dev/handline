@@ -15,9 +15,9 @@ const LoginStall = "login expired"
 type Login struct {
 	// Expired is the mark on the account (accounts.login_expired): why, and whether it is there.
 	Expired func(acct string) (why string, ok bool)
-	// AuthFailed is the agent's newest authentication_failed turn that no lift has passed: its text, and ok when the agent's last turn
-	// ended on one.
-	AuthFailed func(q db.Q, agent string) (why string, ok bool)
+	// AuthFailed is the agent's newest authentication_failed turn on acct that no lift has passed: its text, and ok when the agent's
+	// last turn ended on one there.
+	AuthFailed func(q db.Q, agent, acct string) (why string, ok bool)
 	// Mark records the expiry on the account and the event for it; false when the account is already marked (the first sighting stands).
 	Mark func(q db.Q, agent, acct, why string) bool
 }
@@ -32,7 +32,7 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 	}
 	why, marked := l.Expired(acct)
 	if !marked {
-		text, failed := l.AuthFailed(t.Q, agent)
+		text, failed := l.AuthFailed(t.Q, agent, acct)
 		if !failed {
 			return false
 		}

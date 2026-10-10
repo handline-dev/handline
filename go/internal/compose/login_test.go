@@ -24,7 +24,7 @@ func TestAnAuthFailedTurnMarksTheAccountAndStallsTheAgentAndALoginLiftsIt(t *tes
 	if err := dbpkg.SetAccount(d, "alice", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dbpkg.AddEvent(d, "alice", "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}, dbpkg.KV{K: "error_details", V: "401"}); err != nil {
+	if _, err := dbpkg.AddEventFor(d, "alice", "a1", "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}, dbpkg.KV{K: "error_details", V: "401"}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := tk.Tick.Run(nil)

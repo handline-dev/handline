@@ -26,8 +26,8 @@ func loginPorts(accounts team.Accounts, now func() time.Time) tick.Login {
 			}
 			return e.Why, true
 		},
-		AuthFailed: func(q db.Q, agent string) (string, bool) {
-			id, details, ok, err := handoff.AuthFailed(q, agent)
+		AuthFailed: func(q db.Q, agent, acct string) (string, bool) {
+			id, details, ok, err := handoff.AuthFailed(q, agent, acct)
 			if err != nil || !ok {
 				return "", false
 			}
@@ -59,7 +59,7 @@ func liftLogin(accounts team.Accounts) func(db.Q, string, *db.AgentState, *[]str
 		if acct != "" && accounts.LoginExpired(acct) != nil {
 			return
 		}
-		if id, _, ok, _ := handoff.AuthFailed(q, agent); ok {
+		if id, _, ok, _ := handoff.AuthFailed(q, agent, acct); ok {
 			_ = db.SetCursor(q, loginLifted(agent), id)
 		}
 		if acct == "" {

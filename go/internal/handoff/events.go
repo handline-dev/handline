@@ -40,17 +40,19 @@ func RecordCommit(q db.Q, agent, repo, sha, subject, diffstat string) error {
 	return err
 }
 
-// AuthFailed is the id and details of the authentication_failed turn this agent's last turn ended on, if nothing has run since: the
-// CLI's own word that its login was refused, read from the StopFailure's error field, never from text. ok is false otherwise.
-func AuthFailed(q db.Q, agent string) (id int64, details string, ok bool, err error) {
+// AuthFailed is the id and details of the authentication_failed turn this agent's last turn ended on, if nothing has run since and it
+// happened on acct: the CLI's own word that its login was refused, read from the StopFailure's error field, never from text. A refusal
+// on another account is not this one's (a move off it leaves that failure as the last event until the new session is prompted).
+// ok is false otherwise.
+func AuthFailed(q db.Q, agent, acct string) (id int64, details string, ok bool, err error) {
 	var kind string
-	var payload sql.NullString
-	err = q.QueryRow("SELECT id, kind, payload FROM events WHERE agent = ? AND kind IN ('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1",
-		agent).Scan(&id, &kind, &payload)
+	var payload, account sql.NullString
+	err = q.QueryRow("SELECT id, kind, payload, account FROM events WHERE agent = ? AND kind IN ('StopFailure', 'UserPromptSubmit') ORDER BY id DESC LIMIT 1",
+		agent).Scan(&id, &kind, &payload, &account)
 	if err == sql.ErrNoRows {
 		return 0, "", false, nil
 	}
-	if err != nil || kind != "StopFailure" {
+	if err != nil || kind != "StopFailure" || account.String != acct {
 		return 0, "", false, err
 	}
 	var data map[string]any

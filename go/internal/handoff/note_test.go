@@ -394,22 +394,32 @@ func TestEachBadByteIsOneReplacementCharacter(t *testing.T) {
 	}
 }
 
-func TestAuthFailedIsALoginTheLastTurnWasRefusedOnByTheCLIsOwnError(t *testing.T) {
+func TestAuthFailedIsALoginTheLastTurnWasRefusedOnByTheCLIsOwnErrorOnThatAccount(t *testing.T) {
 	w := newWorld(t)
-	if _, _, ok, err := AuthFailed(w.DB, "a"); ok || err != nil {
+	failed := func(acct, payload string) {
+		t.Helper()
+		if _, err := w.DB.Exec("INSERT INTO events(ts, agent, account, kind, payload) VALUES(?,?,?,?,?)", w.now, "a", acct, "StopFailure", payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, ok, err := AuthFailed(w.DB, "a", "A"); ok || err != nil {
 		t.Fatalf("no events: %v %v", ok, err)
 	}
-	w.event("a", "StopFailure", `{"error": "rate_limit"}`)
-	if _, _, ok, _ := AuthFailed(w.DB, "a"); ok {
+	failed("A", `{"error": "rate_limit"}`)
+	if _, _, ok, _ := AuthFailed(w.DB, "a", "A"); ok {
 		t.Error("a usage limit is not a refused login")
 	}
-	w.event("a", "StopFailure", `{"error": "authentication_failed", "error_details": "401"}`)
-	id, details, ok, _ := AuthFailed(w.DB, "a")
+	failed("A", `{"error": "authentication_failed", "error_details": "401"}`)
+	id, details, ok, _ := AuthFailed(w.DB, "a", "A")
 	if !ok || id == 0 || details != "401" {
 		t.Fatalf("%v %v %v", id, details, ok)
 	}
+	// The agent moved to B and has not been prompted there: A's refusal is still its last event, and says nothing of B.
+	if _, _, ok, _ := AuthFailed(w.DB, "a", "B"); ok {
+		t.Error("a refusal on A marked B")
+	}
 	w.event("a", "UserPromptSubmit", "")
-	if _, _, ok, _ := AuthFailed(w.DB, "a"); ok {
+	if _, _, ok, _ := AuthFailed(w.DB, "a", "A"); ok {
 		t.Error("a prompt after the failure means it works again")
 	}
 }
