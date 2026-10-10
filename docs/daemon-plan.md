@@ -322,6 +322,41 @@ Cut over when the conformance fixtures, the tick fixtures and `go test -race` pa
 the launchd service to the Go binary. The schema stays readable by both until the Python daemon is
 deleted, so no migration may drop or reshape a column, and rollback is swapping the service back.
 
+**Cutover checklist: what the Python daemon does and where Go does it.** Status: *done* is wired in the
+daemon or tick and tested; *unwired* is ported and tested but nothing calls it; *gap* has no Go; *dropped*
+is cut by the structured-only plan (memo 1264), #26096 (new work only in Go) or #26177 (no dialog
+auto-answers). The tick runs only with `-structured-tick -cutover`, and only over structured agents.
+
+| Duty (Python) | Go file | Test | Status |
+|---|---|---|---|
+| Per-agent turn: wake due, start/wake for work, deliver, handoff on trigger (policies, evaluate) | `tick/evaluate.go`, `tick/triggers.go` | `tick/supervise_test.go`, `TestEvaluate`, `compose/tick_test.go`, `contract/tick` fixtures | done |
+| Cost pilot (renew, fold when idle) | `tick/costpilot.go` | `tick/costpilot_test.go` | done |
+| Time box, stuck waits | `tick/timebox.go`, `tick/waitfor.go` | `tick/timebox_test.go`, `TestStuckWaitsEmpty` | done |
+| Apply settings | `tick/applysettings.go` | `tick/applysettings_test.go` | done |
+| Reconciler sweep, handoff expiry each tick | `lifecycle/reconciler.go` | `lifecycle/reconciler_test.go` | done |
+| Idle close | `lifecycle/idle.go` | `lifecycle/idle_test.go` | done |
+| Agent view refresh | `compose/agentview.go` | `agentview` tests | done |
+| Usage poll, burn rate, samples, token log | `usagepoll/`, `compose/usagepoll.go`, `tick/evaluate.go` | `usagepoll/poll_test.go`, `compose/tickparity_test.go` | done (with `-cutover`) |
+| Land worker | `daemon/daemon.go` `landLoop`, `lands/` | `lands/lands_test.go` | done |
+| Hook spool ingest | `daemon/daemon.go` `spoolLoop`, `hooks/spool.go` | `hooks/hooks_test.go` | done |
+| Stream detectors (agents, notifications, chat, hr, tasks, inbox) | `watcher/*.go` | `watcher/*_test.go`, `watcher/parity_test.go` | done (with `-cutover`) |
+| Relay socket and `-gateway` | `daemon/gateway.go`, `daemon/network.go` | `daemon/gateway_test.go`, `daemon/network_test.go` | dropped: the Go daemon is the daemon and serves `-listen` itself |
+| Notice digest and stopped-agent notices | `supervisor/digest.go` `SweepNotices` | `supervisor/more_test.go` | unwired |
+| Task queue sweep, task holds sweep | `supervisor/queue.go`, `supervisor/holds.go` | `supervisor/tasks_test.go`, `supervisor/sweeps_test.go` | unwired |
+| Subscription endings and plan check | `subscriptions/subscriptions.go` `Sweep` | `subscriptions/subscriptions_test.go` | unwired |
+| Startup: `reconcile`, `migrate_old_messages`, `start_waiting`, `reload_pending`, founder key, daemon singleton | `lifecycle/reconciler.go`, `supervisor/messaging.go`, `tick/evaluate.go`, `sessiontoken` | the units only; `daemon/ownprompts_test.go` for the lock | unwired |
+| Loop extras: dev-mode restart, log rotation, fd check, scratch sweep, SIGUSR1 stack dump, account relink | `tick/devmode.go` (`Loop.Dev` unset), `Loop.Housekeeping` (empty), `Sweeps.RelinkAccounts` (nil) | `tick_test.go` `TestDevMode...` | unwired (rotation, fd check, scratch sweep, SIGUSR1: gap) |
+| Schedules runner (cron messages typed at agents) | writes only: `adminwrites/schedules.go` | none for running | gap |
+| Midnight rollover and `agent.fold` (the one model call) | stub `Rollover` in `compose/tick.go` | none | gap |
+| Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap (the Python detector reads a terminal screen; a structured session needs its own) |
+| Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (#26177, structured-only) |
+| Supervising terminal agents | none | | dropped (memo 1264): at the switch terminal agents are not ticked |
+
+After the switch neither `-own-prompts` nor `-gateway` stays. `-gateway` exists only to front a Python
+daemon. `-own-prompts` starts the screen watch, which reads terminal screens that no structured session
+has; `prompt.list` stays, as a read of the `prompt_blocks` rows. The daemon
+singleton it takes becomes unconditional (startup row above).
+
 ## Tasks for the sub-team
 
 Three reports under this daemon: `api` (the Python server side), `contract` (the spec, the
