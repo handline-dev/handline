@@ -223,6 +223,37 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	}
 }
 
+func TestTheFirstTickAfterMidnightRollsTheDigestOfAStructuredAgent(t *testing.T) {
+	p, _, _, _ := wired(t)
+	dir := filepath.Join(p.home, "agents", "alice", "journal")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "2026-10-09.md"), []byte("# alice · 2026-10-09\nupdated: 10:00\n\n## In progress\n- the port\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 9, 23, 59, 0, 0, time.Local)
+	cfg := p.Run.cfg
+	cfg.Now = func() time.Time { return now }
+	tk := p.Tick(cfg, TickConfig{})
+	run := func() {
+		t.Helper()
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run() // the first tick only learns the day
+	if _, err := os.Stat(filepath.Join(dir, "2026-10-10.md")); err == nil {
+		t.Fatal("rolled before midnight")
+	}
+	now = now.Add(2 * time.Minute)
+	run()
+	raw, err := os.ReadFile(filepath.Join(dir, "2026-10-10.md"))
+	if err != nil || !strings.Contains(string(raw), "the port") {
+		t.Fatalf("today's digest: %v %q", err, raw)
+	}
+}
+
 func TestTheLastContextIsReadPastALineLongerThanAScannerAllows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	small := `{"type":"assistant","message":{"model":"m","usage":{"input_tokens":1}}}` + "\n"

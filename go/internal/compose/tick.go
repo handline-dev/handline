@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/fold"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -107,8 +108,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			CollectSnapshot: func(db.Q) error { return nil }, // a structured session has no screen to read
 			PollUsage:       pollUsage,
 			RelinkAccounts:  func() (map[string][]string, error) { return team.RelinkAll(home, logLine), nil },
-			Rollover:        func(string) (bool, string) { return false, "" }, // folding the day is a model call that stays Python's
-			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
+			Rollover:        (&fold.Env{Home: home, Today: today(cfg)}).Rollover,
+			Today:           today(cfg),
 		},
 		Cost:    &tick.CostPilot{Ports: costPorts{}},
 		Observe: tickObserve{u: uenv, home: home, now: nowOf(cfg.Now), own: tc.Cutover},
@@ -144,6 +145,11 @@ func (t *Tick) Start() (done <-chan struct{}) {
 		t.restarted = t.Loop.Run(nil)
 	}()
 	return d
+}
+
+// today is fold.today: the date on the daemon's clock, which names the day's digest.
+func today(cfg Config) func() string {
+	return func() string { return nowOf(cfg.Now)().Format("2006-01-02") }
 }
 
 func (p *Parts) structuredAgents() []string {

@@ -57,7 +57,7 @@ conformance() {
 }
 echo "tools/test-go.sh: conformance fixtures, flags off" >&2
 # Flags off: remove this run at cutover, when -structured-cli becomes the default.
-conformance --allow-missing session.interrupt --allow-missing session.park --allow-missing session.restart \
+conformance --allow-missing agent.fold --allow-missing session.interrupt --allow-missing session.park --allow-missing session.restart \
     --allow-missing session.start --allow-missing session.stop --allow-missing session.wake || exit 1
 echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
 conformance --structured-cli "$here/fake_claude.py" || exit 1
