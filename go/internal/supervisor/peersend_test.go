@@ -17,14 +17,24 @@ type fakeInbox struct {
 	mu      sync.Mutex
 	texts   []string
 	outcome peerinbox.Result
+	gate    chan struct{} // when set, a Deliver waits for it to close
+	entered int
 }
 
 func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string) peerinbox.Result {
+	f.mu.Lock()
+	f.entered++
+	f.mu.Unlock()
+	if f.gate != nil {
+		<-f.gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
 	return f.outcome
 }
+
+func (f *fakeInbox) enteredCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.entered }
 
 func (f *fakeInbox) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.texts) }
 
@@ -47,6 +57,29 @@ func peerRig(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
 			}
 		},
 	}
+	return r, in
+}
+
+// peerRigHeld is peerRig whose inbox does not answer until the test ends, for a test that calls sendOnce itself and settles the message by
+// hand: the delivery sendOnce starts must not settle it first, nor outlive the database. Wait for in.enteredCount() before settling.
+func peerRigHeld(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
+	r, in := peerRig(t, outcome)
+	in.gate = make(chan struct{})
+	port := r.Agents.(*peerport.Port)
+	settled := make(chan struct{}, 8)
+	delivered, failed := port.OnDelivered, port.OnFailed
+	port.OnDelivered = func(a, op string) { delivered(a, op); settled <- struct{}{} }
+	port.OnFailed = func(a, op, why string, written bool) { failed(a, op, why, written); settled <- struct{}{} }
+	t.Cleanup(func() {
+		close(in.gate)
+		for i := 0; i < in.enteredCount(); i++ {
+			select {
+			case <-settled:
+			case <-time.After(10 * time.Second):
+				return
+			}
+		}
+	})
 	return r, in
 }
 
@@ -123,12 +156,13 @@ func TestATerminalAgentWithNoInboxIsQueuedNotTold(t *testing.T) {
 
 func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t *testing.T) {
 	for _, written := range []bool{false, true} {
-		r, _ := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+		r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 		rid := r.ask("alice", "bob", "psst", "say")
 		op := requestOp(rid)
 		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
 			t.Fatal(state)
 		}
+		eventually(t, func() bool { return in.enteredCount() == 1 })
 		r.must(r.SessionNotDelivered("bob", op, "no inbox", written))
 		var n int
 		pattern := "%was not written to its session (no inbox): it was not read. It is not sent again; send it again.%"
@@ -148,12 +182,13 @@ func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t
 }
 
 func TestAMessageTheLastDaemonLeftWrittenIsUnknownWhenTheNextSettlesIt(t *testing.T) {
-	r, _ := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+	r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 	rid := r.ask("alice", "bob", "psst", "say")
 	op := requestOp(rid)
 	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
 		t.Fatal(state)
 	}
+	eventually(t, func() bool { return in.enteredCount() == 1 })
 	r.must(r.SessionLost(r.DB, "bob")) // what the daemon does at its start for each peer agent
 	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != sendUnknown {
 		t.Fatalf("ledger %d", v)
