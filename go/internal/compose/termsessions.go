@@ -2,6 +2,8 @@ package compose
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +20,25 @@ import (
 // agent's session is the one of those whose directory is the agent's worktree, whose process is there and whose terminal is still listed:
 // the process table is not read, and a file left by a session that died is not taken for one that runs.
 
+// sessionRec is what a session file says: the process, the session, and what the session reports of itself (idle, busy, waiting with
+// what it waits for, or at a shell).
+type sessionRec struct {
+	Pid        int
+	SessionID  string
+	Status     string
+	WaitingFor string
+}
+
+// lookup is what looking for a session says. Unknown is not none: a file that cannot be read or parsed under a live pid may be the session
+// being looked for, and taking it for no session would have a live agent recorded closed.
+type lookup int
+
+const (
+	sessionNone lookup = iota
+	sessionFound
+	sessionUnknown
+)
+
 // terminalSessions is the terminal agents with a session running, agent to the session's pid.
 func (p *Parts) terminalSessions() map[string]int {
 	out := map[string]int{}
@@ -29,45 +50,93 @@ func (p *Parts) terminalSessions() map[string]int {
 		if p.Kind(agent) {
 			continue
 		}
-		row, err := db.GetAgentState(p.db, agent)
-		if err != nil || row == nil || row.Terminal.String == "" || (live != nil && !live[row.Terminal.String]) {
-			continue
-		}
-		wt := lifecycle.WorktreePath(row.Worktree.String)
-		dir, err := team.AccountConfigDir(p.home, row.Account.String)
-		if wt == "" || err != nil || row.Account.String == "" {
-			continue
-		}
-		if pid := sessionIn(filepath.Join(dir, "sessions"), wt); pid > 0 {
-			out[agent] = pid
+		if rec, _, found := p.terminalSession(agent, live); found == sessionFound {
+			out[agent] = rec.Pid
 		}
 	}
 	return out
 }
 
-// sessionIn is the pid of a running session whose working directory is wt, 0 for none.
-func sessionIn(dir, wt string) int {
-	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
-	for _, f := range files {
-		pid, err := strconv.Atoi(strings.TrimSuffix(filepath.Base(f), ".json"))
-		if err != nil || pid <= 0 {
-			continue
-		}
-		b, err := os.ReadFile(f)
+// terminalSession is the running session of a terminal agent and the account whose config directory holds its file (the account it
+// spends, whatever agent.yaml says). live is the terminals the host lists, nil when it could not say.
+func (p *Parts) terminalSession(agent string, live map[string]bool) (sessionRec, string, lookup) {
+	row, err := db.GetAgentState(p.db, agent)
+	if err != nil || row == nil || row.Terminal.String == "" || (live != nil && !live[row.Terminal.String]) {
+		return sessionRec{}, "", sessionNone
+	}
+	wt := lifecycle.WorktreePath(row.Worktree.String)
+	if wt == "" {
+		return sessionRec{}, "", sessionNone
+	}
+	accts := paths.ListAccounts(p.home)
+	if row.Account.String != "" { // the recorded account first: a session found there is the expected one
+		accts = append([]string{row.Account.String}, accts...)
+	}
+	result := sessionNone
+	for _, acct := range accts {
+		dir, err := team.AccountConfigDir(p.home, acct)
 		if err != nil {
 			continue
 		}
-		var rec struct {
-			Cwd string `json:"cwd"`
-		}
-		if json.Unmarshal(b, &rec) != nil || !sameDir(rec.Cwd, wt) {
-			continue
-		}
-		if err := syscall.Kill(pid, 0); err == nil || err == syscall.EPERM {
-			return pid
+		switch rec, found := sessionIn(filepath.Join(dir, "sessions"), wt); found {
+		case sessionFound:
+			return rec, acct, sessionFound
+		case sessionUnknown:
+			result = sessionUnknown
 		}
 	}
-	return 0
+	return sessionRec{}, "", result
+}
+
+func alive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+// sessionIn is the running session whose working directory is wt; of several the newest by updatedAt. A directory that cannot be listed, or a
+// file under a live pid that cannot be read or parsed, makes the answer unknown unless a session is found beside it.
+func sessionIn(dir, wt string) (sessionRec, lookup) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return sessionRec{}, sessionNone
+	}
+	if err != nil {
+		return sessionRec{}, sessionUnknown
+	}
+	best, unknown := sessionRec{}, false
+	var bestAt int64
+	for _, e := range entries {
+		name := e.Name()
+		pid, err := strconv.Atoi(strings.TrimSuffix(name, ".json"))
+		if !strings.HasSuffix(name, ".json") || err != nil || pid <= 0 || !alive(pid) {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		var rec struct {
+			Cwd        string `json:"cwd"`
+			SessionID  string `json:"sessionId"`
+			Status     string `json:"status"`
+			WaitingFor string `json:"waitingFor"`
+			UpdatedAt  int64  `json:"updatedAt"`
+		}
+		if err != nil || json.Unmarshal(b, &rec) != nil {
+			unknown = true // a half-written file, or one that cannot be read: this may be the session
+			continue
+		}
+		if !sameDir(rec.Cwd, wt) {
+			continue
+		}
+		if best.Pid == 0 || rec.UpdatedAt > bestAt {
+			best, bestAt = sessionRec{Pid: pid, SessionID: rec.SessionID, Status: rec.Status, WaitingFor: rec.WaitingFor}, rec.UpdatedAt
+		}
+	}
+	switch {
+	case best.Pid != 0:
+		return best, sessionFound
+	case unknown:
+		return sessionRec{}, sessionUnknown
+	}
+	return sessionRec{}, sessionNone
 }
 
 func sameDir(a, b string) bool {

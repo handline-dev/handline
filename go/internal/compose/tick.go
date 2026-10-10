@@ -16,13 +16,14 @@ import (
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// This file builds the policy tick over the structured sessions. The tick supervises the structured agents only: a terminal agent is the
-// Python daemon's, and a Go tick over it would find no terminal and count that against it. Folding the day is a model call
-// that stays the Python daemon's.
+// This file builds the policy tick. It supervises the structured agents; with TickConfig.Terminals it supervises the terminal agents too,
+// reading their sessions from <config dir>/sessions/<pid>.json, and a Python daemon must not tick the same agents then. Folding the day is a
+// model call that stays the Python daemon's.
 
 // Tick is the policy tick and what it needs beside the lifecycle.
 type Tick struct {
@@ -51,6 +52,9 @@ type TickConfig struct {
 	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
 	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
 	Cutover bool
+	// Terminals puts the terminal agents under this tick: it wakes, closes, restarts and hands off their sessions. Their agent_view rows
+	// stay the Python daemon's until the view covers them.
+	Terminals bool
 	// ScratchRoot is the sessions' scratch root whose stale repo copies are deleted; empty sweeps none (a test must not delete from the
 	// machine's real one).
 	ScratchRoot string
@@ -65,10 +69,16 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tu)
+	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
-		Agents:        p.structuredAgents,
-		Registered:    func() ([]string, error) { return paths.ReadAgents(home) },
-		Observe:       func([]string, map[string]string) map[string]session.Observed { return map[string]session.Observed{} },
+		Agents:     agents,
+		Registered: func() ([]string, error) { return paths.ReadAgents(home) },
+		Observe: func(names []string, terminals map[string]string) map[string]session.Observed {
+			if !tc.Terminals {
+				return map[string]session.Observed{}
+			}
+			return p.observeTerminals(names, terminals)
+		},
 		NoteSeen:      func(map[string]session.Observed, time.Time) {},
 		ResumeHandoff: func(_ db.Q, row db.HandoffRow) error { return lc.Mover.ResumeHandoff(row) },
 		EnforceEdges:  func(q db.Q, agent string) error { _, err := env.EnforceEdges(q, agent); return err },
@@ -80,12 +90,12 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		RefreshView:      func(_ db.Q, agent string) { view.RefreshOne(agent) },
 		LiftLogin:        func(db.Q, string, *db.AgentState, *[]string) {},
 		StillDrawn:       func(string) bool { return false },
-		ResumableSession: func(q db.Q, agent string) string { return p.Manager.SessionID(agent) },
+		ResumableSession: func(q db.Q, agent string) string { return p.resumableSession(q, agent, tu) },
 		Resolve: func(id int64, why string) error {
 			_, _, err := env.Resolve(q, supervisor.ResolveIn{RID: id, Verdict: why, NoSettle: true})
 			return err
 		},
-		Term: noReconcileTerm{},
+		Term: reconcileTerm{p: p, on: tc.Terminals},
 		Run:  p.Run,
 		Now:  now,
 	}}
@@ -100,7 +110,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		pollUsage = func(db.Q) error { poller.Tick(ctx); return nil }
 	}
 	t := &tick.Tick{Q: q, Log: logLine, Now: now,
-		Host:      tickHost{p: p},
+		Host:      tickHost{p: p, terminals: tc.Terminals},
 		Usage:     tu,
 		Delivery:  tickDelivery{env: env},
 		Messaging: tickMessaging{env: env},
@@ -195,10 +205,13 @@ func today(cfg Config) func() string {
 	return func() string { return nowOf(cfg.Now)().Format("2006-01-02") }
 }
 
-func (p *Parts) structuredAgents() []string {
+func (p *Parts) structuredAgents() []string { return p.tickAgents(false) }
+
+// tickAgents is the structured agents, and the terminal ones too when terminals is set.
+func (p *Parts) tickAgents(terminals bool) []string {
 	var out []string
 	for _, a := range paths.ListAgents(p.home) {
-		if p.Kind(a) {
+		if terminals || p.Kind(a) {
 			out = append(out, a)
 		}
 	}
@@ -217,27 +230,125 @@ func queuedOrIdle(q db.Q, agent, when string) (string, error) {
 	return states.Idle, db.SetAgentState(q, agent, states.Idle, 0, when+"; no requests waiting")
 }
 
-// noReconcileTerm: there is no terminal for the reconciler to look at.
-type noReconcileTerm struct{ noTerminal }
+// reconcileTerm is what the reconciler asks of a terminal. It reads no screen: a stalled agent's trust prompt and dialog count as gone,
+// and a session is idle when its own file says so.
+type reconcileTerm struct {
+	p  *Parts
+	on bool
+}
 
-func (noReconcileTerm) TrustPromptGone(string) bool { return true }
-func (noReconcileTerm) IdleNow(string) bool         { return false }
+func (t reconcileTerm) Available() bool {
+	return t.on && t.p.LC != nil && t.p.LC.term.Backend.Available()
+}
+func (reconcileTerm) TrustPromptGone(string) bool        { return true }
+func (reconcileTerm) ScreenBlocker(string) *term.Blocker { return nil }
+func (t reconcileTerm) IdleNow(handle string) bool {
+	agent := t.p.agentAt(handle)
+	return agent != "" && t.p.sessionStatus(agent) == "idle"
+}
 
-// tickHost is tick.Host over the structured sessions.
-type tickHost struct{ p *Parts }
+// tickHost is tick.Host over the structured sessions and, with terminals, the terminal ones.
+type tickHost struct {
+	p         *Parts
+	terminals bool
+}
 
-func (h tickHost) Agents() []string   { return h.p.structuredAgents() }
+func (h tickHost) Agents() []string   { return h.p.tickAgents(h.terminals) }
 func (h tickHost) Accounts() []string { return paths.ListAccounts(h.p.home) }
 
-func (h tickHost) SessionAlive(agent string) bool { return h.p.Run.Alive(agent) }
+func (h tickHost) SessionAlive(agent string) bool {
+	if h.terminals && !h.p.Kind(agent) {
+		return h.p.sessionStatus(agent) != ""
+	}
+	return h.p.Run.Alive(agent)
+}
 
-// SessionIdle: the CLI is not mid-turn, and no permission prompt is open (a restart must not cut one short).
+// SessionIdle: the session is not mid-turn, and no permission prompt is open (a restart must not cut one short).
 func (h tickHost) SessionIdle(agent string) bool {
+	if h.terminals && !h.p.Kind(agent) {
+		return h.p.sessionStatus(agent) == "idle"
+	}
 	return h.p.Run.Alive(agent) && !h.p.Run.Busy(agent) && !(h.p.Manager.Broker != nil && h.p.Manager.Broker.Has(agent))
 }
 
 // RunningAccount is the account the session was opened under; "" when unknown, which never contradicts the recorded account.
-func (h tickHost) RunningAccount(agent string) string { return h.p.OpenedOn(agent) }
+func (h tickHost) RunningAccount(agent string) string {
+	if h.terminals && !h.p.Kind(agent) {
+		if p := h.p; p.LC != nil {
+			if _, acct, found := p.terminalSession(agent, p.LC.term.LiveTerminals()); found == sessionFound {
+				return acct
+			}
+		}
+		return ""
+	}
+	return h.p.OpenedOn(agent)
+}
+
+// resumableSession is the session id to remember for a closed agent: the one the daemon holds for a structured agent; for a terminal agent
+// the one its statusline or session file gave, else the one stored.
+func (p *Parts) resumableSession(q db.Q, agent string, tu tickUsage) string {
+	if p.Kind(agent) {
+		return p.Manager.SessionID(agent)
+	}
+	acct, _ := team.CurrentAccount(q, agent)
+	if sid := tu.ReadForAgent(agent, acct).SessionID; sid != "" {
+		return sid
+	}
+	if row, err := db.GetAgentState(q, agent); err == nil && row != nil {
+		return row.ResumeSession.String
+	}
+	return ""
+}
+
+// sessionStatus is what the agent's terminal session says of itself, "" when none runs. A session in the file with no status reads "unknown".
+func (p *Parts) sessionStatus(agent string) string {
+	if p.LC == nil {
+		return ""
+	}
+	rec, _, found := p.terminalSession(agent, p.LC.term.LiveTerminals())
+	switch {
+	case found == sessionNone:
+		return ""
+	case found == sessionUnknown || rec.Status == "":
+		return "unknown" // a process runs, and what it says of itself cannot be read: alive, not idle
+	}
+	return rec.Status
+}
+
+// agentAt is the terminal agent whose terminal is handle.
+func (p *Parts) agentAt(handle string) string {
+	for _, a := range paths.ListAgents(p.home) {
+		if row, err := db.GetAgentState(p.db, a); err == nil && row != nil && row.Terminal.String == handle {
+			return a
+		}
+	}
+	return ""
+}
+
+// observeTerminals is session/observe for the terminal agents: whether each one's terminal is listed and which session runs in it.
+func (p *Parts) observeTerminals(names []string, terminals map[string]string) map[string]session.Observed {
+	out := map[string]session.Observed{}
+	if p.LC == nil {
+		return out
+	}
+	live := p.LC.term.LiveTerminals() // nil: the host could not say, which is not "gone"
+	for _, a := range names {
+		if p.Kind(a) || terminals[a] == "" || live == nil {
+			continue
+		}
+		alive := live[terminals[a]]
+		o := session.Observed{TerminalAlive: &alive, SessionSeen: true}
+		switch rec, _, found := p.terminalSession(a, live); found {
+		case sessionFound:
+			pid := rec.Pid
+			o.SessionPID = &pid
+		case sessionUnknown:
+			o.SessionSeen = false // could not look: not "no session"
+		}
+		out[a] = o
+	}
+	return out
+}
 
 // tickUsage is tick.Usage over the usage package.
 type tickUsage struct {
@@ -271,7 +382,11 @@ func (t tickUsage) AccountReading(q db.Q, agent string) (tick.AccountReading, bo
 
 func (t tickUsage) ReadForAgent(agent, acct string) tick.Status {
 	st := statusOf(t.u.ReadForAgent(agent, acct))
-	if acct == "" || !t.p.Kind(agent) || t.p.LC == nil {
+	if acct == "" || t.p.LC == nil {
+		return st
+	}
+	if !t.p.Kind(agent) {
+		t.fillFromSession(agent, acct, &st)
 		return st
 	}
 	// A structured session writes no status file: its session is the one the daemon holds, and its context is in the transcript the CLI keeps.
@@ -290,6 +405,26 @@ func (t tickUsage) ReadForAgent(agent, acct string) tick.Status {
 		st.TrustedCtxUsed, st.ModelID = &n, model
 	}
 	return st
+}
+
+// fillFromSession completes a terminal agent's reading from its session file and transcript where the statusline gave none: the session
+// id, and the context the newest reply says the window holds.
+func (t tickUsage) fillFromSession(agent, acct string, st *tick.Status) {
+	if st.SessionID == "" {
+		if rec, _, found := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); found == sessionFound {
+			st.SessionID = rec.SessionID
+		}
+	}
+	if st.SessionID == "" || st.TrustedCtxUsed != nil {
+		return
+	}
+	if st.TranscriptPath == "" {
+		st.TranscriptPath = t.p.LC.Handoff.FindTranscript(st.SessionID, acct)
+	}
+	if used, model, ok := lastContext(st.TranscriptPath); ok {
+		n := int(used)
+		st.TrustedCtxUsed, st.ModelID = &n, model
+	}
 }
 
 // ContextLimit is status.effective_context_limit: the agent's own figure, held to a share of the model's window when the window is known.
