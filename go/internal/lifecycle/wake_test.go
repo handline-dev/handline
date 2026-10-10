@@ -53,8 +53,8 @@ func TestWakeAgentLockedWakesWithoutTakingTheTerminal(t *testing.T) {
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")
 	db.AddEvent(m.Q, "a", "Stop")
-	if ok, said, _ := m.WakeAgent("a", WakeOpts{Force: true}); ok || said != "held by someone" {
-		t.Fatalf("a held terminal is not typed at: %v %q", ok, said)
+	if ok, said, _ := m.WakeAgent("a", WakeOpts{Force: true}); ok || said != TypingElsewhere+"; not waking twice" {
+		t.Fatalf("a terminal in use is not typed at: %v %q", ok, said)
 	}
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
 	if err != nil || !ok || said != "relaunched with the wake prompt" || len(tm.relaunched) != 1 {
@@ -64,8 +64,7 @@ func TestWakeAgentLockedWakesWithoutTakingTheTerminal(t *testing.T) {
 
 type busyTyping struct{ fakeTyping }
 
-func (busyTyping) HeldByOther(db.Q, string) string { return "someone" }
-func (busyTyping) HeldWhy(string, string) string   { return "held by someone" }
+func (busyTyping) TakeTerminal(string) (func(), bool) { return nil, false }
 
 func TestWakeInPlaceTypesAPointerAtTheHandoffAndSpendsIt(t *testing.T) {
 	m, _, tm := newManager(t)

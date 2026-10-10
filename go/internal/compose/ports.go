@@ -148,8 +148,6 @@ type noChannel struct{}
 
 func (noChannel) Marker(db.Q, string, string, map[string]any)                       {}
 func (noChannel) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
-func (noChannel) HeldByOther(db.Q, string) string                                   { return "" }
-func (noChannel) HeldWhy(string, string) string                                     { return "" }
 
 // proposals: the open trust proposal a founder's card waits on is found from the proposal files; the founder's answer is applied by the
 // Python daemon's trust apply until that is ported, and the proposer is told so.

@@ -300,8 +300,6 @@ func (o observer) LiveSessions() (map[string]int, bool) {
 type noTyping struct{}
 
 func (noTyping) TakeTerminal(string) (func(), bool) { return func() {}, true }
-func (noTyping) HeldByOther(db.Q, string) string    { return "" }
-func (noTyping) HeldWhy(string, string) string      { return "" }
 
 // noTerminal is the terminal a terminal agent would be in, which this daemon does not have.
 type noTerminal struct{}

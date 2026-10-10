@@ -95,11 +95,6 @@ type Rules interface {
 	Match(vendor, title string, numbers []int, labels []string) int
 }
 
-// Held is daemon/inputhold.py: who else holds an agent's terminal input.
-type Held interface {
-	HeldByOther(agent string) string
-}
-
 // Env is what the session code works on. Every field but DB, Home and Term may be nil where its code is not reached.
 type Env struct {
 	DB        *sql.DB
@@ -110,7 +105,6 @@ type Env struct {
 	Lifecycle Lifecycle
 	Config    Config
 	Rules     Rules
-	Held      Held
 	// Observer says how the process table read each session-looking process.
 	Observer interface{ Diagnose() []string }
 	// Agents is the registered agents (paths.ListAgents).

@@ -154,9 +154,6 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 // pastDialog gets past a dialog before typing an exit or a clear: "" when nothing stands in the way, else why. While a reason stands,
 // when the dialog first proved unpassable is kept by its title.
 func (e *Env) pastDialog(q db.Q, agent string, onlyLimit bool) string {
-	if held := e.Channel.HeldByOther(q, agent); held != "" {
-		return e.Channel.HeldWhy(agent, held)
-	}
 	why, title := e.Dialogs.PastDialog(q, agent, onlyLimit)
 	sinceKey, titleKey := "dialog_since:"+agent, "dialog_title:"+agent
 	if why == "" {
@@ -220,11 +217,8 @@ func (e *Env) clearHold(q db.Q, agent string) string {
 	return ""
 }
 
-// TypingHold is why nothing may be typed at this agent's session now: someone holds its input, the wall, or a clear owed.
+// TypingHold is why nothing may be typed at this agent's session now: the wall, or a clear owed.
 func (e *Env) typingHold(q db.Q, agent string) string {
-	if held := e.Channel.HeldByOther(q, agent); held != "" {
-		return e.Channel.HeldWhy(agent, held)
-	}
 	if w := e.wallReason(q, agent, nil); w != "" {
 		return w
 	}
@@ -317,9 +311,6 @@ func (e *Env) sessionChanged(q db.Q, agent string) bool {
 // typeGate is the re-read every path that types at an agent's terminal must do once its lock is held: "" means clear to type,
 // else why not. requireSettled is for a destructive type, or one that ends a session.
 func (e *Env) typeGate(q db.Q, agent, handle string, requireIdle, requireSettled bool) string {
-	if held := e.Channel.HeldByOther(q, agent); held != "" {
-		return e.Channel.HeldWhy(agent, held)
-	}
 	if requireSettled {
 		if last := must(db.Cursor(q, "typed_at:"+agent)); last != 0 && e.now()-last < TypeSettleS {
 			return agent + " was typed at moments ago; letting the screen catch up"

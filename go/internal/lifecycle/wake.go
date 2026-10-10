@@ -216,10 +216,6 @@ func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err
 		ok, said = m.wakeAgent(agent, o)
 		return ok, said, nil
 	}
-	if held := m.Typing.HeldByOther(m.Q, agent); held != "" {
-		// nothing is typed into a pane someone holds, a launch line included; the work stays queued
-		return false, m.Typing.HeldWhy(agent, held), nil
-	}
 	release, mine := m.Typing.TakeTerminal(agent)
 	if !mine {
 		// A human's key and a tick can both land here, and this one holds the terminal for as long as a session takes to appear.

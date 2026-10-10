@@ -143,8 +143,6 @@ func (c *fakeChannel) Marker(_ db.Q, agent, kind string, _ map[string]any) {
 	c.markers = append(c.markers, agent+":"+kind)
 }
 func (c *fakeChannel) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
-func (c *fakeChannel) HeldByOther(db.Q, string) string                                   { return "" }
-func (c *fakeChannel) HeldWhy(a, h string) string                                        { return a + " held by " + h }
 
 type fakeStuck struct{ why string }
 
