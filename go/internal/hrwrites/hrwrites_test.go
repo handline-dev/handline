@@ -297,6 +297,11 @@ func TestContextScheduleGlobalAndSettingsAreAppliedAsProposed(t *testing.T) {
 	if !strings.Contains(r.file("config.yaml"), "park_timeout_s: 1800") {
 		t.Fatalf("%q", r.file("config.yaml"))
 	}
+	p, id = r.propose("aaaa0009b", "kind", "global", "agent", "service-use", "set.value", "go")
+	r.decide(id, "approve", p.subject(), "f3b")
+	if !strings.Contains(r.file("config.yaml"), "daemon_impl: go") {
+		t.Fatalf("%q", r.file("config.yaml"))
+	}
 	p, id = r.propose("aaaa000a", "kind", "settings", "agent", "alice", "set.effort", "high")
 	res := r.decide(id, "approve", p.subject(), "f4")
 	if res["result"] == nil || !strings.Contains(r.file("agents", "alice", "agent.yaml"), "effort: high") {

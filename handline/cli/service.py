@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 from ..daemon import locks as dmn_locks
-from ..infra import service
+from ..infra import protected, service
 from ..usage import load
 from ..infra import textsafe
 from ..infra import venv as venvmod
@@ -23,6 +23,9 @@ def cmd_service_install(args) -> int:
 def cmd_service_use(args) -> int:
     """Choose which daemon the service runs. Only the setting changes: the plist is rewritten by `hl service install`, so the
     switch and the rollback are each this and one install."""
+    if protected.in_agent_session():
+        from .hr import propose_for_session
+        return propose_for_session("global", "service-use", {"value": args.impl}, args.why)
     cfg = load.config_for_write()
     cfg[service.IMPL_KEY] = args.impl
     load.write_config(cfg)
