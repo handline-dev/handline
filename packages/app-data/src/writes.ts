@@ -126,8 +126,7 @@ const tasks: Record<string, WriteSpec> = {
       const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text };
       changeMemos(c, task, (l) => [...l, memo]);
     },
-    reconcile: (c, p, r) =>
-      changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
+    reconcile: (c, p, r) => changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
   },
   'task.memo.edit': {
     kind: 'authored',
@@ -374,4 +373,6 @@ export const NOT_FROM_UI = [
   'task.handoff',
   // A member command the app does not send yet.
   'task.ask',
+  'account.login_cancel',
+  'account.login_code',
 ] as const;
