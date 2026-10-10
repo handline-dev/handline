@@ -331,7 +331,7 @@ func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
 }
 
 func TestPassesPythonStillSweepsRunOnlyFromTheCutover(t *testing.T) {
-	for _, name := range []string{"task-queue", "task-holds"} {
+	for _, name := range []string{"task-queue", "task-holds", "wait-for"} {
 		if passRuns(t, false, name) {
 			t.Errorf("%s ran before the cutover", name)
 		}
