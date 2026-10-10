@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -176,6 +177,19 @@ func (t termRun) Session(agent string) (int, string) {
 }
 
 func (termRun) PidGone(pid int) bool { return !alive(pid) }
+
+// PidStart reads the process's start time from ps; 0 when it cannot be read.
+func (termRun) PidStart(pid int) int64 {
+	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return 0
+	}
+	t, err := time.ParseInLocation("Mon Jan _2 15:04:05 2006", strings.Join(strings.Fields(string(out)), " "), time.Local)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
 
 func (t termRun) Tell(agent, _, text string) error {
 	sess, err := findSession(t.p.home, t.p.db, agent)
