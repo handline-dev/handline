@@ -79,6 +79,7 @@ func TestALoginSaysWaitingThenDoneOnTheAccountsTopic(t *testing.T) {
 	release := filepath.Join(t.TempDir(), "release")
 	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\nwhile [ ! -e '"+release+"' ]; do sleep 0.02; done\ntouch \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n")
 	t.Setenv("SANDBOX_RUNTIME", "")
+	t.Cleanup(func() { os.WriteFile(release, nil, 0o644) }) // a failure before the release must not leave the fake login spinning
 	if _, err := d.logins.Start("main"); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +91,28 @@ func TestALoginSaysWaitingThenDoneOnTheAccountsTopic(t *testing.T) {
 	}
 	got := awaitStates(t, d, 2)
 	if got[0] != "waiting" || got[1] != "done" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// What an account.changed says is the state of the move that announced it, not the state the login has when the announcement is made.
+func TestAnAnnouncementSaysTheStateOfItsMoveNotTheLoginsStateNow(t *testing.T) {
+	release := filepath.Join(t.TempDir(), "release")
+	d := loginDaemon(t, "echo https://claude.example/authorize?x=1\nwhile [ ! -e '"+release+"' ]; do sleep 0.02; done\ntouch \"$CLAUDE_CONFIG_DIR/.credentials.json\"\n")
+	t.Setenv("SANDBOX_RUNTIME", "")
+	t.Cleanup(func() { os.WriteFile(release, nil, 0o644) })
+	l, err := d.logins.Start("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitStates(t, d, 1)
+	if err := d.logins.Cancel(l.ID); err != nil {
+		t.Fatal(err)
+	}
+	awaitStates(t, d, 2) // the login is cancelled now; an announcement of the earlier move must still say what that move was
+	d.accountChanged("main", weblogin.Login{ID: l.ID, State: weblogin.CodeSent})
+	got := loginStates(t, d.hub)
+	if got[len(got)-1] != "code_sent" {
 		t.Fatalf("%v", got)
 	}
 }

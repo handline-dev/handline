@@ -343,9 +343,10 @@ func (d *Daemon) legacy(payload map[string]any, pid int) map[string]any {
 	return e.Legacy(payload, pid)
 }
 
-// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
-func (d *Daemon) accountChanged(name string) {
-	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
+// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account with the login in
+// the state the move made, not the one it has by now.
+func (d *Daemon) accountChanged(name string, login weblogin.Login) {
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: func(string) *weblogin.Login { return &login }}).Account(name)
 	if !ok {
 		return
 	}

@@ -56,8 +56,9 @@ type Manager struct {
 	Wait func(time.Duration) <-chan time.Time
 	// Lookup finds the login command; nil is exec.LookPath.
 	Lookup func(name string) (string, error)
-	// Changed is told the account whose login state moved, after it moved; nil is none.
-	Changed func(account string)
+	// Changed is told the account whose login state moved, after it moved, and the login as it was left by that move (no URL): what is
+	// announced is the state the move made, not whatever the login is by the time the announcement is made; nil is none.
+	Changed func(account string, login Login)
 	// Signal sends sig to the process group of pid; nil is syscall.Kill(-pid, sig). Tests give one that records.
 	Signal func(pid int, sig syscall.Signal) error
 
@@ -147,7 +148,7 @@ func (m *Manager) Start(account string) (Login, error) {
 			}
 			m.mu.Unlock()
 			if waiting {
-				m.changed(account)
+				m.changed(account, Login{ID: r.id, State: Waiting})
 				return Login{ID: r.id, State: Waiting, URL: u}, nil
 			}
 			return Login{}, &Refusal{"the login ended before it could be answered"}
@@ -256,16 +257,16 @@ func (m *Manager) end(r *run, state string) {
 	}
 	m.mu.Unlock()
 	if first {
-		m.changed(r.account)
+		m.changed(r.account, Login{ID: r.id, State: state})
 	}
 }
 
 // active is a login that has not ended: it waits for the code or has been given it.
 func (r *run) active() bool { return r.state == Waiting || r.state == CodeSent }
 
-func (m *Manager) changed(account string) {
+func (m *Manager) changed(account string, l Login) {
 	if m.Changed != nil {
-		m.Changed(account)
+		m.Changed(account, l)
 	}
 }
 
@@ -325,7 +326,7 @@ func (m *Manager) SendCode(id, code string) error {
 	r.state, r.url = CodeSent, ""
 	stdin := r.stdin
 	m.mu.Unlock()
-	m.changed(r.account)
+	m.changed(r.account, Login{ID: r.id, State: CodeSent})
 	if _, err := io.WriteString(stdin, code+"\n"); err != nil {
 		m.end(r, Failed)
 		m.kill(r)

@@ -22,6 +22,7 @@ type rig struct {
 	timer *timers
 	mu    sync.Mutex
 	moved []string
+	told  []string // the state each move announced
 }
 
 // timers hands out timer channels a test fires by duration.
@@ -72,7 +73,12 @@ func newRig(t *testing.T, script string) *rig {
 	}
 	r := &rig{t: t, home: home, timer: &timers{}}
 	r.m = &Manager{Home: home, Wait: r.timer.wait, Lookup: func(string) (string, error) { return bin, nil },
-		Changed: func(a string) { r.mu.Lock(); r.moved = append(r.moved, a); r.mu.Unlock() }}
+		Changed: func(a string, l Login) {
+			r.mu.Lock()
+			r.moved = append(r.moved, a)
+			r.told = append(r.told, l.State)
+			r.mu.Unlock()
+		}}
 	t.Cleanup(r.noneSurvive) // cleanups run last first: this one runs after Close
 	t.Cleanup(r.m.Close)
 	return r
@@ -276,6 +282,9 @@ func TestExitWithTheCredentialIsDone(t *testing.T) {
 	defer r.mu.Unlock()
 	if len(r.moved) < 2 || r.moved[len(r.moved)-1] != "main" {
 		t.Fatalf("the accounts topic was told %v", r.moved)
+	}
+	if len(r.told) != 2 || r.told[0] != Waiting || r.told[1] != Done {
+		t.Fatalf("each move announces the state it made: %v", r.told)
 	}
 }
 
