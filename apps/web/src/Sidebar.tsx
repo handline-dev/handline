@@ -40,6 +40,7 @@ import {
   useTeamRoute,
   useWorktreesRoute,
 } from './route.ts';
+import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 
 export function Sidebar({
@@ -191,6 +192,7 @@ export function Sidebar({
           ))}
         </View>
       </div>
+      <NewAgentButton />
       <footer className="rail-foot">
         <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />

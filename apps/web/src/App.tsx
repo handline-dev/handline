@@ -12,6 +12,7 @@ import { StatsPage } from './Stats.tsx';
 import {
   useAccountsRoute,
   useInboxRoute,
+  useNewAgentRoute,
   usePageRoute,
   useSelectedAgent,
   useSettingsOpen,
@@ -23,6 +24,7 @@ import { useShell } from './shell.ts';
 import { SettingsView } from './SettingsView.tsx';
 import { TeamPage } from './TeamPage.tsx';
 import { Worktrees } from './Worktrees.tsx';
+import { NewAgent } from './NewAgent.tsx';
 import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
@@ -54,6 +56,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const accounts = useAccountsRoute();
   const team = useTeamRoute();
   const worktrees = useWorktreesRoute();
+  const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
   const inbox = useInboxRoute();
@@ -146,6 +149,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
+        {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
         {error ? (
           <div className="toast" role="status" onClick={() => store.dismissError()} title="Click to dismiss">
             {error}

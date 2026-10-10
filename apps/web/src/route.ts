@@ -79,3 +79,14 @@ export function useWorktreesRoute(): { open: boolean; path: string | null } {
 export const goWorktrees = (path?: string): void => {
   location.hash = path === undefined ? '#/worktrees' : `#/worktrees/${encodeURIComponent(path)}`;
 };
+
+const NEW_AGENT = /^#\/new(?:\/(.+))?$/;
+/** The New agent route: whether the URL is `#/new` or `#/new/:operation`, and the operation it names. */
+export function useNewAgentRoute(): { open: boolean; operation: string | null } {
+  const hash = useSyncExternalStore(subscribe, () => location.hash);
+  const m = NEW_AGENT.exec(hash);
+  return { open: !!m, operation: m?.[1] ? decodeURIComponent(m[1]) : null };
+}
+export const goNew = (operation?: string): void => {
+  location.hash = operation === undefined ? '#/new' : `#/new/${encodeURIComponent(operation)}`;
+};
