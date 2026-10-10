@@ -2,12 +2,12 @@ package lands
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/pyval"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -22,47 +22,8 @@ import (
 // tokenVerbs are the verbs that act on the strength of who the caller is.
 var tokenVerbs = map[string]bool{"land": true, "land_pass": true}
 
-// pyStr is Python's str() of a value of a decoded request.
-func pyStr(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "None"
-	case string:
-		return x
-	case bool:
-		if x {
-			return "True"
-		}
-		return "False"
-	case json.Number:
-		return x.String()
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-// truthy is Python's bool() of a decoded value.
-func truthy(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return false
-	case bool:
-		return x
-	case string:
-		return x != ""
-	case json.Number:
-		f, err := strconv.ParseFloat(x.String(), 64)
-		return err != nil || f != 0
-	case []any:
-		return len(x) > 0
-	case map[string]any:
-		return len(x) > 0
-	}
-	return true
-}
-
 func shown(v any) string {
-	s := pyStr(v)
+	s := pyval.Str(v)
 	if r := []rune(s); len(r) > 60 {
 		s = string(r[:60])
 	}
@@ -90,7 +51,7 @@ func (s *Service) Legacy(payload map[string]any, pid int) map[string]any {
 		return map[string]any{"ok": false, "said": who + " is not this request's session: it must come from a session `hl launch` " +
 			"recorded for that agent (relaunch an older one)"}
 	}
-	if !s.Grants.Take(agent, verb, pyStr(payload["sha"])) {
+	if !s.Grants.Take(agent, verb, pyval.Str(payload["sha"])) {
 		s.log("  %s refused: nothing the session's own command vouched for (%s)", verb, shown(agent))
 		return map[string]any{"ok": false, "said": verb + " is accepted only from the session's own `hl land` command, " +
 			"not from other code it runs (a test run, a script)"}
@@ -103,12 +64,12 @@ func (s *Service) Legacy(payload map[string]any, pid int) map[string]any {
 func (s *Service) authorize(payload map[string]any) map[string]any {
 	agent, _ := payload["agent"].(string)
 	verb, _ := payload["land_verb"].(string)
-	if !tokenVerbs[verb] || agent == "" || !truthy(payload["key"]) || !s.Tokens.KeyOK(agent, pyStr(payload["key"])) {
+	if !tokenVerbs[verb] || agent == "" || !pyval.Truthy(payload["key"]) || !s.Tokens.KeyOK(agent, pyval.Str(payload["key"])) {
 		s.log("  land_authorize refused for %s", shown(payload["agent"]))
 		return map[string]any{"ok": false, "said": "not authorized"}
 	}
-	s.Grants.Grant(agent, verb, pyStr(payload["sha"]))
-	s.log("  land_authorize: %s vouched for %s %s", shown(agent), verb, truncate(strconv.Quote(pyStr(payload["sha"])), 42))
+	s.Grants.Grant(agent, verb, pyval.Str(payload["sha"]))
+	s.log("  land_authorize: %s vouched for %s %s", shown(agent), verb, truncate(strconv.Quote(pyval.Str(payload["sha"])), 42))
 	return map[string]any{"ok": true, "said": "vouched"}
 }
 
@@ -133,7 +94,7 @@ func (s *Service) prepare(verb string, p map[string]any, agent string) (do step,
 		if said, ok := need("sha"); !ok {
 			return nil, said
 		}
-		full, why := s.PreparePass(pyStr(p["sha"]), agent)
+		full, why := s.PreparePass(pyval.Str(p["sha"]), agent)
 		if full == "" {
 			return nil, why
 		}
@@ -147,7 +108,7 @@ func (s *Service) prepare(verb string, p map[string]any, agent string) (do step,
 	if !isText || (p["tree"] != nil && !treeText) {
 		return nil, verb + ": message and tree are text"
 	}
-	prepared, why := s.Prepare(RequestIn{Sha: pyStr(p["sha"]), Message: message, Tree: tree, Caller: agent, Fix: p["fix"], Squash: truthy(p["squash"])})
+	prepared, why := s.Prepare(RequestIn{Sha: pyval.Str(p["sha"]), Message: message, Tree: tree, Caller: agent, Fix: p["fix"], Squash: pyval.Truthy(p["squash"])})
 	if prepared == nil {
 		return nil, why
 	}

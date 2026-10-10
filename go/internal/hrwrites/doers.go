@@ -481,6 +481,11 @@ func (e *Env) doSettings(p step) (bool, string, error) {
 	return ok, said, nil
 }
 
+// SetByAgent is an agent's own change of its settings (the legacy agent_set): only its own, only the ordinary ones.
+func (e *Env) SetByAgent(agent string, values map[string]string, speaker string) (bool, string) {
+	return e.roster().SetByAgent(e.DB, agent, values, speaker, "", idleMinutes, idleClose{e})
+}
+
 var contextBudget = map[string]int{"ROLE.md": team.RoleBudgetBytes, "base.md": team.BaseBudgetBytes}
 
 func contextProblem(texts [][2]string) string {
