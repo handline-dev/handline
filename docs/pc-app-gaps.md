@@ -6,7 +6,7 @@ Compared on 2026-10-06: the bridge is `handline/ui/` on main @3cd99e69 (the scre
 
 ## 1. What apps/web has and lacks
 
-Status on 2026-10-08: see §4.1. The web app has every unit in §4. The phone app has the agent list and page with the terminal, Chat, the Inbox, the agent verbs, agent settings and schedules, Accounts, the task verbs, HR and Team; it has no stats or Home settings.
+Status on 2026-10-11: see §4.1. The web app has every unit in §4. The phone app has the agent list and page, Chat, prompt cards, the Inbox, the agent verbs, agent settings and schedules, Accounts, the task verbs, HR, Team, Stats and Home settings; what it lacks is four small items in §4.1.
 
 ## 2. How the ranking was made
 
@@ -82,45 +82,48 @@ Order: **Q1, Q2, then U8 + U9, then U10, then U11**, because that is the order o
 
 E1 can start once unit 4a lands; E2 needs U9 and U10; E3 needs U8 and U10; E4 any time after E1.
 
-### 4.1 Status on 2026-10-08
+### 4.1 Status on 2026-10-11
 
-Read on main `033959e3`. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
+Read on main `74162cb9`. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
 
 | Unit | Web | Phone |
 |---|---|---|
 | Q1 `app-data` | built: `packages/app-data/src` (reads.ts, writes.ts, chat.ts, skeletons.ts), `test/guards.test.ts` | same package |
 | Q2 / Q3 / Q4 apps onto it | built: `test/q2.test.tsx`; the store keeps nothing the cache owns (`64c0ee3b`) | built: `useWrite`, `Loadable.tsx`, `skeleton.tsx` |
-| U8 Chat, session marks | built: `ChatTab.tsx`, `ChatCompose.tsx`, `ChatMessages.tsx` (send now, session mark with its handoff) | built: `Chat.tsx` (landing state, mine / all, send, reply, take back, answer, paging, session line), `e2e/chat.yaml` (`e745dd41`, merged `56214a66`) |
-| U9 Prompt cards | built: `PromptCard.tsx`, `test/u9.test.tsx` | partial: `AgentPage.tsx:147` answers `prompt.answer`; no "always", no multi-select |
-| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx` | built: `Inbox.tsx` (answer, reply, mark read), `e2e/inbox-tasks.yaml` (`e74c29a6`) |
-| U11 Tasks | built: `Tasks.tsx`, `TaskDetail.tsx`, `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | built: `Tasks.tsx` (state filters, open / closed), `TaskActions.tsx` (new, done, reopen, memo, withdraw, cancel, queue, draft, discard, edit), `test/screens.test.tsx`, `e2e/task-verbs.yaml` (`fce7a51e`, merged `033959e3`); no start, tree, merge or bulk marks, left off a phone on purpose |
-| U12 Agent verbs | built: `AgentVerbs.tsx` (wake, restart, close, park, fold, move, clear stall; `test/u12.test.tsx`). Clear stall is served by the fake daemon only (N4); elsewhere it is off with its reason (`97a95a39`) | built: `AgentVerbs.tsx` (wake, restart, park, fold, move; close and clear stall hidden on purpose), `e2e/agent-verbs.yaml` (`3020f582`) |
-| U13 Settings, schedules | built: `SettingsView.tsx`, `Schedules.tsx`, `test/u13.test.tsx` | built: `AgentSettings.tsx`, `Schedules.tsx`, `test/agent-settings.test.tsx` (`42a9c187`, merged `dfb76709`); no entry from `AgentPage.tsx` yet |
-| U14 Accounts, usage popup | built: `Accounts.tsx`, `AccountSettings.tsx`, `AccountRemove.tsx` (dry run, typed confirmation, founder only; `63fa17c7`), `UsagePopup.tsx`, `Gauge.tsx` | built: `Accounts.tsx` (gauges, alias, cap, remove), `test/accounts.test.tsx`, `e2e/accounts.yaml` (`a9fb87e6`, merged `1318cd55`); no login (a phone never holds credentials) |
-| U15 HR, Team | built: `HrTab.tsx` (diff, approve, approve all, reject, Edit settings for an agent on the roster; `3f57d373`), `TeamPage.tsx`, `test/u15.test.tsx` | built: `Hr.tsx` (approve, reject, withdraw, Edit settings; founder only), `Team.tsx`, `TeamEntry.tsx` (the way in from `App.tsx`), `test/hr.test.tsx` (`fce7a51e`, merged `033959e3`) |
-| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx`, `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | **not started** |
-| E1 Shell, E2 notices, E3 open / editor, E4 updates | built: `main.ts:129` one instance, `main.ts:238` dock badge, `notices.ts`, `desk.ts`, `open.ts`, `editor.ts`, `update.ts` (asks only when idle) | n/a |
-| Connect / own modes | built: `mode.ts`, `own.ts`, `bridge.ts`, `tray.ts`; the pairing screen takes an address and code (`Start.tsx`); `README.md` (`f645a286`, merged `9b778035`) | n/a |
+| U8 Chat, session marks | built: `ChatTab.tsx`, `ChatCompose.tsx`, `ChatMessages.tsx` (send now, receipts, session mark with Whole handoff, tool output with Show all and the count of lines the store cut) | built: `Chat.tsx` (landing state and receipts, mine / all, send with now / queue, reply, take back, answer, paging, session mark that opens its handoff), `Transcript.tsx` (structured agents), `e2e/chat.yaml`; a tool line shows no output (see What is left) |
+| U9 Prompt cards | built: `PromptCard.tsx`, `test/u9.test.tsx` | built: `PromptCard.tsx` (permission without "always", dialog "always" only when `answer.add` is served, question with free text, multi-select with Submit, stale prompt), `test/prompts.test.tsx` (`e94bdf45`) |
+| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx` | built: `Inbox.tsx` (answer, reply, mark read), `e2e/inbox-tasks.yaml` |
+| U11 Tasks | built: `Tasks.tsx`, `TaskDetail.tsx` (memo edit and delete), `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | built: `Tasks.tsx`, `TaskActions.tsx` (new, done, reopen, memo add, withdraw, cancel, queue, draft, discard, edit), `test/screens.test.tsx`, `e2e/task-verbs.yaml`; no start, tree, merge or bulk marks, left off a phone on purpose; no memo edit or delete |
+| U12 Agent verbs | built: `AgentVerbs.tsx` (wake, restart, close, park, fold, move, clear stall; Interrupt for a structured agent), `test/u12.test.tsx`. Clear stall is served by the fake daemon only (N4); elsewhere it is off with its reason | built: `AgentVerbs.tsx` (wake, restart, park, fold, move; close and clear stall hidden on purpose; Interrupt is on `AgentPage.tsx`), `test/verbs.test.tsx`, `e2e/agent-verbs.yaml` |
+| U13 Settings, schedules | built: `SettingsView.tsx`, `Schedules.tsx`, `test/u13.test.tsx` | built: `AgentSettings.tsx`, `Schedules.tsx`, reached from the "Settings and schedules" button in the ⋯ list of `AgentVerbs.tsx`, `test/agent-settings.test.tsx` |
+| U14 Accounts, usage popup | built: `Accounts.tsx`, `AccountSettings.tsx`, `AccountRemove.tsx`, `UsagePopup.tsx`, `Gauge.tsx` | built: `Accounts.tsx` (gauges, alias, cap, remove), `test/accounts.test.tsx`, `e2e/accounts.yaml`; no login (a phone never holds credentials) |
+| U15 HR, Team | built: `HrTab.tsx` (diff, approve, approve all, reject, Reject all with one reason, Edit settings), `TeamPage.tsx`, `test/u15.test.tsx` | built: `Hr.tsx` (approve, Approve all, reject, withdraw, Edit settings; founder only), `Team.tsx`, `TeamEntry.tsx`, `test/hr.test.tsx`; no Reject all |
+| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx`, `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | built: `Stats.tsx` (counts, agent time, outlook by range; its Stats / Settings switch is the founder's only way to `Settings.tsx`: default cap, idle close, switches, standing answers), the Stats tab in `Home.tsx`, `test/stats.test.tsx` (`4a590631`); no e2e flow |
+| E1 Shell, E2 notices, E3 open / editor, E4 updates | built: `main.ts` one instance and dock badge, `notices.ts`, `desk.ts`, `open.ts`, `editor.ts`, `update.ts` (asks only when idle) | n/a |
+| Connect / own modes | built: `mode.ts`, `own.ts`, `bridge.ts`, `tray.ts`; the pairing screen takes an address and code (`Start.tsx`); `README.md`; `DaemonDown.tsx` says the daemon is not running and how to start it | n/a |
+| Structured agents | built: a page with Chat and Transcript and no terminal (`642d68b9`); the fake runs the real shape (`9aa7868e`) | built: `Transcript.tsx`, Interrupt beside the working line, no terminal (`aef8eb51`, `be304279`) |
 
 **What is left**
 
 - Web: nothing buildable. Clear stall stays off on dev and real daemons by the founder's decision (N4).
-- Phone, in order of use:
-  1. **Prompt "always" and multi-select (U9).** `AgentPage.tsx` or a new card file.
-  2. **Stats and Home settings (U16).** New screens and one entry in `Home.tsx` or `TeamEntry.tsx`.
-  3. **Entry to agent settings and schedules** from `AgentPage.tsx`: the screens and their routes are on main, nothing opens them.
 - PC app: nothing in §4.
+- Phone, small and in order of use. Each ends with the root gate green, a test on the fake daemon, and the auditor.
+  1. **Tool output in Chat.** `Chat.tsx` `Line` (`kind === 'tool'`) prints the tool and its text on two lines and drops `output` and `dropped_lines`. Done when a tool line with output opens it in full, says how many lines the store cut, and `test/transcript.test.tsx` has a case for both.
+  2. **Memo edit and delete.** `TaskActions.tsx` `MemoBox` only adds; `useMemos` rows have no controls. Build as the web's `TaskDetail.tsx:291` with the `task.memo.edit` and `task.memo.delete` writes (already in `app-data/src/writes.ts`), off with their reason when the daemon does not list them. Done when a memo edits and deletes (delete asks first, as on the web) and a refusal rolls it back, in `test/screens.test.tsx`.
+  3. **HR Reject all.** `Hr.tsx` rejects one proposal at a time. Add Reject all with one reason, as `HrTab.tsx:59`. Done when one reason rejects every waiting proposal and `test/hr.test.tsx` shows it.
+  4. **E2E flows for the screens without one:** Stats and Settings, prompt answers, agent settings. `apps/mobile/e2e/` has none for them (the others have a yaml). Done when each has a flow that runs on the simulator with the fake daemon.
+- Not gaps: the phone's own "Disconnected" banner stands in for `DaemonDown.tsx`, because a phone never starts a daemon.
 
 ## 5. Requests to the daemon team: missing from the contract and their list, or pending a decision
 
-| # | Request | Why | Status 2026-10-08 |
+| # | Request | Why | Status 2026-10-11 |
 |---|---|---|---|
 | N1 | `chat.send_now { request }`: type a queued message now | the ⚡ button (`chat_page.py:826`); the contract has no such field, the table has `send_now` | in the contract and served (`rpc_chat_now.py:38`); web uses it (`ChatMessages.tsx:159`) |
 | N2 | `Task.priority` (1 high … 3 low) on the row, and `priority` on `task.edit` (`task.new` and `task.begin` already take it) | the `p` key and the sort column in `tasks_view.py` | in the contract (`Task.priority`, `task.edit`); web edits and sorts it (`TaskDetail.tsx:330`, `TaskBar.tsx:21`) |
 | N3 | `account.remove { account }`, founder only, with a dry-run that says which agents sit on it; the spec lists `hl account remove` as founder-only, pending the founder's decision | `x` on an account row | in the contract and served (`rpc_accounts.py`); web `AccountRemove.tsx` and phone `Accounts.tsx` use it |
 | N4 | `agent.unstall { agent }`, founder only; the spec listed `hl unstall` as founder-only; the founder allowed it in the test environment, not in dev or real | wake on a STALLED row, with its confirm (`tui.py:87`) | in the contract and the fake daemon only; the Python and Go daemons do not list it, so the web shows Clear stall off there (`AgentVerbs.tsx`) |
 | N5 | `stats.outlook { range }`: week left, runway, cost per day | `outlook_view.py`; `Stats` has only 24 h / 7 d counts and two percentages | in the contract and served (`rpc_outlook.py:63`); web shows it (`Outlook.tsx`) |
-| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`, `protocol.json:7670`); web uses it (`PromptCard.tsx`); phone does not (§4.1, U9) |
+| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`); web and phone use it (`PromptCard.tsx`) |
 | N7 | a `session` transcript item: session id, started, and the handoff text it began with | `SessionMark` and `HandoffModal` | in the contract (a `session` transcript item); web shows it (`ChatMessages.tsx:266`) |
 
 ## 6. Not gaps
