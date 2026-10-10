@@ -36,7 +36,7 @@ test('errors carry a stable code, a readable sentence and the gate', async () =>
     (e: RpcError) => e.code === 'refused' && e.gate === 'state' && /no open session/.test(e.message),
   );
   await assert.rejects(client.sendKeys('handline.architect', 'f13'), (e: RpcError) => e.code === 'bad_request' && e.data?.field === 'keys');
-  await assert.rejects(client.call('repos.list', {}), (e: RpcError) => e.code === 'refused' && e.gate === 'unsupported');
+  await assert.rejects(client.call('worktree.diff', { path: '/' }), (e: RpcError) => e.code === 'refused' && e.gate === 'unsupported');
   client.close();
 });
 

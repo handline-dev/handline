@@ -1,4 +1,4 @@
-import type { ErrorCode } from '@handline/contract';
+import { RPC_CODES, type ErrorCode } from '@handline/contract';
 
 /** A refusal or error the caller gets as a JSON-RPC error. */
 export class Failure extends Error {
@@ -8,6 +8,11 @@ export class Failure extends Error {
     super(message);
     this.code = code;
     this.data = { code, ...data };
+  }
+  /** The JSON-RPC code: -32602 for a param that is wrong, -32600 for a request that is (no request_id), else the contract's. */
+  get rpc(): number {
+    const field = this.data.field;
+    return this.code === 'bad_request' && field && field !== 'request_id' ? -32602 : (RPC_CODES[this.code] ?? -32603);
   }
 }
 export const refused = (gate: string, reason: string, hint?: string) => new Failure('refused', reason, { reason, gate, hint });

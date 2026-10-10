@@ -17,6 +17,9 @@
  "accounts.list": {
   "role": "agent"
  },
+ "agent.create": {
+  "role": "founder"
+ },
  "agent.fold": {
   "role": "agent"
  },
@@ -370,6 +373,9 @@
   "role": "agent"
  },
  "worktree.diff": {
+  "role": "member"
+ },
+ "worktree.set_status": {
   "role": "member"
  },
  "worktrees.list": {
