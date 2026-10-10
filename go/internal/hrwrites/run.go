@@ -17,11 +17,8 @@ import (
 // Carrying out a proposal: one change, or every step of a team diff, in order. A step that is refused or raises puts back everything the steps
 // before it did, and nothing of the diff stays.
 
-// Grants kept in the protected store for an agent, which a snapshot keeps with its folder.
-const (
-	skipGrantNS    = "skip_permissions"
-	sandboxGrantNS = "sandbox_off"
-)
+// The grant kept in the protected store for an agent, which a snapshot keeps with its folder.
+const skipGrantNS = "skip_permissions"
 
 // snapshot is what a change to the roster can touch, kept so a step that fails puts all of it back: the routing table and its backup, the
 // config, the folder of each agent a step names (and what lands in the archive), the seals and grants kept for them in the protected store.
@@ -73,7 +70,7 @@ func takeSnapshot(home string, names map[string]bool) (*snapshot, error) {
 	}
 	keys := [][2]string{{sealed.NS, sealed.Team}}
 	for _, n := range s.names {
-		keys = append(keys, [2]string{sealed.NS, sealed.AgentKey(n)}, [2]string{skipGrantNS, n}, [2]string{sandboxGrantNS, n})
+		keys = append(keys, [2]string{sealed.NS, sealed.AgentKey(n)}, [2]string{skipGrantNS, n})
 	}
 	for _, k := range keys {
 		if v, ok := s.store.Get(k[0], k[1]); ok {

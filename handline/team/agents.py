@@ -208,7 +208,6 @@ def skip_permissions_in_effect(agent: str, cfg: dict) -> bool:
 # `register` writes as `skip_permissions: true`, so one switch and one founder's grant stand behind both.
 MODES = ("default", "auto", "acceptEdits", "plan", "bypass")
 DEFAULT_MODE = "auto"
-_SANDBOX_NS = "sandbox_off"
 
 
 def mode_of(agent: str, cfg: dict) -> str:
@@ -220,17 +219,6 @@ def mode_of(agent: str, cfg: dict) -> str:
         return "bypass"
     v = cfg.get("mode")
     return v if isinstance(v, str) and v in MODES and v != "bypass" else DEFAULT_MODE
-
-
-SANDBOX_OFF_GRANT = "granted"
-
-
-def sandbox_off_granted(agent: str) -> bool:
-    """Whether the founder turned this agent's sandbox off, from the protected store (an agent can write
-    its own agent.yaml, so the file alone never turns it off). It stays until someone turns it back on:
-    a session ending or a restart does not end it. (Stores written while it was a one-session lease hold
-    `active:<launch stamp>`; any value is the grant.)"""
-    return bool(protected.get(_SANDBOX_NS, agent))
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:

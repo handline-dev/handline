@@ -30,13 +30,11 @@ const (
 	BrowserServer      = "browser"
 	DefaultBrowserProf = "Profile 17"
 	DefaultMode        = "auto"
-	SandboxOffGrant    = "granted"
 
 	BaseBudgetBytes = 2048 // base.md <= 2KB
 	RoleBudgetBytes = 1024 // ROLE.md <= 1KB
 
-	skipNS    = "skip_permissions"
-	sandboxNS = "sandbox_off"
+	skipNS = "skip_permissions"
 )
 
 var (
@@ -386,12 +384,6 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
-}
-
-// SandboxOffGranted is whether the founder turned this agent's sandbox off, from the protected store. Any value is the grant.
-func (r *Roster) SandboxOffGranted(agent string) bool {
-	v, ok := r.Store.Get(sandboxNS, agent)
-	return ok && v != ""
 }
 
 // SandboxOn is whether the sandbox is on: only with `sandbox: true` in agent.yaml. Off is the default, so the file

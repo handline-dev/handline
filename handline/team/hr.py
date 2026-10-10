@@ -557,7 +557,7 @@ class _Snapshot:
     the savepoint the steps run in. Orca (a repo, a label) is done after the last step, so a failure
     never reaches it."""
 
-    GRANTS = (agents._SKIP_NS, agents._SANDBOX_NS)
+    GRANTS = (agents._SKIP_NS,)
 
     def __init__(self, names: set[str]):
         self.dir = Path(tempfile.mkdtemp(prefix="hr-snapshot-", dir=paths.home()))
