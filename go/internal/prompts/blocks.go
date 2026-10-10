@@ -37,9 +37,6 @@ type Env struct {
 	Reads *reads.Env
 	// Structured answers the prompts of agents that run as structured sessions; nil when there are none.
 	Structured Structured
-	// HoldersChanged tells that who holds an agent's input changed (termchan.Env.HoldersChanged): a hold found idle while an answer
-	// reads it is lost like a release. Nil tells no one.
-	HoldersChanged func(agent string) error
 }
 
 func (e *Env) now() time.Time {

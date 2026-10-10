@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
@@ -214,72 +213,6 @@ func TestSomeoneTypingAtTheAgentRefusesAtOnceAndSendsNothing(t *testing.T) {
 	if re.Data["gate"] != "terminal_lock" || len(h.sent) != 0 {
 		t.Fatalf("%v %v", re.Data, h.sent)
 	}
-}
-
-func holdInput(t *testing.T, e *Env, name string, lastTyped time.Time) {
-	t.Helper()
-	if _, err := e.DB.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('backend', 'person', ?, ?, ?)",
-		name, lastTyped.Unix(), lastTyped.Unix()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func lastTyped(e *Env) (n int64) {
-	e.DB.QueryRow("SELECT last_typed FROM input_holders WHERE agent = 'backend'").Scan(&n)
-	return
-}
-
-func TestTheInputHolderGate(t *testing.T) {
-	t.Run("held by another: refused and nothing sent", func(t *testing.T) {
-		e, h := testEnv(t)
-		id := shown(t, e, h, question)
-		holdInput(t, e, "someone.else", time.Now())
-		re := refusal(t, mustErr(answers(e, id, "1")), "refused")
-		if re.Data["gate"] != "input_holder" || !strings.Contains(re.Message, "held by someone.else") || len(h.sent) != 0 {
-			t.Fatalf("%v %v", re.Data, h.sent)
-		}
-	})
-	t.Run("held by the caller: answered and touched", func(t *testing.T) {
-		e, h := testEnv(t)
-		id := shown(t, e, h, question)
-		held := time.Now().Add(-5 * time.Minute)
-		holdInput(t, e, "casey", held)
-		clearsOnAnyKey(h)
-		if _, err := answers(e, id, "1"); err != nil {
-			t.Fatal(err)
-		}
-		if got := lastTyped(e); got < time.Now().Add(-time.Minute).Unix() {
-			t.Fatalf("last_typed %d was not touched", got)
-		}
-	})
-	t.Run("an idle hold that expires tells its watchers once", func(t *testing.T) {
-		e, h := testEnv(t)
-		id := shown(t, e, h, question)
-		var told []string
-		e.HoldersChanged = func(agent string) error { told = append(told, agent); return nil }
-		holdInput(t, e, "someone.else", time.Now().Add(-time.Hour))
-		clearsOnAnyKey(h)
-		if _, err := answers(e, id, "1"); err != nil {
-			t.Fatal(err)
-		}
-		if len(told) != 1 || told[0] != "backend" {
-			t.Fatalf("told %v", told)
-		}
-	})
-	t.Run("an idle hold is dropped and the answer goes through", func(t *testing.T) {
-		e, h := testEnv(t)
-		id := shown(t, e, h, question)
-		holdInput(t, e, "someone.else", time.Now().Add(-time.Hour))
-		clearsOnAnyKey(h)
-		if _, err := answers(e, id, "1"); err != nil {
-			t.Fatal(err)
-		}
-		var n int
-		e.DB.QueryRow("SELECT COUNT(*) FROM input_holders").Scan(&n)
-		if n != 0 {
-			t.Fatal("the idle hold is still there")
-		}
-	})
 }
 
 func TestAlwaysKeepsARuleOnlyAfterThePressLandsAndNeverForATruncatedTitle(t *testing.T) {
