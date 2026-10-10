@@ -10,7 +10,7 @@ Three smaller gaps (Python's hook record writes its state, the Go task clock cov
 
 ## The mixed mode
 
-One extra process beside the Python daemon, which keeps the socket, the gateway and every terminal agent:
+One Go process that runs the structured agents. It takes `locks/daemon.lock`, so it cannot start while a Python daemon runs on the same home; the Python daemon keeps the socket, the gateway and every terminal agent only until the terminal port is live:
 
     go/handlined -home <home> -allow-real-home -socket <home>/structured.sock -structured-cli <claude> -structured-tick
 

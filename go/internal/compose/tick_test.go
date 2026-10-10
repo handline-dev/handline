@@ -440,3 +440,37 @@ func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldSayBeforeAnyTick(t *testing
 	}
 	p.Run.WaitIdle("alice", 10*time.Second)
 }
+
+func TestTheStartRunsReconcileMigrateStartWaitingReloadInThatOrder(t *testing.T) {
+	var calls []string
+	ports := startPorts{
+		Reconcile:    func() ([]string, error) { calls = append(calls, "reconcile"); return nil, nil },
+		Migrate:      func() error { calls = append(calls, "migrate"); return nil },
+		StartWaiting: func() []string { calls = append(calls, "start-waiting"); return nil },
+		Reload:       func() error { calls = append(calls, "reload"); return nil },
+	}
+	runStartup(func(string) {}, ports)
+	if got := strings.Join(calls, ","); got != "reconcile,migrate,start-waiting,reload" {
+		t.Fatalf("%s", got)
+	}
+}
+
+func TestAReconcileThatFailsEndsTheStartBeforeAnyAgentIsStarted(t *testing.T) {
+	var calls, logs []string
+	ports := startPorts{
+		Reconcile: func() ([]string, error) {
+			calls = append(calls, "reconcile")
+			return []string{"x: resumed"}, fmt.Errorf("database is locked")
+		},
+		Migrate:      func() error { calls = append(calls, "migrate"); return nil },
+		StartWaiting: func() []string { calls = append(calls, "start-waiting"); return nil },
+		Reload:       func() error { calls = append(calls, "reload"); return nil },
+	}
+	runStartup(func(s string) { logs = append(logs, s) }, ports)
+	if strings.Join(calls, ",") != "reconcile" {
+		t.Fatalf("%v", calls)
+	}
+	if all := strings.Join(logs, "\n"); !strings.Contains(all, "database is locked") || !strings.Contains(all, "x: resumed") {
+		t.Fatalf("%q", logs)
+	}
+}
