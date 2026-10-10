@@ -63,18 +63,10 @@ func pyRepr(s string) string {
 	return "'" + s + "'"
 }
 
-// held says whether the standing answer of this kind and key is saved now.
-func (w *writes) held(kind string, key []string) bool {
-	if kind == "trust" {
-		for _, r := range team.NewTrust(w.e.Home).ListRoots() {
-			if len(key) == 1 && r == key[0] {
-				return true
-			}
-		}
-		return false
-	}
-	for _, r := range team.NewDialogRules(w.e.Home).List() {
-		if len(key) == 3 && r.Vendor == key[0] && r.Title == key[1] && r.Label == key[2] {
+// held says whether the folder is a trust root now.
+func (w *writes) held(folder string) bool {
+	for _, r := range team.NewTrust(w.e.Home).ListRoots() {
+		if r == folder {
 			return true
 		}
 	}
@@ -98,6 +90,9 @@ func (w *writes) answerAdd(c *rpc.Conn, p map[string]any) (any, error) {
 	if !any_ {
 		return nil, badParam("give a folder to trust, or the vendor, title and label of a rule", "folder")
 	}
+	if given["folder"] == "" {
+		return nil, rpc.Refused("this daemon answers no dialog, so it saves no dialog rule: the person answers it at the agent's terminal", "unsupported", "")
+	}
 	key := w.intent(c, p, "answer.add")
 	retry, err := w.begun(key)
 	if err != nil {
@@ -106,16 +101,8 @@ func (w *writes) answerAdd(c *rpc.Conn, p map[string]any) (any, error) {
 	ok, said := w.addAnswer(given)
 	if !ok && retry {
 		// judged by the store, never by the words of the refusal: what was asked is so only if it is there exactly
-		var so bool
-		var what string
-		if given["folder"] != "" {
-			so, what = team.NewTrust(w.e.Home).IsDeclared(given["folder"]), given["folder"]
-		} else {
-			so = w.held("dialog", []string{given["vendor"], given["title"], given["label"]})
-			what = strings.Join([]string{given["vendor"], given["title"], given["label"]}, " / ")
-		}
-		if so {
-			ok, said = true, what+" is already saved"
+		if team.NewTrust(w.e.Home).IsDeclared(given["folder"]) {
+			ok, said = true, given["folder"]+" is already saved"
 		}
 	}
 	if !ok {
@@ -131,7 +118,7 @@ func (w *writes) addAnswer(given map[string]string) (bool, string) {
 		}
 		return team.NewTrust(w.e.Home).Enact(folder, "added in the Home settings")
 	}
-	return team.NewDialogRules(w.e.Home).Add(given["vendor"], given["title"], given["label"])
+	return false, "" // answerAdd refuses a dialog rule before it gets here
 }
 
 func isDir(path string) bool {
@@ -163,19 +150,16 @@ func (w *writes) answerRemove(c *rpc.Conn, p map[string]any) (any, error) {
 	if len(key) != len(list) || len(key) != want {
 		return nil, badParam("key is [folder] for trust and [vendor, title, label] for dialog", "key")
 	}
+	if kind == "dialog" { // this daemon keeps no dialog rule
+		return nil, notFound("answer", strings.Join(key, " / "), "no rule "+strings.Join(key, " / "))
+	}
 	ik := w.intent(c, p, "answer.remove")
 	retry, err := w.begun(ik)
 	if err != nil {
 		return nil, err
 	}
-	var ok bool
-	var said string
-	if kind == "trust" {
-		ok, said = team.NewTrust(w.e.Home).Remove(key[0])
-	} else {
-		ok, said = team.NewDialogRules(w.e.Home).Remove(key[0], key[1], key[2])
-	}
-	absent := !w.held(kind, key)
+	ok, said := team.NewTrust(w.e.Home).Remove(key[0])
+	absent := !w.held(key[0])
 	gone := !ok && absent && (strings.Contains(said, "no rule") || strings.Contains(said, "not a declared root"))
 	if !ok && retry && absent {
 		ok, said = true, strings.Join(key, " / ")+" is already removed" // judged by the store: the key is not there

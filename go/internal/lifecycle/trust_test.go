@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"errors"
+	"github.com/handline/handline/go/internal/term"
 	"strings"
 	"testing"
 
@@ -16,12 +17,14 @@ type screenTerm struct {
 	folder        string
 	standsAfter   bool // a press leaves the screen standing
 	presses       []string
+	blocker       *term.Blocker // another screen a launch stops at
 }
 
-func (s *screenTerm) BypassPromptShowing(string) bool { return s.bypass }
-func (s *screenTerm) TrustPromptShowing(string) bool  { return s.trust }
-func (s *screenTerm) TrustPromptFolder(string) string { return s.folder }
-func (s *screenTerm) WaitForTrustPrompt(string, bool) {}
+func (s *screenTerm) BypassPromptShowing(string) bool    { return s.bypass }
+func (s *screenTerm) ScreenBlocker(string) *term.Blocker { return s.blocker }
+func (s *screenTerm) TrustPromptShowing(string) bool     { return s.trust }
+func (s *screenTerm) TrustPromptFolder(string) string    { return s.folder }
+func (s *screenTerm) WaitForTrustPrompt(string, bool)    {}
 func (s *screenTerm) ConfirmTrust(string) (bool, string) {
 	s.presses = append(s.presses, "trust")
 	s.trust = s.standsAfter
@@ -49,10 +52,6 @@ func (a *trustAgents) RaiseDecision(_ db.Q, _, text, _ string) error {
 	return nil
 }
 
-type autoAccept bool
-
-func (a autoAccept) AutoAcceptEnabled() bool { return bool(a) }
-
 type trustRig struct {
 	m  *Manager
 	tm *screenTerm
@@ -67,19 +66,18 @@ func trustManager(t *testing.T) *trustRig {
 	tm := &screenTerm{trust: true, folder: dir}
 	ag := &trustAgents{declared: true}
 	m.Term, m.Agents = tm, ag
-	m.Blocked = blockedWith{autoAccept(true)}
+	m.Blocked = blockedWith{}
 	if err := db.SetTerminal(m.Q, "a", "t1", dir); err != nil {
 		t.Fatal(err)
 	}
 	return &trustRig{m, tm, ag}
 }
 
-type blockedWith struct{ autoAccept }
+type blockedWith struct{}
 
 func (blockedWith) NoteCloseFailure(db.Q, string)          {}
 func (blockedWith) PastDialog(db.Q, string) (bool, string) { return false, "" }
 func (blockedWith) StopWorkAndExit(db.Q, string) bool      { return false }
-func (blockedWith) AnswerByRule(db.Q, string, string) bool { return false }
 
 func TestTrustIsPressedOnlyWithConsentFolderAndRecordedWorktreeAgreeing(t *testing.T) {
 	r := trustManager(t)
@@ -87,7 +85,6 @@ func TestTrustIsPressedOnlyWithConsentFolderAndRecordedWorktreeAgreeing(t *testi
 		t.Fatalf("%v %q %v %v", ok, why, r.tm.presses, r.ag.decisions)
 	}
 	cases := map[string]func(*trustRig){
-		"auto-accept off":     func(r *trustRig) { r.m.Blocked = blockedWith{autoAccept(false)} },
 		"folder undeclared":   func(r *trustRig) { r.ag.declared = false },
 		"folder not recorded": func(r *trustRig) { r.tm.folder = t.TempDir() },
 		"folder unreadable":   func(r *trustRig) { r.tm.folder = "" },
@@ -143,22 +140,13 @@ func TestBypassWarningIsAcceptedOnlyWhereSkippingPermissionsIsInEffect(t *testin
 	}
 }
 
-func TestTheSweepsUseTheSameConsent(t *testing.T) {
+// A launch that stops at a dialog the table does not give the daemon to answer presses nothing: it stalls and the founder is asked.
+func TestAStartupDialogNoTableRowAnswersIsLeftToThePerson(t *testing.T) {
 	r := trustManager(t)
-	r.ag.declared = false
-	if went, err := r.m.AutoTrust("a"); err != nil || went || len(r.tm.presses) != 0 || len(r.ag.decisions) != 0 {
-		t.Fatalf("%v %v %v", went, err, r.tm.presses)
-	}
-	r.ag.declared = true
-	if went, err := r.m.AutoTrust("a"); err != nil || !went || len(r.tm.presses) != 1 {
-		t.Fatalf("%v %v %v", went, err, r.tm.presses)
-	}
-	r.tm.bypass = true
-	if went, _ := r.m.AutoBypass("a"); went || len(r.tm.presses) != 1 {
-		t.Fatal("bypass pressed for an ungranted agent")
-	}
-	r.ag.skip = true
-	if went, _ := r.m.AutoBypass("a"); !went || len(r.tm.presses) != 2 {
-		t.Fatalf("%v", r.tm.presses)
+	r.tm.trust = false
+	r.tm.blocker = &term.Blocker{Kind: term.Modal, Title: "New MCP servers found"}
+	ok, why := r.m.clearTrustPrompt("a", "t1", true)
+	if ok || len(r.tm.presses) != 0 || len(r.ag.decisions) != 1 || !strings.Contains(why, DialogStall) {
+		t.Fatalf("%v %q presses=%v decisions=%v", ok, why, r.tm.presses, r.ag.decisions)
 	}
 }

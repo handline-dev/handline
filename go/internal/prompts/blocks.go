@@ -32,7 +32,6 @@ type Env struct {
 	Term  *term.Term
 	Now   func() time.Time
 	Trust *team.Trust
-	Rules *team.DialogRules
 	// Reads draws the Prompt a stale answer carries.
 	Reads *reads.Env
 	// Structured answers the prompts of agents that run as structured sessions; nil when there are none.
@@ -275,7 +274,7 @@ func StaleError(current any) *rpc.Error {
 
 // New is the prompt code of one daemon: the terminal in force, read by the vendor of the agent recorded in each terminal.
 func New(db *sql.DB, home string, rd *reads.Env) *Env {
-	e := &Env{DB: db, Home: home, Trust: team.NewTrust(home), Rules: team.NewDialogRules(home), Reads: rd}
+	e := &Env{DB: db, Home: home, Trust: team.NewTrust(home), Reads: rd}
 	e.Term = term.New(term.Dynamic(home), e.driverFor)
 	return e
 }

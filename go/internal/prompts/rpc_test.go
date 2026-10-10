@@ -3,6 +3,7 @@ package prompts
 import (
 	"errors"
 	"fmt"
+	"github.com/handline/handline/go/internal/team"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/structured"
-	"github.com/handline/handline/go/internal/term"
 )
 
 // The prompt.answer handler against the fake host: the caller named "casey", the agent "backend".
@@ -215,7 +215,7 @@ func TestSomeoneTypingAtTheAgentRefusesAtOnceAndSendsNothing(t *testing.T) {
 	}
 }
 
-func TestAlwaysKeepsARuleOnlyAfterThePressLandsAndNeverForATruncatedTitle(t *testing.T) {
+func TestAlwaysKeepsNoRuleForADialogAndSaysSoAfterThePressLands(t *testing.T) {
 	var dlg capture
 	for _, c := range captures(t) {
 		if c.Name == "yes_no_dialog" {
@@ -226,42 +226,17 @@ func TestAlwaysKeepsARuleOnlyAfterThePressLandsAndNeverForATruncatedTitle(t *tes
 	shown(t, e, h, dlg.Screen)
 	block, _ := e.OpenBlockOf("backend")
 
-	// the digit leaves the dialog open: the press did not land, so nothing is remembered
-	if ok, said := e.Answer(block.ID, Choice{Number: 1, Always: true}); ok || len(e.Rules.List()) != 0 {
-		t.Fatalf("%v %q %v", ok, said, e.Rules.List())
+	// the digit leaves the dialog open: the press did not land
+	if ok, said := e.Answer(block.ID, Choice{Number: 1, Always: true}); ok {
+		t.Fatalf("%v %q", ok, said)
 	}
 	clearsOnAnyKey(h)
 	ok, said := e.Answer(block.ID, Choice{Number: 1, Always: true})
-	if !ok || !strings.HasSuffix(said, "chose 1. Yes - and will again") {
-		t.Fatalf("%v %q", ok, said)
+	if !ok || !strings.Contains(said, "chose 1. Yes - but not remembered: this daemon answers no dialog") {
+		t.Fatalf("the person's press lands and no rule is kept for it: %v %q", ok, said)
 	}
-	if got := e.Rules.List(); len(got) != 1 || got[0].Title != "Overwrite the file?" || got[0].Label != "Yes" {
-		t.Fatalf("%v", got)
-	}
-
-	// an agent's session cannot write the store: the press still lands, the rule is not kept, and the answer says so
-	e, h = testEnv(t)
-	shown(t, e, h, dlg.Screen)
-	block, _ = e.OpenBlockOf("backend")
-	clearsOnAnyKey(h)
-	t.Setenv("OCP_AGENT", "backend")
-	t.Setenv("HANDLINE_AGENT", "backend")
-	ok, said = e.Answer(block.ID, Choice{Number: 1, Always: true})
-	if !ok || !strings.Contains(said, "but not remembered") {
-		t.Fatalf("%v %q", ok, said)
-	}
-	t.Setenv("OCP_AGENT", "")
-	t.Setenv("HANDLINE_AGENT", "")
-	if len(e.Rules.List()) != 0 {
-		t.Fatal("an agent wrote a rule")
-	}
-}
-
-func TestATruncatedTitleKeepsNoRule(t *testing.T) {
-	e, _ := testEnv(t)
-	ok, why := e.remember(&dialogInfo{kind: "dialog", title: term.TruncatedTitle, vendor: "claude"}, "Yes")
-	if ok || !strings.Contains(why, "no rule can be kept") || len(e.Rules.List()) != 0 {
-		t.Fatalf("%v %q", ok, why)
+	if rules := team.NewDialogRules(e.Home).List(); len(rules) != 0 {
+		t.Fatalf("a dialog rule was saved: %v", rules)
 	}
 }
 

@@ -85,25 +85,39 @@ func TestInboxAnswerAndReply(t *testing.T) {
 func TestStandingAnswersAreAddedAndRemovedOnceAndARemovedOneIsNotFound(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")
-	add := `{"vendor":"claude","title":"Trust this folder?","label":"Yes","request_id":"r1"}`
+	folder := t.TempDir()
+	add := `{"folder":"` + folder + `","request_id":"r1"}`
 	if res := r.result(r.one(s, "answer.add", add)); res["accepted"] != true {
 		t.Fatal(res)
 	}
 	if res := r.result(r.one(s, "answer.add", add)); res["replayed"] != true {
 		t.Fatalf("a retry repeats nothing: %v", res)
 	}
-	if d := r.errData(r.one(s, "answer.add", `{"vendor":"claude","title":"Trust this folder?","label":"No","request_id":"r2"}`)); d["code"] != "refused" {
-		t.Fatalf("a title has one rule: %v", d)
-	}
-	rm := `{"kind":"dialog","key":["claude","Trust this folder?","Yes"],"request_id":"r3"}`
+	rm := `{"kind":"trust","key":["` + folder + `"],"request_id":"r3"}`
 	if res := r.result(r.one(s, "answer.remove", rm)); res["accepted"] != true {
 		t.Fatal(res)
 	}
-	if d := r.errData(r.one(s, "answer.remove", `{"kind":"dialog","key":["claude","Trust this folder?","Yes"],"request_id":"r4"}`)); d["code"] != "not_found" {
+	if d := r.errData(r.one(s, "answer.remove", `{"kind":"trust","key":["`+folder+`"],"request_id":"r4"}`)); d["code"] != "not_found" {
 		t.Fatalf("%v", d)
 	}
 	if r.count("SELECT COUNT(*) FROM cursors WHERE name LIKE 'intent:%'") != 0 {
 		t.Fatal("no intent is left behind")
+	}
+}
+
+// This daemon answers no dialog: a dialog rule is not saved, none is listed, and removing one finds nothing.
+func TestADialogRuleIsRefusedAsUnsupportedAndNoneIsKept(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	d := r.errData(r.one(s, "answer.add", `{"vendor":"claude","title":"Trust this folder?","label":"Yes","request_id":"r1"}`))
+	if d["code"] != "refused" || d["gate"] != "unsupported" {
+		t.Fatalf("%v", d)
+	}
+	if d := r.errData(r.one(s, "answer.remove", `{"kind":"dialog","key":["claude","Trust this folder?","Yes"],"request_id":"r2"}`)); d["code"] != "not_found" {
+		t.Fatalf("%v", d)
+	}
+	if r.count("SELECT COUNT(*) FROM cursors WHERE name LIKE 'intent:%'") != 0 {
+		t.Fatal("a refusal leaves no intent behind")
 	}
 }
 

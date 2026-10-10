@@ -112,9 +112,5 @@ func (e *Env) remember(d *dialogInfo, label string) (bool, string) {
 		}
 		return e.Trust.Enact(d.folder, "chosen from the agent's dialog")
 	}
-	if d.title == term.TruncatedTitle {
-		// every long command shares this title, so a rule on it would answer them all
-		return false, "a long command's title is not shown, so no rule can be kept for it"
-	}
-	return e.Rules.Add(d.vendor, d.title, label)
+	return false, "this daemon answers no dialog, so it keeps no rule for one" // only a folder is remembered: it is a trust root
 }

@@ -161,7 +161,7 @@ def main(argv: list[str]) -> int:
             seeded = seed_states(home, daemon)
             if structured_cli:
                 seeded |= seed_structured(home, daemon, local, key)
-            rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}",
+            rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}", "--var", "dialogs_retired=1",
                                    *(a for k, v in seeded.items() for a in ("--var", f"{k}={v}")), *rest],
                                   connectors={"founder": local, "anonymous": local, "unpaired": taker(net_pairs)})
             return rc

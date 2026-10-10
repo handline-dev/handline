@@ -96,9 +96,6 @@ type Blocked interface {
 	// PastDialog gets past a dialog on screen; ok is whether it went.
 	PastDialog(q db.Q, agent string) (ok bool, why string)
 	StopWorkAndExit(q db.Q, agent string) bool
-	// AnswerByRule presses a standing rule's option for the dialog on screen.
-	AnswerByRule(q db.Q, agent, handle string) bool
-	AutoAcceptEnabled() bool
 }
 
 // Launch is session/launch.py (the next group of this port): what a wake launches and where it can.
