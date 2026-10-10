@@ -163,15 +163,18 @@ describe('X3 New agent', () => {
     await fill();
     await click(create());
     const seen = new Set<string>();
-    await until(
-      () => {
-        const t = text($('[role=dialog] [role=status]'));
-        for (const step of ['registering the agent', 'making its worktree', 'starting the agent']) if (t.includes(step)) seen.add(step);
-        return text(dialog()).includes('fresh is running');
-      },
-      'done',
-      600,
-    );
+    const note = () => {
+      const t = text($('[role=dialog] [role=status]'));
+      for (const step of ['registering the agent', 'making its worktree', 'starting the agent']) if (t.includes(step)) seen.add(step);
+    };
+    const watch = new MutationObserver(note);
+    watch.observe(document.body, { subtree: true, childList: true, characterData: true });
+    note();
+    try {
+      await until(() => text(dialog()).includes('fresh is running'), 'done', 2000);
+    } finally {
+      watch.disconnect();
+    }
     expect([...seen]).toEqual(['registering the agent', 'making its worktree', 'starting the agent']);
     await click(button('Open agent'));
     expect(location.hash).toBe('#/agents/fresh');
