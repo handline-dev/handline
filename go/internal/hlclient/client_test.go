@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -241,5 +244,67 @@ func TestTheRigSocketOutlivesACollectionBetweenDialers(t *testing.T) {
 			t.Fatalf("dial %d: %v", i, err)
 		}
 		c.Close()
+	}
+}
+
+func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HANDLINE_TEST_ROOT", root)
+	plist := filepath.Join(root, "Library", "LaunchAgents", label+".plist")
+	real := launchctl
+	t.Cleanup(func() { launchctl = real })
+	var calls []string
+	answers := map[string][]struct {
+		out string
+		ok  bool
+	}{}
+	launchctl = func(args ...string) (string, error) {
+		calls = append(calls, args[0])
+		a := answers[args[0]]
+		if len(a) == 0 {
+			return "", nil
+		}
+		answers[args[0]] = a[1:]
+		if !a[0].ok {
+			return a[0].out, errors.New("exit 1")
+		}
+		return a[0].out, nil
+	}
+	if err := kickstart(); err == nil || err.Error() != "no service is installed to start it (`hl service install`)" || len(calls) != 0 {
+		t.Fatalf("no plist: %v %v", err, calls)
+	}
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("<plist/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	notFound := "Could not find service \"dev.orcapipe.daemon\" in domain for user gui: 501"
+	answers["kickstart"] = []struct {
+		out string
+		ok  bool
+	}{{notFound, false}, {"", true}}
+	if err := kickstart(); err != nil || strings.Join(calls, " ") != "kickstart bootstrap enable kickstart" {
+		t.Fatalf("loaded and started: %v %v", err, calls)
+	}
+	calls = nil
+	answers["kickstart"] = []struct {
+		out string
+		ok  bool
+	}{{notFound, false}}
+	answers["bootstrap"] = []struct {
+		out string
+		ok  bool
+	}{{"Bootstrap failed: 5: Input/output error", false}}
+	if err := kickstart(); err == nil || err.Error() != "the service is installed but not loaded, and launchd would not load it: "+
+		"Bootstrap failed: 5: Input/output error (`hl service install`)" || strings.Join(calls, " ") != "kickstart bootstrap" {
+		t.Fatalf("would not load: %v %v", err, calls)
+	}
+	answers["kickstart"] = []struct {
+		out string
+		ok  bool
+	}{{"", false}}
+	if err := kickstart(); err == nil || err.Error() != "launchd would not start it: no reason given" {
+		t.Fatalf("would not start: %v", err)
 	}
 }

@@ -113,27 +113,48 @@ func takeRigConn() *net.UnixConn {
 	return uc
 }
 
+// launchctl runs launchctl with args: its words, and whether it failed. Tests give their own.
+var launchctl = func(args ...string) (string, error) {
+	out, err := exec.Command("launchctl", args...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.
-// A plist this process cannot see, a sandboxed agent's case, is not taken as installed.
+// A plist this process cannot see, a sandboxed agent's case, is not taken as installed. One installed and not loaded (after a
+// bootout, or a login that did not load it) is loaded as it is, never rewritten, and started (daemon/client.ensure_daemon).
 func kickstart() error {
-	if _, err := os.Stat(filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist")); err != nil {
+	plist := filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist")
+	if _, err := os.Stat(plist); err != nil {
 		return errors.New("no service is installed to start it (`hl service install`)")
 	}
-	out, err := exec.Command("launchctl", "kickstart", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).CombinedOutput()
+	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	target := domain + "/" + label
+	said, err := launchctl("kickstart", target)
+	if err != nil && strings.Contains(strings.ToLower(said), "could not find service") {
+		if why, err := launchctl("bootstrap", domain, plist); err != nil {
+			if why == "" {
+				why = "launchctl bootstrap failed"
+			}
+			return fmt.Errorf("the service is installed but not loaded, and launchd would not load it: %s (`hl service install`)", cut(why, 200))
+		}
+		_, _ = launchctl("enable", target)
+		said, err = launchctl("kickstart", target)
+	}
 	if err == nil {
 		return nil
-	}
-	said := strings.TrimSpace(string(out))
-	if strings.Contains(strings.ToLower(said), "could not find service") {
-		return errors.New("no service is loaded to start it (`hl service install`)")
 	}
 	if said == "" {
 		said = "no reason given"
 	}
-	if len(said) > 200 {
-		said = said[:200]
+	return fmt.Errorf("launchd would not start it: %s", cut(said, 200))
+}
+
+// cut is s[:n] in characters, as Python slices text.
+func cut(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
 	}
-	return fmt.Errorf("launchd would not start it: %s", said)
+	return s
 }
 
 // Connect is a connected socket, asking launchd to start the daemon when nothing listens.
