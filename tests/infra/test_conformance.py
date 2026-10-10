@@ -46,6 +46,39 @@ def _method_of(line: bytes):
     return req.get("method") if isinstance(req, dict) else None
 
 
+def _legacy_reply(line: bytes):
+    """The reply of a legacy `{verb}` request (contract/fixtures/legacy.json), or None for a line that is not one. Only the cases the
+    fixtures pin: the words are the Python daemon's."""
+    try:
+        req = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(req, dict) or "verb" not in req or "jsonrpc" in req:
+        return None
+    verb, no = req["verb"], lambda said: {"ok": False, "said": said}
+    if verb == "say":
+        if "target" not in req:
+            return no("say: 'target'")
+        if not req.get("requester"):
+            return no("cannot tell who is asking: the request named nobody. Agents are started with `hl launch <agent>`, "
+                      "which sets OCP_AGENT.")
+    elif verb == "push":
+        return no(f"{req['target']} is not an agent" if "target" in req else "push: 'target'")
+    elif verb == "push_answer":
+        return no(f"{req['requester']} is not an agent")
+    elif verb == "notify_cancelled":
+        return no(f"no request #{req['rid']}")
+    elif verb == "agent_set":
+        agent, speaker = req["agent"], req.get("speaker")
+        if speaker != agent:
+            return no(f"{speaker or 'someone'} may not change {agent}'s settings; an agent changes its own. For another's, propose it: "
+                      f"`hl agent set {agent} <setting>=<value> --why \"...\"`")
+        return no(f"{', '.join(sorted(req['values']))} needs the founder's approval: propose it with `hl agent set`")
+    elif verb == "answer_block":
+        return no(f"no prompt #{req['block']}")
+    return no(f"not a socket verb: {verb!r}")
+
+
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
@@ -123,6 +156,10 @@ class FakeDaemon:
             buf += chunk
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
+                legacy = _legacy_reply(line)
+                if legacy is not None:      # one reply, then the hangup, as the daemon always did
+                    send(legacy)
+                    return
                 if said_hello and not self.serial and _method_of(line) == "inbox.list":
                     threading.Thread(target=answer_later, args=(line,), daemon=True).start()
                     continue
@@ -721,8 +758,8 @@ def test_fixtures_follow_the_format_and_the_spec() -> None:
           str([f["name"] for f in fixtures if f.get("spec") not in spec_keys]))
     check("conformance: every fixture has a role, an about line and steps that expect something",
           all(f.get("as", "founder") in RANK | {"unpaired": 0} and f.get("about") and f["steps"] and all(
-              sum(k in s for k in ("send", "raw", "await")) + (("closed" in s) and not any(k in s for k in ("send", "raw", "await"))) == 1 and (
-                  "result" in s or "error" in s or "closed" in s or ("send" in s and "await" not in s)) for s in f["steps"]) for f in fixtures))
+              sum(k in s for k in ("send", "raw", "await", "legacy")) + (("closed" in s) and not any(k in s for k in ("send", "raw", "await", "legacy"))) == 1 and (
+                  "result" in s or "error" in s or "closed" in s or "reply" in s or ("send" in s and "await" not in s)) for s in f["steps"]) for f in fixtures))
     check("conformance: the extra connections of a fixture have roles, and every step's `on` names one",
           all(set(f.get("with", {}).values()) <= set(RANK) | {"unpaired"} and {s.get("on") for s in f["steps"]} - {None} <= set(f.get("with", {}))
               for f in fixtures))

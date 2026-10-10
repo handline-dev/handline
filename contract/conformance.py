@@ -340,6 +340,13 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                 if "raw" in step:
                     conn.send_line(step["raw"])
                     rid = None
+                elif "legacy" in step:
+                    conn.send_line(json.dumps(substitute(step["legacy"], saved)))
+                    reply = conn.read_line(step.get("within_s", TIMEOUT_S))
+                    if reply is None:
+                        raise Mismatch("the connection closed without a reply")
+                    matches(substitute(step["reply"], saved), reply, saved, "reply")
+                    rid = None
                 elif "await" in step:
                     rid = step["await"]
                 elif "send" not in step:

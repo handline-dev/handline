@@ -18,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/lands"
+	"github.com/handline/handline/go/internal/legacyverbs"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prompts"
@@ -328,6 +329,20 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
+// legacy answers a legacy `{verb}` request: the land verbs, then the rest that Python's hl still sends. nil is a verb served by neither.
+func (d *Daemon) legacy(payload map[string]any, pid int) map[string]any {
+	if d.lands != nil {
+		if reply := d.lands.Legacy(payload, pid); reply != nil {
+			return reply
+		}
+	}
+	e := &legacyverbs.Env{DB: d.db, Home: d.cfg.Home, Sup: d.env(), Prompts: d.prompts, SetByAgent: d.hrEnv().SetByAgent, Log: d.cfg.Log}
+	if d.cfg.Session != nil {
+		e.Controls = func() sessionrpc.Controls { return d.cfg.Session().Controls }
+	}
+	return e.Legacy(payload, pid)
+}
+
 // accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
 func (d *Daemon) accountChanged(name string) {
 	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
@@ -377,8 +392,10 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if transport == "network" {
 		s.Net = d.dev
 	}
+	if transport == "local" {
+		s.Legacy = d.legacy
+	}
 	if d.lands != nil && transport == "local" {
-		s.Legacy = d.lands.Legacy
 		lands.Register(s, d.lands)
 	}
 	devices.Register(s, d.dev, d.hub.Emit)

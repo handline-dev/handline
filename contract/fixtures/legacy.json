@@ -1,0 +1,199 @@
+{
+ "fixtures": [
+  {
+   "name": "legacy.say_names_no_requester",
+   "spec": "x-legacy",
+   "about": "A say whose request names nobody is refused with the words that tell the caller how agents are started.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "say",
+      "target": "human",
+      "body": "x"
+     },
+     "reply": {
+      "ok": false,
+      "said": {
+       "$regex": "^cannot tell who is asking: the request named nobody\\. Agents are started with `hl launch <agent>`, which sets OCP_AGENT\\.$"
+      },
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.say_without_target_reads_as_a_missing_key",
+   "spec": "x-legacy",
+   "about": "A request without a key it needs answers the key quoted, as the verb's name and Python's KeyError text.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "say",
+      "requester": "alice"
+     },
+     "reply": {
+      "ok": false,
+      "said": "say: 'target'",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.push_to_the_human_is_not_an_agent",
+   "spec": "x-legacy",
+   "about": "push names an agent; the founder is not one.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "push",
+      "target": "human"
+     },
+     "reply": {
+      "ok": false,
+      "said": "human is not an agent",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.push_to_a_stranger_is_not_an_agent",
+   "spec": "x-legacy",
+   "about": "push names an agent that is registered.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "push",
+      "target": "nobody.here"
+     },
+     "reply": {
+      "ok": false,
+      "said": "nobody.here is not an agent",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.push_without_target_reads_as_a_missing_key",
+   "spec": "x-legacy",
+   "about": "The key is quoted after the verb.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "push"
+     },
+     "reply": {
+      "ok": false,
+      "said": "push: 'target'",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.push_answer_to_the_human_is_not_an_agent",
+   "spec": "x-legacy",
+   "about": "push_answer puts an answer in front of the agent that asked; the founder is not one.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "push_answer",
+      "requester": "human"
+     },
+     "reply": {
+      "ok": false,
+      "said": "human is not an agent",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.notify_cancelled_for_no_request",
+   "spec": "x-legacy",
+   "about": "notify_cancelled names a request.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "notify_cancelled",
+      "rid": 999999999
+     },
+     "reply": {
+      "ok": false,
+      "said": "no request #999999999",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.agent_set_for_another_agent_is_refused",
+   "spec": "x-legacy",
+   "about": "An agent changes its own settings only; the speaker is the caller's word.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "agent_set",
+      "agent": "nobody.here",
+      "values": {
+       "model": "m"
+      },
+      "speaker": "someone.else"
+     },
+     "reply": {
+      "ok": false,
+      "said": {
+       "$regex": "^someone\\.else may not change nobody\\.here's settings; an agent changes its own\\. For another's, propose it: `hl agent set nobody\\.here <setting>=<value> --why \"\\.\\.\\.\"`$"
+      },
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.agent_set_of_a_privileged_key_waits_for_the_founder",
+   "spec": "x-legacy",
+   "about": "Only the ordinary keys apply when an agent asks.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "agent_set",
+      "agent": "nobody.here",
+      "values": {
+       "repo": "/x"
+      },
+      "speaker": "nobody.here"
+     },
+     "reply": {
+      "ok": false,
+      "said": "repo needs the founder's approval: propose it with `hl agent set`",
+      "$exact": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "legacy.answer_block_of_no_prompt",
+   "spec": "x-legacy",
+   "about": "answer_block names a prompt block.",
+   "steps": [
+    {
+     "legacy": {
+      "verb": "answer_block",
+      "block": 999999999,
+      "choice": {
+       "yes": true
+      }
+     },
+     "reply": {
+      "ok": false,
+      "said": "no prompt #999999999",
+      "$exact": true
+     }
+    }
+   ]
+  }
+ ]
+}
