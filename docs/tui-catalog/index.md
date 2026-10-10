@@ -2,6 +2,8 @@
 
 One screenshot per screen, tab, modal and state of the Textual IDE.
 
+The Textual screen and `tools/tui_catalog.py` are removed; these images are the record. What the app lacks of it is in [app-gaps.md](app-gaps.md).
+
 
 ## Home
 

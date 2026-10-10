@@ -61,9 +61,9 @@ def test_a_run_goes_through_the_venv_python_with_a_clean_unbuffered_environment(
 
 def test_a_file_argument_runs_that_one_area_file_and_the_exit_code_comes_back(home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
-    r = _run("test.sh", home, "tests/ui/test_screens.py", "-k", "one", rc=3)
+    r = _run("test.sh", home, "tests/infra/test_clipboard.py", "-k", "one", rc=3)
     check("test.sh: an existing file is the target, the rest of the arguments follow it",
-          "ARGS -u tests/ui/test_screens.py -k one" in r.stdout, r.stdout)
+          "ARGS -u tests/infra/test_clipboard.py -k one" in r.stdout, r.stdout)
     check("test.sh: a failing run's exit code is the script's", r.returncode == 3, str(r.returncode))
     r = _run("test.sh", home)
     check("test.sh: no arguments is the whole suite, and a passing exit is 0",

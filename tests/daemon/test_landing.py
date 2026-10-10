@@ -762,20 +762,16 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
     from handline.cli import health
     from handline.db import schema as dbschema
     from handline.daemon import devmode, locks as dmn_locks
-    from handline.ui import stall
     _daemon_home(home, 20)
     code = max(f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists())
-    real_pid, real_daemon = stall.running_pid, dmn_locks.running_elsewhere
-    stall.running_pid, dmn_locks.running_elsewhere = lambda: 4242, lambda: None
+    real_daemon = dmn_locks.running_elsewhere
+    dmn_locks.running_elsewhere = lambda: 4242
     try:
-        check("stale: a screen that started before the newest code is named",
-              health.stale_long_lived(lambda pid, rec: code - 60) == ["screen (pid 4242)"])
+        check("stale: a daemon that started before the newest code is named",
+              health.stale_long_lived(lambda pid, rec: code - 60) == ["daemon (pid 4242)"])
         check("stale: one that started after it is not", health.stale_long_lived(lambda pid, rec: code + 60) == [])
         check("stale: a live process whose start cannot be read is refused, not passed",
-              health.stale_long_lived(lambda pid, rec: None) == ["screen (pid 4242; cannot tell when it started)"])
-        dmn_locks.running_elsewhere = lambda: 77
-        check("stale: the daemon is named too",
-              health.stale_long_lived(lambda pid, rec: code - 60) == ["screen (pid 4242)", "daemon (pid 77)"])
+              health.stale_long_lived(lambda pid, rec: None) == ["daemon (pid 4242; cannot tell when it started)"])
         import os, subprocess
         rec = home / "rec.pid"
         rec.write_text("1\n")
@@ -820,9 +816,9 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         finally:
             con.close()
         check("stale: the drop refuses naming the process and drops nothing",
-              rc == 1 and "screen (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
+              rc == 1 and "daemon (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
     finally:
-        stall.running_pid, dmn_locks.running_elsewhere = real_pid, real_daemon
+        dmn_locks.running_elsewhere = real_daemon
 
 
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
