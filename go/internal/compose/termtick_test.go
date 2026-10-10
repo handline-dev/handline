@@ -172,7 +172,7 @@ func TestAHandoffReadsATerminalAgentsSessionAndItsPidFromTheSessionFile(t *testi
 // at a prompt shows needs_you.
 func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 	p, _, wt := termTickRig(t)
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil {
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // a row that has not caught up with a turn that began
 		t.Fatal(err)
 	}
 	tu := tickUsage{p: p, u: p.LC.usage, roster: p.LC.roster}
@@ -199,8 +199,11 @@ func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 	}
 	av := p.agentView(p.Run.cfg, true, true, tu)
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"busy"}`)
-	if v := stored(av, "running"); v["needs_you"] != nil {
+	if v := stored(av, "running"); v["needs_you"] != nil { // busy session: the turn is running whatever the row says
 		t.Fatal(v)
+	}
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil { // the prompt arrives mid-turn: the row stays running
+		t.Fatal(err)
 	}
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"waiting","waitingFor":"permission prompt","updatedAt":5000000}`)
 	v := stored(av, "waiting")
