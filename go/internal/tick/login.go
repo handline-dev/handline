@@ -22,11 +22,11 @@ type Login struct {
 	Mark func(q db.Q, agent, acct, why string) bool
 }
 
-// loginExpired is login_expired.check: an agent on an account whose login expired leaves it, level-triggered on the account's mark.
+// loginExpired is login_expired.check: an agent with a live session on an account whose login expired leaves it, level-triggered on the account's mark.
 // True when the agent was dealt with and the tick has nothing more to do for it.
 func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actions *[]string) bool {
 	l := t.Login
-	if l.Expired == nil || acct == "" || row == nil || closedAt(row) ||
+	if l.Expired == nil || acct == "" || row == nil || closedAt(row) || !t.Host.SessionAlive(agent) ||
 		(row.State != states.Running && row.State != states.Idle && row.State != states.Queued) {
 		return false
 	}

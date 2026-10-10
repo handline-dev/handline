@@ -64,3 +64,11 @@ func TestAnAgentOnNoKnownAccountIsNotJudgedForItsLogin(t *testing.T) {
 		t.Fatalf("%v %v", *marks, w.calls)
 	}
 }
+
+func TestAnAgentWithNoSessionOnAMarkedAccountIsLeftToTheStartPath(t *testing.T) {
+	tk, w, marks := loginWorld(t, true, true)
+	w.alive["a"], w.movePlan, w.performOK = false, "other", true
+	if actions := supervise(tk, "a"); len(*marks) != 0 || w.did("handoff a login") || has(actions, "login") {
+		t.Fatalf("a handoff has nothing to end, and it would return before the start: %v %v %v", *marks, w.calls, actions)
+	}
+}
