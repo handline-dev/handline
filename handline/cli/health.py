@@ -47,25 +47,21 @@ def _started_at(pid: int, record: Path) -> float | None:
 
 
 def stale_long_lived(started_at=None) -> list[str]:
-    """What stops `--drop-dead-columns`: the screen and the daemon that are up now and started before the
+    """What stops `--drop-dead-columns`: the daemon, if up now and started before the
     newest code file on disk (they run older code, and a connect of theirs would re-add the columns a drop
     removed), or whose start cannot be read. Each is named with its pid."""
     started_at = started_at or _started_at
     from ..daemon import devmode, locks as dmn_locks
     from ..infra import lock
-    from ..ui import stall
     code = max((f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists()), default=0)
     stale = []
-    for name, pid, record in (("screen", stall.running_pid(), stall.pid_file()),
-                              ("daemon", dmn_locks.running_elsewhere(),
-                               paths.home() / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}")):
-        if not pid:
-            continue
-        began = started_at(pid, record)
+    pid = dmn_locks.running_elsewhere()
+    if pid:
+        began = started_at(pid, paths.home() / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}")
         if began is None:
-            stale.append(f"{name} (pid {pid}; cannot tell when it started)")
+            stale.append(f"daemon (pid {pid}; cannot tell when it started)")
         elif began < code:
-            stale.append(f"{name} (pid {pid})")
+            stale.append(f"daemon (pid {pid})")
     return stale
 
 

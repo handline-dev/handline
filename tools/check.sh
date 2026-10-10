@@ -19,7 +19,7 @@ while IFS= read -r path; do
         contract/*|skill/*) kind=python; break ;;
         docs/*|design/*|*.md) [ "$kind" = none ] && kind=docs ;;
         go/*|apps/*|web/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json) kind=go ;;
-        tools/build-go.sh|tools/go-env.sh|tools/check-go-tidy.sh|tools/conformance_fds.py|tools/go_contract.py|tools/go_schema.py) kind=go ;;
+        tools/build-go.sh|tools/build-hl.sh|tools/go-env.sh|tools/check-go-tidy.sh|tools/conformance_fds.py|tools/go_contract.py|tools/go_schema.py) kind=go ;;
         *) kind=python; break ;;
     esac
 done <<< "$changed"

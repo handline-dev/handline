@@ -2,10 +2,8 @@
 # The one way to run tests from the repo root, whoever runs it (T946):
 #   tools/test.sh                          the whole suite (tests/test_ocp.py)
 #   tools/test.sh -k reconcile             the tests whose name has "reconcile"
-#   tools/test.sh tests/ui/test_x.py [-k]  one area file, optionally one test in it
-#                                          (the bridge file is out of the whole suite for now)
-# It runs under the machine's venv python (the bridge tests need its textual and are
-# skipped without it), with OCP_AGENT unset (an agent's own would make every ocp a
+#   tools/test.sh tests/x/test_y.py [-k]  one area file, optionally one test in it
+# It runs under the machine's venv python, with OCP_AGENT unset (an agent's own would make every ocp a
 # test subject's), unbuffered (a test that hangs shows where, not silence) and with
 # OCP_HOME in a temp dir that is removed afterwards, so nothing here reads or writes ~/.orcapipe.
 cd "$(dirname "$0")/.." || exit 1
@@ -13,7 +11,7 @@ home="${OCP_HOME:-$HOME/.orcapipe}"
 py="$home/venv/bin/python"
 if [ ! -x "$py" ]; then
     py=python3
-    echo "tools/test.sh: no venv at $home/venv (run \`hl venv install\`); using python3, bridge tests will be skipped" >&2
+    echo "tools/test.sh: no venv at $home/venv (run \`hl venv install\`); using python3" >&2
 fi
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/handline-test.XXXXXX")" || exit 1
 trap 'rm -rf "$scratch"' EXIT

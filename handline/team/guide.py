@@ -187,7 +187,8 @@ A session closed by its idle window cannot be renewed, and the default window is
 
     "hooks": """ocp's hooks
   hl install-hooks                add ocp's event hooks to the shared settings (doctor names a missing one)
-  hl hooks gate <name> [on|off]   show or set a gate: stop-wait, edit-task""",
+  hl hooks gate <name> [on|off]   show or set a gate: stop-wait, edit-task
+  hl go hook|launch [on|off]      whether the Go hl runs the tool-call hooks / a Claude start itself (off: Python)""",
     "team": """who may ask whom
   hl hr team <name> --member sea=<repo> --member shore --why "..."
                                    a manager and its members as one proposal, one approval

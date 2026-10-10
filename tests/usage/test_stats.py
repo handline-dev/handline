@@ -103,7 +103,6 @@ def _call_at(con, when, cwd, model="claude-opus-5-5", inp=1000, i=[0]) -> None:
 
 def test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(home: Path) -> None:
     import datetime as dt
-    from handline.ui.components import outlook_view as ov
     use_home(home)
     con = db.connect()
     try:
@@ -147,23 +146,6 @@ def test_cost_per_day_per_agent_adds_up_and_the_rest_are_one_other(home: Path) -
           all(abs(sum(stacked[d].values()) - sum(per[d].values())) < 1e-12 for d in per))
     check("daily: seven agents or fewer have no 'other'",
           stats.stack_agents({"d": {"x": 1.0, "y": 2.0}})[0] == ["y", "x"])
-    cols = ov.colours_of(labels)
-    check("daily: seven different colours and a grey for the rest",
-          len({cols[l] for l in labels[:7]}) == 7 and cols[stats.OTHER] == ov.OTHER_COLOUR
-          and ov.OTHER_COLOUR not in {cols[l] for l in labels[:7]})
-    days = ["2026-10-01", "2026-10-02"]
-    text = ov.cost_chart(days, stacked, labels, cols, 40, 12)
-    drawn = {sp.style.color.name for sp in text.spans if isinstance(sp.style, Style) and sp.style.color}
-    check("daily: the chart draws every agent of the first day (all eight) in its own colour",
-          {c.lower() for c in cols.values()} <= drawn, f"{sorted(drawn)} {sorted(cols.values())}")
-    check("daily: with nothing in the range it says so", "no cost" in ov.cost_chart(days, {}, [], {}, 40).plain)
-    # one bar, two parts: the boundary inside a cell is a block of the lower colour on the upper's background
-    cell = ov._cell(0, 12, [(0, 5, "#111111"), (5, 12, "#222222")])
-    check("daily: a boundary inside a cell is the lower part's block over the upper's colour",
-          cell[0] == "\u2585" and cell[1].color.name == "#111111" and cell[1].bgcolor.name == "#222222", str(cell))
-    check("daily: a bar that ends inside a cell is a part block, a full cell is a full block, an empty one nothing",
-          ov._cell(0, 3, [(0, 3, "#111111")])[0] == "\u2583" and ov._cell(0, 20, [(0, 20, "#111111")])[0] == "\u2588"
-          and ov._cell(16, 8, [(0, 8, "#111111")])[0] == " ")
 
 
 def test_the_cost_tree_groups_agents_by_team_and_the_levels_add_up() -> None:

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 # one whose window this box has never priced. The founder sets the figure
 # (#1898); an agent's own context_tokens overrides it, and
 # CONTEXT_CLAMP_FRACTION holds a small-window model down to its share below.
-CONTEXT_TOKENS = 200_000
+CONTEXT_TOKENS = 150_000
 
 # The clamp: a ceiling of last resort, not the normal decider. When the
 # model is one collect.ctx_size() recognizes, the effective limit is never

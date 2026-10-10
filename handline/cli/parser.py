@@ -18,7 +18,7 @@ from .bridge import cmd_bridge
 from .device import cmd_device
 from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
-from .hooks import cmd_hook, cmd_hook_install, cmd_hooks_gate
+from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate
 from .hr import cmd_hr, cmd_trust
 from .land import cmd_land
 from .schedule import cmd_schedule
@@ -151,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", choices=["stop-wait", "edit-task"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
+
+    p = sub.add_parser("go", help="show or set whether the Go hl runs a part itself: hook (the tool-call hooks) or "
+                                  "launch (a Claude agent's start under tmux); off, Python does")
+    p.add_argument("part", choices=["hook", "launch"])
+    p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
+    p.set_defaults(fn=cmd_go)
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")
@@ -525,12 +531,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],
-                       help="the screen the team is run from")
-    p.add_argument("--once", action="store_true", help="print the screen as text and exit")
+                       help="the text screen of the team")
+    p.add_argument("--once", action="store_true", help="accepted and does nothing: the screen is always printed as text")
     p.add_argument("--textual", action="store_true",
-                   help="accepted and does nothing: Textual is the only screen")
-    p.add_argument("--pid", action="store_true",
-                   help="print the pid of the running screen (kill -USR1 <pid> writes its stacks to logs/bridge-stall.log)")
+                   help="accepted and does nothing")
     p.add_argument("--dev-mode", action="store_true",
                    help="turn dev mode on first (as `hl dev-mode on`); without it dev mode is left as it is")
     p.set_defaults(fn=cmd_bridge)
@@ -718,7 +722,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _READ_ONLY = {"read", "inbox", "ps", "status", "team", "events", "doctor", "guide", "top", "watch", "bridge",
-              "hook", "hooks", "memory", "schedule", "login", "venv", "daemon", "service", "backup", "dev-mode"}
+              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "daemon", "service", "backup", "dev-mode"}
 _TASK_READS = {"list", "show", "board"}
 
 
@@ -732,7 +736,7 @@ def _mutates(args) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
-    if not argv or argv[0] in ("--once", "--textual", "--pid", "--dev-mode"):
+    if not argv or argv[0] in ("--once", "--textual", "--dev-mode"):
         argv = ["bridge", *argv]            # `hl` alone is the screen; "bridge" is only its code name
     args = build_parser().parse_args(argv)
     agent = names.getenv("OCP_AGENT")

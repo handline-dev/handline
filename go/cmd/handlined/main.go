@@ -133,6 +133,7 @@ func main() {
 	claudeVersion := flag.String("claude-version", "", "with -structured-cli: the claude version a structured start accepts instead of the one the control types were read against ("+structured.PinnedCLI+"); a newer claude is run on trust until the types are read against it")
 	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only. The tick also reads every account's usage and token log, so the Python daemon must not tick beside it on the same home")
 	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
+	landRepo := flag.String("land-repo", "", "the repository main is checked out in, which `hl land` merges into (default: OCP_LAND_REPO; with neither a land is refused)")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -144,7 +145,8 @@ func main() {
 		log.Fatalf("handlined: %v", err)
 	}
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
-		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts}
+		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts,
+		LandRepo: *landRepo, LandSweep: *structuredTick && *cutover}
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}

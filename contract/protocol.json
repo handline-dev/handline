@@ -149,6 +149,7 @@
    "hl launch",
    "hl doctor",
    "hl hooks",
+   "hl go",
    "hl install-hooks",
    "hl daemon",
    "hl backup",
@@ -5123,6 +5124,25 @@
      }
     },
     {
+     "name": "fix",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS."
+     }
+    },
+    {
+     "name": "squash",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Main gets one commit carrying `message`, not the merge."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -5150,7 +5170,8 @@
    ],
    "x-callers": [
     "agent"
-   ]
+   ],
+   "description": "Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
   },
   {
    "name": "land.pass",
@@ -5192,7 +5213,8 @@
    ],
    "x-callers": [
     "agent"
-   ]
+   ],
+   "description": "Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
   },
   {
    "name": "land.authorize",
@@ -5259,7 +5281,8 @@
    ],
    "x-callers": [
     "agent"
-   ]
+   ],
+   "description": "The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}."
   },
   {
    "name": "hook.record",
