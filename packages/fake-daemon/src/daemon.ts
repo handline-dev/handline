@@ -21,6 +21,7 @@ import { AGENTS, seedChat } from './fixtures.ts';
 import { FakeAccounts } from './accounts.ts';
 import { FakeAdmin } from './admin.ts';
 import { FakeInbox } from './inbox.ts';
+import { FakeWork } from './workroom.ts';
 import { FakeTasks, taskCall } from './tasks.ts';
 import { chatMethod, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
@@ -78,6 +79,8 @@ export class FakeDaemon {
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;
   readonly admin: FakeAdmin;
+  /** The repos, worktrees and the agent.create operation; `work.stepMs` slows its steps. */
+  readonly work = new FakeWork(this, () => this.iso());
   /** The agents played as structured sessions and their transcript events; `transcript.push` and `ask` drive the stream. */
   readonly transcript: FakeTranscript;
   private serveChat: boolean;
@@ -130,9 +133,7 @@ export class FakeDaemon {
     seedChat(this.chat, this.iso());
   }
 
-  private iso(): Timestamp {
-    return this.now().toISOString();
-  }
+  private iso = (): Timestamp => this.now().toISOString();
 
   // ---- hosting ----
 
@@ -151,9 +152,7 @@ export class FakeDaemon {
     };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
-    transport.onclose = () => {
-      this.conns.delete(conn);
-    };
+    transport.onclose = () => void this.conns.delete(conn);
   }
 
   /** A connection through the network listener: anonymous until hello carries a device token. */
@@ -178,7 +177,7 @@ export class FakeDaemon {
     this.timer = setInterval(() => this.tick(), ms);
   }
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    clearInterval(this.timer ?? undefined);
     this.timer = null;
     this.dropConnections();
   }
@@ -432,7 +431,7 @@ export class FakeDaemon {
 
   /** Everything that may leave a method out of what this daemon lists and serves. */
   private get served(): { lists(name: string): boolean }[] {
-    return [this.tasks, this.inbox, this.accounts, this.admin, this.transcript, this.knobs, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
+    return [this.tasks, this.inbox, this.accounts, this.admin, this.transcript, this.knobs, this.work, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
   }
 
   /** The fake modules' methods (accounts, stats and settings, inbox, tasks); null for a method none of them owns. */
@@ -441,6 +440,7 @@ export class FakeDaemon {
       return { value: accountsReply(this.knobs.accounts, [...this.sessions.values()]) };
     if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
     if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
+    if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
     return null;

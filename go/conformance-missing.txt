@@ -1,6 +1,7 @@
 # Methods the Go daemon does not serve yet. contract/conformance.py --allow-missing-file reads one per line.
 # The Go task owns this file: delete a line when its method lands, so a daemon that drops it again fails the run.
 account.remove
+agent.create
 agent.unstall
 input.release
 input.take
@@ -13,3 +14,4 @@ terminal.resize
 trust.list
 trust.propose
 trust.remove
+worktree.set_status
