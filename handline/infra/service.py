@@ -21,9 +21,15 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import paths
+from . import names, paths
+from .yamlcompat import ConfigError, load as load_yaml
 
 LABEL = "dev.orcapipe.daemon"
+
+
+def label() -> str:
+    """The launchd label: LABEL, or OCP_SERVICE_LABEL, which a rehearsal on a scratch home sets so its job and plist are not the live service's."""
+    return names.getenv("OCP_SERVICE_LABEL") or LABEL
 
 # launchd restarts a crashing job as fast as it can fail, unless told
 # otherwise (scout, request #14: colima's bare KeepAlive=true leaked
@@ -43,7 +49,7 @@ FD_SOFT_LIMIT = 4096
 
 
 def plist_path() -> Path:
-    return paths.user_home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    return paths.user_home() / "Library" / "LaunchAgents" / f"{label()}.plist"
 
 
 def log_dir(home: Path | None = None) -> Path:
@@ -69,16 +75,73 @@ def ocp_executable() -> str:
 
 
 # ---------------------------------------------------------------- plist
-def build_plist(home: Path | None = None) -> dict:
+IMPL_KEY = "daemon_impl"        # config.yaml: "python" (the default) or "go"
+IMPLS = ("python", "go")
+
+
+class ServiceError(Exception):
+    """The plist cannot be built as asked; nothing was written."""
+
+
+def daemon_impl() -> str:
+    """Which daemon the service runs: the config.yaml `daemon_impl` word, python when it is absent or not one of IMPLS."""
+    try:
+        cfg = load_yaml(paths.config_file().read_text())
+    except (OSError, ConfigError):
+        return "python"
+    v = cfg.get(IMPL_KEY) if isinstance(cfg, dict) else None
+    return v if v in IMPLS else "python"
+
+
+def go_executable() -> Path:
+    """The Go daemon tools/build-go.sh builds."""
+    return paths.repo_root() / "go" / "handlined"
+
+
+def land_repo() -> str:
+    """The checkout `hl land` merges into: OCP_LAND_REPO, else the checkout the daemon runs from (what lands.py reads)."""
+    return names.getenv("OCP_LAND_REPO") or str(paths.repo_root())
+
+
+def go_arguments(home: Path, allow_live_home: bool = False) -> list[str]:
+    """The Go daemon's command line with the production flags. A home that is a live one (`paths.live_homes`) is the real
+    install's: refused unless the caller said so, so a rehearsal can never land on it by a stray setting."""
+    exe = go_executable()
+    if not exe.exists():
+        raise ServiceError(f"{exe} is not built (tools/build-go.sh)")
+    claude = shutil.which("claude")
+    if claude is None:
+        raise ServiceError("no claude binary on PATH for -structured-cli")
+    live = home.resolve() in paths.live_homes()
+    if not live and label() == LABEL:
+        raise ServiceError(f"{home} is not the live home, and the live service's label would be replaced: set OCP_SERVICE_LABEL for a rehearsal")
+    if live and not allow_live_home:
+        raise ServiceError(f"{home} is the live home: the Go daemon is installed there only with --allow-live-home")
+    return [str(exe), "-allow-real-home" if live else "-home", *([] if live else [str(home)]),
+            "-structured-cli", claude, "-structured-tick", "-cutover", "-land-repo", land_repo()]
+
+
+def _path_with_python3() -> str:
+    """PATH for the job, with the directory of python3 in it: the land verbs run tools/localrefs.py."""
+    path = os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    py = shutil.which("python3")
+    if py and str(Path(py).parent) not in path.split(":"):
+        path += ":" + str(Path(py).parent)
+    return path
+
+
+def build_plist(home: Path | None = None, impl: str | None = None, allow_live_home: bool = False) -> dict:
     home = home or paths.home()
+    impl = impl or daemon_impl()
+    # bin/ocp's own bash wrapper picks the interpreter at run time (the
+    # venv's python3 if it is ready, PATH's otherwise), not sys.executable
+    # pinned at install time - a python upgrade or a removed venv would
+    # otherwise leave this pointed at an interpreter that no longer
+    # exists, and the failure would be a job that silently never starts.
+    program = go_arguments(home, allow_live_home) if impl == "go" else [ocp_executable(), "daemon"]
     return {
-        "Label": LABEL,
-        # bin/ocp's own bash wrapper picks the interpreter at run time (the
-        # venv's python3 if it is ready, PATH's otherwise), not sys.executable
-        # pinned at install time - a python upgrade or a removed venv would
-        # otherwise leave this pointed at an interpreter that no longer
-        # exists, and the failure would be a job that silently never starts.
-        "ProgramArguments": [ocp_executable(), "daemon"],
+        "Label": label(),
+        "ProgramArguments": program,
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": THROTTLE_INTERVAL_S,
@@ -91,18 +154,20 @@ def build_plist(home: Path | None = None) -> dict:
         # block the daemon cannot find claude/orca (PATH), resolve ~ for
         # anything that uses it (HOME), or find the right ~/.orcapipe (OCP_HOME).
         "EnvironmentVariables": {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+            "PATH": _path_with_python3() if impl == "go" else os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
             "HOME": os.environ.get("HOME", str(Path.home())),
             "OCP_HOME": str(home),
+            **({"OCP_LAND_REPO": land_repo()} if impl == "go" else {}),
         },
     }
 
 
-def write_plist(path: Path | None = None, home: Path | None = None) -> Path:
+def write_plist(path: Path | None = None, home: Path | None = None, allow_live_home: bool = False) -> Path:
     path = path or plist_path()
+    plist = build_plist(home, allow_live_home=allow_live_home)       # built first: a refusal leaves the old file alone
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
-        plistlib.dump(build_plist(home), f)
+        plistlib.dump(plist, f)
     return path
 
 
@@ -137,7 +202,7 @@ def domain_target() -> str:
 
 
 def service_target() -> str:
-    return f"{domain_target()}/{LABEL}"
+    return f"{domain_target()}/{label()}"
 
 
 # launchd sends the old job SIGTERM on bootout and SIGKILL after its ExitTimeOut (20s by default).
@@ -156,19 +221,22 @@ def _await_unloaded(timeout: float | None = None) -> bool:
     return True
 
 
-def install(home: Path | None = None) -> tuple[bool, str]:
+def install(home: Path | None = None, allow_live_home: bool = False) -> tuple[bool, str]:
     home = home or paths.home()
     log_dir(home).mkdir(parents=True, exist_ok=True)
     was_loaded = status()["loaded"]
     prior = plist_path().read_bytes() if plist_path().exists() else None
-    path = write_plist(home=home)
+    try:
+        path = write_plist(home=home, allow_live_home=allow_live_home)
+    except ServiceError as e:
+        return False, str(e)
     # bootstrap fails if the label is already loaded; bootout first so
     # `install` is idempotent (reinstalling after editing config, say).
     if was_loaded:
         run_launchctl(["bootout", service_target()])
         if not _await_unloaded():
             return False, (f"the old job was still exiting after {UNLOAD_WAIT_S:.0f}s; launchd still has "
-                           f"{LABEL} - run `hl service install` again once `hl service status` says not loaded")
+                           f"{label()} - run `hl service install` again once `hl service status` says not loaded")
     res = run_launchctl(["bootstrap", domain_target(), str(path)])
     if res.returncode != 0:
         # A daemon that was supervised and running before this call must not
@@ -179,9 +247,9 @@ def install(home: Path | None = None) -> tuple[bool, str]:
             run_launchctl(["bootstrap", domain_target(), str(path)])
         return False, (res.stderr or res.stdout or "launchctl bootstrap failed").strip()
     if not status()["loaded"]:
-        return False, f"launchctl bootstrap succeeded but launchd does not list {LABEL}"
+        return False, f"launchctl bootstrap succeeded but launchd does not list {label()}"
     run_launchctl(["enable", service_target()])
-    return True, f"installed {path}, label {LABEL}"
+    return True, f"installed {path}, label {label()}, daemon {daemon_impl()}"
 
 
 def load() -> tuple[bool, str]:
@@ -199,7 +267,7 @@ def uninstall() -> tuple[bool, str]:
     run_launchctl(["bootout", service_target()])
     existed = path.exists()
     path.unlink(missing_ok=True)
-    return True, (f"removed {path}" if existed else f"{LABEL} was not installed")
+    return True, (f"removed {path}" if existed else f"{label()} was not installed")
 
 
 def _plist_installed() -> bool | None:
@@ -252,7 +320,7 @@ def supervisor_of(pid: int | None) -> str:
             return "not running (service installed but not loaded - see `hl service status`)"
         return "not running"
     if st["loaded"] and st["pid"] == pid:
-        return f"launchd ({LABEL})"
+        return f"launchd ({label()})"
     return "hand-started (not supervised by launchd)"
 
 
@@ -283,18 +351,25 @@ def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold
     daemon already held the lock - both are launchd restarting us) within
     one `window_s` window.
     """
-    p = out_log(home)
+    go = daemon_impl() == "go"
+    p = err_log(home) if go else out_log(home)      # the Go daemon logs to stderr, with the date first
     if not p.exists():
         return False
     now = time.localtime()
     hits = 0
     for line in _tail_lines(p):
-        if "daemon starting" not in line:
-            continue
-        if not line.startswith("["):
-            continue
+        if go:
+            # "2026/10/10 13:45:00 handlined <sha> serving ..." is its line for a start that got up; a start that
+            # refuses (lock held, database, bad flag) dies with "2026/10/10 13:45:00 handlined: <why>" instead.
+            if not (" handlined: " in line or (" handlined " in line and " serving " in line)):
+                continue
+            clock = line[11:19]
+        else:
+            if "daemon starting" not in line or not line.startswith("["):
+                continue
+            clock = line[1:9]
         try:
-            ts = time.strptime(line[1:9], "%H:%M:%S")
+            ts = time.strptime(clock, "%H:%M:%S")
         except ValueError:
             continue
         # Only a same-day, HH:MM:SS clock is available; a window this short

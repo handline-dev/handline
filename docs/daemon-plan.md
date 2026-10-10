@@ -358,6 +358,41 @@ daemon. `-own-prompts` starts the screen watch, and the daemon reads no screen a
 (x-dialogs); `prompt.list` stays, as a read of the `prompt_blocks` rows. The daemon
 singleton it takes becomes unconditional (startup row above).
 
+#### Switching the service
+
+The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
+`hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
+The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
+`-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
+other; the job's PATH holds python3's directory (the land verbs run `tools/localrefs.py`) and its environment carries
+`OCP_LAND_REPO`. `-terminal-tick` is not a flag of the binary yet; add it to `service.go_arguments` when it lands.
+`hl service install` reads the setting once, so a change takes effect at the next install and not before.
+
+Rehearsal, on a scratch home and never the live service. The label keeps the rehearsal's job and plist apart from the live ones; the
+Go daemon is refused on a home that is not live under the live label, and on the live home without `hl service install --allow-live-home`.
+Run it from a shell outside the agent sandbox (launchd, `~/Library/LaunchAgents` and a unix socket are all denied inside it), from the
+checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
+
+1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`).
+2. `hl service use go`, then `hl service install`. It prints `daemon go`; `hl service status` shows the label, `daemon: go`, loaded, a pid.
+3. `hl ps` and `hl inbox` answer from the Go daemon; `tail $OCP_HOME/logs/daemon.err.log` holds one `handlined <sha> serving` line.
+   `hl service status` does not say crash-looping.
+4. Rollback: `hl service use python`, `hl service install`; `hl service status` shows `daemon: python` and a new pid; `hl ps` still answers.
+5. Clean up: `hl service uninstall` (with the same two variables set), then remove the scratch folder.
+
+The Go daemon takes the same singleton lock as the Python one and writes its pid into `locks/daemon.lock`
+(`lock.TakeSingleton`), so `hl ps`, `hl service install`'s note about a daemon started by hand and the lock holder read both alike.
+That holds only because every start that is not a gateway takes the lock, with the service flags (no `-own-prompts`) too: the switch
+needs that change (`if !cfg.Gateway` around the singleton in `daemon.New`) on the branch it is installed from, or a Python daemon started by hand runs
+beside the Go one.
+Crash-loop detection reads the Go daemon's own stderr log when it is chosen: the `handlined <sha> serving` line of a start that got up,
+and the `handlined: <why>` line of one that refused (lock held, database, a bad flag), so a job respawning into a refusal is counted.
+
+Rollback is `hl service use python` and `hl service install`: the same plist as before the switch, the schema untouched.
+The Go daemon's start line and the singleton lock are the only things the two share on disk besides the database, so
+stopping the one and starting the other is the whole swap. The founder approves the live switch (task 24); nothing here
+flips it.
+
 ## Tasks for the sub-team
 
 Three reports under this daemon: `api` (the Python server side), `contract` (the spec, the

@@ -1753,7 +1753,7 @@ def test_service_install_names_only_a_daemon_launchd_does_not_run_as_hand_starte
     from handline.cli import service as cli_service
     orig = cli_service.dmn_locks.running_elsewhere, service.status, service.install
     try:
-        service.install = lambda: (True, "installed")
+        service.install = lambda allow_live_home=False: (True, "installed")
         cli_service.dmn_locks.running_elsewhere = lambda: 4242
         for launchd_pid, noted in ((4242, False), (None, True), (77, True)):
             service.status = lambda p=launchd_pid: {"installed": True, "loaded": p is not None,
@@ -1841,6 +1841,84 @@ def test_service_supervisor_of(home: Path) -> None:
               "not loaded" in service.supervisor_of(None))
     finally:
         service.status = orig
+
+
+def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_word(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    exe = home / "handlined"
+    exe.write_text("")
+    real = (service.go_executable, paths.live_homes, service.shutil.which, service.names.getenv)
+    service.go_executable = lambda: exe
+    paths.live_homes = lambda: [(home / "live").resolve()]
+    service.shutil.which = lambda name: f"/opt/{name}"
+    service.names.getenv = lambda name, default=None: "/repo/main" if name.endswith("LAND_REPO") else real[3](name, default)
+    try:
+        py = service.build_plist(home=home, impl="python")
+        os.environ["OCP_SERVICE_LABEL"] = "dev.orcapipe.rehearsal"
+        go = service.build_plist(home=home, impl="go")
+        del os.environ["OCP_SERVICE_LABEL"]
+        args = go["ProgramArguments"]
+        check("service: python is the default program", py["ProgramArguments"][1:] == ["daemon"] and service.daemon_impl() == "python", str(py))
+        check("service: the Go daemon runs on the scratch home with the production flags",
+              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-cutover", "-land-repo", "/repo/main"], str(args))
+        check("service: the Go job carries OCP_LAND_REPO and a PATH that holds python3's directory",
+              go["EnvironmentVariables"]["OCP_LAND_REPO"] == "/repo/main" and "/opt" in go["EnvironmentVariables"]["PATH"].split(":"), str(go["EnvironmentVariables"]))
+        try:
+            service.build_plist(home=home, impl="go")
+            unlabelled = False
+        except service.ServiceError:
+            unlabelled = True
+        check("service: a scratch home on the live label is refused for the Go daemon", unlabelled)
+        os.environ["OCP_SERVICE_LABEL"] = "dev.orcapipe.rehearsal"
+        try:
+            service.build_plist(home=home / "live", impl="go")
+            refused = False
+        except service.ServiceError:
+            refused = True
+        live = service.build_plist(home=home / "live", impl="go", allow_live_home=True)["ProgramArguments"]
+        check("service: the rehearsal label names the job and the plist", go["Label"] == "dev.orcapipe.rehearsal")
+        check("service: the live home is refused without the word, and with it gets -allow-real-home",
+              refused and live[1] == "-allow-real-home" and "-home" not in live, str(live))
+        exe.unlink()
+        try:
+            service.build_plist(home=home, impl="go")
+            missing = False
+        except service.ServiceError:
+            missing = True
+        check("service: a Go daemon that is not built is refused", missing)
+    finally:
+        os.environ.pop("OCP_SERVICE_LABEL", None)
+        service.go_executable, paths.live_homes, service.shutil.which, service.names.getenv = real
+
+
+def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:
+    import argparse
+    from handline.cli import service as cli_service
+    use_home(home)
+    check("service use: python before anything is set", service.daemon_impl() == "python")
+    for impl in ("go", "python"):
+        rc = cli_service.cmd_service_use(argparse.Namespace(impl=impl))
+        check(f"service use: {impl} is the setting afterwards", rc == 0 and service.daemon_impl() == impl)
+
+
+def test_service_crash_loop_reads_the_go_daemons_start_line(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    log = service.err_log(home)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    now = time.localtime()
+    lines = [time.strftime("%Y/%m/%d %H:%M:%S", time.localtime(time.mktime(now) - s)) + ' handlined abc1234 serving "/x/daemon.sock"' for s in (0, 15, 30, 45)]
+    log.write_text("\n".join(lines) + "\n")
+    real = service.daemon_impl
+    service.daemon_impl = lambda: "go"
+    try:
+        check("service: four starts of the Go daemon in a minute is a crash loop", service.crash_loop_detected(home, window_s=300, threshold=4))
+        log.write_text(lines[0] + "\n")
+        check("service: one start is not", not service.crash_loop_detected(home, window_s=300, threshold=4))
+        refusals = [line.replace('handlined abc1234 serving "/x/daemon.sock"', "handlined: another daemon holds the lock") for line in lines]
+        log.write_text("\n".join(refusals) + "\n")
+        check("service: four refusals of the Go daemon in a minute is a crash loop", service.crash_loop_detected(home, window_s=300, threshold=4))
+    finally:
+        service.daemon_impl = real
 
 
 def test_service_crash_loop(home: Path) -> None:
@@ -5751,6 +5829,9 @@ def main() -> int:
         run(lambda: test_service_status_when_not_installed(Path(td) / 'svc3'))
         run(lambda: test_service_status_when_the_plist_cannot_be_looked_at(Path(td) / 'svc3b'))
         run(lambda: test_service_supervisor_of(Path(td) / 'svc4'))
+        run(lambda: test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_word(Path(td) / 'svc6'))
+        run(lambda: test_service_crash_loop_reads_the_go_daemons_start_line(Path(td) / 'svc7'))
+        run(lambda: test_service_use_sets_the_daemon_the_next_install_runs(Path(td) / 'svc8'))
         run(lambda: test_service_crash_loop(Path(td) / 'svc5'))
         run(lambda: test_daemon_refusal_logs_through_the_same_path(Path(td) / 'svc5b'))
         run(lambda: test_the_daemon_logs_the_code_sha_it_started_on(Path(td) / 'codesha'))

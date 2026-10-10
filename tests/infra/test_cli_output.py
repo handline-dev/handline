@@ -209,6 +209,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
+        "service use": "writes the daemon_impl setting; driven in test_service_use_sets_the_daemon_the_next_install_runs "
+                       "(tests/session/test_daemon_session.py), not this scene",
         "dev-mode": "writes a config flag; prints on/off - driven in "
                     "test_dev_mode_config_round_trips, not this scene",
         "auto-accept": "writes a config flag; driven in test_auto_accept_config_round_trips "
