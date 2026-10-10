@@ -60,12 +60,12 @@ async function mount(hash = '#/new', s = setup()) {
   });
   return s;
 }
-/** The form with name, role and the repo picked (the second one, whose default branch is develop). */
+/** The form with name, role and the repo picked (docs-site, whose default branch is master). */
 async function fill(name = 'fresh', role = 'reviewer') {
   await until(() => select('Repo')?.options.length > 1, 'the repos');
   await type(findInput('Name'), name);
   await type(findInput('Role'), role);
-  await pick('Repo', '/work/orca');
+  await pick('Repo', '/work/docs-site');
 }
 const calls = (s: ReturnType<typeof setup>) => vi.spyOn(s.daemon.work, 'call');
 const made = (spy: ReturnType<typeof calls>) => spy.mock.calls.filter((c) => c[0] === 'agent.create').map((c) => c[1]);
@@ -89,7 +89,7 @@ describe('X3 New agent', () => {
     await type(findInput('Role'), 'reviewer');
     expect(create().disabled).toBe(true); // no repo yet
     await until(() => select('Repo').options.length > 1, 'the repos');
-    await pick('Repo', '/work/orca');
+    await pick('Repo', '/work/docs-site');
     expect(create().disabled).toBe(false);
     await type(findInput('Name'), '');
     expect(create().disabled).toBe(true);
@@ -101,7 +101,7 @@ describe('X3 New agent', () => {
     const spy = calls(s);
     await mount('#/new', s);
     await fill();
-    expect(findInput('Base')!.value).toBe('develop');
+    expect(findInput('Base')!.value).toBe('master');
     const release = s.daemon.knobs.hold('agent.create');
     await click(create());
     await until(() => create().disabled, 'Create off while the call waits');
@@ -110,7 +110,7 @@ describe('X3 New agent', () => {
     await until(() => location.hash.startsWith('#/new/'), 'the progress route');
     const sent = made(spy);
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ name: 'fresh', role: 'reviewer', repo: '/work/orca', base: 'develop' });
+    expect(sent[0]).toMatchObject({ name: 'fresh', role: 'reviewer', repo: '/work/docs-site', base: 'master' });
     expect(sent[0]).not.toHaveProperty('model');
     expect(sent[0]).not.toHaveProperty('effort');
     expect(sent[0]).not.toHaveProperty('parent');
@@ -195,14 +195,14 @@ describe('X3 New agent', () => {
     await fill();
     await type(findInput('Base'), 'nope');
     await click(create());
-    await until(() => text(dialog()).includes('no branch nope in orca'), 'the failure');
+    await until(() => text(dialog()).includes('no branch nope in docs-site'), 'the failure');
     expect(text(dialog())).toContain('fresh is registered, not started.');
     await click(button('Edit and try again'));
     await until(() => findInput('Name'), 'the form');
     expect(findInput('Name')!.value).toBe('fresh');
     expect(findInput('Role')!.value).toBe('reviewer');
     expect(findInput('Base')!.value).toBe('nope');
-    expect(select('Repo').value).toBe('/work/orca');
+    expect(select('Repo').value).toBe('/work/docs-site');
   });
 
   it('keeps the fields and shows the reason when agent.create is refused', async () => {
