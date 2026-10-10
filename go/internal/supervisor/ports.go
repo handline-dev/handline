@@ -9,27 +9,14 @@ package supervisor
 import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
-	"github.com/handline/handline/go/internal/term"
 )
 
-// Terminal is session/term.py as the telling layer uses it: the terminal host, with the screen reads and typing on top.
-// *term.Term satisfies the part Go has (SessionOnScreen, ScreenBlocker, BackgroundWork, Send); the rest is G3b's wrapper.
+// Terminal is session/term.py as the telling layer uses it: the terminal host's screen reads. Nothing is typed at a terminal; a terminal
+// agent is told through the peer inbox.
 type Terminal interface {
 	Available() bool
-	Missing() string // why it is not (term.missing)
-	Alive(handle string) bool
-	TypeableNow(handle string) bool
-	ScreenBlocker(handle string) *term.Blocker
 	SessionOnScreen(handle string) (session, known bool)
-	ComposerOnScreen(handle string) (box string, known bool)
-	IsTextTyped(box, text string) bool
 	BackgroundWork(handle string) (running string, known bool)
-	LastTail(handle string) []string
-	Send(handle, text string, enter bool) (bool, string)
-	SendToSession(handle, text string) (bool, string) // refuses to type at a shell prompt (term.send_to_session)
-	SendCtrlC(handle string)                          // Ctrl-C without Enter, then the shell settle wait
-	ClearContext(handle string) (bool, string)
-	ClearCommand(handle string) string
 }
 
 // Observer is session/observe.py: what the process table says.
@@ -88,14 +75,6 @@ type Evaluate interface {
 	QueuedOrIdle(q db.Q, agent, why string) error
 }
 
-// Channel is daemon/termchannel.py, screensamples.py and inputhold.py (G4): what whoever watches a terminal is told.
-type Channel interface {
-	// Marker tells the terminal's watchers that the daemon (or a person's control call) typed.
-	Marker(q db.Q, agent, kind string, by map[string]any)
-	// RecordScreenSample keeps a sample of a screen that reported background work.
-	RecordScreenSample(q db.Q, agent string, row *db.AgentState, running string, tail []string)
-}
-
 // Proposals is team/trust.py and decisions.py: the founder answering a trust proposal. Required: a reply or a resolve with no Proposals
 // port closes nothing, since it cannot tell a proposal's card from any other.
 type Proposals interface {
@@ -137,7 +116,6 @@ type Ports struct {
 	Sessions  Sessions
 	Lifecycle Lifecycle
 	Evaluate  Evaluate
-	Channel   Channel
 	Proposals Proposals
 	Stuck     Stuck
 }
@@ -146,5 +124,5 @@ type Ports struct {
 // writes before the ports land makes them and leaves the telling to the tick.
 func (p Ports) Wired() bool {
 	return p.Terminal != nil && p.Observer != nil && p.Dialogs != nil && p.Waits != nil && p.Idle != nil && p.Sessions != nil &&
-		p.Lifecycle != nil && p.Evaluate != nil && p.Channel != nil && p.Proposals != nil && p.Stuck != nil
+		p.Lifecycle != nil && p.Evaluate != nil && p.Proposals != nil && p.Stuck != nil
 }

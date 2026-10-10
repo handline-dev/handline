@@ -8,7 +8,6 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/team"
-	"github.com/handline/handline/go/internal/term"
 )
 
 // Delivering queued requests (daemon/delivery.py): checking the routing edge, picking the head, telling the agent.
@@ -233,31 +232,9 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 	if !e.batchDue(q, agent, batch, fresh) {
 		return false, nil // collected; goes out when the minute is up
 	}
-	handle := ""
-	if e.structuredAgent(agent) {
-		if !e.Agents.Live(agent) {
-			return e.holdBack(agent, head, "it has no live session", false), nil
-		}
-	} else {
-		if why := e.typingHold(q, agent); why != "" {
-			return e.holdBack(agent, head, why, false), nil // stays queued; told when it wakes or moves
-		}
-		handle = must(db.Terminal(q, agent))
-		if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
-			return e.holdBack(agent, head, "it has no live terminal", false), nil
-		}
-		if !e.sessionPresent(agent) {
-			// Nothing here is read by an agent that is not running; at a shell prompt this line is four commands in backticks and a redirection.
-			return e.holdBack(agent, head, "no session is running in its terminal", false), nil
-		}
-		// Typing at an agent mid-turn leaves the text sitting in its input box unsent.
-		if !e.Terminal.TypeableNow(handle) {
-			// An open dialog is a reason the agent cannot take it, not a delivery gone wrong; only a busy screen with nothing to explain it is worth contesting.
-			if b := e.Terminal.ScreenBlocker(handle); b != nil && b.Kind != term.Unreadable {
-				return e.holdBack(agent, head, b.Reason(), false), nil
-			}
-			return e.holdBack(agent, head, "its screen is not idle (mid-turn, or unreadable)", true), nil
-		}
+	// Only a structured or peer session takes a write; nothing is typed at a terminal.
+	if !e.structuredAgent(agent) || !e.Agents.Live(agent) {
+		return e.holdBack(agent, head, "no live session", false), nil
 	}
 	depth := 0
 	for _, r := range must(db.QueuedFor(q, agent)) {
@@ -265,27 +242,9 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 			depth++
 		}
 	}
-	if e.structuredAgent(agent) {
-		// No screen to read and no terminal lock: the session takes the write.
-		if sent = e.tellBatch(q, agent, batch, depth, "", aheadOf, aheadOf != nil); sent {
-			check(db.SetCursor(q, "batch:"+agent, e.now()))
-			e.forgetHeld(agent)
-		}
-		return sent, nil
-	}
-	locked := e.withTerminal(agent, func() {
-		if e.typeGate(q, agent, handle, true, false) != "" {
-			sent = e.holdBack(agent, head, "its screen changed before the send", true)
-			return
-		}
-		sent = e.tellBatch(q, agent, batch, depth, handle, aheadOf, aheadOf != nil)
-		if sent {
-			check(db.SetCursor(q, "batch:"+agent, e.now()))
-			e.forgetHeld(agent)
-		}
-	})
-	if !locked {
-		return e.holdBack(agent, head, "its terminal is locked by another send", true), nil
+	if sent = e.tellBatch(q, agent, batch, depth, aheadOf, aheadOf != nil); sent {
+		check(db.SetCursor(q, "batch:"+agent, e.now()))
+		e.forgetHeld(agent)
 	}
 	return sent, nil
 }

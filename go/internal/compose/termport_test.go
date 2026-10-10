@@ -145,13 +145,6 @@ func TestAClosedTerminalAgentIsEndedAtItsShellAndItsTerminalClosed(t *testing.T)
 	if ok, _ := tp.CloseTerminal("%9"); !ok || len(ft.closed) != 1 {
 		t.Fatal("the terminal is closed")
 	}
-	// nothing is typed at a running session: the telling layer's sends say they are not served
-	if ok, why := tp.Send("%9", "hello", true); ok || !strings.Contains(why, "session inbox") || len(ft.sent) != 0 {
-		t.Fatalf("%v %q", ok, why)
-	}
-	if ok, _ := tp.ResumeWith("%9", "x"); ok {
-		t.Fatal("the handoff pointer is not typed")
-	}
 }
 
 func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.T) {

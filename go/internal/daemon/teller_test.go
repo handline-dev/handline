@@ -120,7 +120,7 @@ func tellDaemon(t *testing.T, ports bool) (*Daemon, *typedAt) {
 	if ports {
 		cfg.OnOpen = func(_ *sql.DB, env *supervisor.Env) {
 			env.Ports = supervisor.Ports{Agents: agents, Terminal: noScreen{}, Observer: wiredPorts{}, Dialogs: wiredPorts{}, Waits: wiredPorts{}, Idle: wiredPorts{}, Sessions: wiredPorts{},
-				Lifecycle: wiredPorts{}, Evaluate: wiredPorts{}, Channel: wiredPorts{}, Proposals: wiredPorts{}, Stuck: wiredPorts{}}
+				Lifecycle: wiredPorts{}, Evaluate: wiredPorts{}, Proposals: wiredPorts{}, Stuck: wiredPorts{}}
 		}
 	}
 	d, err := Start(cfg)

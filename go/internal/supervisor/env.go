@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -34,8 +33,7 @@ type Env struct {
 	seen      map[string]Seen
 	seenAt    time.Time
 	drawn     map[string]drawnAt
-	typedText map[string]string // handle -> what send last typed, until markTyped records it
-	typedAt   map[int64]int64   // request -> when this daemon last typed it (landing)
+	typedAt   map[int64]int64 // request -> when this daemon last typed it (landing)
 	held      map[string]string
 	noted     map[string]noted
 	failed    map[string]failure
@@ -98,7 +96,6 @@ func (e *Env) init() {
 	if e.seen == nil {
 		e.seen = map[string]Seen{}
 		e.drawn = map[string]drawnAt{}
-		e.typedText = map[string]string{}
 		e.typedAt = map[int64]int64{}
 		e.held = map[string]string{}
 		e.noted = map[string]noted{}
@@ -124,17 +121,6 @@ func (e *Env) registered(name string) bool {
 		}
 	}
 	return false
-}
-
-// withTerminal runs fn holding the agent's terminal; false when someone else holds it (lock.terminal).
-func (e *Env) withTerminal(agent string, fn func()) bool {
-	h := lock.TakeTerminal(e.Home, agent)
-	if h == nil {
-		return false
-	}
-	defer h.Release()
-	fn()
-	return true
 }
 
 // dbFailure carries a database error up through the ported code, which reads like the Python it follows; Catch turns it back.

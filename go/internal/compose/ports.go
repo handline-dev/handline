@@ -28,7 +28,6 @@ func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 		Sessions:  sessions{p: p, ho: lc.Handoff},
 		Lifecycle: lifecycleStarter{m: lc.Manager},
 		Evaluate:  evaluate{},
-		Channel:   noChannel{},
 		Proposals: proposals{trust: team.NewTrust(p.home), q: p.db},
 		Stuck:     stuck{},
 	}
@@ -142,12 +141,6 @@ func (evaluate) QueuedOrIdle(q db.Q, agent, when string) error {
 	}
 	return db.SetAgentState(q, agent, states.Idle, 0, when+"; no requests waiting")
 }
-
-// noChannel: there are no watchers of a terminal to tell, and nobody else holds an input that does not exist.
-type noChannel struct{}
-
-func (noChannel) Marker(db.Q, string, string, map[string]any)                       {}
-func (noChannel) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
 
 // proposals: the open trust proposal a founder's card waits on is found from the proposal files; the founder's answer is applied by the
 // Python daemon's trust apply until that is ported, and the proposer is told so.

@@ -319,11 +319,10 @@ func (noTerminal) CloseTerminal(string) (bool, string)  { return false, notServe
 func (noTerminal) Relaunch(string, string, func() bool) (bool, string) {
 	return false, notServed
 }
-func (noTerminal) ResumeWith(string, string) (bool, string) { return false, notServed }
-func (noTerminal) BypassPromptShowing(string) bool          { return false }
-func (noTerminal) AcceptBypass(string) (bool, string)       { return false, notServed }
-func (noTerminal) WaitForTrustPrompt(string, bool)          {}
-func (noTerminal) DriverScope() func()                      { return func() {} }
+func (noTerminal) BypassPromptShowing(string) bool    { return false }
+func (noTerminal) AcceptBypass(string) (bool, string) { return false, notServed }
+func (noTerminal) WaitForTrustPrompt(string, bool)    {}
+func (noTerminal) DriverScope() func()                { return func() {} }
 
 const notServed = "terminal agents are served by the Python daemon"
 

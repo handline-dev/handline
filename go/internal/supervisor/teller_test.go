@@ -107,6 +107,7 @@ func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *
 	if len(said) != 1 || said[0] != "#"+fmt.Sprint(held)+" ended; bob told to stop" || !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 released by alice - stop work on it") {
 		t.Fatalf("%q %q", said, r.term.typed)
 	}
+	db.MarkDelivered(r.DB, queued) // the target has it, so it is told to stop
 	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice", db.CloseOpts{NoSettle: true})
 	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob", Notify: true}})
 	if len(said) != 1 || said[0] != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {

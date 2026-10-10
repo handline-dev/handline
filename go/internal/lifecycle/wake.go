@@ -222,11 +222,7 @@ func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err
 		return false, TypingElsewhere + "; not waking twice", nil
 	}
 	defer release()
-	// Not the type gate: closed means no live process to be mid-turn in, and the sub-paths below that do meet a live one probe it themselves.
 	ok, said = m.wakeAgent(agent, o)
-	if ok {
-		check(m.Delivery.MarkTyped(m.Q, agent, nil))
-	}
 	return ok, said, nil
 }
 
@@ -300,39 +296,9 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 		return m.wakeClosed(agent, row, handle, wt, o)
 	case must(db.GetHandoff(m.Q, agent)) == "":
 		return false, "no handoff to resume from"
-	case !must(m.Delivery.SessionPresent(agent)):
-		// Not the closed branch: nothing was relaunched, so the row's claim that a session is there is the only evidence - and it is the
-		// claim that goes wrong. A handoff typed at a shell prompt is executed line by line. The sweep records this agent closed on its next
-		// tick, and the branch above then relaunches it before anything is typed.
-		return false, "no session process; not typing the handoff at a shell prompt"
 	}
-	return m.wakeInPlace(agent, handle, o)
-}
-
-// wakeInPlace types a pointer at the handoff into the session a /clear started.
-func (m *Manager) wakeInPlace(agent, handle string, o WakeOpts) (bool, string) {
-	if ok, why := m.clearTrustPrompt(agent, handle, false); !ok {
-		return false, why
-	}
-	if !m.Term.TypeableNow(handle) {
-		return false, "the session is busy or has a modal open; not typing the handoff"
-	}
-	// The record is a page of lines, and typed at a session that many arrive inside <pasted_content> to be declined. It is written to a
-	// file the session reads, and one line pointing at it is typed. Not the launch's prompt file: that one is taken and deleted by the launch.
-	recordText, err := m.WakePrompt(agent, false, WakePromptIn{MovedTo: o.MovedTo})
-	check(err)
-	record, err := m.writeWakePrompt(agent, recordText, "handoff.txt")
-	check(err)
-	pointer := fmt.Sprintf("You were parked; this is a fresh session and your context is empty. Your handoff is in %s - read all of it. If it names a request or task, carry on with it; if it says none, wait - the next item is typed to you when it comes.", record)
-	ok, why := m.Term.ResumeWith(handle, pointer)
-	if ok {
-		// The session stays the one the handoff's /clear started, so there is no launch to keep this.
-		st := m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent))
-		must(db.NoteSessionStart(m.Q, agent, "handoff", false, st.SessionID, recordText, pointer, ""))
-		check(db.ClearHandoff(m.Q, agent))
-	}
-	m.Log("  %s: %s", agent, why)
-	return ok, why
+	// Nothing is typed at a session that runs: a handoff closes it and the wake starts a new one from the record.
+	return false, "its session is still running; a handoff closes it and the wake starts a new one"
 }
 
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes

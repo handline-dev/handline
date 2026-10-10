@@ -13,6 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -137,13 +138,6 @@ func (e *fakeEval) QueuedOrIdle(_ db.Q, a, why string) error {
 	return nil
 }
 
-type fakeChannel struct{ markers []string }
-
-func (c *fakeChannel) Marker(_ db.Q, agent, kind string, _ map[string]any) {
-	c.markers = append(c.markers, agent+":"+kind)
-}
-func (c *fakeChannel) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
-
 type fakeStuck struct{ why string }
 
 func (s fakeStuck) DeliveryBlock(db.Q, string) (string, bool) { return s.why, false }
@@ -157,7 +151,6 @@ type rig struct {
 	sessions *fakeSessions
 	life     *fakeLife
 	eval     *fakeEval
-	channel  *fakeChannel
 	clock    int64
 	logs     []string
 }
@@ -189,19 +182,41 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	r := &rig{t: t, home: home, term: newFakeTerm(), sessions: &fakeSessions{live: "s1"}, life: &fakeLife{}, eval: &fakeEval{}, channel: &fakeChannel{}, clock: 100000}
+	r := &rig{t: t, home: home, term: newFakeTerm(), sessions: &fakeSessions{live: "s1"}, life: &fakeLife{}, eval: &fakeEval{}, clock: 100000}
 	db.Now = func() int64 { return r.clock }
 	t.Cleanup(func() { db.Now = func() int64 { return time.Now().Unix() } })
 	r.Env = &Env{DB: d, Home: home, Now: func() time.Time { return time.Unix(r.clock, 0) }, Sleep: func(d time.Duration) { r.clock += int64(d / time.Second) }}
 	r.Env.Log = func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }
-	r.Env.Ports = Ports{Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},
-		Idle: fakeIdle{}, Sessions: r.sessions, Lifecycle: r.life, Evaluate: r.eval, Channel: r.channel, Stuck: fakeStuck{}, Proposals: fakeProposals{}}
+	r.Env.Ports = Ports{Agents: &sessionAgents{r: r, live: map[string]bool{}}, Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},
+		Idle: fakeIdle{}, Sessions: r.sessions, Lifecycle: r.life, Evaluate: r.eval, Stuck: fakeStuck{}, Proposals: fakeProposals{}}
 	return r
 }
 
-// agentUp gives an agent a terminal and an idle open session.
+// sessionAgents is the one way a session is told anything: what is sent is kept in the rig's term, as what the agent was told.
+type sessionAgents struct {
+	r    *rig
+	live map[string]bool
+}
+
+func (a *sessionAgents) Structured(string) bool { return true }
+func (a *sessionAgents) Live(agent string) bool { return a.live[agent] }
+func (a *sessionAgents) Send(_, _, text string, _ structured.Delivery) (structured.Receipt, error) {
+	a.r.term.mu.Lock()
+	defer a.r.term.mu.Unlock()
+	a.r.term.typed = append(a.r.term.typed, text)
+	return structured.Receipt{State: structured.Sent}, nil
+}
+func (a *sessionAgents) Withdraw(string, string) (structured.Receipt, bool, error) {
+	return structured.Receipt{}, false, nil
+}
+func (a *sessionAgents) Promote(string, string) (structured.Receipt, error) {
+	return structured.Receipt{}, nil
+}
+
+// agentUp gives an agent a terminal and an open session that takes what it is told.
 func (r *rig) agentUp(name string) {
 	r.t.Helper()
+	r.Agents.(*sessionAgents).live[name] = true
 	if err := db.SetTerminal(r.DB, name, "%"+name, "/w/"+name); err != nil {
 		r.t.Fatal(err)
 	}

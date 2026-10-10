@@ -40,7 +40,7 @@ func TestCancelClosesADeliveredRequestAndTellsItsAgentToStop(t *testing.T) {
 	r.agentUp("bob")
 	r.agentUp("alice")
 	rid := r.ask("alice", "bob", "big job", "ask")
-	if got, _ := r.TellNow(r.DB, rid); got != "typed" {
+	if got, _ := r.TellNow(r.DB, rid); got != "sent" {
 		t.Fatal(got)
 	}
 	after := &After{}

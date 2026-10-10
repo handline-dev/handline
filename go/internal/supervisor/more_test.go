@@ -91,13 +91,9 @@ func TestSweepNoticesRunsTheStoppedAndDigestSweeps(t *testing.T) {
 	}
 }
 
-func TestTypeGateExportedAndTheTextsOfAReplyAndADismissal(t *testing.T) {
+func TestTheTextsOfAReplyAndADismissal(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	why, err := r.TypeGate(r.DB, "bob", "%bob", true, false)
-	if err != nil || why != "" {
-		t.Fatal(why, err)
-	}
 	q := r.ask("alice", "bob", "first line of the question\nsecond", "ask")
 	out, _, _ := r.Say(r.DB, SayIn{Target: "alice", Body: "the answer", Requester: "bob", ParentID: q})
 	head := mustReq(r, out.RID)

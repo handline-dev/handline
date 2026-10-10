@@ -35,8 +35,6 @@ type Delivery interface {
 	EffectiveHead(q db.Q, agent string) (*db.Request, error)
 	ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (*supervisor.Forgotten, error)
 	SessionChanged(q db.Q, agent string) (bool, error)
-	TypeGate(q db.Q, agent, handle string, requireIdle, requireSettled bool) (string, error)
-	MarkTyped(q db.Q, agent string, by map[string]any) error
 	SessionStillDrawn(handle string, wait bool) bool
 	WaitSessionGone(agent string) bool
 	WaitForSession(agent string, timeoutS int, promptFile string) bool
@@ -82,7 +80,6 @@ type Terminal interface {
 	CloseSession(handle string) (bool, string)  // types /exit
 	CloseTerminal(handle string) (bool, string) // closes the pane
 	Relaunch(handle, cmd string, started func() bool) (bool, string)
-	ResumeWith(handle, pointer string) (bool, string)
 	BypassPromptShowing(handle string) bool
 	AcceptBypass(handle string) (bool, string)
 	WaitForTrustPrompt(handle string, showing bool)

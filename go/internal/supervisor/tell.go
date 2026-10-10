@@ -48,29 +48,18 @@ func requestIDs(rs []*db.Request) []int64 {
 	return out
 }
 
-// tellBatch types batch (the tasks no one has told the agent about, in queue order) as one message and records each as told. Each is marked
+// tellBatch tells batch (the tasks no one has told the agent about, in queue order) as one message and records each as told. Each is marked
 // delivered before the send (it closes withdraw/replace's race) and put back as owed when the send fails. aheadOf is the open head the
 // batch is queued behind; parked says so, else it is a "send now" request jumping that head.
-func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, handle string, aheadOf *db.Request, parked bool) bool {
+func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, aheadOf *db.Request, parked bool) bool {
 	var live []*db.Request
-	landed := false
-	structuredNow := e.structuredAgent(agent)
 	for _, r := range batch {
-		if !must(db.MarkDelivered(q, r.ID)) {
-			continue // retired in the gap since it was listed
+		if must(db.MarkDelivered(q, r.ID)) { // else retired in the gap since it was listed
+			live = append(live, r)
 		}
-		if !structuredNow && e.landedAlready(q, agent, r.ID) {
-			// the transcript first - a line it already holds is not typed again.
-			check(db.MarkTyped(q, r.ID, e.liveSession(q, agent)))
-			check(db.MarkLanded(q, r.ID))
-			e.recordTold(q, agent, r, depth, "", aheadOf, parked)
-			landed = true
-			continue
-		}
-		live = append(live, r)
 	}
 	if len(live) == 0 {
-		return landed
+		return false
 	}
 	folded := foldedNotices(q, agent)
 	var text string
@@ -79,26 +68,15 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ha
 	} else {
 		text = batchText(q, live, folded, aheadOf)
 	}
-	confirmed := false
-	if structuredNow {
-		// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
-		state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, structured.Queue)
-		if state == NotSent {
-			for _, r := range live {
-				check(db.ClearDelivered(q, r.ID))
-			}
-			return false
+	// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
+	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, structured.Queue)
+	if state == NotSent {
+		for _, r := range live {
+			check(db.ClearDelivered(q, r.ID))
 		}
-		confirmed = state == Confirmed
-	} else {
-		if ok, _ := e.send(handle, text); !ok {
-			for _, r := range live {
-				check(db.ClearDelivered(q, r.ID))
-			}
-			return false
-		}
-		e.markTyped(q, agent, nil)
+		return false
 	}
+	confirmed := state == Confirmed
 	defer func() {
 		if confirmed {
 			for _, r := range live {
@@ -176,44 +154,25 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 	if len(answered) == 0 {
 		return false, nil
 	}
-	if e.structuredAgent(agent) {
-		// The same answers are the same operation; held behind a running turn. They are announced once they are out: a held one is
-		// announced by the echo, and owed again if the session ends first.
-		answered = e.notHeld(q, agent, answered)
-		if len(answered) == 0 {
-			return false, nil
-		}
-		ids := requestIDs(answered)
-		state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), structured.Queue)
-		if state == NotSent || state == Held {
-			return false, nil
-		}
-		e.recordAnswers(q, agent, answered)
-		return true, nil
+	if !e.structuredAgent(agent) {
+		return false, nil // stays unannounced; told when it has a session
 	}
-	if e.typingHold(q, agent) != "" {
-		return false, nil // stays unannounced; told when it wakes or moves
-	}
-	handle := must(db.Terminal(q, agent))
-	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) || !e.sessionPresent(agent) || !e.Terminal.TypeableNow(handle) {
+	// The same answers are the same operation; held behind a running turn. They are announced once they are out: a held one is
+	// announced by the echo, and owed again if the session ends first.
+	answered = e.notHeld(q, agent, answered)
+	if len(answered) == 0 {
 		return false, nil
 	}
-	text := AnswersText(answered)
-	e.withTerminal(agent, func() {
-		if e.typeGate(q, agent, handle, true, false) != "" {
-			return
-		}
-		if sent, _ = e.send(handle, text); sent {
-			e.markTyped(q, agent, nil)
-		}
-	})
-	if sent {
-		e.recordAnswers(q, agent, answered)
+	ids := requestIDs(answered)
+	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), structured.Queue)
+	if state == NotSent || state == Held {
+		return false, nil
 	}
-	return sent, nil
+	e.recordAnswers(q, agent, answered)
+	return true, nil
 }
 
-// NotifyCancelled types at an agent that a request it was handed has been closed under it, with delivery's gates; (typed, why not).
+// NotifyCancelled tells an agent that a request it was handed has been closed under it, with delivery's gates; (told, why not).
 func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bool, why string, err error) {
 	defer Catch(&err)
 	agent := row.Target
@@ -221,35 +180,7 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), structured.Now)
 		return state != NotSent, why, nil
 	}
-	handle := must(db.Terminal(q, agent))
-	if held := e.typingHold(q, agent); held != "" {
-		return false, held, nil
-	}
-	if handle == "" || !e.Terminal.Available() || !e.Terminal.Alive(handle) {
-		return false, agent + " has no terminal", nil
-	}
-	if !e.sessionPresent(agent) {
-		return false, agent + " has no running session", nil
-	}
-	if !e.Terminal.TypeableNow(handle) {
-		return false, agent + " is mid-work or at a prompt", nil
-	}
-	locked := e.withTerminal(agent, func() {
-		if g := e.typeGate(q, agent, handle, true, false); g != "" {
-			why = g
-			return
-		}
-		typed, _ = e.send(handle, cancelledText(q, row, verdict))
-		if typed {
-			e.markTyped(q, agent, nil)
-		} else {
-			why = "the send failed"
-		}
-	})
-	if !locked {
-		return false, "something else is typing at " + agent, nil
-	}
-	return typed, why, nil
+	return false, agent + " has no live session", nil
 }
 
 // cancelledText is what an agent is told when a request it was handed is closed under it.

@@ -314,15 +314,7 @@ func (m *Manager) CloseAgent(agent string, st SessionStatus, o CloseOpts) (ok bo
 		return false, TypingElsewhere + "; not closing", nil
 	}
 	defer release()
-	// A delivery or an answer just typed in this same tick can still read idle on the very probe endSession uses, so the idle probe is
-	// left to endSession's own, inline, where /exit is actually typed.
-	if why := must(m.Delivery.TypeGate(m.Q, agent, must(db.Terminal(m.Q, agent)), false, true)); why != "" {
-		return false, why, nil
-	}
 	ok, said = m.closeAgent(agent, st, o)
-	if ok {
-		check(m.Delivery.MarkTyped(m.Q, agent, nil))
-	}
 	return ok, said, nil
 }
 
