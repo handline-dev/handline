@@ -7,6 +7,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/session"
@@ -45,6 +46,9 @@ type TickConfig struct {
 	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
 	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
 	Cutover bool
+	// ScratchRoot is the sessions' scratch root whose stale repo copies are deleted; empty sweeps none (a test must not delete from the
+	// machine's real one).
+	ScratchRoot string
 }
 
 // Tick builds the tick. The lifecycle must be built and the database bound.
@@ -114,7 +118,13 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	dev := &tick.DevMode{Enabled: func() bool { return lc.Manager.Settings.Flag("dev_mode", false) }, Log: logLine, Now: nowOf(cfg.Now)}
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
-	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Signalled: func() bool {
+	fds := &housekeeping.FDs{Log: logLine}
+	scratch := &housekeeping.Scratch{Root: tc.ScratchRoot, Log: logLine}
+	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
+		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
+		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
+		{Name: "scratch sweep", Run: func(_ db.Q, now int64) error { scratch.Maybe(time.Unix(now, 0)); return nil }},
+	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
 			return true

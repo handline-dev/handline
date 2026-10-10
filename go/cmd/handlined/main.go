@@ -17,6 +17,7 @@ import (
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/daemon"
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/structured"
@@ -161,7 +162,7 @@ func main() {
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
 			if *structuredTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
-					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover})
+					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, ScratchRoot: housekeeping.ScratchRoot()})
 					return tk.Start()
 				}
 			}
@@ -217,6 +218,7 @@ func main() {
 			log.Fatalf("handlined: fd %d: %v", fd, err)
 		}
 	}
+	defer housekeeping.DumpStacksOnUSR1()() // kill -USR1 <pid>: every goroutine's stack, in the err log
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var tickDone <-chan struct{}
