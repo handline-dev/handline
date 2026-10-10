@@ -88,6 +88,17 @@ func TestATerminalAgentAtTheWallIsClosedByItsPaneAndRelaunchedFreshOnTheOtherAcc
 	}
 }
 
+func TestATerminalAgentOnAnExpiredLoginIsClosedByItsPaneAndRelaunchedFreshOnTheOtherAccount(t *testing.T) {
+	g := newTermMoveRig(t)
+	if ok, err := g.v.PerformHandoff("a", HandoffTrigger{LoginTrigger, "login expired on alpha"}, ""); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	row := g.row(t)
+	if len(g.pane.handles) != 1 || len(g.sp.startedIn) != 1 || row.Account.String != "beta" || isClosed(row) {
+		t.Fatalf("closed %v started %v %+v", g.pane.handles, g.sp.startedIn, row)
+	}
+}
+
 func TestATerminalAgentAtAFullContextIsClosedByItsPaneAndParkedForAFreshWake(t *testing.T) {
 	g := newTermMoveRig(t)
 	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"context", "190k of 200k"}, ""); !ok {

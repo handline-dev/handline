@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/team"
@@ -217,5 +218,124 @@ func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 	}
 	if v := stored(av, "idle"); v["needs_you"] != nil || v["has_dialog"] != false {
 		t.Fatal(v)
+	}
+}
+
+// loginRig is termTickRig with the session of bob running on a1 and a second logged-in account, a2, to move to.
+func loginRig(t *testing.T) (*Parts, *Tick, string) {
+	t.Helper()
+	p, _, wt := termTickRig(t)
+	dir, _ := team.AccountConfigDir(p.home, "a2")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600)
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"idle"}`)
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	return p, p.Tick(p.Run.cfg, TickConfig{Terminals: true}), wt
+}
+
+func TestARefusedLoginOnATerminalAgentsAccountMarksItAndMovesTheAgent(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	d := p.Sink.DB
+	if _, err := dbpkg.AddEventFor(d, "bob", "a1", "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}, dbpkg.KV{K: "error_details", V: "401"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := tk.Tick.Run(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc := team.Accounts{Home: p.home}
+	if acc.LoginExpired("a1") == nil || acc.LoginExpired("a2") != nil {
+		t.Fatalf("a1 is marked and a2 is not: %v", res.Actions)
+	}
+	found := false
+	for _, a := range res.Actions {
+		found = found || strings.Contains(a, "bob: handoff (login)")
+	}
+	if !found {
+		t.Fatalf("the agent is handed off: %v", res.Actions)
+	}
+	if _, _, ok, _ := dbpkg.LastEvent(d, "bob", "login_expired"); !ok {
+		t.Fatal("the mark is on record")
+	}
+}
+
+// authFailed is the StopFailure the CLI's hook leaves when its login is refused.
+func authFailed(t *testing.T, p *Parts, acct string) {
+	t.Helper()
+	if _, err := dbpkg.AddEventFor(p.Sink.DB, "bob", acct, "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARefusalLeftOnTheAccountATerminalAgentWasMovedFromMarksNothing(t *testing.T) {
+	p, tk, wt := loginRig(t)
+	authFailed(t, p, "a1") // the last event of the agent, which now runs on a2
+	dbpkg.SetAccount(p.Sink.DB, "bob", "a2", "recorded")
+	writeSession(t, p, "a2", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s2","status":"idle"}`)
+	os.Remove(filepath.Join(p.home, "accounts", "a1", ".claude", "sessions", strconv.Itoa(os.Getpid())+".json"))
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	acc := team.Accounts{Home: p.home}
+	if acc.LoginExpired("a1") != nil || acc.LoginExpired("a2") != nil {
+		t.Fatal("a refusal on the account it left marked an account")
+	}
+}
+
+func TestAPromptAfterARefusalClearsItForATerminalAgent(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	authFailed(t, p, "a1")
+	if _, err := dbpkg.AddEventFor(p.Sink.DB, "bob", "a1", "UserPromptSubmit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
+		t.Fatal("a turn that began after the refusal marked the account")
+	}
+}
+
+func TestARefusalOlderThanTheAccountsLastLoginMarksNothing(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	authFailed(t, p, "a1")
+	cred := filepath.Join(p.home, "accounts", "a1", ".claude", ".credentials.json")
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(cred, later, later); err != nil { // logged in again since the refusal, which no prompt has followed
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
+		t.Fatal("a refusal from before the login marked the account")
+	}
+}
+
+func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
+	p, tk, _ := loginRig(t)
+	d := p.Sink.DB
+	authFailed(t, p, "a1")
+	// Python's lift keeps a session row id under this name and sets it when it lifts: only the time it was written can be compared here.
+	if err := dbpkg.SetCursor(d, "login_lifted:bob", 77); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	acc := team.Accounts{Home: p.home}
+	if acc.LoginExpired("a1") != nil {
+		t.Fatal("the refusal that daemon lifted marked the account")
+	}
+	if _, err := d.Exec("UPDATE cursors SET updated = updated - 100 WHERE name = 'login_lifted:bob'"); err != nil { // a lift from before the refusal
+		t.Fatal(err)
+	}
+	if _, err := tk.Tick.Run(nil); err != nil {
+		t.Fatal(err)
+	}
+	if acc.LoginExpired("a1") == nil {
+		t.Fatal("a refusal after the last lift is the account's")
 	}
 }

@@ -111,7 +111,15 @@ func (a Accounts) LoginExpired(acct string) *Expired {
 	return &Expired{Why: pyStr(data.Why), At: *data.At}
 }
 
-// MarkLoginExpired records that an account's login expired. False when it already is marked: the first sighting stands.
+// LoggedInSince is whether the account's credential changed after the refusal that happened in epoch second at: a login made since
+// answers it. The refusal is known to the second, so a change within that second is not told from before it.
+func (a Accounts) LoggedInSince(acct string, at int64) bool {
+	changed := a.credentialModified(acct)
+	return changed != nil && *changed > float64(at+1)
+}
+
+// MarkLoginExpired records that an account's login expired at the given time (the refusal's, not the sighting's, so a login made
+// between the two drops the mark at once). False when it already is marked: the first sighting stands.
 func (a Accounts) MarkLoginExpired(acct, why string, now time.Time) (bool, error) {
 	if a.LoginExpired(acct) != nil {
 		return false, nil
