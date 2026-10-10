@@ -15,11 +15,7 @@ import (
 
 // This file is the terminal an agent runs in, as the lifecycle and the telling layer see it: a tmux window on the daemon's own server, in
 // which `hl launch` starts the vendor's session. The daemon launches (one typed line), ends a session, closes a terminal and looks at the
-// screen; it types nothing at a running session. Messages reach a session by its inbox, so Send, SendToSession and ClearContext say
-// they are not served here.
-
-// notTyped is what a typed delivery answers: nothing is typed at a running terminal session.
-const notTyped = "typing at a terminal session is not served by this daemon: messages go in through the session inbox"
+// screen; it types nothing at a running session: messages reach it by its inbox.
 
 // termPort is lifecycle.Terminal and supervisor.Terminal over one Term; termHost is lifecycle.Host over the same one.
 type termPort struct{ t *term.Term }
@@ -62,20 +58,8 @@ func (p termPort) Relaunch(handle, cmd string, started func() bool) (bool, strin
 	return p.t.Relaunch(handle, cmd, started)
 }
 
-// ResumeWith would type the handoff's pointer at the cleared session, which this daemon does not do.
-func (p termPort) ResumeWith(string, string) (bool, string) { return false, notTyped }
-
 // supervisor.Terminal
-func (p termPort) Alive(handle string) bool                      { return p.t.Alive(handle) }
-func (p termPort) SessionOnScreen(handle string) (bool, bool)    { return p.t.SessionOnScreen(handle) }
-func (p termPort) ComposerOnScreen(handle string) (string, bool) { return p.t.ComposerOnScreen(handle) }
-func (p termPort) IsTextTyped(box, text string) bool             { return term.IsTextTyped(box, text) }
-func (p termPort) LastTail(handle string) []string               { return p.t.LastTail(handle) }
-func (p termPort) Send(string, string, bool) (bool, string)      { return false, notTyped }
-func (p termPort) SendToSession(string, string) (bool, string)   { return false, notTyped }
-func (p termPort) SendCtrlC(string)                              {}
-func (p termPort) ClearContext(string) (bool, string)            { return false, notTyped }
-func (p termPort) ClearCommand(string) string                    { return "/clear" }
+func (p termPort) SessionOnScreen(handle string) (bool, bool) { return p.t.SessionOnScreen(handle) }
 
 // lifecycle.Host
 func (h termHost) Available() bool { return h.t.Backend.Available() }

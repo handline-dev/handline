@@ -35,8 +35,6 @@ type Delivery interface {
 	EffectiveHead(q db.Q, agent string) (*db.Request, error)
 	ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (*supervisor.Forgotten, error)
 	SessionChanged(q db.Q, agent string) (bool, error)
-	TypeGate(q db.Q, agent, handle string, requireIdle, requireSettled bool) (string, error)
-	MarkTyped(q db.Q, agent string, by map[string]any) error
 	SessionStillDrawn(handle string, wait bool) bool
 	WaitSessionGone(agent string) bool
 	WaitForSession(agent string, timeoutS int, promptFile string) bool
@@ -82,7 +80,6 @@ type Terminal interface {
 	CloseSession(handle string) (bool, string)  // types /exit
 	CloseTerminal(handle string) (bool, string) // closes the pane
 	Relaunch(handle, cmd string, started func() bool) (bool, string)
-	ResumeWith(handle, pointer string) (bool, string)
 	BypassPromptShowing(handle string) bool
 	AcceptBypass(handle string) (bool, string)
 	WaitForTrustPrompt(handle string, showing bool)
@@ -182,8 +179,10 @@ type Manager struct {
 	Observe  Observer
 	Typing   Typing
 	// Run is the structured sessions; nil keeps every agent a terminal agent.
-	Run   Runner
-	NewID func() string // a new session id; random when nil
+	Run Runner
+	// TermRun is the terminal agents' sessions as their session files report them; nil keeps a handoff from finding one.
+	TermRun TermSessions
+	NewID   func() string // a new session id; random when nil
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once

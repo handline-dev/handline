@@ -31,9 +31,7 @@ func TestAFailedStatementComesBackAsAnErrorFromEveryExportedReader(t *testing.T)
 		"BgSilentS":             func() error { _, _, err := r.BgSilentS(q, "bob", 1); return err },
 		"BgSince":               func() error { _, _, err := r.BgSince(q, "bob"); return err },
 		"BgStale":               func() error { _, err := r.BgStale(q, "bob", 1); return err },
-		"CanTypeNow":            func() error { _, _, err := r.CanTypeNow(q, "bob", "%bob"); return err },
 		"CheckHumanResolve":     func() error { _, err := r.CheckHumanResolve(q, head, []int64{1}, nil, "bob", false); return err },
-		"ClearHold":             func() error { _, err := r.ClearHold(q, "bob"); return err },
 		"ClearOwed":             func() error { _, err := r.ClearOwed(q, "bob"); return err },
 		"EffectiveHead":         func() error { _, err := r.EffectiveHead(q, "bob"); return err },
 		"EffectiveHeadOrMarked": func() error { _, err := r.EffectiveHeadOrMarked(q, "bob"); return err },
@@ -51,11 +49,9 @@ func TestAFailedStatementComesBackAsAnErrorFromEveryExportedReader(t *testing.T)
 		},
 		"LandedAlready":      func() error { _, err := r.LandedAlready(q, "bob", req); return err },
 		"LinkDelivery":       func() error { return r.LinkDelivery(q, task.ID, "bob", req) },
-		"MarkTyped":          func() error { return r.MarkTyped(q, "bob", nil) },
 		"NudgeCount":         func() error { _, err := r.NudgeCount(q, "bob", 1); return err },
 		"NudgeExhausted":     func() error { _, err := r.NudgeExhausted(q, "bob", 1); return err },
 		"RaiseDecision":      func() error { _, err := r.RaiseDecision(q, &After{}, "bob", "t", "r", "", "", 0, 0); return err },
-		"ReclaimContext":     func() error { _, _, err := r.ReclaimContext(q, "bob"); return err },
 		"RecordHumanResolve": func() error { return r.RecordHumanResolve(q, req, []int64{task.ID}, nil, "bob") },
 		"Report":             func() error { _, err := r.Report(q, &After{}, "bob", "t", "r"); return err },
 		"ScreenDrawsSession": func() error { _, err := r.ScreenDrawsSession("bob"); return err },
@@ -63,7 +59,6 @@ func TestAFailedStatementComesBackAsAnErrorFromEveryExportedReader(t *testing.T)
 		"StalledOnDialog":    func() error { _, err := r.StalledOnDialog(q, "bob", "x"); return err },
 		"TaskReason":         func() error { _, _, _, err := r.TaskReason(q, task, 1); return err },
 		"TypeSay":            func() error { return r.TypeSay(q, "bob", "x", "y") },
-		"TypingHold":         func() error { _, err := r.TypingHold(q, "bob"); return err },
 		"WallReason":         func() error { _, err := r.WallReason(q, "bob", nil); return err },
 		"DeliverQueued":      func() error { _, err := r.DeliverQueued(q, "bob"); return err },
 		"DeliverAnswers":     func() error { _, err := r.DeliverAnswers(q, "bob"); return err },
@@ -161,30 +156,9 @@ func TestAnOldAskRateInTeamYamlCapsNothing(t *testing.T) {
 	}
 }
 
-func TestANotifiedSessionIsOnlyWhatWasGivenAndFinishSayUsesTheCallersTransaction(t *testing.T) {
+func TestFinishSayUsesTheCallersTransaction(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	db.SetAccount(r.DB, "bob", "acct", "recorded")
-	tr := filepath.Join(r.home, "s1.jsonl")
-	r.sessions.transcripts = map[string]string{"s1": tr}
-	rid := r.ask("alice", "bob", "already there", "ask")
-	os.WriteFile(tr, []byte(`{"type":"user","message":{"content":"#1 from alice, waiting for you:\nalready there"}}`+"\n"), 0o644)
-	// the landed-already path of the batch records the request as typed into the live session, but notified_session stays unset
-	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent {
-		_ = sent
-	}
-	r.task("bob", "alice", "a task")
-	os.WriteFile(tr, []byte(`{"type":"user","message":{"content":"#2 from alice, waiting for you:\na task"}}`+"\n"), 0o644)
-	if sent, err := r.DeliverQueued(r.DB, "bob"); err != nil || !sent {
-		t.Fatalf("%v %v", sent, err)
-	}
-	if got, _ := db.NotifiedSession(r.DB, "bob"); got != "" {
-		t.Fatalf("notified_session = %q", got)
-	}
-	if row, _ := db.GetRequest(r.DB, 2); row.TypedSess.String != "s1" || row.State != "landed" {
-		t.Fatalf("%+v", row)
-	}
-	_ = rid
 	// FinishSay settles on the transaction it is given, so a rollback leaves the say queued
 	say := r.ask("alice", "bob", "psst", "say")
 	row, _ := db.GetRequest(r.DB, say)
@@ -213,48 +187,11 @@ func TestNotifyCancelledNamesTheTaskStateAndReportsAFailedSend(t *testing.T) {
 	if !typed || why != "" || r.term.last() != "#1 from alice was cancelled: no longer needed. Stop work on it; it is closed and needs no resolve, and T1 is doing - `hl task list` shows what you hold. `hl read 1` shows it." {
 		t.Fatalf("%v %q %q", typed, why, r.term.last())
 	}
-	r.term.sendFails = true
-	r.clock += 100 // past the settle of the last type
-	typed, why, _ = r.NotifyCancelled(r.DB, row, "x")
-	if typed || why != "the send failed" {
+	r.Agents.(*sessionAgents).live["bob"] = false
+	other := *row // the ledger answers the same operation from its first send
+	other.ID = 99
+	if typed, why, _ := r.NotifyCancelled(r.DB, &other, "x"); typed || why != "bob has no live session" {
 		t.Fatalf("%v %q", typed, why)
-	}
-	r.term.sendFails = false
-	r.term.typeable = false
-	if typed, why, _ := r.NotifyCancelled(r.DB, row, "x"); typed || why != "bob is mid-work or at a prompt" {
-		t.Fatalf("%v %q", typed, why)
-	}
-	r.term.typeable = true
-	r.Terminal = noSession{r.term}
-	r.Observer = fakeObserver{map[string]bool{}}
-	if typed, why, _ := r.NotifyCancelled(r.DB, row, "x"); typed || why != "bob has no running session" {
-		t.Fatalf("%v %q", typed, why)
-	}
-}
-
-func TestDeliverRowTypesOnceAndHonoursTheLockAndTheSecondGate(t *testing.T) {
-	r := newRig(t)
-	r.agentUp("bob")
-	id, _ := db.AddPending(r.DB, "bob", "owed", 5)
-	// another caller already typed and deleted the row
-	db.DeletePending(r.DB, id)
-	if ok, why := r.deliverRow(r.DB, "bob", id, "owed"); !ok || why != "already typed" {
-		t.Fatalf("%v %q", ok, why)
-	}
-	// the terminal lock is held by someone else
-	id2, _ := db.AddPending(r.DB, "bob", "again", 6)
-	hold := lockTerminal(r.home, "bob")
-	if ok, why := r.deliverRow(r.DB, "bob", id2, "again"); ok || why != "bob: something else is using its terminal" {
-		t.Fatalf("%v %q", ok, why)
-	}
-	hold.Release()
-	// the wall appears between the first reading and the lock: the second gate holds it
-	r.Terminal = &flipTerm{fakeTerm: r.term, after: 1, then: &blockerOf}
-	if ok, why := r.deliverRow(r.DB, "bob", id2, "again"); ok || why == "" {
-		t.Fatalf("%v %q", ok, why)
-	}
-	if rows, _ := db.ListPending(r.DB, "bob"); len(rows) != 1 {
-		t.Fatal("a held row was deleted")
 	}
 }
 

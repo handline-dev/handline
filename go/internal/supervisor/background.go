@@ -51,7 +51,6 @@ func (e *Env) TrackBackgroundWork(q db.Q, agent string, row *db.AgentState) (err
 			n = 1
 		}
 		check(db.SetCursor(q, "bgcount:"+agent, int64(n)))
-		e.Channel.RecordScreenSample(q, agent, row, running, e.Terminal.LastTail(row.Terminal.String))
 	}
 	have := must(db.Cursor(q, key)) != 0
 	if running != "" && !have {

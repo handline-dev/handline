@@ -66,24 +66,6 @@ type busyTyping struct{ fakeTyping }
 
 func (busyTyping) TakeTerminal(string) (func(), bool) { return nil, false }
 
-func TestWakeInPlaceTypesAPointerAtTheHandoffAndSpendsIt(t *testing.T) {
-	m, _, tm := newManager(t)
-	db.SetTerminal(m.Q, "a", "t1", "/wt")
-	db.SetHandoff(m.Q, "a", "left off here")
-	tm.busy = true
-	if ok, why := m.wakeInPlace("a", "t1", WakeOpts{}); ok || !strings.Contains(why, "busy or has a modal open") || len(tm.resumedWith) != 0 {
-		t.Fatalf("%v %q", ok, why)
-	}
-	tm.busy = false
-	ok, why := m.wakeInPlace("a", "t1", WakeOpts{})
-	if !ok || why != "typed the pointer" || len(tm.resumedWith) != 1 || !strings.Contains(tm.resumedWith[0], "wake/a.handoff.txt") {
-		t.Fatalf("%v %q %v", ok, why, tm.resumedWith)
-	}
-	if h, _ := db.GetHandoff(m.Q, "a"); h != "" {
-		t.Fatalf("the handoff is spent once typed: %q", h)
-	}
-}
-
 func TestStartForWorkHandsSpawnTheRepoExpandedAndResolved(t *testing.T) {
 	m, _, _ := newManager(t)
 	sp := m.Spawn.(*fakeSpawn)

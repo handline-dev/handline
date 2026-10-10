@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,16 +43,26 @@ func (f *fakeInbox) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f
 func peerRig(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
 	r := newRig(t)
 	in := &fakeInbox{outcome: outcome}
+	var settled atomic.Int32
+	// A delivery runs on its own goroutine and tells the database when it ends: the test does not end, and the database does not close,
+	// before every delivery that began has told it.
+	t.Cleanup(func() {
+		for i := 0; i < 2000 && int(settled.Load()) < in.enteredCount(); i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
 	r.Agents = &peerport.Port{
 		Peer:   func(a string) bool { return a == "bob" },
 		Find:   func(string) (peerinbox.Session, error) { return peerinbox.Session{PID: 7}, nil },
 		Sender: in,
 		OnDelivered: func(a, op string) {
+			defer settled.Add(1)
 			if err := r.SessionConfirmed(r.DB, a, op); err != nil {
 				t.Error(err)
 			}
 		},
 		OnFailed: func(a, op, why string, written bool) {
+			defer settled.Add(1)
 			if err := r.SessionNotDelivered(a, op, why, written); err != nil {
 				t.Error(err)
 			}

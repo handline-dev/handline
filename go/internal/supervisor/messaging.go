@@ -7,26 +7,10 @@ import (
 	"github.com/handline/handline/go/internal/structured"
 )
 
-// A message typed into an agent's terminal at once: the socket's `message` verb and TellNow for a request, and the pending row that survives
-// a restart (daemon/messaging.py). Nothing here waits for idle: Claude Code queues a line typed mid-turn and reads it once the turn ends.
-// Only a screen blocker, the wall, or a closed session holds a message, and a closed session is woken first. Never Esc. What is held stays
-// owed - on its row (a request) or in pending_messages (a bare line) - and the tick tries again. Tasks are not messages: they keep
+// A message told to an agent's session at once: the socket's `message` verb and TellNow for a request, and the pending row that survives
+// a restart (daemon/messaging.py). Nothing here waits for idle: the session queues a line sent mid-turn and reads it once the turn ends.
+// Only a closed or missing session holds a message, and a closed session is woken first. What is held stays owed - on its row (a request) or in pending_messages (a bare line) - and the tick tries again. Tasks are not messages: they keep
 // DeliverQueued's one-at-a-time rule.
-
-// CanTypeNow is whether nothing is on screen a typed line would answer instead, and not at the wall: the two things immediate typing waits
-// for. Not TypeableNow, which also requires idle.
-func (e *Env) canTypeNow(q db.Q, agent, handle string) (bool, string) {
-	if !e.Terminal.Available() {
-		return false, e.Terminal.Missing()
-	}
-	if reason := e.typingHold(q, agent); reason != "" {
-		return false, reason
-	}
-	if b := e.Terminal.ScreenBlocker(handle); b != nil {
-		return false, b.Reason()
-	}
-	return true, ""
-}
 
 // FinishSay: a say is finished once it is typed. Nothing is owed on it, so it is settled quietly with no verdict (a verdict is drawn as the
 // target's reply, and nobody replied). Anything else typed for a request stays open until it is answered.
@@ -49,47 +33,7 @@ func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, 
 		check(db.DeletePending(q, rowID))
 		return true, "sent"
 	}
-	handle := must(db.Terminal(q, agent))
-	if handle == "" {
-		return false, agent + " has no terminal"
-	}
-	if !e.Terminal.Available() || !e.Terminal.Alive(handle) {
-		return false, fmt.Sprintf("%s's terminal is gone", agent)
-	}
-	if !e.sessionPresent(agent) {
-		return false, agent + " has no running session"
-	}
-	if ok, why := e.canTypeNow(q, agent, handle); !ok {
-		return false, why
-	}
-	ok, why := false, ""
-	locked := e.withTerminal(agent, func() {
-		// A concurrent caller for the same row already sent and deleted it while this one waited for the lock.
-		if must(db.GetPending(q, rowID)) == nil {
-			ok, why = true, "already typed"
-			return
-		}
-		// Re-read once the lock is actually held: a reading taken before asking for it can already be stale.
-		if can, w := e.canTypeNow(q, agent, handle); !can {
-			why = w
-			return
-		}
-		sent, err := e.send(handle, text)
-		if !sent {
-			if err == "" {
-				err = "the send failed"
-			}
-			why = err
-			return
-		}
-		e.markTyped(q, agent, nil)
-		check(db.DeletePending(q, rowID))
-		ok, why = true, "typed"
-	})
-	if !locked {
-		return false, agent + ": something else is using its terminal"
-	}
-	return ok, why
+	return false, agent + " has no live session"
 }
 
 // SendMessage is the socket's `message` verb. The pending row is written first (it is the one thing a reboot must not lose), then delivery is
@@ -163,65 +107,7 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 	if e.structuredAgent(agent) {
 		return e.tellNowStructured(q, row)
 	}
-	handle := must(db.Terminal(q, agent))
-	if handle == "" || !e.sessionPresent(agent) {
-		return "queued - no running session; told when it is up", nil
-	}
-	if !e.Terminal.Available() || !e.Terminal.Alive(handle) {
-		return fmt.Sprintf("queued - %s's terminal is gone", agent), nil
-	}
-	if ok, why := e.canTypeNow(q, agent, handle); !ok {
-		return "queued - " + why, nil
-	}
-	result := ""
-	var told *db.Request
-	locked := e.withTerminal(agent, func() {
-		row = must(db.GetRequest(q, rid))
-		if row.State != "queued" || row.DeliveredAt.Valid {
-			result = "already told"
-			return
-		}
-		if ok, why := e.canTypeNow(q, agent, handle); !ok {
-			result = "queued - " + why
-			return
-		}
-		if !must(db.MarkDelivered(q, rid)) {
-			result = "withdrawn first"
-			return
-		}
-		if e.landedAlready(q, agent, rid) { // the transcript first
-			check(db.MarkTyped(q, rid, e.liveSession(q, agent)))
-			check(db.MarkLanded(q, rid))
-			result = "already in its transcript"
-			return
-		}
-		folded := foldedNotices(q, agent)
-		sent, err := e.send(handle, tellText(q, row, 1, nil, false, folded))
-		if !sent {
-			check(db.ClearDelivered(q, rid))
-			if err == "" {
-				err = "the send failed"
-			}
-			result = "queued - " + err
-			return
-		}
-		e.markTyped(q, agent, nil)
-		check(db.MarkNoticesShown(q, requestIDs(folded), e.liveSession(q, agent)))
-		check(db.MarkToldAhead(q, agent, rid, requestIDs(must(db.QueuedFor(q, agent))))) // becoming the head is not news
-		check(db.MarkTyped(q, rid, e.liveSession(q, agent)))
-		e.NoteTyped(rid)
-		must(db.AddEvent(q, agent, "notified", db.KV{K: "request_id", V: rid}, db.KV{K: "more_waiting", V: 0}))
-		told = row
-	})
-	if !locked {
-		return fmt.Sprintf("queued - %s: something else is using its terminal", agent), nil
-	}
-	if told == nil {
-		return result, nil
-	}
-	e.log("  %s: told about #%d at once", agent, rid)
-	e.FinishSay(q, told)
-	return "typed", nil
+	return "queued - no live session; told when it is up", nil
 }
 
 // TellUndelivered tells, each tick, the messages nobody has told the agent yet: one that reached it while it had no session, or whose edge

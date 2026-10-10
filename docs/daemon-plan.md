@@ -393,6 +393,14 @@ The Go daemon's start line and the singleton lock are the only things the two sh
 stopping the one and starting the other is the whole swap. The founder approves the live switch (task 24); nothing here
 flips it.
 
+**Terminal agents after cutover.** The Go daemon types nothing at a running terminal session.
+- Delivery is the peer inbox only; an agent with no live session has its work held ("no live session") until a wake starts one.
+- A handoff, a move to another account and a clear that is owed close the session by closing its pane and start a new session in a new terminal in the same worktree, with no resume id and the handoff record as its first message. The close is proved by the session's pid; a session that outlives its pane is reported and never started over.
+- There is no in-place `/clear`, and `input.take` and `input.release` are gone: nobody holds a terminal's input. A person watching sees the pane close and a new one open.
+- A forced move of a busy terminal agent is refused with the reason, since a turn there cannot be interrupted without a key.
+- A handoff holds the agent's lock while it waits: up to 60 s for the session to end after its pane closes, and up to a minute for the clear notice to be confirmed. A session that outlives its pane is closed on the first tick after its pid is gone.
+- The screen is still read to reap a terminal that is gone and to start a session (the folder-trust and bypass screens at launch).
+
 ## Tasks for the sub-team
 
 Three reports under this daemon: `api` (the Python server side), `contract` (the spec, the

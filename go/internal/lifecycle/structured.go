@@ -201,6 +201,12 @@ func (m *Manager) endStructured(agent, resume string, st SessionStatus) (bool, s
 		must(db.AddEvent(m.Q, agent, "close_failed", db.KV{K: "why", V: why}, db.KV{K: "pid", V: nil}))
 		return false, why
 	}
+	m.recordClosed(agent, resume, st)
+	return true, agent + ": session closed"
+}
+
+// recordClosed is what a session that has ended leaves: the closed mark and the way back.
+func (m *Manager) recordClosed(agent, resume string, st SessionStatus) {
 	check(db.SetClosed(m.Q, agent, resume))
 	if row := must(db.GetAgentState(m.Q, agent)); row != nil && row.State == states.Running {
 		check(db.SetAgentState(m.Q, agent, states.Idle, row.WakeAt.Int64, "session closed while idle"))
@@ -211,7 +217,6 @@ func (m *Manager) endStructured(agent, resume string, st SessionStatus) (bool, s
 	}
 	must(db.AddEvent(m.Q, agent, "close", db.KV{K: "session", V: sv}, db.KV{K: "ctx_pct", V: st.CtxPct}))
 	m.Log("  %s: session closed (resume %s)", agent, orUnknown(st.SessionID))
-	return true, agent + ": session closed"
 }
 
 // waitIdle waits for the turn a forced close or restart must not cut off.

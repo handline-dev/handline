@@ -158,13 +158,6 @@ func (e *Env) LandedAlready(q db.Q, agent string, rid int64) (r0 bool, err error
 	return r0, nil
 }
 
-// CanTypeNow is canTypeNow with a failed statement returned as the error.
-func (e *Env) CanTypeNow(q db.Q, agent, handle string) (r0 bool, r1 string, err error) {
-	defer Catch(&err)
-	r0, r1 = e.canTypeNow(q, agent, handle)
-	return r0, r1, nil
-}
-
 // ScreenDrawsSession is screenDrawsSession with a failed statement returned as the error.
 func (e *Env) ScreenDrawsSession(agent string) (r0 bool, err error) {
 	defer Catch(&err)
@@ -186,31 +179,10 @@ func (e *Env) StalledOnDialog(q db.Q, agent, why string) (r0 bool, err error) {
 	return r0, nil
 }
 
-// ReclaimContext is reclaimContext with a failed statement returned as the error.
-func (e *Env) ReclaimContext(q db.Q, agent string) (r0 bool, r1 string, err error) {
-	defer Catch(&err)
-	r0, r1 = e.reclaimContext(q, agent)
-	return r0, r1, nil
-}
-
 // ClearOwed is clearOwed with a failed statement returned as the error.
 func (e *Env) ClearOwed(q db.Q, agent string) (r0 int64, err error) {
 	defer Catch(&err)
 	r0 = e.clearOwed(q, agent)
-	return r0, nil
-}
-
-// ClearHold is clearHold with a failed statement returned as the error.
-func (e *Env) ClearHold(q db.Q, agent string) (r0 string, err error) {
-	defer Catch(&err)
-	r0 = e.clearHold(q, agent)
-	return r0, nil
-}
-
-// TypingHold is typingHold with a failed statement returned as the error.
-func (e *Env) TypingHold(q db.Q, agent string) (r0 string, err error) {
-	defer Catch(&err)
-	r0 = e.typingHold(q, agent)
 	return r0, nil
 }
 
@@ -226,13 +198,6 @@ func (e *Env) SessionChanged(q db.Q, agent string) (r0 bool, err error) {
 	defer Catch(&err)
 	r0 = e.sessionChanged(q, agent)
 	return r0, nil
-}
-
-// MarkTyped is markTyped with a failed statement returned as the error.
-func (e *Env) MarkTyped(q db.Q, agent string, by map[string]any) (err error) {
-	defer Catch(&err)
-	e.markTyped(q, agent, by)
-	return nil
 }
 
 // CheckHumanResolve is checkHumanResolve with a failed statement returned as the error.
