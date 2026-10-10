@@ -965,6 +965,20 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	for _, t := range texts {
 		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
 	}
+	tools, err := transcript.Tools(e.DB, agent, perSource)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tools {
+		item := map[string]any{"id": t.ID, "at": ts(t.At), "kind": "tool", "tool": t.Name, "text": t.Text}
+		if t.Output != nil {
+			item["output"] = *t.Output
+			if t.Dropped > 0 {
+				item["dropped_lines"] = t.Dropped
+			}
+		}
+		items = append(items, item)
+	}
 	blocks, err := query(e.DB, "SELECT * FROM prompt_blocks WHERE agent = ? ORDER BY id DESC LIMIT ?", agent, perSource)
 	if err != nil {
 		return nil, err

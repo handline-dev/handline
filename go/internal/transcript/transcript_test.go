@@ -270,3 +270,30 @@ func TestOneAgentsSlowWriteDoesNotHoldUpAnothersEvents(t *testing.T) {
 		t.Fatal("the quick agent's event was published")
 	}
 }
+
+func TestToolsPairACallWithItsResultAndCountTheLinesTheCutTook(t *testing.T) {
+	s, _ := newSink(t)
+	emit(s, "bob", "tool_use", map[string]any{"id": "a", "name": "Bash", "input": map[string]any{"command": "seq 1 9"}})
+	emit(s, "bob", "tool_result", map[string]any{"tool_use_id": "a", "content": []any{map[string]any{"type": "text", "text": "1\n2\n"}}})
+	emit(s, "bob", "tool_use", map[string]any{"id": "b", "name": "Read", "input": map[string]any{"file_path": "/x/y"}})
+	big := strings.Repeat("x", ToolResultMax-1) + "\n\n\nend\n" // the first newline is the last byte kept; the three after it are cut
+	emit(s, "bob", "tool_result", map[string]any{"tool_use_id": "b", "content": big})
+	emit(s, "bob", "tool_use", map[string]any{"id": "c", "name": "Bash", "input": map[string]any{"command": "true"}})
+	tools, err := Tools(s.DB, "bob", 10)
+	if err != nil || len(tools) != 3 {
+		t.Fatalf("%v %v", tools, err)
+	}
+	c, b, a := tools[0], tools[1], tools[2] // newest first
+	if c.Text != "true" || c.Output != nil {
+		t.Errorf("unpaired call: %+v", c)
+	}
+	if b.Name != "Read" || b.Text != "/x/y" || b.Output == nil || len(*b.Output) != ToolResultMax || b.Dropped != 3 {
+		t.Errorf("cut result: %+v", b)
+	}
+	if a.Text != "seq 1 9" || a.Output == nil || *a.Output != "1\n2\n" || a.Dropped != 0 {
+		t.Errorf("whole result: %+v", a)
+	}
+	if a.ID >= b.ID || b.ID >= c.ID {
+		t.Errorf("ids not in call order: %d %d %d", a.ID, b.ID, c.ID)
+	}
+}

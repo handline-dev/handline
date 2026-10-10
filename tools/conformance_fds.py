@@ -31,7 +31,8 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     """An agent per state word: its agent.yaml and a stored view, which the daemon serves as it is. The schema is the daemon's,
     so the views go in once it has made the database. Returns the --var for each."""
     names = {w: f"s.{w}" for w in STATES}
-    for n in names.values():
+    output_agent = "s.output"
+    for n in [*names.values(), output_agent]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -43,14 +44,32 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                         "blocker": None, "account": None, "task": None, "cache_until": None, "has_dialog": w == "waiting",
                         "parent": None}
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
+            seed_tool_items(con, output_agent)
             con.commit()
             con.close()
-            return {f"state_{w}": n for w, n in names.items()}
+            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
             time.sleep(0.05)
     raise RuntimeError("the daemon's database did not come up to seed")
+
+
+def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
+    """Three Bash calls as the store holds them, for transcript_output.json: output only, output with eight lines cut, no result."""
+    now = int(time.time())
+    calls = [("printf 'a\\nb\\n'", {"text": "a\nb\n", "truncated": False}),
+             ("seq 1 10", {"text": "9\n10\n", "truncated": True, "dropped_lines": 8}),
+             ("true", None)]
+    seq = 0
+    for i, (command, result) in enumerate(calls):
+        events = [("tool_use", {"tool_use": {"id": f"u{i}", "tool": "Bash", "input": {"command": command}}})]
+        if result:
+            events.append(("tool_result", {"tool_result": {"tool_use_id": f"u{i}", "ok": True, **result}}))
+        for kind, body in events:
+            seq += 1
+            con.execute("INSERT OR REPLACE INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES(?,?,?,?,?,?,?,?)",
+                        (agent, seq, "seed", None, now, kind, None, json.dumps(body)))
 
 
 # The structured agents structured_controls.json needs, by var name. Each is started over the wire (session.start, the fake CLI)

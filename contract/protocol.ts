@@ -782,7 +782,7 @@ export type TranscriptItem = {
   tool?: string;
   /** For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none. */
   output?: string;
-  /** For kind tool: how many lines the store cut from the front or middle of the output. 0 or absent when nothing was cut. */
+  /** For kind tool: how many lines the store cut from the end of the output (it keeps the start). 0 or absent when nothing was cut. */
   dropped_lines?: number;
   /** Prompt card; `open` says whether it can still be answered. */
   prompt?: Prompt;
@@ -1128,6 +1128,8 @@ export type TranscriptEvent = {
     /** At most 64 KiB; longer output is cut and `truncated` is true. */
     text: string;
     truncated: boolean;
+    /** Present when truncated: the lines cut from the end of the output. */
+    dropped_lines?: number;
   };
   /** kind permission: a person is asked. Answered by prompt.answer, with choice allow or deny. */
   permission?: {
