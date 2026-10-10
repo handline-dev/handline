@@ -267,6 +267,8 @@ def _normal(method: str, reply: dict) -> dict:
         for t in res.get("items", [res]):
             for k in ("last_activity", "edited_by", "mismatch", "requests", "asker", "discarded", "merged_into", "parent_title", "subtasks", "timeline", "people"):
                 t.pop(k, None)      # what the task page reads: optional in the spec, the Go daemon does not send it yet
+    if method == "answers.list" and res:
+        res["answers"] = [a for a in res["answers"] if a["kind"] != "dialog"]       # the Go daemon answers no dialog, so it keeps and lists no rule
     if method == "schedules.list" and res:
         for e in res.get("errors", []):
             e["error"] = e["error"].split(": ")[0] + ":" if e["error"].startswith("schedules is not JSON: ") else e["error"]    # the decoder's own words are not compared

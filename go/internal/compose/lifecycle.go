@@ -334,8 +334,6 @@ var _ lifecycle.Blocked = noBlocked{}
 func (noBlocked) NoteCloseFailure(db.Q, string)          {}
 func (noBlocked) PastDialog(db.Q, string) (bool, string) { return false, notServed }
 func (noBlocked) StopWorkAndExit(db.Q, string) bool      { return false }
-func (noBlocked) AnswerByRule(db.Q, string, string) bool { return false }
-func (noBlocked) AutoAcceptEnabled() bool                { return false }
 
 // errNoWorktree is a start with nowhere to run: not counted against the agent.
 var errNoWorktree = errors.New("making a worktree for a structured agent is not served by this daemon yet")

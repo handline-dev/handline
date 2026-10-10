@@ -9,8 +9,8 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// answersList is answers.list: the folders trusted for every session and the rules that answer a vendor's dialog, kept in
-// the protected store (handline/daemon/rpc_answers.py, actions/dialogs.standing_answers). The founder's alone.
+// answersList is answers.list: the folders trusted for every session, kept in the protected store; no dialog rule is listed, since this daemon answers
+// no dialog (handline/daemon/rpc_answers.py, actions/dialogs.standing_answers). The founder's alone.
 func (e *Env) answersList(c *rpc.Conn, params map[string]any) (any, error) {
 	store := authority.Root(e.Home)
 	out := []any{}
@@ -18,19 +18,6 @@ func (e *Env) answersList(c *rpc.Conn, params map[string]any) (any, error) {
 		if root, ok := r["root"].(string); ok {
 			out = append(out, map[string]any{"kind": "trust", "key": []any{root}, "text": "trust " + root})
 		}
-	}
-rules:
-	for _, r := range storedList(filepath.Join(store, "dialog_rules", "rules.json")) {
-		var key [3]string
-		for i, k := range []string{"vendor", "title", "label"} {
-			s, ok := r[k].(string)
-			if !ok || s == "" {
-				continue rules
-			}
-			key[i] = s
-		}
-		out = append(out, map[string]any{"kind": "dialog", "key": []any{key[0], key[1], key[2]},
-			"text": key[0] + ": \"" + key[1] + "\" -> " + key[2]})
 	}
 	return map[string]any{"answers": out}, nil
 }

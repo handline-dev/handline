@@ -85,53 +85,17 @@ func (m *Manager) handleTrustPrompt(agent, handle string) (bool, string) {
 	return m.pressTrust(agent, handle, shown, recorded)
 }
 
-// AutoBypass is the blocked sweep's answer to the warning a wake never met: accepted when the agent may skip permissions, left alone
-// (and reported by the sweep) when not. True when it went.
-func (m *Manager) AutoBypass(agent string) (went bool, err error) {
-	defer catch(&err)
-	handle := must(db.Terminal(m.Q, agent))
-	if allowed, _ := m.bypassGrant(agent); handle == "" || !allowed {
-		return false, nil
-	}
-	defer m.Term.DriverScope()()
-	if !m.Term.BypassPromptShowing(handle) {
-		return false, nil
-	}
-	ok, _ := m.handleBypassPrompt(agent, handle)
-	return ok, nil
-}
-
 func samePath(a, b string) bool { return realpath(expandUser(a)) == realpath(expandUser(b)) }
 
-// trustConsent is (folder on screen, folder on record, whether standing consent covers it): the auto-accept setting is on and the
-// folder is a declared root and the agent's own recorded worktree.
+// trustConsent is (folder on screen, folder on record, whether standing consent covers it): the folder is a declared root and the agent's
+// own recorded worktree. The consent is the founder's trust root alone; no setting switches it off, and it is asked at launch only.
 func (m *Manager) trustConsent(agent, handle string) (shown, recorded string, consented bool) {
 	if row := must(db.GetAgentState(m.Q, agent)); row != nil {
 		recorded = m.Spawn.WorktreePath(row.Worktree.String)
 	}
 	shown = m.Term.TrustPromptFolder(handle)
-	consented = m.Blocked.AutoAcceptEnabled() && shown != "" && recorded != "" && m.Agents.IsDeclared(shown) && samePath(shown, recorded)
+	consented = shown != "" && recorded != "" && m.Agents.IsDeclared(shown) && samePath(shown, recorded)
 	return
-}
-
-// AutoTrust is the blocked sweep's use of standing consent, for a trust screen a wake never met: press "Yes" when consent covers it,
-// and say nothing otherwise - the sweep reports what it cannot clear. True when the screen went.
-func (m *Manager) AutoTrust(agent string) (went bool, err error) {
-	defer catch(&err)
-	handle := must(db.Terminal(m.Q, agent))
-	if handle == "" {
-		return false, nil
-	}
-	defer m.Term.DriverScope()()
-	if !m.Term.TrustPromptShowing(handle) {
-		return false, nil
-	}
-	shown, recorded, consented := m.trustConsent(agent, handle)
-	if !consented {
-		return false, nil
-	}
-	ok, _ := m.pressTrust(agent, handle, shown, recorded)
-	return ok, nil
 }
 
 func (m *Manager) pressTrust(agent, handle, shown, recorded string) (bool, string) {
@@ -151,15 +115,12 @@ func (m *Manager) pressTrust(agent, handle, shown, recorded string) (bool, strin
 }
 
 // handleStartupDialog is any other dialog a launch stops at - the vendor's screens change, and each one that was not named left the
-// wake failing until it read FATAL with no word of what was on screen. handled is false when there is none. A standing rule's option is
-// pressed; otherwise nothing is pressed and the founder is shown the dialog in its own words.
+// wake failing until it read FATAL with no word of what was on screen. handled is false when there is none. Nothing is pressed: a dialog
+// the table (go/internal/dialogs) does not give the daemon to answer is a person's, shown in its own words.
 func (m *Manager) handleStartupDialog(agent, handle string) (handled, ok bool, why string) {
 	seen := m.Term.ScreenBlocker(handle)
 	if seen == nil || seen.Kind != term.Modal {
 		return false, false, ""
-	}
-	if m.Blocked.AutoAcceptEnabled() && m.Blocked.AnswerByRule(m.Q, agent, handle) {
-		return true, true, "answered by a standing rule"
 	}
 	return true, false, m.raiseDialogStall(agent, seen)
 }
@@ -170,7 +131,7 @@ func (m *Manager) raiseDialogStall(agent string, seen *term.Blocker) string {
 	if row := must(db.GetAgentState(m.Q, agent)); row != nil && row.State == states.Stalled && strings.Contains(row.Detail.String, DialogStall) {
 		return row.Detail.String
 	}
-	why := fmt.Sprintf("%s's terminal is showing a %s no standing rule answers - nothing was typed into it. %s", agent, DialogStall, seen.Reason())
+	why := fmt.Sprintf("%s's terminal is showing a %s only a person answers - nothing was typed into it. %s", agent, DialogStall, seen.Reason())
 	check(m.Agents.RaiseDecision(m.Q, agent, DialogDecision+" "+why, why))
 	check(db.SetAgentState(m.Q, agent, states.Stalled, 0, clip300(why)))
 	m.Log("  %s: %s", agent, why)
