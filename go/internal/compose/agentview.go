@@ -10,18 +10,47 @@ import (
 	"github.com/handline/handline/go/internal/tick"
 )
 
+// rowSessions is what the view knows of the sessions whose rows this daemon writes: the structured ones it holds, and with terminals the
+// terminal agents, whose session is the one their session file shows (a status busy is a turn running).
+type rowSessions struct {
+	p         *Parts
+	terminals bool
+}
+
+func (r rowSessions) terminal(agent string) bool { return r.terminals && !r.p.Kind(agent) }
+
+func (r rowSessions) Structured(agent string) bool {
+	return r.p.Run.Structured(agent) || r.terminal(agent)
+}
+
+func (r rowSessions) Alive(agent string) bool {
+	if r.terminal(agent) {
+		_, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
+		return found != sessionNone // a session file that cannot be read under a live pid is a session that runs
+	}
+	return r.p.Run.Alive(agent)
+}
+
+func (r rowSessions) Busy(agent string) bool {
+	if r.terminal(agent) {
+		rec, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
+		return found == sessionFound && rec.Status == "busy"
+	}
+	return r.p.Run.Busy(agent)
+}
+
 // agentView builds the writer of agent_view rows. Until the Python daemon stops it writes the rows of structured agents only (Agents is
 // structuredAgents and nothing is dropped); at the cutover (TickConfig.Cutover) it also drops the row of an agent that is gone.
-func (p *Parts) agentView(cfg Config, cutover bool, tu tickUsage) *agentview.Env {
+func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *agentview.Env {
 	lc, q, home := p.LC, p.db, cfg.Home
 	return &agentview.Env{
 		Q: q, Home: home,
-		Sessions:   p.Run,
+		Sessions:   rowSessions{p, terminals},
 		Background: lc.Env,
 		Wakes:      lc.Manager,
 		Prompts:    &prompts.Env{DB: p.db, Home: home, Now: nowOf(cfg.Now)},
-		NeedsYou:   needsYou(home, q),
-		Agents:     p.structuredAgents,
+		NeedsYou:   p.needsYou(),
+		Agents:     func() []string { return p.tickAgents(terminals) },
 		Registered: func() []string { return paths.ListAgents(home) },
 		Config: func(agent string) (string, string, bool) {
 			c, err := lc.roster.Read(agent)

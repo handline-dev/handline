@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -164,5 +165,54 @@ func TestAHandoffReadsATerminalAgentsSessionAndItsPidFromTheSessionFile(t *testi
 	}
 	if run.PidGone(os.Getpid()) || !run.PidGone(1<<30) {
 		t.Fatal("a pid is gone when no process has it")
+	}
+}
+
+// A terminal agent has an agent view row when the daemon ticks terminals: its session file says whether it runs and is busy, and a session
+// at a prompt shows needs_you.
+func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
+	p, _, wt := termTickRig(t)
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	tu := tickUsage{p: p, u: p.LC.usage, roster: p.LC.roster}
+	stored := func(av interface{ RefreshOne(string) }, want string) map[string]any {
+		t.Helper()
+		av.RefreshOne("bob")
+		var raw string
+		if err := p.Sink.DB.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
+			t.Fatalf("no row: %v", err)
+		}
+		var v map[string]any
+		json.Unmarshal([]byte(raw), &v)
+		if v["state"] != want {
+			t.Fatalf("state %v, want %s: %v", v["state"], want, v)
+		}
+		return v
+	}
+	// Not ticking terminals: the Python daemon's row stands, nothing is written.
+	p.agentView(p.Run.cfg, true, false, tu).RefreshOne("bob")
+	var n int
+	p.Sink.DB.QueryRow("SELECT COUNT(*) FROM agent_view WHERE agent = 'bob'").Scan(&n)
+	if n != 0 {
+		t.Fatal("a terminal agent's row was written by a daemon that does not tick terminals")
+	}
+	av := p.agentView(p.Run.cfg, true, true, tu)
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"busy"}`)
+	if v := stored(av, "running"); v["needs_you"] != nil {
+		t.Fatal(v)
+	}
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"waiting","waitingFor":"permission prompt","updatedAt":5000000}`)
+	v := stored(av, "waiting")
+	ny, _ := v["needs_you"].(map[string]any)
+	if v["has_dialog"] != true || ny["kind"] != "permission" || ny["source"] != "session" {
+		t.Fatal(v)
+	}
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"idle"}`)
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // the turn ended: the Stop hook moved the row
+		t.Fatal(err)
+	}
+	if v := stored(av, "idle"); v["needs_you"] != nil || v["has_dialog"] != false {
+		t.Fatal(v)
 	}
 }
