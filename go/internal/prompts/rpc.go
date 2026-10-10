@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -173,17 +172,6 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if lock.TerminalBusy(e.Home, name) { // refuse at once, before anything is done
 		return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
 	}
-	me, _ := c.Caller.ActorInfo()["name"].(string)
-	holder, dropped, err := inputhold.Holder(e.DB, e.Home, name, e.now())
-	if err == nil && dropped && e.HoldersChanged != nil {
-		err = e.HoldersChanged(name)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if holder != nil && holder.Name != me {
-		return nil, rpc.Refused(inputhold.HeldWhy(name, holder.Name), "input_holder", "")
-	}
 	block, err := e.OpenBlockOf(name)
 	if err != nil {
 		return nil, err
@@ -203,7 +191,6 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, rpc.Refused(said, "", "")
 	}
-	inputhold.Touch(e.DB, name, me, e.now())
 	return map[string]any{"accepted": true, "said": said}, nil
 }
 

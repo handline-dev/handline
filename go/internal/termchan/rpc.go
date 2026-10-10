@@ -93,8 +93,6 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.attach", rpc.Method{Role: "member", Handler: e.attach})
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
-	s.Register("input.take", rpc.Method{Role: "member", Write: true, Handler: e.take})
-	s.Register("input.release", rpc.Method{Role: "member", Write: true, Handler: e.release})
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
@@ -261,14 +259,7 @@ func (e *Env) holders(agent string) ([]map[string]any, error) {
 	if agent == "" {
 		return []map[string]any{}, nil
 	}
-	r, err := e.holder(agent)
-	if err != nil {
-		return nil, err
-	}
-	if r == nil {
-		return []map[string]any{daemonHolder()}, nil
-	}
-	return []map[string]any{{"kind": r.Kind, "name": r.Name, "since": time.Unix(r.Since, 0).UTC().Format("2006-01-02T15:04:05Z")}}, nil
+	return []map[string]any{daemonHolder()}, nil // nobody else takes a terminal's input any more: the daemon is its only holder
 }
 
 func daemonHolder() map[string]any {
