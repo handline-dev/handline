@@ -120,11 +120,14 @@ type Config struct {
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
 type Daemon struct {
-	cfg     Config
-	db      *sql.DB
-	hooks   *hooks.Recorder
-	lands   *lands.Service    // the land verbs; nil on a gateway
-	logins  *weblogin.Manager // the web logins; nil in a gateway
+	cfg    Config
+	db     *sql.DB
+	hooks  *hooks.Recorder
+	lands  *lands.Service    // the land verbs; nil on a gateway
+	logins *weblogin.Manager // the web logins; nil in a gateway
+
+	acctMu  sync.Mutex        // one account.changed is made and published at a time, so the topic gets a login's moves in order
+	acctSeq map[string]uint64 // the number of the last move published for each account
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
@@ -350,15 +353,27 @@ func (d *Daemon) legacy(payload map[string]any, pid int) map[string]any {
 	return e.Legacy(payload, pid)
 }
 
-// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account.
-func (d *Daemon) accountChanged(name string) {
-	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: d.logins.Of}).Account(name)
+// accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account with the login in
+// the state the move made, not the one it has by now. Announcements arrive in any order; one numbered before the last published for the
+// account is dropped, so the topic never says an earlier state after a later one.
+func (d *Daemon) accountChanged(name string, login weblogin.Login) {
+	d.acctMu.Lock()
+	defer d.acctMu.Unlock()
+	if login.Seq <= d.acctSeq[name] {
+		return
+	}
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: func(string) *weblogin.Login { return &login }}).Account(name)
 	if !ok {
 		return
 	}
 	if err := d.hub.AccountChanged(acct); err != nil {
 		d.cfg.Log("  stream: account.changed %s: %v", name, err)
+		return
 	}
+	if d.acctSeq == nil {
+		d.acctSeq = map[string]uint64{}
+	}
+	d.acctSeq[name] = login.Seq
 }
 
 // transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are

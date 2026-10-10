@@ -47,6 +47,8 @@ type Login struct {
 	ID    string
 	State string
 	URL   string // while waiting
+	// Seq numbers the moves of all logins in the order they were made, on a login handed to Changed; it is 0 elsewhere.
+	Seq uint64
 }
 
 // Manager starts, ends and remembers logins.
@@ -56,8 +58,10 @@ type Manager struct {
 	Wait func(time.Duration) <-chan time.Time
 	// Lookup finds the login command; nil is exec.LookPath.
 	Lookup func(name string) (string, error)
-	// Changed is told the account whose login state moved, after it moved; nil is none.
-	Changed func(account string)
+	// Changed is told the account whose login state moved, after it moved, and the login as it was left by that move (no URL): what is
+	// announced is the state the move made, not whatever the login is by the time the announcement is made; nil is none. Calls may overlap
+	// and arrive out of order: Login.Seq says which move came first.
+	Changed func(account string, login Login)
 	// Signal sends sig to the process group of pid; nil is syscall.Kill(-pid, sig). Tests give one that records.
 	Signal func(pid int, sig syscall.Signal) error
 
@@ -65,6 +69,7 @@ type Manager struct {
 	byID    map[string]*run
 	byAcct  map[string]*run
 	closing bool
+	seq     uint64 // the last move's number, taken under mu
 }
 
 type run struct {
@@ -142,12 +147,14 @@ func (m *Manager) Start(account string) (Login, error) {
 		if open && u != "" {
 			m.mu.Lock()
 			waiting := r.state == Waiting // a child that printed its URL and died at once, was cancelled, or was sent a code is not waiting
+			var moved Login
 			if waiting {
 				r.url = u
+				moved = m.moved(r)
 			}
 			m.mu.Unlock()
 			if waiting {
-				m.changed(account)
+				m.changed(account, moved)
 				return Login{ID: r.id, State: Waiting, URL: u}, nil
 			}
 			return Login{}, &Refusal{"the login ended before it could be answered"}
@@ -251,21 +258,29 @@ func (m *Manager) exited(r *run, werr error) {
 func (m *Manager) end(r *run, state string) {
 	m.mu.Lock()
 	first := r.active()
+	var moved Login
 	if first {
 		r.state, r.url = state, ""
+		moved = m.moved(r)
 	}
 	m.mu.Unlock()
 	if first {
-		m.changed(r.account)
+		m.changed(r.account, moved)
 	}
 }
 
 // active is a login that has not ended: it waits for the code or has been given it.
 func (r *run) active() bool { return r.state == Waiting || r.state == CodeSent }
 
-func (m *Manager) changed(account string) {
+// moved is the login as the move just made left it, numbered after every move before it. The caller holds m.mu.
+func (m *Manager) moved(r *run) Login {
+	m.seq++
+	return Login{ID: r.id, State: r.state, Seq: m.seq}
+}
+
+func (m *Manager) changed(account string, l Login) {
 	if m.Changed != nil {
-		m.Changed(account)
+		m.Changed(account, l)
 	}
 }
 
@@ -323,9 +338,9 @@ func (m *Manager) SendCode(id, code string) error {
 		return &Refusal{"the login is not waiting for a code"}
 	}
 	r.state, r.url = CodeSent, ""
-	stdin := r.stdin
+	stdin, moved := r.stdin, m.moved(r)
 	m.mu.Unlock()
-	m.changed(r.account)
+	m.changed(r.account, moved)
 	if _, err := io.WriteString(stdin, code+"\n"); err != nil {
 		m.end(r, Failed)
 		m.kill(r)
