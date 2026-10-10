@@ -150,6 +150,7 @@
    "hl launch",
    "hl doctor",
    "hl hooks",
+   "hl go",
    "hl install-hooks",
    "hl daemon",
    "hl backup",
