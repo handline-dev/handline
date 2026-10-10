@@ -19,6 +19,7 @@ const ToolResultMax = 64 << 10
 const (
 	ItemReply  = 0
 	ItemPrompt = 1
+	ItemTool   = 3 // 2 is the task events'; a tool item takes its tool_use event's seq
 )
 
 func ItemID(at, source, n int64) int64 { return at*1_000_000 + source*100_000 + n%100_000 }
@@ -139,4 +140,86 @@ func Replies(db *sql.DB, agent string, limit int) ([]Reply, error) {
 type Reply struct {
 	ID, At int64
 	Text   string
+}
+
+// Tool is a tool call as chat.transcript's tool item: the call with its result when one came. Output is nil with no result;
+// Dropped is the lines the store cut from the end of the output.
+type Tool struct {
+	ID, At  int64
+	Name    string
+	Text    string
+	Output  *string
+	Dropped int64
+}
+
+// Tools are agent's tool_use events paired by tool_use_id with their tool_result, newest first up to limit. A call with no
+// result yet is an item with no output.
+func Tools(db *sql.DB, agent string, limit int) ([]Tool, error) {
+	rows, err := db.Query("SELECT seq, at, body FROM transcript_events WHERE agent = ? AND kind = 'tool_use' ORDER BY seq DESC LIMIT ?", agent, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Tool
+	byUse := map[string]int{}
+	oldest := int64(0)
+	for rows.Next() {
+		var seq, at int64
+		var body string
+		if err := rows.Scan(&seq, &at, &body); err != nil {
+			return nil, err
+		}
+		var b struct {
+			Use struct {
+				ID    string         `json:"id"`
+				Tool  string         `json:"tool"`
+				Input map[string]any `json:"input"`
+			} `json:"tool_use"`
+		}
+		json.Unmarshal([]byte(body), &b)
+		byUse[b.Use.ID] = len(out)
+		out = append(out, Tool{ID: ItemID(at, ItemTool, seq), At: at, Name: b.Use.Tool, Text: toolText(b.Use.Input)})
+		oldest = seq
+	}
+	if err := rows.Err(); err != nil || len(out) == 0 {
+		return out, err
+	}
+	res, err := db.Query("SELECT body FROM transcript_events WHERE agent = ? AND kind = 'tool_result' AND seq > ? ORDER BY seq", agent, oldest)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Close()
+	for res.Next() {
+		var body string
+		if err := res.Scan(&body); err != nil {
+			return nil, err
+		}
+		var b struct {
+			Result struct {
+				ID      string `json:"tool_use_id"`
+				Text    string `json:"text"`
+				Cut     bool   `json:"truncated"`
+				Dropped int64  `json:"dropped_lines"`
+			} `json:"tool_result"`
+		}
+		json.Unmarshal([]byte(body), &b)
+		if i, ok := byUse[b.Result.ID]; ok && out[i].Output == nil {
+			text := b.Result.Text
+			out[i].Output, out[i].Dropped = &text, b.Result.Dropped
+			if b.Result.Cut && out[i].Dropped < 1 {
+				out[i].Dropped = 1 // a row written before the count was kept: a cut output never reads as whole
+			}
+		}
+	}
+	return out, res.Err()
+}
+
+// toolText is what a tool call was asked to do, in one string: the command, else the path, pattern, address or description.
+func toolText(input map[string]any) string {
+	for _, k := range []string{"command", "file_path", "path", "pattern", "url", "query", "description", "prompt"} {
+		if v, ok := input[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }

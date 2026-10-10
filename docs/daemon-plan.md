@@ -352,7 +352,7 @@ work is paused, not the plan.
 | Login expiry: mark the account, move its agents | `team/accounts.go` marks; reconciler `LiftLogin` is a no-op in `compose/tick.go` | none | gap, drafted: the login-expiry detector (`tick/login.go`, `compose/login.go`) is on a branch, not on main; it covers terminal agents too (note below), and landing it is the open piece (held by a person) |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
 | Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
-| Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | gap: `-terminal-tick` is not yet in `service.go_arguments`; the terminal tick, peer-inbox delivery, needs-you, the terminal agent view rows and `terminal.open` (none for a closed agent) are on main |
+| Supervising terminal agents | `compose/termport.go`, `term/host.go`, `-terminal-tick`; needs-you and `terminal.open` | their tests | done: the terminal tick (`-terminal-tick`, passed by `service.go_arguments`), peer-inbox delivery, needs-you, the terminal agent view rows and `terminal.open` (none for a closed agent) are on main |
 
 **Login expiry for terminal agents, without a screen.** The Python detector reads "Login expired" off
 the terminal because its docstring says no hook fires; the live record says otherwise. Each of the 7
@@ -394,9 +394,9 @@ singleton it takes becomes unconditional (startup row above).
 The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
 `hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
 The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
-`-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
+`-terminal-tick`, `-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
 other; the job's PATH holds python3's directory (the land verbs run `tools/localrefs.py`) and its environment carries
-`OCP_LAND_REPO`. `-terminal-tick` is a flag of the binary but is not yet in `service.go_arguments`; add it there before the swap.
+`OCP_LAND_REPO`. The service runs one daemon at a time, so `-terminal-tick` never has the Python tick beside it on the home.
 `hl service install` reads the setting once, so a change takes effect at the next install and not before.
 
 Rehearsal, on a scratch home and never the live service. The label keeps the rehearsal's job and plist apart from the live ones; the
@@ -404,7 +404,7 @@ Go daemon is refused on a home that is not live under the live label, and on the
 Run it from a shell outside the agent sandbox (launchd, `~/Library/LaunchAgents` and a unix socket are all denied inside it), from the
 checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
 
-1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`).
+1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`), then `mkdir -p $OCP_HOME` (`hl service use go` also makes a missing home, so a forgotten mkdir cannot leave the install on Python).
 2. `hl service use go`, then `hl service install`. It prints `daemon go`; `hl service status` shows the label, `daemon: go`, loaded, a pid.
 3. `hl ps` and `hl inbox` answer from the Go daemon; `tail $OCP_HOME/logs/daemon.err.log` holds one `handlined <sha> serving` line.
    `hl service status` does not say crash-looping.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 from ..daemon import locks as dmn_locks
-from ..infra import protected, service
+from ..infra import paths, protected, service
 from ..usage import load
 from ..infra import textsafe
 from ..infra import venv as venvmod
@@ -28,6 +28,7 @@ def cmd_service_use(args) -> int:
         return propose_for_session("global", "service-use", {"value": args.impl}, args.why)
     cfg = load.config_for_write()
     cfg[service.IMPL_KEY] = args.impl
+    paths.config_file().parent.mkdir(parents=True, exist_ok=True)    # a scratch home that does not exist yet
     load.write_config(cfg)
     print(f"daemon_impl is {args.impl}; run `hl service install` to apply it")
     return 0

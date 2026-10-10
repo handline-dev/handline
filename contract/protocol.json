@@ -10715,6 +10715,14 @@
      "tool": {
       "type": "string"
      },
+     "output": {
+      "type": "string",
+      "description": "For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none."
+     },
+     "dropped_lines": {
+      "type": "integer",
+      "description": "For kind tool: how many lines the store cut from the end of the output (it keeps the start). 0 or absent when nothing was cut."
+     },
      "prompt": {
       "$ref": "#/components/schemas/Prompt",
       "description": "Prompt card; `open` says whether it can still be answered."
@@ -12040,6 +12048,10 @@
        },
        "truncated": {
         "type": "boolean"
+       },
+       "dropped_lines": {
+        "type": "integer",
+        "description": "Present when truncated: the lines cut from the end of the output."
        }
       },
       "required": [
