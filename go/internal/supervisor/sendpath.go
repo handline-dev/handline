@@ -248,8 +248,24 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 			continue
 		}
 		check(db.SetCursor(q, key, sendUnknown))
-		e.deliveryUnknown(q, agent, l.op)
+		e.deliveryUnknown(q, agent, l.op, "the session ended before it confirmed it")
 	}
+	return nil
+}
+
+// SessionNotDelivered is what a terminal agent's peer inbox calls when a message was written and its transcript never showed it, after the
+// resend. Like a message lost with its session it is unknown and not written again (the sender is told), and the agent needs a person:
+// the event is the IDE's cue. Nothing is typed at its terminal.
+func (e *Env) SessionNotDelivered(q db.Q, agent, op, why string) (err error) {
+	defer Catch(&err)
+	key := ledgerKey(agent, op)
+	was := must(db.Cursor(q, key))
+	check(moveLedger(q, key, sendWritten, sendUnknown))
+	if was != sendWritten || must(db.Cursor(q, key)) != sendUnknown {
+		return nil
+	}
+	must(db.AddEvent(q, agent, "needs_you", db.KV{K: "reason", V: "a message was not delivered: " + why}, db.KV{K: "op", V: op}))
+	e.deliveryUnknown(q, agent, op, "its transcript never showed it ("+why+")")
 	return nil
 }
 
@@ -258,7 +274,7 @@ func likeEscape(s string) string {
 }
 
 // deliveryUnknown records that a write may or may not have run, and tells the sender of each request in it (ops with no request name no one).
-func (e *Env) deliveryUnknown(q db.Q, agent, op string) {
+func (e *Env) deliveryUnknown(q db.Q, agent, op, how string) {
 	must(db.AddEvent(q, agent, "delivery_unknown", db.KV{K: "op", V: op}))
 	told := map[string]bool{}
 	for _, rid := range ridsOfOp(op) {
@@ -267,8 +283,8 @@ func (e *Env) deliveryUnknown(q db.Q, agent, op string) {
 			continue
 		}
 		told[row.Requester] = true
-		text := fmt.Sprintf("#%d to %s was written to its session, and the session ended before it confirmed it: it may or may not have been read. "+
-			"It is not sent again; ask %s whether it saw it, or send it again.", rid, agent, agent)
+		text := fmt.Sprintf("#%d to %s was written to its session, and %s: it may or may not have been read. "+
+			"It is not sent again; ask %s whether it saw it, or send it again.", rid, agent, how, agent)
 		if row.Requester == db.Human {
 			must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
 			continue
