@@ -2,10 +2,12 @@ package compose
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/session"
@@ -24,7 +26,17 @@ import (
 type Tick struct {
 	Tick *tick.Tick
 	Loop *tick.Loop
+
+	dev       *tick.DevMode
+	restarted bool
 }
+
+// Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
+// calls Restart.
+func (t *Tick) Restarting() bool { return t.restarted }
+
+// Restart execs the daemon's own executable again; it returns only when that fails.
+func (t *Tick) Restart() error { return t.dev.Restart() }
 
 // TickConfig is what only the daemon main knows beyond Config.
 type TickConfig struct {
@@ -34,6 +46,9 @@ type TickConfig struct {
 	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
 	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
 	Cutover bool
+	// ScratchRoot is the sessions' scratch root whose stale repo copies are deleted; empty sweeps none (a test must not delete from the
+	// machine's real one).
+	ScratchRoot string
 }
 
 // Tick builds the tick. The lifecycle must be built and the database bound.
@@ -91,6 +106,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none
 			CollectSnapshot: func(db.Q) error { return nil }, // a structured session has no screen to read
 			PollUsage:       pollUsage,
+			RelinkAccounts:  func() (map[string][]string, error) { return team.RelinkAll(home, logLine), nil },
 			Rollover:        func(string) (bool, string) { return false, "" }, // folding the day is a model call that stays Python's
 			Today:           func() string { return nowOf(cfg.Now)().Format("2006-01-02") },
 		},
@@ -99,8 +115,24 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
 	t.Passes = append(p.passes(cfg, t, tc.Cutover), agentViewPass(view))
-	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop}
-	return &Tick{Tick: t, Loop: loop}
+	dev := &tick.DevMode{Enabled: func() bool { return lc.Manager.Settings.Flag("dev_mode", false) }, Log: logLine, Now: nowOf(cfg.Now)}
+	dev.Exe, _ = os.Executable()
+	dev.Baseline()
+	fds := &housekeeping.FDs{Log: logLine}
+	scratch := &housekeeping.Scratch{Root: tc.ScratchRoot, Log: logLine}
+	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
+		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
+		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
+		{Name: "scratch sweep", Run: func(_ db.Q, now int64) error { scratch.Maybe(time.Unix(now, 0)); return nil }},
+	}, Signalled: func() bool {
+		select {
+		case <-tc.Stop:
+			return true
+		default:
+			return false
+		}
+	}}
+	return &Tick{Tick: t, Loop: loop, dev: dev}
 }
 
 // Start runs the loop until Stop closes and returns a channel that closes when the tick in hand has finished. The daemon closes the
@@ -109,7 +141,7 @@ func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
 	go func() {
 		defer close(d)
-		t.Loop.Run(nil)
+		t.restarted = t.Loop.Run(nil)
 	}()
 	return d
 }

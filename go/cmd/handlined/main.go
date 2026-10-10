@@ -17,6 +17,7 @@ import (
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/daemon"
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/structured"
@@ -147,6 +148,7 @@ func main() {
 	cfg := daemon.Config{Home: homeDir, DBFile: *db, SocketFile: *sock, Listen: *listen, CertFile: *cert, KeyFile: *key, Log: log.Printf,
 		Gateway: *gateway, RelaySocket: *relaySock, PidFile: *pidFile, WebDir: *web, Advertise: *advertise, OwnPrompts: *ownPrompts,
 		LandRepo: *landRepo, LandSweep: *structuredTick && *cutover}
+	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
@@ -160,7 +162,8 @@ func main() {
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
 			if *structuredTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
-					return parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover}).Start()
+					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, ScratchRoot: housekeeping.ScratchRoot()})
+					return tk.Start()
 				}
 			}
 		}
@@ -215,15 +218,24 @@ func main() {
 			log.Fatalf("handlined: fd %d: %v", fd, err)
 		}
 	}
+	defer housekeeping.DumpStacksOnUSR1()() // kill -USR1 <pid>: every goroutine's stack, in the err log
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var tickDone <-chan struct{}
 	if startTick != nil {
 		tickDone = startTick(ctx.Done())
 	}
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-tickDone: // the loop ended by itself: dev mode found a changed executable (nil when there is no tick)
+	}
 	if tickDone != nil {
 		<-tickDone // the tick in hand finishes before the database closes: a wake or a close is not cut off in the middle
 	}
 	d.Close()
+	if tk != nil && tk.Restarting() && ctx.Err() == nil { // the lock and the database are given up, as a clean exit gives them up
+		if err := tk.Restart(); err != nil {
+			log.Fatalf("handlined: dev-mode restart: %v", err)
+		}
+	}
 }

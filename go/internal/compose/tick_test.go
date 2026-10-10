@@ -12,6 +12,7 @@ import (
 
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 )
@@ -229,5 +230,82 @@ func TestTheLastContextIsReadPastALineLongerThanAScannerAllows(t *testing.T) {
 	os.WriteFile(path, []byte(small+big), 0o644)
 	if used, model, ok := lastContext(path); !ok || used != 10 || model != "m2" {
 		t.Fatalf("%d %q %v", used, model, ok)
+	}
+}
+
+func TestTheLoopEndsForARestartWhenDevModeFindsAChangedExecutableThatStarts(t *testing.T) {
+	p, _, _, _ := wired(t)
+	exe := filepath.Join(t.TempDir(), "handlined")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	clock := time.Unix(1_800_000_000, 0)
+	cfg := p.Run.cfg
+	cfg.Now = func() time.Time { return clock }
+	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
+	tk.dev.Exe, tk.dev.Check = exe, func(string) error { return nil }
+	tk.dev.Baseline()
+	tk.Loop.Sleep = func(time.Duration) bool { clock = clock.Add(31 * time.Second); return true }
+	os.WriteFile(paths.ConfigFile(p.home), []byte("dev_mode: true\n"), 0o644)
+	os.WriteFile(exe, []byte("a new build"), 0o755) // another size: a changed executable
+	select {
+	case <-tk.Start():
+	case <-time.After(20 * time.Second):
+		t.Fatal("the loop never ended")
+	}
+	if !tk.Restarting() {
+		t.Fatal("it ended without asking to restart")
+	}
+}
+
+func TestTheTickRelinksAccountsToSharedItemsAddedAfterTheyWereRegistered(t *testing.T) {
+	p, _, _, _ := wired(t)
+	cdir, _ := team.AccountConfigDir(p.home, "a1")
+	os.MkdirAll(filepath.Join(p.home, "shared", ".claude"), 0o755)
+	os.WriteFile(filepath.Join(p.home, "shared", ".claude", "CLAUDE.md"), []byte("x"), 0o644)
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	got, err := tk.Tick.Sweeps.RelinkAccounts()
+	if err != nil || len(got["a1"]) == 0 {
+		t.Fatalf("%v %v", got, err)
+	}
+	if _, err := os.Lstat(filepath.Join(cdir, "CLAUDE.md")); err != nil {
+		t.Fatal("not linked")
+	}
+}
+
+func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t *testing.T) {
+	p, _, _, _ := wired(t)
+	var mu sync.Mutex
+	var logged []string
+	cfg := p.Run.cfg
+	cfg.Log = func(f string, a ...any) { mu.Lock(); logged = append(logged, fmt.Sprintf(f, a...)); mu.Unlock() }
+	log := filepath.Join(p.home, "logs", "daemon.err.log")
+	os.MkdirAll(filepath.Dir(log), 0o755)
+	os.WriteFile(log, make([]byte, 11<<20), 0o644)
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "old", "node_modules"), 0o755)
+	os.WriteFile(filepath.Join(root, "old", "AGENTS.md"), nil, 0o644)
+	longAgo := time.Now().Add(-48 * time.Hour)
+	for _, f := range []string{"node_modules", "AGENTS.md", ""} {
+		os.Chtimes(filepath.Join(root, "old", f), longAgo, longAgo)
+	}
+	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{}), ScratchRoot: root})
+	tk.Loop.MaxTicks = 1
+	<-tk.Start()
+	if st, _ := os.Stat(log); st.Size() != 0 {
+		t.Fatal("the log over its limit was not rotated")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(root, "old")); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stale copy was not swept")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(strings.Join(logged, "\n"), "fds: ") {
+		t.Fatalf("no descriptor count: %q", logged)
 	}
 }
