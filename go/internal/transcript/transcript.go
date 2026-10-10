@@ -6,6 +6,7 @@ package transcript
 import (
 	"database/sql"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -153,12 +154,16 @@ type Tool struct {
 	Dropped int64
 }
 
-// ToolWindow is which of an agent's tool calls a page needs: at most Limit of them, the newest at or before second Before, or with
-// Since the oldest from second Since on. A zero second is no bound.
+// ToolWindow is which of an agent's tool calls a page needs: at most Limit of them, the newest with an item id below Before, or with
+// Since the oldest from that second on. A zero is no bound. Calls share a second, so Before is held to the id itself: a call the page
+// would drop must not use up a slot.
 type ToolWindow struct {
 	Before, Since int64
 	Limit         int
 }
+
+// toolItemSQL is a tool_use row's item id (ItemID of its second, ItemTool and seq), as SQL.
+var toolItemSQL = "(at * 1000000 + " + strconv.Itoa(ItemTool*100000) + " + seq % 100000)"
 
 // Tools are agent's tool_use events in the window paired by tool_use_id with their tool_result, oldest first. A call with no result yet
 // is an item with no output. Only the results of the calls read are read.
@@ -166,9 +171,9 @@ func Tools(db *sql.DB, agent string, w ToolWindow) ([]Tool, error) {
 	query, args := "SELECT seq, at, body FROM transcript_events WHERE agent = ? AND kind = 'tool_use'", []any{agent}
 	order := "DESC"
 	if w.Since > 0 {
-		query, args, order = query+" AND at >= ?", append(args, w.Since), "ASC"
+		query, args, order = query+" AND at >= ?", append(args, w.Since/1_000_000), "ASC"
 	} else if w.Before > 0 {
-		query, args = query+" AND at <= ?", append(args, w.Before)
+		query, args = query+" AND "+toolItemSQL+" < ?", append(args, w.Before)
 	}
 	rows, err := db.Query(query+" ORDER BY seq "+order+" LIMIT ?", append(args, w.Limit)...)
 	if err != nil {

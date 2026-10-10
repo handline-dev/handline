@@ -333,13 +333,13 @@ func TestToolsReadOnlyTheCallsTheWindowNeedsAndFitOutputSaysWhatItCut(t *testing
 	if len(newest) != 2 || newest[0].Text != "c" || newest[1].Text != "d" || *newest[1].Output != "out-d" {
 		t.Fatalf("the newest two, oldest first: %+v", newest)
 	}
-	from, _ := Tools(s.DB, "bob", ToolWindow{Since: newest[0].At, Limit: 10})
+	from, _ := Tools(s.DB, "bob", ToolWindow{Since: ItemID(newest[0].At, 0, 0), Limit: 10})
 	if len(from) != 2 || from[0].Text != "c" {
 		t.Fatalf("from the second of c: %+v", from)
 	}
-	upTo, _ := Tools(s.DB, "bob", ToolWindow{Before: newest[0].At, Limit: 10})
-	if len(upTo) != 3 || upTo[2].Text != "c" {
-		t.Fatalf("up to the second of c: %+v", upTo)
+	upTo, _ := Tools(s.DB, "bob", ToolWindow{Before: newest[0].ID, Limit: 10})
+	if len(upTo) != 2 || upTo[1].Text != "b" {
+		t.Fatalf("below the id of c: %+v", upTo)
 	}
 	if kept, dropped := FitOutput("1\n2\n3\n", 4); kept != "1\n2\n" || dropped != 1 {
 		t.Errorf("%q %d", kept, dropped)

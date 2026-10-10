@@ -965,11 +965,11 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	for _, t := range texts {
 		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
 	}
-	window := transcript.ToolWindow{Limit: limit + 1}
+	window := transcript.ToolWindow{Limit: limit + 1} // what a before page keeps, and one more to say there is more
 	if since != nil {
-		window.Since = *since / 1_000_000
+		window.Since, window.Limit = *since, maxLimit+1 // a since page keeps up to maxLimit of every source, whatever limit says
 	} else if before != nil {
-		window.Before = *before / 1_000_000
+		window.Before = *before
 	}
 	tools, err := transcript.Tools(e.DB, agent, window)
 	if err != nil {
