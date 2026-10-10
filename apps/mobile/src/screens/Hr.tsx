@@ -37,7 +37,8 @@ export function Hr() {
   const { served } = useServes('hr.list');
   const founder = useStore().client.hello?.role === 'founder';
   const decide = useWrite('hr.decide');
-  const [all, setAll] = useState<'ask' | string | null>(null);
+  const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
+  const [why, setWhy] = useState('');
   const list = query.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
   const approveAll = async () => {
@@ -53,12 +54,32 @@ export function Hr() {
     setAll(ok === waiting.length ? null : `${ok} of ${waiting.length} approved`);
     void query.refetch();
   };
+  const rejectAll = async () => {
+    const note = why.trim();
+    let ok = 0;
+    for (const p of waiting) {
+      try {
+        await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
+        ok++;
+      } catch {
+        // the card shows its own refusal; the others go on
+      }
+    }
+    setWhy('');
+    setAll(ok === waiting.length ? null : `${ok} of ${waiting.length} rejected`);
+    void query.refetch();
+  };
   return (
     <Loadable query={query} served={served} isEmpty={list.length === 0} skeleton="inbox" label="HR proposals" empty="Nothing to decide.">
       <ScrollView testID="hr-list" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
           <Text style={{ color: c.ink, fontWeight: '700', flex: 1 }}>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</Text>
-          {founder && waiting.length > 1 && all !== 'ask' && <Button testID="hr-all" label="Approve all" onPress={() => setAll('ask')} />}
+          {founder && waiting.length > 1 && all !== 'ask' && all !== 'reject' && (
+            <>
+              <Button testID="hr-all" label="Approve all" onPress={() => setAll('ask')} />
+              <Button testID="hr-reject-all" label="Reject all" onPress={() => setAll('reject')} />
+            </>
+          )}
         </View>
         {all === 'ask' ? (
           <View
@@ -70,6 +91,33 @@ export function Hr() {
             <View style={{ flexDirection: 'row', gap: space.sm }}>
               <Button testID="hr-all-go" kind="yes" label="Approve all" onPress={() => void approveAll()} style={{ flex: 1 }} />
               <Button testID="hr-all-cancel" label="Cancel" onPress={() => setAll(null)} />
+            </View>
+          </View>
+        ) : all === 'reject' ? (
+          <View
+            testID="hr-reject-all-sheet"
+            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+          >
+            <Text style={{ color: c.ink, fontWeight: '600' }}>Reject all {waiting.length}?</Text>
+            <TextInput
+              testID="hr-reject-all-why"
+              accessibilityLabel="Reason"
+              placeholder="Reason"
+              placeholderTextColor={c.muted}
+              value={why}
+              onChangeText={setWhy}
+              style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+            />
+            <View style={{ flexDirection: 'row', gap: space.sm }}>
+              <Button
+                testID="hr-reject-all-go"
+                kind="no"
+                label="Reject all"
+                disabled={!why.trim()}
+                onPress={() => void rejectAll()}
+                style={{ flex: 1 }}
+              />
+              <Button testID="hr-reject-all-cancel" label="Cancel" onPress={() => setAll(null)} />
             </View>
           </View>
         ) : all ? (
