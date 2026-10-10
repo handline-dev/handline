@@ -1,4 +1,4 @@
-"""agent.strip and chat.refs: the two reads the Textual chat page makes against the db beyond the chat methods.
+"""agent.strip and chat.refs: the two reads a chat page makes against the db beyond the chat methods.
 
 agent.strip is the line under an agent's chat header: model, account, context used and its limit, the life left in the prompt cache
 (`cache_left_s`, negative once it has lapsed), and the agent's state as the six screen words (`screen_word`, `tui.screen_state`'s and

@@ -32,7 +32,7 @@ your own Mac.
 ```bash
 git clone <this repository> orcapipe && cd orcapipe
 ln -s "$PWD/bin/hl" /usr/local/bin/hl    # or add bin/ to your PATH
-hl venv install                           # one dependency (Textual) for the screen
+hl venv install                           # creates the venv (no dependencies to install now)
 hl init                                   # creates ~/.orcapipe
 hl doctor                                 # lists what is still missing
 ```

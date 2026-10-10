@@ -405,15 +405,14 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
               "holds no pipe is still gone", code == runner.TIMED_OUT and not alive and took < 30,
               f"code={code} alive={alive} took={took:.1f}s")
 
-        saved = (runner.area_files, runner.FILE_TIMEOUT_S, runner._python_with_textual)
+        saved = (runner.area_files, runner.FILE_TIMEOUT_S)
         runner.area_files, runner.FILE_TIMEOUT_S = (lambda: [hang, nomod, fine]), limit
-        runner._python_with_textual = lambda: None
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
                 rc = runner.run_all([])
         finally:
-            runner.area_files, runner.FILE_TIMEOUT_S, runner._python_with_textual = saved
+            runner.area_files, runner.FILE_TIMEOUT_S = saved
         said = buf.getvalue()
         check("runner: the skip names the file and the module and is not a failure",
               "SKIPPED  test_nomod.py: it needs the module surely_not_installed_anywhere" in said
