@@ -493,6 +493,23 @@ describe('the detail', () => {
     expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
+  it('a memo can be edited and deleted from the task page', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => $('.tmemo'), 'the memo box');
+    await typeInto($('.tmemo textarea') as HTMLTextAreaElement, 'first note');
+    await click($('.tmemo button')!);
+    await until(() => $('[aria-label="Edit memo"]'), 'the memo');
+    await click($('[aria-label="Edit memo"]')!);
+    const row = () => $('[aria-label="Memo text"]')?.closest('li') ?? $('[aria-label="Edit memo"]')!.closest('li')!;
+    await typeInto($('[aria-label="Memo text"]') as HTMLTextAreaElement, 'second note');
+    await click(button('Save', row())!);
+    await until(() => text(row()).includes('second note'), 'the edited memo');
+    await click($('[aria-label="Delete memo"]')!);
+    await click(button('Delete', $('[role="alertdialog"][aria-label="Delete memo"]')!)!);
+    await until(() => !$('[aria-label="Edit memo"]'), 'no memos left');
+  });
+
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);

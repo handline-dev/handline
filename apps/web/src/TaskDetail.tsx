@@ -58,6 +58,8 @@ function Body({ t }: { t: Detail }) {
     reopen: useCan('task.reopen'),
     discard: useCan('task.discard'),
     memo: useCan('task.memo.add'),
+    memoEdit: useCan('task.memo.edit'),
+    memoDelete: useCan('task.memo.delete'),
     edit: useCan('task.edit'),
     withdraw: useCan('task.withdraw'),
     cancel: useCan('task.cancel'),
@@ -266,15 +268,74 @@ function Body({ t }: { t: Detail }) {
       {t.memos.length ? (
         <ol className="ttimeline">
           {t.memos.map((m) => (
-            <li key={m.id}>
-              <Icon name="say" label="Memo" aria-hidden="true" size={14} />
-              <span className="mono">{when(m.at)}</span> <strong>{m.author}</strong>: {m.text}
-            </li>
+            <MemoRow key={m.id} task={t.id} memo={m} canEdit={can.memoEdit} canDelete={can.memoDelete} />
           ))}
         </ol>
       ) : null}
       <MemoBox id={t.id} box={memoBox} can={can.memo} />
     </div>
+  );
+}
+
+function MemoRow({
+  task,
+  memo,
+  canEdit,
+  canDelete,
+}: {
+  task: number;
+  memo: { id: number; at: string; author: string; text: string };
+  canEdit: { ok: boolean; why?: string };
+  canDelete: { ok: boolean; why?: string };
+}) {
+  const edit = useWrite('task.memo.edit', String(task));
+  const del = useWrite('task.memo.delete', String(task));
+  const [text, setText] = useState<string | null>(null);
+  const [ask, setAsk] = useState(false);
+  const save = () => {
+    const next = (text ?? '').trim();
+    if (!next) return;
+    edit.mutate({ task, memo: memo.id, text: next }, { onSuccess: () => setText(null) });
+  };
+  return (
+    <li>
+      <Icon name="say" label="Memo" aria-hidden="true" size={14} />
+      <span className="mono">{when(memo.at)}</span> <strong>{memo.author}</strong>:{' '}
+      {text === null ? (
+        <>
+          {memo.text}{' '}
+          <button className="btn" disabled={!canEdit.ok || memo.id < 0} title={canEdit.why} aria-label="Edit memo" onClick={() => setText(memo.text)}>
+            Edit
+          </button>{' '}
+          <button className="btn" disabled={!canDelete.ok || memo.id < 0} title={canDelete.why} aria-label="Delete memo" onClick={() => setAsk(true)}>
+            Delete
+          </button>
+        </>
+      ) : (
+        <span className="tmemo">
+          <textarea className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
+          <button className="btn primary" disabled={!text.trim()} onClick={save}>
+            Save
+          </button>{' '}
+          <button className="btn" onClick={() => setText(null)}>
+            Cancel
+          </button>
+        </span>
+      )}
+      {ask ? (
+        <span className="verb-sheet danger" role="alertdialog" aria-label="Delete memo">
+          <strong>Delete this memo?</strong>
+          <span className="verb-sheet-actions">
+            <button className="btn primary" onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}>
+              Delete
+            </button>
+            <button className="btn" onClick={() => setAsk(false)}>
+              Cancel
+            </button>
+          </span>
+        </span>
+      ) : null}
+    </li>
   );
 }
 
