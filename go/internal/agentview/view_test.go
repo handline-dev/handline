@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -150,6 +151,25 @@ func TestAnAgentThatNeedsAPersonIsWaitingWithNeedsYouAndOneThatDoesNotHasNull(t 
 	}
 	if v := r.stored(t, "plain"); v["needs_you"] != nil || v["state"] != "idle" || v["has_dialog"] != false {
 		t.Errorf("plain: %v", v)
+	}
+}
+
+func TestNeedsYouIsReadOnceAndNeverForAnAgentWithNoRow(t *testing.T) {
+	r := newRig(t, "norow", "long")
+	r.state(t, "long", states.Running, "")
+	reads := 0
+	r.env.NeedsYou = func(a string) *NeedsYou {
+		reads++
+		return &NeedsYou{Kind: "dialog", Source: "session", Text: "line one\nline two " + strings.Repeat("x", 300), Since: 4000}
+	}
+	r.env.RefreshOne("norow")
+	if v := r.stored(t, "norow"); v["needs_you"] != nil || v["has_dialog"] != false || v["state"] != "no_terminal" || reads != 0 {
+		t.Errorf("an agent with no row waits for nobody: %v (read %d times)", v, reads)
+	}
+	r.env.RefreshOne("long")
+	n := r.stored(t, "long")["needs_you"].(map[string]any)
+	if reads != 1 || strings.Contains(n["text"].(string), "\n") || len([]rune(n["text"].(string))) != needsTextCap {
+		t.Errorf("read %d times; text %q", reads, n["text"])
 	}
 }
 

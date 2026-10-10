@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/session"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -23,11 +24,29 @@ func movedOn(q db.Q, agent string, w map[string]any) bool {
 	return err == nil && found && last > after
 }
 
-// needsYou is where an agent's need of a person comes from: the wait file the PermissionRequest hook writes (and the next hook of the
-// turn takes away), else the session's own file saying status waiting. Never the screen.
+// needsYou is where an agent's need of a person comes from, never the screen: the session's own file saying status waiting, and the wait
+// file the PermissionRequest hook writes. An agent that is not there to wait (no row, closed, or no live session) needs nobody; a live
+// session that says it is not waiting is past the prompt whatever a wait file still says, since the file is taken away only by the call
+// that ran or a hook that ends the turn, and the call may run for minutes. The hook's file counts for an agent whose row is running
+// (session.WaitOf): a session at a prompt sends no Stop, so its row stays running, and one that died there leaves the file behind.
 func needsYou(home string, q db.Q) func(agent string) *agentview.NeedsYou {
 	return func(agent string) *agentview.NeedsYou {
-		if w := hooks.ReadWait(home, agent); w != nil && !movedOn(q, agent, w) {
+		row, err := db.GetAgentState(q, agent)
+		if err != nil || row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
+			return nil
+		}
+		var sess *peerinbox.Session
+		if row.Account.Valid && row.Worktree.Valid && row.Worktree.String != "" {
+			if config, err := team.AccountConfigDir(home, row.Account.String); err == nil {
+				if s, err := peerinbox.ByCwd(config, row.Worktree.String, func(pid int) bool { return syscall.Kill(pid, 0) == nil }); err == nil {
+					sess = &s
+				}
+			}
+		}
+		if sess != nil && !sess.Blocked() {
+			return nil
+		}
+		if w := hooks.ReadWait(home, agent); w != nil && row.State == states.Running && !movedOn(q, agent, w) {
 			since, _ := w["since"].(float64)
 			tool, _ := w["tool"].(string)
 			command, _ := w["command"].(string)
@@ -37,18 +56,9 @@ func needsYou(home string, q db.Q) func(agent string) *agentview.NeedsYou {
 			}
 			return &agentview.NeedsYou{Kind: kind, Source: "hook", Since: int64(since), Text: strings.TrimSpace(tool + ": " + command)}
 		}
-		row, err := db.GetAgentState(q, agent)
-		if err != nil || row == nil || !row.Account.Valid || !row.Worktree.Valid || row.Worktree.String == "" {
-			return nil
+		if sess != nil {
+			return &agentview.NeedsYou{Kind: sess.NeedsKind(), Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
 		}
-		config, err := team.AccountConfigDir(home, row.Account.String)
-		if err != nil {
-			return nil
-		}
-		s, err := peerinbox.ByCwd(config, row.Worktree.String, func(pid int) bool { return syscall.Kill(pid, 0) == nil })
-		if err != nil || !s.Blocked() {
-			return nil
-		}
-		return &agentview.NeedsYou{Kind: s.NeedsKind(), Source: "session", Since: s.UpdatedAt / 1000, Text: s.WaitingFor}
+		return nil
 	}
 }

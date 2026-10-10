@@ -21,6 +21,9 @@ import (
 // DetailCap bounds the text drawn beside a state word (the contract's state_detail).
 const DetailCap = 40
 
+// needsTextCap bounds the line needs_you says the decision is.
+const needsTextCap = 120
+
 // Sessions is the structured sessions the daemon owns.
 type Sessions interface {
 	Structured(agent string) bool
@@ -173,15 +176,15 @@ func (e *Env) needs(agent string) *NeedsYou {
 }
 
 // word is the state word the screens draw (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL) and its detail.
-func (e *Env) word(agent string, row *db.AgentState, now int64) (string, string) {
+func (e *Env) word(agent string, row *db.AgentState, now int64, needs *NeedsYou) (string, string) {
 	if row == nil {
 		return "IDLE", ""
 	}
 	if b := must(e.OpenBlockOf(agent)); b != nil {
 		return "DIALOG", clip(textsafe.Oneline(promptHeadline(b)), DetailCap)
 	}
-	if n := e.needs(agent); n != nil {
-		return "DIALOG", clip(textsafe.Oneline(n.Text), DetailCap)
+	if needs != nil {
+		return "DIALOG", clip(textsafe.Oneline(needs.Text), DetailCap)
 	}
 	state, detail := row.State, row.Detail.String
 	if state == states.Stalled {
@@ -267,7 +270,11 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	}()
 	now := e.now()
 	row := must(db.GetAgentState(e.Q, agent))
-	word, detail := e.word(agent, row, now)
+	var needs *NeedsYou // read once, so the word and needs_you agree; an agent with no row waits for nobody
+	if row != nil {
+		needs = e.needs(agent)
+	}
+	word, detail := e.word(agent, row, now, needs)
 	if word == "IDLE" && detail == "" && row != nil {
 		wait := must(db.ChildWait(e.Q, agent))
 		if wait == "" {
@@ -337,7 +344,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(e.needs(agent)),
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs),
 	}, nil
 }
 
@@ -346,8 +353,8 @@ func needsView(n *NeedsYou) any {
 		return nil
 	}
 	var text any
-	if n.Text != "" {
-		text = n.Text
+	if t := clip(textsafe.Oneline(n.Text), needsTextCap); t != "" {
+		text = t
 	}
 	return map[string]any{"kind": n.Kind, "since": stamp(n.Since), "text": text, "source": n.Source}
 }
