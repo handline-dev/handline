@@ -1899,6 +1899,11 @@ def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:
     for impl in ("go", "python"):
         rc = cli_service.cmd_service_use(argparse.Namespace(impl=impl))
         check(f"service use: {impl} is the setting afterwards", rc == 0 and service.daemon_impl() == impl)
+    fresh = home / "not-made-yet" / "home"
+    os.environ["OCP_HOME"] = str(fresh)
+    rc = cli_service.cmd_service_use(argparse.Namespace(impl="go"))
+    check("service use: go on a home that does not exist yet makes it, so the next install runs go", rc == 0 and service.daemon_impl() == "go")
+    cli_service.cmd_service_use(argparse.Namespace(impl="python"))
 
 
 def test_service_use_from_an_agent_session_is_a_proposal(home: Path) -> None:

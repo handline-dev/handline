@@ -404,7 +404,7 @@ Go daemon is refused on a home that is not live under the live label, and on the
 Run it from a shell outside the agent sandbox (launchd, `~/Library/LaunchAgents` and a unix socket are all denied inside it), from the
 checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
 
-1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`).
+1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`), then `mkdir -p $OCP_HOME` (`hl service use go` also makes a missing home, so a forgotten mkdir cannot leave the install on Python).
 2. `hl service use go`, then `hl service install`. It prints `daemon go`; `hl service status` shows the label, `daemon: go`, loaded, a pid.
 3. `hl ps` and `hl inbox` answer from the Go daemon; `tail $OCP_HOME/logs/daemon.err.log` holds one `handlined <sha> serving` line.
    `hl service status` does not say crash-looping.
