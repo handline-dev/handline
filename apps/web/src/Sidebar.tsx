@@ -43,9 +43,9 @@ import {
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 
-// One shape per nav row. The `on` look stays in rail.css: it must out-rank inbox.css `.nav.on`, imported later.
+// One shape per nav row; the current one is raised with the inset bar.
 const NAV = 'nav flex h-7 w-full items-center gap-2 rounded-ctl border-0 bg-transparent px-2 text-left text-ink hover:bg-raised';
-const navOf = (on: boolean): string => (on ? `${NAV} on` : NAV);
+const navOf = (on: boolean): string => (on ? `${NAV} on bg-raised shadow-[inset_2px_0_0_var(--ink)]` : NAV);
 
 export function Sidebar({
   selected,

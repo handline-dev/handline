@@ -86,6 +86,27 @@ button:disabled {
 .muted {
   color: var(--muted);
 }
+/* Element-level, as the rules above: the one <summary> left (the transcript's tr-fold). */
+summary {
+  list-style: none;
+  cursor: pointer;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+/* The small transparent icon button, shared by screens outside the rail (Pane, Inbox, ChatMessages, ChatCompose, InboxCard). */
+.icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 7px;
+}
+/* The desktop shell: the frame's app fills the window, not the viewport; the floated rail frees the main column. */
+.frame > #app {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
 .pad {
   padding: 10px 12px;
 }
