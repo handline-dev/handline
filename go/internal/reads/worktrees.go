@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -222,7 +223,42 @@ func (e *Env) bosses() map[string]string {
 	return out
 }
 
-func (e *Env) worktree(path, owner string, kn known, bosses map[string]string) map[string]any {
+// StatusLabelPrefix starts the meta name a worktree's status label is kept under: the prefix, then the worktree's real path.
+const StatusLabelPrefix = "worktree_status:"
+
+// LabelKey is the meta name of the label of the worktree at path, and whether an agent works there; false is not a worktree to label.
+func (e *Env) LabelKey(path string) (string, bool, error) {
+	kn, err := e.knownWorktrees()
+	if err != nil {
+		return "", false, err
+	}
+	root := realpath(path)
+	_, ok := kn.who[root]
+	return StatusLabelPrefix + root, ok, nil
+}
+
+// labels is the status labels people set, by worktree path.
+func (e *Env) labels() (map[string]string, error) {
+	rows, err := e.DB.Query("SELECT name, value FROM meta WHERE name LIKE ?", StatusLabelPrefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var name string
+		var value sql.NullString
+		if err := rows.Scan(&name, &value); err != nil {
+			return nil, err
+		}
+		if value.String != "" {
+			out[strings.TrimPrefix(name, StatusLabelPrefix)] = value.String
+		}
+	}
+	return out, rows.Err()
+}
+
+func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) map[string]any {
 	ok, branch := git(path, "rev-parse", "--abbrev-ref", "HEAD")
 	ch := changed(path)
 	boss := bosses[owner]
@@ -246,6 +282,9 @@ func (e *Env) worktree(path, owner string, kn known, bosses map[string]string) m
 	status := "clean"
 	if len(ch) > 0 {
 		status = "dirty"
+	}
+	if label := labels[path]; label != "" { // the label a person set stands in for the daemon's own word
+		status = label
 	}
 	b := ""
 	if ok {
@@ -293,12 +332,16 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	bosses := e.bosses()
+	labels, err := e.labels()
+	if err != nil {
+		return nil, err
+	}
 	keys := append([]string(nil), kn.order...)
 	sort.Strings(keys)
 	out := []any{}
 	for _, p := range keys {
 		who := kn.who[p]
-		wt := e.worktree(p, who, kn, bosses)
+		wt := e.worktree(p, who, kn, bosses, labels)
 		if (owner == nil || who == *owner) && (repo == nil || *repo == wt["repo"] || *repo == e.repoOf(who)) {
 			out = append(out, wt)
 		}

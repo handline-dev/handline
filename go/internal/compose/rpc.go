@@ -13,7 +13,7 @@ import (
 func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 	c := controls{p: p, lc: p.LC}
 	f := &fold.Env{Home: cfg.Home, Today: today(cfg)}
-	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Procs: procs{p: p, lc: p.LC}, Now: cfg.Now, Fold: f.Fold}
+	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Procs: procs{p: p, lc: p.LC}, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.

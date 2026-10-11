@@ -27,6 +27,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("schedule.add", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleAdd})
 	s.Register("schedule.edit", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleEdit})
 	s.Register("schedule.remove", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleRemove})
+	s.Register("worktree.set_status", rpc.Method{Role: "member", Write: true, Handler: e.worktreeSetStatus})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
 	if e.Logins != nil {

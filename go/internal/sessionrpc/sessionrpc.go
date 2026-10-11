@@ -7,7 +7,7 @@
 // holds the lock the tick takes, state for every other reason the action gives.
 //
 // Dropped with the design (structured sessions replace driving the TUI with keys): session.input, keys and type, the input holder, and
-// the exit mode that typed /exit. session.interrupt is a control request to the CLI, not Esc. agent.create is cut. A method whose port is
+// the exit mode that typed /exit. session.interrupt is a control request to the CLI, not Esc. A method whose port is
 // nil is not registered, so hello never lists what cannot be served.
 package sessionrpc
 
@@ -22,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // TypingElsewhere is the refusal's reason while whoever types at a terminal agent holds the lock the tick takes.
@@ -70,6 +71,9 @@ type Env struct {
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
 	Marker func(agent, kind string, actor map[string]any, text string)
 	Now    func() time.Time
+	// Roster registers the agent of agent.create, and Emit tells the operations topic its progress; with Controls they serve agent.create.
+	Roster *team.Roster
+	Emit   func(topic, typ string, data any, agent string)
 }
 
 // Register adds the methods the Env has the ports for.
@@ -80,6 +84,9 @@ func Register(s *rpc.Server, e *Env) {
 		s.Register("session.restart", rpc.Method{Role: "agent", Write: true, Handler: e.restart})
 		s.Register("session.park", rpc.Method{Role: "agent", Write: true, Handler: e.park})
 		s.Register("session.stop", rpc.Method{Role: "agent", Write: true, Handler: e.stop})
+	}
+	if e.Controls != nil && e.Roster != nil {
+		s.Register("agent.create", rpc.Method{Role: "founder", Write: true, Handler: e.create})
 	}
 	if e.Fold != nil {
 		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
