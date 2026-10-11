@@ -271,6 +271,37 @@ describe('X5 phone New agent', () => {
     await until(() => task === null, 'the kept task cleared');
     m.store.stop();
   });
+
+  it('sends the first task once when its reply is lost and the page is relaunched: the same request_id, answered as replayed', async () => {
+    let kept: string | null = null;
+    let task: { task: string; box: string } | null = null;
+    const pending = (): Pending => ({ operation: kept, first: task, save: (op, t = null) => ((kept = op), (task = t)) });
+    let reload: () => void = () => {};
+    const screen = (store: Store): ReactNode => <Reload store={store} pending={pending} expose={(r) => (reload = r)} />;
+    const m = await mount((s) => (s.daemon.work.stepMs = 300), undefined, undefined, { screen });
+    const real = m.client.call.bind(m.client) as (method: string, p: unknown) => Promise<unknown>;
+    const sent: { id?: string; reply?: unknown }[] = [];
+    let lose = true;
+    vi.spyOn(m.client, 'call').mockImplementation((async (method: string, p: unknown) => {
+      const r = await real(method, p);
+      if (method !== 'task.new') return r;
+      sent.push({ id: (p as { request_id?: string }).request_id, reply: r });
+      return lose ? new Promise(() => {}) : r;
+    }) as never);
+    await open(m);
+    await fill();
+    await type('na-task', 'Read the docs');
+    await press(create());
+    await until(() => sent.length === 1, 'the first send', 3000);
+    lose = false;
+    await act(async () => reload());
+    await until(() => sent.length === 2, 'the second send', 3000);
+    expect(sent.map((x) => x.id)).toEqual(['first-task:op-1', 'first-task:op-1']);
+    expect(sent[1]!.reply).toMatchObject({ replayed: true });
+    const list = (await real('tasks.list', {})) as { items: { title: string }[] };
+    expect(list.items.filter((t) => t.title === 'Read the docs')).toHaveLength(1);
+    m.store.stop();
+  });
 });
 
 /** Home as the app mounts it, remountable to stand for a relaunch: the pending page is kept outside, as the phone keeps it. */
