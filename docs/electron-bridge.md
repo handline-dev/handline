@@ -30,7 +30,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `unsent` | page → shell | E4 | no call; a reload asks nothing |
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
-| `mode`, `setMode`, `pairRemote` | page → shell | modes | the pairing screen shows no mode section |
+| `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
 
 ## 3. Badge, notices, update, and the notice's click
 
@@ -142,7 +142,7 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 
 ### 4.3 `mode`, `setMode`, `pairRemote`
 
-The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote }` (`remote` the paired device's address in connect mode, else null). `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
+The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote, phone }` (`remote` the paired device's address in connect mode, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
 
 ## 5. Tests
 

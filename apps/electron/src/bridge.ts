@@ -13,6 +13,7 @@ export const CHANNELS = {
   mode: 'handline:mode',
   setMode: 'handline:setMode',
   pairRemote: 'handline:pairRemote',
+  phone: 'handline:phone',
   token: 'handline:token',
 } as const;
 
@@ -69,6 +70,8 @@ export interface ConnectionDeps {
   setMode(m: Mode): void;
   /** Pairs and relaunches on the new device; rejects with a sentence when the gateway cannot be paired with. */
   pair(i: OfferInput): Promise<void>;
+  /** Opens the phone-pairing QR window; rejects with a sentence when it cannot. */
+  phone(): Promise<void>;
 }
 
 const OFFER_KEYS = ['link', 'address', 'code'];
@@ -82,8 +85,10 @@ export class Connection {
     this.origin = origin;
     this.d = d;
   }
-  mode(e: Sender): ({ ok: true } & ReturnType<ConnectionDeps['mode']>) | Fail<'bad_request'> {
-    return fromWindow(e, this.origin) ? { ok: true, ...this.d.mode() } : (bad('not from the app window') as Fail<'bad_request'>);
+  mode(e: Sender): ({ ok: true; phone: boolean } & ReturnType<ConnectionDeps['mode']>) | Fail<'bad_request'> {
+    return fromWindow(e, this.origin)
+      ? { ok: true, ...this.d.mode(), phone: this.d.mode().remote === null }
+      : (bad('not from the app window') as Fail<'bad_request'>);
   }
   setMode(e: Sender, arg: unknown): Reply {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');
@@ -91,6 +96,15 @@ export class Connection {
     if (!mode) return bad('setMode takes connect or own');
     this.d.setMode(mode);
     return { ok: true };
+  }
+  async phone(e: Sender): Promise<Reply | Fail<'cannot_pair'>> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    try {
+      await this.d.phone();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, code: 'cannot_pair', message: err instanceof Error ? err.message : String(err) };
+    }
   }
   async pairRemote(e: Sender, arg: unknown): Promise<Reply | Fail<'cannot_pair'>> {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');

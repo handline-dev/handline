@@ -31,6 +31,7 @@ export function makeApi(ipc: Ipc): ShellApi {
     cancelCompose: () => call(CHANNELS.cancelCompose),
     mode: () => call(CHANNELS.mode),
     setMode: (m) => call(CHANNELS.setMode, m),
+    phone: () => call(CHANNELS.phone),
     pairRemote: (a) => call(CHANNELS.pairRemote, a),
     onNavigate(cb) {
       listener = cb;

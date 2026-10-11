@@ -25,16 +25,29 @@ import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from
 import { phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
 import { onTailnet } from './tailnet.ts';
+import { TRAY_PNG } from './tray-icon.ts';
 import { trayMenu, type TrayFollow } from './tray.ts';
 
-/** A window with the QR of a fresh one-time link; the gateway says why when it cannot make one (no network listener, no key). */
+/** The menu-bar icon: a template image, so macOS tints it for a light or a dark bar. */
+function trayIcon(): Electron.NativeImage {
+  const img = nativeImage.createFromBuffer(TRAY_PNG.bytes(), { scaleFactor: TRAY_PNG.scale });
+  img.setTemplateImage(true);
+  return img;
+}
+
+/** A window with the QR of a fresh one-time link; rejects with the gateway's reason when it cannot make one (no network listener, no key). */
+async function openPhone(pairing: PairDeps): Promise<void> {
+  const l = await phoneLink(pairing);
+  const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
+  const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
+  w.setMenuBarVisibility(false);
+  await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
+}
+
+/** The tray's way: the same window, the reason in a dialog. */
 async function showPhone(pairing: PairDeps): Promise<void> {
   try {
-    const l = await phoneLink(pairing);
-    const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
-    const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
-    w.setMenuBarVisibility(false);
-    await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
+    await openPhone(pairing);
   } catch (e) {
     dialog.showErrorBox('Cannot pair a phone', e instanceof Error ? e.message : String(e));
   }
@@ -63,13 +76,6 @@ const reachable = (hostPort: string): Promise<boolean> =>
   );
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** A 16×16 ring for the tray. */
-const TRAY_ICON =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="black" stroke-width="2.5"/></svg>',
-  );
 
 /** Its own process group: bin/ocp starts the daemon as a child of itself, and quit must stop that one too. */
 function spawnChild(cmd: Cmd, log: number): Child {
@@ -122,6 +128,8 @@ export interface Own {
   /** The page's calls: switch the mode, or pair with another device; both relaunch the app. */
   switchMode(m: Mode): void;
   pair(i: OfferInput): Promise<void>;
+  /** Opens the phone-pairing QR window; rejects with a sentence when this app has no gateway of its own to pair a phone with. */
+  phone(): Promise<void>;
 }
 
 export function ownDaemon(o: {
@@ -151,7 +159,7 @@ export function ownDaemon(o: {
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
-  const tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON));
+  const tray = new Tray(trayIcon());
   tray.setToolTip('Handline');
   const link = new Link();
   const mode = o.current.mode;
@@ -223,6 +231,8 @@ export function ownDaemon(o: {
     remote: o.current.remote,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
     pair,
+    phone: () =>
+      o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone(pairing),
     async ready() {
       if (mode === 'connect') return connect();
       if (!o.gateway) return undefined;
