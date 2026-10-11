@@ -1,5 +1,6 @@
 // The app's keys, opened by `?`. The Inbox and Tasks pages keep their own `?` for their own keys.
 import { Dialog } from './ui/index.ts';
+import { KBD } from './kbdStyle.ts';
 
 const KEYS: [string, string][] = [
   ['⌘K', 'search everything'],
@@ -26,7 +27,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
         {KEYS.map(([k, what]) => (
           <div key={k} className="flex items-baseline gap-3">
             <dt className="min-w-20">
-              <kbd>{k}</kbd>
+              <kbd className={KBD}>{k}</kbd>
             </dt>
             <dd className="m-0 text-ink-2">{what}</dd>
           </div>
@@ -37,7 +38,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
         {COMPOSE.map(([k, what]) => (
           <div key={k} className="flex items-baseline gap-3">
             <dt className="min-w-20">
-              <kbd>{k}</kbd>
+              <kbd className={KBD}>{k}</kbd>
             </dt>
             <dd className="m-0 text-ink-2">{what}</dd>
           </div>

@@ -27,6 +27,7 @@ import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { Button, Empty, Icon, Segmented } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
+import { COMPOSE, COMPOSE_ROW } from './chatStyle.ts';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
 function dayHeading(at: string, before: string | null): string | null {
@@ -40,20 +41,20 @@ function dayHeading(at: string, before: string | null): string | null {
 
 function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
-    <section className="chat relative [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
-      <div className="stream">
+    <section className="chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
+      <div className="stream flex flex-1 overflow-auto">
         <Empty
           icon="chat"
           name="No chat yet"
           hint={detail.structured ? 'Send a message to start' : 'Use the terminal tab to work with the agent'}
         />
       </div>
-      <div className="cards">
+      <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
       </div>
-      <div className="compose-row">
+      <div className={COMPOSE_ROW}>
         <textarea
-          className="compose"
+          className={COMPOSE}
           rows={2}
           placeholder="Chat is not available from this daemon yet"
           disabled
@@ -164,7 +165,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
-    <section className="chat relative [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
+    <section className="chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
       <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
         <ChatStrip detail={detail} />
         <Segmented
@@ -183,7 +184,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex-col gap-2 p-3 [&>*]:flex-none"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -265,7 +266,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           {newer}
         </button>
       ) : null}
-      <div className="cards">
+      <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
       </div>
       <Compose

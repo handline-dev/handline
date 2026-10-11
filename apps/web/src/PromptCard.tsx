@@ -7,6 +7,8 @@ import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
+import { CARD, CARD_ACTIONS, CMD, COMPOSE, LINES } from './chatStyle.ts';
+import { KBD } from './kbdStyle.ts';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 
@@ -75,8 +77,8 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
 
   const mark = (key: string, label: string) => (answering && clicked === key ? '…' : label);
   return (
-    <div className="card prompt" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
-      <div className="card-title">
+    <div className={`${CARD} prompt`} role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
+      <div className="card-title mb-1.5 font-semibold">
         ⚠ {promptTitle(p)}
         <span className="muted since">
           {p.since ? ` · waiting since ${new Date(p.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
@@ -87,7 +89,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           This prompt changed
         </p>
       ) : null}
-      {p.command ? <code className="cmd">{p.command}</code> : <pre className="lines">{p.lines.join('\n')}</pre>}
+      {p.command ? <code className={CMD}>{p.command}</code> : <pre className={LINES}>{p.lines.join('\n')}</pre>}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
         <ol className="opts">
@@ -99,14 +101,14 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
                 </label>
               ) : (
                 <button className="btn opt" disabled={answering} onClick={() => send(o.key, o.key)}>
-                  <kbd>{o.key || i + 1}</kbd> {mark(o.key, o.label)}
+                  <kbd className={KBD}>{o.key || i + 1}</kbd> {mark(o.key, o.label)}
                 </button>
               )}
             </li>
           ))}
         </ol>
       ) : (
-        <div className="card-actions">
+        <div className={CARD_ACTIONS}>
           {opts.map((o) => (
             <button
               key={o.key}
@@ -115,14 +117,14 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
               onClick={() => send(o.key, o.key)}
             >
               {isAlways(o) ? '↻ ' : ''}
-              {mark(o.key, o.label)} <kbd>{o.key}</kbd>
+              {mark(o.key, o.label)} <kbd className={KBD}>{o.key}</kbd>
             </button>
           ))}
         </div>
       )}
-      {opts.some(isAlways) && p.kind === 'dialog' ? <p className="muted note">↻ saves a rule for next time</p> : null}
+      {opts.some(isAlways) && p.kind === 'dialog' ? <p className="muted note border-b border-line px-3 py-1.5">↻ saves a rule for next time</p> : null}
       {multi ? (
-        <div className="card-actions">
+        <div className={CARD_ACTIONS}>
           <button className="btn primary" disabled={answering || !picked.length} onClick={submit}>
             {mark('submit', 'Submit')}
           </button>
@@ -131,7 +133,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       {question && !multi ? (
         typing ? (
           <form
-            className="card-actions"
+            className={CARD_ACTIONS}
             onSubmit={(e) => {
               e.preventDefault();
               if (text.trim()) send({ text: text.trim() }, 'text');
@@ -139,7 +141,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           >
             <input
               type="text"
-              className="compose"
+              className={COMPOSE}
               autoFocus
               aria-label="Your own answer"
               value={text}
@@ -157,9 +159,9 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
         )
       ) : null}
       {cancel ? (
-        <div className="card-actions">
+        <div className={CARD_ACTIONS}>
           <button className="btn" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
-            {mark(cancel.key, 'Cancel')} <kbd>esc</kbd>
+            {mark(cancel.key, 'Cancel')} <kbd className={KBD}>esc</kbd>
           </button>
         </div>
       ) : null}

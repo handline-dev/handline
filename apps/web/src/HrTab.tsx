@@ -6,6 +6,7 @@ import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
+import { CARD_ACTIONS, COMPOSE, LINES } from './chatStyle.ts';
 import { goSettings } from './route.ts';
 import { View } from './View.tsx';
 import { FNOTE_BAD, FNOTE_WARN, SHEAD, VERB_SHEET, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
@@ -232,7 +233,7 @@ function Card({
         </Button>
       ) : null}
       {showDiff ? (
-        <pre className="lines hr-diff" aria-label="What approving does">
+        <pre className={`${LINES} hr-diff`} aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del' : l.mark === '+' ? 'add' : ''}>
               {l.text}
@@ -252,7 +253,7 @@ function Card({
       ) : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
-        <div className="card-actions">
+        <div className={CARD_ACTIONS}>
           <Button
             variant="solid"
             icon="markRead"
@@ -278,7 +279,7 @@ function Card({
       ) : null}
       {reason !== null ? (
         <form
-          className="card-actions"
+          className={CARD_ACTIONS}
           onSubmit={(e) => {
             e.preventDefault();
             reject();
@@ -286,7 +287,7 @@ function Card({
         >
           <input
             type="text"
-            className="compose"
+            className={COMPOSE}
             autoFocus
             aria-label="Why reject"
             placeholder="why - Enter rejects, Esc cancels"

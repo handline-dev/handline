@@ -139,7 +139,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           )}
         </main>
         {error ? (
-          <div className="toast" role="status" onClick={() => store.dismissError()} title="Click to dismiss">
+          <div className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]" role="status" onClick={() => store.dismissError()} title="Click to dismiss">
             {error}
           </div>
         ) : null}

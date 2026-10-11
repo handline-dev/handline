@@ -6,7 +6,7 @@ import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
-import { CARD_WHAT_COL } from './chatStyle.ts';
+import { CARD, CARD_WHAT_COL } from './chatStyle.ts';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -81,7 +81,7 @@ export function HrCards({ agent }: { agent: string }) {
   return (
     <>
       {open.map((p) => (
-        <div key={p.id} className="card card-hr" data-kind="hr" data-proposal={p.id}>
+        <div key={p.id} className={`${CARD} card-hr`} data-kind="hr" data-proposal={p.id}>
           <Icon name="team" label="Proposal" />
           <span className={CARD_WHAT_COL}>
             <strong>{p.title}</strong>

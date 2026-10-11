@@ -1,6 +1,7 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
 import { Sheet } from './taskui.tsx';
+import { KBD } from './kbdStyle.ts';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
 export const LIST_KEYS: [string, string][] = [
@@ -59,7 +60,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
         {LIST_KEYS.map(([k, v]) => (
           <div key={k} className="flex gap-2">
             <dt className="m-0 min-w-[56px]">
-              <kbd>{k}</kbd>
+              <kbd className={KBD}>{k}</kbd>
             </dt>
             <dd className="m-0">{v}</dd>
           </div>

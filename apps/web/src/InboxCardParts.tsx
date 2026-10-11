@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { Button, Icon, type IconName } from './ui/index.ts';
+import { LINES } from './chatStyle.ts';
 import { answerable, kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
 
 export const EVIDENCE_LINES = 3;
@@ -116,7 +117,7 @@ export function InboxDetail(props: {
       ) : null}
       {i.evidence ? (
         <div>
-          <pre className="lines">{(props.whole ? lines : lines.slice(0, EVIDENCE_LINES)).join('\n')}</pre>
+          <pre className={LINES}>{(props.whole ? lines : lines.slice(0, EVIDENCE_LINES)).join('\n')}</pre>
           {lines.length > EVIDENCE_LINES ? (
             <Button
               size="sm"
@@ -129,7 +130,7 @@ export function InboxDetail(props: {
       ) : null}
       {i.prompt ? (
         // The prompt's own card (permission, dialog) is the prompt-card unit's; here the item shows what is asked and where to answer.
-        <pre className="lines" data-prompt-slot>
+        <pre className={LINES} data-prompt-slot>
           {i.prompt.command ?? i.prompt.lines.join('\n')}
         </pre>
       ) : null}
