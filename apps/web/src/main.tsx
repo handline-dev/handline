@@ -7,9 +7,9 @@ import './styles.css';
 // The chrome reads this in the shell (styles/base.css).
 if (inShell()) document.documentElement.dataset.shell = 'desktop';
 
-// Dev only: keys 1-4 try a preview theme (styles/themes.css), 0 back to the app's own.
+// Dev only: keys 1-5 try a preview theme (5 is the tokens' own light/white; 1-4 are styles/themes.css), 0 back to the app's own.
 if (import.meta.env.DEV) {
-  const THEMES = ['linear', 'soft', 'color', 'paper'] as const;
+  const THEMES = ['linear', 'soft', 'color', 'paper', 'light'] as const;
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if ((e.target as HTMLElement | null)?.closest?.('input, textarea, select')) return;
