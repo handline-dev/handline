@@ -6,15 +6,30 @@ import { dotColor, usePalette } from '../theme.ts';
 import { Button } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
 
-export function AgentList(props: { onUnpair: () => void }) {
+export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktrees' | 'new') => void }) {
   const c = usePalette();
   const store = useStore();
   const query = useAgents();
   const { served } = useServes('agents.list');
   const agents = query.data?.agents ?? [];
+  const founder = store.client.hello?.role === 'founder';
+  const create = useServes('agent.create').served;
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', padding: space.lg }}>Agents</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.lg }}>
+        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Agents</Text>
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <Button
+            testID="worktrees-open"
+            label="Worktrees"
+            onPress={() => props.onPage('worktrees')}
+            style={{ paddingVertical: space.sm }}
+          />
+          {founder && create ? (
+            <Button testID="new-agent-open" label="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+          ) : null}
+        </View>
+      </View>
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
         <FlatList
           data={agents}
