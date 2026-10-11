@@ -6,6 +6,7 @@ import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
+import { CARD_WHAT_COL } from './chatStyle.ts';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -16,29 +17,29 @@ const until = (iso: string | null): number | null => {
 export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const cache = until(detail.cache_until);
   return (
-    <div className="chat-strip">
+    <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
       {detail.model ? (
-        <span className="chip-ico" title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
+        <span className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
           <Icon name="agent" size={13} aria-hidden />
           {detail.model}
           {detail.effort ? <span className="muted"> · {detail.effort}</span> : null}
         </span>
       ) : null}
       {detail.account ? (
-        <span className="chip-ico" title={`Account ${detail.account}`}>
+        <span className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" title={`Account ${detail.account}`}>
           <Icon name="accounts" size={13} aria-hidden />
           {detail.account}
         </span>
       ) : null}
       {detail.task ? (
-        <a className="chip-ico" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
+        <a className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </a>
       ) : null}
       {cache !== null ? (
         <span
-          className="chip-ico"
+          className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad"
           title={cache > 0 ? `Prompt cache warm for ${cache} min` : 'Prompt cache has lapsed'}
           data-lapsed={cache <= 0 ? '' : undefined}
         >
@@ -56,7 +57,7 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
     detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session has stalled' : null);
   if (!why) return null;
   return (
-    <div className="chat-banner" role="status">
+    <div className="chat-banner flex items-center gap-2 border-b border-l-[3px] border-b-line border-l-bad bg-panel px-2 py-1.5 text-body" role="status">
       <Icon name="blocked" size={14} label="Blocked" />
       <span>{why}</span>
     </div>
@@ -82,7 +83,7 @@ export function HrCards({ agent }: { agent: string }) {
       {open.map((p) => (
         <div key={p.id} className="card card-hr" data-kind="hr" data-proposal={p.id}>
           <Icon name="team" label="Proposal" />
-          <span className="card-what">
+          <span className={CARD_WHAT_COL}>
             <strong>{p.title}</strong>
             {p.reason ? <span className="muted">{p.reason}</span> : null}
           </span>

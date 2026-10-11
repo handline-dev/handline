@@ -40,7 +40,7 @@ function dayHeading(at: string, before: string | null): string | null {
 
 function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
-    <section className="chat">
+    <section className="chat relative [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
       <div className="stream">
         <Empty
           icon="chat"
@@ -164,8 +164,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
-    <section className="chat">
-      <div className="chat-head">
+    <section className="chat relative [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
+      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
         <ChatStrip detail={detail} />
         <Segmented
           label="Which messages"
@@ -253,14 +253,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         </AnimatedList>
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
-          <div className="line working self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
+          <div className="line working flex items-center gap-1.5 self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
             <Icon name="working" size={14} label={chat.working.line ?? 'Working'} aria-hidden />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>
         ) : null}
       </div>
       {newer ? (
-        <button className="newer" onClick={bottom} title="New messages">
+        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill border border-line-strong bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
           <Icon name="newer" size={14} aria-hidden />
           {newer}
         </button>

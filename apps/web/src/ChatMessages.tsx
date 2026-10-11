@@ -10,6 +10,7 @@ import { EditorButton } from './EditorButton.tsx';
 import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
+import { CARD_CODE, CARD_OPEN, CARD_WHAT } from './chatStyle.ts';
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -52,7 +53,7 @@ export function RefText({ text, agent, onRef }: { text: string; agent?: string; 
     <>
       {text.split(/(?<![\w&])(#\d{1,9})\b/).map((part, i) =>
         /^#\d+$/.test(part) ? (
-          <button key={i} type="button" className="ref" title={`Go to ${part}`} onClick={() => onRef(Number(part.slice(1)))}>
+          <button key={i} type="button" className="ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline" title={`Go to ${part}`} onClick={() => onRef(Number(part.slice(1)))}>
             {part}
           </button>
         ) : (
@@ -133,7 +134,11 @@ export function Message(props: {
         </div>
       ) : null}
       {m.parent != null ? (
-        <button className="msg-ref" title={parent ? snippet(parent.body) : `#${m.parent}`} onClick={() => jumpTo(m.parent!)}>
+        <button
+          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 border-l-2 border-l-line bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
+          title={parent ? snippet(parent.body) : `#${m.parent}`}
+          onClick={() => jumpTo(m.parent!)}
+        >
           <Icon name="reference" size={12} label={`Reply to #${m.parent}`} />
           <span className="mono">#{m.parent}</span>
           {parent ? <span className="muted"> {snippet(parent.body)}</span> : null}
@@ -162,14 +167,14 @@ export function Message(props: {
           </span>
         ) : null}
         {m.tasks.map((t) => (
-          <a key={t.id} className="msg-task mono" href={`#/tasks/${t.id}`} title={t.title}>
+          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
             {' '}
             <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
           </a>
         ))}
       </div>
       {undoable ? (
-        <div className="msg-acts">
+        <div className="msg-acts mt-1 flex gap-1">
           {m.landing === 'queued' && (m.receipt || props.working) ? (
             <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
           ) : null}
@@ -278,9 +283,9 @@ function SessionCard({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
   const handoff = i.session?.handoff;
   return (
-    <div className="card card-session" data-kind="session">
+    <div className="card card-session flex-wrap" data-kind="session">
       <Icon name="session" />
-      <span className="card-what muted">{handoff ? `Handoff: ${handoff}` : null}</span>
+      <span className={`${CARD_WHAT} muted`}>{handoff ? `Handoff: ${handoff}` : null}</span>
       {handoff ? (
         <Button variant="outline" size="sm" label="Whole handoff" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
           {open ? 'Hide' : 'Whole handoff'}
@@ -311,11 +316,11 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
     const what = p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
     return (
-      <div className={`card card-prompt${i.open ? ' open' : ''}`} data-kind="prompt" data-open={i.open ? '' : undefined}>
+      <div className={`card card-prompt ${CARD_OPEN}`} data-kind="prompt" data-open={i.open ? '' : undefined}>
         <Icon name={name} label={what} />
-        <span className="card-what">
+        <span className={CARD_WHAT}>
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
-          {p?.command ? <code className="card-code">{p.command}</code> : null}
+          {p?.command ? <code className={CARD_CODE}>{p.command}</code> : null}
         </span>
         <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
           <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
@@ -337,13 +342,13 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
         T{e?.task}
       </a>
       {title || e?.evidence ? (
-        <span className="card-what muted">
+        <span className={`${CARD_WHAT} muted`}>
           {title}
           {title && e?.evidence ? ' — ' : ''}
           {e?.evidence}
         </span>
       ) : (
-        <span className="card-what" />
+        <span className={CARD_WHAT} />
       )}
       <span className="muted card-time">{clock(i.at)}</span>
     </div>

@@ -16,9 +16,9 @@ const inputLine = (input: Record<string, unknown>) => {
 
 function Fold({ head, tone, children }: { head: ReactNode; tone?: 'bad'; children: ReactNode }) {
   return (
-    <details className="tr-fold" data-tone={tone}>
-      <summary>{head}</summary>
-      <pre>{children}</pre>
+    <details className="tr-fold text-hint text-ink-2 data-[tone=bad]:text-bad" data-tone={tone}>
+      <summary className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap">{head}</summary>
+      <pre className="mx-0 mt-1 mb-0 overflow-x-auto bg-panel p-1.5 whitespace-pre-wrap text-ink">{children}</pre>
     </details>
   );
 }
@@ -38,7 +38,7 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
       </Fold>
       {permission?.open ? <PromptCard agent={agent} prompt={permission.prompt} /> : null}
       {answer ? (
-        <div className="tr-note" data-answer={answer.behavior}>
+        <div className="tr-note text-hint text-ink-2" data-answer={answer.behavior}>
           {answer.behavior === 'allow' ? 'Allowed' : 'Denied'} by {answer.by}
           {answer.message ? `: ${answer.message}` : ''}
         </div>
@@ -62,34 +62,34 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
 function Item({ agent, e }: { agent: string; e: Entry }) {
   switch (e.type) {
     case 'text':
-      return <p className="tr-text">{e.text}</p>;
+      return <p className="tr-text m-0 whitespace-pre-wrap text-body">{e.text}</p>;
     case 'tool':
       return <ToolCall agent={agent} t={e} />;
     case 'error':
       return (
-        <div className="tr-error" role="alert">
+        <div className="tr-error border-l-[3px] border-l-bad pl-1.5 text-body text-bad" role="alert">
           {e.code}: {e.text}
         </div>
       );
     case 'gap':
-      return <div className="tr-note">Earlier events are no longer kept</div>;
+      return <div className="tr-note text-hint text-ink-2">Earlier events are no longer kept</div>;
   }
 }
 
 function TurnView({ agent, turn }: { agent: string; turn: Turn }) {
   const { message, end } = turn;
   return (
-    <section className="tr-turn" data-turn={turn.id ?? ''} data-running={turn.running || undefined}>
+    <section className="tr-turn flex flex-col gap-1" data-turn={turn.id ?? ''} data-running={turn.running || undefined}>
       {message ? (
-        <div className="tr-said">
-          <span>{message.from ?? 'someone'}</span> {message.text}
+        <div className="tr-said rounded-ctl bg-panel px-2 py-1.5 text-body text-ink">
+          <span className="text-hint text-ink-2">{message.from ?? 'someone'}</span> {message.text}
         </div>
       ) : null}
       {turn.entries.map((e) => (
         <Item key={`${e.type}-${e.seq}`} agent={agent} e={e} />
       ))}
       {end ? (
-        <div className="tr-end" data-reason={end.reason}>
+        <div className="tr-end text-hint text-ink-2" data-reason={end.reason}>
           {end.reason} · ${end.cost_usd.toFixed(2)} · {(end.duration_ms / 1000).toFixed(1)} s
         </div>
       ) : null}
@@ -101,7 +101,7 @@ function TurnView({ agent, turn }: { agent: string; turn: Turn }) {
 function Working({ agent }: { agent: string }) {
   const interrupt = useWrite('session.interrupt', agent);
   return (
-    <div className="tr-working" role="status">
+    <div className="tr-working flex items-center gap-1.5 border-b border-line px-2 py-1" role="status">
       <span>Working…</span>
       <Button
         label={interrupt.isPending ? 'Interrupting…' : 'Interrupt'}
@@ -128,16 +128,16 @@ export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
 
   if (t.status === 'error')
     return (
-      <div className="tr">
+      <div className="tr relative flex h-full min-h-0 flex-col">
         <Empty icon="terminal" name="The transcript could not be read" />
         <Button label="Retry" onClick={t.refetch} />
       </div>
     );
   return (
-    <div className="tr" data-status={t.status}>
+    <div className="tr relative flex h-full min-h-0 flex-col" data-status={t.status}>
       {t.running ? <Working agent={agent} /> : null}
       <div
-        className="tr-scroll"
+        className="tr-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]"
         ref={box}
         data-testid="transcript"
         onScroll={(ev) => {
@@ -161,7 +161,7 @@ export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
       </div>
       {atEnd ? null : (
         <button
-          className="tr-newest"
+          className="tr-newest absolute right-2 bottom-2 cursor-pointer rounded-pill border border-line bg-panel px-2 py-1 text-hint text-ink"
           onClick={() => {
             follow.current = true;
             toEnd();

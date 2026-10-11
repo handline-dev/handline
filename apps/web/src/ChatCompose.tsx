@@ -151,12 +151,12 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap">
+    <div className="compose-wrap flex flex-col">
       {target ? (
-        <div className="compose-ref" role="status">
+        <div className="compose-ref flex items-center gap-1.5 border-t border-t-line border-l-[3px] border-l-primary px-2 py-1 text-[12px]" role="status">
           <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
           <span className="mono">#{target.id}</span>
-          <span className="compose-ref-body muted">{target.body}</span>
+          <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
           <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
             <Icon name="close" size={14} label="Drop the reply" />
           </button>
@@ -171,7 +171,7 @@ export function Compose(props: {
       <div className="compose-row">
         {menu ? (
           <ul
-            className="compose-menu"
+            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-pop)]"
             role="listbox"
             aria-label={open!.kind === 'slash' ? 'Verbs' : open!.kind === 'hash' ? 'References' : 'History'}
           >
@@ -204,12 +204,12 @@ export function Compose(props: {
           onKeyDown={onKey}
         />
         {clearing ? (
-          <span className="compose-clear" role="status" title="Esc again clears the draft">
+          <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
           </span>
         ) : null}
         {choosing ? (
-          <label className="compose-now" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
+          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
