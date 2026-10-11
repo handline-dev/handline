@@ -28,7 +28,7 @@ export function Sheet({
 /** The sheet's buttons, pushed to the end. */
 export function SheetActions({ kind = 'verb', className, ...rest }: ComponentProps<'span'> & { kind?: Kind }) {
   const hook = kind === 'verb' ? 'verb-sheet-actions' : 'tsheet-actions';
-  return <span {...rest} className={`${hook} ml-auto flex gap-1.5${className ? ` ${className}` : ''}`} />;
+  return <span {...rest} className={`${hook} ml-auto flex gap-1.5 max-sm:w-full max-sm:[&>*]:flex-1${className ? ` ${className}` : ''}`} />;
 }
 
 /** A line of feedback under a control, indented past the label column. */

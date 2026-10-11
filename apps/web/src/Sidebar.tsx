@@ -43,9 +43,10 @@ import {
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 
-// One shape per nav row; the current one is raised with the inset bar.
+// One shape per nav row; the current one is raised with the inset bar. The arbitrary background sorts after `bg-transparent`,
+// which a plain `bg-raised` here would lose to.
 const NAV = 'nav flex h-7 w-full items-center gap-2 rounded-ctl border-0 bg-transparent px-2 text-left text-ink hover:bg-raised';
-const navOf = (on: boolean): string => (on ? `${NAV} on bg-raised shadow-[inset_2px_0_0_var(--ink)]` : NAV);
+const navOf = (on: boolean): string => (on ? `${NAV} on [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]` : NAV);
 
 export function Sidebar({
   selected,

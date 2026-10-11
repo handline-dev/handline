@@ -19,14 +19,28 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|T
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 
-export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () => void; embedded?: boolean }) {
+export function TaskDetail({
+  id,
+  onBack,
+  embedded,
+  drawer,
+}: {
+  id: number;
+  onBack: () => void;
+  /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
+  embedded?: boolean;
+  /** The drawer over the Tasks table: absolute under the toolbar, only the Tasks page asks for it. */
+  drawer?: boolean;
+}) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
   return (
     <article
-      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-6 max-sm:py-5${
-        embedded
-          ? ' pane absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)] -outline-offset-1'
+      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
+        embedded ? ' pane relative bg-panel -outline-offset-1' : ''
+      }${
+        drawer
+          ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
           : ''
       }`}
       aria-label={`Task #${id}`}
@@ -125,7 +139,7 @@ function Body({ t }: { t: Detail }) {
       </header>
       <TaskMeta t={t} now={now} />
       <div
-        className="tverbs flex flex-wrap gap-1.5 my-2 max-sm:sticky max-sm:bottom-0 max-sm:mt-auto max-sm:-mx-6 max-sm:-mb-5 max-sm:px-6 max-sm:py-4 max-sm:bg-canvas max-sm:border-t max-sm:border-line"
+        className="tverbs flex flex-wrap gap-1.5 my-2 max-sm:sticky max-sm:bottom-0 max-sm:mt-auto max-sm:-mx-4 max-sm:-mb-3 max-sm:px-4 max-sm:py-2 max-sm:bg-canvas max-sm:border-t max-sm:border-line"
         role="toolbar"
         aria-label="Task actions"
       >

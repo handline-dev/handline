@@ -32,7 +32,7 @@ export function Owner({ w }: { w: Worktree }) {
 }
 
 const STATUS_TONE: Record<string, string> = { 'in-progress': 'text-working', 'in-review': 'text-wait', blocked: 'text-bad' };
-const TD = 'h-[var(--trow-h)] border-b border-line px-4 text-body';
+const TD = 'h-[var(--trow-h)] border-b border-line px-2 text-body';
 
 export function Status({ word }: { word: string }) {
   const key = word.replace(/\W+/g, '-');
@@ -96,9 +96,9 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
   const old = q.dataUpdatedAt > 0 && now - q.dataUpdatedAt > OLD_MS;
   const open = path ? all.find((w) => w.path === path) : undefined;
   return (
-    <section className="worktrees flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-5 pb-7" aria-label="Worktrees">
-      <header className="wt-head flex flex-wrap items-center gap-4 py-5">
-        <h2 className="m-0 mr-4 text-title font-semibold">Worktrees</h2>
+    <section className="worktrees flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Worktrees">
+      <header className="wt-head flex flex-wrap items-center gap-2 py-3">
+        <h2 className="m-0 mr-2 text-title font-semibold">Worktrees</h2>
         <Select
           label="Repo"
           value={repo}
@@ -133,7 +133,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
           onChange={(e) => setSearch(e.target.value)}
         />
         {old ? (
-          <span className="wt-old muted ml-auto inline-flex items-center gap-3" role="status">
+          <span className="wt-old muted ml-auto inline-flex items-center gap-1" role="status">
             refreshed {ago(new Date(q.dataUpdatedAt).toISOString(), now)} ago{' '}
             <Button variant="outline" size="sm" icon="refresh" label="Refresh" onClick={() => void q.refetch()}>
               Refresh
@@ -143,12 +143,12 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
       </header>
       <View q={q} served={served} shape="worktrees" what="worktrees">
         <div
-          className={`wt-body grid grid-cols-[minmax(0,1fr)] items-start gap-6${path ? ' grid-cols-[minmax(0,1fr)_minmax(280px,380px)] max-[760px]:grid-cols-[minmax(0,1fr)]' : ''}`}
+          className={`wt-body grid grid-cols-[minmax(0,1fr)] items-start gap-4${path ? ' grid-cols-[minmax(0,1fr)_minmax(280px,380px)] max-[760px]:grid-cols-[minmax(0,1fr)]' : ''}`}
         >
           {!q.data ? null : all.length === 0 ? (
             <Empty icon="worktrees" name="No worktrees yet." hint="A worktree appears when an agent is started in a repo." />
           ) : shown.length === 0 ? (
-            <div className="wt-none grid justify-items-center gap-5 py-7">
+            <div className="wt-none grid justify-items-center gap-3 py-6">
               <Empty icon="filter" name="No worktree matches" />
               <Button variant="outline" label="Clear filters" onClick={clear} />
             </div>
@@ -158,11 +158,11 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
             <table className="wt-table w-full border-collapse">
               <thead>
                 <tr>
-                  <th className="border-b border-line p-4 text-left text-label font-normal text-ink-2">Repo</th>
-                  <th className="border-b border-line p-4 text-left text-label font-normal text-ink-2">Branch</th>
-                  <th className="border-b border-line p-4 text-left text-label font-normal text-ink-2">Owner</th>
-                  <th className="border-b border-line p-4 text-left text-label font-normal text-ink-2">Status</th>
-                  <th className="border-b border-line p-4 text-left text-label font-normal text-ink-2">Files</th>
+                  <th className="border-b border-line p-2 text-left text-label font-normal text-ink-2">Repo</th>
+                  <th className="border-b border-line p-2 text-left text-label font-normal text-ink-2">Branch</th>
+                  <th className="border-b border-line p-2 text-left text-label font-normal text-ink-2">Owner</th>
+                  <th className="border-b border-line p-2 text-left text-label font-normal text-ink-2">Status</th>
+                  <th className="border-b border-line p-2 text-left text-label font-normal text-ink-2">Files</th>
                 </tr>
               </thead>
               <tbody>

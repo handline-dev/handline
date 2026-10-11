@@ -88,7 +88,7 @@ export function NewAgentProgress({
   if (op.state === 'running')
     return (
       <Dialog title={`Creating ${agent ?? 'the agent'}`} onClose={onClose}>
-        <div className="na-progress grid gap-4" role="status">
+        <div className="na-progress grid gap-2" role="status">
           {op.step ? <p>{op.step}</p> : null}
           {op.steps_total ? (
             <>
@@ -111,7 +111,7 @@ export function NewAgentProgress({
           {op.message ?? 'Creating the agent failed.'}
         </p>
         {registered && agent ? <p>{agent} is registered, not started.</p> : null}
-        <div className="na-actions mt-5 flex justify-end gap-4">
+        <div className="na-actions mt-3 flex justify-end gap-2">
           {registered && agent ? <Button variant="outline" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
           <Button variant="solid" label="Edit and try again" onClick={() => goNew()} />
         </div>
@@ -130,11 +130,11 @@ export function NewAgentProgress({
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(ask.error))}
           </p>
-          <Textarea className="bg-panel border-line-strong px-5 py-4 resize-y" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea className="bg-panel border-line-strong px-3 py-2 resize-y" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
-      <div className="na-actions mt-5 flex justify-end gap-4">
+      <div className="na-actions mt-3 flex justify-end gap-2">
         {agent ? <Button variant="solid" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
         <Button label="Create another" onClick={onAnother} />
       </div>

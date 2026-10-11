@@ -77,7 +77,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
             <li key={h.key} role="option" aria-selected={i === cur}>
               <button
                 type="button"
-                className={`${PROW}${i === cur ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                className={`${PROW}${i === cur ? ' [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => go(h)}
               >

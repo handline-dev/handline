@@ -102,7 +102,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
       <form
         id="newagent-form"
         name="newagent-form"
-        className="tform na-form grid gap-5"
+        className="tform na-form grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           send();
@@ -114,8 +114,8 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             {sentence(refused)}
           </p>
         ) : null}
-        <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-          <div className="na-name flex min-w-0 items-end gap-2">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          <div className="na-name flex min-w-0 items-end gap-1">
             {prefix ? <span className="muted mono">{prefix}</span> : null}
             <Field
               className="flex-1"
@@ -132,7 +132,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             ))}
           </datalist>
         </div>
-        <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Repo</span>
             <Select
@@ -149,7 +149,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           </div>
           <Field label="Base" value={f.base} onChange={(e) => set('base', e.target.value)} />
         </div>
-        <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Model" placeholder="default" value={f.model} onChange={(e) => set('model', e.target.value)} />
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Effort</span>
@@ -161,7 +161,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             />
           </div>
         </div>
-        <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Account</span>
             <Select label="Account" disabled value="" onChange={() => {}} options={[{ value: '', label: 'auto' }]} />
@@ -179,7 +179,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         </div>
         <div className={FIELD}>
           <label htmlFor="na-task">First task (optional)</label>
-          <Textarea id="na-task" className="bg-panel border-line-strong px-5 py-4 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
+          <Textarea id="na-task" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
         </div>
         {f.task.trim() ? <Field label="Time box" value={f.box} onChange={(e) => set('box', e.target.value)} /> : null}
         <Button label="Cancel" onClick={onClose} />

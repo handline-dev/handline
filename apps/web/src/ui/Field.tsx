@@ -3,7 +3,7 @@ import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Icon } from './Icon.tsx';
 
 /** The labelled field and its note, shared by the hand-rolled forms (NewTask, NewAgent, the account pages). */
-export const FIELD = 'ui-field flex flex-col gap-2';
+export const FIELD = 'ui-field flex flex-col gap-1';
 export const FIELD_LABEL = 'ui-field-label text-label text-ink-2';
 export const NOTE = 'ui-note m-0 flex items-center gap-3 text-hint text-ink-3';
 export const noteTone = (tone?: 'warn' | 'bad'): string => (tone === 'bad' ? ' text-bad' : tone === 'warn' ? ' text-wait' : '');

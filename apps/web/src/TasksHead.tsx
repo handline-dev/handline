@@ -68,7 +68,7 @@ export function TasksHead(props: {
           aria-label={changed(filter) ? 'Filters, on' : 'Filters'}
           title="Filters (v)"
           variant={props.filtering ? 'outline' : 'ghost'}
-          className={`relative w-7 p-0 max-sm:min-h-[44px]${props.filtering ? ' bg-raised' : ''}`}
+          className={`relative w-7 p-0 max-sm:min-h-[44px]${props.filtering ? ' [background:var(--bg-3)]' : ''}`}
           aria-expanded={props.filtering}
           onClick={() => props.onAct('states')}
         >
@@ -117,7 +117,7 @@ export function TasksHead(props: {
         title="Select rows"
         aria-pressed={selecting}
         variant={selecting ? 'outline' : 'ghost'}
-        className={`max-sm:min-h-[44px]${selecting ? ' bg-raised' : ''}`}
+        className={`max-sm:min-h-[44px]${selecting ? ' [background:var(--bg-3)]' : ''}`}
         onClick={() => props.onSelecting()}
       />
       <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />

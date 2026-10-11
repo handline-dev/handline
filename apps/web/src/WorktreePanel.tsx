@@ -20,7 +20,7 @@ export function WorktreePanel({
 }) {
   if (!w)
     return (
-      <aside className="wt-panel grid min-w-0 gap-5 rounded-card border border-line bg-panel p-5" aria-label="Worktree">
+      <aside className="wt-panel grid min-w-0 gap-3 rounded-card border border-line bg-panel p-3" aria-label="Worktree">
         <p className="muted">No worktree at {path}.</p>
         <Button variant="outline" label="Close" onClick={onClose} />
       </aside>
@@ -35,12 +35,12 @@ export function WorktreePanel({
     );
   };
   return (
-    <aside className="wt-panel grid min-w-0 gap-5 rounded-card border border-line bg-panel p-5" aria-label="Worktree">
-      <header className="flex items-center justify-between gap-4">
+    <aside className="wt-panel grid min-w-0 gap-3 rounded-card border border-line bg-panel p-3" aria-label="Worktree">
+      <header className="flex items-center justify-between gap-2">
         <strong>{w.branch}</strong>
         <Button icon="close" label="Close the panel" onClick={onClose} />
       </header>
-      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-5 gap-y-3">
+      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5">
         <dt className="text-ink-3">Repo</dt>
         <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{w.repo}</dd>
         <dt className="text-ink-3">Path</dt>
@@ -91,16 +91,16 @@ export function WorktreePanel({
       {w.owner ? <Button variant="solid" label="Open agent" onClick={() => goAgent(w.owner!)} /> : null}
       {w.changed.length ? (
         <table className="wt-files w-full border-collapse text-body" aria-label="Changed files">
-          <caption className="muted pb-3 text-left">
+          <caption className="muted pb-1.5 text-left">
             {w.changed.length} changed +{added} −{deleted}
           </caption>
           <tbody>
             {w.changed.map((f) => (
               <tr key={f.path}>
-                <td className="wt-letter w-[1.5em] border-t border-line px-3 py-2 font-semibold [overflow-wrap:anywhere]">{f.status}</td>
-                <td className="mono border-t border-line px-3 py-2 [overflow-wrap:anywhere]">{f.path}</td>
-                <td className="num border-t border-line px-3 py-2 text-right whitespace-nowrap [overflow-wrap:anywhere]">+{f.added}</td>
-                <td className="num border-t border-line px-3 py-2 text-right whitespace-nowrap [overflow-wrap:anywhere]">−{f.deleted}</td>
+                <td className="wt-letter w-[1.5em] border-t border-line px-1.5 py-1 font-semibold [overflow-wrap:anywhere]">{f.status}</td>
+                <td className="mono border-t border-line px-1.5 py-1 [overflow-wrap:anywhere]">{f.path}</td>
+                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">+{f.added}</td>
+                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">−{f.deleted}</td>
               </tr>
             ))}
           </tbody>

@@ -179,7 +179,7 @@ export function Compose(props: {
               <li key={e.key} role="option" aria-selected={i === Math.min(at, menu.length - 1)}>
                 <button
                   type="button"
-                  className={`${PROW}${i === Math.min(at, menu.length - 1) ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                  className={`${PROW}${i === Math.min(at, menu.length - 1) ? ' [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
                   onMouseDown={(ev) => ev.preventDefault()}
                   onClick={() => choose(e)}
                 >

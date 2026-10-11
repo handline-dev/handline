@@ -52,7 +52,7 @@ export function Popup({
 }
 
 /** One row of a popup or menu; Sidebar's ⋯ rows and the palette's list ride the same look. */
-export const PROW = 'ui-prow flex h-7 w-full items-center gap-4 border-0 bg-transparent px-4 text-left text-ink hover:bg-raised';
+export const PROW = 'ui-prow flex h-7 w-full items-center gap-2 border-0 bg-transparent px-2 text-left text-ink hover:bg-raised';
 export const PROW_NAME = 'ui-prow-name flex-1';
 export const PROW_HINT = 'ui-prow-hint text-hint text-ink-3';
 

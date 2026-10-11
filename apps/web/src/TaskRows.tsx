@@ -37,7 +37,7 @@ export function Row(props: {
     .join(' · ');
   // An open row keeps its raised ground when hovered; a cursor row carries the inset bar. On a phone the row is a card,
   // with #number, priority and state on line one (the mark column only while the table selects), then the title, then the time.
-  const CARD = 'max-sm:mt-0 max-sm:grid max-sm:gap-y-1 max-sm:gap-x-4 max-sm:mb-4 max-sm:py-4 max-sm:px-5 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-card';
+  const CARD = 'max-sm:mt-0 max-sm:grid max-sm:gap-y-0.5 max-sm:gap-x-2 max-sm:mb-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-card';
   const card = props.markCell
     ? `${CARD} max-sm:grid-cols-[auto_1fr_auto_auto] max-sm:[grid-template-areas:'mark_num_pri_state'_'title_title_title_title'_'time_time_time_act']`
     : `${CARD} max-sm:grid-cols-[1fr_auto_auto] max-sm:[grid-template-areas:'num_pri_state'_'title_title_title'_'time_time_act']`;
@@ -50,7 +50,7 @@ export function Row(props: {
       props.onCursor();
       if (t.id > 0) goTasks(t.id);
     }}>
-      <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:[grid-area:mark]${props.markCell ? '' : ' hidden'}`}>
+      <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:[grid-area:mark]${props.markCell ? '' : ' hidden max-sm:hidden'}`}>
         <input
           type="checkbox"
           aria-label={`Mark #${t.id}`}

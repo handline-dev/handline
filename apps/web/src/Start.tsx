@@ -114,7 +114,7 @@ function Connection() {
   return (
     <fieldset className="connection" disabled={busy}>
       <legend>Which daemon</legend>
-      <p>
+      <p className="m-0">
         {now.mode === 'own'
           ? 'This app runs its own daemon.'
           : now.remote
@@ -126,7 +126,7 @@ function Connection() {
       </button>
       {now.mode === 'connect' && (
         <>
-          <p>
+          <p className="m-0">
             Or pair with another device: its address and the code from <code>hl device pair</code>.
           </p>
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (name.ts.net)" aria-label="Address" />

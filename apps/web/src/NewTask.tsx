@@ -23,7 +23,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
       <form
         id="newtask-form"
         name="newtask-form"
-        className="tform grid gap-5"
+        className="tform grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           send();
@@ -43,9 +43,9 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           <label htmlFor="newtask-body" className={FIELD_LABEL}>
             Body
           </label>
-          <Textarea id="newtask-body" className="bg-panel border-line-strong px-5 py-4 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
         </div>
-        <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Priority</span>

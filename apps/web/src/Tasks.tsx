@@ -54,7 +54,7 @@ export function TasksPage({ storage, route }: { storage: KV | null; route: strin
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
       <TaskList storage={storage} selected={id} />
-      {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded /> : null}
+      {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded drawer /> : null}
     </div>
   );
 }
@@ -186,7 +186,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-none max-sm:border-0" aria-busy={q.isFetching && !q.data}>
+      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0" aria-busy={q.isFetching && !q.data}>
         <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
           <TableHead
             tree={mode === 'tree'}
@@ -257,7 +257,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const none = scope === 'closed' && all.length === 0;
   return (
     <section
-      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-6 max-sm:py-5"
+      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-4 max-sm:py-3"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"
