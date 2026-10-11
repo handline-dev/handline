@@ -20,7 +20,8 @@ import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
-import { HEADS, SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
+import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
+import { TableHead } from './TaskTableHead.tsx';
 import { KeysSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
@@ -50,7 +51,7 @@ export function TasksPage({ storage, route }: { storage: KV | null; route: strin
   const wide = useWide(1100);
   if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
   return (
-    <div className={`tasks-split${id !== null ? ' with-pane' : ''}`}>
+    <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
       <TaskList storage={storage} selected={id} />
       {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded /> : null}
     </div>
@@ -184,36 +185,15 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
-          <thead>
-            <tr>
-              <th className="c-mark">
-                <input
-                  type="checkbox"
-                  aria-label="Mark every row shown"
-                  checked={!!order.length && marked.size === order.length}
-                  onChange={toggleAll}
-                />
-              </th>
-              {mode === 'tree' ? (
-                <>
-                  <th className="c-title">task</th>
-                  <th className="c-state">state</th>
-                </>
-              ) : (
-                HEADS.map((h) => (
-                  <th key={h.col} className={h.cls} aria-sort={sort.by === h.col ? (sort.reverse ? 'descending' : 'ascending') : undefined}>
-                    <button className="head" onClick={() => setSort((s) => ({ by: h.col, reverse: s.by === h.col && !s.reverse }))}>
-                      {h.label}
-                      {sort.by === h.col ? (sort.reverse ? ' ▾' : ' ▴') : ''}
-                    </button>
-                  </th>
-                ))
-              )}
-              <th className="c-act" aria-label="Actions" />
-            </tr>
-          </thead>
+      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface" aria-busy={q.isFetching && !q.data}>
+        <table className={`ttable w-full table-fixed border-collapse${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
+          <TableHead
+            tree={mode === 'tree'}
+            sort={sort}
+            allMarked={!!order.length && marked.size === order.length}
+            onToggleAll={toggleAll}
+            onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
+          />
           <tbody>
             <AnimatedList>
               {mode === 'tree'
@@ -275,7 +255,13 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   // The daemon is asked for closed tasks only when they are shown, so "nothing at all" can only be said once they are.
   const none = scope === 'closed' && all.length === 0;
   return (
-    <section className="tasks" ref={root} tabIndex={0} aria-label="Tasks" onKeyDown={onKey}>
+    <section
+      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none"
+      ref={root}
+      tabIndex={0}
+      aria-label="Tasks"
+      onKeyDown={onKey}
+    >
       <TasksHead
         agents={taskAgents(all)}
         filter={filter}

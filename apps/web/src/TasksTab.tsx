@@ -34,7 +34,7 @@ export function TasksTab({ agent }: { agent: string }) {
               >
                 <Icon name="tasks" size={14} label="Task" />
                 <span className="mono">#{t.id}</span>
-                <span className="ttitle">{t.title}</span>
+                <span className="ttitle text-body font-medium">{t.title}</span>
                 <StateChip state={t.state} />
               </button>
             </li>

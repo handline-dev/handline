@@ -3,6 +3,9 @@ import { useState } from 'react';
 import { useWrite } from '@handline/app-data';
 import { Icon } from './ui/Icon.tsx';
 
+const INPUT = 'tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink';
+const MEMO = 'tmemo mt-2 flex gap-2';
+
 export function MemoRow({
   task,
   memo,
@@ -24,7 +27,7 @@ export function MemoRow({
     edit.mutate({ task, memo: memo.id, text: next }, { onSuccess: () => setText(null) });
   };
   return (
-    <li>
+    <li className="flex items-baseline gap-1.5 py-0.5">
       <Icon name="say" label="Memo" aria-hidden="true" size={14} />
       <span className="mono">{when(memo.at)}</span> <strong>{memo.author}</strong>:{' '}
       {text === null ? (
@@ -50,8 +53,8 @@ export function MemoRow({
           </button>
         </>
       ) : (
-        <span className="tmemo">
-          <textarea className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
+        <span className={MEMO}>
+          <textarea className={INPUT} rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn primary" disabled={!text.trim()} onClick={save}>
             Save
           </button>{' '}
@@ -90,7 +93,7 @@ export function MemoBox({
   const [text, setText] = useState('');
   return (
     <form
-      className="tmemo"
+      className={MEMO}
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim()) add.mutate({ task: id, text: text.trim() }, { onSuccess: () => setText('') });
@@ -98,7 +101,7 @@ export function MemoBox({
     >
       <textarea
         ref={box}
-        className="tinput"
+        className={INPUT}
         rows={2}
         value={text}
         disabled={!can.ok}

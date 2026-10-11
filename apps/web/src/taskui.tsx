@@ -13,29 +13,33 @@ export const STATE_GLYPH: Record<string, IconName> = {
   discarded: 'taskDiscarded',
 };
 
+/** The screen-reader-only clip, spelled out wherever `.vh` marks a word only assistive tech reads. */
+export const VH = 'absolute h-px w-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)]';
+/** The chip look per state; the class is the hook, the utilities the look. `run` also spins the doing glyph (tasks.css). */
 const TONE: Record<string, string> = {
-  doing: 'run',
-  queued: 'wait',
-  pending: 'wait',
+  doing: 'run text-working',
+  queued: 'wait text-wait',
+  pending: 'wait text-wait',
   draft: 'idle',
-  blocked: 'block',
+  blocked: 'block text-bad',
   done: 'idle',
   discarded: 'idle',
 };
+const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
 export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 'decided' | null }) {
   if (mark === 'decided')
     return (
-      <span className="tchip pending" title="waiting for the daemon">
+      <span className={`tchip pending ${CHIP}`} title="waiting for the daemon">
         …
       </span>
     );
   return (
-    <span className={`tchip ${TONE[state] ?? 'idle'}`} data-state={state} title={state}>
+    <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
       {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
       <Icon name={STATE_GLYPH[state] ?? 'taskPending'} label={state} size={16} aria-hidden="true" />
-      <span className="vh">{state}</span>
+      <span className={`vh ${VH}`}>{state}</span>
     </span>
   );
 }
@@ -89,7 +93,7 @@ export function Sheet(props: {
   return (
     <form
       ref={ref}
-      className={`tsheet${props.full ? ' full' : ''}`}
+      className={`tsheet flex flex-wrap items-center gap-2 my-2 px-3 py-2 border border-line rounded-card bg-panel${props.full ? ' full' : ''}`}
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {
@@ -105,7 +109,7 @@ export function Sheet(props: {
     >
       <strong className="tsheet-label">{props.label}</strong>
       {props.children}
-      <span className="tsheet-actions">
+      <span className="tsheet-actions ml-auto inline-flex gap-1.5">
         <button type="submit" className="btn primary" disabled={props.busy}>
           {props.busy ? '…' : props.submit}
         </button>
@@ -129,7 +133,7 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
       onSubmit={() => (text.trim() ? props.onSubmit(text.trim()) : setEmpty(true))}
     >
       <input
-        className="tinput"
+        className="tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink"
         value={text}
         aria-label={props.label}
         aria-invalid={empty && !text.trim()}
@@ -139,7 +143,7 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
         }}
       />
       {empty ? (
-        <span className="tsheet-err" role="alert">
+        <span className="tsheet-err basis-full text-bad" role="alert">
           A reason is required.
         </span>
       ) : null}

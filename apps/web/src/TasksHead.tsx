@@ -7,11 +7,11 @@ import { STATE_GLYPH } from './taskui.tsx';
 export type Scope = 'open' | 'mine' | 'closed';
 
 export const HEADS: { col: TaskColumn; label: string; cls: string }[] = [
-  { col: 'number', label: '#', cls: 'c-num' },
-  { col: 'priority', label: 'P', cls: 'c-pri' },
-  { col: 'state', label: 'state', cls: 'c-state' },
+  { col: 'number', label: '#', cls: 'c-num w-16' },
+  { col: 'priority', label: 'P', cls: 'c-pri w-10' },
+  { col: 'state', label: 'state', cls: 'c-state w-16' },
   { col: 'title', label: 'title', cls: 'c-title' },
-  { col: 'timeout', label: 'time', cls: 'c-time' },
+  { col: 'timeout', label: 'time', cls: 'c-time w-20' },
 ];
 /** What the `s` key steps through: the columns shown and the ones folded into the title line. */
 export const SORTS: TaskColumn[] = ['number', 'priority', 'state', 'title', 'owner', 'idle', 'timeout', 'asker'];
@@ -38,15 +38,16 @@ export function TasksHead(props: {
 }) {
   const { filter, mode, selecting } = props;
   return (
-    <header className="tasks-head">
-      <h1>Tasks</h1>
-      <label className="tsearch" title="Search by number, title or agent">
-        <Icon name="search" label="Search" size={14} aria-hidden="true" />
+    <header className="tasks-head flex flex-wrap items-center gap-2 pb-2">
+      <h1 className="m-0 mr-auto text-page font-semibold">Tasks</h1>
+      <label className="tsearch relative inline-flex items-center" title="Search by number, title or agent">
+        <Icon name="search" label="Search" size={14} aria-hidden="true" className="pointer-events-none absolute left-1.5 text-ink-3" />
         <input
           type="search"
           value={props.query}
           placeholder="Search"
           aria-label="Search tasks"
+          className="h-[28px] w-[200px] rounded-ctl border border-line bg-panel pl-6 pr-1.5 text-body text-ink"
           onChange={(e) => props.onQuery(e.target.value)}
         />
       </label>
@@ -60,19 +61,19 @@ export function TasksHead(props: {
           { value: 'closed', label: 'Closed' },
         ]}
       />
-      <span className="tfilters">
+      <span className="tfilters relative inline-flex">
         <button
-          className={`btn icon${props.filtering ? ' on' : ''}`}
+          className={`btn icon relative${props.filtering ? ' on' : ''}`}
           onClick={() => props.onAct('states')}
           aria-label={changed(filter) ? 'Filters, on' : 'Filters'}
           aria-expanded={props.filtering}
           title="Filters (v)"
         >
           <Icon name="filter" label="Filters" aria-hidden="true" />
-          {changed(filter) ? <span className="tdot" title="A filter is on" /> : null}
+          {changed(filter) ? <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" /> : null}
         </button>
         <Popup open={props.filtering} onClose={() => props.onAct('states')} title="Filters">
-          <div className="tfilter-body">
+          <div className="tfilter-body grid gap-2 px-3 py-2">
             <Select
               label="Agent"
               value={filter.agent}
@@ -80,7 +81,7 @@ export function TasksHead(props: {
               options={[{ value: '', label: 'all agents' }, ...props.agents.map((a) => ({ value: a, label: a }))]}
             />
             {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
-              <label key={s} className="tcheck">
+              <label key={s} className="tcheck inline-flex items-center gap-1">
                 <input
                   type="checkbox"
                   checked={filter.states.has(s)}
@@ -143,8 +144,8 @@ export function TasksBar(props: {
 }) {
   const { can } = props;
   return (
-    <div className="tbar" role="toolbar" aria-label="Actions on the marked tasks">
-      <span className="muted">{props.marked} marked</span>
+    <div className="tbar flex flex-wrap items-center gap-2 pt-2" role="toolbar" aria-label="Actions on the marked tasks">
+      <span className="muted mr-auto">{props.marked} marked</span>
       <button
         className="btn icon"
         onClick={() => props.onAct('discard')}
