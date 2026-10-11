@@ -27,7 +27,9 @@ export class FakeAccounts {
   lists = (name: string): boolean => this.on || !/^accounts?\./.test(name);
 
   private emit(a: Account) {
-    this.host.emit('accounts', 'account.changed', { title: a.label, data: a as unknown as Record<string, unknown> });
+    // The topic row is the one without the usage fields, as the gateway sends it.
+    const { plan: _p, assignable: _a, assign_reason: _r, ...row } = a;
+    this.host.emit('accounts', 'account.changed', { title: a.label, data: row });
   }
   private agentsOn(account: string): string[] {
     return [...this.host.sessions.values()].filter((s) => s.fx.account === account).map((s) => s.fx.name);
@@ -61,6 +63,9 @@ export class FakeAccounts {
       weekly: { used_pct: 62, resets_at: at(70), source: 'measured' },
       cap: 4,
       label: 'alpha',
+      plan: 'pro',
+      assignable: true,
+      assign_reason: '',
     });
     this.add({
       name: 'beta',
@@ -68,6 +73,9 @@ export class FakeAccounts {
       five_hour: { used_pct: 88, resets_at: at(1), source: 'measured' },
       weekly: { used_pct: 30, resets_at: at(120), source: 'estimated' },
       cycle: { on: true, end: '2026-10-28', end_is_default: false },
+      plan: 'pro',
+      assignable: false,
+      assign_reason: '5h 88% at last reading',
     });
     this.add({ name: 'gamma', login_state: 'needs_login', five_hour: null, weekly: null });
   }

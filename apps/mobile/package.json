@@ -20,6 +20,7 @@
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
     "expo": "~57.0.26",
+    "expo-camera": "^57.0.6",
     "expo-dev-client": "~57.0.19",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",

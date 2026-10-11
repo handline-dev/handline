@@ -258,11 +258,11 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? (
-        <>
-          <pre className="lines tool-output">{i.output}</pre>
-          {cut ? <span className="muted">{cut} more line{cut === 1 ? '' : 's'} let go</span> : null}
-        </>
+      {open ? <pre className="lines tool-output">{i.output}</pre> : null}
+      {cut && (open || !i.output) ? (
+        <span className="muted">
+          {cut} more line{cut === 1 ? '' : 's'} let go
+        </span>
       ) : null}
     </div>
   );
@@ -300,8 +300,7 @@ export function Item({ i }: { i: TranscriptItem }) {
         </div>
       </div>
     );
-  if (i.kind === 'tool')
-    return <ToolLine i={i} />;
+  if (i.kind === 'tool') return <ToolLine i={i} />;
   if (i.kind === 'prompt') {
     const p = i.prompt;
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
@@ -320,10 +319,7 @@ export function Item({ i }: { i: TranscriptItem }) {
       </div>
     );
   }
-  if (i.kind === 'session')
-    return (
-      <SessionCard i={i} />
-    );
+  if (i.kind === 'session') return <SessionCard i={i} />;
   const e = i.task_event;
   const ev = e?.event ?? 'changed';
   const word = `Task ${e?.task} ${TASK_EVENT_WORD[ev] ?? ev}`;

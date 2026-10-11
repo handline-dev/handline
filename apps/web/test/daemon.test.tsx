@@ -39,14 +39,16 @@ describe('daemonUrl', () => {
     await act(async () => root!.render(<Start url={url} insecure={insecure} storage={storage} />));
     expect(box.querySelector('.pair-screen input')).not.toBeNull();
   });
-  it('shows why the shell\'s own daemon is not up, not a refusal of the address it would have been on', async () => {
+  it("shows why the shell's own daemon is not up, not a refusal of the address it would have been on", async () => {
     const { url, insecure } = daemonUrl('?daemon=ws://100.101.2.3:7443/rpc', at('http:', 'x:1'), true);
     expect(insecure).toBe(true); // the shell named no own host, as when it has nothing to say
     const box = document.createElement('div');
     document.body.append(box);
     root = createRoot(box);
     const storage = { getItem: () => null, setItem: () => undefined };
-    await act(async () => root!.render(<Start url={url} insecure={insecure} failure="the gateway exited at start (exit 1)" storage={storage} />));
+    await act(async () =>
+      root!.render(<Start url={url} insecure={insecure} failure="the gateway exited at start (exit 1)" storage={storage} />),
+    );
     expect(box.textContent).toContain('the gateway exited at start (exit 1)');
     expect(box.textContent).not.toContain('Refusing');
     expect(box.querySelector('.pair-screen')).toBeNull();

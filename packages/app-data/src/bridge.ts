@@ -49,7 +49,11 @@ const rules: Record<string, Rule> = {
   'inbox.changed': inbox,
   'account.changed': ({ qc, d }, e) => {
     const a = data<Account>(e);
-    edit<{ accounts: Account[] }>(qc, qk.accounts(d), (l) => ({ ...l, accounts: upsert(l.accounts, a, (x) => x.name === a.name) }));
+    // The topic row has no usage fields; the usage read's cache (also under this key) keeps the ones it has.
+    edit<{ accounts: Account[] }>(qc, qk.accounts(d), (l) => ({
+      ...l,
+      accounts: upsert(l.accounts, { ...l.accounts.find((x) => x.name === a.name), ...a }, (x) => x.name === a.name),
+    }));
   },
   'status.changed': ({ qc, d }, e) => {
     qc.setQueryData<DaemonStatus>(qk.status(d), data<DaemonStatus>(e));

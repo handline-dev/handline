@@ -33,7 +33,15 @@ const common: BuildOptions = {
   external: ['electron'],
   logLevel: 'info',
   define: { 'import.meta.dirname': '__dirname', 'import.meta.filename': '__filename' },
-  plugins: [{ name: 'restart', setup: (b) => b.onEnd((r) => r.errors.length === 0 && child && restart()) }],
+  plugins: [
+    {
+      name: 'restart',
+      setup: (b) =>
+        b.onEnd((r) => {
+          if (r.errors.length === 0 && child) restart();
+        }),
+    },
+  ],
 };
 
 // Own mode starts go/handlined; a fresh checkout has none.
