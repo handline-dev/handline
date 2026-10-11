@@ -1,7 +1,7 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
 import { Sheet } from './taskui.tsx';
-import { Kbd, NativeSelect } from './ui/index.ts';
+import { Button, Kbd, NativeSelect } from './ui/index.ts';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
 export const LIST_KEYS: [string, string][] = [
@@ -43,10 +43,10 @@ export function PrioritySheet({ onCancel, onPick }: { onCancel: () => void; onPi
   return (
     <Sheet label="priority (1 high, 2, 3 low):" submit="Set" onCancel={onCancel} onSubmit={onCancel}>
       {([1, 2, 3] as const).map((p) => (
-        <button key={p} type="button" className="btn" onClick={() => onPick(p)}>
+        <Button key={p} variant="outline" label={`Priority ${p}`} className="max-sm:min-h-12 max-sm:flex-1" onClick={() => onPick(p)}>
           {p}
           {p === 1 ? ' high' : p === 3 ? ' low' : ''}
-        </button>
+        </Button>
       ))}
     </Sheet>
   );

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useServes } from '@handline/app-data';
 import { Icon, type IconName } from './Icon.tsx';
-import { Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
+import { Button, Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
 
 export const STATE_GLYPH: Record<string, IconName> = {
   draft: 'taskDraft',
@@ -111,12 +111,10 @@ export function Sheet(props: {
       <strong className="tsheet-label">{props.label}</strong>
       {props.children}
       <SheetActions kind="form">
-        <button type="submit" className="btn primary" disabled={props.busy}>
+        <Button type="submit" variant="solid" label={props.submit} disabled={props.busy}>
           {props.busy ? '…' : props.submit}
-        </button>
-        <button type="button" className="btn" onClick={props.onCancel}>
-          Cancel
-        </button>
+        </Button>
+        <Button variant="outline" label="Cancel" onClick={props.onCancel} />
       </SheetActions>
     </SheetBox>
   );

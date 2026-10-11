@@ -1,5 +1,5 @@
 // The bar under the Tasks list: what acts on the marked tasks, as icons with the key beside them; the words are for the tooltip and a screen reader.
-import { Kbd, Toolbar, VisuallyHidden } from './ui/index.ts';
+import { Button, Kbd, Toolbar, VisuallyHidden } from './ui/index.ts';
 
 type Can = { ok: boolean; why: string | undefined };
 
@@ -10,10 +10,16 @@ export function ActionBar(props: {
 }) {
   const { discard, edit, merge } = props.can;
   const one = (what: 'discard' | 'owner' | 'priority' | 'merge', word: string, glyph: string, key: string, can: Can, tip = word) => (
-    <button className="btn" onClick={() => props.onAct(what)} disabled={!can.ok} title={can.why ?? tip}>
+    <Button
+      label={word}
+      className="max-sm:min-h-[44px]"
+      onClick={() => props.onAct(what)}
+      disabled={!can.ok}
+      title={can.why ?? tip}
+    >
       <VisuallyHidden>{word}</VisuallyHidden>
-      <span aria-hidden>{glyph}</span> <Kbd>{key}</Kbd>
-    </button>
+      <span aria-hidden>{glyph}</span> <Kbd className="max-sm:hidden">{key}</Kbd>
+    </Button>
   );
   return (
     <Toolbar label="Actions on the marked tasks">

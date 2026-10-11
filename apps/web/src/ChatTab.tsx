@@ -197,10 +197,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
         {chat.status === 'error' && sentence(classify(chat.error)) ? (
           <div className="banner" role="alert">
-            {sentence(classify(chat.error))}{' '}
-            <button className="btn" onClick={chat.refetch}>
-              Retry
-            </button>
+            {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
           </div>
         ) : null}
         {chat.hasOlder ? (

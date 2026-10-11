@@ -7,7 +7,7 @@ import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
-import { Card, CardActions, CodeBlock, Input, Kbd } from './ui/index.ts';
+import { Button, Card, CardActions, CodeBlock, Input, Kbd } from './ui/index.ts';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 
@@ -79,29 +79,29 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     <Card variant="chat" className="prompt" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title mb-1.5 font-semibold">
         ⚠ {promptTitle(p)}
-        <span className="muted since">
+        <span className="muted font-normal">
           {p.since ? ` · waiting since ${new Date(p.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
         </span>
       </div>
       {changed ? (
-        <p className="stale" role="status">
+        <p className="text-wait m-0 mb-1.5" role="status">
           This prompt changed
         </p>
       ) : null}
       {p.command ? <CodeBlock cmd>{p.command}</CodeBlock> : <CodeBlock>{p.lines.join('\n')}</CodeBlock>}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
-        <ol className="opts">
+        <ol className="opts m-0 mt-2 grid list-none gap-1.5 p-0">
           {opts.map((o, i) => (
             <li key={o.key}>
               {multi ? (
-                <label className="opt">
+                <label className="flex items-center gap-2 text-left">
                   <input type="checkbox" checked={picked.includes(o.key)} disabled={answering} onChange={() => toggle(o.key)} /> {o.label}
                 </label>
               ) : (
-                <button className="btn opt" disabled={answering} onClick={() => send(o.key, o.key)}>
+                <Button variant="outline" label={o.label} className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => send(o.key, o.key)}>
                   <Kbd>{o.key || i + 1}</Kbd> {mark(o.key, o.label)}
-                </button>
+                </Button>
               )}
             </li>
           ))}
@@ -109,24 +109,28 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       ) : (
         <CardActions>
           {opts.map((o) => (
-            <button
+            <Button
               key={o.key}
-              className={`btn${o.answer === 'yes' || (p.kind !== 'permission' && o.highlighted) ? ' primary' : ''}`}
+              variant={o.answer === 'yes' || (p.kind !== 'permission' && o.highlighted) ? 'solid' : 'outline'}
+              label={o.label}
+              className="max-sm:min-h-12 max-sm:w-full"
               disabled={answering}
               onClick={() => send(o.key, o.key)}
             >
               {isAlways(o) ? '↻ ' : ''}
               {mark(o.key, o.label)} <Kbd>{o.key}</Kbd>
-            </button>
+            </Button>
           ))}
         </CardActions>
       )}
-      {opts.some(isAlways) && p.kind === 'dialog' ? <p className="muted note border-b border-line px-3 py-1.5">↻ saves a rule for next time</p> : null}
+      {opts.some(isAlways) && p.kind === 'dialog' ? (
+        <p className="muted note mt-1.5 mb-0 border-b border-line px-3 py-1.5 text-label">↻ saves a rule for next time</p>
+      ) : null}
       {multi ? (
         <CardActions>
-          <button className="btn primary" disabled={answering || !picked.length} onClick={submit}>
+          <Button variant="solid" label="Submit" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !picked.length} onClick={submit}>
             {mark('submit', 'Submit')}
-          </button>
+          </Button>
         </CardActions>
       ) : null}
       {question && !multi ? (
@@ -147,21 +151,19 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
               disabled={answering}
               onChange={(e) => setText(e.target.value)}
             />
-            <button className="btn primary" disabled={answering || !text.trim()}>
+            <Button type="submit" variant="solid" label="Send" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !text.trim()}>
               {mark('text', 'Send')}
-            </button>
+            </Button>
           </CardActions>
         ) : (
-          <button className="btn opt" disabled={answering} onClick={() => setTyping(true)}>
-            Type something
-          </button>
+          <Button variant="outline" label="Type something" className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => setTyping(true)} />
         )
       ) : null}
       {cancel ? (
         <CardActions>
-          <button className="btn" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
+          <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:w-full" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
             {mark(cancel.key, 'Cancel')} <Kbd>esc</Kbd>
-          </button>
+          </Button>
         </CardActions>
       ) : null}
       {answering ? <p className="muted">{slow ? 'still waiting' : 'answering…'}</p> : null}

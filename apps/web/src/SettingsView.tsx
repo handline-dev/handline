@@ -205,8 +205,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           <strong>{danger.title}</strong>
           <span className="muted">{danger.text}</span>
           <SheetActions>
-            <button
-              className="btn primary"
+            <Button
+              variant="solid"
+              label={danger.go}
+              className="max-sm:min-h-12 max-sm:flex-1"
               onClick={() => {
                 const v = ask!;
                 setAsk(null);
@@ -214,10 +216,8 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
               }}
             >
               {danger.go}
-            </button>
-            <button className="btn" onClick={() => setAsk(null)}>
-              Cancel
-            </button>
+            </Button>
+            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(null)} />
           </SheetActions>
         </Sheet>
       ) : null}

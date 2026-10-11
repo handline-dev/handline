@@ -31,7 +31,7 @@ export function Button({ variant = 'ghost', size = 'md', icon, label, keys, chil
         variant === 'outline' ? 'border-line-strong' : 'border-transparent'
       } font-sans text-body text-ink whitespace-nowrap ${look}${className ? ` ${className}` : ''}`}
       title={rest.title ?? label}
-      aria-label={iconOnly ? label : undefined}
+      aria-label={rest['aria-label'] ?? (iconOnly ? label : undefined)}
     >
       {icon ? <Icon name={icon} label={label} size={size === 'sm' ? 14 : 16} /> : null}
       {children ?? (icon ? null : label)}

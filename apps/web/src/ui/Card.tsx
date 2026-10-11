@@ -36,7 +36,7 @@ export function ChartTitle({ className, ...rest }: ComponentProps<'h3'>) {
 
 /** A chat card's buttons; `wrap` is a card of the HR page, where they wrap and the card's own gap spaces them. */
 export function CardActions({ as: Tag = 'div', wrap, className, ...rest }: ComponentProps<'div'> & { as?: ElementType; wrap?: boolean }) {
-  return <Tag {...rest} className={join('card-actions flex gap-2', wrap ? 'm-0 flex-wrap' : 'mt-2', className)} />;
+  return <Tag {...rest} className={join('card-actions flex gap-2 max-sm:flex-col-reverse', wrap ? 'm-0 flex-wrap' : 'mt-2', className)} />;
 }
 
 /** The one-line body of a chat card: it takes the room the icons leave and cuts with an ellipsis; `stacked` puts a title over its reason. */

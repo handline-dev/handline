@@ -23,6 +23,7 @@ import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
 import { TableHead } from './TaskTableHead.tsx';
 import { KeysSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
+import { Button } from './ui/index.ts';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
 import { ReasonSheet, Sheet, useCan, useNow, useWide } from './taskui.tsx';
@@ -284,17 +285,13 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             {none ? (
               <>
                 <p>Nothing has been asked yet.</p>
-                <button className="btn primary" onClick={() => act('new')}>
-                  New task
-                </button>
+                <Button variant="solid" label="New task" onClick={() => act('new')} />
               </>
             ) : (
               <>
                 <p>No tasks in these states.</p>
                 {scope !== 'closed' ? (
-                  <button className="btn" onClick={() => setScope('closed')}>
-                    Show closed
-                  </button>
+                  <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} />
                 ) : null}
               </>
             )}

@@ -561,7 +561,7 @@ describe('errors', () => {
     expect(text($('.chat .banner'))).toContain(REFUSAL);
     expect($('.chat .skeleton')).toBeNull();
     s.daemon.knobs.clear();
-    await click($$('.chat .banner .btn').find((b) => text(b) === 'Retry')!);
+    await click($$('.chat .banner .ui-btn').find((b) => text(b) === 'Retry')!);
     await until(() => msg('Which gap list'), 'the conversation after Retry');
     expect($('.chat .banner')).toBeNull();
   });

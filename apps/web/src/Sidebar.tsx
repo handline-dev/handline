@@ -338,18 +338,19 @@ function RowControls({
   return (
     <span className="row-actions flex flex-none items-center gap-1">
       {c.start ? (
-        <button
-          className="btn primary"
+        <Button
+          variant="solid"
+          label="Start"
           disabled={busy}
           onClick={() => start.mutate(d.structured ? { agent } : { agent, account: account || undefined })}
         >
           {start.isPending ? 'starting…' : '▶ Start'}
-        </button>
+        </Button>
       ) : null}
       {c.resume ? (
-        <button className="btn" disabled={busy} onClick={() => resume.mutate({ agent })}>
+        <Button variant="outline" label="Resume" disabled={busy} onClick={() => resume.mutate({ agent })}>
           {resume.isPending ? 'resuming…' : '⟳ Resume'}
-        </button>
+        </Button>
       ) : null}
       <details className="menu" ref={menu}>
         <summary className="btn" aria-label={`More actions for ${agent}`}>

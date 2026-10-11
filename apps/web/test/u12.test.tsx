@@ -31,7 +31,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 const item = (label: string) => $$('.row-actions .menu-item').find((b) => text(b.querySelector('strong')) === label)!;
-const sheetBtn = (label: string) => $$('.verb-sheet .btn').find((b) => text(b) === label)!;
+const sheetBtn = (label: string) => $$('.verb-sheet .ui-btn').find((b) => text(b) === label)!;
 
 async function mount(agent: string, s = setup()) {
   location.hash = `#/agents/${agent}`;

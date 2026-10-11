@@ -293,9 +293,9 @@ describe('the sidebar', () => {
   it('starts an agent from its row, then the ⋯ menu stops it and Resume brings it back', async () => {
     const { daemon } = await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
-    await until(() => $('.row-actions .btn.primary'), 'Start on the selected row');
+    await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
     expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual(['Move account', 'Settings']); // nothing to stop yet
-    await click($('.row-actions .btn.primary')!);
+    await click($('.row-actions .ui-btn.solid')!);
     await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
     await until(() => $('.row-actions summary'), 'the ⋯ menu');
     expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual([
@@ -315,8 +315,8 @@ describe('the sidebar', () => {
     expect($('.row-actions summary')).not.toBeNull(); // refused at the confirm
     vi.stubGlobal('confirm', () => true);
     await click($$('.row-actions .menu-item').find((b) => text(b).startsWith('Close'))!);
-    await click($$('.verb-sheet .btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
-    await until(() => $$('.row-actions .btn').some((b) => text(b).includes('Resume')), 'Resume after close');
+    await click($$('.verb-sheet .ui-btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
+    await until(() => $$('.row-actions .ui-btn').some((b) => text(b).includes('Resume')), 'Resume after close');
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {
@@ -327,7 +327,7 @@ describe('the sidebar', () => {
     expect(r).not.toMatch(/opus|alpha|buddyron/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
     await until(() => $('.terminal-tab'), 'terminal tab');
-    expect($('.row-actions .btn.primary')).toBeNull();
+    expect($('.row-actions .ui-btn.solid')).toBeNull();
   });
 
   it("switching agent opens that agent's own workspace, with its own terminal tab", async () => {
