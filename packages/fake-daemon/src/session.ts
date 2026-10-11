@@ -1,3 +1,4 @@
+import { PROTOCOL } from '@handline/contract';
 import type { AgentDetail, AgentView, InputHolder, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
 import { refused } from './errors.ts';
@@ -142,4 +143,19 @@ export function accountsReply(names: string[] | null, sessions: Session[]) {
     recover: false,
   }));
   return { accounts };
+}
+
+export function statusReply(sessions: Map<string, Session>, unread: number, startedAt: Timestamp) {
+  const by_state: Record<string, number> = {};
+  for (const s of sessions.values()) by_state[s.state] = (by_state[s.state] ?? 0) + 1;
+  return {
+    alive: true,
+    version: 'fake0000',
+    protocol: PROTOCOL,
+    schema: 1,
+    started_at: startedAt,
+    terminal_host: { name: 'fake', health: 'ok' },
+    agents: { total: sessions.size, by_state },
+    inbox: { unread },
+  };
 }

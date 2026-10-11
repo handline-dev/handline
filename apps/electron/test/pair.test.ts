@@ -23,7 +23,8 @@ function gateway(key: string) {
         founder = params.key === key;
         return founder ? ok({ role: 'founder' }) : no('bad key');
       }
-      if (method === 'device.pair') return founder ? ok({ code: 'C0DE', uri: 'handline://pair?host=h&code=C0DE', expires_at: '2026-01-01T00:00:00Z' }) : no('role');
+      if (method === 'device.pair')
+        return founder ? ok({ code: 'C0DE', uri: 'handline://pair?host=h&code=C0DE', expires_at: '2026-01-01T00:00:00Z' }) : no('role');
       if (method === 'device.redeem') {
         if (params.code !== 'C0DE') return no('pairing code');
         devices.push(`d${++n}`);
@@ -78,7 +79,7 @@ test('it waits for the daemon to make its key, then pairs; with no key at all it
   );
 });
 
-test('phoneLink gives the gateway\'s link without redeeming its code', async () => {
+test("phoneLink gives the gateway's link without redeeming its code", async () => {
   const g = gateway('K');
   const l = await phoneLink({ readKey: () => 'K', open: g.open, name: 'x' });
   assert.deepEqual(l, { uri: 'handline://pair?host=h&code=C0DE', expiresAt: '2026-01-01T00:00:00Z' });

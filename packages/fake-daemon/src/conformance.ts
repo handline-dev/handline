@@ -30,7 +30,11 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
     ['view.blocked', 'idle', { kind: 'opus high', task_count: 1, ready: false, wall: null }],
     ['view.busy', 'running', { kind: 'codex gpt-5 mid', task_count: 1, ready: false, wall: null, attention: 'running' }],
     ['view.walled', 'closed', { kind: 'opus max', task_count: 0, ready: false, wall }],
-    ['view.plain', 'closed', { kind: 'opus max', task_count: 0, ready: false, wall: null, fire: null, attention: null, cache_ignored: false, config_error: null }],
+    [
+      'view.plain',
+      'closed',
+      { kind: 'opus max', task_count: 0, ready: false, wall: null, fire: null, attention: null, cache_ignored: false, config_error: null },
+    ],
     ['view.fire', 'idle', { kind: 'opus high', fire: 'context' }],
     ['view.ask', 'idle', { kind: 'opus high', attention: 'ask' }],
     ['view.alert', 'idle', { kind: 'opus high', attention: 'alert' }],
