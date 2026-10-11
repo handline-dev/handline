@@ -20,7 +20,7 @@ export function Switch({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className={`ui-switch inline-flex h-4 w-7 items-center rounded-pill border border-line-strong p-0.5 ${on ? 'justify-end bg-primary' : 'bg-raised'}`}
+      className={`ui-switch inline-flex h-4 w-7 items-center rounded-pill p-0.5 ${on ? 'justify-end bg-primary' : 'bg-raised'}`}
     >
       <Base.Thumb
         className={`ui-knob inline-flex h-2.5 w-2.5 items-center justify-center rounded-pill text-primary ${on ? 'bg-on-primary' : 'bg-ink-2'}`}

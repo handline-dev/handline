@@ -82,7 +82,7 @@ export function Tokens() {
       <Section name="Radius">
         {radii.map((t) => (
           <span key={t} className="inline-flex flex-col items-center gap-1">
-            <span className="h-10 w-14 border border-line-strong bg-panel" style={{ borderRadius: `var(${t})` }} />
+            <span className="h-10 w-14 border border-line-strong" style={{ borderRadius: `var(${t})` }} />
             <span className="font-mono text-[11px] text-ink-2">{t}</span>
           </span>
         ))}

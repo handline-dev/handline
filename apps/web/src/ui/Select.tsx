@@ -12,7 +12,7 @@ export function Select({
       <select
         aria-label={label}
         title={label}
-        className="h-8 appearance-none rounded-ctl border border-line-strong bg-panel py-0 pl-2 pr-6 text-ink"
+        className="h-8 appearance-none rounded-ctl border border-line-strong py-0 pl-2 pr-6 text-ink"
         {...rest}
       >
         {options.map((o) => (

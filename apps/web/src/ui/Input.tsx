@@ -2,8 +2,8 @@
 import type { ComponentProps } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
-const FIELD = 'rounded-ctl border border-line bg-canvas text-ink';
-const BAR = 'h-[28px] rounded-ctl border border-line bg-panel px-1.5 text-body text-ink';
+const FIELD = 'rounded-ctl border border-line text-ink';
+const BAR = 'h-[28px] rounded-ctl border border-line px-1.5 text-body text-ink';
 
 /** `grow` takes the free width of its row (min 10 rem); `dense` is the tighter padding of an inline answer. */
 type Fit = { grow?: boolean; dense?: boolean };
