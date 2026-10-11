@@ -258,12 +258,8 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? (
-        <>
-          <pre className="lines tool-output">{i.output}</pre>
-          {cut ? <span className="muted">{cut} more line{cut === 1 ? '' : 's'} let go</span> : null}
-        </>
-      ) : null}
+      {open ? <pre className="lines tool-output">{i.output}</pre> : null}
+      {cut && (open || !i.output) ? <span className="muted">{cut} more line{cut === 1 ? '' : 's'} let go</span> : null}
     </div>
   );
 }
